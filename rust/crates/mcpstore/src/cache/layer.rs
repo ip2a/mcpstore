@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock as SyncRwLock;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock as AsyncRwLock;
+use tokio::sync::{OnceCell, RwLock as AsyncRwLock};
 
 use crate::cache::metrics::{CacheRequestMetrics, CacheRequestMetricsSnapshot};
 use crate::cache::CacheStore;
@@ -38,6 +38,10 @@ pub enum CacheError {
 
 pub type Result<T> = std::result::Result<T, CacheError>;
 
+pub(in crate::cache) const CACHE_SCHEMA_VERSION: u32 = 2;
+const CACHE_SCHEMA_STATE: &str = "cache_schema";
+const CACHE_SCHEMA_KEY: &str = "current";
+
 // ==================== CacheLayerManager ====================
 
 /// Central cache manager with four logical layers over a single openkeyv store.
@@ -48,6 +52,7 @@ pub struct CacheLayerManager {
     pub(in crate::cache) last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
     pub(in crate::cache) metrics: CacheRequestMetrics,
     pub(in crate::cache) log_interval: Duration,
+    pub(in crate::cache) schema_ready: OnceCell<()>,
 }
 
 impl CacheLayerManager {
@@ -59,6 +64,7 @@ impl CacheLayerManager {
             last_state_snapshot: AsyncRwLock::new(HashMap::new()),
             metrics: CacheRequestMetrics::default(),
             log_interval: Duration::from_secs(60),
+            schema_ready: OnceCell::new(),
         }
     }
 
@@ -107,6 +113,7 @@ impl CacheLayerManager {
         &self,
         collection: &str,
     ) -> Result<HashMap<String, serde_json::Value>> {
+        self.ensure_current_schema().await?;
         let store = self.store.read().await;
         let started_at = Instant::now();
         let keys = match store.keys(collection).await {
@@ -160,5 +167,50 @@ impl CacheLayerManager {
                 true
             }
         }
+    }
+
+    pub(in crate::cache) async fn ensure_current_schema(&self) -> Result<()> {
+        self.schema_ready
+            .get_or_try_init(|| async {
+                let namespace = self.namespace();
+                let collection =
+                    Self::state_collection_with_namespace(&namespace, CACHE_SCHEMA_STATE);
+                let store = self.store.read().await;
+                let current = store.get(CACHE_SCHEMA_KEY, &collection).await?;
+                let version = current
+                    .as_ref()
+                    .and_then(|value| value.get("version"))
+                    .and_then(serde_json::Value::as_u64);
+
+                if version != Some(u64::from(CACHE_SCHEMA_VERSION)) {
+                    Self::clear_namespace(store.as_ref(), &namespace).await?;
+                    store
+                        .put(
+                            CACHE_SCHEMA_KEY,
+                            serde_json::json!({ "version": CACHE_SCHEMA_VERSION }),
+                            &collection,
+                        )
+                        .await?;
+                }
+                Ok(())
+            })
+            .await
+            .map(|_| ())
+    }
+
+    pub(in crate::cache) async fn clear_namespace(
+        store: &dyn CacheStore,
+        namespace: &str,
+    ) -> Result<()> {
+        let prefix = format!("{namespace}:");
+        for collection in store.collections().await? {
+            if !collection.starts_with(&prefix) {
+                continue;
+            }
+            for key in store.keys(&collection).await? {
+                store.delete(&key, &collection).await?;
+            }
+        }
+        Ok(())
     }
 }

@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::HashMap;
+
+use crate::identity::ScopeRef;
+
+use super::merge_config;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -146,28 +151,90 @@ pub struct ResolvedServiceLifecycle {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpStoreExtension {
+    pub scopes: ScopeDeclarations,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<ServiceLifecycleConfig>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub revision: u64,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScopeDeclarations {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<ScopeDescriptor>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub agents: HashMap<String, ScopeDescriptor>,
+}
+
+impl ScopeDeclarations {
+    pub fn store_only() -> Self {
+        Self {
+            store: Some(ScopeDescriptor::default()),
+            agents: HashMap::new(),
+        }
+    }
+
+    pub fn descriptor(&self, scope: &ScopeRef) -> Option<&ScopeDescriptor> {
+        match scope {
+            ScopeRef::Store => self.store.as_ref(),
+            ScopeRef::Agent { agent_id } => self.agents.get(agent_id),
+        }
+    }
+
+    pub fn scopes(&self) -> Vec<ScopeRef> {
+        let mut scopes = Vec::with_capacity(self.agents.len() + usize::from(self.store.is_some()));
+        if self.store.is_some() {
+            scopes.push(ScopeRef::Store);
+        }
+        let mut agent_ids = self.agents.keys().cloned().collect::<Vec<_>>();
+        agent_ids.sort();
+        scopes.extend(
+            agent_ids
+                .into_iter()
+                .map(|agent_id| ScopeRef::Agent { agent_id }),
+        );
+        scopes
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScopeDescriptor {
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub config: Map<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<ServiceLifecycleConfig>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ServerConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<String>,
-    #[serde(rename = "workingDir", default)]
+    #[serde(
+        rename = "workingDir",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub working_dir: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(rename = "_mcpstore", default, skip_serializing_if = "Option::is_none")]
     pub mcpstore: Option<McpStoreExtension>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 impl ServerConfig {
@@ -188,17 +255,102 @@ impl ServerConfig {
         &self,
         defaults: &ServiceLifecycleDefaults,
     ) -> ResolvedServiceLifecycle {
-        let lifecycle = self
+        self.resolved_lifecycle_for_scope(&ScopeRef::Store, defaults)
+    }
+
+    pub fn resolved_lifecycle_for_scope(
+        &self,
+        scope: &ScopeRef,
+        defaults: &ServiceLifecycleDefaults,
+    ) -> ResolvedServiceLifecycle {
+        let definition_lifecycle = self
             .mcpstore
             .as_ref()
             .and_then(|extension| extension.lifecycle.as_ref());
+        let scopes = self.scopes();
+        let scope_lifecycle = scopes
+            .descriptor(scope)
+            .and_then(|descriptor| descriptor.lifecycle.as_ref());
         ResolvedServiceLifecycle {
-            startup_policy: lifecycle
+            startup_policy: scope_lifecycle
                 .and_then(|value| value.startup_policy.clone())
+                .or_else(|| definition_lifecycle.and_then(|value| value.startup_policy.clone()))
                 .unwrap_or_else(|| defaults.startup_policy.clone()),
-            restart_policy: lifecycle
+            restart_policy: scope_lifecycle
                 .and_then(|value| value.restart_policy.clone())
+                .or_else(|| definition_lifecycle.and_then(|value| value.restart_policy.clone()))
                 .unwrap_or_else(|| defaults.restart_policy.clone()),
         }
     }
+
+    pub fn scopes(&self) -> ScopeDeclarations {
+        self.mcpstore
+            .as_ref()
+            .map(|extension| extension.scopes.clone())
+            .unwrap_or_else(ScopeDeclarations::store_only)
+    }
+
+    pub fn base_config(&self) -> Map<String, Value> {
+        let mut value =
+            serde_json::to_value(self).expect("ServerConfig serialization must succeed");
+        let object = value
+            .as_object_mut()
+            .expect("ServerConfig must serialize as a JSON object");
+        object.remove("_mcpstore");
+        object.clone()
+    }
+
+    pub fn effective_config(&self, scope: &ScopeRef) -> Result<Map<String, Value>, String> {
+        let scopes = self.scopes();
+        let descriptor = scopes
+            .descriptor(scope)
+            .ok_or_else(|| format!("scope {scope:?} is not declared"))?;
+        Ok(merge_config(&self.base_config(), &descriptor.config))
+    }
+
+    pub fn transport_config(&self, scope: &ScopeRef) -> Result<Self, String> {
+        let effective = self.effective_config(scope)?;
+        let mut config: Self = serde_json::from_value(Value::Object(effective))
+            .map_err(|error| format!("effective config cannot be decoded: {error}"))?;
+        config.mcpstore = None;
+        Ok(config)
+    }
+
+    pub fn validate_structure(&self) -> Result<(), String> {
+        let scopes = self.scopes();
+        for agent_id in scopes.agents.keys() {
+            if agent_id.trim().is_empty() {
+                return Err("scopes.agents contains an empty agent id".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn definition_revision(&self) -> u64 {
+        self.mcpstore
+            .as_ref()
+            .map(|extension| extension.revision.max(1))
+            .unwrap_or(1)
+    }
+
+    pub fn scope_revision(&self, scope: &ScopeRef) -> Option<u64> {
+        self.scopes()
+            .descriptor(scope)
+            .map(|descriptor| descriptor.revision.max(1))
+    }
+
+    pub fn ensure_native_scopes(&mut self) {
+        if self.mcpstore.is_none() {
+            self.mcpstore = Some(McpStoreExtension {
+                scopes: ScopeDeclarations::store_only(),
+                lifecycle: None,
+                revision: 1,
+                extra: Map::new(),
+            });
+        }
+    }
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }

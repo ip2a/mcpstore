@@ -1,17 +1,24 @@
 use crate::store::prelude::*;
 
 const ENTITY_TYPES: &[&str] = &[
-    "agents", "clients", "services", "sessions", "store", "tools",
+    "agents",
+    "clients",
+    "service_definitions",
+    "service_instances",
+    "sessions",
+    "store",
+    "tools",
 ];
 const RELATION_TYPES: &[&str] = &[
-    "agent_services",
-    "service_tools",
+    "agent_instances",
+    "instance_tools",
     "session_services",
     "session_tools",
 ];
 const STATE_TYPES: &[&str] = &[
-    "service_status",
-    "service_metadata",
+    "cache_schema",
+    "instance_status",
+    "instance_metadata",
     "session_status",
     "session_state",
     "session_context",

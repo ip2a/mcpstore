@@ -63,7 +63,7 @@ pub struct SessionCleanupReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionRestartReport {
-    pub restarted_services: Vec<String>,
+    pub restarted_instances: Vec<InstanceId>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -129,7 +129,7 @@ impl CreateSessionRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionToolSelection {
-    pub service_name: String,
+    pub instance_id: InstanceId,
     pub tool_name: String,
 }
 
@@ -268,35 +268,35 @@ impl<'a> SessionContext<'a> {
             .await
     }
 
-    pub async fn bind_service(&self, service_name: &str) -> Result<SessionServiceRelation> {
+    pub async fn bind_service(&self, instance_id: InstanceId) -> Result<SessionServiceRelation> {
         self.store
-            .bind_service_to_session(&self.session_key, service_name)
+            .bind_service_to_session(&self.session_key, instance_id)
             .await
     }
 
     pub async fn bind_service_with_retry(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         policy: SessionRetryPolicy,
     ) -> Result<SessionServiceRelation> {
         self.store
-            .bind_service_to_session_with_retry(&self.session_key, service_name, policy)
+            .bind_service_to_session_with_retry(&self.session_key, instance_id, policy)
             .await
     }
 
-    pub async fn unbind_service(&self, service_name: &str) -> Result<SessionServiceRelation> {
+    pub async fn unbind_service(&self, instance_id: InstanceId) -> Result<SessionServiceRelation> {
         self.store
-            .unbind_service_from_session(&self.session_key, service_name)
+            .unbind_service_from_session(&self.session_key, instance_id)
             .await
     }
 
     pub async fn unbind_service_with_retry(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         policy: SessionRetryPolicy,
     ) -> Result<SessionServiceRelation> {
         self.store
-            .unbind_service_from_session_with_retry(&self.session_key, service_name, policy)
+            .unbind_service_from_session_with_retry(&self.session_key, instance_id, policy)
             .await
     }
 
@@ -370,11 +370,12 @@ impl<'a> SessionContext<'a> {
 
     pub async fn call_tool(
         &self,
+        instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<crate::transport::ToolCallResult> {
         self.store
-            .call_tool_in_session(&self.session_key, tool_name, args)
+            .call_tool_in_session(&self.session_key, instance_id, tool_name, args)
             .await
     }
 
@@ -393,10 +394,10 @@ impl<'a> SessionContext<'a> {
     pub async fn read_resource(
         &self,
         uri: &str,
-        service_name: Option<&str>,
+        instance_id: Option<InstanceId>,
     ) -> Result<serde_json::Value> {
         self.store
-            .read_resource_in_session(&self.session_key, uri, service_name)
+            .read_resource_in_session(&self.session_key, uri, instance_id)
             .await
     }
 
@@ -408,10 +409,10 @@ impl<'a> SessionContext<'a> {
         &self,
         prompt_name: &str,
         arguments: serde_json::Value,
-        service_name: Option<&str>,
+        instance_id: Option<InstanceId>,
     ) -> Result<serde_json::Value> {
         self.store
-            .get_prompt_in_session(&self.session_key, prompt_name, arguments, service_name)
+            .get_prompt_in_session(&self.session_key, prompt_name, arguments, instance_id)
             .await
     }
 }
@@ -826,18 +827,18 @@ impl MCPStore {
         agent_id: Option<&str>,
     ) -> Result<SessionRestartReport> {
         let sessions = self.list_sessions(scope, agent_id).await?;
-        let mut service_names = Vec::new();
+        let mut instance_ids = Vec::new();
         let mut seen = HashSet::new();
         for session in sessions {
-            for service in self.list_session_services(&session.session_key).await? {
-                if seen.insert(service.service_global_name.clone()) {
-                    self.restart_service(&service.service_global_name).await?;
-                    service_names.push(service.service_global_name);
+            for instance in self.session_service_instances(&session).await? {
+                if seen.insert(instance.instance_id) {
+                    self.restart_service(instance.instance_id).await?;
+                    instance_ids.push(instance.instance_id);
                 }
             }
         }
         Ok(SessionRestartReport {
-            restarted_services: service_names,
+            restarted_instances: instance_ids,
         })
     }
 
@@ -883,13 +884,11 @@ impl MCPStore {
     pub async fn bind_service_to_session(
         &self,
         session_key: &str,
-        service_name: &str,
+        instance_id: InstanceId,
     ) -> Result<SessionServiceRelation> {
         self.ensure_session_active(session_key).await?;
-        let service = self
-            .find_service(service_name)
-            .await
-            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+        let session = self.require_session(session_key).await?;
+        let instance = self.require_session_instance(&session, instance_id).await?;
         let now = Self::now_timestamp();
         let loaded_relation = self.load_session_services(session_key).await?;
         let expected_version = loaded_relation.as_ref().map(|relation| relation.version);
@@ -902,12 +901,12 @@ impl MCPStore {
         if !relation
             .services
             .iter()
-            .any(|item| item.service_global_name == service.name)
+            .any(|item| item.instance_id == instance_id)
         {
             relation.services.push(SessionServiceItem {
-                service_global_name: service.name.clone(),
-                service_original_name: service.original_name.clone(),
-                source_agent: service.agent_id.clone(),
+                instance_id,
+                service_name: instance.service_name.clone(),
+                scope: instance.scope.clone(),
                 bound_at: now,
             });
         }
@@ -919,7 +918,11 @@ impl MCPStore {
         self.append_session_event(
             session_key,
             SessionEventType::BindService,
-            serde_json::json!({ "service_global_name": service.name }),
+            serde_json::json!({
+                "instance_id": instance_id,
+                "service_name": instance.service_name,
+                "scope": instance.scope,
+            }),
         )
         .await?;
         Ok(relation)
@@ -928,12 +931,11 @@ impl MCPStore {
     pub async fn bind_service_to_session_with_retry(
         &self,
         session_key: &str,
-        service_name: &str,
+        instance_id: InstanceId,
         policy: SessionRetryPolicy,
     ) -> Result<SessionServiceRelation> {
         Self::retry_session_write(policy, || async {
-            self.bind_service_to_session(session_key, service_name)
-                .await
+            self.bind_service_to_session(session_key, instance_id).await
         })
         .await
     }
@@ -941,9 +943,11 @@ impl MCPStore {
     pub async fn unbind_service_from_session(
         &self,
         session_key: &str,
-        service_name: &str,
+        instance_id: InstanceId,
     ) -> Result<SessionServiceRelation> {
         self.ensure_session_active(session_key).await?;
+        let session = self.require_session(session_key).await?;
+        self.require_session_instance(&session, instance_id).await?;
         let now = Self::now_timestamp();
         let loaded_relation = self.load_session_services(session_key).await?;
         let expected_version = loaded_relation.as_ref().map(|relation| relation.version);
@@ -953,9 +957,9 @@ impl MCPStore {
             updated_at: now,
             version: 0,
         });
-        relation.services.retain(|item| {
-            item.service_global_name != service_name && item.service_original_name != service_name
-        });
+        relation
+            .services
+            .retain(|item| item.instance_id != instance_id);
         relation.updated_at = now;
         relation.version += 1;
         self.store_session_services(&relation, expected_version)
@@ -964,7 +968,7 @@ impl MCPStore {
         self.append_session_event(
             session_key,
             SessionEventType::UnbindService,
-            serde_json::json!({ "service_name": service_name }),
+            serde_json::json!({ "instance_id": instance_id }),
         )
         .await?;
         Ok(relation)
@@ -973,11 +977,11 @@ impl MCPStore {
     pub async fn unbind_service_from_session_with_retry(
         &self,
         session_key: &str,
-        service_name: &str,
+        instance_id: InstanceId,
         policy: SessionRetryPolicy,
     ) -> Result<SessionServiceRelation> {
         Self::retry_session_write(policy, || async {
-            self.unbind_service_from_session(session_key, service_name)
+            self.unbind_service_from_session(session_key, instance_id)
                 .await
         })
         .await
@@ -1002,26 +1006,39 @@ impl MCPStore {
     ) -> Result<SessionToolVisibility> {
         self.ensure_session_active(session_key).await?;
         let now = Self::now_timestamp();
+        let session = self.require_session(session_key).await?;
+        let bound_instance_ids = self
+            .session_service_instances(&session)
+            .await?
+            .into_iter()
+            .map(|instance| instance.instance_id)
+            .collect::<HashSet<_>>();
         let mut tools = Vec::with_capacity(selections.len());
         for selection in selections {
-            let service = self
-                .find_service(&selection.service_name)
-                .await
-                .ok_or_else(|| StoreError::ServiceNotFound(selection.service_name.clone()))?;
-            let tool = service
+            if !bound_instance_ids.contains(&selection.instance_id) {
+                return Err(StoreError::Other(format!(
+                    "instance is not bound to session: session_key={session_key}, instance_id={}",
+                    selection.instance_id
+                )));
+            }
+            let instance = self
+                .require_session_instance(&session, selection.instance_id)
+                .await?;
+            instance
                 .tools
                 .iter()
                 .find(|tool| tool.name == selection.tool_name)
                 .ok_or_else(|| {
                     StoreError::Other(format!(
-                        "Tool not found in service: service_name={}, tool_name={}",
-                        selection.service_name, selection.tool_name
+                        "Tool not found in instance: instance_id={}, tool_name={}",
+                        selection.instance_id, selection.tool_name
                     ))
                 })?;
             tools.push(SessionToolItem {
-                service_global_name: service.name.clone(),
-                tool_global_name: generate_tool_global_name(&service.name, &tool.name)?,
-                tool_original_name: tool.name.clone(),
+                instance_id: selection.instance_id,
+                service_name: instance.service_name,
+                scope: instance.scope,
+                tool_name: selection.tool_name,
             });
         }
         let loaded_visibility = self.load_session_tool_visibility(session_key).await?;
@@ -1420,34 +1437,37 @@ impl MCPStore {
     pub async fn call_tool_in_session(
         &self,
         session_key: &str,
+        instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<crate::transport::ToolCallResult> {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
-        let available = self.collect_session_available_tools(&session).await?;
-        let agent_id = session.agent_id.as_deref().unwrap_or(GLOBAL_AGENT_STORE);
-        let resolution = match resolve_tool(agent_id, tool_name, &available, "canonical", true) {
-            Ok(resolution) => resolution,
-            Err(error) => {
-                self.append_session_event(
-                    session_key,
-                    SessionEventType::CallDenied,
-                    serde_json::json!({
-                        "tool_name": tool_name,
-                        "reason": error.to_string(),
-                    }),
-                )
-                .await?;
-                return Err(error);
-            }
-        };
-        self.call_tool(
-            &resolution.global_service_name,
-            &resolution.canonical_tool_name,
-            args,
-        )
-        .await
+        let bound = self
+            .session_service_instances(&session)
+            .await?
+            .into_iter()
+            .any(|instance| instance.instance_id == instance_id);
+        let visibility = self
+            .load_session_tool_visibility(&session.session_key)
+            .await?;
+        if !bound || !Self::session_tool_allowed(&visibility, instance_id, tool_name) {
+            let error = StoreError::Other(format!(
+                "tool is not available in session: session_key={session_key}, instance_id={instance_id}, tool_name={tool_name}"
+            ));
+            self.append_session_event(
+                session_key,
+                SessionEventType::CallDenied,
+                serde_json::json!({
+                    "instance_id": instance_id,
+                    "tool_name": tool_name,
+                    "reason": error.to_string(),
+                }),
+            )
+            .await?;
+            return Err(error);
+        }
+        self.call_tool(instance_id, tool_name, args).await
     }
 
     pub async fn list_resources_in_session(
@@ -1457,17 +1477,24 @@ impl MCPStore {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
         let mut resources = Vec::new();
-        for (display_service_name, global_service_name) in
-            self.session_service_bindings(&session).await?
-        {
-            let mut service_resources = self.list_resources(&global_service_name).await?;
+        for instance in self.session_service_instances(&session).await? {
+            let mut service_resources = self.list_resources(instance.instance_id).await?;
             service_resources.sort_by(|left, right| left.uri.cmp(&right.uri));
             for resource in service_resources {
-                resources.push(Self::resource_payload_value(
-                    resource,
-                    display_service_name.clone(),
-                    global_service_name.clone(),
-                )?);
+                let mut value = serde_json::to_value(resource)
+                    .map_err(|error| StoreError::Other(error.to_string()))?;
+                if let serde_json::Value::Object(object) = &mut value {
+                    object.insert(
+                        "instance_id".to_string(),
+                        serde_json::json!(instance.instance_id),
+                    );
+                    object.insert(
+                        "service_name".to_string(),
+                        serde_json::json!(instance.service_name),
+                    );
+                    object.insert("scope".to_string(), serde_json::json!(instance.scope));
+                }
+                resources.push(value);
             }
         }
         Ok(resources)
@@ -1480,17 +1507,24 @@ impl MCPStore {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
         let mut templates = Vec::new();
-        for (display_service_name, global_service_name) in
-            self.session_service_bindings(&session).await?
-        {
-            let mut service_templates = self.list_resource_templates(&global_service_name).await?;
+        for instance in self.session_service_instances(&session).await? {
+            let mut service_templates = self.list_resource_templates(instance.instance_id).await?;
             service_templates.sort_by(|left, right| left.uri_template.cmp(&right.uri_template));
             for template in service_templates {
-                templates.push(Self::resource_template_payload_value(
-                    template,
-                    display_service_name.clone(),
-                    global_service_name.clone(),
-                )?);
+                let mut value = serde_json::to_value(template)
+                    .map_err(|error| StoreError::Other(error.to_string()))?;
+                if let serde_json::Value::Object(object) = &mut value {
+                    object.insert(
+                        "instance_id".to_string(),
+                        serde_json::json!(instance.instance_id),
+                    );
+                    object.insert(
+                        "service_name".to_string(),
+                        serde_json::json!(instance.service_name),
+                    );
+                    object.insert("scope".to_string(), serde_json::json!(instance.scope));
+                }
+                templates.push(value);
             }
         }
         Ok(templates)
@@ -1500,14 +1534,14 @@ impl MCPStore {
         &self,
         session_key: &str,
         uri: &str,
-        service_name: Option<&str>,
+        instance_id: Option<InstanceId>,
     ) -> Result<serde_json::Value> {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
-        let (_, global_service_name) = self
-            .resolve_session_resource_service_binding(&session, uri, service_name)
+        let instance_id = self
+            .resolve_session_resource_instance(&session, uri, instance_id)
             .await?;
-        self.read_resource(&global_service_name, uri).await
+        self.read_resource(instance_id, uri).await
     }
 
     pub async fn list_prompts_in_session(
@@ -1517,20 +1551,24 @@ impl MCPStore {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
         let mut prompts = Vec::new();
-        for (display_service_name, global_service_name) in
-            self.session_service_bindings(&session).await?
-        {
-            let mut service_prompts = self.list_prompts(&global_service_name).await?;
+        for instance in self.session_service_instances(&session).await? {
+            let mut service_prompts = self.list_prompts(instance.instance_id).await?;
             service_prompts.sort_by(|left, right| left.name.cmp(&right.name));
             for prompt in service_prompts {
-                let original_name = prompt.name.clone();
-                let display_name = format!("{}_{}", display_service_name, original_name);
-                prompts.push(Self::prompt_payload_value(
-                    prompt,
-                    Some(display_name),
-                    display_service_name.clone(),
-                    global_service_name.clone(),
-                )?);
+                let mut value = serde_json::to_value(prompt)
+                    .map_err(|error| StoreError::Other(error.to_string()))?;
+                if let serde_json::Value::Object(object) = &mut value {
+                    object.insert(
+                        "instance_id".to_string(),
+                        serde_json::json!(instance.instance_id),
+                    );
+                    object.insert(
+                        "service_name".to_string(),
+                        serde_json::json!(instance.service_name),
+                    );
+                    object.insert("scope".to_string(), serde_json::json!(instance.scope));
+                }
+                prompts.push(value);
             }
         }
         Ok(prompts)
@@ -1541,15 +1579,14 @@ impl MCPStore {
         session_key: &str,
         prompt_name: &str,
         arguments: serde_json::Value,
-        service_name: Option<&str>,
+        instance_id: Option<InstanceId>,
     ) -> Result<serde_json::Value> {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
-        let (_, global_service_name, original_prompt_name) = self
-            .resolve_session_prompt_binding(&session, prompt_name, service_name)
+        let instance_id = self
+            .resolve_session_prompt_instance(&session, prompt_name, instance_id)
             .await?;
-        self.get_prompt(&global_service_name, &original_prompt_name, arguments)
-            .await
+        self.get_prompt(instance_id, prompt_name, arguments).await
     }
 
     async fn ensure_session_active(&self, session_key: &str) -> Result<()> {
@@ -1590,31 +1627,22 @@ impl MCPStore {
         &self,
         session: &SessionEntity,
     ) -> Result<Vec<ScopedToolEntry>> {
-        let service_names = self.session_service_names(session).await?;
         let visibility = self
             .load_session_tool_visibility(&session.session_key)
             .await?;
         let mut entries = Vec::new();
-        for global_service_name in service_names {
-            let service = self
-                .find_service(&global_service_name)
-                .await
-                .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
-            let local_service_name = self.session_local_service_name(session, &service);
-            let mut service_tools = service.tools.clone();
+        for instance in self.session_service_instances(session).await? {
+            let mut service_tools = instance.tools.clone();
             service_tools.sort_by(|left, right| left.name.cmp(&right.name));
             for tool in service_tools {
-                let global_tool_name = generate_tool_global_name(&service.name, &tool.name)?;
-                if !Self::session_tool_allowed(&visibility, &service.name, &global_tool_name) {
+                if !Self::session_tool_allowed(&visibility, instance.instance_id, &tool.name) {
                     continue;
                 }
-                let fallback_displayed_name =
-                    self.session_display_tool_name(session, &service, &tool.name)?;
                 let transformed = self
                     .apply_tool_transform(
-                        &service.name,
+                        instance.instance_id,
                         &tool.name,
-                        fallback_displayed_name,
+                        tool.name.clone(),
                         tool.description,
                         tool.input_schema,
                     )
@@ -1622,91 +1650,38 @@ impl MCPStore {
                 entries.push(Self::scoped_tool_entry(
                     transformed.display_name,
                     tool.name,
-                    local_service_name.clone(),
-                    service.name.clone(),
+                    instance.instance_id,
+                    instance.service_name.clone(),
+                    instance.scope.clone(),
                     tool.title,
                     transformed.description,
                     transformed.input_schema,
                     tool.output_schema,
                     tool.annotations,
                     tool.meta,
-                )?);
+                ));
             }
         }
         Ok(entries)
     }
 
-    async fn collect_session_available_tools(
-        &self,
-        session: &SessionEntity,
-    ) -> Result<Vec<AvailableTool>> {
-        Ok(self
-            .collect_session_tool_entries(session)
-            .await?
-            .into_iter()
-            .map(|entry| AvailableTool {
-                name: entry.name,
-                original_name: Some(entry.original_name),
-                service_name: Some(entry.service_name),
-                global_service_name: Some(entry.global_service_name),
-                global_tool_name: Some(entry.global_tool_name),
-            })
-            .collect())
-    }
-
-    async fn session_service_bindings(
-        &self,
-        session: &SessionEntity,
-    ) -> Result<Vec<(String, String)>> {
-        let mut bindings = Vec::new();
-        for global_service_name in self.session_service_names(session).await? {
-            let service = self
-                .find_service(&global_service_name)
-                .await
-                .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
-            bindings.push((
-                self.session_local_service_name(session, &service),
-                service.name,
-            ));
-        }
-        bindings.sort();
-        Ok(bindings)
-    }
-
-    async fn resolve_session_service_binding(
-        &self,
-        session: &SessionEntity,
-        service_name: &str,
-    ) -> Result<(String, String)> {
-        for (display_service_name, global_service_name) in
-            self.session_service_bindings(session).await?
-        {
-            if service_name == display_service_name || service_name == global_service_name {
-                return Ok((display_service_name, global_service_name));
-            }
-        }
-        Err(StoreError::ServiceNotFound(service_name.to_string()))
-    }
-
-    async fn resolve_session_resource_service_binding(
+    async fn resolve_session_resource_instance(
         &self,
         session: &SessionEntity,
         uri: &str,
-        service_name: Option<&str>,
-    ) -> Result<(String, String)> {
-        if let Some(service_name) = service_name {
-            return self
-                .resolve_session_service_binding(session, service_name)
-                .await;
+        instance_id: Option<InstanceId>,
+    ) -> Result<InstanceId> {
+        if let Some(instance_id) = instance_id {
+            self.require_bound_session_instance(session, instance_id)
+                .await?;
+            return Ok(instance_id);
         }
 
         let mut matches = Vec::new();
-        for (display_service_name, global_service_name) in
-            self.session_service_bindings(session).await?
-        {
-            let resources = self.list_resources(&global_service_name).await?;
+        for instance in self.session_service_instances(session).await? {
+            let resources = self.list_resources(instance.instance_id).await?;
             if resources.iter().any(|resource| resource.uri == uri) {
-                matches.push((display_service_name, global_service_name));
+                matches.push(instance.instance_id);
             }
         }
 
@@ -1714,43 +1689,28 @@ impl MCPStore {
             0 => Err(StoreError::Other(format!("未找到资源: {uri}"))),
             1 => Ok(matches.remove(0)),
             _ => Err(StoreError::Other(format!(
-                "资源 URI 存在歧义，请显式提供 service_name: {uri}"
+                "资源 URI 存在歧义，请显式提供 instance_id: {uri}"
             ))),
         }
     }
 
-    async fn resolve_session_prompt_binding(
+    async fn resolve_session_prompt_instance(
         &self,
         session: &SessionEntity,
         prompt_name: &str,
-        service_name: Option<&str>,
-    ) -> Result<(String, String, String)> {
-        if let Some(service_name) = service_name {
-            let (display_service_name, global_service_name) = self
-                .resolve_session_service_binding(session, service_name)
+        instance_id: Option<InstanceId>,
+    ) -> Result<InstanceId> {
+        if let Some(instance_id) = instance_id {
+            self.require_bound_session_instance(session, instance_id)
                 .await?;
-            return Ok((
-                display_service_name,
-                global_service_name,
-                prompt_name.to_string(),
-            ));
+            return Ok(instance_id);
         }
 
         let mut matches = Vec::new();
-        for (display_service_name, global_service_name) in
-            self.session_service_bindings(session).await?
-        {
-            let prompts = self.list_prompts(&global_service_name).await?;
-            for prompt in prompts {
-                let original_name = prompt.name;
-                let display_name = format!("{}_{}", display_service_name, original_name);
-                if prompt_name == original_name || prompt_name == display_name {
-                    matches.push((
-                        display_service_name.clone(),
-                        global_service_name.clone(),
-                        original_name,
-                    ));
-                }
+        for instance in self.session_service_instances(session).await? {
+            let prompts = self.list_prompts(instance.instance_id).await?;
+            if prompts.iter().any(|prompt| prompt.name == prompt_name) {
+                matches.push(instance.instance_id);
             }
         }
 
@@ -1758,85 +1718,129 @@ impl MCPStore {
             0 => Err(StoreError::Other(format!("未找到 prompt: {prompt_name}"))),
             1 => Ok(matches.remove(0)),
             _ => Err(StoreError::Other(format!(
-                "prompt 名称存在歧义，请显式提供 service_name: {prompt_name}"
+                "prompt 名称存在歧义，请显式提供 instance_id: {prompt_name}"
             ))),
         }
     }
 
-    async fn session_service_names(&self, session: &SessionEntity) -> Result<Vec<String>> {
+    async fn session_service_instances(
+        &self,
+        session: &SessionEntity,
+    ) -> Result<Vec<ServiceInstance>> {
         let bound = self.load_session_services(&session.session_key).await?;
-        let mut service_names = if let Some(relation) = bound {
-            if relation.services.is_empty() {
-                self.default_session_service_names(session).await?
-            } else {
-                relation
-                    .services
-                    .into_iter()
-                    .map(|item| item.service_global_name)
-                    .collect()
+        let mut instances = if let Some(relation) = bound {
+            let mut instances = Vec::with_capacity(relation.services.len());
+            for item in relation.services {
+                let instance = self
+                    .require_session_instance(session, item.instance_id)
+                    .await?;
+                if instance.service_name != item.service_name || instance.scope != item.scope {
+                    return Err(StoreError::Other(format!(
+                        "session service relation does not match instance: session_key={}, instance_id={}",
+                        session.session_key, item.instance_id
+                    )));
+                }
+                instances.push(instance);
             }
+            instances
         } else {
-            self.default_session_service_names(session).await?
+            self.list_scope_instances(&Self::session_scope_ref(session)?)
+                .await?
         };
-        service_names.sort();
-        service_names.dedup();
-        Ok(service_names)
-    }
-
-    async fn default_session_service_names(&self, session: &SessionEntity) -> Result<Vec<String>> {
-        match session.scope {
-            SessionScope::Store => Ok(self
-                .list_services()
-                .await
-                .into_iter()
-                .map(|service| service.name)
-                .collect()),
-            SessionScope::Agent => {
-                let agent_id = session.agent_id.as_deref().ok_or_else(|| {
-                    StoreError::Other("agent-scoped session missing agent_id".to_string())
-                })?;
-                self.list_agent_service_names(agent_id).await
-            }
-        }
+        instances.sort_by_key(|instance| instance.instance_id);
+        instances.dedup_by_key(|instance| instance.instance_id);
+        Ok(instances)
     }
 
     fn session_tool_allowed(
         visibility: &Option<SessionToolVisibility>,
-        service_global_name: &str,
-        global_tool_name: &str,
+        instance_id: InstanceId,
+        tool_name: &str,
     ) -> bool {
         let Some(visibility) = visibility else {
             return true;
         };
         match visibility.mode {
-            ToolVisibilityMode::Allowlist => visibility.tools.iter().any(|item| {
-                item.service_global_name == service_global_name
-                    && item.tool_global_name == global_tool_name
-            }),
+            ToolVisibilityMode::Allowlist => visibility
+                .tools
+                .iter()
+                .any(|item| item.instance_id == instance_id && item.tool_name == tool_name),
         }
     }
 
-    fn session_local_service_name(
+    async fn require_session_instance(
         &self,
         session: &SessionEntity,
-        service: &ServiceEntry,
-    ) -> String {
-        match session.scope {
-            SessionScope::Store => service.name.clone(),
-            SessionScope::Agent => service.original_name.clone(),
+        instance_id: InstanceId,
+    ) -> Result<ServiceInstance> {
+        self.refresh_from_db_if_needed().await?;
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        let expected_scope = Self::session_scope_ref(session)?;
+        if instance.scope != expected_scope {
+            return Err(StoreError::Other(format!(
+                "instance does not belong to session scope: session_key={}, instance_id={instance_id}",
+                session.session_key
+            )));
+        }
+        Ok(instance)
+    }
+
+    async fn require_bound_session_instance(
+        &self,
+        session: &SessionEntity,
+        instance_id: InstanceId,
+    ) -> Result<ServiceInstance> {
+        self.session_service_instances(session)
+            .await?
+            .into_iter()
+            .find(|instance| instance.instance_id == instance_id)
+            .ok_or_else(|| {
+                StoreError::Other(format!(
+                    "instance is not bound to session: session_key={}, instance_id={instance_id}",
+                    session.session_key
+                ))
+            })
+    }
+
+    fn session_scope_ref(session: &SessionEntity) -> Result<ScopeRef> {
+        match &session.scope {
+            SessionScope::Store => Ok(ScopeRef::Store),
+            SessionScope::Agent => {
+                let agent_id = session.agent_id.clone().ok_or_else(|| {
+                    StoreError::Other("agent-scoped session missing agent_id".to_string())
+                })?;
+                Ok(ScopeRef::Agent { agent_id })
+            }
         }
     }
 
-    fn session_display_tool_name(
-        &self,
+    fn validate_session_instance_identity(
         session: &SessionEntity,
-        service: &ServiceEntry,
-        tool_original_name: &str,
-    ) -> Result<String> {
-        match session.scope {
-            SessionScope::Store => generate_tool_global_name(&service.name, tool_original_name),
-            SessionScope::Agent => Ok(format!("{}_{}", service.original_name, tool_original_name)),
+        instance_id: InstanceId,
+        service_name: &str,
+        scope: &ScopeRef,
+        kind: &str,
+    ) -> Result<()> {
+        let expected_scope = Self::session_scope_ref(session)?;
+        if scope != &expected_scope {
+            return Err(StoreError::Other(format!(
+                "{kind} scope does not match session: session_key={}, instance_id={instance_id}",
+                session.session_key
+            )));
         }
+        let expected_instance_id =
+            ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
+        if instance_id != expected_instance_id {
+            return Err(StoreError::Other(format!(
+                "{kind} instance identity mismatch: session_key={}, instance_id={instance_id}, expected_instance_id={expected_instance_id}",
+                session.session_key
+            )));
+        }
+        Ok(())
     }
 
     async fn require_session(&self, session_key: &str) -> Result<SessionEntity> {
@@ -2236,6 +2240,18 @@ impl MCPStore {
                 &relation.session_key,
                 "session service relation",
             )?;
+            let session = session_entities
+                .get(key)
+                .expect("validated session key must have an entity");
+            for item in &relation.services {
+                Self::validate_session_instance_identity(
+                    session,
+                    item.instance_id,
+                    &item.service_name,
+                    &item.scope,
+                    "session service relation",
+                )?;
+            }
             service_relations.push((
                 key.clone(),
                 relation.clone(),
@@ -2253,6 +2269,18 @@ impl MCPStore {
                 &visibility.session_key,
                 "session tool relation",
             )?;
+            let session = session_entities
+                .get(key)
+                .expect("validated session key must have an entity");
+            for item in &visibility.tools {
+                Self::validate_session_instance_identity(
+                    session,
+                    item.instance_id,
+                    &item.service_name,
+                    &item.scope,
+                    "session tool relation",
+                )?;
+            }
             tool_relations.push((
                 key.clone(),
                 visibility.clone(),

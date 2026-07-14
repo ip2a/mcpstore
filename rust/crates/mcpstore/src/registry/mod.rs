@@ -15,29 +15,15 @@ pub mod service;
 mod tests;
 pub mod tool;
 
-pub use models::{ConnectionStatus, ServiceEntry, ServiceRegistry, ToolInfo};
+pub use models::{
+    ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance, ServiceRegistry, ToolInfo,
+};
 
 impl ServiceRegistry {
-    /// Build a tool global name using the naming convention.
-    fn tool_name(service_name: &str, tool_original: &str) -> String {
-        let prefix = format!("{service_name}_");
-        if tool_original.starts_with(&prefix) {
-            tool_original.to_string()
-        } else {
-            format!("{service_name}_{tool_original}")
-        }
-    }
-
-    /// Clear all registry state.
     pub async fn clear(&self) {
-        self.services.write().await.clear();
-        self.tool_index.write().await.clear();
-        self.agent_scopes.write().await.clear();
-        self.original_name_index.write().await.clear();
-    }
-
-    /// List all agent ids that currently have scoped services.
-    pub async fn list_agent_ids(&self) -> Vec<String> {
-        self.agent_scopes.read().await.keys().cloned().collect()
+        self.definitions.write().await.clear();
+        self.instances.write().await.clear();
+        self.instance_index.write().await.clear();
+        self.agent_index.write().await.clear();
     }
 }

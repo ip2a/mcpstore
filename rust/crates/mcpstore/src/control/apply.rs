@@ -17,13 +17,8 @@ impl MCPStore {
         match request_type {
             "ServiceAddRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
-                let original_name = request::optional_string(payload, "service_original_name")
-                    .unwrap_or_else(|| service_name.clone());
-                let agent_id = request::optional_string(payload, "agent_id")
-                    .unwrap_or_else(|| GLOBAL_AGENT_STORE.to_string());
                 let config = request::required_config(payload)?;
-                self.add_service_with_identity(&service_name, &original_name, &agent_id, config)
-                    .await?;
+                self.add_service(&service_name, config).await?;
             }
             "ServiceUpdateRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
@@ -41,49 +36,83 @@ impl MCPStore {
                 let service_name = request::required_string(payload, "service_name")?;
                 self.remove_service(&service_name).await?;
             }
-            "ServiceAssignRequested" => {
-                let agent_id = request::required_string(payload, "agent_id")?;
+            "ServiceScopeDeclareRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
-                self.assign_service_to_agent(&agent_id, &service_name)
+                let scope = payload
+                    .get("scope")
+                    .cloned()
+                    .ok_or_else(|| StoreError::Other("Control request missing scope".to_string()))
+                    .and_then(|value| {
+                        serde_json::from_value::<ScopeRef>(value)
+                            .map_err(|error| StoreError::Other(error.to_string()))
+                    })?;
+                let descriptor = payload
+                    .get("descriptor")
+                    .cloned()
+                    .ok_or_else(|| {
+                        StoreError::Other("Control request missing descriptor".to_string())
+                    })
+                    .and_then(|value| {
+                        serde_json::from_value(value)
+                            .map_err(|error| StoreError::Other(error.to_string()))
+                    })?;
+                self.declare_service_scope(&service_name, &scope, descriptor)
                     .await?;
             }
-            "ServiceUnassignRequested" => {
-                let agent_id = request::required_string(payload, "agent_id")?;
+            "ServiceScopeRemoveRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
-                self.unassign_service_from_agent(&agent_id, &service_name)
-                    .await?;
+                let scope = payload
+                    .get("scope")
+                    .cloned()
+                    .ok_or_else(|| StoreError::Other("Control request missing scope".to_string()))
+                    .and_then(|value| {
+                        serde_json::from_value::<ScopeRef>(value)
+                            .map_err(|error| StoreError::Other(error.to_string()))
+                    })?;
+                self.remove_service_scope(&service_name, &scope).await?;
             }
             "ServiceConnectRequested" => {
-                let service_name = request::required_string(payload, "service_name")?;
-                self.connect_service_internal(&service_name, false).await?;
+                let instance_id = request::required_string(payload, "instance_id")?
+                    .parse::<InstanceId>()
+                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
+                self.connect_service_internal(instance_id, false).await?;
             }
             "ServiceRefreshToolsRequested" => {
-                let service_name = request::required_string(payload, "service_name")?;
+                let instance_id = request::required_string(payload, "instance_id")?
+                    .parse::<InstanceId>()
+                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
                 let force_refresh = payload
                     .get("force_refresh")
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
-                self.refresh_service_tools_with_diff(&service_name, force_refresh)
+                self.refresh_service_tools_with_diff(instance_id, force_refresh)
                     .await?;
             }
             "ServiceDisconnectRequested" => {
-                let service_name = request::required_string(payload, "service_name")?;
-                self.disconnect_service(&service_name).await?;
+                let instance_id = request::required_string(payload, "instance_id")?
+                    .parse::<InstanceId>()
+                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
+                self.disconnect_service(instance_id).await?;
             }
             "ServiceRestartRequested" => {
-                let service_name = request::required_string(payload, "service_name")?;
-                self.restart_service(&service_name).await?;
+                let instance_id = request::required_string(payload, "instance_id")?
+                    .parse::<InstanceId>()
+                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
+                self.restart_service(instance_id).await?;
             }
             "StoreResetRequested" => {
                 self.reset_config().await?;
             }
-            "AgentResetRequested" => {
-                let agent_id = request::required_string(payload, "agent_id")?;
-                self.reset_agent_config(&agent_id).await?;
-            }
-            "McpJsonResetRequested" => {
-                let scope = request::optional_string(payload, "scope");
-                self.reset_mcp_json_scope(scope.as_deref()).await?;
+            "ScopeResetRequested" => {
+                let scope = payload
+                    .get("scope")
+                    .cloned()
+                    .ok_or_else(|| StoreError::Other("Control request missing scope".to_string()))
+                    .and_then(|value| {
+                        serde_json::from_value::<ScopeRef>(value)
+                            .map_err(|error| StoreError::Other(error.to_string()))
+                    })?;
+                self.reset_scope(&scope).await?;
             }
             other => {
                 return Err(StoreError::Other(format!(

@@ -5,22 +5,39 @@ use crate::store::prelude::*;
 impl MCPStore {
     pub async fn list_changed_tools_scoped(
         &self,
-        agent_id: Option<&str>,
-        service_name: Option<&str>,
+        instance_id: Option<InstanceId>,
         force_refresh: bool,
     ) -> Result<ToolChangeSummary> {
         self.refresh_from_db_if_needed().await?;
-        let services = self
-            .tool_change_service_names(agent_id, service_name)
-            .await?;
+        let instance_ids = match instance_id {
+            Some(instance_id) => {
+                if self.registry.find_instance(instance_id).await.is_none() {
+                    return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+                }
+                vec![instance_id]
+            }
+            None => self
+                .registry
+                .list_instances()
+                .await
+                .into_iter()
+                .map(|instance| instance.instance_id)
+                .collect(),
+        };
 
         if self.source_mode == SourceMode::Db {
-            for service_name in &services {
-                self.queue_service_refresh_tools_request(service_name, force_refresh)
-                    .await?;
+            for instance_id in &instance_ids {
+                self.queue_control_request(
+                    "ServiceRefreshToolsRequested",
+                    serde_json::json!({
+                        "instance_id": instance_id,
+                        "force_refresh": force_refresh,
+                    }),
+                )
+                .await?;
             }
             let timestamp = chrono::Utc::now().timestamp();
-            let total_services = services.len();
+            let total_services = instance_ids.len();
             return Ok(ToolChangeSummary {
                 changed: false,
                 services: Vec::new(),
@@ -33,7 +50,7 @@ impl MCPStore {
                 timestamp,
                 details: serde_json::json!({
                     "queued": true,
-                    "queued_services": services,
+                    "queued_instances": instance_ids,
                     "total_services": total_services,
                     "successful_updates": 0,
                     "failed_updates": 0,
@@ -45,26 +62,26 @@ impl MCPStore {
             });
         }
 
-        let mut results = Vec::with_capacity(services.len());
+        let mut results = Vec::with_capacity(instance_ids.len());
         let mut errors = Vec::new();
 
-        for global_service_name in services {
+        for instance_id in instance_ids {
             match self
-                .refresh_service_tools_with_diff(&global_service_name, force_refresh)
+                .refresh_service_tools_with_diff(instance_id, force_refresh)
                 .await
             {
                 Ok(result) => results.push(result),
                 Err(error) => errors.push(serde_json::json!({
-                    "service_name": global_service_name,
+                    "instance_id": instance_id,
                     "error": error.to_string()
                 })),
             }
         }
 
-        let changed_services = results
+        let changed_instances = results
             .iter()
             .filter(|result| result.changed)
-            .map(|result| result.service_name.clone())
+            .map(|result| result.client_id.clone())
             .collect::<Vec<_>>();
         let total_changes = results
             .iter()
@@ -73,8 +90,8 @@ impl MCPStore {
         let timestamp = chrono::Utc::now().timestamp();
 
         Ok(ToolChangeSummary {
-            changed: !changed_services.is_empty(),
-            services: changed_services,
+            changed: !changed_instances.is_empty(),
+            services: changed_instances,
             trigger: if force_refresh {
                 "manual_force"
             } else {
@@ -96,41 +113,57 @@ impl MCPStore {
 
     pub(crate) async fn refresh_service_tools_with_diff(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         force_refresh: bool,
     ) -> Result<ToolChangeServiceResult> {
         self.refresh_from_db_if_needed().await?;
-        let Some(mut entry) = self.registry.find_service(service_name).await else {
-            return Err(StoreError::ServiceNotFound(service_name.to_string()));
+        let Some(instance) = self.registry.find_instance(instance_id).await else {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         };
+        let old_tools = instance.tools;
+        let is_openapi = self.is_openapi_virtual_instance(instance_id).await?;
 
-        if !force_refresh && !self.pool.is_connected(service_name).await {
-            self.ensure_service_connected(service_name).await?;
-        } else if force_refresh {
-            self.pool.disconnect(service_name).await.ok();
-            self.connect_service_internal(service_name, false).await?;
+        if force_refresh {
+            self.pool.disconnect(instance_id).await.ok();
+            self.connect_service_internal(instance_id, false).await?;
+        } else if is_openapi || !self.pool.is_connected(instance_id).await {
+            self.ensure_instance_connected(instance_id).await?;
         }
 
-        let old_tools = entry.tools.clone();
-        let new_tools = self.pool.list_tools(service_name).await?;
-        let tool_infos = new_tools.into_iter().map(Into::into).collect::<Vec<_>>();
+        let tool_infos = if is_openapi {
+            self.registry.list_instance_tools(instance_id).await
+        } else {
+            self.pool
+                .list_tools(instance_id)
+                .await?
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+        };
 
         let diff = Self::diff_tool_infos(&old_tools, &tool_infos);
-        entry.tools = tool_infos;
-        entry.status = ConnectionStatus::Connected;
-        self.registry.register(entry).await;
+        let mut updated = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        updated.tools = tool_infos;
+        updated.status = ConnectionStatus::Connected;
+        let service_name = updated.service_name.clone();
+        self.registry.register_instance(updated).await;
 
-        let tools = self.registry.list_service_tools(service_name).await;
-        self.cache_service_connected(service_name, &tools).await?;
+        let tools = self.registry.list_instance_tools(instance_id).await;
+        self.cache_instance_connected(instance_id, &tools).await?;
 
         let timestamp = chrono::Utc::now().timestamp();
         self.cache
             .put_event(
-                "service",
-                &format!("{service_name}:tools_refreshed:{timestamp}"),
+                "service_instance",
+                &format!("{instance_id}:tools_refreshed:{timestamp}"),
                 serde_json::json!({
-                    "event": "service_tools_refreshed",
-                    "service": service_name,
+                    "event": "instance_tools_refreshed",
+                    "instance_id": instance_id,
+                    "service_name": service_name,
                     "timestamp": timestamp,
                     "changes_count": diff.changes_count,
                     "added_tools": diff.added_tools,
@@ -146,32 +179,10 @@ impl MCPStore {
             added_tools: diff.added_tools,
             removed_tools: diff.removed_tools,
             updated_tools: diff.updated_tools,
-            service_name: service_name.to_string(),
-            client_id: service_name.to_string(),
+            service_name,
+            client_id: instance_id.to_string(),
             timestamp,
         })
-    }
-
-    async fn tool_change_service_names(
-        &self,
-        agent_id: Option<&str>,
-        service_name: Option<&str>,
-    ) -> Result<Vec<String>> {
-        match (agent_id, service_name) {
-            (Some(agent_id), Some(service_name)) => Ok(vec![
-                self.resolve_service_name_for_agent(agent_id, service_name)
-                    .await?,
-            ]),
-            (Some(agent_id), None) => self.list_agent_service_names(agent_id).await,
-            (None, Some(service_name)) => Ok(vec![service_name.to_string()]),
-            (None, None) => Ok(self
-                .registry
-                .list_services()
-                .await
-                .into_iter()
-                .map(|service| service.name)
-                .collect()),
-        }
     }
 
     fn diff_tool_infos(

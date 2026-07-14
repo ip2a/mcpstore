@@ -1,14 +1,17 @@
+use crate::cache::models::InstanceStatus;
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn health_check(&self, name: &str) -> Result<ServiceStatus> {
+    pub async fn health_check(&self, instance_id: InstanceId) -> Result<InstanceStatus> {
         self.refresh_from_db_if_needed().await?;
-        if self.registry.find_service(name).await.is_none() {
-            return Err(StoreError::ServiceNotFound(name.to_string()));
-        }
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
 
-        let cached = self.sync_retry_window(name).await?;
-        if self.pool.is_connected(name).await {
+        let cached = self.sync_retry_window(instance_id).await?;
+        if self.pool.is_connected(instance_id).await {
             if let Some(status) = cached {
                 if matches!(
                     status.health_status,
@@ -18,7 +21,7 @@ impl MCPStore {
                 }
             }
             return self
-                .record_health_check_result(name, true, None, None)
+                .record_health_check_result(instance_id, true, None, None)
                 .await;
         }
 
@@ -36,29 +39,26 @@ impl MCPStore {
             }
         }
 
-        let status = if let Some(entry) = self.registry.find_service(name).await {
-            match entry.status {
-                ConnectionStatus::Connected => HealthStatus::Healthy,
-                ConnectionStatus::Connecting => HealthStatus::Startup,
-                ConnectionStatus::Disconnected => HealthStatus::Disconnected,
-                ConnectionStatus::Error => HealthStatus::Degraded,
-            }
-        } else {
-            return Err(StoreError::ServiceNotFound(name.to_string()));
+        let health_status = match instance.status {
+            ConnectionStatus::Connected => HealthStatus::Healthy,
+            ConnectionStatus::Connecting => HealthStatus::Startup,
+            ConnectionStatus::Disconnected => HealthStatus::Disconnected,
+            ConnectionStatus::Error => HealthStatus::Degraded,
         };
 
-        let tools = if matches!(status, HealthStatus::Healthy | HealthStatus::Ready) {
-            self.tool_statuses_with_availability(name, ToolAvailability::Available)
-                .await?
+        let availability = if matches!(health_status, HealthStatus::Healthy | HealthStatus::Ready) {
+            ToolAvailability::Available
         } else {
-            self.tool_statuses_with_availability(name, ToolAvailability::Unavailable)
-                .await?
+            ToolAvailability::Unavailable
         };
-        let mut state = self.load_or_default_status(name).await?;
-        state.health_status = status.clone();
+        let tools = self
+            .tool_statuses_with_availability(instance_id, availability)
+            .await?;
+        let mut state = self.load_or_default_status(instance_id).await?;
+        state.health_status = health_status.clone();
         state.last_health_check = Self::now_timestamp();
         state.tools = tools;
-        if matches!(status, HealthStatus::Healthy | HealthStatus::Ready) {
+        if matches!(health_status, HealthStatus::Healthy | HealthStatus::Ready) {
             state.connection_attempts = 0;
             state.current_error = None;
             state.window_error_rate = Some(0.0);
@@ -67,23 +67,23 @@ impl MCPStore {
             state.lease_deadline = None;
             state.lifecycle_state.restart_attempts = 0;
         }
-        self.put_service_status_payload(&state).await?;
+        self.put_instance_status(&state).await?;
         Ok(state)
     }
 
     pub async fn record_health_check_result(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         ok: bool,
         latency_ms: Option<f64>,
         error: Option<String>,
-    ) -> Result<ServiceStatus> {
-        if self.registry.find_service(name).await.is_none() {
-            return Err(StoreError::ServiceNotFound(name.to_string()));
+    ) -> Result<InstanceStatus> {
+        if self.registry.find_instance(instance_id).await.is_none() {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
 
         if ok {
-            let mut payload = self.load_or_default_status(name).await?;
+            let mut payload = self.load_or_default_status(instance_id).await?;
             payload.health_status = if latency_ms
                 .map(|value| value >= self.runtime_config.health_warn_latency_ms)
                 .unwrap_or(false)
@@ -96,7 +96,7 @@ impl MCPStore {
             payload.connection_attempts = 0;
             payload.current_error = None;
             payload.tools = self
-                .tool_statuses_with_availability(name, ToolAvailability::Available)
+                .tool_statuses_with_availability(instance_id, ToolAvailability::Available)
                 .await?;
             payload.window_error_rate = Some(0.0);
             payload.latency_p95 = latency_ms;
@@ -106,21 +106,21 @@ impl MCPStore {
             payload.hard_deadline = None;
             payload.lease_deadline = None;
             payload.lifecycle_state.restart_attempts = 0;
-            if self.pool.is_connected(name).await {
+            if self.pool.is_connected(instance_id).await {
                 self.registry
-                    .update_status(name, ConnectionStatus::Connected)
+                    .update_status(instance_id, ConnectionStatus::Connected)
                     .await;
             }
-            self.put_service_status_payload(&payload).await?;
+            self.put_instance_status(&payload).await?;
             return Ok(payload);
         }
 
-        self.pool.disconnect(name).await.ok();
+        self.pool.disconnect(instance_id).await.ok();
         self.registry
-            .update_status(name, ConnectionStatus::Error)
+            .update_status(instance_id, ConnectionStatus::Error)
             .await;
-        self.mark_service_retryable_failure(
-            name,
+        self.mark_instance_retryable_failure(
+            instance_id,
             error.unwrap_or_else(|| "Health check failed".to_string()),
         )
         .await

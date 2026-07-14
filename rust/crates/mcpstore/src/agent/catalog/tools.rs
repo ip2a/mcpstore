@@ -1,170 +1,50 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(crate) async fn collect_store_tools_scoped(&self) -> Result<Vec<serde_json::Value>> {
-        let mut services = self.list_services().await;
-        services.sort_by(|left, right| left.name.cmp(&right.name));
-
-        let mut tools = Vec::new();
-        for service in services {
-            let mut service_tools = service.tools.clone();
-            service_tools.sort_by(|left, right| left.name.cmp(&right.name));
-            for tool in service_tools {
-                let original_name = tool.name.clone();
-                let fallback_display_name =
-                    generate_tool_global_name(&service.name, &original_name)?;
-                let transformed = self
-                    .apply_tool_transform(
-                        &service.name,
-                        &original_name,
-                        fallback_display_name,
-                        tool.description,
-                        tool.input_schema,
-                    )
-                    .await?;
-                tools.push(Self::tool_payload_value(
-                    transformed.display_name,
-                    original_name,
-                    service.name.clone(),
-                    service.name.clone(),
-                    tool.title,
-                    transformed.description,
-                    transformed.input_schema,
-                    tool.output_schema,
-                    tool.annotations,
-                    tool.meta,
-                )?);
-            }
-        }
-        Ok(tools)
-    }
-
-    pub(crate) async fn collect_store_tool_descriptions_scoped(
+    pub(crate) async fn collect_scope_tools_scoped(
         &self,
-    ) -> Result<Vec<ScopedToolEntry>> {
-        let mut services = self.list_services().await;
-        services.sort_by(|left, right| left.name.cmp(&right.name));
-
-        let mut tools = Vec::new();
-        for service in services {
-            let mut service_tools = service.tools.clone();
-            service_tools.sort_by(|left, right| left.name.cmp(&right.name));
-            for tool in service_tools {
-                let original_name = tool.name.clone();
-                let fallback_display_name =
-                    generate_tool_global_name(&service.name, &original_name)?;
-                let transformed = self
-                    .apply_tool_transform(
-                        &service.name,
-                        &original_name,
-                        fallback_display_name,
-                        tool.description,
-                        tool.input_schema,
-                    )
-                    .await?;
-                tools.push(Self::scoped_tool_entry(
-                    transformed.display_name,
-                    original_name,
-                    service.name.clone(),
-                    service.name.clone(),
-                    tool.title,
-                    transformed.description,
-                    transformed.input_schema,
-                    tool.output_schema,
-                    tool.annotations,
-                    tool.meta,
-                )?);
-            }
-        }
-        Ok(tools)
-    }
-
-    pub(crate) async fn collect_agent_tools_scoped(
-        &self,
-        agent_id: &str,
+        scope: &ScopeRef,
     ) -> Result<Vec<serde_json::Value>> {
-        let mut service_names = self.list_agent_service_names(agent_id).await?;
-        service_names.sort();
-
+        let instances = self.list_scope_instances(scope).await?;
         let mut tools = Vec::new();
-        for global_service_name in service_names {
-            let service = self
-                .find_service(&global_service_name)
-                .await
-                .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
-            let local_service_name = service.original_name.clone();
-            let mut service_tools = self.list_tools(&global_service_name).await?;
-            service_tools.sort_by(|left, right| left.name.cmp(&right.name));
-            for tool in service_tools {
-                let original_name = tool.name.clone();
-                let fallback_display_name = format!("{}_{}", local_service_name, original_name);
-                let transformed = self
-                    .apply_tool_transform(
-                        &global_service_name,
-                        &original_name,
-                        fallback_display_name,
-                        tool.description,
-                        tool.input_schema,
-                    )
-                    .await?;
-                tools.push(Self::tool_payload_value(
-                    transformed.display_name,
-                    original_name,
-                    local_service_name.clone(),
-                    global_service_name.clone(),
-                    tool.title,
-                    transformed.description,
-                    transformed.input_schema,
-                    tool.output_schema,
-                    tool.annotations,
-                    tool.meta,
-                )?);
-            }
+        for instance in instances {
+            tools.extend(self.list_tools_for_instance(instance.instance_id).await?);
         }
+        tools.sort_by(|left, right| {
+            left.get("service_name")
+                .and_then(serde_json::Value::as_str)
+                .cmp(
+                    &right
+                        .get("service_name")
+                        .and_then(serde_json::Value::as_str),
+                )
+                .then_with(|| {
+                    left.get("tool_name")
+                        .and_then(serde_json::Value::as_str)
+                        .cmp(&right.get("tool_name").and_then(serde_json::Value::as_str))
+                })
+        });
         Ok(tools)
     }
 
-    pub(crate) async fn collect_agent_tool_descriptions_scoped(
+    pub(crate) async fn collect_scope_tool_entries_scoped(
         &self,
-        agent_id: &str,
+        scope: &ScopeRef,
     ) -> Result<Vec<ScopedToolEntry>> {
-        let mut service_names = self.list_agent_service_names(agent_id).await?;
-        service_names.sort();
-
+        let instances = self.list_scope_instances(scope).await?;
         let mut tools = Vec::new();
-        for global_service_name in service_names {
-            let service = self
-                .find_service(&global_service_name)
-                .await
-                .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
-            let mut service_tools = self.list_tools(&global_service_name).await?;
-            service_tools.sort_by(|left, right| left.name.cmp(&right.name));
-            for tool in service_tools {
-                let original_name = tool.name.clone();
-                let fallback_display_name = format!("{}_{}", service.original_name, original_name);
-                let transformed = self
-                    .apply_tool_transform(
-                        &global_service_name,
-                        &original_name,
-                        fallback_display_name,
-                        tool.description,
-                        tool.input_schema,
-                    )
-                    .await?;
-                tools.push(Self::scoped_tool_entry(
-                    transformed.display_name,
-                    original_name,
-                    service.original_name.clone(),
-                    global_service_name.clone(),
-                    tool.title,
-                    transformed.description,
-                    transformed.input_schema,
-                    tool.output_schema,
-                    tool.annotations,
-                    tool.meta,
-                )?);
-            }
+        for instance in instances {
+            tools.extend(
+                self.list_tool_entries_for_instance(instance.instance_id)
+                    .await?,
+            );
         }
+        tools.sort_by(|left, right| {
+            left.service_name
+                .cmp(&right.service_name)
+                .then_with(|| left.tool_name.cmp(&right.tool_name))
+                .then_with(|| left.instance_id.cmp(&right.instance_id))
+        });
         Ok(tools)
     }
 }

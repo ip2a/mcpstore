@@ -1,6 +1,7 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::{examples::default_server_config, *};
+use crate::identity::ScopeRef;
 
 #[test]
 fn test_load_save_roundtrip() {
@@ -25,7 +26,169 @@ fn test_load_save_roundtrip() {
     assert!(loaded.mcp_servers.contains_key("test"));
     let raw = std::fs::read_to_string(&path).unwrap();
     assert!(!raw.contains("cache"));
+    assert_eq!(
+        loaded.mcp_servers["test"].scopes(),
+        ScopeDeclarations::store_only()
+    );
+    assert!(raw.contains("\"scopes\""));
 
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn third_party_service_without_extension_has_store_scope() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "demo": {
+                "command": "demo",
+                "futureTransportOption": {
+                    "mode": "strict"
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let service = &config.mcp_servers["demo"];
+    assert_eq!(service.scopes(), ScopeDeclarations::store_only());
+    assert_eq!(
+        service.extra["futureTransportOption"],
+        json!({ "mode": "strict" })
+    );
+}
+
+#[test]
+fn native_extension_requires_scopes() {
+    let error = serde_json::from_value::<McpConfig>(json!({
+        "mcpServers": {
+            "demo": {
+                "command": "demo",
+                "_mcpstore": {
+                    "lifecycle": {
+                        "startup_policy": "lazy"
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap_err();
+
+    assert!(error.to_string().contains("scopes"));
+}
+
+#[test]
+fn agent_only_service_has_no_implicit_store_scope() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "private": {
+                "command": "private-mcp",
+                "_mcpstore": {
+                    "scopes": {
+                        "agents": {
+                            "agent1": {
+                                "config": {
+                                    "env": {
+                                        "TOKEN": "agent-token"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let scopes = config.mcp_servers["private"].scopes();
+    assert!(scopes.store.is_none());
+    assert!(scopes.agents.contains_key("agent1"));
+}
+
+#[test]
+fn effective_config_applies_scope_override_and_null_deletion() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "demo": {
+                "command": "demo",
+                "args": ["base"],
+                "env": {
+                    "TOKEN": "store-token",
+                    "REGION": "default"
+                },
+                "_mcpstore": {
+                    "scopes": {
+                        "store": {},
+                        "agents": {
+                            "agent1": {
+                                "config": {
+                                    "args": [],
+                                    "env": {
+                                        "TOKEN": null
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let effective = config.mcp_servers["demo"]
+        .effective_config(&ScopeRef::Agent {
+            agent_id: "agent1".to_string(),
+        })
+        .unwrap();
+    assert_eq!(
+        Value::Object(effective),
+        json!({
+            "command": "demo",
+            "args": [],
+            "env": {
+                "REGION": "default"
+            }
+        })
+    );
+}
+
+#[test]
+fn save_allows_structurally_valid_but_unconnectable_config() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    let path = dir.join("mcp.json");
+    let mgr = ConfigManager::with_path(&path);
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "incomplete": {
+                "_mcpstore": {
+                    "scopes": {
+                        "store": {
+                            "config": {
+                                "command": null
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    mgr.save(&config).unwrap();
+    assert!(mgr.load().unwrap().mcp_servers.contains_key("incomplete"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn malformed_existing_config_is_not_replaced_with_empty_config() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mcp.json");
+    std::fs::write(&path, "{ malformed").unwrap();
+    let mgr = ConfigManager::with_path(&path);
+
+    assert!(mgr.load_or_empty().is_err());
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -162,6 +325,12 @@ fn test_service_lifecycle_extension_roundtrip_and_defaults() {
       "command": "node",
       "args": ["server.js"],
       "_mcpstore": {
+        "scopes": {
+          "store": {
+            "config": {}
+          },
+          "agents": {}
+        },
         "lifecycle": {
           "startup_policy": "on-store-start",
           "restart_policy": "on-failure:3"

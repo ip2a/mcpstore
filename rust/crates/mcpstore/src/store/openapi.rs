@@ -6,6 +6,12 @@ use crate::openapi::{
 use crate::openapi_runtime::openapi_tool_infos;
 use crate::store::prelude::*;
 use crate::store::CacheLayerManager;
+use crate::{
+    cache::models::{
+        InstanceStatus, InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity,
+    },
+    config::ScopeDeclarations,
+};
 use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use std::collections::HashMap;
 use std::future::Future;
@@ -319,50 +325,104 @@ impl MCPStore {
             working_dir: None,
             description: result.spec_info.description.clone(),
             mcpstore: None,
+            extra: serde_json::Map::new(),
         };
         let config_value = openapi_config_value(&config, options)?;
         let tools = openapi_tool_infos(result);
-        let entry = ServiceEntry {
-            name: result.service_name.clone(),
-            original_name: result.service_name.clone(),
-            agent_id: GLOBAL_AGENT_STORE.to_string(),
+        let base_config = config_value.as_object().cloned().ok_or_else(|| {
+            StoreError::Other("OpenAPI service config must serialize as an object".to_string())
+        })?;
+        let scopes = ScopeDeclarations::store_only();
+        let definition = ServiceDefinition {
+            service_name: result.service_name.clone(),
+            base_config: base_config.clone(),
+            scopes: scopes.clone(),
+            lifecycle: None,
+            base_revision: 1,
+            metadata: serde_json::Map::new(),
+            added_time: now,
+        };
+        let instance_id =
+            ServiceInstanceKey::new(&result.service_name, ScopeRef::Store).instance_id();
+        let revision = ConfigRevision {
+            base_revision: 1,
+            scope_revision: 1,
+        };
+        let instance = ServiceInstance {
+            instance_id,
+            service_name: result.service_name.clone(),
+            scope: ScopeRef::Store,
             transport: "openapi".to_string(),
             url: config.url.clone(),
             command: None,
             status: ConnectionStatus::Connected,
             tools: tools.clone(),
-            config: config_value.clone(),
+            effective_config: base_config.clone(),
+            config_revision: revision,
+            applied_config_revision: Some(revision),
             added_time: now,
         };
-        self.registry.register(entry).await;
+        self.registry.register_definition(definition.clone()).await;
+        self.registry.register_instance(instance.clone()).await;
+        self.applied_openapi_configs
+            .write()
+            .await
+            .insert(instance_id, base_config.clone());
 
-        let entity = ServiceEntity {
-            service_global_name: result.service_name.clone(),
-            service_original_name: result.service_name.clone(),
-            source_agent: GLOBAL_AGENT_STORE.to_string(),
-            config: config_value,
-            added_time: now,
-        };
         self.cache
             .put_entity(
-                "services",
+                "service_definitions",
                 &result.service_name,
-                serde_json::to_value(entity).unwrap_or_default(),
+                serde_json::to_value(ServiceDefinitionEntity::from(&definition))
+                    .unwrap_or_default(),
             )
             .await?;
-        self.upsert_agent_service_relation(GLOBAL_AGENT_STORE, &result.service_name, now)
+        self.cache
+            .put_entity(
+                "service_instances",
+                &instance_id.to_string(),
+                serde_json::to_value(ServiceInstanceEntity {
+                    instance_id,
+                    service_name: instance.service_name.clone(),
+                    scope: instance.scope.clone(),
+                    transport: instance.transport.clone(),
+                    url: instance.url.clone(),
+                    command: instance.command.clone(),
+                    effective_config: instance.effective_config.clone(),
+                    config_revision: instance.config_revision,
+                    applied_config_revision: instance.applied_config_revision,
+                    added_time: instance.added_time,
+                })
+                .unwrap_or_default(),
+            )
             .await?;
+
+        if let Some(value) = self
+            .cache
+            .get_relation("instance_tools", &instance_id.to_string())
+            .await?
+        {
+            let previous: InstanceToolRelation =
+                serde_json::from_value(value).map_err(|error| {
+                    StoreError::Other(format!(
+                        "Instance tool relation deserialization failed: {error}"
+                    ))
+                })?;
+            for tool_name in previous.tools {
+                self.cache
+                    .delete_entity("tools", &format!("{instance_id}:{tool_name}"))
+                    .await?;
+            }
+        }
 
         let mut relation_tools = Vec::with_capacity(tools.len());
         let mut status_tools = Vec::with_capacity(tools.len());
         for tool in &tools {
-            let global_name = generate_tool_global_name(&result.service_name, &tool.name)?;
             let entity = ToolEntity {
-                tool_global_name: global_name.clone(),
-                tool_original_name: tool.name.clone(),
-                service_global_name: result.service_name.clone(),
-                service_original_name: result.service_name.clone(),
-                source_agent: GLOBAL_AGENT_STORE.to_string(),
+                instance_id,
+                service_name: result.service_name.clone(),
+                scope: ScopeRef::Store,
+                tool_name: tool.name.clone(),
                 title: tool.title.clone(),
                 description: tool.description.clone(),
                 input_schema: tool.input_schema.clone(),
@@ -370,49 +430,63 @@ impl MCPStore {
                 annotations: tool.annotations.clone(),
                 meta: tool.meta.clone(),
                 created_time: now,
-                tool_hash: openapi_tool_content_hash(&result.service_name, tool),
+                tool_hash: openapi_tool_content_hash(instance_id, tool),
             };
             self.cache
                 .put_entity(
                     "tools",
-                    &global_name,
+                    &format!("{instance_id}:{}", tool.name),
                     serde_json::to_value(entity).unwrap_or_default(),
                 )
                 .await?;
-            relation_tools.push(ToolRelationItem {
-                tool_global_name: global_name.clone(),
-                tool_original_name: tool.name.clone(),
-            });
+            relation_tools.push(tool.name.clone());
             status_tools.push(ToolStatusItem {
-                tool_global_name: global_name,
-                tool_original_name: tool.name.clone(),
+                tool_name: tool.name.clone(),
                 status: ToolAvailability::Available,
             });
         }
 
         self.cache
             .put_relation(
-                "service_tools",
-                &result.service_name,
-                serde_json::to_value(ServiceToolRelation {
-                    service_global_name: result.service_name.clone(),
-                    service_original_name: result.service_name.clone(),
-                    source_agent: GLOBAL_AGENT_STORE.to_string(),
+                "instance_tools",
+                &instance_id.to_string(),
+                serde_json::to_value(InstanceToolRelation {
+                    instance_id,
+                    service_name: result.service_name.clone(),
+                    scope: ScopeRef::Store,
                     tools: relation_tools,
                 })
                 .unwrap_or_default(),
             )
             .await?;
-        let status = self.service_status_payload(
-            &result.service_name,
-            HealthStatus::Healthy,
-            None,
-            status_tools,
-        );
+        let lifecycle_state = self
+            .cached_instance_status(instance_id)
+            .await?
+            .map(|status| status.lifecycle_state)
+            .unwrap_or_else(ServiceLifecycleState::default);
+        let status = InstanceStatus {
+            instance_id,
+            service_name: result.service_name.clone(),
+            scope: ScopeRef::Store,
+            health_status: HealthStatus::Healthy,
+            last_health_check: now,
+            connection_attempts: 0,
+            max_connection_attempts: self.runtime_config.max_connection_attempts,
+            current_error: None,
+            tools: status_tools,
+            window_error_rate: None,
+            latency_p95: None,
+            latency_p99: None,
+            sample_size: None,
+            next_retry_time: None,
+            hard_deadline: None,
+            lease_deadline: None,
+            lifecycle_state,
+        };
         self.cache
             .put_state(
-                "service_status",
-                &result.service_name,
+                "instance_status",
+                &instance_id.to_string(),
                 serde_json::to_value(status).unwrap_or_default(),
             )
             .await?;
@@ -493,17 +567,28 @@ impl MCPStore {
 }
 
 impl MCPStore {
-    pub(crate) async fn openapi_runtime_options(
+    pub(crate) async fn openapi_runtime_options_for_instance(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
     ) -> Result<OpenApiImportOptions> {
-        let Some(service) = self.registry.find_service(service_name).await else {
-            return Err(StoreError::ServiceNotFound(service_name.to_string()));
-        };
-        let config_value = service.config.clone();
+        if self.registry.find_instance(instance_id).await.is_none() {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+        }
+        let applied_config = self
+            .applied_openapi_configs
+            .read()
+            .await
+            .get(&instance_id)
+            .cloned()
+            .ok_or_else(|| {
+                StoreError::Other(format!(
+                    "OpenAPI instance {instance_id} has no applied runtime config"
+                ))
+            })?;
+        let config_value = serde_json::Value::Object(applied_config);
         let config: ServerConfig = serde_json::from_value(config_value.clone()).map_err(|err| {
             StoreError::Other(format!(
-                "OpenAPI service config deserialization failed: {err}"
+                "OpenAPI instance config deserialization failed for {instance_id}: {err}"
             ))
         })?;
         let auth = config_value
@@ -1508,9 +1593,9 @@ fn openapi_config_value(
     Ok(value)
 }
 
-fn openapi_tool_content_hash(name: &str, tool: &crate::registry::ToolInfo) -> String {
+fn openapi_tool_content_hash(instance_id: InstanceId, tool: &crate::registry::ToolInfo) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    name.hash(&mut hasher);
+    instance_id.hash(&mut hasher);
     tool.name.hash(&mut hasher);
     tool.description.hash(&mut hasher);
     serde_json::to_string(&tool.input_schema)

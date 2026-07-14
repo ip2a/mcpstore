@@ -1,23 +1,23 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn list_prompts(&self, service_name: &str) -> Result<Vec<DiscoveredPrompt>> {
-        self.ensure_service_connected(service_name).await?;
+    pub async fn list_prompts(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredPrompt>> {
+        self.ensure_instance_connected(instance_id).await?;
         self.pool
-            .list_prompts(service_name)
+            .list_prompts(instance_id)
             .await
             .map_err(StoreError::Transport)
     }
 
     pub async fn get_prompt(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
-        self.ensure_service_connected(service_name).await?;
+        self.ensure_instance_connected(instance_id).await?;
         self.pool
-            .get_prompt(service_name, prompt_name, arguments)
+            .get_prompt(instance_id, prompt_name, arguments)
             .await
             .map_err(StoreError::Transport)
     }

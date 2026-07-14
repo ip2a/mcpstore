@@ -51,8 +51,8 @@ fn strip_mcpstore_extension(value: &mut serde_json::Value) {
 mod tests {
     use super::*;
     use crate::config::{
-        McpStoreExtension, RestartPolicy, RestartPolicyKind, ServerConfig, ServiceLifecycleConfig,
-        StartupPolicy,
+        McpStoreExtension, RestartPolicy, RestartPolicyKind, ScopeDeclarations, ServerConfig,
+        ServiceLifecycleConfig, StartupPolicy,
     };
     use std::collections::HashMap;
 
@@ -67,6 +67,7 @@ mod tests {
             working_dir: None,
             description: None,
             mcpstore: Some(McpStoreExtension {
+                scopes: ScopeDeclarations::store_only(),
                 lifecycle: Some(ServiceLifecycleConfig {
                     startup_policy: Some(StartupPolicy::OnStoreStart),
                     restart_policy: Some(RestartPolicy {
@@ -74,7 +75,9 @@ mod tests {
                         max_retries: Some(3),
                     }),
                 }),
+                ..McpStoreExtension::default()
             }),
+            ..ServerConfig::default()
         }
     }
 

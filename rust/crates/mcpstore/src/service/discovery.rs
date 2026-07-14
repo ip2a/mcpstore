@@ -1,61 +1,75 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(crate) async fn ensure_service_connected(&self, service_name: &str) -> Result<()> {
+    pub(crate) async fn ensure_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
-        if self.registry.find_service(service_name).await.is_none() {
-            return Err(StoreError::ServiceNotFound(service_name.to_string()));
+        if self.registry.find_instance(instance_id).await.is_none() {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        if self.is_openapi_virtual_service(service_name).await? {
-            self.ensure_service_auto_start_allowed(service_name).await?;
-            self.connect_service_internal(service_name, true).await?;
+        if self.is_openapi_virtual_instance(instance_id).await? {
+            let instance = self
+                .registry
+                .find_instance(instance_id)
+                .await
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            if instance.status == ConnectionStatus::Connected {
+                return Ok(());
+            }
+            self.ensure_service_auto_start_allowed(instance_id).await?;
+            self.connect_service_internal(instance_id, true).await?;
             return Ok(());
         }
-        if !self.pool.is_connected(service_name).await {
-            self.ensure_service_auto_start_allowed(service_name).await?;
-            self.connect_service_internal(service_name, true).await?;
+        if !self.pool.is_connected(instance_id).await {
+            self.ensure_service_auto_start_allowed(instance_id).await?;
+            self.connect_service_internal(instance_id, true).await?;
         }
         Ok(())
     }
 
-    pub(crate) async fn is_openapi_virtual_service(&self, service_name: &str) -> Result<bool> {
-        let Some(service) = self.registry.find_service(service_name).await else {
+    pub(crate) async fn is_openapi_virtual_instance(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let Some(instance) = self.registry.find_instance(instance_id).await else {
             return Ok(false);
         };
-        Ok(service.transport == "openapi")
+        Ok(instance.transport == "openapi")
     }
 
-    pub async fn list_services(&self) -> Vec<ServiceEntry> {
+    pub async fn list_instances(&self) -> Vec<ServiceInstance> {
         self.refresh_from_db_if_needed().await.ok();
-        let mut services = self.registry.list_services().await;
+        let mut instances = self.registry.list_instances().await;
         if self.source_mode == SourceMode::Db {
-            for service in &mut services {
-                self.hydrate_service_status_from_cache(service).await.ok();
+            for instance in &mut instances {
+                self.hydrate_instance_status_from_cache(instance).await.ok();
             }
         }
-        services
+        instances
     }
 
-    pub async fn find_service(&self, name: &str) -> Option<ServiceEntry> {
+    pub async fn find_instance(&self, instance_id: InstanceId) -> Option<ServiceInstance> {
         self.refresh_from_db_if_needed().await.ok();
-        let mut service = self.registry.find_service(name).await?;
+        let mut instance = self.registry.find_instance(instance_id).await?;
         if self.source_mode == SourceMode::Db {
-            self.hydrate_service_status_from_cache(&mut service)
+            self.hydrate_instance_status_from_cache(&mut instance)
                 .await
                 .ok();
         }
-        Some(service)
+        Some(instance)
     }
 
-    pub async fn list_tools(&self, service_name: &str) -> Result<Vec<crate::registry::ToolInfo>> {
+    pub async fn list_tools(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Vec<crate::registry::ToolInfo>> {
         self.refresh_from_db_if_needed().await?;
-        if self.registry.find_service(service_name).await.is_none() {
-            return Err(StoreError::ServiceNotFound(service_name.to_string()));
+        if self.registry.find_instance(instance_id).await.is_none() {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        Ok(self.registry.list_service_tools(service_name).await)
+        Ok(self.registry.list_instance_tools(instance_id).await)
     }
 
-    pub async fn list_all_tools(&self) -> Vec<crate::registry::ToolInfo> {
+    pub async fn list_all_tools(&self) -> Vec<(InstanceId, crate::registry::ToolInfo)> {
         self.refresh_from_db_if_needed().await.ok();
         self.registry.list_all_tools().await
     }
@@ -63,67 +77,15 @@ impl MCPStore {
     pub async fn list_agents(&self) -> Result<Vec<serde_json::Value>> {
         self.refresh_from_db_if_needed().await?;
         let mut agent_ids = self.registry.list_agent_ids().await;
-        let cached = self.cache.get_all_relations_async("agent_services").await?;
-        for agent_id in cached.keys() {
-            if !agent_ids.contains(agent_id) {
-                agent_ids.push(agent_id.clone());
-            }
-        }
         agent_ids.sort();
-        agent_ids.dedup();
 
         let mut agents = Vec::with_capacity(agent_ids.len());
         for agent_id in agent_ids {
             agents.push(serde_json::json!({
                 "agent_id": agent_id,
-                "services": self.list_agent_service_names(&agent_id).await?,
+                "instance_ids": self.registry.list_agent_instance_ids(&agent_id).await,
             }));
         }
         Ok(agents)
-    }
-
-    pub async fn resolve_tool_for_agent(
-        &self,
-        agent_id: &str,
-        user_input: &str,
-    ) -> Result<ToolResolution> {
-        self.refresh_from_db_if_needed().await?;
-        let service_names = if agent_id == GLOBAL_AGENT_STORE {
-            self.registry
-                .list_services()
-                .await
-                .into_iter()
-                .map(|service| service.name)
-                .collect::<Vec<_>>()
-        } else {
-            self.list_agent_service_names(agent_id).await?
-        };
-        let mut available = Vec::new();
-        for global_service_name in service_names {
-            let service = match self.registry.find_service(&global_service_name).await {
-                Some(service) => service,
-                None => continue,
-            };
-            let local_service_name = if agent_id == GLOBAL_AGENT_STORE {
-                service.name.clone()
-            } else {
-                service.original_name.clone()
-            };
-            for tool in service.tools {
-                let global_tool_name = generate_tool_global_name(&service.name, &tool.name)?;
-                let fallback_name = format!("{}_{}", local_service_name, tool.name);
-                let display_name = self
-                    .transformed_available_tool(&service.name, &tool.name, fallback_name)
-                    .await?;
-                available.push(AvailableTool {
-                    name: display_name,
-                    original_name: Some(tool.name),
-                    service_name: Some(local_service_name.clone()),
-                    global_service_name: Some(service.name.clone()),
-                    global_tool_name: Some(global_tool_name),
-                });
-            }
-        }
-        resolve_tool(agent_id, user_input, &available, "canonical", true)
     }
 }

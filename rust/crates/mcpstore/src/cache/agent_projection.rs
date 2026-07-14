@@ -1,63 +1,29 @@
+use crate::cache::models::{AgentInstanceRelation, InstanceRelationItem};
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(crate) async fn cache_agent_scope(&self, agent_id: &str) -> Result<()> {
-        let service_names = self.registry.list_agent_services(agent_id).await;
-        self.cache_agent_scope_names(agent_id, service_names).await
-    }
-
-    pub(crate) async fn cache_agent_scope_names(
+    pub(crate) async fn upsert_agent_instance_relation(
         &self,
         agent_id: &str,
-        service_names: Vec<String>,
-    ) -> Result<()> {
-        let mut services = Vec::with_capacity(service_names.len());
-        let now = chrono::Utc::now().timestamp();
-        for service_name in service_names {
-            let parsed = parse_agent_scoped(&service_name)?;
-            services.push(ServiceRelationItem {
-                service_original_name: parsed.local_name,
-                service_global_name: service_name.clone(),
-                client_id: service_name,
-                established_time: now,
-                last_access: Some(now),
-            });
-        }
-        self.cache
-            .put_relation(
-                "agent_services",
-                agent_id,
-                serde_json::to_value(AgentServiceRelation { services }).unwrap_or_default(),
-            )
-            .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn upsert_agent_service_relation(
-        &self,
-        agent_id: &str,
-        service_name: &str,
+        instance: &ServiceInstance,
         now: i64,
     ) -> Result<()> {
-        let mut relation = match self.cache.get_relation("agent_services", agent_id).await? {
-            Some(value) => serde_json::from_value(value).map_err(|e| {
-                StoreError::Other(format!("Agent relation deserialization failed: {e}"))
+        let mut relation = match self.cache.get_relation("agent_instances", agent_id).await? {
+            Some(value) => serde_json::from_value(value).map_err(|error| {
+                StoreError::Other(format!("Agent relation deserialization failed: {error}"))
             })?,
-            None => AgentServiceRelation {
-                services: Vec::new(),
-            },
+            None => AgentInstanceRelation::default(),
         };
 
         if !relation
-            .services
+            .instances
             .iter()
-            .any(|item| item.service_global_name == service_name)
+            .any(|item| item.instance_id == instance.instance_id)
         {
-            let parsed = parse_agent_scoped(service_name)?;
-            relation.services.push(ServiceRelationItem {
-                service_original_name: parsed.local_name,
-                service_global_name: service_name.to_string(),
-                client_id: service_name.to_string(),
+            relation.instances.push(InstanceRelationItem {
+                instance_id: instance.instance_id,
+                service_name: instance.service_name.clone(),
+                scope: instance.scope.clone(),
                 established_time: now,
                 last_access: Some(now),
             });
@@ -65,7 +31,7 @@ impl MCPStore {
 
         self.cache
             .put_relation(
-                "agent_services",
+                "agent_instances",
                 agent_id,
                 serde_json::to_value(relation).unwrap_or_default(),
             )
@@ -73,47 +39,32 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(crate) async fn cached_agent_scope(&self, agent_id: &str) -> Result<Vec<String>> {
-        let value = self.cache.get_relation("agent_services", agent_id).await?;
-        match value {
-            Some(value) => {
-                let relation: AgentServiceRelation =
-                    serde_json::from_value(value).map_err(|e| {
-                        StoreError::Other(format!("Agent scope deserialization failed: {e}"))
-                    })?;
-                Ok(relation
-                    .services
-                    .into_iter()
-                    .map(|item| item.service_global_name)
-                    .collect())
-            }
-            None => Ok(Vec::new()),
-        }
-    }
-
-    pub(in crate::cache) async fn remove_service_from_agent_relations(
+    pub(in crate::cache) async fn remove_instance_from_agent_relations(
         &self,
-        name: &str,
+        instance_id: InstanceId,
     ) -> Result<()> {
-        let relations = self.cache.get_all_relations_async("agent_services").await?;
+        let relations = self
+            .cache
+            .get_all_relations_async("agent_instances")
+            .await?;
         for (agent_id, value) in relations {
-            let mut relation: AgentServiceRelation =
-                serde_json::from_value(value).map_err(|e| {
-                    StoreError::Other(format!("Agent relation deserialization failed: {e}"))
+            let mut relation: AgentInstanceRelation =
+                serde_json::from_value(value).map_err(|error| {
+                    StoreError::Other(format!("Agent relation deserialization failed: {error}"))
                 })?;
-            let original_len = relation.services.len();
-            relation.services.retain(|item| {
-                item.service_global_name != name && item.service_original_name != name
-            });
+            let original_len = relation.instances.len();
+            relation
+                .instances
+                .retain(|item| item.instance_id != instance_id);
 
-            if relation.services.is_empty() {
+            if relation.instances.is_empty() {
                 self.cache
-                    .delete_relation("agent_services", &agent_id)
+                    .delete_relation("agent_instances", &agent_id)
                     .await?;
-            } else if relation.services.len() != original_len {
+            } else if relation.instances.len() != original_len {
                 self.cache
                     .put_relation(
-                        "agent_services",
+                        "agent_instances",
                         &agent_id,
                         serde_json::to_value(relation).unwrap_or_default(),
                     )
