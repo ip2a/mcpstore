@@ -8,7 +8,7 @@ pub(super) fn exact_match(
     let matches = candidates
         .iter()
         .filter(|candidate| {
-            candidate.display_name == user_input || candidate.original_name == user_input
+            candidate.display_name == user_input || candidate.tool_name == user_input
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -25,24 +25,12 @@ pub(super) fn prefix_match(
             let prefix = format!("{}_", candidate.service_name);
             user_input
                 .strip_prefix(&prefix)
-                .map(|suffix| suffix == candidate.original_name || suffix == candidate.display_name)
+                .map(|suffix| suffix == candidate.tool_name || suffix == candidate.display_name)
                 .unwrap_or(false)
         })
         .cloned()
         .collect::<Vec<_>>();
     one_or_ambiguous(user_input, matches, "prefix")
-}
-
-pub(super) fn no_prefix_match(
-    user_input: &str,
-    candidates: &[ToolCandidate],
-) -> Result<Option<ToolCandidate>> {
-    let matches = candidates
-        .iter()
-        .filter(|candidate| candidate.original_name == user_input)
-        .cloned()
-        .collect::<Vec<_>>();
-    one_or_ambiguous(user_input, matches, "no-prefix")
 }
 
 pub(super) fn fuzzy_match(
@@ -54,7 +42,7 @@ pub(super) fn fuzzy_match(
         .iter()
         .filter(|candidate| {
             is_fuzzy_match(&cleaned, &candidate.display_name)
-                || is_fuzzy_match(&cleaned, &candidate.original_name)
+                || is_fuzzy_match(&cleaned, &candidate.tool_name)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -99,11 +87,8 @@ pub(super) fn suggestions(user_input: &str, candidates: &[ToolCandidate]) -> Vec
     let mut scored = candidates
         .iter()
         .filter_map(|candidate| {
-            let score = similarity_score(
-                &user_clean,
-                &candidate.display_name,
-                &candidate.original_name,
-            );
+            let score =
+                similarity_score(&user_clean, &candidate.display_name, &candidate.tool_name);
             if score > 0.3 {
                 Some((score, candidate.display_name.clone()))
             } else {

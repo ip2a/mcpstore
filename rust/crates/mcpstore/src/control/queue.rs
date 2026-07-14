@@ -60,40 +60,6 @@ impl MCPStore {
         Ok(processed)
     }
 
-    pub(crate) async fn queue_service_add_request(
-        &self,
-        name: &str,
-        original_name: &str,
-        agent_id: &str,
-        config: &ServerConfig,
-    ) -> Result<()> {
-        self.queue_control_request(
-            "ServiceAddRequested",
-            serde_json::json!({
-                "service_name": name,
-                "service_original_name": original_name,
-                "agent_id": agent_id,
-                "config": config,
-            }),
-        )
-        .await
-    }
-
-    pub(crate) async fn queue_service_refresh_tools_request(
-        &self,
-        name: &str,
-        force_refresh: bool,
-    ) -> Result<()> {
-        self.queue_control_request(
-            "ServiceRefreshToolsRequested",
-            serde_json::json!({
-                "service_name": name,
-                "force_refresh": force_refresh,
-            }),
-        )
-        .await
-    }
-
     pub(crate) async fn queue_control_request(
         &self,
         request_type: &str,

@@ -1,3 +1,4 @@
+use crate::cache::models::InstanceStatus;
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -10,7 +11,7 @@ impl MCPStore {
         delay.min(self.runtime_config.retry_backoff_max_secs)
     }
 
-    pub(crate) fn retry_wait_seconds(status: &ServiceStatus, now: f64) -> Option<i64> {
+    pub(crate) fn retry_wait_seconds(status: &InstanceStatus, now: f64) -> Option<i64> {
         if status.health_status != HealthStatus::CircuitOpen {
             return None;
         }
@@ -21,7 +22,7 @@ impl MCPStore {
         Some((retry_at - now).ceil() as i64)
     }
 
-    pub(crate) fn retry_exhausted(status: &ServiceStatus, now: f64) -> bool {
+    pub(crate) fn retry_exhausted(status: &InstanceStatus, now: f64) -> bool {
         status.health_status == HealthStatus::Disconnected
             && status.current_error.is_some()
             && (status.connection_attempts >= status.max_connection_attempts
@@ -31,7 +32,7 @@ impl MCPStore {
                     .unwrap_or(true))
     }
 
-    pub(crate) fn retry_poll_interval(status: &ServiceStatus) -> std::time::Duration {
+    pub(crate) fn retry_poll_interval(status: &InstanceStatus) -> std::time::Duration {
         let now = Self::now_timestamp_f64();
         if let Some(retry_at) = status.next_retry_time {
             if retry_at > now {
@@ -42,15 +43,15 @@ impl MCPStore {
         std::time::Duration::from_millis(300)
     }
 
-    pub(crate) async fn mark_service_retryable_failure(
+    pub(crate) async fn mark_instance_retryable_failure(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         error: String,
-    ) -> Result<ServiceStatus> {
-        let mut payload = self.load_or_default_status(name).await?;
+    ) -> Result<InstanceStatus> {
+        let mut payload = self.load_or_default_status(instance_id).await?;
         let now = Self::now_timestamp_f64();
         let attempts = payload.connection_attempts.saturating_add(1);
-        let lifecycle = self.resolved_service_lifecycle(name).await?;
+        let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
         let restart_attempts = payload.lifecycle_state.restart_attempts.saturating_add(1);
         payload.lifecycle_state.restart_attempts = restart_attempts;
         let hard_deadline = payload
@@ -65,7 +66,7 @@ impl MCPStore {
         payload.connection_attempts = attempts;
         payload.current_error = Some(error);
         payload.tools = self
-            .tool_statuses_with_availability(name, ToolAvailability::Unavailable)
+            .tool_statuses_with_availability(instance_id, ToolAvailability::Unavailable)
             .await?;
         payload.window_error_rate = Some(1.0);
         payload.hard_deadline = Some(hard_deadline);
@@ -75,23 +76,26 @@ impl MCPStore {
             payload.health_status = HealthStatus::Disconnected;
             payload.next_retry_time = None;
             self.registry
-                .update_status(name, ConnectionStatus::Disconnected)
+                .update_status(instance_id, ConnectionStatus::Disconnected)
                 .await;
         } else {
             payload.health_status = HealthStatus::CircuitOpen;
             payload.next_retry_time = Some(now + self.retry_delay_secs(attempts) as f64);
         }
 
-        self.put_service_status_payload(&payload).await?;
+        self.put_instance_status(&payload).await?;
         Ok(payload)
     }
 
-    pub(crate) async fn sync_retry_window(&self, name: &str) -> Result<Option<ServiceStatus>> {
-        let Some(mut status) = self.cached_service_status(name).await? else {
+    pub(crate) async fn sync_retry_window(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<InstanceStatus>> {
+        let Some(mut status) = self.cached_instance_status(instance_id).await? else {
             return Ok(None);
         };
         let now = Self::now_timestamp_f64();
-        let lifecycle = self.resolved_service_lifecycle(name).await?;
+        let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
         let should_restart = !status.lifecycle_state.manually_stopped
             && lifecycle
                 .restart_policy
@@ -105,9 +109,9 @@ impl MCPStore {
                     status.next_retry_time = None;
                     status.lease_deadline = None;
                     self.registry
-                        .update_status(name, ConnectionStatus::Disconnected)
+                        .update_status(instance_id, ConnectionStatus::Disconnected)
                         .await;
-                    self.put_service_status_payload(&status).await?;
+                    self.put_instance_status(&status).await?;
                     return Ok(Some(status));
                 }
                 if status
@@ -120,7 +124,7 @@ impl MCPStore {
                     status.next_retry_time = None;
                     status.lease_deadline =
                         Some(now + self.runtime_config.half_open_lease_secs as f64);
-                    self.put_service_status_payload(&status).await?;
+                    self.put_instance_status(&status).await?;
                 }
             }
             HealthStatus::HalfOpen => {
@@ -130,7 +134,10 @@ impl MCPStore {
                     .unwrap_or(false)
                 {
                     let status = self
-                        .mark_service_retryable_failure(name, "半开探测超时".to_string())
+                        .mark_instance_retryable_failure(
+                            instance_id,
+                            "Half-open health probe timed out".to_string(),
+                        )
                         .await?;
                     return Ok(Some(status));
                 }

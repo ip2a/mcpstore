@@ -1,100 +1,121 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn connect_service(&self, name: &str) -> Result<()> {
+    pub async fn connect_service(&self, instance_id: InstanceId) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
                 .queue_control_request(
                     "ServiceConnectRequested",
-                    serde_json::json!({ "service_name": name }),
+                    serde_json::json!({ "instance_id": instance_id }),
                 )
                 .await;
         }
-        if self.registry.find_service(name).await.is_none() {
-            return Err(StoreError::ServiceNotFound(name.to_string()));
+        if self.registry.find_instance(instance_id).await.is_none() {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        self.clear_lifecycle_manual_stop(name).await?;
-        self.connect_service_internal(name, false).await
+        self.clear_lifecycle_manual_stop(instance_id).await?;
+        self.connect_service_internal(instance_id, false).await
     }
 
     pub(crate) async fn connect_service_internal(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         automatic_retry: bool,
     ) -> Result<()> {
-        if self.registry.find_service(name).await.is_none() {
-            return Err(StoreError::ServiceNotFound(name.to_string()));
-        }
-        if self.is_openapi_virtual_service(name).await? {
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        if self.is_openapi_virtual_instance(instance_id).await? {
+            if automatic_retry && instance.status == ConnectionStatus::Connected {
+                return Ok(());
+            }
             let import = self
-                .get_openapi_import(name)
+                .get_openapi_import(&instance.service_name)
                 .await?
-                .ok_or_else(|| StoreError::Other(format!("OpenAPI import not found: {name}")))?;
+                .ok_or_else(|| {
+                    StoreError::Other(format!(
+                        "OpenAPI import not found for instance {instance_id}"
+                    ))
+                })?;
             let tools = crate::openapi_runtime::openapi_tool_infos(&import);
             let tool_count = tools.len();
-            if let Some(mut entry) = self.registry.find_service(name).await {
-                entry.tools = tools;
-                entry.status = ConnectionStatus::Connected;
-                self.registry.register(entry).await;
-            }
+            let mut updated = instance.clone();
+            updated.tools = tools;
+            updated.status = ConnectionStatus::Connected;
+            self.applied_openapi_configs
+                .write()
+                .await
+                .insert(instance_id, instance.effective_config.clone());
+            self.registry.register_instance(updated).await;
+            self.registry.mark_applied(instance_id).await;
             self.event_bus
                 .publish(
                     Event::new(
                         "SERVICE_CONNECTED",
                         serde_json::json!({
-                            "name": name, "tools_count": tool_count, "transport": "openapi"
+                            "instance_id": instance_id,
+                            "service_name": instance.service_name,
+                            "scope": instance.scope,
+                            "tools_count": tool_count,
+                            "transport": "openapi"
                         }),
                     ),
                     true,
                 )
                 .await;
-            self.record_health_check_result(name, true, None, None)
+            self.record_health_check_result(instance_id, true, None, None)
                 .await?;
             return Ok(());
         }
-        if self.pool.is_connected(name).await {
+        if automatic_retry && self.pool.is_connected(instance_id).await {
             self.registry
-                .update_status(name, ConnectionStatus::Connected)
+                .update_status(instance_id, ConnectionStatus::Connected)
                 .await;
             return Ok(());
         }
 
-        let retry_state = self.sync_retry_window(name).await?;
+        let retry_state = self.sync_retry_window(instance_id).await?;
         let now = Self::now_timestamp_f64();
         if automatic_retry {
             if let Some(status) = retry_state.as_ref() {
-                let lifecycle = self.resolved_service_lifecycle(name).await?;
+                let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
                 if status.current_error.is_some()
                     && !lifecycle.restart_policy.should_restart_after_failure(
                         status.lifecycle_state.restart_attempts.max(1),
                     )
                 {
                     return Err(StoreError::Other(format!(
-                        "Service automatic restart disabled by restart_policy: {name}"
+                        "Service instance automatic restart disabled by restart_policy: {instance_id}"
                     )));
                 }
                 if Self::retry_exhausted(status, now) {
                     return Err(StoreError::Other(format!(
-                        "Service automatic retry exhausted: {name}"
+                        "Service instance automatic retry exhausted: {instance_id}"
                     )));
                 }
                 if let Some(retry_in_secs) = Self::retry_wait_seconds(status, now) {
                     return Err(StoreError::Other(format!(
-                        "Service reconnect backoff active: {name}, retry_in={retry_in_secs}s"
+                        "Service instance reconnect backoff active: {instance_id}, retry_in={retry_in_secs}s"
                     )));
                 }
             }
         }
 
         self.registry
-            .update_status(name, ConnectionStatus::Connecting)
+            .update_status(instance_id, ConnectionStatus::Connecting)
             .await;
         let previous_status = retry_state
             .as_ref()
             .map(|status| status.health_status.clone());
-        let mut startup = retry_state.unwrap_or_else(|| {
-            self.service_status_payload(name, HealthStatus::Startup, None, Vec::new())
-        });
+        let mut startup = match retry_state {
+            Some(status) => status,
+            None => {
+                self.new_instance_status(instance_id, HealthStatus::Startup, None, Vec::new())
+                    .await?
+            }
+        };
         startup.health_status = HealthStatus::Startup;
         startup.last_health_check = Self::now_timestamp();
         startup.next_retry_time = None;
@@ -103,12 +124,16 @@ impl MCPStore {
         } else {
             None
         };
-        self.put_service_status_payload(&startup).await?;
+        self.put_instance_status(&startup).await?;
         self.event_bus
             .publish(
                 Event::new(
                     "SERVICE_CONNECTION_REQUESTED",
-                    serde_json::json!({ "name": name }),
+                    serde_json::json!({
+                        "instance_id": instance_id,
+                        "service_name": instance.service_name,
+                        "scope": instance.scope,
+                    }),
                 ),
                 true,
             )
@@ -120,67 +145,84 @@ impl MCPStore {
                 .try_into()
                 .unwrap_or(1),
         );
+        let transport_config: ServerConfig =
+            serde_json::from_value(serde_json::Value::Object(instance.effective_config.clone()))
+                .map_err(|error| {
+                    StoreError::Other(format!(
+                        "Effective config for instance {instance_id} cannot be decoded: {error}"
+                    ))
+                })?;
+        self.pool.remove(instance_id).await.ok();
+        self.pool.add(instance_id, transport_config).await;
         let connect_result: Result<()> =
-            match tokio::time::timeout(connect_timeout, self.pool.connect(name)).await {
+            match tokio::time::timeout(connect_timeout, self.pool.connect(instance_id)).await {
                 Ok(result) => result.map_err(Into::into),
                 Err(_) => Err(StoreError::Other(format!(
-                    "Service connection timed out: {name}, timeout={}s",
+                    "Service instance connection timed out: {instance_id}, timeout={}s",
                     self.runtime_config.connect_timeout_secs
                 ))),
             };
         if let Err(error) = connect_result {
             let message = format!("Connection failed: {error}");
-            self.pool.disconnect(name).await.ok();
+            self.pool.disconnect(instance_id).await.ok();
             self.registry
-                .update_status(name, ConnectionStatus::Error)
+                .update_status(instance_id, ConnectionStatus::Error)
                 .await;
-            self.mark_service_retryable_failure(name, message.clone())
+            self.mark_instance_retryable_failure(instance_id, message)
                 .await?;
-            return Err(error.into());
+            return Err(error);
         }
         self.registry
-            .update_status(name, ConnectionStatus::Connected)
+            .update_status(instance_id, ConnectionStatus::Connected)
             .await;
 
-        let tools = match self.pool.list_tools(name).await {
+        let tools = match self.pool.list_tools(instance_id).await {
             Ok(tools) => tools,
             Err(error) => {
                 let message = format!("Tool discovery failed: {error}");
-                self.pool.disconnect(name).await.ok();
+                self.pool.disconnect(instance_id).await.ok();
                 self.registry
-                    .update_status(name, ConnectionStatus::Error)
+                    .update_status(instance_id, ConnectionStatus::Error)
                     .await;
-                self.mark_service_retryable_failure(name, message.clone())
+                self.mark_instance_retryable_failure(instance_id, message)
                     .await?;
                 return Err(error.into());
             }
         };
         let tool_infos: Vec<crate::registry::ToolInfo> =
             tools.into_iter().map(Into::into).collect();
-
         let tool_count = tool_infos.len();
-        if let Some(mut entry) = self.registry.find_service(name).await {
-            entry.tools = tool_infos;
-            entry.status = ConnectionStatus::Connected;
-            self.registry.register(entry).await;
-        }
 
-        let tools = self.registry.list_service_tools(name).await;
-        self.cache_service_connected(name, &tools).await?;
+        let mut updated = instance.clone();
+        updated.tools = tool_infos;
+        updated.status = ConnectionStatus::Connected;
+        self.registry.register_instance(updated).await;
+        self.registry.mark_applied(instance_id).await;
+
+        let tools = self.registry.list_instance_tools(instance_id).await;
+        self.cache_instance_connected(instance_id, &tools).await?;
 
         self.event_bus
             .publish(
                 Event::new(
                     "SERVICE_CONNECTED",
                     serde_json::json!({
-                        "name": name, "tools_count": tool_count
+                        "instance_id": instance_id,
+                        "service_name": instance.service_name,
+                        "scope": instance.scope,
+                        "tools_count": tool_count
                     }),
                 ),
                 true,
             )
             .await;
 
-        tracing::info!("[STORE] Service connected: {} (tools={})", name, tool_count);
+        tracing::info!(
+            "[STORE] Service instance connected: {} (service={}, tools={})",
+            instance_id,
+            instance.service_name,
+            tool_count
+        );
         Ok(())
     }
 }

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::config::ServerConfig;
+use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool, Result,
@@ -11,7 +12,7 @@ use crate::transport::{
 };
 
 pub struct ConnectionPool {
-    connections: Arc<RwLock<HashMap<String, McpConnection>>>,
+    connections: Arc<RwLock<HashMap<InstanceId, McpConnection>>>,
 }
 
 impl ConnectionPool {
@@ -21,118 +22,122 @@ impl ConnectionPool {
         }
     }
 
-    pub async fn add(&self, name: String, config: ServerConfig) {
-        let conn = McpConnection::new(name.clone(), config);
-        self.connections.write().await.insert(name, conn);
+    pub async fn add(&self, instance_id: InstanceId, config: ServerConfig) {
+        let conn = McpConnection::new(instance_id.to_string(), config);
+        self.connections.write().await.insert(instance_id, conn);
     }
 
-    pub async fn connect(&self, name: &str) -> Result<()> {
+    pub async fn connect(&self, instance_id: InstanceId) -> Result<()> {
         let mut conns = self.connections.write().await;
-        let conn = conns
-            .get_mut(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get_mut(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         if conn.is_connected() {
             return Ok(());
         }
         conn.connect().await
     }
 
-    pub async fn disconnect(&self, name: &str) -> Result<()> {
+    pub async fn disconnect(&self, instance_id: InstanceId) -> Result<()> {
         let mut conns = self.connections.write().await;
-        if let Some(conn) = conns.get_mut(name) {
+        if let Some(conn) = conns.get_mut(&instance_id) {
             conn.disconnect().await?;
         }
         Ok(())
     }
 
-    pub async fn remove(&self, name: &str) -> Result<()> {
+    pub async fn remove(&self, instance_id: InstanceId) -> Result<()> {
         let mut conns = self.connections.write().await;
-        if let Some(mut conn) = conns.remove(name) {
+        if let Some(mut conn) = conns.remove(&instance_id) {
             conn.disconnect().await.ok();
         }
         Ok(())
     }
 
     pub async fn clear(&self) {
-        let names: Vec<String> = self.connections.read().await.keys().cloned().collect();
-        for name in names {
-            self.remove(&name).await.ok();
+        let instance_ids: Vec<InstanceId> = self.connections.read().await.keys().copied().collect();
+        for instance_id in instance_ids {
+            self.remove(instance_id).await.ok();
         }
     }
 
-    pub async fn list_tools(&self, name: &str) -> Result<Vec<DiscoveredTool>> {
+    pub async fn list_tools(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredTool>> {
         let conns = self.connections.read().await;
-        let conn = conns
-            .get(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         conn.list_tools().await
     }
 
     pub async fn call_tool(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
         let conns = self.connections.read().await;
-        let conn = conns
-            .get(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         conn.call_tool(tool_name, args).await
     }
 
-    pub async fn list_resources(&self, name: &str) -> Result<Vec<DiscoveredResource>> {
+    pub async fn list_resources(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredResource>> {
         let conns = self.connections.read().await;
-        let conn = conns
-            .get(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         conn.list_resources().await
     }
 
     pub async fn list_resource_templates(
         &self,
-        name: &str,
+        instance_id: InstanceId,
     ) -> Result<Vec<DiscoveredResourceTemplate>> {
         let conns = self.connections.read().await;
-        let conn = conns
-            .get(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         conn.list_resource_templates().await
     }
 
-    pub async fn read_resource(&self, name: &str, uri: &str) -> Result<serde_json::Value> {
+    pub async fn read_resource(
+        &self,
+        instance_id: InstanceId,
+        uri: &str,
+    ) -> Result<serde_json::Value> {
         let conns = self.connections.read().await;
-        let conn = conns
-            .get(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         conn.read_resource(uri).await
     }
 
-    pub async fn list_prompts(&self, name: &str) -> Result<Vec<DiscoveredPrompt>> {
+    pub async fn list_prompts(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredPrompt>> {
         let conns = self.connections.read().await;
-        let conn = conns
-            .get(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         conn.list_prompts().await
     }
 
     pub async fn get_prompt(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
         let conns = self.connections.read().await;
-        let conn = conns
-            .get(name)
-            .ok_or_else(|| TransportError::NotConnected(format!("Service not found: {name}")))?;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
         conn.get_prompt(prompt_name, arguments).await
     }
 
-    pub async fn is_connected(&self, name: &str) -> bool {
+    pub async fn is_connected(&self, instance_id: InstanceId) -> bool {
         let conns = self.connections.read().await;
         conns
-            .get(name)
+            .get(&instance_id)
             .map(McpConnection::is_connected)
             .unwrap_or(false)
     }

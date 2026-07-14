@@ -1,23 +1,21 @@
+use std::collections::HashMap;
 use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
 
 pub(crate) use crate::cache::models::{
-    AgentServiceRelation, HealthStatus, OpenApiImportContextState, ServiceEntity,
-    ServiceLifecycleState, ServiceRelationItem, ServiceStatus, ServiceToolRelation,
-    ToolAvailability, ToolEntity, ToolRelationItem, ToolStatusItem,
+    HealthStatus, OpenApiImportContextState, ServiceLifecycleState, ToolAvailability, ToolEntity,
+    ToolStatusItem,
 };
 pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
 pub(crate) use crate::events::{Event, EventBus};
-pub(crate) use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
+pub(crate) use crate::registry::{
+    ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance, ServiceRegistry,
+};
 pub(crate) use crate::transport::client::ConnectionPool;
 pub(crate) use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate,
 };
 
-pub(crate) use crate::perspective::{
-    generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
-    AvailableTool, ToolResolution, GLOBAL_AGENT_STORE,
-};
 pub(crate) use crate::{Result, StoreError};
 
 mod openapi;
@@ -44,17 +42,15 @@ pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) mod prelude {
     pub(crate) use crate::config_formats::{project_config, ConfigFormat};
+    pub(crate) use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
-        generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
-        AgentServiceRelation, AvailableTool, BackendKind, CacheHealthReport, CacheStorage,
-        ConnectionStatus, DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, Event,
-        HealthStatus, MCPStore, OpenApiImportContextState, Result, ScopedServiceEntry,
-        ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity, ServiceEntry,
-        ServiceLifecycleState, ServiceRelationItem, ServiceStatus, ServiceToolRelation, SourceMode,
+        BackendKind, CacheHealthReport, CacheStorage, ConfigRevision, ConnectionStatus,
+        DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, Event, HealthStatus,
+        MCPStore, OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry,
+        ServerConfig, ServiceDefinition, ServiceInstance, ServiceLifecycleState, SourceMode,
         StartupPolicy, StoreError, ToolAvailability, ToolChangeServiceResult, ToolChangeSummary,
-        ToolEntity, ToolRelationItem, ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE,
-        CONTROL_REQUEST_EVENT_TYPE, GLOBAL_AGENT_STORE,
+        ToolEntity, ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
     };
 }
 
@@ -67,6 +63,9 @@ pub struct MCPStore {
     pub(crate) namespace: SyncRwLock<String>,
     pub(crate) registry: ServiceRegistry,
     pub(crate) pool: ConnectionPool,
+    pub(crate) applied_openapi_configs: tokio::sync::RwLock<
+        HashMap<crate::identity::InstanceId, serde_json::Map<String, serde_json::Value>>,
+    >,
     pub(crate) event_bus: EventBus,
     pub(crate) cache: CacheLayerManager,
 }
@@ -116,6 +115,7 @@ impl MCPStore {
             namespace: SyncRwLock::new(namespace.clone()),
             registry: ServiceRegistry::new(),
             pool: ConnectionPool::new(),
+            applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
             event_bus: EventBus::with_history(1000),
             cache: CacheLayerManager::new(cache_store, namespace),
         })

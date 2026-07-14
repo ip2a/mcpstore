@@ -10,6 +10,7 @@ impl CacheLayerManager {
         key: &str,
         value: serde_json::Value,
     ) -> Result<()> {
+        self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
                 "event_type={event_type}, key={key}"
@@ -29,6 +30,7 @@ impl CacheLayerManager {
         expected_version: Option<u64>,
         value: serde_json::Value,
     ) -> Result<()> {
+        self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
                 "event_type={event_type}, key={key}"
@@ -51,6 +53,7 @@ impl CacheLayerManager {
         event_type: &str,
         key: &str,
     ) -> Result<Option<serde_json::Value>> {
+        self.ensure_current_schema().await?;
         let collection = self.event_collection(event_type);
         let started_at = Instant::now();
         let result = self.store.read().await.get(key, &collection).await;
@@ -60,6 +63,7 @@ impl CacheLayerManager {
     }
 
     pub async fn delete_event(&self, event_type: &str, key: &str) -> Result<()> {
+        self.ensure_current_schema().await?;
         let collection = self.event_collection(event_type);
         let started_at = Instant::now();
         let result = self.store.read().await.delete(key, &collection).await;

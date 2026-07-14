@@ -1,73 +1,103 @@
-//! Service management within the registry.
-//!
-//! add / remove / update / list services.
-
-use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
+use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
+use crate::registry::{ConnectionStatus, ServiceDefinition, ServiceInstance, ServiceRegistry};
 
 impl ServiceRegistry {
-    /// Register or update a service entry and rebuild indexes.
-    pub async fn register(&self, entry: ServiceEntry) {
-        let mut services = self.services.write().await;
-        let mut tool_index = self.tool_index.write().await;
-        let mut original_index = self.original_name_index.write().await;
+    pub async fn register_definition(&self, definition: ServiceDefinition) {
+        self.definitions
+            .write()
+            .await
+            .insert(definition.service_name.clone(), definition);
+    }
 
-        // Remove old tool mappings if service already exists
-        if let Some(old) = services.get(&entry.name) {
-            for tool in &old.tools {
-                let global_tool = Self::tool_name(&old.name, &tool.name);
-                tool_index.remove(&global_tool);
+    pub async fn unregister_definition(&self, service_name: &str) -> Vec<InstanceId> {
+        self.definitions.write().await.remove(service_name);
+        let instance_ids = self
+            .instances
+            .read()
+            .await
+            .values()
+            .filter(|instance| instance.service_name == service_name)
+            .map(|instance| instance.instance_id)
+            .collect::<Vec<_>>();
+        for instance_id in &instance_ids {
+            self.unregister_instance(*instance_id).await;
+        }
+        instance_ids
+    }
+
+    pub async fn find_definition(&self, service_name: &str) -> Option<ServiceDefinition> {
+        self.definitions.read().await.get(service_name).cloned()
+    }
+
+    pub async fn list_definitions(&self) -> Vec<ServiceDefinition> {
+        self.definitions.read().await.values().cloned().collect()
+    }
+
+    pub async fn register_instance(&self, instance: ServiceInstance) {
+        let instance_id = instance.instance_id;
+        let key = instance.key();
+        let scope = instance.scope.clone();
+
+        self.instances.write().await.insert(instance_id, instance);
+        self.instance_index.write().await.insert(key, instance_id);
+
+        if let ScopeRef::Agent { agent_id } = scope {
+            let mut index = self.agent_index.write().await;
+            let instances = index.entry(agent_id).or_default();
+            if !instances.contains(&instance_id) {
+                instances.push(instance_id);
             }
         }
-
-        // Add new tool mappings
-        for tool in &entry.tools {
-            let global_tool = Self::tool_name(&entry.name, &tool.name);
-            tool_index.insert(global_tool, entry.name.clone());
-        }
-
-        original_index.insert(entry.original_name.clone(), entry.name.clone());
-
-        services.insert(entry.name.clone(), entry);
     }
 
-    /// Remove a service and all its tool/agent mappings.
-    pub async fn unregister(&self, name: &str) {
-        let mut services = self.services.write().await;
-        let mut tool_index = self.tool_index.write().await;
-        let mut agent_scopes = self.agent_scopes.write().await;
-        let mut original_index = self.original_name_index.write().await;
-
-        if let Some(entry) = services.remove(name) {
-            for tool in &entry.tools {
-                let global_tool = Self::tool_name(name, &tool.name);
-                tool_index.remove(&global_tool);
-            }
-            original_index.remove(&entry.original_name);
-
-            // Remove from all agent scopes
-            for scope in agent_scopes.values_mut() {
-                scope.retain(|s| s != name);
+    pub async fn unregister_instance(&self, instance_id: InstanceId) {
+        let Some(instance) = self.instances.write().await.remove(&instance_id) else {
+            return;
+        };
+        self.instance_index.write().await.remove(&instance.key());
+        if let ScopeRef::Agent { agent_id } = instance.scope {
+            let mut index = self.agent_index.write().await;
+            if let Some(instances) = index.get_mut(&agent_id) {
+                instances.retain(|candidate| *candidate != instance_id);
+                if instances.is_empty() {
+                    index.remove(&agent_id);
+                }
             }
         }
     }
 
-    /// List all registered services.
-    pub async fn list_services(&self) -> Vec<ServiceEntry> {
-        let services = self.services.read().await;
-        services.values().cloned().collect()
+    pub async fn find_instance(&self, instance_id: InstanceId) -> Option<ServiceInstance> {
+        self.instances.read().await.get(&instance_id).cloned()
     }
 
-    /// Find a service by its global name.
-    pub async fn find_service(&self, name: &str) -> Option<ServiceEntry> {
-        let services = self.services.read().await;
-        services.get(name).cloned()
+    pub async fn find_instance_by_key(
+        &self,
+        service_name: &str,
+        scope: &ScopeRef,
+    ) -> Option<ServiceInstance> {
+        let key = ServiceInstanceKey::new(service_name, scope.clone());
+        let instance_id = self.instance_index.read().await.get(&key).copied()?;
+        self.find_instance(instance_id).await
     }
 
-    /// Update service status.
-    pub async fn update_status(&self, name: &str, status: ConnectionStatus) {
-        let mut services = self.services.write().await;
-        if let Some(entry) = services.get_mut(name) {
-            entry.status = status;
+    pub async fn instance_id(&self, service_name: &str, scope: &ScopeRef) -> Option<InstanceId> {
+        let key = ServiceInstanceKey::new(service_name, scope.clone());
+        self.instance_index.read().await.get(&key).copied()
+    }
+
+    pub async fn list_instances(&self) -> Vec<ServiceInstance> {
+        self.instances.read().await.values().cloned().collect()
+    }
+
+    pub async fn update_status(&self, instance_id: InstanceId, status: ConnectionStatus) {
+        if let Some(instance) = self.instances.write().await.get_mut(&instance_id) {
+            instance.status = status;
+        }
+    }
+
+    pub async fn mark_applied(&self, instance_id: InstanceId) {
+        if let Some(instance) = self.instances.write().await.get_mut(&instance_id) {
+            instance.applied_config_revision = Some(instance.config_revision);
         }
     }
 }

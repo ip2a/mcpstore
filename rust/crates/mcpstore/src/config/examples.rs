@@ -3,17 +3,7 @@ use std::collections::HashMap;
 use super::ServerConfig;
 
 pub(super) fn default_server_config() -> ServerConfig {
-    ServerConfig {
-        url: None,
-        command: None,
-        args: Vec::new(),
-        env: HashMap::new(),
-        headers: HashMap::new(),
-        transport: None,
-        working_dir: None,
-        description: None,
-        mcpstore: None,
-    }
+    ServerConfig::default()
 }
 
 pub(super) fn example_services() -> HashMap<String, ServerConfig> {

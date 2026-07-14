@@ -10,6 +10,7 @@ impl CacheLayerManager {
         key: &str,
         value: serde_json::Value,
     ) -> Result<()> {
+        self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
                 "entity_type={entity_type}, key={key}"
@@ -30,6 +31,7 @@ impl CacheLayerManager {
         expected_version: Option<u64>,
         value: serde_json::Value,
     ) -> Result<()> {
+        self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
                 "entity_type={entity_type}, key={key}"
@@ -53,6 +55,7 @@ impl CacheLayerManager {
         entity_type: &str,
         key: &str,
     ) -> Result<Option<serde_json::Value>> {
+        self.ensure_current_schema().await?;
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
         let started_at = Instant::now();
@@ -63,6 +66,7 @@ impl CacheLayerManager {
     }
 
     pub async fn delete_entity(&self, entity_type: &str, key: &str) -> Result<()> {
+        self.ensure_current_schema().await?;
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
         let started_at = Instant::now();

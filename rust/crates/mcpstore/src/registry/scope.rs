@@ -1,28 +1,26 @@
-//! Agent scope resolution.
-//!
-//! Store-wide vs agent-specific service visibility.
-
-use crate::registry::ServiceRegistry;
+use crate::identity::InstanceId;
+use crate::registry::{ServiceInstance, ServiceRegistry};
 
 impl ServiceRegistry {
-    /// Associate a service with an agent scope.
-    pub async fn add_to_agent_scope(&self, agent_id: &str, service_name: &str) {
-        let mut scopes = self.agent_scopes.write().await;
-        let services = scopes.entry(agent_id.to_string()).or_default();
-        if !services.iter().any(|name| name == service_name) {
-            services.push(service_name.to_string());
-        }
+    pub async fn list_agent_instance_ids(&self, agent_id: &str) -> Vec<InstanceId> {
+        self.agent_index
+            .read()
+            .await
+            .get(agent_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// List services visible to an agent.
-    pub async fn list_agent_services(&self, agent_id: &str) -> Vec<String> {
-        let scopes = self.agent_scopes.read().await;
-        scopes.get(agent_id).cloned().unwrap_or_default()
+    pub async fn list_agent_instances(&self, agent_id: &str) -> Vec<ServiceInstance> {
+        let instance_ids = self.list_agent_instance_ids(agent_id).await;
+        let instances = self.instances.read().await;
+        instance_ids
+            .into_iter()
+            .filter_map(|instance_id| instances.get(&instance_id).cloned())
+            .collect()
     }
 
-    /// Clear all services from an agent scope.
-    pub async fn clear_agent_scope(&self, agent_id: &str) {
-        let mut scopes = self.agent_scopes.write().await;
-        scopes.remove(agent_id);
+    pub async fn list_agent_ids(&self) -> Vec<String> {
+        self.agent_index.read().await.keys().cloned().collect()
     }
 }
