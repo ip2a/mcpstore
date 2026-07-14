@@ -55,6 +55,13 @@ impl KeyringStateStore {
         }
     }
 
+    pub async fn clear(&self) -> Result<(), AuthError> {
+        let _guard = self.lock.lock().await;
+        self.keyring
+            .delete(OAUTH_STATE_SERVICE, self.account.clone())
+            .await
+    }
+
     pub async fn purge_expired(&self) -> Result<usize, AuthError> {
         let _guard = self.lock.lock().await;
         let mut states = self.load_states().await?;

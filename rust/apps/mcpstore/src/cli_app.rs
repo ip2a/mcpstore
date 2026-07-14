@@ -19,6 +19,7 @@ pub enum Commands {
     Start(commands::daemon_cmd::StartArgs),
     Stop,
     Api(commands::api::ApiArgs),
+    Auth(commands::auth::AuthArgs),
     Config {
         #[command(subcommand)]
         action: commands::config::ConfigAction,
@@ -68,6 +69,7 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Start(args) => commands::daemon_cmd::start(args).await,
             Commands::Stop => commands::daemon_cmd::stop().await,
             Commands::Api(args) => commands::api::run(args).await,
+            Commands::Auth(args) => commands::auth::run(args).await,
             Commands::Config { action } => commands::config::run(action).await,
             Commands::Add(args) => commands::mcp::add(args).await,
             Commands::AddJson(args) => commands::mcp::add_json(args).await,
@@ -347,6 +349,37 @@ mod tests {
             Commands::Web(args) => assert_eq!(args.port, 9090),
             _ => panic!("Expected to parse as web command"),
         }
+    }
+
+    #[test]
+    fn parses_auth_login_with_local_callback_timeout() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli =
+            Cli::try_parse_from(["mcpstore", "auth", "login", instance_id, "--timeout", "120"])
+                .unwrap();
+
+        match cli.command {
+            Commands::Auth(commands::auth::AuthArgs {
+                action: commands::auth::AuthAction::Login(args),
+            }) => {
+                assert_eq!(args.instance_id.to_string(), instance_id);
+                assert_eq!(args.timeout, 120);
+            }
+            _ => panic!("Expected to parse as auth login command"),
+        }
+    }
+
+    #[test]
+    fn auth_client_secret_is_read_from_stdin_not_command_line() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        assert!(Cli::try_parse_from([
+            "mcpstore",
+            "auth",
+            "set-client-secret",
+            instance_id,
+            "secret-value",
+        ])
+        .is_err());
     }
 
     #[test]

@@ -5,6 +5,7 @@ use thiserror::Error;
 pub mod client;
 mod content;
 mod http;
+mod oauth;
 mod pool;
 mod prompts;
 mod resources;
@@ -15,6 +16,11 @@ mod tools;
 pub enum TransportError {
     #[error("{0}")]
     AuthRequired(crate::auth::AuthRequired),
+    #[error("insufficient OAuth scope for service instance {instance_id}")]
+    InsufficientScope {
+        instance_id: crate::identity::InstanceId,
+        required_scope: Option<String>,
+    },
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
     #[error("Not connected: {0}")]

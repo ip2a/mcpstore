@@ -39,6 +39,7 @@ ratatui = { version = "0.29", features = ["crossterm"] }
 mcpstore = { path = "../../crates/mcpstore", features = ["mcp-server"] }
 chrono = { workspace = true }
 rmcp = { workspace = true }
+url = "2"
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

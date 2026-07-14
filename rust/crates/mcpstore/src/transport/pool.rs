@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+use crate::auth::AuthCoordinator;
 use crate::config::ServerConfig;
 use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
@@ -13,17 +14,24 @@ use crate::transport::{
 
 pub struct ConnectionPool {
     connections: Arc<RwLock<HashMap<InstanceId, McpConnection>>>,
+    auth_coordinator: AuthCoordinator,
 }
 
 impl ConnectionPool {
-    pub fn new() -> Self {
+    pub fn new(auth_coordinator: AuthCoordinator) -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
+            auth_coordinator,
         }
     }
 
     pub async fn add(&self, instance_id: InstanceId, config: ServerConfig) {
-        let conn = McpConnection::new(instance_id.to_string(), config);
+        let conn = McpConnection::new(
+            instance_id,
+            instance_id.to_string(),
+            config,
+            self.auth_coordinator.clone(),
+        );
         self.connections.write().await.insert(instance_id, conn);
     }
 
@@ -140,11 +148,5 @@ impl ConnectionPool {
             .get(&instance_id)
             .map(McpConnection::is_connected)
             .unwrap_or(false)
-    }
-}
-
-impl Default for ConnectionPool {
-    fn default() -> Self {
-        Self::new()
     }
 }
