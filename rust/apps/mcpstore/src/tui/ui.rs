@@ -59,13 +59,11 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
     }
 
     if app.show_tool_detail {
-        if let (Some(service), Some(tool)) =
-            (app.current_tool_call_service_name(), app.current_tool())
-        {
+        if let Some(tool) = app.current_tool() {
             widgets::modal::render_tool_detail(
                 frame,
                 app.locale,
-                service,
+                &tool.service_name,
                 tool,
                 &app.tool_test_args,
                 &app.tool_test_result,

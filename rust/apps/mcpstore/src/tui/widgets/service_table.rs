@@ -1,4 +1,4 @@
-use mcpstore::registry::ConnectionStatus;
+use mcpstore::{registry::ConnectionStatus, InstanceId, ScopeRef};
 use ratatui::{
     style::Style,
     widgets::{Row, Table, TableState},
@@ -13,9 +13,9 @@ use crate::tui::{
 
 #[derive(Clone)]
 pub struct ServiceSummary {
+    pub instance_id: InstanceId,
     pub name: String,
-    pub original_name: String,
-    pub agent_id: String,
+    pub scope: ScopeRef,
     pub transport: String,
     pub endpoint: String,
     pub status: ConnectionStatus,
@@ -23,8 +23,8 @@ pub struct ServiceSummary {
     pub added_time: i64,
 }
 
-impl From<mcpstore::registry::ServiceEntry> for ServiceSummary {
-    fn from(value: mcpstore::registry::ServiceEntry) -> Self {
+impl From<mcpstore::registry::ServiceInstance> for ServiceSummary {
+    fn from(value: mcpstore::registry::ServiceInstance) -> Self {
         let endpoint = value
             .url
             .clone()
@@ -32,9 +32,9 @@ impl From<mcpstore::registry::ServiceEntry> for ServiceSummary {
             .unwrap_or_else(|| "-".to_string());
 
         Self {
-            name: value.name,
-            original_name: value.original_name,
-            agent_id: value.agent_id,
+            instance_id: value.instance_id,
+            name: value.service_name,
+            scope: value.scope,
             transport: value.transport,
             endpoint,
             status: value.status,
@@ -57,8 +57,7 @@ pub fn filter_and_sort(
             }
             let query = filter.search_text.to_lowercase();
             s.name.to_lowercase().contains(&query)
-                || s.original_name.to_lowercase().contains(&query)
-                || s.agent_id.to_lowercase().contains(&query)
+                || scope_label(&s.scope).to_lowercase().contains(&query)
                 || s.transport.to_lowercase().contains(&query)
                 || s.endpoint.to_lowercase().contains(&query)
         })
@@ -110,11 +109,7 @@ pub fn render(
     .height(1);
 
     let rows = services.iter().map(|service| {
-        let scope = if service.agent_id == "global_agent_store" {
-            "store".to_string()
-        } else {
-            truncate_text(&service.agent_id, 10)
-        };
+        let scope = truncate_text(&scope_label(&service.scope), 10);
 
         Row::new(vec![
             truncate_text(&service.name, 22),
@@ -147,6 +142,13 @@ pub fn render(
         .highlight_symbol(if focused { ">>> " } else { "    " });
 
     frame.render_stateful_widget(table, area, table_state);
+}
+
+fn scope_label(scope: &ScopeRef) -> String {
+    match scope {
+        ScopeRef::Store => "store".to_string(),
+        ScopeRef::Agent { agent_id } => agent_id.clone(),
+    }
 }
 
 fn status_style(status: ConnectionStatus) -> Style {

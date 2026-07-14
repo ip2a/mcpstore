@@ -4,8 +4,8 @@ use axum::{
 };
 use maud::html;
 use mcpstore::registry::ConnectionStatus;
-use mcpstore::{CacheStorage, MCPStore};
-use std::{collections::HashMap, sync::Arc};
+use mcpstore::{CacheStorage, InstanceId, MCPStore, ScopeRef};
+use std::{collections::BTreeSet, collections::HashMap, sync::Arc};
 
 use super::{
     components::{
@@ -29,41 +29,27 @@ pub(super) async fn page_home(
     };
     let source_label = if store.is_db_source() { "db" } else { "local" };
 
-    let cfg = store.config_manager().load_or_default();
-    let mut agents: Vec<(String, Vec<String>)> = cfg.agents.into_iter().collect();
-    agents.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let agent_map: HashMap<String, String> = {
-        let mut map = HashMap::new();
-        for (agent_id, service_names) in &agents {
-            for name in service_names {
-                map.insert(name.clone(), agent_id.clone());
-            }
-        }
-        map
-    };
-
-    let mut services = if agent_filter.is_empty() || agent_filter == "store" {
-        store.list_services().await
+    let all_instances = store.list_instances().await;
+    let agents = all_instances
+        .iter()
+        .filter_map(|instance| instance.scope.agent_id().map(str::to_string))
+        .collect::<BTreeSet<_>>();
+    let selected_scope = if agent_filter.is_empty() || agent_filter == "store" {
+        ScopeRef::Store
     } else {
-        let names = match store.list_agent_service_names(&agent_filter).await {
-            Ok(names) => names,
-            Err(e) => {
-                return Html(
-                    layout("mcpstore - Error", error_markup(&e.to_string())).into_string(),
-                )
-                .into_response();
-            }
-        };
-        let mut scoped = Vec::new();
-        for name in names {
-            if let Some(svc) = store.find_service(&name).await {
-                scoped.push(svc);
-            }
+        ScopeRef::Agent {
+            agent_id: agent_filter.clone(),
         }
-        scoped
     };
-    services.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut services = all_instances
+        .into_iter()
+        .filter(|instance| instance.scope == selected_scope)
+        .collect::<Vec<_>>();
+    services.sort_by(|a, b| {
+        a.service_name
+            .cmp(&b.service_name)
+            .then_with(|| a.instance_id.cmp(&b.instance_id))
+    });
 
     let total = services.len();
     let connected = services
@@ -156,7 +142,7 @@ pub(super) async fn page_home(
                     span.control-label { "Agent" }
                     nav.filter-chips aria-label="Agent filter" {
                         a class=(if agent_filter.is_empty() || agent_filter == "store" { "chip is-active" } else { "chip" }) href="/" { "Store" }
-                        @for (agent_id, _) in &agents {
+                        @for agent_id in &agents {
                             @let agent_href = format!("/?agent={}", url_component(agent_id));
                             a class=(if agent_filter == *agent_id { "chip is-active" } else { "chip" }) href=(agent_href) { (agent_id) }
                         }
@@ -180,7 +166,7 @@ pub(super) async fn page_home(
                 div.service-table {
                     (render_service_table_header())
                     @for svc in &services {
-                        (render_service_row(svc, agent_map.get(&svc.name).map(|s| s.as_str()).unwrap_or("store")))
+                        (render_service_row(svc))
                     }
                 }
             }
@@ -192,9 +178,9 @@ pub(super) async fn page_home(
 
 pub(super) async fn page_service(
     State(store): State<Arc<MCPStore>>,
-    Path(name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> impl IntoResponse {
-    let svc = match store.find_service(&name).await {
+    let svc = match store.find_instance(instance_id).await {
         Some(s) => s,
         None => {
             return Html(
@@ -203,7 +189,7 @@ pub(super) async fn page_service(
             .into_response();
         }
     };
-    let service_segment = url_component(&svc.name);
+    let instance_segment = svc.instance_id.to_string();
     let added = format_added_time(svc.added_time);
     let endpoint = svc.url.as_deref().or(svc.command.as_deref()).unwrap_or("-");
 
@@ -211,7 +197,7 @@ pub(super) async fn page_service(
         section.page-heading {
             div {
                 p.eyebrow { (svc.transport) }
-                h1 { (svc.name) }
+                h1 { (svc.service_name) }
                 div.service-meta {
                     (status_badge(svc.status))
                     span.meta-pill { "tools · " (svc.tools.len()) }
@@ -221,31 +207,31 @@ pub(super) async fn page_service(
             div.heading-actions {
                 a.button.button-ghost href="/" { "Back" }
                 @if svc.status == ConnectionStatus::Connected {
-                    a.button href=(format!("/action/disconnect/{service_segment}")) { "Disconnect" }
+                    a.button href=(format!("/action/disconnect/{instance_segment}")) { "Disconnect" }
                 } @else {
-                    a.button.button-primary href=(format!("/action/connect/{service_segment}")) { "Connect" }
+                    a.button.button-primary href=(format!("/action/connect/{instance_segment}")) { "Connect" }
                 }
-                a.button href=(format!("/action/restart/{service_segment}")) { "Restart" }
-                a.button.button-danger href=(format!("/action/remove/{service_segment}")) onclick="return confirm('Confirm delete service?')" { "Delete" }
+                a.button href=(format!("/action/restart/{instance_segment}")) { "Restart" }
+                a.button.button-danger href=(format!("/action/remove/{instance_segment}")) onclick="return confirm('Confirm delete service scope?')" { "Delete" }
             }
         }
 
         section.detail-grid {
             div.detail-item {
                 span.detail-label { "Name" }
-                code { (svc.name) }
+                code { (svc.service_name) }
             }
             div.detail-item {
                 span.detail-label { "Endpoint" }
                 code { (endpoint) }
             }
             div.detail-item {
-                span.detail-label { "Agent" }
-                code { (svc.agent_id) }
+                span.detail-label { "Scope" }
+                code { (format!("{:?}", svc.scope)) }
             }
             div.detail-item {
-                span.detail-label { "Original" }
-                code { (svc.original_name) }
+                span.detail-label { "Instance ID" }
+                code { (svc.instance_id) }
             }
         }
 
@@ -262,7 +248,7 @@ pub(super) async fn page_service(
             } @else {
                 div.tool-grid {
                     @for tool in &svc.tools {
-                        (render_tool_card(&svc.name, tool))
+                        (render_tool_card(&instance_segment, tool))
                     }
                 }
             }
@@ -272,11 +258,11 @@ pub(super) async fn page_service(
             div.section-heading {
                 h2 { "Config" }
             }
-            (config_block(&svc.config))
+            (config_block(&serde_json::Value::Object(svc.effective_config.clone())))
         }
     };
 
-    Html(layout(&format!("mcpstore - {}", svc.name), content).into_string()).into_response()
+    Html(layout(&format!("mcpstore - {}", svc.service_name), content).into_string()).into_response()
 }
 
 pub(super) async fn page_add() -> impl IntoResponse {

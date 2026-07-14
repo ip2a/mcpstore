@@ -12,13 +12,16 @@ mod utils;
 pub fn router(store: Arc<MCPStore>) -> Router {
     Router::new()
         .route("/", get(pages::page_home))
-        .route("/service/:name", get(pages::page_service))
+        .route("/service/:instance_id", get(pages::page_service))
         .route("/add", get(pages::page_add))
         .route("/add/exec", get(actions::action_add_exec))
-        .route("/action/connect/:name", get(actions::action_connect))
-        .route("/action/disconnect/:name", get(actions::action_disconnect))
-        .route("/action/restart/:name", get(actions::action_restart))
-        .route("/action/remove/:name", get(actions::action_remove))
+        .route("/action/connect/:instance_id", get(actions::action_connect))
+        .route(
+            "/action/disconnect/:instance_id",
+            get(actions::action_disconnect),
+        )
+        .route("/action/restart/:instance_id", get(actions::action_restart))
+        .route("/action/remove/:instance_id", get(actions::action_remove))
         .route(
             "/action/switch-cache-storage",
             get(actions::action_switch_cache_storage),
@@ -36,15 +39,15 @@ pub fn router(store: Arc<MCPStore>) -> Router {
             get(actions::modal_switch_cache_storage),
         )
         .route(
-            "/modal/call-tool/:service/:tool",
+            "/modal/call-tool/:instance_id/:tool",
             get(actions::modal_call_tool_form),
         )
         .route(
-            "/modal/call-tool/:service/:tool/exec",
+            "/modal/call-tool/:instance_id/:tool/exec",
             get(actions::modal_call_tool_exec),
         )
         .route(
-            "/modal/tool-detail/:service/:tool",
+            "/modal/tool-detail/:instance_id/:tool",
             get(actions::modal_tool_detail),
         )
         .route("/assets/style.css", get(assets::serve_css))
