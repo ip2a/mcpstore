@@ -3,6 +3,7 @@ export const queryKeys = {
   instances: ["instances"] as const,
   instance: (instanceId: string) => ["instances", instanceId] as const,
   instanceStatus: (instanceId: string) => ["instances", instanceId, "status"] as const,
+  instanceAuth: (instanceId: string) => ["instances", instanceId, "auth"] as const,
   instanceTools: (instanceId: string) => ["instances", instanceId, "tools"] as const,
   instanceResources: (instanceId: string) => ["instances", instanceId, "resources"] as const,
   instanceResourceTemplates: (instanceId: string) => ["instances", instanceId, "resource-templates"] as const,

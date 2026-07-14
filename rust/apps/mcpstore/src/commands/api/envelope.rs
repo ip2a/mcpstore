@@ -117,6 +117,51 @@ impl ApiError {
                 None,
                 None,
             ),
+            StoreError::Auth(mcpstore::AuthError::CallbackRejected) => Self::new(
+                StatusCode::BAD_REQUEST,
+                "AUTH_CALLBACK_REJECTED",
+                "授权回调校验失败",
+                None,
+                None,
+            ),
+            StoreError::Auth(mcpstore::AuthError::RefreshFailed) => Self::new(
+                StatusCode::UNAUTHORIZED,
+                "AUTH_REFRESH_FAILED",
+                "令牌刷新失败，需要重新授权",
+                None,
+                None,
+            ),
+            StoreError::Auth(mcpstore::AuthError::MissingClientCredential) => Self::new(
+                StatusCode::UNAUTHORIZED,
+                "AUTH_CREDENTIAL_REQUIRED",
+                "需要先写入 OAuth 客户端凭证",
+                None,
+                None,
+            ),
+            StoreError::Auth(mcpstore::AuthError::UnsupportedFlow) => Self::new(
+                StatusCode::CONFLICT,
+                "AUTH_FLOW_UNSUPPORTED",
+                "当前认证流程不支持此操作",
+                None,
+                None,
+            ),
+            StoreError::Auth(mcpstore::AuthError::SecureStorage { .. }) => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SECURE_STORAGE_UNAVAILABLE",
+                "安全凭证存储不可用",
+                None,
+                None,
+            ),
+            StoreError::Auth(
+                mcpstore::AuthError::AuthorizationStartFailed
+                | mcpstore::AuthError::ProviderFailure,
+            ) => Self::new(
+                StatusCode::BAD_GATEWAY,
+                "OAUTH_PROVIDER_FAILED",
+                "OAuth 提供方操作失败",
+                None,
+                None,
+            ),
             StoreError::Auth(error) => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "AUTHENTICATION_ERROR",
@@ -137,6 +182,28 @@ impl ApiError {
                 error.to_string(),
                 None,
                 Some(json!({ "error_type": "ConfigError" })),
+            ),
+            StoreError::Transport(mcpstore::transport::TransportError::AuthRequired(required)) => {
+                Self::new(
+                    StatusCode::UNAUTHORIZED,
+                    "AUTH_REQUIRED",
+                    required.to_string(),
+                    None,
+                    serde_json::to_value(required).ok(),
+                )
+            }
+            StoreError::Transport(mcpstore::transport::TransportError::InsufficientScope {
+                instance_id,
+                required_scope,
+            }) => Self::new(
+                StatusCode::FORBIDDEN,
+                "AUTH_INSUFFICIENT_SCOPE",
+                "OAuth 授权范围不足，需要升级授权",
+                None,
+                Some(json!({
+                    "instance_id": instance_id,
+                    "required_scope": required_scope,
+                })),
             ),
             StoreError::Transport(error) => Self::new(
                 StatusCode::BAD_GATEWAY,
@@ -218,5 +285,33 @@ fn api_meta() -> ApiMeta {
         ),
         execution_time_ms: 0,
         api_version: API_VERSION,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcpstore::transport::TransportError;
+    use mcpstore::{InstanceId, StoreError};
+
+    #[test]
+    fn insufficient_scope_maps_to_http_403_with_stable_error_code() {
+        let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
+        let error =
+            ApiError::from_store(StoreError::Transport(TransportError::InsufficientScope {
+                instance_id,
+                required_scope: Some("resources.read tools.call".to_string()),
+            }));
+
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+        assert_eq!(error.code, "AUTH_INSUFFICIENT_SCOPE");
+        assert_eq!(
+            error
+                .details
+                .as_ref()
+                .and_then(|details| details.get("required_scope"))
+                .and_then(Value::as_str),
+            Some("resources.read tools.call")
+        );
     }
 }

@@ -6,10 +6,16 @@ use crate::transport::{DiscoveredPrompt, Result, TransportError};
 impl McpConnection {
     pub async fn list_prompts(&self) -> Result<Vec<DiscoveredPrompt>> {
         let client = self.get_client()?;
-        let prompts = client
-            .list_all_prompts()
-            .await
-            .map_err(|err| TransportError::Protocol(format!("list_prompts failed: {err}")))?;
+        let prompts = match client.list_all_prompts().await {
+            Ok(prompts) => prompts,
+            Err(error) => {
+                return Err(self
+                    .classify_client_failure(TransportError::Protocol(format!(
+                        "list_prompts failed: {error}"
+                    )))
+                    .await);
+            }
+        };
 
         prompts
             .into_iter()
@@ -34,10 +40,16 @@ impl McpConnection {
             _ => serde_json::Map::new(),
         };
         let request = GetPromptRequestParams::new(prompt_name).with_arguments(args_map);
-        let result = client
-            .get_prompt(request)
-            .await
-            .map_err(|err| TransportError::Protocol(format!("get_prompt failed: {err}")))?;
+        let result = match client.get_prompt(request).await {
+            Ok(result) => result,
+            Err(error) => {
+                return Err(self
+                    .classify_client_failure(TransportError::Protocol(format!(
+                        "get_prompt failed: {error}"
+                    )))
+                    .await);
+            }
+        };
 
         serde_json::to_value(result).map_err(|err| {
             TransportError::Protocol(format!("prompt result serialization failed: {err}"))

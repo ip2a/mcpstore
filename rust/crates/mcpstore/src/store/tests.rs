@@ -5039,6 +5039,42 @@ async fn oauth_service_status_and_api_projection_do_not_expose_secrets() {
 }
 
 #[tokio::test]
+async fn authorization_callback_uri_only_exposes_authorization_code_redirect_uri() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-oauth-callback-uri".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service("protected", oauth_http_config())
+        .await
+        .unwrap();
+    store.add_service("plain", stdio_config()).await.unwrap();
+
+    assert_eq!(
+        store
+            .authorization_callback_uri(store_instance_id("protected"))
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("http://127.0.0.1:8787/oauth/callback")
+    );
+    assert_eq!(
+        store
+            .authorization_callback_uri(store_instance_id("plain"))
+            .await
+            .unwrap(),
+        None
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -5079,6 +5115,64 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
     assert_eq!(
         store.auth_status(instance_id).await,
         crate::auth::AuthStatus::Unauthenticated
+    );
+    assert_eq!(
+        store.find_instance(instance_id).await.unwrap().status,
+        ConnectionStatus::Disconnected
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-insufficient-scope-lifecycle".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service("protected", stdio_config())
+        .await
+        .unwrap();
+    let instance_id = store_instance_id("protected");
+    let error = crate::transport::TransportError::InsufficientScope {
+        instance_id,
+        required_scope: Some("resources.read tools.call".to_string()),
+    };
+
+    store
+        .record_transport_failure(instance_id, &error, "Connection failed")
+        .await
+        .unwrap();
+
+    let status = store
+        .cached_instance_status(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(status.health_status, HealthStatus::Disconnected);
+    assert_eq!(status.connection_attempts, 0);
+    assert_eq!(status.lifecycle_state.restart_attempts, 0);
+    assert_eq!(status.current_error, None);
+    assert_eq!(status.next_retry_time, None);
+    assert_eq!(status.hard_deadline, None);
+    assert_eq!(
+        store.auth_status(instance_id).await,
+        crate::auth::AuthStatus::ScopeUpgradeRequired
+    );
+    assert_eq!(
+        store
+            .auth_status_view(instance_id)
+            .await
+            .unwrap()
+            .required_scope
+            .as_deref(),
+        Some("resources.read tools.call")
     );
     assert_eq!(
         store.find_instance(instance_id).await.unwrap().status,
@@ -6887,4 +6981,66 @@ mod scoped_contract {
 
         std::fs::remove_file(path).ok();
     }
+}
+
+#[tokio::test]
+async fn first_oauth_connection_returns_auth_required_without_network_retry() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&requests);
+    let server = tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            observed.fetch_add(1, Ordering::SeqCst);
+            let body = br#"{\"error\":\"unexpected network request\"}"#;
+            let response = format!(
+                "HTTP/1.1 500 Internal Server Error\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.write_all(body).await;
+        }
+    });
+
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-first-oauth-auth-required".to_string()),
+    })
+    .unwrap();
+    let mut config = oauth_http_config();
+    config.url = Some(format!("http://{addr}/mcp"));
+    store.add_service("protected", config).await.unwrap();
+    let instance_id = store_instance_id("protected");
+
+    let error = store.connect_service(instance_id).await.unwrap_err();
+    let StoreError::Transport(crate::transport::TransportError::AuthRequired(required)) = error
+    else {
+        panic!("expected structured auth_required transport error");
+    };
+    assert_eq!(required.instance_id, instance_id);
+    assert_eq!(required.flow, crate::auth::AuthFlow::AuthorizationCode);
+    assert_eq!(required.scopes, vec!["tools.read"]);
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+
+    let status = store
+        .cached_instance_status(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(status.health_status, HealthStatus::Disconnected);
+    assert_eq!(status.connection_attempts, 0);
+    assert_eq!(status.lifecycle_state.restart_attempts, 0);
+    assert_eq!(status.current_error, None);
+    assert_eq!(
+        store.auth_status(instance_id).await,
+        crate::auth::AuthStatus::Unauthenticated
+    );
+
+    server.abort();
+    std::fs::remove_file(path).ok();
 }

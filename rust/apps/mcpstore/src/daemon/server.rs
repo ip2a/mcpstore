@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
-use mcpstore::{InstanceId, MCPStore, ScopeRef};
+use mcpstore::{AuthFlow, InstanceId, MCPStore, ScopeRef};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -140,6 +140,15 @@ async fn dispatch(
         "call_tool" => handle_call_tool(&store, req.params).await,
         "check_service" => handle_check_service(&store, req.params).await,
         "wait_service" => handle_wait_service(&store, req.params).await,
+        "auth_status" => handle_auth_status(&store, req.params).await,
+        "auth_callback_uri" => handle_auth_callback_uri(&store, req.params).await,
+        "auth_begin" => handle_auth_begin(&store, req.params).await,
+        "auth_callback" => handle_auth_callback(&store, req.params).await,
+        "auth_refresh" => handle_auth_refresh(&store, req.params).await,
+        "auth_logout" => handle_auth_logout(&store, req.params).await,
+        "auth_scope_upgrade" => handle_auth_scope_upgrade(&store, req.params).await,
+        "auth_save_client_secret" => handle_auth_save_client_secret(&store, req.params).await,
+        "auth_save_private_key" => handle_auth_save_private_key(&store, req.params).await,
         "list_agents" => handle_list_agents(&store, req.params).await,
         "show_config" => handle_show_config(&store, req.params).await,
         "reset_config" => handle_reset_config(&store, req.params).await,
@@ -398,6 +407,183 @@ async fn handle_wait_service(store: &MCPStore, params: Value) -> DaemonResponse 
         }))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
+}
+
+async fn handle_auth_status(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.auth_status_view(instance_id).await {
+        Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_auth_callback_uri(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.authorization_callback_uri(instance_id).await {
+        Ok(callback_uri) => DaemonResponse::ok(Some(json!({"callback_uri": callback_uri}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_auth_begin(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    let auth = match store.auth_status_view(instance_id).await {
+        Ok(auth) => auth,
+        Err(error) => return DaemonResponse::err(error.to_string()),
+    };
+    match auth.flow {
+        Some(AuthFlow::AuthorizationCode) => match store.begin_authorization(instance_id).await {
+            Ok(authorization) => match store.auth_status_view(instance_id).await {
+                Ok(auth) => DaemonResponse::ok(Some(json!({
+                    "auth": auth,
+                    "authorization": authorization,
+                }))),
+                Err(error) => DaemonResponse::err(error.to_string()),
+            },
+            Err(error) => DaemonResponse::err(error.to_string()),
+        },
+        Some(AuthFlow::ClientCredentials) => {
+            if let Err(error) = store.refresh_authorization(instance_id).await {
+                return DaemonResponse::err(error.to_string());
+            }
+            if let Err(error) = reconnect_authorized_service(store, instance_id).await {
+                return DaemonResponse::err(error.to_string());
+            }
+            match store.auth_status_view(instance_id).await {
+                Ok(auth) => DaemonResponse::ok(Some(json!({
+                    "auth": auth,
+                    "authorization": null,
+                }))),
+                Err(error) => DaemonResponse::err(error.to_string()),
+            }
+        }
+        None => DaemonResponse::err("Authentication is not configured for this instance"),
+    }
+}
+
+async fn handle_auth_callback(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    let code = get_str(&params, "code");
+    let state = get_str(&params, "state");
+    if code.is_empty() || state.is_empty() {
+        return DaemonResponse::err("OAuth callback requires code and state");
+    }
+    let issuer = params.get("issuer").and_then(Value::as_str);
+    if let Err(error) = store
+        .complete_authorization_callback(instance_id, &code, &state, issuer)
+        .await
+    {
+        return DaemonResponse::err(error.to_string());
+    }
+    if let Err(error) = reconnect_authorized_service(store, instance_id).await {
+        return DaemonResponse::err(error.to_string());
+    }
+    match store.auth_status_view(instance_id).await {
+        Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_auth_refresh(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    if let Err(error) = store.refresh_authorization(instance_id).await {
+        return DaemonResponse::err(error.to_string());
+    }
+    if let Err(error) = reconnect_authorized_service(store, instance_id).await {
+        return DaemonResponse::err(error.to_string());
+    }
+    match store.auth_status_view(instance_id).await {
+        Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_auth_logout(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    if let Err(error) = store.logout_authorization(instance_id).await {
+        return DaemonResponse::err(error.to_string());
+    }
+    match store.auth_status_view(instance_id).await {
+        Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_auth_scope_upgrade(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    let required_scope = get_str(&params, "required_scope");
+    if required_scope.trim().is_empty() {
+        return DaemonResponse::err("Scope upgrade requires required_scope");
+    }
+    match store
+        .begin_scope_upgrade(instance_id, required_scope.trim())
+        .await
+    {
+        Ok(authorization) => match store.auth_status_view(instance_id).await {
+            Ok(auth) => DaemonResponse::ok(Some(json!({
+                "auth": auth,
+                "authorization": authorization,
+            }))),
+            Err(error) => DaemonResponse::err(error.to_string()),
+        },
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_auth_save_client_secret(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    let secret = get_str(&params, "client_secret");
+    match store.save_oauth_client_secret(instance_id, secret).await {
+        Ok(()) => DaemonResponse::ok(Some(json!({"stored": true}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_auth_save_private_key(store: &MCPStore, params: Value) -> DaemonResponse {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    let private_key = get_str(&params, "private_key_pem");
+    match store
+        .save_oauth_private_key(instance_id, private_key.into_bytes())
+        .await
+    {
+        Ok(()) => DaemonResponse::ok(Some(json!({"stored": true}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn reconnect_authorized_service(
+    store: &MCPStore,
+    instance_id: InstanceId,
+) -> mcpstore::Result<()> {
+    store.disconnect_service(instance_id).await.ok();
+    store.connect_service(instance_id).await
 }
 
 async fn handle_list_agents(store: &MCPStore, _params: Value) -> DaemonResponse {

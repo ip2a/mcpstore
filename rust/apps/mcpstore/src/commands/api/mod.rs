@@ -9,7 +9,7 @@ use clap::Args;
 use mcpstore::{
     config::{ConfigError, ScopeDescriptor},
     config_formats::ConfigFormat,
-    AppConfig, CreateSessionRequest, InstanceId, MCPStore, OpenApiBundleOptions,
+    AppConfig, AuthFlow, CreateSessionRequest, InstanceId, MCPStore, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, SessionScope,
     ToolTransformPatch,
 };
@@ -81,6 +81,34 @@ struct SessionFindQuery {
 struct ShowConfigQuery {
     format: Option<String>,
     instance_id: Option<InstanceId>,
+}
+
+#[derive(Deserialize)]
+struct AuthCallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    #[serde(rename = "iss")]
+    issuer: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AuthCallbackRequest {
+    callback_url: String,
+}
+
+#[derive(Deserialize)]
+struct AuthClientSecretRequest {
+    client_secret: String,
+}
+
+#[derive(Deserialize)]
+struct AuthPrivateKeyRequest {
+    private_key_pem: String,
+}
+
+#[derive(Deserialize)]
+struct AuthScopeUpgradeRequest {
+    required_scope: String,
 }
 
 #[derive(Deserialize)]
@@ -288,6 +316,32 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route(
             "/instances/:instance_id/connect",
             post(store_connect_service),
+        )
+        .route("/instances/:instance_id/auth", get(store_auth_status))
+        .route("/instances/:instance_id/auth/start", post(store_auth_start))
+        .route(
+            "/instances/:instance_id/auth/callback",
+            get(store_auth_callback_get).post(store_auth_callback_post),
+        )
+        .route(
+            "/instances/:instance_id/auth/refresh",
+            post(store_auth_refresh),
+        )
+        .route(
+            "/instances/:instance_id/auth/logout",
+            post(store_auth_logout),
+        )
+        .route(
+            "/instances/:instance_id/auth/client-secret",
+            post(store_auth_save_client_secret),
+        )
+        .route(
+            "/instances/:instance_id/auth/private-key",
+            post(store_auth_save_private_key),
+        )
+        .route(
+            "/instances/:instance_id/auth/scope-upgrade",
+            post(store_auth_scope_upgrade),
         )
         .route(
             "/instances/:instance_id/disconnect",
@@ -1151,6 +1205,215 @@ fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
         .map_err(ApiError::from_store)
 }
 
+async fn store_auth_status(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+) -> ApiResult {
+    let auth = state
+        .store
+        .auth_status_view(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("认证状态获取成功", json!({ "auth": auth })))
+}
+
+async fn store_auth_start(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+) -> ApiResult {
+    let auth = state
+        .store
+        .auth_status_view(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    match auth.flow {
+        Some(AuthFlow::AuthorizationCode) => {
+            let authorization = state
+                .store
+                .begin_authorization(instance_id)
+                .await
+                .map_err(ApiError::from_store)?;
+            let auth = state
+                .store
+                .auth_status_view(instance_id)
+                .await
+                .map_err(ApiError::from_store)?;
+            Ok(success(
+                "授权已开始",
+                json!({ "auth": auth, "authorization": authorization }),
+            ))
+        }
+        Some(AuthFlow::ClientCredentials) => {
+            state
+                .store
+                .refresh_authorization(instance_id)
+                .await
+                .map_err(ApiError::from_store)?;
+            reconnect_authorized_service(&state, instance_id).await?;
+            let auth = state
+                .store
+                .auth_status_view(instance_id)
+                .await
+                .map_err(ApiError::from_store)?;
+            Ok(success(
+                "客户端凭证授权成功",
+                json!({ "auth": auth, "authorization": null }),
+            ))
+        }
+        None => Err(ApiError::from_store(mcpstore::StoreError::Auth(
+            mcpstore::AuthError::UnsupportedFlow,
+        ))),
+    }
+}
+
+async fn store_auth_callback_get(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Query(query): Query<AuthCallbackQuery>,
+) -> ApiResult {
+    let code = query
+        .code
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::missing_parameter("code"))?;
+    let csrf_state = query
+        .state
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::missing_parameter("state"))?;
+    state
+        .store
+        .complete_authorization_callback(instance_id, code, csrf_state, query.issuer.as_deref())
+        .await
+        .map_err(ApiError::from_store)?;
+    reconnect_authorized_service(&state, instance_id).await?;
+    let auth = state
+        .store
+        .auth_status_view(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("授权回调处理成功", json!({ "auth": auth })))
+}
+
+async fn store_auth_callback_post(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<AuthCallbackRequest>,
+) -> ApiResult {
+    if payload.callback_url.trim().is_empty() {
+        return Err(ApiError::invalid_parameter(
+            "callback_url 不能为空",
+            Some("callback_url"),
+        ));
+    }
+    state
+        .store
+        .complete_authorization(instance_id, &payload.callback_url)
+        .await
+        .map_err(ApiError::from_store)?;
+    reconnect_authorized_service(&state, instance_id).await?;
+    let auth = state
+        .store
+        .auth_status_view(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("授权回调处理成功", json!({ "auth": auth })))
+}
+
+async fn store_auth_refresh(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+) -> ApiResult {
+    state
+        .store
+        .refresh_authorization(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    reconnect_authorized_service(&state, instance_id).await?;
+    let auth = state
+        .store
+        .auth_status_view(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("授权刷新成功", json!({ "auth": auth })))
+}
+
+async fn store_auth_logout(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+) -> ApiResult {
+    state
+        .store
+        .logout_authorization(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    let auth = state
+        .store
+        .auth_status_view(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("授权已退出", json!({ "auth": auth })))
+}
+
+async fn store_auth_save_client_secret(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<AuthClientSecretRequest>,
+) -> ApiResult {
+    state
+        .store
+        .save_oauth_client_secret(instance_id, payload.client_secret)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("客户端密钥已安全保存", json!({ "stored": true })))
+}
+
+async fn store_auth_save_private_key(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<AuthPrivateKeyRequest>,
+) -> ApiResult {
+    state
+        .store
+        .save_oauth_private_key(instance_id, payload.private_key_pem.into_bytes())
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("私钥已安全保存", json!({ "stored": true })))
+}
+
+async fn store_auth_scope_upgrade(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<AuthScopeUpgradeRequest>,
+) -> ApiResult {
+    let authorization = state
+        .store
+        .begin_scope_upgrade(instance_id, &payload.required_scope)
+        .await
+        .map_err(ApiError::from_store)?;
+    let auth = state
+        .store
+        .auth_status_view(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "权限范围升级授权已开始",
+        json!({ "auth": auth, "authorization": authorization }),
+    ))
+}
+
+async fn reconnect_authorized_service(
+    state: &Arc<ApiState>,
+    instance_id: InstanceId,
+) -> Result<(), ApiError> {
+    state.store.disconnect_service(instance_id).await.ok();
+    state
+        .store
+        .connect_service(instance_id)
+        .await
+        .map_err(ApiError::from_store)
+}
+
 async fn store_connect_service(
     State(state): State<Arc<ApiState>>,
     Path(instance_id): Path<InstanceId>,
@@ -1940,6 +2203,99 @@ mod tests {
             axum::serve(listener, app).await.unwrap();
         });
         (addr, handle, state)
+    }
+
+    #[tokio::test]
+    async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(unique_namespace()),
+        })
+        .unwrap();
+        let config = ServerConfig {
+            url: Some("http://127.0.0.1:9/mcp".to_string()),
+            auth: serde_json::from_value(json!({
+                "type": "oauth_authorization_code",
+                "client_id": "api-client",
+                "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+                "scopes": ["tools.read"]
+            }))
+            .unwrap(),
+            transport: Some("streamable-http".to_string()),
+            ..ServerConfig::default()
+        };
+        seed_db_service_config(&store, config).await;
+        store.load_from_source().await.unwrap();
+        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+
+        let status = client
+            .get(format!("{base_url}/instances/{instance_id}/auth"))
+            .send()
+            .await
+            .unwrap();
+        let status_code = status.status();
+        let status_body = status.text().await.unwrap();
+        assert!(
+            status_code.is_success(),
+            "status={status_code} body={status_body}"
+        );
+        let status_payload = serde_json::from_str::<Value>(&status_body).unwrap();
+        assert_eq!(status_payload["data"]["auth"]["status"], "unauthenticated");
+        assert_eq!(status_payload["data"]["auth"]["flow"], "authorization_code");
+        assert_eq!(
+            status_payload["data"]["auth"]["scopes"],
+            json!(["tools.read"])
+        );
+
+        let callback = client
+            .get(format!("{base_url}/instances/{instance_id}/auth/callback"))
+            .query(&[
+                ("code", "sensitive-code"),
+                ("state", "sensitive-state"),
+                ("iss", "https://issuer.example"),
+            ])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(callback.status(), axum::http::StatusCode::BAD_REQUEST);
+        let callback_body = callback.text().await.unwrap();
+        assert!(callback_body.contains("AUTH_CALLBACK_REJECTED"));
+        assert!(!callback_body.contains("sensitive-code"));
+        assert!(!callback_body.contains("sensitive-state"));
+
+        let empty_secret = client
+            .post(format!(
+                "{base_url}/instances/{instance_id}/auth/client-secret"
+            ))
+            .json(&json!({"client_secret": ""}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(empty_secret.status(), axum::http::StatusCode::BAD_REQUEST);
+        let secret_body = empty_secret.text().await.unwrap();
+        assert!(secret_body.contains("AUTH_CONFIG_INVALID"));
+        assert!(!secret_body.contains("client_secret"));
+
+        let empty_key = client
+            .post(format!(
+                "{base_url}/instances/{instance_id}/auth/private-key"
+            ))
+            .json(&json!({"private_key_pem": ""}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(empty_key.status(), axum::http::StatusCode::BAD_REQUEST);
+        let key_body = empty_key.text().await.unwrap();
+        assert!(key_body.contains("AUTH_CONFIG_INVALID"));
+        assert!(!key_body.contains("private_key_pem"));
+
+        handle.abort();
     }
 
     #[tokio::test]

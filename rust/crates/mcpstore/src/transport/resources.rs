@@ -6,10 +6,16 @@ use crate::transport::{DiscoveredResource, DiscoveredResourceTemplate, Result, T
 impl McpConnection {
     pub async fn list_resources(&self) -> Result<Vec<DiscoveredResource>> {
         let client = self.get_client()?;
-        let resources = client
-            .list_all_resources()
-            .await
-            .map_err(|err| TransportError::Protocol(format!("list_resources failed: {err}")))?;
+        let resources = match client.list_all_resources().await {
+            Ok(resources) => resources,
+            Err(error) => {
+                return Err(self
+                    .classify_client_failure(TransportError::Protocol(format!(
+                        "list_resources failed: {error}"
+                    )))
+                    .await);
+            }
+        };
 
         resources
             .into_iter()
@@ -25,9 +31,16 @@ impl McpConnection {
 
     pub async fn list_resource_templates(&self) -> Result<Vec<DiscoveredResourceTemplate>> {
         let client = self.get_client()?;
-        let templates = client.list_all_resource_templates().await.map_err(|err| {
-            TransportError::Protocol(format!("list_resource_templates failed: {err}"))
-        })?;
+        let templates = match client.list_all_resource_templates().await {
+            Ok(templates) => templates,
+            Err(error) => {
+                return Err(self
+                    .classify_client_failure(TransportError::Protocol(format!(
+                        "list_resource_templates failed: {error}"
+                    )))
+                    .await);
+            }
+        };
 
         templates
             .into_iter()
@@ -45,10 +58,19 @@ impl McpConnection {
 
     pub async fn read_resource(&self, uri: &str) -> Result<serde_json::Value> {
         let client = self.get_client()?;
-        let result = client
+        let result = match client
             .read_resource(ReadResourceRequestParams::new(uri))
             .await
-            .map_err(|err| TransportError::Protocol(format!("read_resource failed: {err}")))?;
+        {
+            Ok(result) => result,
+            Err(error) => {
+                return Err(self
+                    .classify_client_failure(TransportError::Protocol(format!(
+                        "read_resource failed: {error}"
+                    )))
+                    .await);
+            }
+        };
 
         serde_json::to_value(result).map_err(|err| {
             TransportError::Protocol(format!("resource read serialization failed: {err}"))

@@ -177,6 +177,8 @@ pub struct OAuthClientCredentialsConfig {
     pub credential_profile: Option<String>,
     #[serde(default)]
     pub client_auth_method: ClientCredentialsAuthMethod,
+    #[serde(default)]
+    pub jwt_signing_algorithm: JwtSigningAlgorithm,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -185,4 +187,15 @@ pub enum ClientCredentialsAuthMethod {
     #[default]
     ClientSecretPost,
     PrivateKeyJwt,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JwtSigningAlgorithm {
+    #[default]
+    Rs256,
+    Rs384,
+    Rs512,
+    Es256,
+    Es384,
 }

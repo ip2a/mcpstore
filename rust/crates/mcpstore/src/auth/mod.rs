@@ -9,14 +9,21 @@ mod state;
 
 pub use config::{
     AuthConfig, AuthorizationCodeClientAuthMethod, ClientCredentialsAuthMethod,
-    OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
+    JwtSigningAlgorithm, OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
 pub use coordinator::AuthCoordinator;
-pub use credentials::{ClientSecret, KeyringClientSecretStore, KeyringCredentialStore};
+pub use credentials::{
+    ClientSecret, KeyringClientSecretStore, KeyringCredentialStore, KeyringPrivateKeyStore,
+    PrivateKey,
+};
 pub use key::AuthCredentialKey;
 pub(crate) use keyring::SystemKeyring;
-pub use models::{AuthError, AuthFlow, AuthRequired, AuthStatus};
+pub use models::{
+    AuthError, AuthFlow, AuthRequired, AuthStatus, AuthStatusView, AuthorizationStart,
+};
 pub use state::KeyringStateStore;
 
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;

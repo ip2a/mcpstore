@@ -7,10 +7,16 @@ use crate::transport::{DiscoveredTool, Result, ToolCallResult, TransportError};
 impl McpConnection {
     pub async fn list_tools(&self) -> Result<Vec<DiscoveredTool>> {
         let client = self.get_client()?;
-        let resp = client
-            .list_tools(None)
-            .await
-            .map_err(|err| TransportError::Protocol(format!("list_tools failed: {err}")))?;
+        let resp = match client.list_tools(None).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(self
+                    .classify_client_failure(TransportError::Protocol(format!(
+                        "list_tools failed: {error}"
+                    )))
+                    .await);
+            }
+        };
 
         let tools = resp
             .tools
@@ -58,10 +64,14 @@ impl McpConnection {
         };
         let param = CallToolRequestParams::new(tool_name.to_string()).with_arguments(args_map);
 
-        let resp = client
-            .call_tool(param)
-            .await
-            .map_err(|err| TransportError::ToolCallFailed(format!("{err}")))?;
+        let resp = match client.call_tool(param).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(self
+                    .classify_client_failure(TransportError::ToolCallFailed(error.to_string()))
+                    .await);
+            }
+        };
 
         let content = resp
             .content
