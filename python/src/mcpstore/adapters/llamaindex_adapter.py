@@ -2,20 +2,27 @@ from __future__ import annotations
 
 from typing import Any, List
 
-from .common import build_sync_executor, create_args_schema, enhance_description, tool_name
+from .common import (
+    build_sync_executor,
+    create_args_schema,
+    enhance_description,
+    tool_instance_id,
+    tool_name,
+)
 
 
 class LlamaIndexAdapter:
     """Adapter from MCPStore tools to LlamaIndex FunctionTool objects."""
 
-    def __init__(self, context: Any):
+    def __init__(self, context: Any, instance_id: str):
         self._context = context
+        self._instance_id = instance_id
 
     def list_tools(self) -> List[object]:
-        return self._build_tools(self._context.list_tools())
+        return self._build_tools(self._context.list_tools(self._instance_id))
 
     async def list_tools_async(self) -> List[object]:
-        return self._build_tools(await self._context.list_tools_async())
+        return self._build_tools(await self._context.list_tools_async(self._instance_id))
 
     def _build_tools(self, mcp_tools: List[Any]) -> List[object]:
         try:
@@ -29,7 +36,12 @@ class LlamaIndexAdapter:
         for tool_info in mcp_tools:
             name = tool_name(tool_info)
             args_schema = create_args_schema(tool_info)
-            sync_fn = build_sync_executor(self._context, name, args_schema)
+            sync_fn = build_sync_executor(
+                self._context,
+                tool_instance_id(tool_info),
+                name,
+                args_schema,
+            )
             tools.append(
                 FunctionTool.from_defaults(
                     fn=sync_fn,

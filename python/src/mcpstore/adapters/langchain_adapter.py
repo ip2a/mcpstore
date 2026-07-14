@@ -1,11 +1,11 @@
 # src/mcpstore/adapters/langchain_adapter.py
-from __future__ import annotations
-
 """
 LangChain 适配器模块
 
 将 MCPStore 工具转换为 LangChain 工具格式，支持同步和异步执行。
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -14,26 +14,25 @@ from typing import Any, Type, List
 
 from pydantic import BaseModel
 
-try:
-    from langchain_core.tools import Tool, StructuredTool
-except ImportError as e:
-    _LANGCHAIN_IMPORT_ERROR = e
-else:
-    _LANGCHAIN_IMPORT_ERROR = None
-
 # 导入公共函数
 from .common import (
     build_tool_error_payload,
     call_tool_response_helper,
     create_args_schema,
     enhance_description,
-    get_tool_override,
     process_tool_args,
-    service_name,
-    service_status_value,
+    tool_instance_id,
     tool_name,
-    tool_service_name,
 )
+
+_LANGCHAIN_IMPORT_ERROR: ImportError | None
+
+try:
+    from langchain_core.tools import Tool, StructuredTool
+except ImportError as e:
+    _LANGCHAIN_IMPORT_ERROR = e
+else:
+    _LANGCHAIN_IMPORT_ERROR = None
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +51,10 @@ class LangChainAdapter:
     将 mcpstore 的原生对象转换为 LangChain 可直接使用的对象。
     """
 
-    def __init__(self, context: Any, response_format: str = "text"):
+    def __init__(self, context: Any, instance_id: str, response_format: str = "text"):
         _require_langchain()
         self._context = context
+        self._instance_id = instance_id
         # 工具输出格式偏好
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
 
@@ -122,7 +122,12 @@ class LangChainAdapter:
             }
         return json.dumps(payload, ensure_ascii=False)
 
-    def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
+    def _create_tool_function(
+        self,
+        instance_id: str,
+        tool_name: str,
+        args_schema: Type[BaseModel],
+    ):
         """
         创建健壮的同步执行函数，智能处理各种参数传递方式。
         """
@@ -135,7 +140,7 @@ class LangChainAdapter:
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
                 # 调用 mcpstore 核心方法
-                result = adapter_self._context.call_tool(tool_name, tool_input)
+                result = adapter_self._context.call_tool(instance_id, tool_name, tool_input)
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
@@ -173,7 +178,12 @@ class LangChainAdapter:
 
         return _tool_executor
 
-    def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
+    def _create_tool_coroutine(
+        self,
+        instance_id: str,
+        tool_name: str,
+        args_schema: Type[BaseModel],
+    ):
         """
         创建健壮的异步执行函数，智能处理各种参数传递方式。
         """
@@ -186,7 +196,11 @@ class LangChainAdapter:
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
                 # 调用 mcpstore 核心方法（异步版本）
-                result = await adapter_self._context.call_tool_async(tool_name, tool_input)
+                result = await adapter_self._context.call_tool_async(
+                    instance_id,
+                    tool_name,
+                    tool_input,
+                )
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
@@ -226,7 +240,7 @@ class LangChainAdapter:
 
     def list_tools(self) -> List[Tool]:
         """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
-        return self._build_langchain_tools(self._context.list_tools())
+        return self._build_langchain_tools(self._context.list_tools(self._instance_id))
 
     async def list_tools_async(self) -> List[Tool]:
         """
@@ -235,34 +249,14 @@ class LangChainAdapter:
         Raises:
             RuntimeError: 如果没有可用工具（所有服务连接失败）
         """
-        mcp_tools_info = await self._context.list_tools_async()
+        mcp_tools_info = await self._context.list_tools_async(self._instance_id)
 
         # 检查工具是否为空，提供友好的错误信息
         if not mcp_tools_info:
             logger.warning("[LIST_TOOLS] empty=True")
-            services = await self._context.list_services_async()
-            if not services:
-                raise RuntimeError(
-                    "No available tools: No MCP services have been added. "
-                    "Please add services using add_service() first."
-                )
-            else:
-                failed_services = [
-                    service_name(s)
-                    for s in services
-                    if service_status_value(s) != "healthy"
-                ]
-                if failed_services:
-                    raise RuntimeError(
-                        f"No available tools: The following services failed to connect: {', '.join(failed_services)}. "
-                        f"Please check service configuration and dependencies, or use wait_service() to wait for services to be ready. "
-                        f"\nTip: You can use list_services() to view detailed service status."
-                    )
-                else:
-                    raise RuntimeError(
-                        "No available tools: Services are connected but provide no tools. "
-                        "Please check if services are working properly."
-                    )
+            raise RuntimeError(
+                f"Instance {self._instance_id!r} exposes no available tools"
+            )
 
         return self._build_langchain_tools(mcp_tools_info)
 
@@ -273,20 +267,11 @@ class LangChainAdapter:
             enhanced_description = enhance_description(tool_info)
             args_schema = create_args_schema(tool_info)
             name = tool_name(tool_info)
-            service = tool_service_name(tool_info)
+            instance_id = tool_instance_id(tool_info)
 
             # 创建同步和异步函数
-            sync_func = self._create_tool_function(name, args_schema)
-            async_coroutine = self._create_tool_coroutine(name, args_schema)
-
-            # 读取工具覆盖配置（如 return_direct）
-            return_direct_flag = get_tool_override(
-                self._context,
-                service,
-                name,
-                "return_direct",
-                False,
-            )
+            sync_func = self._create_tool_function(instance_id, name, args_schema)
+            async_coroutine = self._create_tool_coroutine(instance_id, name, args_schema)
 
             # 创建 LangChain StructuredTool
             lc_tool = StructuredTool(
@@ -297,12 +282,6 @@ class LangChainAdapter:
                 args_schema=args_schema,
             )
 
-            # 设置 return_direct
-            try:
-                setattr(lc_tool, 'return_direct', bool(return_direct_flag))
-            except Exception:
-                pass
-
             langchain_tools.append(lc_tool)
 
         return langchain_tools
@@ -311,18 +290,29 @@ class LangChainAdapter:
 class SessionAwareLangChainAdapter(LangChainAdapter):
     """LangChain adapter that executes tools through a Rust-backed session."""
 
-    def __init__(self, context: Any, session: Any, response_format: str = "text"):
-        super().__init__(context, response_format=response_format)
+    def __init__(
+        self,
+        context: Any,
+        session: Any,
+        instance_id: str,
+        response_format: str = "text",
+    ):
+        super().__init__(context, instance_id, response_format=response_format)
         self._session = session
 
-    def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
+    def _create_tool_function(
+        self,
+        instance_id: str,
+        tool_name: str,
+        args_schema: Type[BaseModel],
+    ):
         adapter_self = self
 
         def _tool_executor(*args, **kwargs):
             tool_input = {}
             try:
                 tool_input = process_tool_args(args_schema, args, kwargs)
-                result = adapter_self._session.use_tool(tool_name, tool_input)
+                result = adapter_self._session.call_tool(instance_id, tool_name, tool_input)
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
@@ -359,14 +349,23 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
         return _tool_executor
 
-    def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
+    def _create_tool_coroutine(
+        self,
+        instance_id: str,
+        tool_name: str,
+        args_schema: Type[BaseModel],
+    ):
         adapter_self = self
 
         async def _tool_executor(*args, **kwargs):
             tool_input = {}
             try:
                 tool_input = process_tool_args(args_schema, args, kwargs)
-                result = await adapter_self._session.use_tool_async(tool_name, tool_input)
+                result = await adapter_self._session.call_tool_async(
+                    instance_id,
+                    tool_name,
+                    tool_input,
+                )
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
@@ -404,7 +403,17 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         return _tool_executor
 
     def list_tools(self) -> List[Tool]:
-        return self._build_langchain_tools(self._session.list_tools())
+        tools = [
+            tool
+            for tool in self._session.list_tools()
+            if tool_instance_id(tool) == self._instance_id
+        ]
+        return self._build_langchain_tools(tools)
 
     async def list_tools_async(self) -> List[Tool]:
-        return self._build_langchain_tools(await self._session.list_tools_async())
+        tools = [
+            tool
+            for tool in await self._session.list_tools_async()
+            if tool_instance_id(tool) == self._instance_id
+        ]
+        return self._build_langchain_tools(tools)

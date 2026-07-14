@@ -101,8 +101,22 @@ class StoreSetupManager:
             only_db=resolved_only_db,
         )
         if static_config:
-            store.add_service(static_config)
+            StoreSetupManager._add_static_config(store, static_config)
         return store
+
+    @staticmethod
+    def _add_static_config(store: Any, static_config: Dict[str, Any]) -> None:
+        services = static_config.get("mcpServers")
+        if not isinstance(services, dict):
+            raise ValueError("static_config must contain an 'mcpServers' object")
+        for service_name, config in services.items():
+            if not isinstance(service_name, str) or not service_name:
+                raise ValueError("static_config service names must be non-empty strings")
+            if not isinstance(config, dict):
+                raise ValueError(
+                    f"static_config service {service_name!r} must be an object"
+                )
+            store.add_service(service_name, config)
 
     @staticmethod
     def _apply_setup_aliases(

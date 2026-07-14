@@ -1,13 +1,8 @@
-"""Rust-backed API response helpers.
-
-These helpers preserve the public FastAPI example surface while the store
-operations themselves remain delegated to the Rust/PyO3 core.
-"""
+"""Public models for the Rust-backed MCPStore Python API."""
 
 from __future__ import annotations
 
 import functools
-import hashlib
 import inspect
 import time
 import uuid
@@ -15,9 +10,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from math import ceil
-from typing import Any, Callable, Dict, Generic, List, Optional, Set, TypeVar, Union
+from typing import Annotated, Any, Callable, Dict, Generic, List, Literal, Optional, Set, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 T = TypeVar("T")
@@ -42,6 +37,29 @@ class ServiceConnectionState(str, Enum):
     DISCONNECTED = "disconnected"
 
 
+class StoreScope(BaseModel):
+    type: Literal["store"] = "store"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentScope(BaseModel):
+    type: Literal["agent"] = "agent"
+    agent_id: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+ScopeRef = Annotated[Union[StoreScope, AgentScope], Field(discriminator="type")]
+
+
+class ScopeDescriptor(BaseModel):
+    config: Dict[str, Any] = Field(default_factory=dict)
+    lifecycle: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class ServiceStateMetadata(BaseModel):
     consecutive_failures: int = 0
     consecutive_successes: int = 0
@@ -56,8 +74,9 @@ class ServiceStateMetadata(BaseModel):
     state_entered_time: Optional[datetime] = None
     disconnect_reason: Optional[str] = None
     service_config: Dict[str, Any] = Field(default_factory=dict)
-    service_name: Optional[str] = None
-    agent_id: Optional[str] = None
+    instance_id: str
+    service_name: str
+    scope: ScopeRef
     last_health_check: Optional[datetime] = None
     last_response_time: Optional[float] = None
     tool_sync_attempts: int = 0
@@ -72,8 +91,10 @@ class ServiceStateMetadata(BaseModel):
 
 
 class ServiceInfo(BaseModel):
+    instance_id: str
+    service_name: str
+    scope: ScopeRef
     url: str = ""
-    name: str
     transport_type: TransportType
     status: ServiceConnectionState
     tool_count: int
@@ -86,27 +107,26 @@ class ServiceInfo(BaseModel):
     package_name: Optional[str] = None
     state_metadata: Optional[ServiceStateMetadata] = None
     last_state_change: Optional[datetime] = None
-    client_id: Optional[str] = None
-    config: Dict[str, Any] = Field(default_factory=dict)
+    effective_config: Dict[str, Any] = Field(default_factory=dict)
+    config_revision: Optional[Dict[str, int]] = None
+    applied_config_revision: Optional[Dict[str, int]] = None
+    restart_required: bool = False
 
 
 class ToolInfo(BaseModel):
+    instance_id: str
+    service_name: Optional[str] = None
+    scope: Optional[ScopeRef] = None
     name: str
-    tool_original_name: str
-    service_original_name: str
-    service_global_name: str
-    service_name: str
     description: str
-    client_id: Optional[str] = None
-    inputSchema: Optional[Dict[str, Any]] = None
+    input_schema: Optional[Dict[str, Any]] = None
+    output_schema: Optional[Dict[str, Any]] = None
 
 
 class ToolExecutionRequest(BaseModel):
+    instance_id: str
     tool_name: str
-    service_name: str
     args: Dict[str, Any] = Field(default_factory=dict)
-    agent_id: Optional[str] = None
-    client_id: Optional[str] = None
     session_id: Optional[str] = None
     timeout: Optional[float] = None
     progress_handler: Optional[Any] = None
@@ -132,6 +152,7 @@ class RegistrationResponse(BaseModel):
     success: bool
     message: str
     service_name: Optional[str] = None
+    instance_id: Optional[str] = None
 
 
 class ExecutionResponse(BaseModel):
@@ -169,24 +190,6 @@ class ServicesResponse(BaseModel):
     message: Optional[str] = None
 
 
-class RegisterRequestUnion(BaseModel):
-    url: Optional[str] = None
-    name: Optional[str] = None
-    transport: Optional[str] = None
-    keep_alive: Optional[bool] = None
-    working_dir: Optional[str] = None
-    env: Optional[Dict[str, str]] = None
-    command: Optional[str] = None
-    args: Optional[List[str]] = None
-    package_name: Optional[str] = None
-
-
-class JsonUpdateRequest(BaseModel):
-    client_id: Optional[str] = None
-    service_names: Optional[List[str]] = None
-    config: Dict[str, Any]
-
-
 class ServiceConfig(BaseModel):
     name: str
 
@@ -212,8 +215,53 @@ ServiceConfigUnion = Union[URLServiceConfig, CommandServiceConfig, MCPServerConf
 
 
 class AddServiceRequest(BaseModel):
-    config: ServiceConfigUnion
-    update_config: bool = True
+    config: Dict[str, Any]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpdateServiceRequest(BaseModel):
+    config: Dict[str, Any]
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("config")
+    @classmethod
+    def reject_scope_configuration(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        if "_mcpstore" in value:
+            raise ValueError(
+                "update_service only accepts base MCP fields; use scope endpoints for scope changes"
+            )
+        return value
+
+
+class PatchServiceRequest(BaseModel):
+    updates: Dict[str, Any]
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("updates")
+    @classmethod
+    def reject_scope_configuration(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        if "_mcpstore" in value:
+            raise ValueError(
+                "patch_service only accepts base MCP fields; use scope endpoints for scope changes"
+            )
+        return value
+
+
+class AgentOnlyServiceRequest(BaseModel):
+    config: Dict[str, Any]
+    descriptor: ScopeDescriptor = Field(default_factory=ScopeDescriptor)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("config")
+    @classmethod
+    def reject_embedded_extension(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        if "_mcpstore" in value:
+            raise ValueError("agent-only config must contain base MCP fields only")
+        return value
 
 
 class ToolsResponse(BaseModel):
@@ -221,11 +269,6 @@ class ToolsResponse(BaseModel):
     total_tools: int
     success: bool = True
     message: Optional[str] = None
-
-
-class ClientRegistrationRequest(BaseModel):
-    client_id: Optional[str] = None
-    service_names: Optional[List[str]] = None
 
 
 @dataclass
@@ -240,12 +283,13 @@ class AgentInfo:
 
 @dataclass
 class AgentServiceSummary:
+    instance_id: str
     service_name: str
+    scope: ScopeRef
     service_type: str
     status: ServiceConnectionState
     tool_count: int
     last_used: Optional[datetime] = None
-    client_id: Optional[str] = None
     response_time: Optional[float] = None
     health_details: Optional[ServiceStateMetadata] = None
 
@@ -276,8 +320,9 @@ class AgentsSummary:
 
 @dataclass
 class ToolSetState:
-    agent_id: str
+    instance_id: str
     service_name: str
+    scope: Dict[str, Any]
     available_tools: Set[str] = field(default_factory=set)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -286,8 +331,9 @@ class ToolSetState:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "agent_id": self.agent_id,
+            "instance_id": self.instance_id,
             "service_name": self.service_name,
+            "scope": self.scope,
             "available_tools": list(self.available_tools),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -298,8 +344,9 @@ class ToolSetState:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ToolSetState":
         return cls(
-            agent_id=data["agent_id"],
+            instance_id=data["instance_id"],
             service_name=data["service_name"],
+            scope=dict(data["scope"]),
             available_tools=set(data.get("available_tools", [])),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
@@ -336,22 +383,14 @@ class CallToolFailureResult:
     _result: Any = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        try:
-            from mcp import types as mcp_types
+        from mcp import types as mcp_types
 
-            text_block = mcp_types.TextContent(type="text", text=self.message)
-            failure = mcp_types.CallToolResult(
-                content=[text_block],
-                structuredContent=None,
-                isError=True,
-            )
-        except ImportError:
-            text_block = {"type": "text", "text": self.message}
-            failure = type(
-                "FallbackCallToolResult",
-                (),
-                {"content": [text_block], "structuredContent": None, "isError": True},
-            )()
+        text_block = mcp_types.TextContent(type="text", text=self.message)
+        failure = mcp_types.CallToolResult(
+            content=[text_block],
+            structuredContent=None,
+            isError=True,
+        )
         setattr(failure, "structured_content", None)
         setattr(failure, "data", None)
         setattr(failure, "error", self.message)
@@ -611,15 +650,13 @@ class MCPStoreException(Exception):
 
 
 class ServiceNotFoundException(MCPStoreException):
-    def __init__(self, service_name: str, agent_id: Optional[str] = None, **kwargs: Any):
-        details = {"service_name": service_name}
-        if agent_id:
-            details["agent_id"] = agent_id
+    def __init__(self, instance_id: str, **kwargs: Any):
+        details = {"instance_id": instance_id}
         details.update(kwargs.pop("details", {}) or {})
         super().__init__(
-            message=f"Service '{service_name}' not found",
+            message=f"Service instance '{instance_id}' not found",
             error_code=ErrorCode.SERVICE_NOT_FOUND,
-            field="service_name",
+            field="instance_id",
             details=details,
             **kwargs,
         )
@@ -650,49 +687,6 @@ class ValidationException(MCPStoreException):
             field=field,
             **kwargs,
         )
-
-
-class ClientIDGenerator:
-    @staticmethod
-    def generate_deterministic_id(
-        agent_id: str,
-        service_name: str,
-        service_config: Dict[str, Any],
-        global_agent_store_id: str,
-    ) -> str:
-        config_str = str(sorted(service_config.items())) if service_config else ""
-        config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
-        if agent_id == global_agent_store_id:
-            return f"client_store_{service_name}_{config_hash}"
-        return f"client_{agent_id}_{service_name}_{config_hash}"
-
-    @staticmethod
-    def parse_client_id(client_id: str) -> Dict[str, Optional[str]]:
-        parts = client_id.split("_")
-        if len(parts) >= 3 and parts[0] == "client":
-            if parts[1] == "store":
-                return {
-                    "type": "store",
-                    "agent_id": None,
-                    "service_name": parts[2],
-                    "config_hash": parts[3] if len(parts) > 3 else "",
-                }
-            return {
-                "type": "agent",
-                "agent_id": parts[1],
-                "service_name": parts[2],
-                "config_hash": parts[3] if len(parts) > 3 else "",
-            }
-        return {
-            "type": "unknown",
-            "agent_id": None,
-            "service_name": None,
-            "config_hash": None,
-        }
-
-    @staticmethod
-    def is_deterministic_format(client_id: str) -> bool:
-        return ClientIDGenerator.parse_client_id(client_id)["type"] in {"store", "agent"}
 
 
 def _attach_elapsed(payload: Any, elapsed_ms: float) -> Any:
