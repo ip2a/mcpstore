@@ -5356,6 +5356,7 @@ mod scoped_contract {
             agents: HashMap::from([
                 ("agent-1".to_string(), ScopeDescriptor::default()),
                 ("agent-2".to_string(), ScopeDescriptor::default()),
+                ("agent-3".to_string(), ScopeDescriptor::default()),
             ]),
         };
         let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
@@ -5367,17 +5368,25 @@ mod scoped_contract {
         let store_id = instance_id("svc", store_scope());
         let agent_1_id = instance_id("svc", agent_scope("agent-1"));
         let agent_2_id = instance_id("svc", agent_scope("agent-2"));
+        let agent_3_id = instance_id("svc", agent_scope("agent-3"));
+        assert_eq!(store.list_instances().await.len(), 4);
         assert_ne!(store_id, agent_1_id);
         assert_ne!(store_id, agent_2_id);
+        assert_ne!(store_id, agent_3_id);
         assert_ne!(agent_1_id, agent_2_id);
+        assert_ne!(agent_1_id, agent_3_id);
+        assert_ne!(agent_2_id, agent_3_id);
 
         let store_instance = store.find_instance(store_id).await.unwrap();
         let agent_1 = store.find_instance(agent_1_id).await.unwrap();
         let agent_2 = store.find_instance(agent_2_id).await.unwrap();
+        let agent_3 = store.find_instance(agent_3_id).await.unwrap();
         assert_eq!(store_instance.effective_config, agent_1.effective_config);
         assert_eq!(store_instance.effective_config, agent_2.effective_config);
+        assert_eq!(store_instance.effective_config, agent_3.effective_config);
         assert_eq!(agent_1.scope, agent_scope("agent-1"));
         assert_eq!(agent_2.scope, agent_scope("agent-2"));
+        assert_eq!(agent_3.scope, agent_scope("agent-3"));
 
         let relation = store
             .cache()
@@ -5620,6 +5629,78 @@ mod scoped_contract {
         assert_eq!(unchanged.base_revision, 2);
         assert!(unchanged.scopes.store.is_some());
         assert!(unchanged.scopes.agents.contains_key("agent-1"));
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
+    async fn base_and_scope_updates_recompute_only_owned_instances() {
+        let path = temp_config_path();
+        let scopes = ScopeDeclarations {
+            store: Some(ScopeDescriptor::default()),
+            agents: HashMap::from([
+                (
+                    "agent-1".to_string(),
+                    descriptor(json!({"env": {"AGENT": "one"}})),
+                ),
+                (
+                    "agent-2".to_string(),
+                    descriptor(json!({"env": {"AGENT": "two"}})),
+                ),
+            ]),
+        };
+        let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
+        let original = native_config(scopes);
+        store.add_service("svc", original.clone()).await.unwrap();
+
+        let store_id = instance_id("svc", store_scope());
+        let agent_1_id = instance_id("svc", agent_scope("agent-1"));
+        let agent_2_id = instance_id("svc", agent_scope("agent-2"));
+
+        let mut updated = original;
+        updated.mcpstore = None;
+        updated.command = Some("changed-command".to_string());
+        updated
+            .env
+            .insert("SHARED".to_string(), "changed-base".to_string());
+        store.update_service("svc", updated).await.unwrap();
+
+        let store_after_base = store.find_instance(store_id).await.unwrap();
+        let agent_1_after_base = store.find_instance(agent_1_id).await.unwrap();
+        let agent_2_after_base = store.find_instance(agent_2_id).await.unwrap();
+        for instance in [&store_after_base, &agent_1_after_base, &agent_2_after_base] {
+            assert_eq!(instance.command.as_deref(), Some("changed-command"));
+            assert_eq!(instance.effective_config["env"]["SHARED"], "changed-base");
+            assert_eq!(instance.config_revision.base_revision, 2);
+            assert_eq!(instance.config_revision.scope_revision, 1);
+        }
+        assert_eq!(agent_1_after_base.effective_config["env"]["AGENT"], "one");
+        assert_eq!(agent_2_after_base.effective_config["env"]["AGENT"], "two");
+
+        store
+            .declare_service_scope(
+                "svc",
+                &agent_scope("agent-1"),
+                descriptor(json!({"env": {"AGENT": "changed-one"}})),
+            )
+            .await
+            .unwrap();
+
+        let agent_1_after_scope = store.find_instance(agent_1_id).await.unwrap();
+        assert_eq!(agent_1_after_scope.config_revision.base_revision, 2);
+        assert_eq!(agent_1_after_scope.config_revision.scope_revision, 2);
+        assert_eq!(
+            agent_1_after_scope.effective_config["env"]["AGENT"],
+            "changed-one"
+        );
+        assert_eq!(
+            store.find_instance(store_id).await.unwrap(),
+            store_after_base
+        );
+        assert_eq!(
+            store.find_instance(agent_2_id).await.unwrap(),
+            agent_2_after_base
+        );
 
         std::fs::remove_file(path).ok();
     }
@@ -6108,6 +6189,64 @@ mod scoped_contract {
             .await
             .unwrap();
         assert!(!sibling_call.is_error, "{sibling_call:?}");
+    }
+
+    #[tokio::test]
+    async fn removing_store_scope_preserves_agent_scopes_and_definition() {
+        let path = temp_config_path();
+        let scopes = ScopeDeclarations {
+            store: Some(ScopeDescriptor::default()),
+            agents: HashMap::from([
+                ("agent-1".to_string(), ScopeDescriptor::default()),
+                ("agent-2".to_string(), ScopeDescriptor::default()),
+            ]),
+        };
+        let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
+        store
+            .add_service("svc", native_config(scopes))
+            .await
+            .unwrap();
+
+        let store_id = instance_id("svc", store_scope());
+        let agent_1_id = instance_id("svc", agent_scope("agent-1"));
+        let agent_2_id = instance_id("svc", agent_scope("agent-2"));
+        store
+            .remove_service_scope("svc", &store_scope())
+            .await
+            .unwrap();
+
+        assert!(store.find_instance(store_id).await.is_none());
+        assert!(store.find_instance(agent_1_id).await.is_some());
+        assert!(store.find_instance(agent_2_id).await.is_some());
+        let definition = store.registry.find_definition("svc").await.unwrap();
+        assert!(definition.scopes.store.is_none());
+        assert!(definition.scopes.agents.contains_key("agent-1"));
+        assert!(definition.scopes.agents.contains_key("agent-2"));
+        let config = store.config_manager.load_or_empty().unwrap();
+        let config_scopes = config.mcp_servers["svc"].scopes();
+        assert!(config_scopes.store.is_none());
+        assert!(config_scopes.agents.contains_key("agent-1"));
+        assert!(config_scopes.agents.contains_key("agent-2"));
+        assert!(store
+            .cache()
+            .get_entity("service_instances", &store_id.to_string())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .cache()
+            .get_entity("service_instances", &agent_1_id.to_string())
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .cache()
+            .get_entity("service_instances", &agent_2_id.to_string())
+            .await
+            .unwrap()
+            .is_some());
+
+        std::fs::remove_file(path).ok();
     }
 
     #[tokio::test]

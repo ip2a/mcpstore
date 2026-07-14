@@ -142,6 +142,14 @@ mod tests {
     }
 
     #[test]
+    fn different_service_names_have_distinct_instance_ids() {
+        let alpha = ServiceInstanceKey::new("alpha", ScopeRef::Store).instance_id();
+        let beta = ServiceInstanceKey::new("beta", ScopeRef::Store).instance_id();
+
+        assert_ne!(alpha, beta);
+    }
+
+    #[test]
     fn store_and_agent_named_store_are_distinct() {
         let store = ServiceInstanceKey::new("gitodo", ScopeRef::Store).instance_id();
         let agent = ServiceInstanceKey::new(
