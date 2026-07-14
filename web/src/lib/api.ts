@@ -389,14 +389,33 @@ export async function switchCache(backend: CacheBackend) {
 }
 
 export async function addService(input: AddServiceInput) {
+  return addServiceFromConfig({
+    name: input.name,
+    scope: input.scope,
+    config: buildServiceConfig(input),
+    lifecycle: input.lifecycle,
+  })
+}
+
+export async function addServiceFromConfig(input: {
+  name: string
+  scope: ScopeRef
+  config: Record<string, unknown>
+  lifecycle?: ServiceLifecycleConfig
+}) {
   const descriptor: ScopeDescriptor = {}
   const scopes =
     input.scope.type === "store"
       ? { store: descriptor }
       : { agents: { [input.scope.agent_id]: descriptor } }
+  const existing =
+    input.config._mcpstore && typeof input.config._mcpstore === "object"
+      ? (input.config._mcpstore as Record<string, unknown>)
+      : {}
   const payload = {
-    ...buildServiceConfig(input),
+    ...input.config,
     _mcpstore: {
+      ...existing,
       scopes,
       ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
     },

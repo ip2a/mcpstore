@@ -21,6 +21,7 @@ type SchemaField = Record<string, unknown>
 type ToolSchema = { properties?: Record<string, SchemaField>; required?: string[] }
 
 const inputMutedClass = "bg-muted/50 text-foreground placeholder:text-muted-foreground"
+const compactTextareaClass = "min-h-9 resize-y py-1 text-sm leading-normal"
 
 export function ToolArgsForm({
   className,
@@ -101,19 +102,20 @@ function ToolArgRow({
       </div>
 
       <div className={cn("min-w-0", valueAlign === "right" && "text-right")}>
-        <FieldInput id={name} field={field} type={type} value={value} valueAlign={valueAlign} onChange={onChange} />
+        <ToolArgFieldInput id={name} field={field} type={type} value={value} valueAlign={valueAlign} onChange={onChange} />
       </div>
     </div>
   )
 }
 
-function FieldInput({
+export function ToolArgFieldInput({
   id,
   field,
   type,
   value,
   valueAlign,
   onChange,
+  compact = false,
 }: {
   id: string
   field: SchemaField
@@ -121,6 +123,7 @@ function FieldInput({
   value: unknown
   valueAlign: "left" | "right"
   onChange: (value: unknown) => void
+  compact?: boolean
 }) {
   const aligned = valueAlign === "right"
   const placeholder = formatDefaultPlaceholder(field)
@@ -128,7 +131,7 @@ function FieldInput({
 
   if (type === "boolean") {
     return (
-      <div className={cn("flex items-center", aligned && "justify-end")}>
+      <div className={cn("flex min-h-9 w-full items-center", aligned ? "justify-end" : "justify-start")}>
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>
     )
@@ -136,6 +139,26 @@ function FieldInput({
 
   if (type === "enum") {
     const options = (field.enum as unknown[]).map(String)
+    if (compact) {
+      return (
+        <Select value={empty ? "__empty__" : String(value)} onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}>
+          <SelectTrigger
+            id={id}
+            className={cn("h-auto min-h-9 w-full py-1", inputMutedClass, aligned && "text-right [&_[data-slot=select-value]]:text-right")}
+          >
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__empty__">{placeholder}</SelectItem>
+            {options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )
+    }
     return (
       <Select value={empty ? "__empty__" : String(value)} onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}>
         <SelectTrigger id={id} className={cn("w-full", inputMutedClass, aligned && "text-right [&_[data-slot=select-value]]:text-right")}>
@@ -154,6 +177,19 @@ function FieldInput({
   }
 
   if (type === "integer" || type === "number") {
+    if (compact) {
+      return (
+        <Textarea
+          id={id}
+          rows={1}
+          inputMode={type === "integer" ? "numeric" : "decimal"}
+          value={empty ? "" : String(value)}
+          placeholder={placeholder}
+          className={cn(compactTextareaClass, inputMutedClass, empty && "text-muted-foreground", aligned && "text-right")}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )
+    }
     return (
       <Input
         id={id}
@@ -172,10 +208,28 @@ function FieldInput({
     return (
       <Textarea
         id={id}
-        rows={3}
+        rows={compact ? 1 : 3}
         value={text}
         placeholder={placeholder}
-        className={cn("font-mono text-xs", inputMutedClass, aligned && "text-right")}
+        className={cn(
+          "font-mono text-xs",
+          inputMutedClass,
+          compact && compactTextareaClass,
+          aligned && "text-right",
+        )}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    )
+  }
+
+  if (compact) {
+    return (
+      <Textarea
+        id={id}
+        rows={1}
+        value={empty ? "" : String(value)}
+        placeholder={placeholder}
+        className={cn(compactTextareaClass, inputMutedClass, empty && "text-muted-foreground", aligned && "text-right")}
         onChange={(event) => onChange(event.target.value)}
       />
     )
