@@ -997,6 +997,9 @@ async fn session_binding_rejects_instances_outside_exact_scope() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("instance does not belong to session scope"));
+    assert!(err.contains(&format!("instance_id={agent_a_instance}")));
+    assert!(err.contains("session_scope=Store"));
+    assert!(err.contains(r#"instance_scope=Agent { agent_id: "agent-a" }"#));
 
     let err = agent_session
         .bind_service(store_instance)
@@ -1004,6 +1007,9 @@ async fn session_binding_rejects_instances_outside_exact_scope() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("instance does not belong to session scope"));
+    assert!(err.contains(&format!("instance_id={store_instance}")));
+    assert!(err.contains(r#"session_scope=Agent { agent_id: "agent-a" }"#));
+    assert!(err.contains("instance_scope=Store"));
 
     let err = agent_session
         .bind_service(agent_b_instance)
@@ -1011,6 +1017,9 @@ async fn session_binding_rejects_instances_outside_exact_scope() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("instance does not belong to session scope"));
+    assert!(err.contains(&format!("instance_id={agent_b_instance}")));
+    assert!(err.contains(r#"session_scope=Agent { agent_id: "agent-a" }"#));
+    assert!(err.contains(r#"instance_scope=Agent { agent_id: "agent-b" }"#));
 
     agent_session.bind_service(agent_a_instance).await.unwrap();
     assert_eq!(

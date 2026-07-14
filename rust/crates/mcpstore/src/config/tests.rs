@@ -136,11 +136,13 @@ fn effective_config_applies_scope_override_and_null_deletion() {
     }))
     .unwrap();
 
-    let effective = config.mcp_servers["demo"]
-        .effective_config(&ScopeRef::Agent {
-            agent_id: "agent1".to_string(),
-        })
-        .unwrap();
+    let scope = ScopeRef::Agent {
+        agent_id: "agent1".to_string(),
+    };
+    let effective = config.mcp_servers["demo"].effective_config(&scope).unwrap();
+    assert!(!effective.contains_key("_mcpstore"));
+    let transport = config.mcp_servers["demo"].transport_config(&scope).unwrap();
+    assert!(transport.mcpstore.is_none());
     assert_eq!(
         Value::Object(effective),
         json!({
