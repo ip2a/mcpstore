@@ -355,6 +355,65 @@ fn test_service_lifecycle_extension_roundtrip_and_defaults() {
 }
 
 #[test]
+fn scope_lifecycle_overrides_definition_fields_independently() {
+    let config: ServerConfig = serde_json::from_value(json!({
+        "command": "node",
+        "_mcpstore": {
+            "lifecycle": {
+                "startup_policy": "on-store-start",
+                "restart_policy": "on-failure:3"
+            },
+            "scopes": {
+                "store": {
+                    "config": {},
+                    "lifecycle": {
+                        "startup_policy": "manual"
+                    }
+                },
+                "agents": {
+                    "agent1": {
+                        "config": {},
+                        "lifecycle": {
+                            "restart_policy": "always"
+                        }
+                    },
+                    "agent2": {
+                        "config": {}
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+    let defaults = ServiceLifecycleDefaults::default();
+
+    let store = config.resolved_lifecycle_for_scope(&ScopeRef::Store, &defaults);
+    assert_eq!(store.startup_policy, StartupPolicy::Manual);
+    assert_eq!(store.restart_policy.kind, RestartPolicyKind::OnFailure);
+    assert_eq!(store.restart_policy.max_retries, Some(3));
+
+    let agent1 = config.resolved_lifecycle_for_scope(
+        &ScopeRef::Agent {
+            agent_id: "agent1".to_string(),
+        },
+        &defaults,
+    );
+    assert_eq!(agent1.startup_policy, StartupPolicy::OnStoreStart);
+    assert_eq!(agent1.restart_policy.kind, RestartPolicyKind::Always);
+    assert_eq!(agent1.restart_policy.max_retries, None);
+
+    let agent2 = config.resolved_lifecycle_for_scope(
+        &ScopeRef::Agent {
+            agent_id: "agent2".to_string(),
+        },
+        &defaults,
+    );
+    assert_eq!(agent2.startup_policy, StartupPolicy::OnStoreStart);
+    assert_eq!(agent2.restart_policy.kind, RestartPolicyKind::OnFailure);
+    assert_eq!(agent2.restart_policy.max_retries, Some(3));
+}
+
+#[test]
 fn test_service_lifecycle_ignores_old_draft_field_names() {
     let raw = r#"
     {
