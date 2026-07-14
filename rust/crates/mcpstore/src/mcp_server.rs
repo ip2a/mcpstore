@@ -9,11 +9,11 @@ use crate::{
 };
 use rmcp::{
     model::{
-        AnnotateAble, CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams,
+        CallToolRequestParams, CallToolResult, ContentBlock, GetPromptRequestParams,
         GetPromptResult, Implementation, ListPromptsResult, ListResourceTemplatesResult,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParams, Prompt, RawAudioContent,
-        RawContent, RawResource, ReadResourceRequestParams, ReadResourceResult, Resource,
-        ResourceContents, ResourceTemplate, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, Prompt,
+        ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
+        ResourceTemplate, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
     },
     serve_server,
     transport::{
@@ -566,34 +566,32 @@ impl ServerHandler for McpStoreServer {
             for item in result.content {
                 match item {
                     ContentItem::Text { text, .. } => {
-                        content.push(Content::text(text));
+                        content.push(ContentBlock::text(text));
                     }
                     ContentItem::Image {
                         data, mime_type, ..
                     } => {
-                        content.push(Content::image(data, mime_type));
+                        content.push(ContentBlock::image(data, mime_type));
                     }
                     ContentItem::Audio {
                         data, mime_type, ..
                     } => {
-                        content.push(
-                            RawContent::Audio(RawAudioContent { data, mime_type }).no_annotation(),
-                        );
+                        content.push(ContentBlock::audio(data, mime_type));
                     }
                     ContentItem::Resource { resource, .. } => {
                         content.push(match serde_json::from_value::<ResourceContents>(resource) {
-                            Ok(resource) => Content::resource(resource),
-                            Err(error) => {
-                                Content::text(format!("Failed to decode resource content: {error}"))
-                            }
+                            Ok(resource) => ContentBlock::resource(resource),
+                            Err(error) => ContentBlock::text(format!(
+                                "Failed to decode resource content: {error}"
+                            )),
                         });
                     }
                     ContentItem::ResourceLink { resource, .. } => {
-                        content.push(match serde_json::from_value::<RawResource>(resource) {
-                            Ok(resource) => Content::resource_link(resource),
-                            Err(error) => {
-                                Content::text(format!("Failed to decode resource link: {error}"))
-                            }
+                        content.push(match serde_json::from_value::<Resource>(resource) {
+                            Ok(resource) => ContentBlock::resource_link(resource),
+                            Err(error) => ContentBlock::text(format!(
+                                "Failed to decode resource link: {error}"
+                            )),
                         });
                     }
                 }

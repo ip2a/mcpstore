@@ -140,6 +140,8 @@ pub enum ContentItem {
         mime_type: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         annotations: Option<serde_json::Value>,
+        #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+        meta: Option<serde_json::Value>,
     },
     #[serde(rename = "resource")]
     Resource {

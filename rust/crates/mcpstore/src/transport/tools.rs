@@ -67,7 +67,7 @@ impl McpConnection {
             .content
             .into_iter()
             .map(content_item_from_rmcp)
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(ToolCallResult {
             content,

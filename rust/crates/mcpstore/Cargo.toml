@@ -24,7 +24,7 @@ uuid = { version = "1.10", features = ["v4", "v5", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # MCP protocol
-rmcp = { version = "1.5", features = ["client", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+rmcp = { workspace = true }
 
 # Cache backends
 openkeyv = { version = "0.1.4", default-features = false, features = ["redis"] }
