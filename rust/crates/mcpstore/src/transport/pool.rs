@@ -5,7 +5,9 @@ use tokio::sync::RwLock;
 
 use crate::auth::AuthCoordinator;
 use crate::config::ServerConfig;
+use crate::events::EventBus;
 use crate::identity::InstanceId;
+use crate::registry::ServiceRegistry;
 use crate::transport::client::McpConnection;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool, Result,
@@ -15,13 +17,21 @@ use crate::transport::{
 pub struct ConnectionPool {
     connections: Arc<RwLock<HashMap<InstanceId, McpConnection>>>,
     auth_coordinator: AuthCoordinator,
+    registry: ServiceRegistry,
+    event_bus: EventBus,
 }
 
 impl ConnectionPool {
-    pub fn new(auth_coordinator: AuthCoordinator) -> Self {
+    pub fn new(
+        auth_coordinator: AuthCoordinator,
+        registry: ServiceRegistry,
+        event_bus: EventBus,
+    ) -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
             auth_coordinator,
+            registry,
+            event_bus,
         }
     }
 
@@ -31,6 +41,8 @@ impl ConnectionPool {
             instance_id.to_string(),
             config,
             self.auth_coordinator.clone(),
+            self.registry.clone(),
+            self.event_bus.clone(),
         );
         self.connections.write().await.insert(instance_id, conn);
     }

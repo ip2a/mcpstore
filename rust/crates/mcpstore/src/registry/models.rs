@@ -72,6 +72,7 @@ impl ServiceInstance {
     }
 }
 
+#[derive(Clone)]
 pub struct ServiceRegistry {
     pub(in crate::registry) definitions: Arc<RwLock<HashMap<String, ServiceDefinition>>>,
     pub(in crate::registry) instances: Arc<RwLock<HashMap<InstanceId, ServiceInstance>>>,
