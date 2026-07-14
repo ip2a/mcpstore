@@ -3,6 +3,8 @@ pub use crate::store;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StoreError {
+    #[error("Authentication error: {0}")]
+    Auth(#[from] crate::auth::AuthError),
     #[error("Config error: {0}")]
     Config(#[from] crate::config::ConfigError),
     #[error("Transport error: {0}")]

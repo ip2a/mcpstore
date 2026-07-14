@@ -213,6 +213,13 @@ impl MCPStore {
             ));
         }
 
+        let active_instance_ids = instances
+            .iter()
+            .map(|(instance, _)| instance.instance_id)
+            .collect::<std::collections::HashSet<_>>();
+        self.auth_coordinator
+            .retain_statuses(&active_instance_ids)
+            .await;
         self.pool.clear().await;
         self.applied_openapi_configs.write().await.clear();
         self.registry.clear().await;
@@ -221,6 +228,9 @@ impl MCPStore {
         }
         for (instance, transport_config) in instances {
             let instance_id = instance.instance_id;
+            self.auth_coordinator
+                .initialize_status(instance_id, &transport_config.auth)
+                .await;
             self.pool.add(instance_id, transport_config).await;
             self.registry.register_instance(instance).await;
         }

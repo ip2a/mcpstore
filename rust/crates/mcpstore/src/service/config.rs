@@ -74,6 +74,7 @@ impl MCPStore {
         self.pool.clear().await;
         self.applied_openapi_configs.write().await.clear();
         self.registry.clear().await;
+        self.auth_coordinator.clear_statuses().await;
         let snapshot = self.cache.snapshot().await?;
         for (entity_type, entries) in snapshot.entities {
             for key in entries.keys() {
@@ -145,6 +146,7 @@ impl MCPStore {
                 .await
                 .remove(instance_id);
             self.registry.unregister_instance(*instance_id).await;
+            self.auth_coordinator.remove_status(*instance_id).await;
         }
 
         let now = chrono::Utc::now().timestamp();
@@ -167,6 +169,7 @@ impl MCPStore {
         self.pool.clear().await;
         self.applied_openapi_configs.write().await.clear();
         self.registry.clear().await;
+        self.auth_coordinator.clear_statuses().await;
 
         for (service_name, server) in &config.mcp_servers {
             self.register_configured_definition(service_name, server)
@@ -295,6 +298,10 @@ impl MCPStore {
         for scope in scopes.scopes() {
             let scope_revision = config.scope_revision(&scope).unwrap_or(1);
             let effective_config = config.effective_config(&scope).map_err(StoreError::Other)?;
+            let effective_auth =
+                serde_json::from_value::<ServerConfig>(Value::Object(effective_config.clone()))
+                    .map_err(|error| StoreError::Other(error.to_string()))?
+                    .auth;
             let transport = effective_config
                 .get("transport")
                 .and_then(Value::as_str)
@@ -343,6 +350,9 @@ impl MCPStore {
                 instance.added_time = existing.added_time;
             }
             self.registry.register_instance(instance).await;
+            self.auth_coordinator
+                .initialize_status(instance_id, &effective_auth)
+                .await;
             self.cache_instance_added(instance_id).await?;
         }
 
@@ -356,6 +366,7 @@ impl MCPStore {
                 .await
                 .remove(&instance_id);
             self.registry.unregister_instance(instance_id).await;
+            self.auth_coordinator.remove_status(instance_id).await;
             self.cache_instance_removed(instance_id).await?;
         }
         Ok(())

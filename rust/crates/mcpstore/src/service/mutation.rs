@@ -31,6 +31,7 @@ impl MCPStore {
                 .write()
                 .await
                 .remove(&instance_id);
+            self.auth_coordinator.remove_status(instance_id).await;
             self.cache_instance_removed(instance_id).await?;
         }
         self.cache_definition_removed(service_name).await?;

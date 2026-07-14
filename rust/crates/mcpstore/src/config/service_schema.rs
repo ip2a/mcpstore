@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
+use crate::auth::AuthConfig;
 use crate::identity::ScopeRef;
 
 use super::merge_config;
@@ -221,6 +222,8 @@ pub struct ServerConfig {
     pub env: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub headers: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "AuthConfig::is_none")]
+    pub auth: AuthConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<String>,
     #[serde(
@@ -305,7 +308,10 @@ impl ServerConfig {
         let descriptor = scopes
             .descriptor(scope)
             .ok_or_else(|| format!("scope {scope:?} is not declared"))?;
-        Ok(merge_config(&self.base_config(), &descriptor.config))
+        let effective = merge_config(&self.base_config(), &descriptor.config);
+        serde_json::from_value::<Self>(Value::Object(effective.clone()))
+            .map_err(|error| format!("effective config cannot be decoded: {error}"))?;
+        Ok(effective)
     }
 
     pub fn transport_config(&self, scope: &ScopeRef) -> Result<Self, String> {
