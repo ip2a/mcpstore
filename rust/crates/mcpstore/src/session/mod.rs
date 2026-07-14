@@ -439,7 +439,7 @@ impl MCPStore {
                         "store-scoped sessions must not include agent_id".to_string(),
                     ));
                 }
-                Ok(format!("store:global:{session_id}"))
+                Ok(format!("store:{session_id}"))
             }
             SessionScope::Agent => {
                 let agent_id = agent_id.ok_or_else(|| {
@@ -561,7 +561,7 @@ impl MCPStore {
                         "store-scoped session context must not include agent_id".to_string(),
                     ));
                 }
-                Ok("store:global".to_string())
+                Ok("store".to_string())
             }
             SessionScope::Agent => {
                 let agent_id = agent_id.ok_or_else(|| {

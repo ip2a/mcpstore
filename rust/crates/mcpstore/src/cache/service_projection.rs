@@ -1,8 +1,10 @@
 use std::hash::{Hash, Hasher};
 
 use crate::cache::models::{
-    HealthStatus, InstanceStatus, InstanceToolRelation, ServiceDefinitionEntity,
-    ServiceInstanceEntity, ServiceLifecycleState, ToolAvailability, ToolEntity, ToolStatusItem,
+    ContextToolVisibilityState, HealthStatus, InstanceStatus, InstanceToolRelation,
+    ServiceDefinitionEntity, ServiceInstanceEntity, ServiceLifecycleState, SessionServiceRelation,
+    SessionToolVisibility, ToolAvailability, ToolEntity, ToolPreferenceState, ToolStatusItem,
+    ToolTransformRule,
 };
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
@@ -163,6 +165,9 @@ impl MCPStore {
         self.cache
             .delete_state("instance_status", &instance_id.to_string())
             .await?;
+        self.remove_instance_from_session_relations(instance_id)
+            .await?;
+        self.remove_instance_owned_states(instance_id).await?;
         self.remove_instance_from_agent_relations(instance_id)
             .await?;
 
@@ -176,6 +181,23 @@ impl MCPStore {
                     "instance_id": instance_id,
                     "timestamp": now
                 }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn mark_instance_applied(&self, instance_id: InstanceId) -> Result<()> {
+        self.registry.mark_applied(instance_id).await;
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        self.cache
+            .put_entity(
+                "service_instances",
+                &instance_id.to_string(),
+                serde_json::to_value(Self::instance_entity(&instance)).unwrap_or_default(),
             )
             .await?;
         Ok(())
@@ -218,7 +240,7 @@ impl MCPStore {
         Ok(())
     }
 
-    async fn cache_definition(&self, definition: &ServiceDefinition) -> Result<()> {
+    pub(crate) async fn cache_definition(&self, definition: &ServiceDefinition) -> Result<()> {
         let entity = ServiceDefinitionEntity::from(definition);
         self.cache
             .put_entity(
@@ -228,6 +250,117 @@ impl MCPStore {
             )
             .await?;
         Ok(())
+    }
+
+    async fn remove_instance_from_session_relations(&self, instance_id: InstanceId) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        for (key, value) in self
+            .cache
+            .get_all_relations_async("session_services")
+            .await?
+        {
+            let mut relation: SessionServiceRelation =
+                serde_json::from_value(value).map_err(|error| {
+                    StoreError::Other(format!(
+                        "Session service relation deserialization failed for {key}: {error}"
+                    ))
+                })?;
+            let previous_len = relation.services.len();
+            relation
+                .services
+                .retain(|item| item.instance_id != instance_id);
+            if relation.services.len() == previous_len {
+                continue;
+            }
+            relation.updated_at = now;
+            relation.version += 1;
+            self.cache
+                .put_relation(
+                    "session_services",
+                    &key,
+                    serde_json::to_value(relation).unwrap_or_default(),
+                )
+                .await?;
+        }
+
+        for (key, value) in self.cache.get_all_relations_async("session_tools").await? {
+            let mut relation: SessionToolVisibility =
+                serde_json::from_value(value).map_err(|error| {
+                    StoreError::Other(format!(
+                        "Session tool relation deserialization failed for {key}: {error}"
+                    ))
+                })?;
+            let previous_len = relation.tools.len();
+            relation
+                .tools
+                .retain(|item| item.instance_id != instance_id);
+            if relation.tools.len() == previous_len {
+                continue;
+            }
+            relation.updated_at = now;
+            relation.version += 1;
+            self.cache
+                .put_relation(
+                    "session_tools",
+                    &key,
+                    serde_json::to_value(relation).unwrap_or_default(),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn remove_instance_owned_states(&self, instance_id: InstanceId) -> Result<()> {
+        for (state_type, matches_instance) in [
+            (
+                "context_tool_visibility",
+                Self::context_visibility_matches_instance
+                    as fn(&serde_json::Value, InstanceId) -> Result<bool>,
+            ),
+            ("tool_preferences", Self::tool_preference_matches_instance),
+            ("tool_transforms", Self::tool_transform_matches_instance),
+        ] {
+            for (key, value) in self.cache.get_all_states_async(state_type).await? {
+                if matches_instance(&value, instance_id)? {
+                    self.cache.delete_state(state_type, &key).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn context_visibility_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let state: ContextToolVisibilityState =
+            serde_json::from_value(value.clone()).map_err(|error| {
+                StoreError::Other(format!(
+                    "Context tool visibility deserialization failed: {error}"
+                ))
+            })?;
+        Ok(state.instance_id == instance_id)
+    }
+
+    fn tool_preference_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let state: ToolPreferenceState =
+            serde_json::from_value(value.clone()).map_err(|error| {
+                StoreError::Other(format!("Tool preference deserialization failed: {error}"))
+            })?;
+        Ok(state.instance_id == instance_id)
+    }
+
+    fn tool_transform_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        let state: ToolTransformRule = serde_json::from_value(value.clone()).map_err(|error| {
+            StoreError::Other(format!("Tool transform deserialization failed: {error}"))
+        })?;
+        Ok(state.instance_id == instance_id)
     }
 
     fn instance_entity(instance: &ServiceInstance) -> ServiceInstanceEntity {

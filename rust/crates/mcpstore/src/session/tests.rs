@@ -86,13 +86,13 @@ async fn create_session_defaults_to_store_scope_key() {
         .await
         .unwrap();
 
-    assert_eq!(session.session_key, "store:global:s1");
+    assert_eq!(session.session_key, "store:s1");
     assert_eq!(session.scope, SessionScope::Store);
     assert_eq!(session.agent_id, None);
     assert_eq!(session.version, 1);
     assert!(store
         .cache()
-        .get_state("session_status", "store:global:s1")
+        .get_state("session_status", "store:s1")
         .await
         .unwrap()
         .is_some());
@@ -115,7 +115,7 @@ async fn session_context_create_or_get_wraps_rust_agent_session_flow() {
         .await
         .unwrap();
 
-    assert_eq!(session.session_key(), "store:global:task-1");
+    assert_eq!(session.session_key(), "store:task-1");
     assert_eq!(
         session.entity().await.unwrap().metadata["owner"],
         "rust-agent"
@@ -1359,38 +1359,37 @@ async fn export_sessions_snapshot_contains_serializable_business_state() {
     let snapshot = store.export_sessions_snapshot().await.unwrap();
 
     assert_eq!(
-        snapshot["entities"]["store:global:exportable"]["session_id"],
+        snapshot["entities"]["store:exportable"]["session_id"],
         "exportable"
     );
     assert_eq!(
-        snapshot["relations"]["session_services"]["store:global:exportable"]["services"][0]
+        snapshot["relations"]["session_services"]["store:exportable"]["services"][0]
             ["service_name"],
         "alpha"
     );
     assert_eq!(
-        snapshot["relations"]["session_services"]["store:global:exportable"]["services"][0]
-            ["instance_id"],
+        snapshot["relations"]["session_services"]["store:exportable"]["services"][0]["instance_id"],
         alpha.to_string()
     );
     assert_eq!(
-        snapshot["relations"]["session_services"]["store:global:exportable"]["services"][0]
-            ["scope"]["type"],
+        snapshot["relations"]["session_services"]["store:exportable"]["services"][0]["scope"]
+            ["type"],
         "store"
     );
     assert_eq!(
-        snapshot["states"]["session_status"]["store:global:exportable"]["status"],
+        snapshot["states"]["session_status"]["store:exportable"]["status"],
         "active"
     );
     assert_eq!(
-        snapshot["states"]["session_context"]["store:global"]["active_session_key"],
-        "store:global:exportable"
+        snapshot["states"]["session_context"]["store"]["active_session_key"],
+        "store:exportable"
     );
     assert!(snapshot["events"]
         .as_object()
         .unwrap()
         .values()
         .any(|event| {
-            event["session_key"] == "store:global:exportable" && event["event_type"] == "create"
+            event["session_key"] == "store:exportable" && event["event_type"] == "create"
         }));
 
     std::fs::remove_file(path).ok();
@@ -1513,8 +1512,8 @@ async fn import_sessions_snapshot_rejects_scope_and_instance_identity_mismatches
     let target = MCPStore::setup(Some(&target_path)).unwrap();
 
     let mut wrong_scope = snapshot.clone();
-    wrong_scope["relations"]["session_services"]["store:global:validated"]["services"][0]
-        ["scope"] = serde_json::json!({"type": "agent", "agent_id": "agent-a"});
+    wrong_scope["relations"]["session_services"]["store:validated"]["services"][0]["scope"] =
+        serde_json::json!({"type": "agent", "agent_id": "agent-a"});
     let err = target
         .import_sessions_snapshot(wrong_scope)
         .await
@@ -1526,8 +1525,8 @@ async fn import_sessions_snapshot_rejects_scope_and_instance_identity_mismatches
     let unrelated_id = ServiceInstanceKey::new("other", ScopeRef::Store)
         .instance_id()
         .to_string();
-    wrong_instance_id["relations"]["session_tools"]["store:global:validated"]["tools"][0]
-        ["instance_id"] = serde_json::json!(unrelated_id);
+    wrong_instance_id["relations"]["session_tools"]["store:validated"]["tools"][0]["instance_id"] =
+        serde_json::json!(unrelated_id);
     let err = target
         .import_sessions_snapshot(wrong_instance_id)
         .await

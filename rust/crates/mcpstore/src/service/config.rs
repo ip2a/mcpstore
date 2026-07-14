@@ -114,6 +114,7 @@ impl MCPStore {
 
         let mut config = self.config_manager.load_or_empty()?;
         let mut removed = Vec::new();
+        let mut changed_definitions = Vec::new();
         for (service_name, server) in &mut config.mcp_servers {
             let Some(extension) = server.mcpstore.as_mut() else {
                 if matches!(scope, ScopeRef::Store) {
@@ -125,6 +126,7 @@ impl MCPStore {
                         service_name.clone(),
                         ScopeRef::Store,
                     ));
+                    changed_definitions.push((service_name.clone(), server.clone()));
                 }
                 continue;
             };
@@ -134,9 +136,16 @@ impl MCPStore {
             };
             if existed {
                 removed.push(ServiceInstanceKey::new(service_name.clone(), scope.clone()));
+                changed_definitions.push((service_name.clone(), server.clone()));
             }
         }
         self.config_manager.save(&config)?;
+
+        let now = chrono::Utc::now().timestamp();
+        for (service_name, server) in changed_definitions {
+            self.sync_definition_projection(&service_name, &server, now)
+                .await?;
+        }
 
         for key in removed {
             let instance_id = key.instance_id();
@@ -273,7 +282,6 @@ impl MCPStore {
     ) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
         let scopes = config.scopes();
-        let extension = config.mcpstore.as_ref();
         let existing_instances = self
             .registry
             .list_instances()
@@ -282,24 +290,8 @@ impl MCPStore {
             .filter(|instance| instance.service_name == service_name)
             .map(|instance| (instance.instance_id, instance))
             .collect::<std::collections::HashMap<_, _>>();
-        let added_time = self
-            .registry
-            .find_definition(service_name)
-            .await
-            .map(|definition| definition.added_time)
-            .unwrap_or(now);
-        let definition = ServiceDefinition {
-            service_name: service_name.to_string(),
-            base_config: config.base_config(),
-            scopes: scopes.clone(),
-            lifecycle: extension.and_then(|value| value.lifecycle.clone()),
-            base_revision: config.definition_revision(),
-            metadata: extension
-                .map(|value| value.extra.clone())
-                .unwrap_or_default(),
-            added_time,
-        };
-        self.registry.register_definition(definition).await;
+        self.sync_definition_projection(service_name, config, now)
+            .await?;
 
         let mut declared_instance_ids = std::collections::HashSet::new();
         for scope in scopes.scopes() {
@@ -369,6 +361,34 @@ impl MCPStore {
             self.cache_instance_removed(instance_id).await?;
         }
         Ok(())
+    }
+
+    pub(crate) async fn sync_definition_projection(
+        &self,
+        service_name: &str,
+        config: &ServerConfig,
+        now: i64,
+    ) -> Result<()> {
+        let extension = config.mcpstore.as_ref();
+        let added_time = self
+            .registry
+            .find_definition(service_name)
+            .await
+            .map(|definition| definition.added_time)
+            .unwrap_or(now);
+        let definition = ServiceDefinition {
+            service_name: service_name.to_string(),
+            base_config: config.base_config(),
+            scopes: config.scopes(),
+            lifecycle: extension.and_then(|value| value.lifecycle.clone()),
+            base_revision: config.definition_revision(),
+            metadata: extension
+                .map(|value| value.extra.clone())
+                .unwrap_or_default(),
+            added_time,
+        };
+        self.registry.register_definition(definition.clone()).await;
+        self.cache_definition(&definition).await
     }
 
     fn server_config_from_definition(definition: &ServiceDefinition) -> Result<ServerConfig> {

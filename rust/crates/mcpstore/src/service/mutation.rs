@@ -15,10 +15,11 @@ impl MCPStore {
 
         if self.source_mode == SourceMode::Local {
             let mut config = self.config_manager.load_or_empty()?;
-            if config.mcp_servers.remove(service_name).is_none() {
+            if config.mcp_servers.remove(service_name).is_some() {
+                self.config_manager.save(&config)?;
+            } else if self.get_openapi_import(service_name).await?.is_none() {
                 return Err(StoreError::ServiceNotFound(service_name.to_string()));
             }
-            self.config_manager.save(&config)?;
         } else if self.registry.find_definition(service_name).await.is_none() {
             return Err(StoreError::ServiceNotFound(service_name.to_string()));
         }

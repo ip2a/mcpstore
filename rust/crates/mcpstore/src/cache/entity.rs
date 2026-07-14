@@ -87,12 +87,7 @@ impl CacheLayerManager {
     // get_all_entities_sync is intentionally omitted from async Rust core;
     // sync wrappers live in the PyO3 layer or caller bridges.
 
-    pub async fn create_agent(
-        &self,
-        agent_id: &str,
-        created_time: i64,
-        is_global: bool,
-    ) -> Result<()> {
+    pub async fn create_agent(&self, agent_id: &str, created_time: i64) -> Result<()> {
         if agent_id.is_empty() {
             return Err(CacheError::Validation("Agent ID cannot be empty".into()));
         }
@@ -105,13 +100,10 @@ impl CacheLayerManager {
             agent_id: agent_id.to_string(),
             created_time,
             last_active: created_time,
-            is_global,
         };
         let value = serializer::to_value(&entity)?;
         self.put_entity("agents", agent_id, value).await?;
-        tracing::info!(
-            "[CACHE] [AGENT] Created Agent entity: agent_id={agent_id}, is_global={is_global}"
-        );
+        tracing::info!("[CACHE] [AGENT] Created Agent entity: agent_id={agent_id}");
         Ok(())
     }
 
