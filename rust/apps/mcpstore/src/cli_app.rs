@@ -189,17 +189,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_get_with_agent_scope() {
-        let cli = Cli::try_parse_from([
-            "mcpstore", "get", "github", "--scope", "agent", "--agent", "agent1",
-        ])
-        .unwrap();
+    fn parses_get_with_instance_id() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli = Cli::try_parse_from(["mcpstore", "get", instance_id]).unwrap();
 
         match cli.command {
             Commands::Get(args) => {
-                assert_eq!(args.name, "github");
-                assert_eq!(args.scope, commands::mcp::Scope::Agent);
-                assert_eq!(args.agent.as_deref(), Some("agent1"));
+                assert_eq!(args.instance_id, instance_id);
             }
             _ => panic!("Expected to parse as get command"),
         }
@@ -210,7 +206,7 @@ mod tests {
         let cli = Cli::try_parse_from([
             "mcpstore",
             "call",
-            "gitodo",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
             "get_repo_status",
             "--arguments",
             "{}",
@@ -219,7 +215,7 @@ mod tests {
 
         match cli.command {
             Commands::Call(args) => {
-                assert_eq!(args.service_name, "gitodo");
+                assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.tool_name, "get_repo_status");
                 assert_eq!(args.arguments, "{}");
             }

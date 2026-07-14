@@ -7,7 +7,12 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use mcpstore::{config::ServerConfig, registry::ConnectionStatus, transport::ContentItem};
+use mcpstore::{
+    config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
+    registry::ConnectionStatus,
+    transport::ContentItem,
+    InstanceId, ScopeRef, ServiceInstanceKey,
+};
 use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
 
 use super::i18n::{self, Locale, TextKey};
@@ -35,7 +40,10 @@ pub struct SelectedDetail {
 
 #[derive(Clone)]
 pub enum PendingAction {
-    Remove(String),
+    Remove {
+        service_name: String,
+        scope: ScopeRef,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -314,80 +322,25 @@ impl ToolFilterTab {
                     || service.transport == "http"
                     || service.transport == "sse"
             }
-            Self::StoreScope => service.agent_id == "global_agent_store",
-            Self::AgentScope => service.agent_id != "global_agent_store",
+            Self::StoreScope => service.scope == ScopeRef::Store,
+            Self::AgentScope => matches!(service.scope, ScopeRef::Agent { .. }),
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct ToolSummary {
+    pub instance_id: InstanceId,
     pub name: String,
-    pub original_name: String,
     pub service_name: String,
-    pub global_service_name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
-}
-
-impl ToolSummary {
-    fn from_payload(value: serde_json::Value) -> Option<Self> {
-        Some(Self {
-            name: value.get("name")?.as_str()?.to_string(),
-            original_name: value
-                .get("original_name")
-                .and_then(|v| v.as_str())
-                .or_else(|| value.get("name").and_then(|v| v.as_str()))?
-                .to_string(),
-            service_name: value
-                .get("service_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string(),
-            global_service_name: value
-                .get("global_service_name")
-                .or_else(|| value.get("service_global_name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("-")
-                .to_string(),
-            description: value
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            input_schema: value
-                .get("input_schema")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({})),
-        })
-    }
 }
 
 #[derive(Clone, Debug)]
 pub struct AgentSummary {
     pub id: String,
     pub services: Vec<String>,
-}
-
-impl AgentSummary {
-    fn from_value(value: serde_json::Value) -> Option<Self> {
-        let id = value
-            .get("agent_id")
-            .or_else(|| value.get("id"))
-            .and_then(|v| v.as_str())?
-            .to_string();
-        let services = value
-            .get("services")
-            .and_then(|v| v.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| item.as_str().map(ToString::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Some(Self { id, services })
-    }
 }
 
 impl LogsSection {
@@ -1775,41 +1728,83 @@ impl TuiApp {
     }
 
     fn execute_add_service(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        let (name, config, scope, agent) =
+        let (name, mut config, scope, agent) =
             self.build_add_service_config().map_err(add_service_error)?;
         let transport = config.infer_transport().to_string();
         let connect_after_add =
             parse_yes_no(&self.add_service.connect_after_add).map_err(add_service_error)?;
 
-        let stored_name = if scope == "agent" {
+        let target_scope = if scope == "agent" {
+            ScopeRef::Agent {
+                agent_id: agent.clone(),
+            }
+        } else {
+            ScopeRef::Store
+        };
+        let definition_exists = rt
+            .block_on(async { self.store.get_definition_config(&name).await })?
+            .is_some();
+        let instance_id = if definition_exists {
+            let lifecycle = config
+                .mcpstore
+                .as_ref()
+                .and_then(|extension| extension.lifecycle.clone());
             rt.block_on(async {
                 self.store
-                    .add_service_for_agent(&agent, &name, config)
+                    .declare_service_scope(
+                        &name,
+                        &target_scope,
+                        ScopeDescriptor {
+                            config: config.base_config(),
+                            lifecycle,
+                            revision: 0,
+                        },
+                    )
                     .await
             })?
         } else {
+            let previous = config.mcpstore.take();
+            let mut scopes = ScopeDeclarations::default();
+            match &target_scope {
+                ScopeRef::Store => scopes.store = Some(ScopeDescriptor::default()),
+                ScopeRef::Agent { agent_id } => {
+                    scopes
+                        .agents
+                        .insert(agent_id.clone(), ScopeDescriptor::default());
+                }
+            }
+            config.mcpstore = Some(McpStoreExtension {
+                scopes,
+                lifecycle: previous
+                    .as_ref()
+                    .and_then(|extension| extension.lifecycle.clone()),
+                revision: previous
+                    .as_ref()
+                    .map(|extension| extension.revision)
+                    .unwrap_or(1)
+                    .max(1),
+                extra: previous
+                    .map(|extension| extension.extra)
+                    .unwrap_or_default(),
+            });
             rt.block_on(async { self.store.add_service(&name, config).await })?;
-            name.clone()
+            ServiceInstanceKey::new(name.clone(), target_scope.clone()).instance_id()
         };
 
         let connect_result = if connect_after_add {
-            Some(rt.block_on(async { self.store.connect_service(&stored_name).await }))
+            Some(rt.block_on(async { self.store.connect_service(instance_id).await }))
         } else {
             None
         };
 
         self.refresh(rt, false)?;
-        self.select_service_by_name(&stored_name, rt)?;
+        self.select_service(instance_id, rt)?;
         self.active_view = MainView::ServiceManagement;
         self.service_tab = ServiceManagementTab::Services;
         self.service_list_pane = ContentPane::Body;
         self.focus_area = FocusArea::ViewTable;
         self.show_service_detail = false;
-        let service_label = if stored_name == name {
-            name
-        } else {
-            format!("{name} -> {stored_name}")
-        };
+        let service_label = name;
 
         self.status_message = match connect_result {
             Some(Ok(())) => {
@@ -1837,17 +1832,14 @@ impl TuiApp {
     }
 
     fn execute_tool_test(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        let service = self
-            .current_tool_call_service_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "当前没有可测试的服务"))?
-            .to_string();
-        let tool = self
+        let selected_tool = self
             .current_tool()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "当前没有可测试的工具"))?
-            .original_name
-            .clone();
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "当前没有可测试的工具"))?;
+        let instance_id = selected_tool.instance_id;
+        let service = selected_tool.service_name.clone();
+        let tool = selected_tool.name.clone();
         let args: serde_json::Value = serde_json::from_str(&self.tool_test_args)?;
-        let result = rt.block_on(async { self.store.call_tool(&service, &tool, args).await })?;
+        let result = rt.block_on(async { self.store.call_tool(instance_id, &tool, args).await })?;
 
         self.tool_test_result = format_tool_call_result(result.is_error, &result.content);
         self.show_tool_detail = true;
@@ -1870,7 +1862,13 @@ impl TuiApp {
             .map_err(add_service_error)?;
         rt.block_on(async {
             self.store
-                .assign_service_to_agent(&agent_id, &service_name)
+                .declare_service_scope(
+                    &service_name,
+                    &ScopeRef::Agent {
+                        agent_id: agent_id.clone(),
+                    },
+                    ScopeDescriptor::default(),
+                )
                 .await
         })?;
         self.refresh_agents(rt)?;
@@ -1888,7 +1886,12 @@ impl TuiApp {
             .map_err(add_service_error)?;
         rt.block_on(async {
             self.store
-                .unassign_service_from_agent(&agent_id, &service_name)
+                .remove_service_scope(
+                    &service_name,
+                    &ScopeRef::Agent {
+                        agent_id: agent_id.clone(),
+                    },
+                )
                 .await
         })?;
         self.refresh_agents(rt)?;
@@ -1937,6 +1940,7 @@ impl TuiApp {
             working_dir: trim_optional(&self.add_service.working_dir),
             description: trim_optional(&self.add_service.description),
             mcpstore: None,
+            extra: Default::default(),
         })
     }
 
@@ -1956,6 +1960,7 @@ impl TuiApp {
             working_dir: None,
             description: trim_optional(&self.add_service.description),
             mcpstore: None,
+            extra: Default::default(),
         })
     }
 
@@ -1999,21 +2004,21 @@ impl TuiApp {
         rt: &tokio::runtime::Runtime,
         reload_source: bool,
     ) -> Result<(), BoxErr> {
+        let selected_instance_id = self.current_service().map(|service| service.instance_id);
         if reload_source {
             rt.block_on(async { self.store.load_from_source().await })?;
         }
 
-        let services = rt.block_on(async { self.store.list_services().await });
+        let services = rt.block_on(async { self.store.list_instances().await });
         self.all_services = services.into_iter().map(ServiceSummary::from).collect();
         self.apply_filter();
         self.apply_tool_filter();
 
-        let selected_name = self.current_service_name().map(ToString::to_string);
-        self.selected = match selected_name {
-            Some(name) => self
+        self.selected = match selected_instance_id {
+            Some(instance_id) => self
                 .filtered_services
                 .iter()
-                .position(|s| s.name == name)
+                .position(|service| service.instance_id == instance_id)
                 .unwrap_or(0),
             None => 0,
         };
@@ -2051,7 +2056,9 @@ impl TuiApp {
     }
 
     fn apply_tool_filter(&mut self) {
-        let selected_name = self.current_tool_service_name().map(ToString::to_string);
+        let selected_instance_id = self
+            .current_tool_service()
+            .map(|service| service.instance_id);
         self.tool_services = if self.tool_filter == ToolFilterTab::All {
             Vec::new()
         } else {
@@ -2062,11 +2069,11 @@ impl TuiApp {
                 .collect()
         };
 
-        self.selected_tool_service = selected_name
-            .and_then(|name| {
+        self.selected_tool_service = selected_instance_id
+            .and_then(|instance_id| {
                 self.tool_services
                     .iter()
-                    .position(|service| service.name == name)
+                    .position(|service| service.instance_id == instance_id)
             })
             .unwrap_or(0);
 
@@ -2075,10 +2082,12 @@ impl TuiApp {
         }
     }
 
+    pub fn current_service(&self) -> Option<&ServiceSummary> {
+        self.filtered_services.get(self.selected)
+    }
+
     pub fn current_service_name(&self) -> Option<&str> {
-        self.filtered_services
-            .get(self.selected)
-            .map(|s| s.name.as_str())
+        self.current_service().map(|service| service.name.as_str())
     }
 
     pub fn current_tool_service(&self) -> Option<&ServiceSummary> {
@@ -2095,12 +2104,6 @@ impl TuiApp {
 
     pub fn current_tool(&self) -> Option<&ToolSummary> {
         self.service_tools.get(self.selected_tool)
-    }
-
-    pub fn current_tool_call_service_name(&self) -> Option<&str> {
-        self.current_tool()
-            .map(|tool| tool.global_service_name.as_str())
-            .or_else(|| self.current_tool_service_name())
     }
 
     pub fn current_agent(&self) -> Option<&AgentSummary> {
@@ -2125,16 +2128,30 @@ impl TuiApp {
         if self.tool_filter == ToolFilterTab::All {
             if connect {
                 for service in self.all_services.clone() {
-                    rt.block_on(async { self.store.connect_service(&service.name).await })
+                    rt.block_on(async { self.store.connect_service(service.instance_id).await })
                         .ok();
                 }
                 self.refresh(rt, false)?;
             }
 
-            let tools = rt.block_on(async { self.store.list_tools_scoped(None, None).await })?;
+            let tools = rt.block_on(async { self.store.list_all_tools().await });
             self.service_tools = tools
                 .into_iter()
-                .filter_map(ToolSummary::from_payload)
+                .map(|(instance_id, tool)| {
+                    let service_name = self
+                        .all_services
+                        .iter()
+                        .find(|service| service.instance_id == instance_id)
+                        .map(|service| service.name.clone())
+                        .unwrap_or_else(|| instance_id.to_string());
+                    ToolSummary {
+                        instance_id,
+                        name: tool.name,
+                        service_name,
+                        description: tool.description,
+                        input_schema: tool.input_schema,
+                    }
+                })
                 .collect();
             if self.selected_tool >= self.service_tools.len() {
                 self.selected_tool = self.service_tools.len().saturating_sub(1);
@@ -2142,24 +2159,23 @@ impl TuiApp {
             return Ok(());
         }
 
-        let Some(name) = self.current_tool_service_name().map(ToString::to_string) else {
+        let Some(service) = self.current_tool_service().cloned() else {
             self.service_tools.clear();
             self.selected_tool = 0;
             return Ok(());
         };
 
         if connect {
-            rt.block_on(async { self.store.connect_service(&name).await })?;
+            rt.block_on(async { self.store.connect_service(service.instance_id).await })?;
         }
 
-        let tools = rt.block_on(async { self.store.list_tools(&name).await })?;
+        let tools = rt.block_on(async { self.store.list_tools(service.instance_id).await })?;
         self.service_tools = tools
             .into_iter()
             .map(|tool| ToolSummary {
-                name: tool.name.clone(),
-                original_name: tool.name,
-                service_name: name.clone(),
-                global_service_name: name.clone(),
+                instance_id: service.instance_id,
+                name: tool.name,
+                service_name: service.name.clone(),
                 description: tool.description,
                 input_schema: tool.input_schema,
             })
@@ -2172,12 +2188,24 @@ impl TuiApp {
         Ok(())
     }
 
-    pub fn refresh_agents(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
+    pub fn refresh_agents(&mut self, _rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         let selected_id = self.current_agent_id().map(ToString::to_string);
-        let agents = rt.block_on(async { self.store.list_agents().await })?;
-        self.agents = agents
+        let mut services_by_agent: HashMap<String, Vec<String>> = HashMap::new();
+        for service in &self.all_services {
+            if let ScopeRef::Agent { agent_id } = &service.scope {
+                services_by_agent
+                    .entry(agent_id.clone())
+                    .or_default()
+                    .push(service.name.clone());
+            }
+        }
+        self.agents = services_by_agent
             .into_iter()
-            .filter_map(AgentSummary::from_value)
+            .map(|(id, mut services)| {
+                services.sort();
+                services.dedup();
+                AgentSummary { id, services }
+            })
             .collect();
         self.agents.sort_by(|left, right| left.id.cmp(&right.id));
 
@@ -2217,20 +2245,17 @@ impl TuiApp {
     }
 
     pub fn refresh_selected_detail(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        let Some(name) = self.current_service_name().map(ToString::to_string) else {
-            self.selected_detail = None;
-            return Ok(());
-        };
-        let Some(service) = self.filtered_services.get(self.selected) else {
+        let Some(service) = self.current_service().cloned() else {
             self.selected_detail = None;
             return Ok(());
         };
 
-        let status = match rt.block_on(async { self.store.cached_service_status(&name).await })? {
-            Some(status) => Some(status),
-            None => rt
-                .block_on(async { self.store.health_check(&name).await })
-                .ok(),
+        let status = rt
+            .block_on(async { self.store.health_check(service.instance_id).await })
+            .ok();
+        let scope = match &service.scope {
+            ScopeRef::Store => "store".to_string(),
+            ScopeRef::Agent { agent_id } => format!("agent: {agent_id}"),
         };
 
         let detail = if let Some(status) = status {
@@ -2238,11 +2263,7 @@ impl TuiApp {
                 title: service.name.clone(),
                 transport: service.transport.clone(),
                 endpoint: service.endpoint.clone(),
-                scope: if service.agent_id == "global_agent_store" {
-                    "store".to_string()
-                } else {
-                    format!("agent: {}", service.agent_id)
-                },
+                scope: scope.clone(),
                 added_time: format_timestamp(service.added_time),
                 connection_status: format_connection_status(service.status).to_string(),
                 health_status: format!("{:?}", status.health_status),
@@ -2259,7 +2280,7 @@ impl TuiApp {
                 tools: status
                     .tools
                     .into_iter()
-                    .map(|tool| format!("{} [{:?}]", tool.tool_original_name, tool.status))
+                    .map(|tool| format!("{} [{:?}]", tool.tool_name, tool.status))
                     .collect(),
             }
         } else {
@@ -2267,11 +2288,7 @@ impl TuiApp {
                 title: service.name.clone(),
                 transport: service.transport.clone(),
                 endpoint: service.endpoint.clone(),
-                scope: if service.agent_id == "global_agent_store" {
-                    "store".to_string()
-                } else {
-                    format!("agent: {}", service.agent_id)
-                },
+                scope,
                 added_time: format_timestamp(service.added_time),
                 connection_status: format_connection_status(service.status).to_string(),
                 health_status: "-".to_string(),
@@ -2303,15 +2320,15 @@ impl TuiApp {
         self.status_message = "[进行中] 已关闭服务详情".to_string();
     }
 
-    fn select_service_by_name(
+    fn select_service(
         &mut self,
-        name: &str,
+        instance_id: InstanceId,
         rt: &tokio::runtime::Runtime,
     ) -> Result<(), BoxErr> {
         let Some(index) = self
             .filtered_services
             .iter()
-            .position(|service| service.name == name)
+            .position(|service| service.instance_id == instance_id)
         else {
             return Ok(());
         };
@@ -2389,52 +2406,62 @@ impl TuiApp {
     }
 
     pub fn connect_selected(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        let Some(name) = self.current_service_name().map(ToString::to_string) else {
+        let Some(service) = self.current_service().cloned() else {
             self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
-        rt.block_on(async { self.store.connect_service(&name).await })?;
+        rt.block_on(async { self.store.connect_service(service.instance_id).await })?;
         self.refresh(rt, false)?;
-        self.status_message = format!("[成功] 已连接服务 {name}");
+        self.status_message = format!("[成功] 已连接服务 {}", service.name);
         Ok(())
     }
 
     pub fn disconnect_selected(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        let Some(name) = self.current_service_name().map(ToString::to_string) else {
+        let Some(service) = self.current_service().cloned() else {
             self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
-        rt.block_on(async { self.store.disconnect_service(&name).await })?;
+        rt.block_on(async { self.store.disconnect_service(service.instance_id).await })?;
         self.refresh(rt, false)?;
-        self.status_message = format!("[成功] 已断开服务 {name}");
+        self.status_message = format!("[成功] 已断开服务 {}", service.name);
         Ok(())
     }
 
     pub fn restart_selected(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        let Some(name) = self.current_service_name().map(ToString::to_string) else {
+        let Some(service) = self.current_service().cloned() else {
             self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
-        rt.block_on(async { self.store.restart_service(&name).await })?;
+        rt.block_on(async { self.store.restart_service(service.instance_id).await })?;
         self.refresh(rt, false)?;
-        self.status_message = format!("[成功] 已重启服务 {name}");
+        self.status_message = format!("[成功] 已重启服务 {}", service.name);
         Ok(())
     }
 
     pub fn prompt_remove(&mut self) {
-        if let Some(name) = self.current_service_name().map(ToString::to_string) {
-            self.pending_action = Some(PendingAction::Remove(name.clone()));
-            self.status_message = format!("[警告] 确认删除服务 {name}？按 y 确认，按 n 取消");
+        if let Some(service) = self.current_service().cloned() {
+            self.pending_action = Some(PendingAction::Remove {
+                service_name: service.name.clone(),
+                scope: service.scope,
+            });
+            self.status_message = format!(
+                "[警告] 确认删除服务作用域 {}？按 y 确认，按 n 取消",
+                service.name
+            );
         } else {
             self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
         }
     }
 
     pub fn confirm_remove(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        if let Some(PendingAction::Remove(name)) = self.pending_action.take() {
-            rt.block_on(async { self.store.remove_service(&name).await })?;
+        if let Some(PendingAction::Remove {
+            service_name,
+            scope,
+        }) = self.pending_action.take()
+        {
+            rt.block_on(async { self.store.remove_service_scope(&service_name, &scope).await })?;
             self.refresh(rt, false)?;
-            self.status_message = format!("[成功] 已删除服务 {name}");
+            self.status_message = format!("[成功] 已删除服务作用域 {service_name}");
         }
         Ok(())
     }

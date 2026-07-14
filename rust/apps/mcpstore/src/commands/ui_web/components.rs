@@ -1,5 +1,6 @@
 use maud::{html, Markup};
-use mcpstore::registry::{ConnectionStatus, ServiceEntry, ToolInfo};
+use mcpstore::registry::{ConnectionStatus, ServiceInstance, ToolInfo};
+use mcpstore::ScopeRef;
 use std::collections::BTreeSet;
 
 use super::utils::{pretty_json, status_meta, truncate_chars, url_component};
@@ -22,7 +23,7 @@ pub(super) fn render_service_table_header() -> Markup {
     html! {
         div.service-table-head aria-hidden="true" {
             span { "Service" }
-            span { "Agent" }
+            span { "Scope" }
             span { "Transport" }
             span { "Status" }
             span { "Tools" }
@@ -31,9 +32,9 @@ pub(super) fn render_service_table_header() -> Markup {
     }
 }
 
-pub(super) fn render_service_row(svc: &ServiceEntry, group: &str) -> Markup {
+pub(super) fn render_service_row(svc: &ServiceInstance) -> Markup {
     let description = svc
-        .config
+        .effective_config
         .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -42,34 +43,37 @@ pub(super) fn render_service_row(svc: &ServiceEntry, group: &str) -> Markup {
     } else {
         truncate_chars(description, 72)
     };
-    let service_segment = url_component(&svc.name);
+    let instance_segment = svc.instance_id.to_string();
+    let scope = match &svc.scope {
+        ScopeRef::Store => "store",
+        ScopeRef::Agent { agent_id } => agent_id,
+    };
 
     html! {
         div.service-row {
             div.service-main {
-                a.service-name href=(format!("/service/{service_segment}")) { (svc.name) }
+                a.service-name href=(format!("/service/{instance_segment}")) { (svc.service_name) }
                 span.service-desc { (desc_short) }
             }
-            span.service-group { (group) }
+            span.service-group { (scope) }
             span.transport-pill { (svc.transport) }
             (status_badge(svc.status))
             span.service-tools { (svc.tools.len()) }
             div.row-actions {
-                a.button.button-ghost href=(format!("/service/{service_segment}")) { "View" }
+                a.button.button-ghost href=(format!("/service/{instance_segment}")) { "View" }
                 @if svc.status == ConnectionStatus::Connected {
-                    a.button href=(format!("/action/disconnect/{service_segment}")) { "Disconnect" }
+                    a.button href=(format!("/action/disconnect/{instance_segment}")) { "Disconnect" }
                 } @else {
-                    a.button.button-primary href=(format!("/action/connect/{service_segment}")) { "Connect" }
+                    a.button.button-primary href=(format!("/action/connect/{instance_segment}")) { "Connect" }
                 }
-                a.button href=(format!("/action/restart/{service_segment}")) { "Restart" }
-                a.button.button-danger href=(format!("/action/remove/{service_segment}")) onclick="return confirm('Confirm delete service?')" { "Delete" }
+                a.button href=(format!("/action/restart/{instance_segment}")) { "Restart" }
+                a.button.button-danger href=(format!("/action/remove/{instance_segment}")) onclick="return confirm('Confirm delete service scope?')" { "Delete" }
             }
         }
     }
 }
 
-pub(super) fn render_tool_card(service_name: &str, tool: &ToolInfo) -> Markup {
-    let service_segment = url_component(service_name);
+pub(super) fn render_tool_card(instance_id: &str, tool: &ToolInfo) -> Markup {
     let tool_segment = url_component(&tool.name);
     let tool_json = serde_json::to_string(tool).unwrap_or_else(|_| "{}".to_string());
     let summary = schema_summary(&tool.input_schema);
@@ -87,8 +91,8 @@ pub(super) fn render_tool_card(service_name: &str, tool: &ToolInfo) -> Markup {
                     span.tool-meta { (summary.len()) " params" }
                 }
                 div.tool-card-actions {
-                    a.button.button-primary href="#" data-modal=(format!("/modal/call-tool/{service_segment}/{tool_segment}")) { "Run" }
-                    a.button.button-ghost href="#" data-modal=(format!("/modal/tool-detail/{service_segment}/{tool_segment}")) { "Details" }
+                    a.button.button-primary href="#" data-modal=(format!("/modal/call-tool/{instance_id}/{tool_segment}")) { "Run" }
+                    a.button.button-ghost href="#" data-modal=(format!("/modal/tool-detail/{instance_id}/{tool_segment}")) { "Details" }
                     button.button.button-ghost type="button" data-copy=(tool_json) { "Copy" }
                 }
             }

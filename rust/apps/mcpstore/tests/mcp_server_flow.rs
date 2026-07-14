@@ -155,7 +155,7 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
     };
     let tools = client.list_all_tools().await?;
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name.as_ref(), "demo_greet");
+    assert_eq!(tools[0].name.as_ref(), "greet");
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
@@ -177,11 +177,11 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
 
     let prompts = client.list_all_prompts().await?;
     assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0].name, "demo_explain");
+    assert_eq!(prompts[0].name, "explain");
 
     let prompt = client
         .get_prompt(
-            GetPromptRequestParams::new("demo_explain").with_arguments(
+            GetPromptRequestParams::new("explain").with_arguments(
                 serde_json::json!({"topic": "stdio"})
                     .as_object()
                     .cloned()
@@ -200,7 +200,7 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
     let args: serde_json::Map<String, serde_json::Value> =
         serde_json::from_value(serde_json::json!({"name": "World"}))?;
     let result = client
-        .call_tool(CallToolRequestParams::new("demo_greet").with_arguments(args))
+        .call_tool(CallToolRequestParams::new("greet").with_arguments(args))
         .await?;
 
     let text = result
@@ -296,7 +296,7 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
 
     let tools = client.list_all_tools().await?;
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name.as_ref(), "demo_greet");
+    assert_eq!(tools[0].name.as_ref(), "greet");
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
@@ -304,11 +304,11 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
 
     let prompts = client.list_all_prompts().await?;
     assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0].name, "demo_explain");
+    assert_eq!(prompts[0].name, "explain");
 
     let prompt = client
         .get_prompt(
-            GetPromptRequestParams::new("demo_explain").with_arguments(
+            GetPromptRequestParams::new("explain").with_arguments(
                 serde_json::json!({"topic": "agent"})
                     .as_object()
                     .cloned()
@@ -410,7 +410,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
 
     let tools = client.list_all_tools().await?;
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name.as_ref(), "demo_greet");
+    assert_eq!(tools[0].name.as_ref(), "greet");
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
@@ -432,11 +432,11 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
 
     let prompts = client.list_all_prompts().await?;
     assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0].name, "demo_explain");
+    assert_eq!(prompts[0].name, "explain");
 
     let prompt = client
         .get_prompt(
-            GetPromptRequestParams::new("demo_explain").with_arguments(
+            GetPromptRequestParams::new("explain").with_arguments(
                 serde_json::json!({"topic": "http"})
                     .as_object()
                     .cloned()
@@ -455,7 +455,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
     let args: serde_json::Map<String, serde_json::Value> =
         serde_json::from_value(serde_json::json!({"name": "Rust"}))?;
     let result = client
-        .call_tool(CallToolRequestParams::new("demo_greet").with_arguments(args))
+        .call_tool(CallToolRequestParams::new("greet").with_arguments(args))
         .await?;
     let text = result
         .content

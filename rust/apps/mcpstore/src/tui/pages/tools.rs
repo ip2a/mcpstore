@@ -77,10 +77,9 @@ fn render_service_menu(frame: &mut Frame, area: Rect, app: &TuiApp) {
         .enumerate()
         .map(|(index, service)| {
             let selected = index == app.selected_tool_service;
-            let scope = if service.agent_id == "global_agent_store" {
-                "store"
-            } else {
-                "agent"
+            let scope = match &service.scope {
+                mcpstore::ScopeRef::Store => "store",
+                mcpstore::ScopeRef::Agent { .. } => "agent",
             };
             ListItem::new(vec![
                 Line::from(vec![

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use mcpstore::{ScopeRef, ServiceInstanceKey};
 use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 
@@ -152,6 +153,7 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
+    let store_instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
 
     let mut child = tokio::process::Command::new(cli_bin())
         .arg("api")
@@ -204,17 +206,20 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert_eq!(health_payload["status"], "ok");
 
     let services = client
-        .get(format!("{base_url}/for_store/list_services"))
+        .get(format!("{base_url}/scopes/store/instances"))
         .send()
         .await?;
     assert!(services.status().is_success());
     let services_payload = services.json::<Value>().await?;
     assert!(services_payload["success"].as_bool().unwrap_or(false));
     assert_eq!(services_payload["data"]["total"], 1);
-    assert_eq!(services_payload["data"]["services"][0]["name"], "demo");
+    assert_eq!(
+        services_payload["data"]["services"][0]["service_name"],
+        "demo"
+    );
 
     let connect = client
-        .post(format!("{base_url}/for_store/connect_service/demo"))
+        .post(format!("{base_url}/instances/{store_instance_id}/connect"))
         .send()
         .await?;
     assert!(connect.status().is_success());
@@ -222,16 +227,18 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert!(connect_payload["success"].as_bool().unwrap_or(false));
 
     let tools = client
-        .get(format!("{base_url}/for_store/list_tools"))
+        .get(format!("{base_url}/instances/{store_instance_id}/tools"))
         .send()
         .await?;
     assert!(tools.status().is_success());
     let tools_payload = tools.json::<Value>().await?;
     assert_eq!(tools_payload["data"]["total"], 1);
-    assert_eq!(tools_payload["data"]["tools"][0]["name"], "demo_greet");
+    assert_eq!(tools_payload["data"]["tools"][0]["name"], "greet");
 
     let resources = client
-        .get(format!("{base_url}/for_store/list_resources"))
+        .get(format!(
+            "{base_url}/instances/{store_instance_id}/resources"
+        ))
         .send()
         .await?;
     assert!(resources.status().is_success());
@@ -243,7 +250,9 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     );
 
     let resource_templates = client
-        .get(format!("{base_url}/for_store/list_resource_templates"))
+        .get(format!(
+            "{base_url}/instances/{store_instance_id}/resource_templates"
+        ))
         .send()
         .await?;
     assert!(resource_templates.status().is_success());
@@ -251,7 +260,9 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert_eq!(resource_templates_payload["data"]["total"], 0);
 
     let read_resource = client
-        .get(format!("{base_url}/for_store/read_resource"))
+        .get(format!(
+            "{base_url}/instances/{store_instance_id}/read_resource"
+        ))
         .query(&[("uri", "fixture://docs/readme")])
         .send()
         .await?;
@@ -263,21 +274,20 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     );
 
     let prompts = client
-        .get(format!("{base_url}/for_store/list_prompts"))
+        .get(format!("{base_url}/instances/{store_instance_id}/prompts"))
         .send()
         .await?;
     assert!(prompts.status().is_success());
     let prompts_payload = prompts.json::<Value>().await?;
     assert_eq!(prompts_payload["data"]["total"], 1);
-    assert_eq!(
-        prompts_payload["data"]["prompts"][0]["name"],
-        "demo_explain"
-    );
+    assert_eq!(prompts_payload["data"]["prompts"][0]["name"], "explain");
 
     let get_prompt = client
-        .post(format!("{base_url}/for_store/get_prompt"))
+        .post(format!(
+            "{base_url}/instances/{store_instance_id}/get_prompt"
+        ))
         .json(&json!({
-            "prompt_name": "demo_explain",
+            "prompt_name": "explain",
             "args": {"topic": "resources"},
         }))
         .send()
@@ -290,9 +300,9 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     );
 
     let call = client
-        .post(format!("{base_url}/for_store/call_tool"))
+        .post(format!("{base_url}/instances/{store_instance_id}/call"))
         .json(&json!({
-            "tool_name": "demo_greet",
+            "tool_name": "greet",
             "args": {"name": "API"},
         }))
         .send()
@@ -316,11 +326,11 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
         .as_str()
         .unwrap()
         .to_string();
-    assert_eq!(session_key, "store:global:api-session");
+    assert_eq!(session_key, "store:api-session");
 
     let session_bind = client
         .post(format!("{base_url}/sessions/bind_service/{session_key}"))
-        .json(&json!({"service_name": "demo"}))
+        .json(&json!({"instance_id": store_instance_id}))
         .send()
         .await?;
     assert!(session_bind.status().is_success());
@@ -332,15 +342,13 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert!(session_tools.status().is_success());
     let session_tools_payload = session_tools.json::<Value>().await?;
     assert_eq!(session_tools_payload["data"]["total"], 1);
-    assert_eq!(
-        session_tools_payload["data"]["tools"][0]["name"],
-        "demo_greet"
-    );
+    assert_eq!(session_tools_payload["data"]["tools"][0]["name"], "greet");
 
     let session_call = client
         .post(format!("{base_url}/sessions/call_tool/{session_key}"))
         .json(&json!({
-            "tool_name": "demo_greet",
+            "instance_id": store_instance_id,
+            "tool_name": "greet",
             "args": {"name": "Session API"},
         }))
         .send()
@@ -371,7 +379,8 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert_eq!(session_close_payload["data"]["status"]["status"], "closed");
 
     let assign = client
-        .post(format!("{base_url}/for_agent/agent-a/assign_service/demo"))
+        .put(format!("{base_url}/services/demo/scopes/agents/agent-a"))
+        .json(&json!({}))
         .send()
         .await?;
     assert!(assign.status().is_success());
@@ -379,31 +388,41 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert!(assign_payload["success"].as_bool().unwrap_or(false));
 
     let agent_services = client
-        .get(format!("{base_url}/for_agent/agent-a/list_services"))
+        .get(format!("{base_url}/scopes/agents/agent-a/instances"))
         .send()
         .await?;
     assert!(agent_services.status().is_success());
     let agent_services_payload = agent_services.json::<Value>().await?;
     assert_eq!(agent_services_payload["data"]["total"], 1);
     assert_eq!(
-        agent_services_payload["data"]["services"][0]["name"],
+        agent_services_payload["data"]["services"][0]["service_name"],
         "demo"
     );
 
+    let agent_instance_id = ServiceInstanceKey::new(
+        "demo",
+        ScopeRef::Agent {
+            agent_id: "agent-a".to_string(),
+        },
+    )
+    .instance_id();
+    let agent_connect = client
+        .post(format!("{base_url}/instances/{agent_instance_id}/connect"))
+        .send()
+        .await?;
+    assert!(agent_connect.status().is_success());
+
     let agent_tools = client
-        .get(format!("{base_url}/for_agent/agent-a/list_tools"))
+        .get(format!("{base_url}/instances/{agent_instance_id}/tools"))
         .send()
         .await?;
     assert!(agent_tools.status().is_success());
     let agent_tools_payload = agent_tools.json::<Value>().await?;
     assert_eq!(agent_tools_payload["data"]["total"], 1);
-    assert_eq!(
-        agent_tools_payload["data"]["tools"][0]["name"],
-        "demo_greet"
-    );
+    assert_eq!(agent_tools_payload["data"]["tools"][0]["name"], "greet");
 
     let agent_prompts = client
-        .get(format!("{base_url}/for_agent/agent-a/list_prompts"))
+        .get(format!("{base_url}/instances/{agent_instance_id}/prompts"))
         .send()
         .await?;
     assert!(agent_prompts.status().is_success());
@@ -411,7 +430,7 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert_eq!(agent_prompts_payload["data"]["total"], 1);
     assert_eq!(
         agent_prompts_payload["data"]["prompts"][0]["name"],
-        "demo_explain"
+        "explain"
     );
 
     let cache_health = client

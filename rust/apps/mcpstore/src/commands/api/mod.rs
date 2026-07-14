@@ -7,9 +7,11 @@ use axum::{
 };
 use clap::Args;
 use mcpstore::{
-    config::ConfigError, config_formats::ConfigFormat, perspective::GLOBAL_AGENT_STORE, AppConfig,
-    CreateSessionRequest, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
-    OpenApiRefCachePolicy, SessionScope, ToolTransformPatch,
+    config::{ConfigError, ScopeDescriptor},
+    config_formats::ConfigFormat,
+    AppConfig, CreateSessionRequest, InstanceId, MCPStore, OpenApiBundleOptions,
+    OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, SessionScope,
+    ToolTransformPatch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -25,9 +27,9 @@ mod parse;
 
 use envelope::{success, ApiError, ApiResult};
 use parse::{
-    cache_storage_label, ensure_json_object, extract_prompt_args, extract_prompt_name,
-    extract_resource_uri, extract_tool_args, extract_tool_name, normalize_prefix,
-    parse_cache_storage, parse_named_service_payload, parse_positive_u64, parse_positive_usize,
+    cache_storage_label, extract_prompt_args, extract_prompt_name, extract_resource_uri,
+    extract_tool_args, extract_tool_name, normalize_prefix, parse_cache_storage,
+    parse_positive_u64, parse_positive_usize,
 };
 
 #[derive(Args)]
@@ -78,6 +80,7 @@ struct SessionFindQuery {
 #[derive(Deserialize)]
 struct ShowConfigQuery {
     format: Option<String>,
+    instance_id: Option<InstanceId>,
 }
 
 #[derive(Deserialize)]
@@ -101,7 +104,7 @@ struct SessionExtendRequest {
 #[derive(Deserialize)]
 struct SessionBindServiceRequest {
     session_key: Option<String>,
-    service_name: String,
+    instance_id: InstanceId,
 }
 
 #[derive(Deserialize)]
@@ -129,33 +132,7 @@ struct SessionStateClearRequest {
 }
 
 #[derive(Deserialize)]
-struct ToolTransformTargetQuery {
-    service_name: String,
-    tool_name: String,
-}
-
-#[derive(Deserialize)]
-struct ToolTransformSetRequest {
-    service_name: Option<String>,
-    tool_name: Option<String>,
-    #[serde(flatten)]
-    transform: ToolTransformPatch,
-}
-
-#[derive(Deserialize)]
-struct ToolTransformDeleteRequest {
-    service_name: Option<String>,
-    tool_name: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct OpenApiImportTargetQuery {
-    name: String,
-}
-
-#[derive(Deserialize)]
 struct OpenApiImportRequest {
-    name: Option<String>,
     spec_url: String,
     spec: Option<Value>,
     spec_text: Option<String>,
@@ -289,175 +266,82 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             "/sessions/state/clear/:session_key",
             post(session_clear_state),
         )
-        .route("/for_store/list_services", get(store_list_services))
-        .route("/for_store/add_service", post(store_add_service))
+        .route("/scopes/store/instances", get(store_list_services))
         .route(
-            "/for_store/update_service/:service_name",
-            post(store_update_service),
+            "/scopes/agents/:agent_id/instances",
+            get(agent_list_services),
         )
         .route(
-            "/for_store/remove_service/:service_name",
-            post(store_remove_service),
+            "/services/:service_name",
+            post(add_service_definition)
+                .put(update_service_definition)
+                .delete(remove_service_definition),
         )
         .route(
-            "/for_store/connect_service/:service_name",
+            "/services/:service_name/scopes/store",
+            put(declare_store_scope).delete(remove_store_scope),
+        )
+        .route(
+            "/services/:service_name/scopes/agents/:agent_id",
+            put(declare_agent_scope).delete(remove_agent_scope),
+        )
+        .route(
+            "/instances/:instance_id/connect",
             post(store_connect_service),
         )
         .route(
-            "/for_store/disconnect_service/:service_name",
+            "/instances/:instance_id/disconnect",
             post(store_disconnect_service),
         )
         .route(
-            "/for_store/restart_service/:service_name",
+            "/instances/:instance_id/restart",
             post(store_restart_service),
         )
+        .route("/instances/:instance_id/wait", get(store_wait_service))
+        .route("/instances/:instance_id/tools", get(store_list_tools))
+        .route("/instances/:instance_id/call", post(store_call_tool))
+        .route("/tool_transforms", get(store_list_tool_transforms))
         .route(
-            "/for_store/wait_service/:service_name",
-            get(store_wait_service),
+            "/instances/:instance_id/tool_transforms/:tool_name",
+            get(store_get_tool_transform_by_path)
+                .put(store_set_tool_transform_by_path)
+                .delete(store_delete_tool_transform_by_path),
         )
-        .route("/for_store/list_tools", get(store_list_tools))
-        .route("/for_store/call_tool", post(store_call_tool))
+        .route("/openapi_imports", get(store_list_openapi_imports))
         .route(
-            "/for_store/tool_transforms",
-            get(store_list_tool_transforms),
-        )
-        .route(
-            "/for_store/tool_transforms/get",
-            get(store_get_tool_transform),
-        )
-        .route(
-            "/for_store/tool_transforms/get/:service_name/:tool_name",
-            get(store_get_tool_transform_by_path),
-        )
-        .route(
-            "/for_store/tool_transforms/set",
-            post(store_set_tool_transform),
-        )
-        .route(
-            "/for_store/tool_transforms/set/:service_name/:tool_name",
-            post(store_set_tool_transform_by_path),
-        )
-        .route(
-            "/for_store/tool_transforms/delete",
-            post(store_delete_tool_transform),
-        )
-        .route(
-            "/for_store/tool_transforms/delete/:service_name/:tool_name",
-            post(store_delete_tool_transform_by_path),
-        )
-        .route(
-            "/for_store/openapi_imports",
-            get(store_list_openapi_imports),
-        )
-        .route(
-            "/for_store/openapi_imports/get",
-            get(store_get_openapi_import),
-        )
-        .route(
-            "/for_store/openapi_imports/get/:name",
+            "/openapi_imports/:name",
             get(store_get_openapi_import_by_path),
         )
         .route(
-            "/for_store/openapi_imports/import",
-            post(store_import_openapi),
-        )
-        .route(
-            "/for_store/openapi_imports/import/:name",
+            "/openapi_imports/:name/import",
             post(store_import_openapi_by_path),
         )
+        .route("/openapi_imports/bundle", post(store_bundle_openapi))
         .route(
-            "/for_store/openapi_imports/bundle",
-            post(store_bundle_openapi),
-        )
-        .route(
-            "/for_store/openapi_imports/bundle_artifact",
+            "/openapi_imports/bundle_artifact",
             post(store_bundle_openapi_artifact),
         )
-        .route("/for_store/list_resources", get(store_list_resources))
         .route(
-            "/for_store/list_resource_templates",
+            "/instances/:instance_id/resources",
+            get(store_list_resources),
+        )
+        .route(
+            "/instances/:instance_id/resource_templates",
             get(store_list_resource_templates),
         )
-        .route("/for_store/read_resource", get(store_read_resource))
-        .route("/for_store/list_prompts", get(store_list_prompts))
-        .route("/for_store/get_prompt", post(store_get_prompt))
-        .route("/for_store/check_services", get(store_check_services))
         .route(
-            "/for_store/service_info/:service_name",
-            get(store_service_info),
+            "/instances/:instance_id/read_resource",
+            get(store_read_resource),
         )
-        .route(
-            "/for_store/service_status/:service_name",
-            get(store_service_status),
-        )
-        .route("/for_store/show_config", get(store_show_config))
-        .route("/for_store/reset_config", post(store_reset_config))
-        .route(
-            "/for_agent/:agent_id/list_services",
-            get(agent_list_services),
-        )
-        .route("/for_agent/:agent_id/add_service", post(agent_add_service))
-        .route(
-            "/for_agent/:agent_id/update_service/:service_name",
-            post(agent_update_service),
-        )
-        .route(
-            "/for_agent/:agent_id/remove_service/:service_name",
-            post(agent_remove_service),
-        )
-        .route(
-            "/for_agent/:agent_id/connect_service/:service_name",
-            post(agent_connect_service),
-        )
-        .route(
-            "/for_agent/:agent_id/disconnect_service/:service_name",
-            post(agent_disconnect_service),
-        )
-        .route(
-            "/for_agent/:agent_id/restart_service/:service_name",
-            post(agent_restart_service),
-        )
-        .route(
-            "/for_agent/:agent_id/wait_service/:service_name",
-            get(agent_wait_service),
-        )
-        .route(
-            "/for_agent/:agent_id/assign_service/:service_name",
-            post(agent_assign_service),
-        )
-        .route(
-            "/for_agent/:agent_id/unassign_service/:service_name",
-            post(agent_unassign_service),
-        )
-        .route("/for_agent/:agent_id/list_tools", get(agent_list_tools))
-        .route("/for_agent/:agent_id/call_tool", post(agent_call_tool))
-        .route(
-            "/for_agent/:agent_id/list_resources",
-            get(agent_list_resources),
-        )
-        .route(
-            "/for_agent/:agent_id/list_resource_templates",
-            get(agent_list_resource_templates),
-        )
-        .route(
-            "/for_agent/:agent_id/read_resource",
-            get(agent_read_resource),
-        )
-        .route("/for_agent/:agent_id/list_prompts", get(agent_list_prompts))
-        .route("/for_agent/:agent_id/get_prompt", post(agent_get_prompt))
-        .route(
-            "/for_agent/:agent_id/service_info/:service_name",
-            get(agent_service_info),
-        )
-        .route(
-            "/for_agent/:agent_id/service_status/:service_name",
-            get(agent_service_status),
-        )
-        .route("/for_agent/:agent_id/show_config", get(agent_show_config))
-        .route(
-            "/for_agent/:agent_id/reset_config",
-            post(agent_reset_config),
-        )
+        .route("/instances/:instance_id/prompts", get(store_list_prompts))
+        .route("/instances/:instance_id/get_prompt", post(store_get_prompt))
+        .route("/instances/:instance_id/check", get(store_check_service))
+        .route("/instances/:instance_id", get(store_service_info))
+        .route("/instances/:instance_id/status", get(store_service_status))
+        .route("/config", get(store_show_config))
+        .route("/config/reset", post(store_reset_config))
+        .route("/scopes/agents/:agent_id/config", get(agent_show_config))
+        .route("/scopes/agents/:agent_id/reset", post(agent_reset_config))
         .route("/cache/health", get(cache_health))
         .route("/cache/inspect", get(cache_inspect))
         .route("/cache/switch", post(cache_switch))
@@ -844,7 +728,7 @@ async fn session_bind_service(
     Path(session_key): Path<String>,
     Json(payload): Json<SessionBindServiceRequest>,
 ) -> ApiResult {
-    session_bind_service_impl(state, session_key, payload.service_name).await
+    session_bind_service_impl(state, session_key, payload.instance_id).await
 }
 
 async fn session_bind_service_by_body(
@@ -854,17 +738,17 @@ async fn session_bind_service_by_body(
     let session_key = payload
         .session_key
         .ok_or_else(|| ApiError::missing_parameter("session_key"))?;
-    session_bind_service_impl(state, session_key, payload.service_name).await
+    session_bind_service_impl(state, session_key, payload.instance_id).await
 }
 
 async fn session_bind_service_impl(
     state: Arc<ApiState>,
     session_key: String,
-    service_name: String,
+    instance_id: InstanceId,
 ) -> ApiResult {
     let relation = state
         .store
-        .bind_service_to_session(&session_key, &service_name)
+        .bind_service_to_session(&session_key, instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -878,7 +762,7 @@ async fn session_unbind_service(
     Path(session_key): Path<String>,
     Json(payload): Json<SessionBindServiceRequest>,
 ) -> ApiResult {
-    session_unbind_service_impl(state, session_key, payload.service_name).await
+    session_unbind_service_impl(state, session_key, payload.instance_id).await
 }
 
 async fn session_unbind_service_by_body(
@@ -888,17 +772,17 @@ async fn session_unbind_service_by_body(
     let session_key = payload
         .session_key
         .ok_or_else(|| ApiError::missing_parameter("session_key"))?;
-    session_unbind_service_impl(state, session_key, payload.service_name).await
+    session_unbind_service_impl(state, session_key, payload.instance_id).await
 }
 
 async fn session_unbind_service_impl(
     state: Arc<ApiState>,
     session_key: String,
-    service_name: String,
+    instance_id: InstanceId,
 ) -> ApiResult {
     let relation = state
         .store
-        .unbind_service_from_session(&session_key, &service_name)
+        .unbind_service_from_session(&session_key, instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -987,11 +871,19 @@ async fn session_call_tool_impl(
     session_key: String,
     payload: Value,
 ) -> ApiResult {
+    let instance_id = payload
+        .get("instance_id")
+        .cloned()
+        .ok_or_else(|| ApiError::missing_parameter("instance_id"))
+        .and_then(|value| {
+            serde_json::from_value(value)
+                .map_err(|error| ApiError::invalid_request(format!("instance_id 无效: {error}")))
+        })?;
     let tool_name = extract_tool_name(&payload)?;
     let args = extract_tool_args(&payload)?;
     let result = state
         .store
-        .call_tool_in_session(&session_key, &tool_name, args)
+        .call_tool_in_session(&session_key, instance_id, &tool_name, args)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1168,7 +1060,7 @@ async fn event_capability_report(State(state): State<Arc<ApiState>>) -> ApiResul
 async fn store_list_services(State(state): State<Arc<ApiState>>) -> ApiResult {
     let services = state
         .store
-        .list_services_scoped(None)
+        .list_services_scoped(&ScopeRef::Store)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1177,35 +1069,45 @@ async fn store_list_services(State(state): State<Arc<ApiState>>) -> ApiResult {
     ))
 }
 
-async fn store_add_service(
-    State(state): State<Arc<ApiState>>,
-    Json(payload): Json<Value>,
-) -> ApiResult {
-    for (name, config) in parse_named_service_payload(payload)? {
-        state
-            .store
-            .add_service(&name, config)
-            .await
-            .map_err(ApiError::from_store)?;
-    }
-    Ok(success("服务添加成功", json!({ "status": "ok" })))
-}
-
-async fn store_update_service(
+async fn add_service_definition(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
     Json(payload): Json<Value>,
 ) -> ApiResult {
-    let updates = ensure_json_object(payload, "payload")?;
+    let config: ServerConfig = serde_json::from_value(payload)
+        .map_err(|error| ApiError::invalid_request(format!("服务配置无效: {error}")))?;
     state
         .store
-        .patch_service(&service_name, updates)
+        .add_service(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务更新成功", json!({ "status": "ok" })))
+    Ok(success("服务定义添加成功", json!({ "status": "ok" })))
 }
 
-async fn store_remove_service(
+async fn update_service_definition(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Json(payload): Json<Value>,
+) -> ApiResult {
+    if payload
+        .as_object()
+        .is_some_and(|config| config.contains_key("_mcpstore"))
+    {
+        return Err(ApiError::invalid_request(
+            "基础配置更新不能包含 _mcpstore；请使用作用域接口修改 scope",
+        ));
+    }
+    let config: ServerConfig = serde_json::from_value(payload)
+        .map_err(|error| ApiError::invalid_request(format!("服务配置无效: {error}")))?;
+    state
+        .store
+        .update_service(&service_name, config)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("服务定义更新成功", json!({ "status": "ok" })))
+}
+
+async fn remove_service_definition(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
 ) -> ApiResult {
@@ -1214,7 +1116,32 @@ async fn store_remove_service(
         .remove_service(&service_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务删除成功", json!({ "status": "ok" })))
+    Ok(success("服务定义删除成功", json!({ "status": "ok" })))
+}
+
+async fn declare_store_scope(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Json(descriptor): Json<ScopeDescriptor>,
+) -> ApiResult {
+    state
+        .store
+        .declare_service_scope(&service_name, &ScopeRef::Store, descriptor)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Store 作用域已声明", json!({ "status": "ok" })))
+}
+
+async fn remove_store_scope(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+) -> ApiResult {
+    state
+        .store
+        .remove_service_scope(&service_name, &ScopeRef::Store)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Store 作用域已删除", json!({ "status": "ok" })))
 }
 
 fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
@@ -1226,11 +1153,11 @@ fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
 
 async fn store_connect_service(
     State(state): State<Arc<ApiState>>,
-    Path(service_name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     state
         .store
-        .connect_service(&service_name)
+        .connect_service(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("服务连接成功", json!({ "status": "ok" })))
@@ -1238,11 +1165,11 @@ async fn store_connect_service(
 
 async fn store_disconnect_service(
     State(state): State<Arc<ApiState>>,
-    Path(service_name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     state
         .store
-        .disconnect_service(&service_name)
+        .disconnect_service(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("服务断开成功", json!({ "status": "ok" })))
@@ -1250,11 +1177,11 @@ async fn store_disconnect_service(
 
 async fn store_restart_service(
     State(state): State<Arc<ApiState>>,
-    Path(service_name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     state
         .store
-        .restart_service(&service_name)
+        .restart_service(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("服务重启成功", json!({ "status": "ok" })))
@@ -1262,7 +1189,7 @@ async fn store_restart_service(
 
 async fn store_wait_service(
     State(state): State<Arc<ApiState>>,
-    Path(service_name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult {
     let timeout = params
@@ -1273,7 +1200,7 @@ async fn store_wait_service(
         .unwrap_or(10);
     let status = state
         .store
-        .wait_service_ready(&service_name, timeout)
+        .wait_instance_ready(instance_id, timeout)
         .await
         .map_err(ApiError::from_store)?;
     let status = serde_json::to_value(status)
@@ -1283,11 +1210,11 @@ async fn store_wait_service(
 
 async fn store_list_tools(
     State(state): State<Arc<ApiState>>,
-    Query(params): Query<HashMap<String, String>>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     let tools = state
         .store
-        .list_tools_scoped(None, params.get("service_name").map(String::as_str))
+        .list_tools_for_instance(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1298,22 +1225,14 @@ async fn store_list_tools(
 
 async fn store_call_tool(
     State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
     Json(payload): Json<Value>,
 ) -> ApiResult {
     let tool_name = extract_tool_name(&payload)?;
     let args = extract_tool_args(&payload)?;
-    let resolution = state
-        .store
-        .resolve_tool_for_agent(GLOBAL_AGENT_STORE, &tool_name)
-        .await
-        .map_err(ApiError::from_store)?;
     let result = state
         .store
-        .call_tool(
-            &resolution.global_service_name,
-            &resolution.canonical_tool_name,
-            args,
-        )
+        .call_tool(instance_id, &tool_name, args)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1334,28 +1253,13 @@ async fn store_list_tool_transforms(State(state): State<Arc<ApiState>>) -> ApiRe
     ))
 }
 
-async fn store_get_tool_transform(
-    State(state): State<Arc<ApiState>>,
-    Query(query): Query<ToolTransformTargetQuery>,
-) -> ApiResult {
-    store_get_tool_transform_impl(state, query.service_name, query.tool_name).await
-}
-
 async fn store_get_tool_transform_by_path(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, tool_name)): Path<(String, String)>,
-) -> ApiResult {
-    store_get_tool_transform_impl(state, service_name, tool_name).await
-}
-
-async fn store_get_tool_transform_impl(
-    state: Arc<ApiState>,
-    service_name: String,
-    tool_name: String,
+    Path((instance_id, tool_name)): Path<(InstanceId, String)>,
 ) -> ApiResult {
     let transform = state
         .store
-        .get_tool_transform(&service_name, &tool_name)
+        .get_tool_transform(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1364,36 +1268,14 @@ async fn store_get_tool_transform_impl(
     ))
 }
 
-async fn store_set_tool_transform(
-    State(state): State<Arc<ApiState>>,
-    Json(payload): Json<ToolTransformSetRequest>,
-) -> ApiResult {
-    let service_name = payload
-        .service_name
-        .ok_or_else(|| ApiError::missing_parameter("service_name"))?;
-    let tool_name = payload
-        .tool_name
-        .ok_or_else(|| ApiError::missing_parameter("tool_name"))?;
-    store_set_tool_transform_impl(state, service_name, tool_name, payload.transform).await
-}
-
 async fn store_set_tool_transform_by_path(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, tool_name)): Path<(String, String)>,
-    Json(payload): Json<ToolTransformSetRequest>,
-) -> ApiResult {
-    store_set_tool_transform_impl(state, service_name, tool_name, payload.transform).await
-}
-
-async fn store_set_tool_transform_impl(
-    state: Arc<ApiState>,
-    service_name: String,
-    tool_name: String,
-    transform: ToolTransformPatch,
+    Path((instance_id, tool_name)): Path<(InstanceId, String)>,
+    Json(transform): Json<ToolTransformPatch>,
 ) -> ApiResult {
     let transform = state
         .store
-        .set_tool_transform(&service_name, &tool_name, transform)
+        .set_tool_transform(instance_id, &tool_name, transform)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1402,34 +1284,13 @@ async fn store_set_tool_transform_impl(
     ))
 }
 
-async fn store_delete_tool_transform(
-    State(state): State<Arc<ApiState>>,
-    Json(payload): Json<ToolTransformDeleteRequest>,
-) -> ApiResult {
-    let service_name = payload
-        .service_name
-        .ok_or_else(|| ApiError::missing_parameter("service_name"))?;
-    let tool_name = payload
-        .tool_name
-        .ok_or_else(|| ApiError::missing_parameter("tool_name"))?;
-    store_delete_tool_transform_impl(state, service_name, tool_name).await
-}
-
 async fn store_delete_tool_transform_by_path(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, tool_name)): Path<(String, String)>,
-) -> ApiResult {
-    store_delete_tool_transform_impl(state, service_name, tool_name).await
-}
-
-async fn store_delete_tool_transform_impl(
-    state: Arc<ApiState>,
-    service_name: String,
-    tool_name: String,
+    Path((instance_id, tool_name)): Path<(InstanceId, String)>,
 ) -> ApiResult {
     state
         .store
-        .delete_tool_transform(&service_name, &tool_name)
+        .delete_tool_transform(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("工具转换规则删除成功", json!({ "status": "ok" })))
@@ -1447,21 +1308,10 @@ async fn store_list_openapi_imports(State(state): State<Arc<ApiState>>) -> ApiRe
     ))
 }
 
-async fn store_get_openapi_import(
-    State(state): State<Arc<ApiState>>,
-    Query(query): Query<OpenApiImportTargetQuery>,
-) -> ApiResult {
-    store_get_openapi_import_impl(state, query.name).await
-}
-
 async fn store_get_openapi_import_by_path(
     State(state): State<Arc<ApiState>>,
     Path(name): Path<String>,
 ) -> ApiResult {
-    store_get_openapi_import_impl(state, name).await
-}
-
-async fn store_get_openapi_import_impl(state: Arc<ApiState>, name: String) -> ApiResult {
     let import = state
         .store
         .get_openapi_import(&name)
@@ -1471,36 +1321,6 @@ async fn store_get_openapi_import_impl(state: Arc<ApiState>, name: String) -> Ap
         "OpenAPI 导入结果获取成功",
         json!({ "import": import }),
     ))
-}
-
-async fn store_import_openapi(
-    State(state): State<Arc<ApiState>>,
-    Json(payload): Json<OpenApiImportRequest>,
-) -> ApiResult {
-    let name = payload
-        .name
-        .ok_or_else(|| ApiError::missing_parameter("name"))?;
-    let options = OpenApiImportOptions {
-        headers: payload.headers,
-        auth: payload.auth,
-        ref_cache: payload.ref_cache,
-        timeout_millis: openapi_timeout_millis(payload.timeout_millis, "timeout_millis")?
-            .unwrap_or_else(OpenApiImportOptions::default_timeout_millis),
-        fetch_timeout_millis: openapi_timeout_millis(
-            payload.fetch_timeout_millis,
-            "fetch_timeout_millis",
-        )?
-        .unwrap_or_else(OpenApiImportOptions::default_fetch_timeout_millis),
-    };
-    store_import_openapi_impl(
-        state,
-        name,
-        payload.spec_url,
-        payload.spec,
-        payload.spec_text,
-        options,
-    )
-    .await
 }
 
 async fn store_import_openapi_by_path(
@@ -1683,11 +1503,11 @@ fn openapi_timeout_millis(value: Option<u64>, field: &'static str) -> ApiResult<
 
 async fn store_list_resources(
     State(state): State<Arc<ApiState>>,
-    Query(params): Query<HashMap<String, String>>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     let resources = state
         .store
-        .list_resources_scoped(None, params.get("service_name").map(String::as_str))
+        .list_resources_for_instance(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1698,11 +1518,11 @@ async fn store_list_resources(
 
 async fn store_list_resource_templates(
     State(state): State<Arc<ApiState>>,
-    Query(params): Query<HashMap<String, String>>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     let templates = state
         .store
-        .list_resource_templates_scoped(None, params.get("service_name").map(String::as_str))
+        .list_resource_templates_for_instance(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1713,12 +1533,13 @@ async fn store_list_resource_templates(
 
 async fn store_read_resource(
     State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult {
     let uri = extract_resource_uri(&params)?;
     let result = state
         .store
-        .read_resource_scoped(None, &uri, params.get("service_name").map(String::as_str))
+        .read_resource_scoped(instance_id, &uri)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("资源读取成功", result))
@@ -1726,11 +1547,11 @@ async fn store_read_resource(
 
 async fn store_list_prompts(
     State(state): State<Arc<ApiState>>,
-    Query(params): Query<HashMap<String, String>>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     let prompts = state
         .store
-        .list_prompts_scoped(None, params.get("service_name").map(String::as_str))
+        .list_prompts_for_instance(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1741,35 +1562,38 @@ async fn store_list_prompts(
 
 async fn store_get_prompt(
     State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
     Json(payload): Json<Value>,
 ) -> ApiResult {
     let prompt_name = extract_prompt_name(&payload)?;
     let args = extract_prompt_args(&payload)?;
-    let service_name = payload.get("service_name").and_then(Value::as_str);
     let result = state
         .store
-        .get_prompt_scoped(None, &prompt_name, args, service_name)
+        .get_prompt_scoped(instance_id, &prompt_name, args)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("Prompt 获取成功", result))
 }
 
-async fn store_check_services(State(state): State<Arc<ApiState>>) -> ApiResult {
+async fn store_check_service(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+) -> ApiResult {
     let result = state
         .store
-        .check_services_scoped(None)
+        .health_check(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务检查完成", result))
+    Ok(success("服务检查完成", json!(result)))
 }
 
 async fn store_service_info(
     State(state): State<Arc<ApiState>>,
-    Path(service_name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     let service = state
         .store
-        .service_info_scoped(None, &service_name)
+        .service_info_scoped(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("服务信息获取成功", service))
@@ -1777,11 +1601,11 @@ async fn store_service_info(
 
 async fn store_service_status(
     State(state): State<Arc<ApiState>>,
-    Path(service_name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
     let status = state
         .store
-        .service_status_scoped(None, &service_name)
+        .instance_status(instance_id)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("服务状态获取成功", status))
@@ -1792,11 +1616,18 @@ async fn store_show_config(
     Query(query): Query<ShowConfigQuery>,
 ) -> ApiResult {
     let format = parse_config_format(query.format.as_deref())?;
-    let config = state
-        .store
-        .show_config_format(format)
-        .await
-        .map_err(ApiError::from_store)?;
+    let config = if format == ConfigFormat::Native {
+        state.store.show_config().await
+    } else {
+        let instance_id = query
+            .instance_id
+            .ok_or_else(|| ApiError::missing_parameter("instance_id"))?;
+        state
+            .store
+            .export_instance_config(instance_id, format)
+            .await
+    }
+    .map_err(ApiError::from_store)?;
     Ok(success("配置获取成功", config))
 }
 
@@ -1815,7 +1646,9 @@ async fn agent_list_services(
 ) -> ApiResult {
     let services = state
         .store
-        .list_services_scoped(Some(&agent_id))
+        .list_services_scoped(&ScopeRef::Agent {
+            agent_id: agent_id.clone(),
+        })
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -1824,322 +1657,29 @@ async fn agent_list_services(
     ))
 }
 
-async fn agent_add_service(
+async fn declare_agent_scope(
     State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Json(payload): Json<Value>,
-) -> ApiResult {
-    for (name, config) in parse_named_service_payload(payload)? {
-        state
-            .store
-            .add_service_for_agent(&agent_id, &name, config)
-            .await
-            .map_err(ApiError::from_store)?;
-    }
-    Ok(success("Agent 服务添加成功", json!({ "status": "ok" })))
-}
-
-async fn agent_update_service(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-    Json(payload): Json<Value>,
-) -> ApiResult {
-    let global_service_name = state
-        .store
-        .resolve_service_name_for_agent(&agent_id, &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    let updates = ensure_json_object(payload, "payload")?;
-    state
-        .store
-        .patch_service(&global_service_name, updates)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务更新成功", json!({ "status": "ok" })))
-}
-
-async fn agent_remove_service(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-) -> ApiResult {
-    let global_service_name = state
-        .store
-        .resolve_service_name_for_agent(&agent_id, &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    state
-        .store
-        .remove_service(&global_service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务删除成功", json!({ "status": "ok" })))
-}
-
-async fn agent_connect_service(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-) -> ApiResult {
-    let global_service_name = state
-        .store
-        .resolve_service_name_for_agent(&agent_id, &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    state
-        .store
-        .connect_service(&global_service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务连接成功", json!({ "status": "ok" })))
-}
-
-async fn agent_disconnect_service(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-) -> ApiResult {
-    let global_service_name = state
-        .store
-        .resolve_service_name_for_agent(&agent_id, &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    state
-        .store
-        .disconnect_service(&global_service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务断开成功", json!({ "status": "ok" })))
-}
-
-async fn agent_restart_service(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-) -> ApiResult {
-    let global_service_name = state
-        .store
-        .resolve_service_name_for_agent(&agent_id, &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    state
-        .store
-        .restart_service(&global_service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务重启成功", json!({ "status": "ok" })))
-}
-
-async fn agent_wait_service(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let global_service_name = state
-        .store
-        .resolve_service_name_for_agent(&agent_id, &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    let timeout = params
-        .get("timeout")
-        .map(String::as_str)
-        .map(parse_positive_u64)
-        .transpose()?
-        .unwrap_or(10);
-    let status = state
-        .store
-        .wait_service_ready(&global_service_name, timeout)
-        .await
-        .map_err(ApiError::from_store)?;
-    let status = serde_json::to_value(status)
-        .map_err(|error| ApiError::invalid_request(format!("服务状态序列化失败: {error}")))?;
-    Ok(success("Agent 服务等待完成", status))
-}
-
-async fn agent_assign_service(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
+    Path((service_name, agent_id)): Path<(String, String)>,
+    Json(descriptor): Json<ScopeDescriptor>,
 ) -> ApiResult {
     state
         .store
-        .assign_service_to_agent(&agent_id, &service_name)
+        .declare_service_scope(&service_name, &ScopeRef::Agent { agent_id }, descriptor)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务授权成功", json!({ "status": "ok" })))
+    Ok(success("Agent 作用域已声明", json!({ "status": "ok" })))
 }
 
-async fn agent_unassign_service(
+async fn remove_agent_scope(
     State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
+    Path((service_name, agent_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let global_service_name = state
-        .store
-        .resolve_service_name_for_agent(&agent_id, &service_name)
-        .await
-        .unwrap_or(service_name);
     state
         .store
-        .unassign_service_from_agent(&agent_id, &global_service_name)
+        .remove_service_scope(&service_name, &ScopeRef::Agent { agent_id })
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务解除授权成功", json!({ "status": "ok" })))
-}
-
-async fn agent_list_tools(
-    State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let tools = state
-        .store
-        .list_tools_scoped(
-            Some(&agent_id),
-            params.get("service_name").map(String::as_str),
-        )
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Agent 工具列表获取成功",
-        json!({ "tools": tools, "total": tools.len() }),
-    ))
-}
-
-async fn agent_call_tool(
-    State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Json(payload): Json<Value>,
-) -> ApiResult {
-    let tool_name = extract_tool_name(&payload)?;
-    let args = extract_tool_args(&payload)?;
-    let resolution = state
-        .store
-        .resolve_tool_for_agent(&agent_id, &tool_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    let result = state
-        .store
-        .call_tool(
-            &resolution.global_service_name,
-            &resolution.canonical_tool_name,
-            args,
-        )
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Agent 工具调用完成",
-        serde_json::to_value(result).unwrap_or(Value::Null),
-    ))
-}
-
-async fn agent_list_resources(
-    State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let resources = state
-        .store
-        .list_resources_scoped(
-            Some(&agent_id),
-            params.get("service_name").map(String::as_str),
-        )
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Agent 资源列表获取成功",
-        json!({ "resources": resources, "total": resources.len() }),
-    ))
-}
-
-async fn agent_list_resource_templates(
-    State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let templates = state
-        .store
-        .list_resource_templates_scoped(
-            Some(&agent_id),
-            params.get("service_name").map(String::as_str),
-        )
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Agent 资源模板列表获取成功",
-        json!({ "resource_templates": templates, "total": templates.len() }),
-    ))
-}
-
-async fn agent_read_resource(
-    State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let uri = extract_resource_uri(&params)?;
-    let result = state
-        .store
-        .read_resource_scoped(
-            Some(&agent_id),
-            &uri,
-            params.get("service_name").map(String::as_str),
-        )
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 资源读取成功", result))
-}
-
-async fn agent_list_prompts(
-    State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let prompts = state
-        .store
-        .list_prompts_scoped(
-            Some(&agent_id),
-            params.get("service_name").map(String::as_str),
-        )
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Agent Prompt 列表获取成功",
-        json!({ "prompts": prompts, "total": prompts.len() }),
-    ))
-}
-
-async fn agent_get_prompt(
-    State(state): State<Arc<ApiState>>,
-    Path(agent_id): Path<String>,
-    Json(payload): Json<Value>,
-) -> ApiResult {
-    let prompt_name = extract_prompt_name(&payload)?;
-    let args = extract_prompt_args(&payload)?;
-    let service_name = payload.get("service_name").and_then(Value::as_str);
-    let result = state
-        .store
-        .get_prompt_scoped(Some(&agent_id), &prompt_name, args, service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent Prompt 获取成功", result))
-}
-
-async fn agent_service_info(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-) -> ApiResult {
-    let service = state
-        .store
-        .service_info_scoped(Some(&agent_id), &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务信息获取成功", service))
-}
-
-async fn agent_service_status(
-    State(state): State<Arc<ApiState>>,
-    Path((agent_id, service_name)): Path<(String, String)>,
-) -> ApiResult {
-    let status = state
-        .store
-        .service_status_scoped(Some(&agent_id), &service_name)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("Agent 服务状态获取成功", status))
+    Ok(success("Agent 作用域已删除", json!({ "status": "ok" })))
 }
 
 async fn agent_show_config(
@@ -2148,11 +1688,19 @@ async fn agent_show_config(
     Query(query): Query<ShowConfigQuery>,
 ) -> ApiResult {
     let format = parse_config_format(query.format.as_deref())?;
-    let config = state
-        .store
-        .show_config_scoped_format(Some(&agent_id), format)
-        .await
-        .map_err(ApiError::from_store)?;
+    let scope = ScopeRef::Agent { agent_id };
+    let config = if format == ConfigFormat::Native {
+        state.store.show_scope_config(&scope).await
+    } else {
+        let instance_id = query
+            .instance_id
+            .ok_or_else(|| ApiError::missing_parameter("instance_id"))?;
+        state
+            .store
+            .export_instance_config(instance_id, format)
+            .await
+    }
+    .map_err(ApiError::from_store)?;
     Ok(success("Agent 配置获取成功", config))
 }
 
@@ -2162,7 +1710,7 @@ async fn agent_reset_config(
 ) -> ApiResult {
     state
         .store
-        .reset_agent_config(&agent_id)
+        .reset_scope(&ScopeRef::Agent { agent_id })
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("Agent 配置重置成功", json!({ "status": "ok" })))
@@ -2206,10 +1754,11 @@ mod tests {
     use super::*;
     use mcpstore::{
         cache::models::{
-            AgentServiceRelation, ServiceEntity, ServiceRelationItem, ServiceToolRelation,
-            ToolEntity, ToolRelationItem,
+            InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
         },
-        CacheStorage, ServerConfig, SourceMode, StoreOptions,
+        config::{McpStoreExtension, ScopeDeclarations},
+        registry::ConfigRevision,
+        CacheStorage, ServiceInstanceKey, SourceMode, StoreOptions,
     };
     use std::{
         collections::HashMap,
@@ -2248,12 +1797,14 @@ mod tests {
             working_dir: None,
             description: Some("fixture".to_string()),
             mcpstore: None,
+            extra: Default::default(),
         }
     }
 
     fn stdio_config_with_lifecycle() -> ServerConfig {
         let mut config = stdio_config();
         config.mcpstore = Some(mcpstore::config::McpStoreExtension {
+            scopes: ScopeDeclarations::store_only(),
             lifecycle: Some(mcpstore::config::ServiceLifecycleConfig {
                 startup_policy: Some(mcpstore::config::StartupPolicy::Lazy),
                 restart_policy: Some(mcpstore::config::RestartPolicy {
@@ -2261,6 +1812,7 @@ mod tests {
                     max_retries: Some(3),
                 }),
             }),
+            ..mcpstore::config::McpStoreExtension::default()
         });
         config
     }
@@ -2272,15 +1824,29 @@ mod tests {
 
     async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
         let cache = store.cache();
+        let scope = ScopeRef::Store;
+        let instance_id = ServiceInstanceKey::new("demo", scope.clone()).instance_id();
+        let base_config = config.base_config();
+        let lifecycle = config
+            .mcpstore
+            .as_ref()
+            .and_then(|extension| extension.lifecycle.clone());
+        let metadata = config
+            .mcpstore
+            .as_ref()
+            .map(|extension| extension.extra.clone())
+            .unwrap_or_default();
         cache
             .put_entity(
-                "services",
+                "service_definitions",
                 "demo",
-                serde_json::to_value(ServiceEntity {
-                    service_global_name: "demo".to_string(),
-                    service_original_name: "demo".to_string(),
-                    source_agent: "global_agent_store".to_string(),
-                    config: serde_json::to_value(config).unwrap(),
+                serde_json::to_value(ServiceDefinitionEntity {
+                    service_name: "demo".to_string(),
+                    base_config: base_config.clone(),
+                    scopes: ScopeDeclarations::store_only(),
+                    lifecycle,
+                    metadata,
+                    base_revision: 1,
                     added_time: 111,
                 })
                 .unwrap(),
@@ -2288,17 +1854,23 @@ mod tests {
             .await
             .unwrap();
         cache
-            .put_relation(
-                "agent_services",
-                "global_agent_store",
-                serde_json::to_value(AgentServiceRelation {
-                    services: vec![ServiceRelationItem {
-                        service_original_name: "demo".to_string(),
-                        service_global_name: "demo".to_string(),
-                        client_id: "demo".to_string(),
-                        established_time: 111,
-                        last_access: None,
-                    }],
+            .put_entity(
+                "service_instances",
+                &instance_id.to_string(),
+                serde_json::to_value(ServiceInstanceEntity {
+                    instance_id,
+                    service_name: "demo".to_string(),
+                    scope: scope.clone(),
+                    transport: "stdio".to_string(),
+                    url: None,
+                    command: Some("echo".to_string()),
+                    effective_config: base_config,
+                    config_revision: ConfigRevision {
+                        base_revision: 1,
+                        scope_revision: 1,
+                    },
+                    applied_config_revision: None,
+                    added_time: 111,
                 })
                 .unwrap(),
             )
@@ -2307,13 +1879,12 @@ mod tests {
         cache
             .put_entity(
                 "tools",
-                "demo_echo",
+                &format!("{instance_id}:echo"),
                 serde_json::to_value(ToolEntity {
-                    tool_global_name: "demo_echo".to_string(),
-                    tool_original_name: "echo".to_string(),
-                    service_global_name: "demo".to_string(),
-                    service_original_name: "demo".to_string(),
-                    source_agent: "global_agent_store".to_string(),
+                    instance_id,
+                    service_name: "demo".to_string(),
+                    scope: scope.clone(),
+                    tool_name: "echo".to_string(),
                     title: None,
                     description: "echo tool".to_string(),
                     input_schema: json!({
@@ -2336,16 +1907,13 @@ mod tests {
             .unwrap();
         cache
             .put_relation(
-                "service_tools",
-                "demo",
-                serde_json::to_value(ServiceToolRelation {
-                    service_global_name: "demo".to_string(),
-                    service_original_name: "demo".to_string(),
-                    source_agent: "global_agent_store".to_string(),
-                    tools: vec![ToolRelationItem {
-                        tool_global_name: "demo_echo".to_string(),
-                        tool_original_name: "echo".to_string(),
-                    }],
+                "instance_tools",
+                &instance_id.to_string(),
+                serde_json::to_value(InstanceToolRelation {
+                    instance_id,
+                    service_name: "demo".to_string(),
+                    scope,
+                    tools: vec!["echo".to_string()],
                 })
                 .unwrap(),
             )
@@ -2404,11 +1972,12 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        assert_eq!(session_key, "store:global:api-core-session");
+        assert_eq!(session_key, "store:api-core-session");
+        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
 
         let bind = client
             .post(format!("{base_url}/sessions/bind_service"))
-            .json(&json!({"session_key": session_key, "service_name": "demo"}))
+            .json(&json!({"session_key": session_key, "instance_id": instance_id}))
             .send()
             .await
             .unwrap();
@@ -2423,7 +1992,7 @@ mod tests {
         assert!(tools.status().is_success());
         let tools_payload = tools.json::<Value>().await.unwrap();
         assert_eq!(tools_payload["data"]["total"], 1);
-        assert_eq!(tools_payload["data"]["tools"][0]["name"], "demo_echo");
+        assert_eq!(tools_payload["data"]["tools"][0]["name"], "echo");
 
         let set_state = client
             .post(format!("{base_url}/sessions/state/set"))
@@ -2555,7 +2124,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn show_config_format_query_projects_third_party_config() {
+    async fn third_party_config_export_requires_instance_id() {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
             source_mode: SourceMode::Db,
@@ -2570,7 +2139,7 @@ mod tests {
         let base_url = format!("http://{addr}");
 
         let native = client
-            .get(format!("{base_url}/for_store/show_config"))
+            .get(format!("{base_url}/config"))
             .send()
             .await
             .unwrap();
@@ -2580,8 +2149,26 @@ mod tests {
             .get("_mcpstore")
             .is_some());
 
+        let missing_instance = client
+            .get(format!("{base_url}/config?format=claude"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            missing_instance.status(),
+            axum::http::StatusCode::BAD_REQUEST
+        );
+        let missing_payload = missing_instance.json::<Value>().await.unwrap();
+        assert_eq!(
+            missing_payload["errors"][0]["code"],
+            json!("MISSING_PARAMETER")
+        );
+
+        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
         let claude = client
-            .get(format!("{base_url}/for_store/show_config?format=claude"))
+            .get(format!(
+                "{base_url}/config?format=claude&instance_id={instance_id}"
+            ))
             .send()
             .await
             .unwrap();
@@ -2596,6 +2183,222 @@ mod tests {
         );
 
         handle.abort();
+    }
+
+    #[tokio::test]
+    async fn store_update_only_changes_base_config() {
+        let fixture_dir = unique_temp_dir_path("mcpstore-api-update");
+        std::fs::create_dir_all(&fixture_dir).unwrap();
+        let config_path = fixture_dir.join("mcp.json");
+        let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+        store
+            .add_service("demo", stdio_config_with_lifecycle())
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+
+        let update = client
+            .put(format!("{base_url}/services/demo"))
+            .json(&json!({
+                "command": "printf",
+                "args": ["updated"],
+                "transport": "stdio",
+                "description": "updated fixture"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(update.status().is_success());
+
+        let native = client
+            .get(format!("{base_url}/config"))
+            .send()
+            .await
+            .unwrap();
+        assert!(native.status().is_success());
+        let native_payload = native.json::<Value>().await.unwrap();
+        let service = &native_payload["data"]["mcpServers"]["demo"];
+        assert_eq!(service["command"], "printf");
+        assert_eq!(service["args"], json!(["updated"]));
+        assert!(service["_mcpstore"]["scopes"]["store"].is_object());
+        assert_eq!(service["_mcpstore"]["lifecycle"]["startup_policy"], "lazy");
+
+        let invalid = client
+            .put(format!("{base_url}/services/demo"))
+            .json(&json!({
+                "command": "printf",
+                "_mcpstore": {"scopes": {"agents": {"agent-a": {}}}}
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
+
+        let invalid_null = client
+            .put(format!("{base_url}/services/demo"))
+            .json(&json!({
+                "command": "printf",
+                "_mcpstore": null
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(invalid_null.status(), axum::http::StatusCode::BAD_REQUEST);
+
+        handle.abort();
+        std::fs::remove_dir_all(fixture_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn store_scope_endpoint_declares_scope_for_existing_agent_only_definition() {
+        let fixture_dir = unique_temp_dir_path("mcpstore-api-store-scope");
+        std::fs::create_dir_all(&fixture_dir).unwrap();
+        let config_path = fixture_dir.join("mcp.json");
+        let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+        let mut config = stdio_config();
+        let mut scopes = ScopeDeclarations::default();
+        scopes
+            .agents
+            .insert("agent-a".to_string(), ScopeDescriptor::default());
+        config.mcpstore = Some(McpStoreExtension {
+            scopes,
+            ..McpStoreExtension::default()
+        });
+        store.add_service("demo", config).await.unwrap();
+
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+        let add = client
+            .put(format!("{base_url}/services/demo/scopes/store"))
+            .json(&json!({
+                "config": {
+                    "command": "printf",
+                    "args": ["store"],
+                    "transport": "stdio"
+                }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(add.status().is_success());
+
+        let native = client
+            .get(format!("{base_url}/config"))
+            .send()
+            .await
+            .unwrap();
+        assert!(native.status().is_success());
+        let native_payload = native.json::<Value>().await.unwrap();
+        let service = &native_payload["data"]["mcpServers"]["demo"];
+        assert!(service["_mcpstore"]["scopes"]["store"].is_object());
+        assert!(service["_mcpstore"]["scopes"]["agents"]["agent-a"].is_object());
+        assert_eq!(
+            service["_mcpstore"]["scopes"]["store"]["config"]["command"],
+            "printf"
+        );
+
+        handle.abort();
+        std::fs::remove_dir_all(fixture_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn definition_and_scope_routes_are_explicit_and_isolated() {
+        let fixture_dir = unique_temp_dir_path("mcpstore-api-explicit-scope-routes");
+        std::fs::create_dir_all(&fixture_dir).unwrap();
+        let config_path = fixture_dir.join("mcp.json");
+        let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+
+        let add_definition = client
+            .post(format!("{base_url}/services/demo"))
+            .json(&json!({
+                "command": "printf",
+                "args": ["store"],
+                "transport": "stdio",
+                "_mcpstore": {"scopes": {"store": {}}}
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(add_definition.status().is_success());
+
+        let declare_agent = client
+            .put(format!("{base_url}/services/demo/scopes/agents/agent-a"))
+            .json(&json!({"config": {"args": ["agent"]}}))
+            .send()
+            .await
+            .unwrap();
+        assert!(declare_agent.status().is_success());
+
+        let store_instances = client
+            .get(format!("{base_url}/scopes/store/instances"))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        let agent_instances = client
+            .get(format!("{base_url}/scopes/agents/agent-a/instances"))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        assert_ne!(
+            store_instances["data"]["services"][0]["instance_id"],
+            agent_instances["data"]["services"][0]["instance_id"]
+        );
+
+        let remove_agent = client
+            .delete(format!("{base_url}/services/demo/scopes/agents/agent-a"))
+            .send()
+            .await
+            .unwrap();
+        assert!(remove_agent.status().is_success());
+
+        let store_after_remove = client
+            .get(format!("{base_url}/scopes/store/instances"))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        let agent_after_remove = client
+            .get(format!("{base_url}/scopes/agents/agent-a/instances"))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        assert_eq!(store_after_remove["data"]["total"], 1);
+        assert_eq!(agent_after_remove["data"]["total"], 0);
+
+        let legacy_route = client
+            .post(format!("{base_url}/for_store/add_service"))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(legacy_route.status(), axum::http::StatusCode::NOT_FOUND);
+
+        let remove_definition = client
+            .delete(format!("{base_url}/services/demo"))
+            .send()
+            .await
+            .unwrap();
+        assert!(remove_definition.status().is_success());
+
+        handle.abort();
+        std::fs::remove_dir_all(fixture_dir).ok();
     }
 
     #[tokio::test]
@@ -2629,10 +2432,11 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
+        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
 
         let bind = client
             .post(format!("{source_base_url}/sessions/bind_service"))
-            .json(&json!({"session_key": session_key, "service_name": "demo"}))
+            .json(&json!({"session_key": session_key, "instance_id": instance_id}))
             .send()
             .await
             .unwrap();
@@ -2659,12 +2463,11 @@ mod tests {
         let export_payload = export.json::<Value>().await.unwrap();
         let snapshot = export_payload["data"]["snapshot"].clone();
         assert_eq!(
-            snapshot["entities"]["store:global:snapshot-session"]["metadata"]["owner"],
+            snapshot["entities"][session_key.as_str()]["metadata"]["owner"],
             "snapshot-test"
         );
         assert_eq!(
-            snapshot["states"]["session_state"]["store:global:snapshot-session"]["values"]
-                ["cursor"]["page"],
+            snapshot["states"]["session_state"][session_key.as_str()]["values"]["cursor"]["page"],
             2
         );
 
@@ -2696,10 +2499,7 @@ mod tests {
 
         let imported_state = client
             .get(format!("{target_base_url}/sessions/state/value"))
-            .query(&[
-                ("session_key", "store:global:snapshot-session"),
-                ("key", "cursor"),
-            ])
+            .query(&[("session_key", session_key.as_str()), ("key", "cursor")])
             .send()
             .await
             .unwrap();
@@ -2738,10 +2538,11 @@ mod tests {
         let (addr, handle) = spawn_test_api(store).await;
         let client = reqwest::Client::new();
         let base_url = format!("http://{addr}");
+        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
 
         let set_transform = client
-            .post(format!(
-                "{base_url}/for_store/tool_transforms/set/demo/echo"
+            .put(format!(
+                "{base_url}/instances/{instance_id}/tool_transforms/echo"
             ))
             .json(&json!({
                 "display_name": "say",
@@ -2771,7 +2572,7 @@ mod tests {
         assert_eq!(set_payload["data"]["transform"]["version"], 1);
 
         let list_tools = client
-            .get(format!("{base_url}/for_store/list_tools"))
+            .get(format!("{base_url}/instances/{instance_id}/tools"))
             .send()
             .await
             .unwrap();
@@ -2787,19 +2588,18 @@ mod tests {
         assert_eq!(tool["input_schema"]["required"], json!(["message"]));
 
         let get_transform = client
-            .get(format!("{base_url}/for_store/tool_transforms/get/demo/say"))
+            .get(format!(
+                "{base_url}/instances/{instance_id}/tool_transforms/echo"
+            ))
             .send()
             .await
             .unwrap();
         assert!(get_transform.status().is_success());
         let get_payload = get_transform.json::<Value>().await.unwrap();
-        assert_eq!(
-            get_payload["data"]["transform"]["original_tool_name"],
-            "echo"
-        );
+        assert_eq!(get_payload["data"]["transform"]["tool_name"], "echo");
 
         let list_transforms = client
-            .get(format!("{base_url}/for_store/tool_transforms"))
+            .get(format!("{base_url}/tool_transforms"))
             .send()
             .await
             .unwrap();
@@ -2808,15 +2608,16 @@ mod tests {
         assert_eq!(list_payload["data"]["total"], 1);
 
         let delete_transform = client
-            .post(format!("{base_url}/for_store/tool_transforms/delete"))
-            .json(&json!({"service_name": "demo", "tool_name": "say"}))
+            .delete(format!(
+                "{base_url}/instances/{instance_id}/tool_transforms/echo"
+            ))
             .send()
             .await
             .unwrap();
         assert!(delete_transform.status().is_success());
 
         let list_tools_after_delete = client
-            .get(format!("{base_url}/for_store/list_tools"))
+            .get(format!("{base_url}/instances/{instance_id}/tools"))
             .send()
             .await
             .unwrap();
@@ -2825,7 +2626,7 @@ mod tests {
             list_tools_after_delete.json::<Value>().await.unwrap();
         assert_eq!(
             list_tools_after_delete_payload["data"]["tools"][0]["name"],
-            "demo_echo"
+            "echo"
         );
 
         handle.abort();
@@ -2876,9 +2677,7 @@ mod tests {
         });
 
         let import_response = client
-            .post(format!(
-                "{base_url}/for_store/openapi_imports/import/inventory"
-            ))
+            .post(format!("{base_url}/openapi_imports/inventory/import"))
             .json(&json!({
                 "spec_url": "memory://inventory",
                 "spec": spec,
@@ -2911,25 +2710,26 @@ mod tests {
         );
 
         let service_response = client
-            .get(format!("{base_url}/for_store/service_info/inventory"))
+            .get(format!(
+                "{base_url}/instances/{}",
+                ServiceInstanceKey::new("inventory", ScopeRef::Store).instance_id()
+            ))
             .send()
             .await
             .unwrap();
         assert!(service_response.status().is_success());
         let service_payload = service_response.json::<Value>().await.unwrap();
         assert_eq!(
-            service_payload["data"]["config"]["openapi_timeout_millis"],
+            service_payload["data"]["effective_config"]["openapi_timeout_millis"],
             4100
         );
         assert_eq!(
-            service_payload["data"]["config"]["openapi_fetch_timeout_millis"],
+            service_payload["data"]["effective_config"]["openapi_fetch_timeout_millis"],
             4200
         );
 
         let get_response = client
-            .get(format!(
-                "{base_url}/for_store/openapi_imports/get/inventory"
-            ))
+            .get(format!("{base_url}/openapi_imports/inventory"))
             .send()
             .await
             .unwrap();
@@ -2941,7 +2741,7 @@ mod tests {
         );
 
         let list_response = client
-            .get(format!("{base_url}/for_store/openapi_imports"))
+            .get(format!("{base_url}/openapi_imports"))
             .send()
             .await
             .unwrap();
@@ -2950,7 +2750,7 @@ mod tests {
         assert_eq!(list_payload["data"]["total"], 1);
 
         let invalid_timeout = client
-            .post(format!("{base_url}/for_store/openapi_imports/bundle"))
+            .post(format!("{base_url}/openapi_imports/bundle"))
             .json(&json!({
                 "spec_url": "memory://invalid-timeout",
                 "spec": {"openapi": "3.0.0", "info": {"title": "Invalid", "version": "1.0.0"}, "paths": {}},
@@ -3002,7 +2802,7 @@ mod tests {
         .unwrap();
 
         let bundle_response = client
-            .post(format!("{base_url}/for_store/openapi_imports/bundle"))
+            .post(format!("{base_url}/openapi_imports/bundle"))
             .json(&json!({
                 "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
                 "spec": {
@@ -3039,7 +2839,7 @@ mod tests {
         );
 
         let list_response = client
-            .get(format!("{base_url}/for_store/openapi_imports"))
+            .get(format!("{base_url}/openapi_imports"))
             .send()
             .await
             .unwrap();
@@ -3081,9 +2881,7 @@ mod tests {
         .unwrap();
 
         let artifact_response = client
-            .post(format!(
-                "{base_url}/for_store/openapi_imports/bundle_artifact"
-            ))
+            .post(format!("{base_url}/openapi_imports/bundle_artifact"))
             .json(&json!({
                 "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
                 "ref_cache": {"ttl_seconds": 17},
@@ -3138,7 +2936,7 @@ mod tests {
         assert_eq!(cached["ttl_seconds"], json!(17));
 
         let list_response = client
-            .get(format!("{base_url}/for_store/openapi_imports"))
+            .get(format!("{base_url}/openapi_imports"))
             .send()
             .await
             .unwrap();
