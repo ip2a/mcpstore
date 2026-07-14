@@ -9,9 +9,9 @@ use clap::Args;
 use mcpstore::{
     config::{ConfigError, ScopeDescriptor},
     config_formats::ConfigFormat,
-    AppConfig, AuthFlow, CreateSessionRequest, InstanceId, MCPStore, OpenApiBundleOptions,
-    OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, SessionScope,
-    ToolTransformPatch,
+    AppConfig, AuthFlow, CreateSessionRequest, InstanceId, MCPStore, McpCompletionRequest,
+    McpLoggingLevel, OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef,
+    ServerConfig, SessionScope, ToolTransformPatch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -109,6 +109,16 @@ struct AuthPrivateKeyRequest {
 #[derive(Deserialize)]
 struct AuthScopeUpgradeRequest {
     required_scope: String,
+}
+
+#[derive(Deserialize)]
+struct ResourceSubscriptionRequest {
+    uri: String,
+}
+
+#[derive(Deserialize)]
+struct LoggingLevelRequest {
+    level: McpLoggingLevel,
 }
 
 #[derive(Deserialize)]
@@ -389,6 +399,22 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         )
         .route("/instances/:instance_id/prompts", get(store_list_prompts))
         .route("/instances/:instance_id/get_prompt", post(store_get_prompt))
+        .route(
+            "/instances/:instance_id/completions",
+            post(store_complete_argument),
+        )
+        .route(
+            "/instances/:instance_id/resources/subscribe",
+            post(store_subscribe_resource),
+        )
+        .route(
+            "/instances/:instance_id/resources/unsubscribe",
+            post(store_unsubscribe_resource),
+        )
+        .route(
+            "/instances/:instance_id/logging/level",
+            post(store_set_logging_level),
+        )
         .route("/instances/:instance_id/check", get(store_check_service))
         .route("/instances/:instance_id", get(store_service_info))
         .route("/instances/:instance_id/status", get(store_service_status))
@@ -1836,6 +1862,75 @@ async fn store_get_prompt(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("Prompt 获取成功", result))
+}
+
+async fn store_complete_argument(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<McpCompletionRequest>,
+) -> ApiResult {
+    let completion = state
+        .store
+        .complete_mcp_argument(instance_id, payload)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("参数补全成功", json!(completion)))
+}
+
+async fn store_subscribe_resource(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<ResourceSubscriptionRequest>,
+) -> ApiResult {
+    let uri = payload.uri.trim();
+    if uri.is_empty() {
+        return Err(ApiError::invalid_parameter(
+            "资源 URI 不能为空",
+            Some("uri"),
+        ));
+    }
+    state
+        .store
+        .subscribe_resource_updates(instance_id, uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("资源更新订阅成功", json!({ "uri": uri })))
+}
+
+async fn store_unsubscribe_resource(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<ResourceSubscriptionRequest>,
+) -> ApiResult {
+    let uri = payload.uri.trim();
+    if uri.is_empty() {
+        return Err(ApiError::invalid_parameter(
+            "资源 URI 不能为空",
+            Some("uri"),
+        ));
+    }
+    state
+        .store
+        .unsubscribe_resource_updates(instance_id, uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("资源更新订阅已取消", json!({ "uri": uri })))
+}
+
+async fn store_set_logging_level(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<LoggingLevelRequest>,
+) -> ApiResult {
+    state
+        .store
+        .set_mcp_logging_level(instance_id, payload.level)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "远端日志级别设置成功",
+        json!({ "level": payload.level }),
+    ))
 }
 
 async fn store_check_service(

@@ -44,6 +44,11 @@ impl MCPStore {
             serde_json::to_value(instance).map_err(|error| StoreError::Other(error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
+            object.insert(
+                "mcp".to_string(),
+                serde_json::to_value(self.mcp_server_metadata(instance_id).await?)
+                    .map_err(|error| StoreError::Other(error.to_string()))?,
+            );
         }
         Ok(value)
     }

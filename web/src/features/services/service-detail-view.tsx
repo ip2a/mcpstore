@@ -672,6 +672,18 @@ function ServiceOverviewPane({
   statusReport: InstanceStatus | null | undefined
 }) {
   const { t } = useI18n()
+  const capabilities = service.mcp?.capabilities
+  const capabilityLabels = capabilities
+    ? [
+        capabilities.tools && t("tools"),
+        capabilities.resources && t("resources"),
+        capabilities.resourcesSubscribe && t("resourceSubscriptions"),
+        capabilities.prompts && t("prompts"),
+        capabilities.completions && t("completions"),
+        capabilities.logging && t("logging"),
+        capabilities.tasks && t("tasks"),
+      ].filter((label): label is string => Boolean(label))
+    : []
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -725,6 +737,37 @@ function ServiceOverviewPane({
           ) : null}
         </dl>
       </section>
+      {service.mcp ? (
+        <section className="border-b pb-4">
+          <SectionHeading title={t("mcpServer")} titleAs="h2" className="border-b-0 pb-3" />
+          <dl className="grid gap-3 text-sm">
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("serverImplementation")}</dt>
+              <dd className="font-mono">
+                {service.mcp.serverInfo.title || service.mcp.serverInfo.name} · {service.mcp.serverInfo.version}
+              </dd>
+            </div>
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("protocolVersion")}</dt>
+              <dd className="font-mono">{service.mcp.protocolVersion}</dd>
+            </div>
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("capabilities")}</dt>
+              <dd className="flex flex-wrap gap-2">
+                {capabilityLabels.map((label) => (
+                  <Badge key={label} variant="outline">{label}</Badge>
+                ))}
+              </dd>
+            </div>
+            {service.mcp.instructions ? (
+              <div className="grid gap-1">
+                <dt className="text-muted-foreground">{t("serverInstructions")}</dt>
+                <dd className="whitespace-pre-wrap">{service.mcp.instructions}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
     </div>
   )
 }

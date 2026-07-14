@@ -78,6 +78,37 @@ export type ResourceTemplateInfo = {
   _meta?: unknown
 }
 
+export type McpServerCapabilities = {
+  tools: boolean
+  toolsListChanged: boolean
+  resources: boolean
+  resourcesSubscribe: boolean
+  resourcesListChanged: boolean
+  prompts: boolean
+  promptsListChanged: boolean
+  completions: boolean
+  logging: boolean
+  tasks: boolean
+  taskList: boolean
+  taskCancel: boolean
+  taskToolCalls: boolean
+  extensions?: Record<string, unknown>
+  experimental?: Record<string, unknown>
+}
+
+export type McpServerMetadata = {
+  protocolVersion: string
+  serverInfo: {
+    name: string
+    title?: string
+    version: string
+    description?: string
+    websiteUrl?: string
+  }
+  instructions?: string
+  capabilities: McpServerCapabilities
+}
+
 export type ServiceInstance = {
   instance_id: string
   service_name: string
@@ -91,6 +122,7 @@ export type ServiceInstance = {
   config_revision: ConfigRevision
   applied_config_revision: ConfigRevision | null
   added_time: number
+  mcp?: McpServerMetadata | null
 }
 
 export type ToolStatusItem = {
