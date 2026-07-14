@@ -126,6 +126,46 @@ async fn test_cache_layer_clears_unversioned_schema() {
 }
 
 #[tokio::test]
+async fn test_cache_layer_clears_old_versioned_schema() {
+    let store = memory_cache_store();
+    store
+        .put(
+            "current",
+            serde_json::json!({"version": 1}),
+            "test:state:cache_schema",
+        )
+        .await
+        .unwrap();
+    store
+        .put(
+            "svc",
+            serde_json::json!({"service_name": "svc"}),
+            "test:entity:service_definitions",
+        )
+        .await
+        .unwrap();
+    let mgr = CacheLayerManager::new(store.clone(), "test");
+
+    assert!(mgr
+        .get_entity("service_definitions", "svc")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get("svc", "test:entity:service_definitions")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store
+            .get("current", "test:state:cache_schema")
+            .await
+            .unwrap(),
+        Some(serde_json::json!({"version": CACHE_SCHEMA_VERSION}))
+    );
+}
+
+#[tokio::test]
 async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     let store = MCPStore::setup_with_options(StoreOptions {
         backend: Some(CacheStorage::Memory),

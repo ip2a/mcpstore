@@ -1722,8 +1722,8 @@ impl MCPStore {
         let expected_scope = Self::session_scope_ref(session)?;
         if instance.scope != expected_scope {
             return Err(StoreError::Other(format!(
-                "instance does not belong to session scope: session_key={}, instance_id={instance_id}",
-                session.session_key
+                "instance does not belong to session scope: session_key={}, instance_id={instance_id}, session_scope={expected_scope:?}, instance_scope={:?}",
+                session.session_key, instance.scope
             )));
         }
         Ok(instance)
