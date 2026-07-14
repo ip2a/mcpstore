@@ -11,19 +11,7 @@ import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { CatalogTabTrigger, CatalogTabsList } from "@/components/shared/catalog-tabs-list"
-import { ToolArgsForm } from "@/components/shared/tool-args-form"
-import {
-  ToolAnnotationsSection,
-  ToolMetaSection,
-  ToolOutputSchemaSection,
-} from "@/components/shared/tool-capability-sections"
-import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
-import {
-  toolDetailSectionAside,
-  toolDetailSectionGrid,
-  toolDetailSectionLabel,
-  toolDetailSplitSection,
-} from "@/components/shared/tool-detail-section-layout"
+import { ToolDetailDocBody, ToolDetailDocHeader, ToolPlaygroundAside } from "@/components/shared/tool-detail-playground"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -419,9 +407,6 @@ export function ServiceDetailView(props: {
             toolSearchQuery={toolSearchQuery}
             onToolSearchQueryChange={setToolSearchQuery}
           />
-          {rightPaneView === "catalog" && activeTab === "tools" && selectedTool ? (
-            <ServiceToolSummarySection tool={selectedTool} />
-          ) : null}
           {rightPaneView === "service" ? (
             <MetricGrid columns="four">
               <MetricTile
@@ -460,49 +445,60 @@ export function ServiceDetailView(props: {
               />
             </MetricGrid>
           ) : null}
-          <ScrollPane className="flex-1">
-            {error ? (
+          {error ? (
+            <ScrollPane className="flex-1">
               <PageError title={t("serviceDetailLoadFailed")} message={errorMessage} onRefresh={loadDetail} />
-            ) : rightPaneView === "service" ? (
-              <ServiceOverviewPane
-                service={service}
-                description={description}
-                transport={transport}
-                launchLine={launchLine}
-                configArgs={configArgs}
-                endpoint={String(endpoint)}
-                availableToolCount={availableToolCount}
-                statusReport={statusReport}
+            </ScrollPane>
+          ) : rightPaneView === "catalog" && activeTab === "tools" && selectedTool ? (
+            <div className="flex min-h-0 flex-1 gap-6 overflow-hidden">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <ToolDetailDocHeader tool={selectedTool} />
+                <ScrollPane className="min-h-0 flex-1">
+                  <ToolDetailDocBody tool={selectedTool} toolArgs={toolArgs} onToolArgChange={setToolArg} />
+                </ScrollPane>
+              </div>
+              <ToolPlaygroundAside
+                tool={selectedTool}
+                instanceId={service.instance_id}
+                toolArgs={toolArgs}
+                toolArgsSchema={toolArgsSchema}
+                onRun={() => props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))}
               />
-            ) : activeTab === "tools" ? (
-              selectedTool ? (
-                <ServiceToolDetailPane
-                  tool={selectedTool}
-                  toolArgs={toolArgs}
-                  toolArgsSchema={toolArgsSchema}
-                  onToolArgChange={setToolArg}
+            </div>
+          ) : (
+            <ScrollPane className="flex-1">
+              {rightPaneView === "service" ? (
+                <ServiceOverviewPane
+                  service={service}
+                  description={description}
+                  transport={transport}
+                  launchLine={launchLine}
+                  configArgs={configArgs}
+                  endpoint={String(endpoint)}
+                  availableToolCount={availableToolCount}
+                  statusReport={statusReport}
                 />
-              ) : (
+              ) : activeTab === "tools" ? (
                 <PageEmpty title={t("noToolSelected")} description={t("serviceToolDetailsWillAppear")} onRefresh={loadDetail} />
-              )
-            ) : activeTab === "resources" ? (
-              selectedResource ? (
-                <ServiceResourceDetailPane resource={selectedResource} instanceId={service.instance_id} />
+              ) : activeTab === "resources" ? (
+                selectedResource ? (
+                  <ServiceResourceDetailPane resource={selectedResource} instanceId={service.instance_id} />
+                ) : (
+                  <PageEmpty title={t("noResourceSelected")} description={t("noResourceSelectedDescription")} onRefresh={loadDetail} />
+                )
+              ) : activeTab === "templates" ? (
+                selectedTemplate ? (
+                  <ServiceResourceTemplateDetailPane template={selectedTemplate} />
+                ) : (
+                  <PageEmpty title={t("noTemplateSelected")} description={t("noTemplateSelectedDescription")} onRefresh={loadDetail} />
+                )
+              ) : selectedPrompt ? (
+                <ServicePromptDetailPane prompt={selectedPrompt} />
               ) : (
-                <PageEmpty title={t("noResourceSelected")} description={t("noResourceSelectedDescription")} onRefresh={loadDetail} />
-              )
-            ) : activeTab === "templates" ? (
-              selectedTemplate ? (
-                <ServiceResourceTemplateDetailPane template={selectedTemplate} />
-              ) : (
-                <PageEmpty title={t("noTemplateSelected")} description={t("noTemplateSelectedDescription")} onRefresh={loadDetail} />
-              )
-            ) : selectedPrompt ? (
-              <ServicePromptDetailPane prompt={selectedPrompt} />
-            ) : (
-              <PageEmpty title={t("noPromptSelected")} description={t("noPromptSelectedDescription")} onRefresh={loadDetail} />
-            )}
-          </ScrollPane>
+                <PageEmpty title={t("noPromptSelected")} description={t("noPromptSelectedDescription")} onRefresh={loadDetail} />
+              )}
+            </ScrollPane>
+          )}
         </PanelCard>
       </TwoPanePage>
 
@@ -727,45 +723,6 @@ function ServiceOverviewPane({
           ) : null}
         </dl>
       </section>
-    </div>
-  )
-}
-
-function ServiceToolSummarySection({ tool }: { tool: ToolInfo }) {
-  return (
-    <section className="border-b pb-4">
-      <ToolDescriptionBlock description={tool.description} showLabel={false} className="text-right" />
-    </section>
-  )
-}
-
-function ServiceToolDetailPane({
-  tool,
-  toolArgs,
-  toolArgsSchema,
-  onToolArgChange,
-}: {
-  tool: ToolInfo
-  toolArgs: Record<string, unknown>
-  toolArgsSchema: ToolSchema
-  onToolArgChange: (name: string, value: unknown) => void
-}) {
-  const { t } = useI18n()
-
-  return (
-    <div className="flex min-w-0 flex-col">
-      <section className={toolDetailSplitSection}>
-        <div className={toolDetailSectionGrid}>
-          <div className={toolDetailSectionAside}>
-            <h2 className={toolDetailSectionLabel}>{t("inputParams")}</h2>
-          </div>
-          <ToolArgsForm schema={toolArgsSchema} values={toolArgs} onChange={onToolArgChange} valueAlign="right" />
-        </div>
-      </section>
-
-      <ToolOutputSchemaSection tool={tool} layout="split" />
-      <ToolAnnotationsSection tool={tool} />
-      <ToolMetaSection tool={tool} />
     </div>
   )
 }

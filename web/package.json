@@ -27,6 +27,7 @@
     "react-dom": "latest",
     "react-resizable-panels": "^4.12.1",
     "react-router-dom": "^7.18.1",
+    "smol-toml": "^1.7.0",
     "sonner": "latest",
     "tailwind-merge": "latest",
     "tailwindcss": "latest",
