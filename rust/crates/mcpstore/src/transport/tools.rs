@@ -18,36 +18,7 @@ impl McpConnection {
             }
         };
 
-        let tools = resp
-            .tools
-            .into_iter()
-            .map(|tool| DiscoveredTool {
-                name: tool.name.to_string(),
-                title: tool.title,
-                description: tool.description.unwrap_or_default().to_string(),
-                input_schema: serde_json::to_value(&tool.input_schema).unwrap_or_default(),
-                output_schema: tool
-                    .output_schema
-                    .as_ref()
-                    .and_then(|schema| serde_json::to_value(schema).ok()),
-                annotations: tool
-                    .annotations
-                    .as_ref()
-                    .and_then(|annotations| serde_json::to_value(annotations).ok()),
-                execution: tool
-                    .execution
-                    .as_ref()
-                    .and_then(|execution| serde_json::to_value(execution).ok()),
-                icons: tool
-                    .icons
-                    .as_ref()
-                    .and_then(|icons| serde_json::to_value(icons).ok()),
-                meta: tool
-                    .meta
-                    .as_ref()
-                    .and_then(|meta| serde_json::to_value(meta).ok()),
-            })
-            .collect();
+        let tools = resp.tools.into_iter().map(DiscoveredTool::from).collect();
         Ok(tools)
     }
 

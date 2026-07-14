@@ -39,6 +39,15 @@ pub enum EventKind {
     ReconnectionScheduled,
     ToolSyncStarted,
     ToolSyncCompleted,
+    McpToolsChanged,
+    McpResourcesChanged,
+    McpResourceUpdated,
+    McpPromptsChanged,
+    McpProgress,
+    McpLogMessage,
+    McpRequestCancelled,
+    McpCustomNotification,
+    McpNotificationFailed,
 }
 
 impl EventKind {
@@ -67,6 +76,15 @@ impl EventKind {
             EventKind::ReconnectionScheduled => "RECONNECTION_SCHEDULED",
             EventKind::ToolSyncStarted => "TOOL_SYNC_STARTED",
             EventKind::ToolSyncCompleted => "TOOL_SYNC_COMPLETED",
+            EventKind::McpToolsChanged => "MCP_TOOLS_CHANGED",
+            EventKind::McpResourcesChanged => "MCP_RESOURCES_CHANGED",
+            EventKind::McpResourceUpdated => "MCP_RESOURCE_UPDATED",
+            EventKind::McpPromptsChanged => "MCP_PROMPTS_CHANGED",
+            EventKind::McpProgress => "MCP_PROGRESS",
+            EventKind::McpLogMessage => "MCP_LOG_MESSAGE",
+            EventKind::McpRequestCancelled => "MCP_REQUEST_CANCELLED",
+            EventKind::McpCustomNotification => "MCP_CUSTOM_NOTIFICATION",
+            EventKind::McpNotificationFailed => "MCP_NOTIFICATION_FAILED",
         }
     }
 }

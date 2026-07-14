@@ -2,6 +2,19 @@ use crate::identity::InstanceId;
 use crate::registry::{ServiceRegistry, ToolInfo};
 
 impl ServiceRegistry {
+    pub async fn replace_instance_tools(
+        &self,
+        instance_id: InstanceId,
+        tools: Vec<ToolInfo>,
+    ) -> bool {
+        let mut instances = self.instances.write().await;
+        let Some(instance) = instances.get_mut(&instance_id) else {
+            return false;
+        };
+        instance.tools = tools;
+        true
+    }
+
     pub async fn find_tool(&self, instance_id: InstanceId, tool_name: &str) -> Option<ToolInfo> {
         self.instances
             .read()

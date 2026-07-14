@@ -1,10 +1,15 @@
 use crate::config::ServerConfig;
 use crate::transport::client::McpClient;
+use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::{Result, TransportError};
 
 use rmcp::transport::child_process::TokioChildProcess;
 
-pub(super) async fn connect(name: &str, config: &ServerConfig) -> Result<McpClient> {
+pub(super) async fn connect(
+    name: &str,
+    config: &ServerConfig,
+    handler: McpStoreClientHandler,
+) -> Result<McpClient> {
     let command = config.command.as_deref().ok_or_else(|| {
         TransportError::ConnectionFailed(format!("Service {name} missing command field"))
     })?;
@@ -22,7 +27,7 @@ pub(super) async fn connect(name: &str, config: &ServerConfig) -> Result<McpClie
         TransportError::ConnectionFailed(format!("Failed to spawn child process: {err}"))
     })?;
 
-    rmcp::service::serve_client((), transport)
+    rmcp::service::serve_client(handler, transport)
         .await
         .map_err(|err| TransportError::ConnectionFailed(format!("MCP handshake failed: {err}")))
 }

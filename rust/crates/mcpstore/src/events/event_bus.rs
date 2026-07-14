@@ -8,6 +8,7 @@ use crate::events::bus::{EventHandler, EventHistory, SubscriberMap};
 use crate::events::Event;
 
 /// Core event bus using tokio async primitives.
+#[derive(Clone)]
 pub struct EventBus {
     subscribers: Arc<RwLock<SubscriberMap>>,
     history: Option<Arc<RwLock<EventHistory>>>,
