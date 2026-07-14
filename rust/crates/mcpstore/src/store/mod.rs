@@ -105,9 +105,10 @@ impl MCPStore {
             .or_else(|| app_config.cache.redis_url.clone())
             .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
         let cache_store = Self::build_cache_store(&cache_storage, &redis_url, &namespace)?;
+        let auth_coordinator = crate::auth::AuthCoordinator::new()?;
 
         Ok(Self {
-            auth_coordinator: crate::auth::AuthCoordinator::new()?,
+            auth_coordinator: auth_coordinator.clone(),
             config_manager,
             source_mode: options.source_mode,
             runtime_config,
@@ -115,7 +116,7 @@ impl MCPStore {
             redis_url: tokio::sync::RwLock::new(Some(redis_url)),
             namespace: SyncRwLock::new(namespace.clone()),
             registry: ServiceRegistry::new(),
-            pool: ConnectionPool::new(),
+            pool: ConnectionPool::new(auth_coordinator),
             applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
             event_bus: EventBus::with_history(1000),
             cache: CacheLayerManager::new(cache_store, namespace),

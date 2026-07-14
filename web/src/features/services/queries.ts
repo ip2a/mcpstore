@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import {
+  getInstanceAuthStatus,
   getInstanceStatus,
   getServiceInstance,
   listInstancePrompts,
@@ -11,6 +12,14 @@ import { queryKeys } from "@/lib/query-keys"
 
 export function useServiceDetailQuery(instanceId: string, enabled = false) {
   return useQuery({ enabled: enabled && Boolean(instanceId), queryKey: queryKeys.instance(instanceId), queryFn: () => getServiceInstance(instanceId) })
+}
+
+export function useServiceAuthQuery(instanceId: string) {
+  return useQuery({
+    enabled: Boolean(instanceId),
+    queryKey: queryKeys.instanceAuth(instanceId),
+    queryFn: () => getInstanceAuthStatus(instanceId),
+  })
 }
 
 export function useServiceStatusQuery(instanceId: string) {

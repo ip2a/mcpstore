@@ -1,4 +1,6 @@
+use crate::auth::{AuthCoordinator, AuthStatus};
 use crate::config::ServerConfig;
+use crate::identity::InstanceId;
 use crate::transport::{http as http_transport, stdio as stdio_transport};
 use crate::transport::{Result, TransportError};
 
@@ -14,17 +16,26 @@ enum ActiveClient {
 }
 
 pub struct McpConnection {
+    instance_id: InstanceId,
     name: String,
     config: ServerConfig,
     client: Option<ActiveClient>,
+    auth_coordinator: AuthCoordinator,
 }
 
 impl McpConnection {
-    pub fn new(name: String, config: ServerConfig) -> Self {
+    pub fn new(
+        instance_id: InstanceId,
+        name: String,
+        config: ServerConfig,
+        auth_coordinator: AuthCoordinator,
+    ) -> Self {
         Self {
+            instance_id,
             name,
             config,
             client: None,
+            auth_coordinator,
         }
     }
 
@@ -58,7 +69,13 @@ impl McpConnection {
     }
 
     async fn connect_http(&mut self) -> Result<()> {
-        let client = http_transport::connect(&self.name, &self.config).await?;
+        let client = http_transport::connect(
+            self.instance_id,
+            &self.name,
+            &self.config,
+            &self.auth_coordinator,
+        )
+        .await?;
         tracing::info!("[TRANSPORT] HTTP connected: {}", self.name);
         self.client = Some(ActiveClient::Http(client));
         Ok(())
@@ -81,6 +98,26 @@ impl McpConnection {
             Some(ActiveClient::Stdio(c)) => Ok(c),
             Some(ActiveClient::Http(c)) => Ok(c),
             None => Err(TransportError::NotConnected(self.name.clone())),
+        }
+    }
+
+    pub(in crate::transport) async fn classify_client_failure(
+        &self,
+        fallback: TransportError,
+    ) -> TransportError {
+        if self.config.auth.is_none() {
+            return fallback;
+        }
+        match self.auth_coordinator.status(self.instance_id).await {
+            AuthStatus::Unauthenticated => TransportError::AuthRequired(
+                self.auth_coordinator
+                    .auth_required(self.instance_id, &self.config.auth),
+            ),
+            AuthStatus::ScopeUpgradeRequired => TransportError::InsufficientScope {
+                instance_id: self.instance_id,
+                required_scope: self.auth_coordinator.required_scope(self.instance_id).await,
+            },
+            _ => fallback,
         }
     }
 }

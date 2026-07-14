@@ -23,6 +23,7 @@ import {
   useServiceResourcesQuery,
   useServiceStatusQuery,
 } from "@/features/services/queries"
+import { ServiceAuthPanel } from "@/features/services/service-auth-panel"
 import { ServiceStatusActionsDialog } from "@/features/services/service-status-actions-dialog"
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form"
 import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args"
@@ -674,6 +675,7 @@ function ServiceOverviewPane({
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      <ServiceAuthPanel instanceId={service.instance_id} />
       <section className="border-b pb-4">
         <SectionHeading title={t("service")} titleAs="h2" className="border-b-0 pb-3" />
         <dl className="grid gap-3 text-sm">

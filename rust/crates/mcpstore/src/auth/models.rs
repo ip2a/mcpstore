@@ -10,7 +10,28 @@ pub enum AuthStatus {
     Authorizing,
     Authenticated,
     Refreshing,
+    ScopeUpgradeRequired,
     Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthStatusView {
+    pub instance_id: InstanceId,
+    pub status: AuthStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow: Option<AuthFlow>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_scope: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthorizationStart {
+    pub instance_id: InstanceId,
+    pub authorization_url: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -51,4 +72,16 @@ pub enum AuthError {
     InvalidStoredData,
     #[error("authentication configuration is invalid: {0}")]
     InvalidConfig(String),
+    #[error("authorization cannot start")]
+    AuthorizationStartFailed,
+    #[error("authorization callback was rejected")]
+    CallbackRejected,
+    #[error("token refresh failed; authorization is required again")]
+    RefreshFailed,
+    #[error("client credentials are not available in secure storage")]
+    MissingClientCredential,
+    #[error("authentication operation is not supported for this flow")]
+    UnsupportedFlow,
+    #[error("authentication provider operation failed")]
+    ProviderFailure,
 }

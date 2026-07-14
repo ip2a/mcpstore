@@ -2,6 +2,36 @@ export type CacheBackend = "memory" | "redis" | "openkeyv_memory" | "openkeyv_re
 
 export type ConnectionStatus = "connected" | "disconnected" | "connecting" | "error"
 
+export type AuthStatus =
+  | "not_required"
+  | "unauthenticated"
+  | "authorizing"
+  | "authenticated"
+  | "refreshing"
+  | "scope_upgrade_required"
+  | "error"
+
+export type AuthFlow = "authorization_code" | "client_credentials"
+
+export type AuthStatusView = {
+  instance_id: string
+  status: AuthStatus
+  flow?: AuthFlow
+  scopes: string[]
+  required_scope?: string
+}
+
+export type AuthorizationStart = {
+  instance_id: string
+  authorization_url: string
+  scopes: string[]
+}
+
+export type AuthOperationResult = {
+  auth: AuthStatusView
+  authorization?: AuthorizationStart | null
+}
+
 export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string }
 
 export type ConfigRevision = {
@@ -288,6 +318,33 @@ export async function getServiceInstance(instanceId: string): Promise<ServiceIns
 
 export async function getInstanceStatus(instanceId: string): Promise<InstanceStatus> {
   return request(`/instances/${encodeURIComponent(instanceId)}/status`)
+}
+
+export async function getInstanceAuthStatus(instanceId: string): Promise<AuthStatusView> {
+  const data = await request<{ auth: AuthStatusView }>(`/instances/${encodeURIComponent(instanceId)}/auth`)
+  return data.auth
+}
+
+export async function startInstanceAuthorization(instanceId: string): Promise<AuthOperationResult> {
+  return request(`/instances/${encodeURIComponent(instanceId)}/auth/start`, { method: "POST" })
+}
+
+export async function refreshInstanceAuthorization(instanceId: string): Promise<AuthOperationResult> {
+  return request(`/instances/${encodeURIComponent(instanceId)}/auth/refresh`, { method: "POST" })
+}
+
+export async function logoutInstanceAuthorization(instanceId: string): Promise<AuthOperationResult> {
+  return request(`/instances/${encodeURIComponent(instanceId)}/auth/logout`, { method: "POST" })
+}
+
+export async function upgradeInstanceAuthorizationScope(
+  instanceId: string,
+  requiredScope: string,
+): Promise<AuthOperationResult> {
+  return request(`/instances/${encodeURIComponent(instanceId)}/auth/scope-upgrade`, {
+    method: "POST",
+    body: JSON.stringify({ required_scope: requiredScope }),
+  })
 }
 
 export async function listInstanceTools(instanceId: string): Promise<ToolInfo[]> {

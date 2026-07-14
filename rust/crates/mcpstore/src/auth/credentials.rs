@@ -6,6 +6,7 @@ use super::{AuthCredentialKey, AuthError, SystemKeyring};
 
 const OAUTH_CREDENTIAL_SERVICE: &str = "mcpstore.oauth.credentials";
 const OAUTH_CLIENT_SECRET_SERVICE: &str = "mcpstore.oauth.client-secret";
+const OAUTH_PRIVATE_KEY_SERVICE: &str = "mcpstore.oauth.private-key";
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct ClientSecret(String);
@@ -138,6 +139,76 @@ impl KeyringClientSecretStore {
     pub async fn clear(&self) -> Result<(), AuthError> {
         self.keyring
             .delete(OAUTH_CLIENT_SECRET_SERVICE, self.account.clone())
+            .await
+    }
+}
+
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub struct PrivateKey(Vec<u8>);
+
+impl std::fmt::Debug for PrivateKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("PrivateKey([REDACTED])")
+    }
+}
+
+impl PrivateKey {
+    pub fn new(value: impl Into<Vec<u8>>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+pub struct KeyringPrivateKeyStore {
+    keyring: SystemKeyring,
+    account: String,
+}
+
+impl std::fmt::Debug for KeyringPrivateKeyStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("KeyringPrivateKeyStore")
+            .field("account", &self.account)
+            .finish()
+    }
+}
+
+impl KeyringPrivateKeyStore {
+    pub fn new(key: &AuthCredentialKey) -> Result<Self, AuthError> {
+        Ok(Self::with_keyring(key, SystemKeyring::new()?))
+    }
+
+    pub(crate) fn with_keyring(key: &AuthCredentialKey, keyring: SystemKeyring) -> Self {
+        Self {
+            keyring,
+            account: key.storage_id(),
+        }
+    }
+
+    pub async fn load(&self) -> Result<Option<PrivateKey>, AuthError> {
+        Ok(self
+            .keyring
+            .load(OAUTH_PRIVATE_KEY_SERVICE, self.account.clone())
+            .await?
+            .map(PrivateKey::new))
+    }
+
+    pub async fn save(&self, private_key: &PrivateKey) -> Result<(), AuthError> {
+        self.keyring
+            .save(
+                OAUTH_PRIVATE_KEY_SERVICE,
+                self.account.clone(),
+                private_key.expose().to_vec(),
+            )
+            .await
+    }
+
+    pub async fn clear(&self) -> Result<(), AuthError> {
+        self.keyring
+            .delete(OAUTH_PRIVATE_KEY_SERVICE, self.account.clone())
             .await
     }
 }
