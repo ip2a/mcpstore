@@ -1,51 +1,32 @@
+use crate::cache::models::{InstanceStatus, ToolStatusItem};
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn cached_service_status(&self, name: &str) -> Result<Option<ServiceStatus>> {
-        let value = self.cache.get_state("service_status", name).await?;
-        match value {
-            Some(value) => Ok(Some(serde_json::from_value(value).map_err(|e| {
-                StoreError::Other(format!("Service status deserialization failed: {e}"))
-            })?)),
-            None => Ok(None),
-        }
-    }
-
-    pub(crate) async fn set_service_status(
+    pub(crate) async fn set_instance_status(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         health_status: HealthStatus,
         error: Option<String>,
         tools: Vec<ToolStatusItem>,
     ) -> Result<()> {
-        let payload = self.service_status_payload(name, health_status, error, tools);
-        self.put_service_status_payload(&payload).await
+        let payload = self
+            .new_instance_status(instance_id, health_status, error, tools)
+            .await?;
+        self.put_instance_status(&payload).await
     }
 
-    pub(crate) async fn put_service_status_payload(&self, payload: &ServiceStatus) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
-            return Ok(());
-        }
-
-        self.cache
-            .put_state(
-                "service_status",
-                &payload.service_global_name,
-                serde_json::to_value(payload).unwrap_or_default(),
-            )
-            .await
-            .map_err(Into::into)
-    }
-
-    pub(crate) fn service_status_payload(
+    pub(crate) async fn new_instance_status(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         health_status: HealthStatus,
         error: Option<String>,
         tools: Vec<ToolStatusItem>,
-    ) -> ServiceStatus {
-        ServiceStatus {
-            service_global_name: name.to_string(),
+    ) -> Result<InstanceStatus> {
+        let instance = self.instance(instance_id).await?;
+        Ok(InstanceStatus {
+            instance_id,
+            service_name: instance.service_name,
+            scope: instance.scope,
             health_status,
             last_health_check: Self::now_timestamp(),
             connection_attempts: 0,
@@ -60,25 +41,25 @@ impl MCPStore {
             hard_deadline: None,
             lease_deadline: None,
             lifecycle_state: ServiceLifecycleState::default(),
-        }
+        })
     }
 
     pub(crate) async fn update_lifecycle_state<F>(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         update: F,
-    ) -> Result<ServiceStatus>
+    ) -> Result<InstanceStatus>
     where
         F: FnOnce(&mut ServiceLifecycleState),
     {
-        let mut status = self.load_or_default_status(name).await?;
+        let mut status = self.load_or_default_status(instance_id).await?;
         update(&mut status.lifecycle_state);
-        self.put_service_status_payload(&status).await?;
+        self.put_instance_status(&status).await?;
         Ok(status)
     }
 
-    pub(crate) async fn clear_lifecycle_manual_stop(&self, name: &str) -> Result<()> {
-        self.update_lifecycle_state(name, |state| {
+    pub(crate) async fn clear_lifecycle_manual_stop(&self, instance_id: InstanceId) -> Result<()> {
+        self.update_lifecycle_state(instance_id, |state| {
             state.manually_stopped = false;
             state.manually_stopped_at = None;
             state.manual_stop_persistent = false;
@@ -86,6 +67,27 @@ impl MCPStore {
         })
         .await?;
         Ok(())
+    }
+
+    pub(crate) async fn rebuild_observed_status_for_startup(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<InstanceStatus> {
+        let persisted_lifecycle = self
+            .cached_instance_status(instance_id)
+            .await?
+            .map(|status| status.lifecycle_state)
+            .filter(|state| state.manual_stop_persistent);
+        let mut status = self
+            .new_instance_status(instance_id, HealthStatus::Init, None, Vec::new())
+            .await?;
+        if let Some(lifecycle) = persisted_lifecycle {
+            status.lifecycle_state.manually_stopped = true;
+            status.lifecycle_state.manually_stopped_at = lifecycle.manually_stopped_at;
+            status.lifecycle_state.manual_stop_persistent = true;
+        }
+        self.put_instance_status(&status).await?;
+        Ok(status)
     }
 
     pub(crate) fn now_timestamp() -> i64 {
@@ -118,28 +120,35 @@ impl MCPStore {
         }
     }
 
-    pub(crate) async fn hydrate_service_status_from_cache(
+    pub(crate) async fn hydrate_instance_status_from_cache(
         &self,
-        service: &mut ServiceEntry,
+        instance: &mut ServiceInstance,
     ) -> Result<()> {
-        if let Some(status) = self.cached_service_status(&service.name).await? {
-            service.status = Self::connection_status_from_health_status(&status.health_status);
+        if let Some(status) = self.cached_instance_status(instance.instance_id).await? {
+            instance.status = Self::connection_status_from_health_status(&status.health_status);
         }
         Ok(())
     }
 
-    pub(crate) async fn load_or_default_status(&self, name: &str) -> Result<ServiceStatus> {
-        Ok(self.cached_service_status(name).await?.unwrap_or_else(|| {
-            self.service_status_payload(name, HealthStatus::Init, None, Vec::new())
-        }))
+    pub(crate) async fn load_or_default_status(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<InstanceStatus> {
+        match self.cached_instance_status(instance_id).await? {
+            Some(status) => Ok(status),
+            None => {
+                self.new_instance_status(instance_id, HealthStatus::Init, None, Vec::new())
+                    .await
+            }
+        }
     }
 
     pub(crate) async fn tool_statuses_with_availability(
         &self,
-        name: &str,
+        instance_id: InstanceId,
         availability: ToolAvailability,
     ) -> Result<Vec<ToolStatusItem>> {
-        if let Some(status) = self.cached_service_status(name).await? {
+        if let Some(status) = self.cached_instance_status(instance_id).await? {
             if !status.tools.is_empty() {
                 return Ok(status
                     .tools
@@ -152,15 +161,22 @@ impl MCPStore {
             }
         }
 
-        let tools = self.registry.list_service_tools(name).await;
-        let mut statuses = Vec::with_capacity(tools.len());
-        for tool in tools {
-            statuses.push(ToolStatusItem {
-                tool_global_name: generate_tool_global_name(name, &tool.name)?,
-                tool_original_name: tool.name,
+        Ok(self
+            .registry
+            .list_instance_tools(instance_id)
+            .await
+            .into_iter()
+            .map(|tool| ToolStatusItem {
+                tool_name: tool.name,
                 status: availability.clone(),
-            });
-        }
-        Ok(statuses)
+            })
+            .collect())
+    }
+
+    async fn instance(&self, instance_id: InstanceId) -> Result<ServiceInstance> {
+        self.registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))
     }
 }

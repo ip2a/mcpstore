@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use super::app_validation::validate_app_config;
 use super::examples::example_services;
 use super::flatten::flatten_config_value;
-use super::{models, resolver, validator};
+use super::resolver;
 use super::{AppConfig, CacheBackend, CacheConfig, ConfigError, McpConfig, Result};
 
 pub struct ConfigManager {
@@ -57,18 +57,28 @@ impl ConfigManager {
         }
         let content = std::fs::read_to_string(&self.mcp_path)?;
         let config: McpConfig = serde_json::from_str(&content)?;
+        config.validate_structure().map_err(ConfigError::Invalid)?;
         Ok(config)
     }
 
-    pub fn load_or_default(&self) -> McpConfig {
-        self.load().unwrap_or_default()
+    pub fn load_or_empty(&self) -> Result<McpConfig> {
+        match self.load() {
+            Ok(config) => Ok(config),
+            Err(ConfigError::NotFound(_)) => Ok(McpConfig::default()),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn save(&self, config: &McpConfig) -> Result<()> {
+        config.validate_structure().map_err(ConfigError::Invalid)?;
+        let mut config = config.clone();
+        for server in config.mcp_servers.values_mut() {
+            server.ensure_native_scopes();
+        }
         if let Some(parent) = self.mcp_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = serde_json::to_string_pretty(config)?;
+        let content = serde_json::to_string_pretty(&config)?;
         std::fs::write(&self.mcp_path, content)?;
         Ok(())
     }
@@ -121,25 +131,7 @@ impl ConfigManager {
 
     pub fn validate(&self) -> Result<()> {
         let config = self.load()?;
-        let servers: HashMap<String, models::ServerConfigFull> = config
-            .mcp_servers
-            .into_iter()
-            .map(|(k, v)| {
-                let full = models::ServerConfigFull {
-                    url: v.url,
-                    command: v.command,
-                    args: v.args,
-                    env: v.env,
-                    headers: v.headers,
-                    transport: v
-                        .transport
-                        .and_then(|t| serde_json::from_value(serde_json::Value::String(t)).ok()),
-                    working_dir: v.working_dir,
-                };
-                (k, full)
-            })
-            .collect();
-        validator::validate(&servers).map_err(ConfigError::Validation)?;
+        config.validate_structure().map_err(ConfigError::Invalid)?;
         self.validate_app_config()?;
         Ok(())
     }
@@ -166,7 +158,7 @@ impl ConfigManager {
     }
 
     pub fn add_examples(&self) -> Result<usize> {
-        let mut config = self.load_or_default();
+        let mut config = self.load_or_empty()?;
         let mut added = 0usize;
 
         for (name, service) in example_services() {

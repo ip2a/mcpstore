@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::cache::{CacheLayerManager, CacheStore, Result};
+use crate::cache::layer::CACHE_SCHEMA_VERSION;
+use crate::cache::{CacheError, CacheLayerManager, CacheStore, Result};
 
-#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CacheSnapshot {
+    pub schema_version: u32,
     pub entities: HashMap<String, HashMap<String, serde_json::Value>>,
     pub relations: HashMap<String, HashMap<String, serde_json::Value>>,
     pub states: HashMap<String, HashMap<String, serde_json::Value>>,
@@ -17,12 +19,14 @@ impl CacheLayerManager {
         store: Arc<dyn CacheStore>,
         namespace: impl Into<String>,
     ) -> Result<CacheSnapshot> {
+        self.ensure_current_schema().await?;
         let current_namespace = self.namespace();
         let next_namespace = namespace.into();
         let mut current = self.store.write().await;
         let snapshot = self
             .snapshot_from_store_with_namespace(current.as_ref(), &current_namespace)
             .await?;
+        Self::clear_namespace(store.as_ref(), &next_namespace).await?;
         self.restore_to_store_with_namespace(store.as_ref(), &snapshot, &next_namespace)
             .await?;
         *current = store;
@@ -35,6 +39,7 @@ impl CacheLayerManager {
     }
 
     pub async fn snapshot(&self) -> Result<CacheSnapshot> {
+        self.ensure_current_schema().await?;
         let namespace = self.namespace();
         let store = self.store.read().await;
         self.snapshot_from_store_with_namespace(store.as_ref(), &namespace)
@@ -48,6 +53,7 @@ impl CacheLayerManager {
     ) -> Result<CacheSnapshot> {
         let collections = store.collections().await?;
         Ok(CacheSnapshot {
+            schema_version: CACHE_SCHEMA_VERSION,
             entities: self
                 .snapshot_layer_from_store(store, &collections, namespace, "entity")
                 .await?,
@@ -69,6 +75,12 @@ impl CacheLayerManager {
         snapshot: &CacheSnapshot,
         namespace: &str,
     ) -> Result<()> {
+        if snapshot.schema_version != CACHE_SCHEMA_VERSION {
+            return Err(CacheError::Validation(format!(
+                "Unsupported cache snapshot schema version: expected {}, got {}",
+                CACHE_SCHEMA_VERSION, snapshot.schema_version
+            )));
+        }
         self.restore_layer_to_store(store, namespace, "entity", &snapshot.entities)
             .await?;
         self.restore_layer_to_store(store, namespace, "relations", &snapshot.relations)

@@ -18,44 +18,39 @@ pub enum ToolVisibilityFilter {
 impl MCPStore {
     pub async fn get_context_tool_visibility(
         &self,
-        agent_id: Option<&str>,
-        service_name: &str,
+        scope: &ScopeRef,
+        instance_id: InstanceId,
     ) -> Result<Option<ContextToolVisibilityState>> {
-        let context_key = Self::build_tool_visibility_context_key(agent_id)?;
-        let global_service_name = self
-            .resolve_context_tool_visibility_service_name(agent_id, service_name)
-            .await?;
-        self.load_context_tool_visibility(&context_key, &global_service_name)
+        self.require_instance_in_scope(instance_id, scope).await?;
+        let context_key = Self::build_tool_visibility_context_key(scope)?;
+        self.load_context_tool_visibility(&context_key, instance_id)
             .await
     }
 
     pub async fn set_context_tool_visibility(
         &self,
-        agent_id: Option<&str>,
-        service_name: &str,
+        scope: &ScopeRef,
+        instance_id: InstanceId,
         tool_names: Vec<String>,
     ) -> Result<ContextToolVisibilityState> {
-        let context_key = Self::build_tool_visibility_context_key(agent_id)?;
-        let global_service_name = self
-            .resolve_context_tool_visibility_service_name(agent_id, service_name)
-            .await?;
-        let all_tools = self
-            .list_tool_entries_scoped(agent_id, Some(service_name))
-            .await?;
+        self.require_instance_in_scope(instance_id, scope).await?;
+        let context_key = Self::build_tool_visibility_context_key(scope)?;
+        let instance = self.require_instance_in_scope(instance_id, scope).await?;
+        let all_tools = self.list_tool_entries_for_instance(instance_id).await?;
         let allowlist: HashSet<String> = tool_names.into_iter().collect();
-        let mut selected = Vec::new();
-        for tool in all_tools {
-            if Self::tool_entry_matches_any_name(&tool, &allowlist) {
-                selected.push(SessionToolItem {
-                    service_global_name: tool.global_service_name,
-                    tool_global_name: tool.global_tool_name,
-                    tool_original_name: tool.original_name,
-                });
-            }
-        }
-        selected.sort_by(|left, right| left.tool_global_name.cmp(&right.tool_global_name));
-        selected.dedup_by(|left, right| left.tool_global_name == right.tool_global_name);
-        self.update_context_tool_visibility(&context_key, &global_service_name, |state| {
+        let mut selected = all_tools
+            .into_iter()
+            .filter(|tool| allowlist.contains(&tool.tool_name) || allowlist.contains(&tool.name))
+            .map(|tool| SessionToolItem {
+                instance_id,
+                service_name: instance.service_name.clone(),
+                scope: instance.scope.clone(),
+                tool_name: tool.tool_name,
+            })
+            .collect::<Vec<_>>();
+        selected.sort_by(|left, right| left.tool_name.cmp(&right.tool_name));
+        selected.dedup_by(|left, right| left.tool_name == right.tool_name);
+        self.update_context_tool_visibility(&context_key, instance_id, |state| {
             state.tools = selected.clone();
         })
         .await
@@ -63,14 +58,12 @@ impl MCPStore {
 
     pub async fn clear_context_tool_visibility(
         &self,
-        agent_id: Option<&str>,
-        service_name: &str,
+        scope: &ScopeRef,
+        instance_id: InstanceId,
     ) -> Result<()> {
-        let context_key = Self::build_tool_visibility_context_key(agent_id)?;
-        let global_service_name = self
-            .resolve_context_tool_visibility_service_name(agent_id, service_name)
-            .await?;
-        let state_key = Self::context_tool_visibility_state_key(&context_key, &global_service_name);
+        self.require_instance_in_scope(instance_id, scope).await?;
+        let context_key = Self::build_tool_visibility_context_key(scope)?;
+        let state_key = Self::context_tool_visibility_state_key(&context_key, instance_id);
         self.cache
             .delete_state(CONTEXT_TOOL_VISIBILITY_STATE_TYPE, &state_key)
             .await
@@ -79,38 +72,39 @@ impl MCPStore {
 
     pub async fn list_tool_entries_scoped_with_filter(
         &self,
-        agent_id: Option<&str>,
-        service_name: Option<&str>,
+        scope: &ScopeRef,
+        instance_id: Option<InstanceId>,
         filter: ToolVisibilityFilter,
     ) -> Result<Vec<ScopedToolEntry>> {
-        let tools = self
-            .list_tool_entries_scoped(agent_id, service_name)
-            .await?;
-        self.apply_context_tool_visibility(agent_id, service_name, tools, filter)
+        let tools = match instance_id {
+            Some(instance_id) => {
+                self.require_instance_in_scope(instance_id, scope).await?;
+                self.list_tool_entries_for_instance(instance_id).await?
+            }
+            None => self.list_tool_entries_scoped(scope).await?,
+        };
+        self.apply_context_tool_visibility(scope, tools, filter)
             .await
     }
 
     async fn apply_context_tool_visibility(
         &self,
-        agent_id: Option<&str>,
-        service_name: Option<&str>,
+        scope: &ScopeRef,
         tools: Vec<ScopedToolEntry>,
         filter: ToolVisibilityFilter,
     ) -> Result<Vec<ScopedToolEntry>> {
         if filter == ToolVisibilityFilter::All {
             return Ok(tools);
         }
-        let context_key = Self::build_tool_visibility_context_key(agent_id)?;
+        let context_key = Self::build_tool_visibility_context_key(scope)?;
         let mut selected = Vec::new();
         for tool in tools {
             let visibility = self
-                .load_context_tool_visibility(&context_key, &tool.global_service_name)
+                .load_context_tool_visibility(&context_key, tool.instance_id)
                 .await?;
-            let is_visible = visibility.as_ref().is_none_or(|state| {
+            let is_visible = visibility.as_ref().map_or(true, |state| {
                 state.tools.iter().any(|item| {
-                    item.tool_global_name == tool.global_tool_name
-                        || item.tool_original_name == tool.original_name
-                        || item.tool_original_name == tool.name
+                    item.instance_id == tool.instance_id && item.tool_name == tool.tool_name
                 })
             });
             if (filter == ToolVisibilityFilter::Available && is_visible)
@@ -119,53 +113,28 @@ impl MCPStore {
                 selected.push(tool);
             }
         }
-        if service_name.is_some() {
-            selected.sort_by(|left, right| left.name.cmp(&right.name));
-        }
         Ok(selected)
     }
 
-    async fn resolve_context_tool_visibility_service_name(
-        &self,
-        agent_id: Option<&str>,
-        service_name: &str,
-    ) -> Result<String> {
-        match agent_id {
-            Some(agent_id) => {
-                self.resolve_service_name_for_agent(agent_id, service_name)
-                    .await
+    fn build_tool_visibility_context_key(scope: &ScopeRef) -> Result<String> {
+        match scope {
+            ScopeRef::Store => Self::build_session_context_key(&SessionScope::Store, None),
+            ScopeRef::Agent { agent_id } => {
+                Self::build_session_context_key(&SessionScope::Agent, Some(agent_id))
             }
-            None => self
-                .find_service(service_name)
-                .await
-                .map(|service| service.name)
-                .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string())),
         }
     }
 
-    fn build_tool_visibility_context_key(agent_id: Option<&str>) -> Result<String> {
-        match agent_id {
-            Some(agent_id) => Self::build_session_context_key(&SessionScope::Agent, Some(agent_id)),
-            None => Self::build_session_context_key(&SessionScope::Store, None),
-        }
-    }
-
-    fn context_tool_visibility_state_key(context_key: &str, service_global_name: &str) -> String {
-        format!("{context_key}:{service_global_name}")
-    }
-
-    fn tool_entry_matches_any_name(tool: &ScopedToolEntry, names: &HashSet<String>) -> bool {
-        names.contains(&tool.name)
-            || names.contains(&tool.original_name)
-            || names.contains(&tool.global_tool_name)
+    fn context_tool_visibility_state_key(context_key: &str, instance_id: InstanceId) -> String {
+        format!("{context_key}:{instance_id}")
     }
 
     async fn load_context_tool_visibility(
         &self,
         context_key: &str,
-        service_global_name: &str,
+        instance_id: InstanceId,
     ) -> Result<Option<ContextToolVisibilityState>> {
-        let state_key = Self::context_tool_visibility_state_key(context_key, service_global_name);
+        let state_key = Self::context_tool_visibility_state_key(context_key, instance_id);
         match self
             .cache
             .get_state(CONTEXT_TOOL_VISIBILITY_STATE_TYPE, &state_key)
@@ -173,7 +142,7 @@ impl MCPStore {
         {
             Some(value) => serde_json::from_value(value)
                 .map(Some)
-                .map_err(|e| StoreError::Other(e.to_string())),
+                .map_err(|error| StoreError::Other(error.to_string())),
             None => Ok(None),
         }
     }
@@ -181,22 +150,25 @@ impl MCPStore {
     async fn update_context_tool_visibility<F>(
         &self,
         context_key: &str,
-        service_global_name: &str,
+        instance_id: InstanceId,
         mut update: F,
     ) -> Result<ContextToolVisibilityState>
     where
         F: FnMut(&mut ContextToolVisibilityState),
     {
-        let state_key = Self::context_tool_visibility_state_key(context_key, service_global_name);
+        let state_key = Self::context_tool_visibility_state_key(context_key, instance_id);
+        let instance = self.require_instance(instance_id).await?;
         for _ in 0..3 {
             let now = Self::now_timestamp();
             let current = self
-                .load_context_tool_visibility(context_key, service_global_name)
+                .load_context_tool_visibility(context_key, instance_id)
                 .await?;
             let expected_version = current.as_ref().map(|state| state.version);
             let mut state = current.unwrap_or_else(|| ContextToolVisibilityState {
                 context_key: context_key.to_string(),
-                service_global_name: service_global_name.to_string(),
+                instance_id,
+                service_name: instance.service_name.clone(),
+                scope: instance.scope.clone(),
                 mode: ToolVisibilityMode::Allowlist,
                 tools: Vec::new(),
                 updated_at: now,
@@ -205,8 +177,8 @@ impl MCPStore {
             update(&mut state);
             state.updated_at = now;
             state.version += 1;
-            let value =
-                serde_json::to_value(&state).map_err(|e| StoreError::Other(e.to_string()))?;
+            let value = serde_json::to_value(&state)
+                .map_err(|error| StoreError::Other(error.to_string()))?;
             match self
                 .cache
                 .compare_and_put_state(

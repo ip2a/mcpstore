@@ -1,9 +1,8 @@
-//! Cache data models migrated from Python core/cache/models.py
-//!
-//! All models use serde for serialization and include from_dict/to_dict
-//! equivalents via Serialize/Deserialize.
-
 use serde::{Deserialize, Serialize};
+
+use crate::config::{ScopeDeclarations, ServiceLifecycleConfig};
+use crate::identity::{InstanceId, ScopeRef};
+use crate::registry::{ConfigRevision, ServiceDefinition};
 
 #[derive(Debug, Clone)]
 pub struct CacheHealthReport {
@@ -15,24 +14,65 @@ pub struct CacheHealthReport {
     pub events: Vec<String>,
 }
 
-// ==================== Entity Layer Models ====================
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ServiceDefinitionEntity {
+    pub service_name: String,
+    pub base_config: serde_json::Map<String, serde_json::Value>,
+    pub scopes: ScopeDeclarations,
+    pub lifecycle: Option<ServiceLifecycleConfig>,
+    pub metadata: serde_json::Map<String, serde_json::Value>,
+    pub base_revision: u64,
+    pub added_time: i64,
+}
+
+impl From<&ServiceDefinition> for ServiceDefinitionEntity {
+    fn from(definition: &ServiceDefinition) -> Self {
+        Self {
+            service_name: definition.service_name.clone(),
+            base_config: definition.base_config.clone(),
+            scopes: definition.scopes.clone(),
+            lifecycle: definition.lifecycle.clone(),
+            metadata: definition.metadata.clone(),
+            base_revision: definition.base_revision,
+            added_time: definition.added_time,
+        }
+    }
+}
+
+impl From<ServiceDefinitionEntity> for ServiceDefinition {
+    fn from(entity: ServiceDefinitionEntity) -> Self {
+        Self {
+            service_name: entity.service_name,
+            base_config: entity.base_config,
+            scopes: entity.scopes,
+            lifecycle: entity.lifecycle,
+            metadata: entity.metadata,
+            base_revision: entity.base_revision,
+            added_time: entity.added_time,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ServiceEntity {
-    pub service_global_name: String,
-    pub service_original_name: String,
-    pub source_agent: String,
-    pub config: serde_json::Value,
+pub struct ServiceInstanceEntity {
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
+    pub transport: String,
+    pub url: Option<String>,
+    pub command: Option<String>,
+    pub effective_config: serde_json::Map<String, serde_json::Value>,
+    pub config_revision: ConfigRevision,
+    pub applied_config_revision: Option<ConfigRevision>,
     pub added_time: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolEntity {
-    pub tool_global_name: String,
-    pub tool_original_name: String,
-    pub service_global_name: String,
-    pub service_original_name: String,
-    pub source_agent: String,
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
+    pub tool_name: String,
     #[serde(default)]
     pub title: Option<String>,
     pub description: String,
@@ -79,35 +119,27 @@ pub enum SessionScope {
     Agent,
 }
 
-// ==================== Relationship Layer Models ====================
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ServiceRelationItem {
-    pub service_original_name: String,
-    pub service_global_name: String,
-    pub client_id: String,
+pub struct InstanceRelationItem {
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
     pub established_time: i64,
     pub last_access: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct AgentServiceRelation {
-    pub services: Vec<ServiceRelationItem>,
+pub struct AgentInstanceRelation {
+    pub instances: Vec<InstanceRelationItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolRelationItem {
-    pub tool_global_name: String,
-    pub tool_original_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ServiceToolRelation {
-    pub service_global_name: String,
-    pub service_original_name: String,
-    pub source_agent: String,
+pub struct InstanceToolRelation {
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
     #[serde(default)]
-    pub tools: Vec<ToolRelationItem>,
+    pub tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -121,9 +153,9 @@ pub struct SessionServiceRelation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionServiceItem {
-    pub service_global_name: String,
-    pub service_original_name: String,
-    pub source_agent: String,
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
     pub bound_at: i64,
 }
 
@@ -139,15 +171,18 @@ pub struct SessionToolVisibility {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionToolItem {
-    pub service_global_name: String,
-    pub tool_global_name: String,
-    pub tool_original_name: String,
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
+    pub tool_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContextToolVisibilityState {
     pub context_key: String,
-    pub service_global_name: String,
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
     pub mode: ToolVisibilityMode,
     #[serde(default)]
     pub tools: Vec<SessionToolItem>,
@@ -158,9 +193,10 @@ pub struct ContextToolVisibilityState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolPreferenceState {
     pub context_key: String,
-    pub service_global_name: String,
-    pub tool_global_name: String,
-    pub tool_original_name: String,
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
+    pub tool_name: String,
     #[serde(default)]
     pub preferences: serde_json::Map<String, serde_json::Value>,
     pub updated_at: i64,
@@ -180,12 +216,9 @@ pub enum ToolVisibilityMode {
     Allowlist,
 }
 
-// ==================== State Layer Models ====================
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolStatusItem {
-    pub tool_global_name: String,
-    pub tool_original_name: String,
+    pub tool_name: String,
     pub status: ToolAvailability,
 }
 
@@ -197,8 +230,10 @@ pub enum ToolAvailability {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ServiceStatus {
-    pub service_global_name: String,
+pub struct InstanceStatus {
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
     pub health_status: HealthStatus,
     pub last_health_check: i64,
     pub connection_attempts: i32,
@@ -242,6 +277,42 @@ pub enum HealthStatus {
     Disconnected,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::ServiceDefinitionEntity;
+    use crate::config::ScopeDeclarations;
+    use crate::registry::ServiceDefinition;
+
+    #[test]
+    fn service_definition_entity_preserves_metadata_roundtrip() {
+        let metadata = serde_json::Map::from_iter([
+            ("owner".to_string(), serde_json::json!("platform")),
+            (
+                "extension".to_string(),
+                serde_json::json!({"enabled": true, "labels": ["internal"]}),
+            ),
+        ]);
+        let definition = ServiceDefinition {
+            service_name: "inventory".to_string(),
+            base_config: serde_json::Map::from_iter([(
+                "command".to_string(),
+                serde_json::json!("inventory-server"),
+            )]),
+            scopes: ScopeDeclarations::store_only(),
+            lifecycle: None,
+            metadata: metadata.clone(),
+            base_revision: 7,
+            added_time: 123,
+        };
+
+        let entity = ServiceDefinitionEntity::from(&definition);
+        assert_eq!(entity.metadata, metadata);
+
+        let restored = ServiceDefinition::from(entity);
+        assert_eq!(restored, definition);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionStatusState {
     pub session_key: String,
@@ -271,9 +342,10 @@ pub struct SessionContextState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolTransformRule {
-    pub tool_global_name: String,
-    pub service_global_name: String,
-    pub original_tool_name: String,
+    pub instance_id: InstanceId,
+    pub service_name: String,
+    pub scope: ScopeRef,
+    pub tool_name: String,
     pub display_name: Option<String>,
     pub description: Option<String>,
     #[serde(default)]

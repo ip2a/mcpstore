@@ -1,77 +1,63 @@
+use serde_json::Value;
+
+use crate::config::McpStoreExtension;
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn show_config(&self) -> Result<serde_json::Value> {
-        self.show_config_format(ConfigFormat::Native).await
+    pub async fn show_config(&self) -> Result<Value> {
+        let config = self.show_config_entry().await?;
+        project_config(&config, ConfigFormat::Native)
     }
 
-    pub async fn show_config_format(&self, format: ConfigFormat) -> Result<serde_json::Value> {
-        let config = self.show_config_entry().await?;
+    pub async fn export_instance_config(
+        &self,
+        instance_id: InstanceId,
+        format: ConfigFormat,
+    ) -> Result<Value> {
+        if format == ConfigFormat::Native {
+            return Err(StoreError::Other(
+                "Native export is definition-based; use show_config".to_string(),
+            ));
+        }
+        self.refresh_from_db_if_needed().await?;
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        let mut config = crate::config::McpConfig::default();
+        let server: ServerConfig = serde_json::from_value(Value::Object(instance.effective_config))
+            .map_err(|error| {
+                StoreError::Other(format!(
+                    "Effective config for instance {instance_id} cannot be exported: {error}"
+                ))
+            })?;
+        config.mcp_servers.insert(instance.service_name, server);
         project_config(&config, format)
     }
 
     pub async fn show_config_entry(&self) -> Result<crate::config::McpConfig> {
-        if self.source_mode == SourceMode::Db {
-            self.refresh_from_db_if_needed().await?;
-
-            let mut config = crate::config::McpConfig::default();
-            for service in self.registry.list_services().await {
-                let service_config: ServerConfig = serde_json::from_value(service.config.clone())
-                    .map_err(|e| {
-                    StoreError::Other(format!(
-                        "Service config deserialization failed during show_config: {e}"
-                    ))
-                })?;
-                config.mcp_servers.insert(service.name, service_config);
-            }
-
-            let mut agent_ids = self.registry.list_agent_ids().await;
-            agent_ids.sort();
-            agent_ids.dedup();
-            for agent_id in agent_ids {
-                if agent_id == GLOBAL_AGENT_STORE {
-                    continue;
-                }
-                let mut services = self.registry.list_agent_services(&agent_id).await;
-                services.sort();
-                services.dedup();
-                if !services.is_empty() {
-                    config.agents.insert(agent_id, services);
-                }
-            }
-
-            return Ok(config);
+        if self.source_mode != SourceMode::Db {
+            return self.config_manager.load_or_empty().map_err(Into::into);
         }
 
-        Ok(self.config_manager.load_or_default())
+        self.refresh_from_db_if_needed().await?;
+        let mut config = crate::config::McpConfig::default();
+        for definition in self.registry.list_definitions().await {
+            let server = Self::server_config_from_definition(&definition)?;
+            config
+                .mcp_servers
+                .insert(definition.service_name.clone(), server);
+        }
+        Ok(config)
     }
 
-    pub async fn show_config_scoped(&self, agent_id: Option<&str>) -> Result<serde_json::Value> {
-        self.show_config_scoped_format(agent_id, ConfigFormat::Native)
-            .await
-    }
-
-    pub async fn show_config_scoped_format(
-        &self,
-        agent_id: Option<&str>,
-        format: ConfigFormat,
-    ) -> Result<serde_json::Value> {
+    pub async fn show_scope_config(&self, scope: &ScopeRef) -> Result<Value> {
         let mut config = self.show_config_entry().await?;
-        let Some(agent_id) = agent_id else {
-            return project_config(&config, format);
-        };
-
-        let service_names = config.agents.get(agent_id).cloned().unwrap_or_default();
-        let service_set = service_names
-            .iter()
-            .collect::<std::collections::HashSet<_>>();
         config
             .mcp_servers
-            .retain(|service_name, _| service_set.contains(service_name));
-        config.agents.clear();
-        config.agents.insert(agent_id.to_string(), service_names);
-
-        project_config(&config, format)
+            .retain(|_, server| server.scopes().descriptor(scope).is_some());
+        project_config(&config, ConfigFormat::Native)
     }
 
     pub async fn reset_config(&self) -> Result<()> {
@@ -81,7 +67,12 @@ impl MCPStore {
                 .await;
         }
 
+        if self.source_mode == SourceMode::Local {
+            self.config_manager
+                .save(&crate::config::McpConfig::default())?;
+        }
         self.pool.clear().await;
+        self.applied_openapi_configs.write().await.clear();
         self.registry.clear().await;
         let snapshot = self.cache.snapshot().await?;
         for (entity_type, entries) in snapshot.entities {
@@ -104,95 +95,59 @@ impl MCPStore {
                 self.cache.delete_event(&event_type, key).await?;
             }
         }
-
-        if self.source_mode == SourceMode::Local {
-            self.config_manager
-                .save(&crate::config::McpConfig::default())?;
-        }
         Ok(())
     }
 
     pub async fn reset_agent_config(&self, agent_id: &str) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
-            return self
-                .queue_control_request(
-                    "AgentResetRequested",
-                    serde_json::json!({ "agent_id": agent_id }),
-                )
-                .await;
-        }
-
-        self.registry.clear_agent_scope(agent_id).await;
-        self.cache
-            .delete_relation("agent_services", agent_id)
-            .await?;
-        if self.source_mode == SourceMode::Local {
-            let mut cfg = self.config_manager.load_or_default();
-            cfg.agents.remove(agent_id);
-            self.config_manager.save(&cfg)?;
-        }
-        Ok(())
+        self.reset_scope(&ScopeRef::Agent {
+            agent_id: agent_id.to_string(),
+        })
+        .await
     }
 
-    pub async fn reset_mcp_json_scope(&self, scope: Option<&str>) -> Result<()> {
-        let scope = scope.unwrap_or("all");
-        if scope == "all" {
-            return self.reset_config().await;
-        }
+    pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_control_request(
-                    "McpJsonResetRequested",
-                    serde_json::json!({ "scope": scope }),
-                )
+                .queue_control_request("ScopeResetRequested", serde_json::json!({ "scope": scope }))
                 .await;
         }
 
-        let mut cfg = self.config_manager.load_or_default();
-        let service_names: Vec<String> = if scope == GLOBAL_AGENT_STORE {
-            cfg.mcp_servers
-                .keys()
-                .filter(|name| {
-                    parse_agent_scoped(name)
-                        .map(|parsed| parsed.agent_id.is_none())
-                        .unwrap_or(false)
-                })
-                .cloned()
-                .collect()
-        } else {
-            cfg.mcp_servers
-                .keys()
-                .filter(|name| {
-                    parse_agent_scoped(name)
-                        .map(|parsed| parsed.agent_id.as_deref() == Some(scope))
-                        .unwrap_or(false)
-                })
-                .cloned()
-                .collect()
-        };
+        let mut config = self.config_manager.load_or_empty()?;
+        let mut removed = Vec::new();
+        for (service_name, server) in &mut config.mcp_servers {
+            let Some(extension) = server.mcpstore.as_mut() else {
+                if matches!(scope, ScopeRef::Store) {
+                    server.ensure_native_scopes();
+                    if let Some(extension) = server.mcpstore.as_mut() {
+                        extension.scopes.store = None;
+                    }
+                    removed.push(ServiceInstanceKey::new(
+                        service_name.clone(),
+                        ScopeRef::Store,
+                    ));
+                }
+                continue;
+            };
+            let existed = match scope {
+                ScopeRef::Store => extension.scopes.store.take().is_some(),
+                ScopeRef::Agent { agent_id } => extension.scopes.agents.remove(agent_id).is_some(),
+            };
+            if existed {
+                removed.push(ServiceInstanceKey::new(service_name.clone(), scope.clone()));
+            }
+        }
+        self.config_manager.save(&config)?;
 
-        for service_name in service_names {
-            self.pool.remove(&service_name).await.ok();
-            self.registry.unregister(&service_name).await;
-            self.cache_service_removed(&service_name).await?;
-            cfg.mcp_servers.remove(&service_name);
+        for key in removed {
+            let instance_id = key.instance_id();
+            self.pool.remove(instance_id).await.ok();
+            self.applied_openapi_configs
+                .write()
+                .await
+                .remove(&instance_id);
+            self.registry.unregister_instance(instance_id).await;
+            self.cache_instance_removed(instance_id).await?;
         }
-        if scope != GLOBAL_AGENT_STORE {
-            self.registry.clear_agent_scope(scope).await;
-            self.cache.delete_relation("agent_services", scope).await?;
-            cfg.agents.remove(scope);
-        } else {
-            let remaining_services = cfg
-                .mcp_servers
-                .keys()
-                .cloned()
-                .collect::<std::collections::HashSet<_>>();
-            cfg.agents.retain(|_, services| {
-                services.retain(|service_name| remaining_services.contains(service_name));
-                !services.is_empty()
-            });
-        }
-        self.config_manager.save(&cfg)?;
         Ok(())
     }
 
@@ -201,47 +156,42 @@ impl MCPStore {
             return self.load_from_db().await;
         }
 
-        let cfg = self.config_manager.load_or_default();
-        let services = cfg.mcp_servers;
-        for (name, server_config) in &services {
-            if self.registry.find_service(&name).await.is_none() {
-                self.register_configured_service(&name, server_config.clone())
-                    .await?;
-            }
+        let config = self.config_manager.load_or_empty()?;
+        self.pool.clear().await;
+        self.applied_openapi_configs.write().await.clear();
+        self.registry.clear().await;
+
+        for (service_name, server) in &config.mcp_servers {
+            self.register_configured_definition(service_name, server)
+                .await?;
         }
-        for (name, server_config) in &services {
-            let lifecycle =
-                server_config.resolved_lifecycle(&self.runtime_config.service_lifecycle_defaults);
+
+        for instance in self.registry.list_instances().await {
+            let status = self
+                .rebuild_observed_status_for_startup(instance.instance_id)
+                .await?;
+            let lifecycle = self
+                .resolved_instance_lifecycle(instance.instance_id)
+                .await?;
             if lifecycle.startup_policy != StartupPolicy::OnStoreStart {
                 continue;
             }
-            let manually_stopped = self
-                .cached_service_status(name)
-                .await?
-                .map(|status| status.lifecycle_state.manual_stop_persistent)
-                .unwrap_or(false);
+            let manually_stopped = status.lifecycle_state.manual_stop_persistent;
             if lifecycle.restart_policy.is_unless_stopped() && manually_stopped {
                 continue;
             }
-            self.clear_lifecycle_manual_stop(name).await?;
-            if let Err(error) = self.connect_service_internal(name, false).await {
+            self.clear_lifecycle_manual_stop(instance.instance_id)
+                .await?;
+            if let Err(error) = self
+                .connect_service_internal(instance.instance_id, false)
+                .await
+            {
                 tracing::warn!(
-                    "[STORE] on-store-start service connection failed: {} ({})",
-                    name,
+                    "[STORE] on-store-start instance connection failed: {} ({})",
+                    instance.instance_id,
                     error
                 );
             }
-        }
-        let cfg = self.config_manager.load_or_default();
-        for (agent_id, services) in cfg.agents {
-            for service_name in services {
-                if self.registry.find_service(&service_name).await.is_some() {
-                    self.registry
-                        .add_to_agent_scope(&agent_id, &service_name)
-                        .await;
-                }
-            }
-            self.cache_agent_scope(&agent_id).await?;
         }
         Ok(())
     }
@@ -250,87 +200,193 @@ impl MCPStore {
         self.load_from_config().await
     }
 
-    pub async fn get_service_config(&self, name: &str) -> Result<Option<serde_json::Value>> {
+    pub async fn get_definition_config(&self, service_name: &str) -> Result<Option<Value>> {
         self.refresh_from_db_if_needed().await?;
-        if let Some(entry) = self.registry.find_service(name).await {
-            return Ok(Some(entry.config));
-        }
-        let Some(value) = self.cache.get_entity("services", name).await? else {
+        let Some(definition) = self.registry.find_definition(service_name).await else {
             return Ok(None);
         };
-        Ok(value.get("config").cloned())
+        Ok(Some(
+            serde_json::to_value(Self::server_config_from_definition(&definition)?)
+                .map_err(|error| StoreError::Other(error.to_string()))?,
+        ))
     }
 
-    pub(crate) async fn resolved_service_lifecycle(
+    pub async fn get_effective_config(
         &self,
-        name: &str,
-    ) -> Result<crate::config::ResolvedServiceLifecycle> {
-        let entry = self
+        service_name: &str,
+        scope: &ScopeRef,
+    ) -> Result<Option<Value>> {
+        self.refresh_from_db_if_needed().await?;
+        Ok(self
             .registry
-            .find_service(name)
+            .find_instance_by_key(service_name, scope)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(name.to_string()))?;
-        let config: ServerConfig = serde_json::from_value(entry.config).map_err(|error| {
-            StoreError::Other(format!(
-                "Service config deserialization failed during lifecycle resolution: {error}"
-            ))
-        })?;
-        Ok(config.resolved_lifecycle(&self.runtime_config.service_lifecycle_defaults))
+            .map(|instance| Value::Object(instance.effective_config)))
     }
 
-    pub(crate) async fn ensure_service_auto_start_allowed(&self, name: &str) -> Result<()> {
-        let Some(entry) = self.registry.find_service(name).await else {
-            return Err(StoreError::ServiceNotFound(name.to_string()));
-        };
-        if entry.status == ConnectionStatus::Connected {
+    pub(crate) async fn resolved_instance_lifecycle(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<crate::config::ResolvedServiceLifecycle> {
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        let definition = self
+            .registry
+            .find_definition(&instance.service_name)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance.service_name.clone()))?;
+        let config = Self::server_config_from_definition(&definition)?;
+        Ok(config.resolved_lifecycle_for_scope(
+            &instance.scope,
+            &self.runtime_config.service_lifecycle_defaults,
+        ))
+    }
+
+    pub(crate) async fn ensure_service_auto_start_allowed(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<()> {
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        if instance.status == ConnectionStatus::Connected {
             return Ok(());
         }
-        let lifecycle = self.resolved_service_lifecycle(name).await?;
+        let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
         if lifecycle.startup_policy == StartupPolicy::Manual {
             return Err(StoreError::Other(format!(
-                "Service {name} uses startup_policy=manual; start it explicitly before use"
+                "Service instance {instance_id} uses startup_policy=manual; start it explicitly before use"
             )));
         }
         Ok(())
     }
 
-    async fn register_configured_service(&self, name: &str, config: ServerConfig) -> Result<()> {
-        let parsed = parse_agent_scoped(name)?;
-        let agent_id = parsed
-            .agent_id
-            .unwrap_or_else(|| GLOBAL_AGENT_STORE.to_string());
-        let original_name = parsed.local_name;
-        let transport = config.infer_transport().to_string();
-        let entry = ServiceEntry {
-            name: name.to_string(),
-            original_name: original_name.clone(),
-            agent_id: agent_id.clone(),
-            transport,
-            url: config.url.clone(),
-            command: config.command.clone(),
-            status: ConnectionStatus::Disconnected,
-            tools: Vec::new(),
-            config: serde_json::to_value(&config).unwrap_or_default(),
-            added_time: chrono::Utc::now().timestamp(),
+    pub(crate) async fn register_configured_definition(
+        &self,
+        service_name: &str,
+        config: &ServerConfig,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        let scopes = config.scopes();
+        let extension = config.mcpstore.as_ref();
+        let existing_instances = self
+            .registry
+            .list_instances()
+            .await
+            .into_iter()
+            .filter(|instance| instance.service_name == service_name)
+            .map(|instance| (instance.instance_id, instance))
+            .collect::<std::collections::HashMap<_, _>>();
+        let added_time = self
+            .registry
+            .find_definition(service_name)
+            .await
+            .map(|definition| definition.added_time)
+            .unwrap_or(now);
+        let definition = ServiceDefinition {
+            service_name: service_name.to_string(),
+            base_config: config.base_config(),
+            scopes: scopes.clone(),
+            lifecycle: extension.and_then(|value| value.lifecycle.clone()),
+            base_revision: config.definition_revision(),
+            metadata: extension
+                .map(|value| value.extra.clone())
+                .unwrap_or_default(),
+            added_time,
         };
-        self.registry.register(entry).await;
-        self.pool.add(name.to_string(), config.clone()).await;
-        if self.cache.get_entity("services", name).await?.is_none() {
-            self.cache_service_added(
-                name,
-                &original_name,
-                &agent_id,
-                &config,
-                chrono::Utc::now().timestamp(),
-            )
-            .await?;
-        }
-        if agent_id != GLOBAL_AGENT_STORE {
-            self.registry.add_to_agent_scope(&agent_id, name).await;
-            if self.source_mode == SourceMode::Local {
-                self.cache_agent_scope(&agent_id).await?;
+        self.registry.register_definition(definition).await;
+
+        let mut declared_instance_ids = std::collections::HashSet::new();
+        for scope in scopes.scopes() {
+            let scope_revision = config.scope_revision(&scope).unwrap_or(1);
+            let effective_config = config.effective_config(&scope).map_err(StoreError::Other)?;
+            let transport = effective_config
+                .get("transport")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    if effective_config.contains_key("url") {
+                        "streamable-http".to_string()
+                    } else if effective_config.contains_key("command") {
+                        "stdio".to_string()
+                    } else {
+                        "unknown".to_string()
+                    }
+                });
+            let url = effective_config
+                .get("url")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let command = effective_config
+                .get("command")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let instance_id =
+                ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
+            declared_instance_ids.insert(instance_id);
+            let mut instance = ServiceInstance {
+                instance_id,
+                service_name: service_name.to_string(),
+                scope: scope.clone(),
+                transport,
+                url,
+                command,
+                status: ConnectionStatus::Disconnected,
+                tools: Vec::new(),
+                effective_config,
+                config_revision: ConfigRevision {
+                    base_revision: config.definition_revision(),
+                    scope_revision,
+                },
+                applied_config_revision: None,
+                added_time: now,
+            };
+            if let Some(existing) = existing_instances.get(&instance_id) {
+                instance.status = existing.status;
+                instance.tools = existing.tools.clone();
+                instance.applied_config_revision = existing.applied_config_revision;
+                instance.added_time = existing.added_time;
             }
+            self.registry.register_instance(instance).await;
+            self.cache_instance_added(instance_id).await?;
+        }
+
+        for instance_id in existing_instances.keys().copied() {
+            if declared_instance_ids.contains(&instance_id) {
+                continue;
+            }
+            self.pool.remove(instance_id).await.ok();
+            self.applied_openapi_configs
+                .write()
+                .await
+                .remove(&instance_id);
+            self.registry.unregister_instance(instance_id).await;
+            self.cache_instance_removed(instance_id).await?;
         }
         Ok(())
+    }
+
+    fn server_config_from_definition(definition: &ServiceDefinition) -> Result<ServerConfig> {
+        let mut config: ServerConfig = serde_json::from_value(Value::Object(
+            definition.base_config.clone(),
+        ))
+        .map_err(|error| {
+            StoreError::Other(format!(
+                "Service definition '{}' cannot be decoded: {error}",
+                definition.service_name
+            ))
+        })?;
+        config.mcpstore = Some(McpStoreExtension {
+            scopes: definition.scopes.clone(),
+            lifecycle: definition.lifecycle.clone(),
+            revision: definition.base_revision,
+            extra: definition.metadata.clone(),
+        });
+        Ok(config)
     }
 }

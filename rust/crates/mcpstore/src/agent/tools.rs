@@ -1,159 +1,85 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn list_tools_scoped(
-        &self,
-        agent_id: Option<&str>,
-        service_name: Option<&str>,
-    ) -> Result<Vec<serde_json::Value>> {
-        self.refresh_from_db_if_needed().await?;
-        match (agent_id, service_name) {
-            (None, Some(service_name)) => {
-                let tools = self.list_tools(service_name).await?;
-                let mut payload = Vec::with_capacity(tools.len());
-                for tool in tools {
-                    let original_name = tool.name.clone();
-                    let transformed = self
-                        .apply_tool_transform(
-                            service_name,
-                            &original_name,
-                            tool.name,
-                            tool.description,
-                            tool.input_schema,
-                        )
-                        .await?;
-                    payload.push(Self::tool_payload_value(
-                        transformed.display_name,
-                        original_name,
-                        service_name.to_string(),
-                        service_name.to_string(),
-                        tool.title,
-                        transformed.description,
-                        transformed.input_schema,
-                        tool.output_schema,
-                        tool.annotations,
-                        tool.meta,
-                    )?);
-                }
-                Ok(payload)
-            }
-            (None, None) => self.collect_store_tools_scoped().await,
-            (Some(agent_id), Some(service_name)) => {
-                let global_service_name = self
-                    .resolve_service_name_for_agent(agent_id, service_name)
-                    .await?;
-                let service = self
-                    .find_service(&global_service_name)
-                    .await
-                    .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
-                let tools = self.list_tools(&global_service_name).await?;
-                let mut payload = Vec::with_capacity(tools.len());
-                for tool in tools {
-                    let original_name = tool.name.clone();
-                    let transformed = self
-                        .apply_tool_transform(
-                            &global_service_name,
-                            &original_name,
-                            tool.name,
-                            tool.description,
-                            tool.input_schema,
-                        )
-                        .await?;
-                    payload.push(Self::tool_payload_value(
-                        transformed.display_name,
-                        original_name,
-                        service.original_name.clone(),
-                        global_service_name.clone(),
-                        tool.title,
-                        transformed.description,
-                        transformed.input_schema,
-                        tool.output_schema,
-                        tool.annotations,
-                        tool.meta,
-                    )?);
-                }
-                Ok(payload)
-            }
-            (Some(agent_id), None) => self.collect_agent_tools_scoped(agent_id).await,
-        }
+    pub async fn list_tools_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
+        self.collect_scope_tools_scoped(scope).await
     }
 
-    pub async fn list_tool_entries_scoped(
+    pub async fn list_tools_for_instance(
         &self,
-        agent_id: Option<&str>,
-        service_name: Option<&str>,
-    ) -> Result<Vec<ScopedToolEntry>> {
-        self.refresh_from_db_if_needed().await?;
-        match (agent_id, service_name) {
-            (None, Some(service_name)) => {
-                let mut tools = self.list_tools(service_name).await?;
-                tools.sort_by(|left, right| left.name.cmp(&right.name));
-                let mut entries = Vec::with_capacity(tools.len());
-                for tool in tools {
-                    let original_name = tool.name.clone();
-                    let transformed = self
-                        .apply_tool_transform(
-                            service_name,
-                            &original_name,
-                            tool.name,
-                            tool.description,
-                            tool.input_schema,
-                        )
-                        .await?;
-                    entries.push(Self::scoped_tool_entry(
-                        transformed.display_name,
-                        original_name,
-                        service_name.to_string(),
-                        service_name.to_string(),
-                        tool.title,
-                        transformed.description,
-                        transformed.input_schema,
-                        tool.output_schema,
-                        tool.annotations,
-                        tool.meta,
-                    )?);
-                }
-                Ok(entries)
-            }
-            (None, None) => self.collect_store_tool_descriptions_scoped().await,
-            (Some(agent_id), Some(service_name)) => {
-                let global_service_name = self
-                    .resolve_service_name_for_agent(agent_id, service_name)
-                    .await?;
-                let service = self
-                    .find_service(&global_service_name)
-                    .await
-                    .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
-                let mut tools = self.list_tools(&global_service_name).await?;
-                tools.sort_by(|left, right| left.name.cmp(&right.name));
-                let mut entries = Vec::with_capacity(tools.len());
-                for tool in tools {
-                    let original_name = tool.name.clone();
-                    let transformed = self
-                        .apply_tool_transform(
-                            &global_service_name,
-                            &original_name,
-                            tool.name,
-                            tool.description,
-                            tool.input_schema,
-                        )
-                        .await?;
-                    entries.push(Self::scoped_tool_entry(
-                        transformed.display_name,
-                        original_name,
-                        service.original_name.clone(),
-                        global_service_name.clone(),
-                        tool.title,
-                        transformed.description,
-                        transformed.input_schema,
-                        tool.output_schema,
-                        tool.annotations,
-                        tool.meta,
-                    )?);
-                }
-                Ok(entries)
-            }
-            (Some(agent_id), None) => self.collect_agent_tool_descriptions_scoped(agent_id).await,
+        instance_id: InstanceId,
+    ) -> Result<Vec<serde_json::Value>> {
+        let instance = self.require_instance(instance_id).await?;
+        let mut tools = self.list_tools(instance_id).await?;
+        tools.sort_by(|left, right| left.name.cmp(&right.name));
+
+        let mut payload = Vec::with_capacity(tools.len());
+        for tool in tools {
+            let tool_name = tool.name.clone();
+            let transformed = self
+                .apply_tool_transform(
+                    instance_id,
+                    &tool_name,
+                    tool.name,
+                    tool.description,
+                    tool.input_schema,
+                )
+                .await?;
+            payload.push(serde_json::json!({
+                "name": transformed.display_name,
+                "tool_name": tool_name,
+                "title": tool.title,
+                "description": transformed.description,
+                "input_schema": transformed.input_schema,
+                "output_schema": tool.output_schema,
+                "annotations": tool.annotations,
+                "_meta": tool.meta,
+                "instance_id": instance_id,
+                "service_name": instance.service_name,
+                "scope": instance.scope,
+            }));
         }
+        Ok(payload)
+    }
+
+    pub async fn list_tool_entries_scoped(&self, scope: &ScopeRef) -> Result<Vec<ScopedToolEntry>> {
+        self.collect_scope_tool_entries_scoped(scope).await
+    }
+
+    pub async fn list_tool_entries_for_instance(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Vec<ScopedToolEntry>> {
+        let instance = self.require_instance(instance_id).await?;
+        let mut tools = self.list_tools(instance_id).await?;
+        tools.sort_by(|left, right| left.name.cmp(&right.name));
+
+        let mut entries = Vec::with_capacity(tools.len());
+        for tool in tools {
+            let tool_name = tool.name.clone();
+            let transformed = self
+                .apply_tool_transform(
+                    instance_id,
+                    &tool_name,
+                    tool.name,
+                    tool.description,
+                    tool.input_schema,
+                )
+                .await?;
+            entries.push(ScopedToolEntry {
+                name: transformed.display_name,
+                tool_name,
+                title: tool.title,
+                description: transformed.description,
+                input_schema: transformed.input_schema,
+                output_schema: tool.output_schema,
+                annotations: tool.annotations,
+                meta: tool.meta,
+                instance_id,
+                service_name: instance.service_name.clone(),
+                scope: instance.scope.clone(),
+            });
+        }
+        Ok(entries)
     }
 }

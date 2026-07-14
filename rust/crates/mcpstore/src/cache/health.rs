@@ -4,6 +4,7 @@ impl MCPStore {
     pub async fn cache_health_check(&self) -> Result<serde_json::Value> {
         let report = self.cache_health_report().await?;
         Ok(serde_json::json!({
+            "schema_version": crate::cache::layer::CACHE_SCHEMA_VERSION,
             "namespace": report.namespace,
             "backend": report.backend,
             "entities": report.entities,

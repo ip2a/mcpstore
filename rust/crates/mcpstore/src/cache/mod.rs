@@ -10,7 +10,6 @@ pub(crate) mod layer;
 mod layer_tests;
 pub(crate) mod metrics;
 pub mod models;
-pub mod naming;
 pub(crate) mod openkeyv_store;
 pub(crate) mod redis;
 pub(crate) mod relation;

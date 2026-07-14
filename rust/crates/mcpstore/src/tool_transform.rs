@@ -109,7 +109,7 @@ pub(crate) struct AppliedToolTransform {
 impl MCPStore {
     pub async fn create_llm_friendly_tool_transform(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
         friendly_name: Option<&str>,
         description: Option<&str>,
@@ -137,13 +137,12 @@ impl MCPStore {
         if add_safety_policy {
             patch = patch.with_default_safety_policy().with_tag("safe");
         }
-        self.set_tool_transform(service_name, tool_name, patch)
-            .await
+        self.set_tool_transform(instance_id, tool_name, patch).await
     }
 
     pub async fn create_parameter_renamed_tool_transform(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
         new_tool_name: Option<&str>,
         parameter_mapping: &[(&str, &str)],
@@ -158,13 +157,12 @@ impl MCPStore {
         for (original_param, new_param) in parameter_mapping {
             patch = patch.rename_argument(*original_param, *new_param);
         }
-        self.set_tool_transform(service_name, tool_name, patch)
-            .await
+        self.set_tool_transform(instance_id, tool_name, patch).await
     }
 
     pub async fn create_validated_tool_transform(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
         new_tool_name: Option<&str>,
         validation_rules: &[(&str, serde_json::Value)],
@@ -180,30 +178,30 @@ impl MCPStore {
         for (param_name, validation_schema) in validation_rules {
             patch = patch.validate_argument(*param_name, validation_schema.clone());
         }
-        self.set_tool_transform(service_name, tool_name, patch)
-            .await
+        self.set_tool_transform(instance_id, tool_name, patch).await
     }
 
     pub async fn set_tool_transform(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
         patch: ToolTransformPatch,
     ) -> Result<ToolTransformRule> {
         self.refresh_from_db_if_needed().await?;
-        let (service_global_name, original_tool_name) = self
-            .resolve_tool_transform_target(service_name, tool_name)
+        let (instance, original_tool_name) = self
+            .resolve_tool_transform_target(instance_id, tool_name)
             .await?;
         Self::validate_tool_transform_patch(&patch)?;
-        let tool_global_name =
-            generate_tool_global_name(&service_global_name, &original_tool_name)?;
-        let loaded = self.load_tool_transform(&tool_global_name).await?;
+        let loaded = self
+            .load_tool_transform(instance_id, &original_tool_name)
+            .await?;
         let expected_version = loaded.as_ref().map(|rule| rule.version);
         let now = Self::now_timestamp();
         let mut rule = loaded.unwrap_or_else(|| ToolTransformRule {
-            tool_global_name: tool_global_name.clone(),
-            service_global_name: service_global_name.clone(),
-            original_tool_name: original_tool_name.clone(),
+            instance_id,
+            service_name: instance.service_name.clone(),
+            scope: instance.scope.clone(),
+            tool_name: original_tool_name.clone(),
             display_name: None,
             description: None,
             arguments: Vec::new(),
@@ -214,8 +212,9 @@ impl MCPStore {
             version: 0,
         });
 
-        rule.service_global_name = service_global_name;
-        rule.original_tool_name = original_tool_name;
+        rule.service_name = instance.service_name;
+        rule.scope = instance.scope;
+        rule.tool_name = original_tool_name;
         rule.display_name = patch.display_name.filter(|value| !value.trim().is_empty());
         rule.description = patch.description;
         rule.arguments = patch.arguments;
@@ -230,27 +229,31 @@ impl MCPStore {
 
     pub async fn get_tool_transform(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<Option<ToolTransformRule>> {
         self.refresh_from_db_if_needed().await?;
-        let (service_global_name, original_tool_name) = self
-            .resolve_tool_transform_target(service_name, tool_name)
+        let (_, original_tool_name) = self
+            .resolve_tool_transform_target(instance_id, tool_name)
             .await?;
-        let tool_global_name =
-            generate_tool_global_name(&service_global_name, &original_tool_name)?;
-        self.load_tool_transform(&tool_global_name).await
+        self.load_tool_transform(instance_id, &original_tool_name)
+            .await
     }
 
-    pub async fn delete_tool_transform(&self, service_name: &str, tool_name: &str) -> Result<()> {
+    pub async fn delete_tool_transform(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+    ) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
-        let (service_global_name, original_tool_name) = self
-            .resolve_tool_transform_target(service_name, tool_name)
+        let (_, original_tool_name) = self
+            .resolve_tool_transform_target(instance_id, tool_name)
             .await?;
-        let tool_global_name =
-            generate_tool_global_name(&service_global_name, &original_tool_name)?;
         self.cache
-            .delete_state(TOOL_TRANSFORMS_STATE_TYPE, &tool_global_name)
+            .delete_state(
+                TOOL_TRANSFORMS_STATE_TYPE,
+                &Self::tool_transform_key(instance_id, &original_tool_name),
+            )
             .await?;
         Ok(())
     }
@@ -270,20 +273,23 @@ impl MCPStore {
             })?;
             rules.push(rule);
         }
-        rules.sort_by(|left, right| left.tool_global_name.cmp(&right.tool_global_name));
+        rules.sort_by(|left, right| {
+            (left.instance_id, left.tool_name.as_str())
+                .cmp(&(right.instance_id, right.tool_name.as_str()))
+        });
         Ok(rules)
     }
 
     pub(crate) async fn apply_tool_transform(
         &self,
-        service_global_name: &str,
-        original_tool_name: &str,
+        instance_id: InstanceId,
+        tool_name: &str,
         fallback_display_name: String,
         description: String,
         input_schema: serde_json::Value,
     ) -> Result<AppliedToolTransform> {
         let Some(rule) = self
-            .load_enabled_tool_transform(service_global_name, original_tool_name)
+            .load_enabled_tool_transform(instance_id, tool_name)
             .await?
         else {
             return Ok(AppliedToolTransform {
@@ -301,19 +307,15 @@ impl MCPStore {
 
     pub(crate) async fn resolve_transformed_tool_call(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
-    ) -> Result<(String, String, serde_json::Value)> {
-        let service = self
-            .find_service(service_name)
-            .await
-            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+    ) -> Result<(InstanceId, String, serde_json::Value)> {
         let original_tool_name = self
-            .resolve_original_tool_name_for_service(&service.name, tool_name)
+            .resolve_original_tool_name_for_instance(instance_id, tool_name)
             .await?;
         let args = match self
-            .load_enabled_tool_transform(&service.name, &original_tool_name)
+            .load_enabled_tool_transform(instance_id, &original_tool_name)
             .await?
         {
             Some(rule) => {
@@ -324,52 +326,33 @@ impl MCPStore {
             }
             None => args,
         };
-        Ok((service.name, original_tool_name, args))
-    }
-
-    pub(crate) async fn transformed_available_tool(
-        &self,
-        service_global_name: &str,
-        original_tool_name: &str,
-        fallback_display_name: String,
-    ) -> Result<String> {
-        Ok(self
-            .load_enabled_tool_transform(service_global_name, original_tool_name)
-            .await?
-            .and_then(|rule| rule.display_name)
-            .unwrap_or(fallback_display_name))
+        Ok((instance_id, original_tool_name, args))
     }
 
     async fn resolve_tool_transform_target(
         &self,
-        service_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
-    ) -> Result<(String, String)> {
-        let service = self
-            .find_service(service_name)
-            .await
-            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+    ) -> Result<(ServiceInstance, String)> {
+        let instance = self.require_instance(instance_id).await?;
         let original_tool_name = self
-            .resolve_original_tool_name_for_service(&service.name, tool_name)
+            .resolve_original_tool_name_for_instance(instance_id, tool_name)
             .await?;
-        Ok((service.name, original_tool_name))
+        Ok((instance, original_tool_name))
     }
 
-    async fn resolve_original_tool_name_for_service(
+    async fn resolve_original_tool_name_for_instance(
         &self,
-        service_global_name: &str,
+        instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<String> {
-        let service = self
-            .find_service(service_global_name)
-            .await
-            .ok_or_else(|| StoreError::ServiceNotFound(service_global_name.to_string()))?;
-        if service.tools.iter().any(|tool| tool.name == tool_name) {
+        let instance = self.require_instance(instance_id).await?;
+        if instance.tools.iter().any(|tool| tool.name == tool_name) {
             return Ok(tool_name.to_string());
         }
-        for tool in &service.tools {
+        for tool in &instance.tools {
             if let Some(rule) = self
-                .load_enabled_tool_transform(&service.name, &tool.name)
+                .load_enabled_tool_transform(instance_id, &tool.name)
                 .await?
             {
                 if rule.display_name.as_deref() == Some(tool_name) {
@@ -378,28 +361,31 @@ impl MCPStore {
             }
         }
         Err(StoreError::Other(format!(
-            "Tool '{tool_name}' not found in service '{service_global_name}'"
+            "Tool '{tool_name}' not found in instance '{instance_id}'"
         )))
     }
 
     async fn load_enabled_tool_transform(
         &self,
-        service_global_name: &str,
-        original_tool_name: &str,
+        instance_id: InstanceId,
+        tool_name: &str,
     ) -> Result<Option<ToolTransformRule>> {
-        let tool_global_name = generate_tool_global_name(service_global_name, original_tool_name)?;
         Ok(self
-            .load_tool_transform(&tool_global_name)
+            .load_tool_transform(instance_id, tool_name)
             .await?
             .filter(|rule| rule.enabled))
     }
 
     async fn load_tool_transform(
         &self,
-        tool_global_name: &str,
+        instance_id: InstanceId,
+        tool_name: &str,
     ) -> Result<Option<ToolTransformRule>> {
         self.cache
-            .get_state(TOOL_TRANSFORMS_STATE_TYPE, tool_global_name)
+            .get_state(
+                TOOL_TRANSFORMS_STATE_TYPE,
+                &Self::tool_transform_key(instance_id, tool_name),
+            )
             .await?
             .map(|value| {
                 serde_json::from_value(value).map_err(|err| {
@@ -417,12 +403,16 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 TOOL_TRANSFORMS_STATE_TYPE,
-                &rule.tool_global_name,
+                &Self::tool_transform_key(rule.instance_id, &rule.tool_name),
                 expected_version,
                 serde_json::to_value(rule).map_err(|err| StoreError::Other(err.to_string()))?,
             )
             .await?;
         Ok(())
+    }
+
+    fn tool_transform_key(instance_id: InstanceId, tool_name: &str) -> String {
+        format!("{instance_id}:{tool_name}")
     }
 
     fn validate_tool_transform_patch(patch: &ToolTransformPatch) -> Result<()> {

@@ -1,11 +1,20 @@
 use super::layer::*;
 use crate::cache::memory_cache_store;
 use crate::cache::models::{
-    ContextToolVisibilityState, OpenApiImportContextState, SessionContextState, SessionEntity,
-    SessionEvent, SessionEventType, SessionScope, SessionServiceItem, SessionServiceRelation,
-    SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
+    ContextToolVisibilityState, HealthStatus, InstanceStatus, OpenApiImportContextState,
+    ServiceLifecycleState, SessionContextState, SessionEntity, SessionEvent, SessionEventType,
+    SessionScope, SessionServiceItem, SessionServiceRelation, SessionStatus, SessionStatusState,
+    SessionToolItem, SessionToolVisibility, ToolAvailability, ToolPreferenceState, ToolStatusItem,
     ToolVisibilityMode,
 };
+use crate::config::ScopeDeclarations;
+use crate::identity::{ScopeRef, ServiceInstanceKey};
+use crate::registry::{ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance};
+use crate::store::{CacheStorage, MCPStore, StoreOptions};
+
+fn store_instance_id() -> crate::identity::InstanceId {
+    ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id()
+}
 
 #[tokio::test]
 async fn test_openkeyv_memory_store_basic() {
@@ -23,11 +32,15 @@ async fn test_cache_layer_manager_entity() {
     let store = memory_cache_store();
     let mgr = CacheLayerManager::new(store, "test");
 
-    mgr.put_entity("services", "svc1", serde_json::json!({"url": "http://x"}))
-        .await
-        .unwrap();
-    let v = mgr.get_entity("services", "svc1").await.unwrap();
-    assert_eq!(v, Some(serde_json::json!({"url": "http://x"})));
+    mgr.put_entity(
+        "service_definitions",
+        "svc1",
+        serde_json::json!({"service_name": "svc1"}),
+    )
+    .await
+    .unwrap();
+    let v = mgr.get_entity("service_definitions", "svc1").await.unwrap();
+    assert_eq!(v, Some(serde_json::json!({"service_name": "svc1"})));
 }
 
 #[tokio::test]
@@ -81,24 +94,167 @@ async fn test_cache_layer_rejects_removed_client_configs_entity() {
 }
 
 #[tokio::test]
+async fn test_cache_layer_clears_unversioned_schema() {
+    let store = memory_cache_store();
+    store
+        .put(
+            "svc",
+            serde_json::json!({"service_global_name": "svc"}),
+            "test:entity:services",
+        )
+        .await
+        .unwrap();
+    let mgr = CacheLayerManager::new(store.clone(), "test");
+
+    assert!(mgr
+        .get_entity("service_definitions", "svc")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get("svc", "test:entity:services")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store
+            .get("current", "test:state:cache_schema")
+            .await
+            .unwrap(),
+        Some(serde_json::json!({"version": CACHE_SCHEMA_VERSION}))
+    );
+}
+
+#[tokio::test]
+async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        backend: Some(CacheStorage::Memory),
+        namespace: Some("cache-instance-status-upsert".to_string()),
+        ..StoreOptions::default()
+    })
+    .unwrap();
+    let instance_id = store_instance_id();
+    store
+        .registry
+        .register_definition(ServiceDefinition {
+            service_name: "svc".to_string(),
+            base_config: serde_json::Map::new(),
+            scopes: ScopeDeclarations::store_only(),
+            lifecycle: None,
+            metadata: serde_json::Map::new(),
+            base_revision: 1,
+            added_time: 100,
+        })
+        .await;
+    store
+        .registry
+        .register_instance(ServiceInstance {
+            instance_id,
+            service_name: "svc".to_string(),
+            scope: ScopeRef::Store,
+            transport: "stdio".to_string(),
+            url: None,
+            command: Some("first-command".to_string()),
+            status: ConnectionStatus::Connected,
+            tools: Vec::new(),
+            effective_config: serde_json::Map::new(),
+            config_revision: ConfigRevision {
+                base_revision: 1,
+                scope_revision: 1,
+            },
+            applied_config_revision: Some(ConfigRevision {
+                base_revision: 1,
+                scope_revision: 1,
+            }),
+            added_time: 100,
+        })
+        .await;
+    store.cache_instance_added(instance_id).await.unwrap();
+
+    let observed = InstanceStatus {
+        instance_id,
+        service_name: "svc".to_string(),
+        scope: ScopeRef::Store,
+        health_status: HealthStatus::Degraded,
+        last_health_check: 200,
+        connection_attempts: 3,
+        max_connection_attempts: 9,
+        current_error: Some("temporary failure".to_string()),
+        tools: vec![ToolStatusItem {
+            tool_name: "echo".to_string(),
+            status: ToolAvailability::Unavailable,
+        }],
+        window_error_rate: Some(0.25),
+        latency_p95: Some(120.0),
+        latency_p99: Some(180.0),
+        sample_size: Some(20),
+        next_retry_time: Some(300.0),
+        hard_deadline: Some(400.0),
+        lease_deadline: Some(500.0),
+        lifecycle_state: ServiceLifecycleState {
+            restart_attempts: 2,
+            manually_stopped: true,
+            manually_stopped_at: Some(190),
+            manual_stop_persistent: true,
+        },
+    };
+    store.put_instance_status(&observed).await.unwrap();
+
+    let mut updated = store.registry.find_instance(instance_id).await.unwrap();
+    updated.command = Some("updated-command".to_string());
+    updated.config_revision = ConfigRevision {
+        base_revision: 2,
+        scope_revision: 1,
+    };
+    store.registry.register_instance(updated).await;
+    store.cache_instance_added(instance_id).await.unwrap();
+
+    assert_eq!(
+        store.cached_instance_status(instance_id).await.unwrap(),
+        Some(observed)
+    );
+}
+
+#[test]
+fn test_cache_snapshot_rejects_missing_schema_version() {
+    let result = serde_json::from_value::<CacheSnapshot>(serde_json::json!({
+        "entities": {},
+        "relations": {},
+        "states": {},
+        "events": {}
+    }));
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 async fn test_replace_store_with_snapshot_migrates_all_layers() {
     let first = memory_cache_store();
     let second = memory_cache_store();
     let mgr = CacheLayerManager::new(first, "test");
 
-    mgr.put_entity("services", "svc", serde_json::json!({"name": "svc"}))
-        .await
-        .unwrap();
-    mgr.put_relation(
-        "agent_services",
-        "agent",
-        serde_json::json!({"services": []}),
+    let instance_id = store_instance_id().to_string();
+    mgr.put_entity(
+        "service_instances",
+        &instance_id,
+        serde_json::json!({"instance_id": instance_id}),
     )
     .await
     .unwrap();
-    mgr.put_state("service_status", "svc", serde_json::json!({"status": "ok"}))
-        .await
-        .unwrap();
+    mgr.put_relation(
+        "agent_instances",
+        "agent",
+        serde_json::json!({"instances": []}),
+    )
+    .await
+    .unwrap();
+    mgr.put_state(
+        "instance_status",
+        &instance_id,
+        serde_json::json!({"instance_id": instance_id}),
+    )
+    .await
+    .unwrap();
     mgr.put_event(
         "service",
         "svc:added",
@@ -111,19 +267,24 @@ async fn test_replace_store_with_snapshot_migrates_all_layers() {
         .replace_store_with_snapshot_and_namespace(second, "test")
         .await
         .unwrap();
-    assert_eq!(snapshot.entities["services"].len(), 1);
-    assert_eq!(snapshot.relations["agent_services"].len(), 1);
-    assert_eq!(snapshot.states["service_status"].len(), 1);
+    assert_eq!(snapshot.schema_version, CACHE_SCHEMA_VERSION);
+    assert_eq!(snapshot.entities["service_instances"].len(), 1);
+    assert_eq!(snapshot.relations["agent_instances"].len(), 1);
+    assert_eq!(snapshot.states["instance_status"].len(), 1);
     assert_eq!(snapshot.events["service"].len(), 1);
 
-    assert!(mgr.get_entity("services", "svc").await.unwrap().is_some());
     assert!(mgr
-        .get_relation("agent_services", "agent")
+        .get_entity("service_instances", &instance_id)
         .await
         .unwrap()
         .is_some());
     assert!(mgr
-        .get_state("service_status", "svc")
+        .get_relation("agent_instances", "agent")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(mgr
+        .get_state("instance_status", &instance_id)
         .await
         .unwrap()
         .is_some());
@@ -140,6 +301,7 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     let second = memory_cache_store();
     let mgr = CacheLayerManager::new(first, "test");
     let session_key = "store:global:s1";
+    let instance_id = store_instance_id();
 
     mgr.put_entity(
         "sessions",
@@ -167,9 +329,9 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
         serde_json::to_value(SessionServiceRelation {
             session_key: session_key.to_string(),
             services: vec![SessionServiceItem {
-                service_global_name: "store.svc".to_string(),
-                service_original_name: "svc".to_string(),
-                source_agent: "global".to_string(),
+                instance_id,
+                service_name: "svc".to_string(),
+                scope: ScopeRef::Store,
                 bound_at: 101,
             }],
             updated_at: 101,
@@ -186,9 +348,10 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
             session_key: session_key.to_string(),
             mode: ToolVisibilityMode::Allowlist,
             tools: vec![SessionToolItem {
-                service_global_name: "store.svc".to_string(),
-                tool_global_name: "store.svc.echo".to_string(),
-                tool_original_name: "echo".to_string(),
+                instance_id,
+                service_name: "svc".to_string(),
+                scope: ScopeRef::Store,
+                tool_name: "echo".to_string(),
             }],
             updated_at: 102,
             version: 1,
@@ -227,15 +390,18 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     .unwrap();
     mgr.put_state(
         "context_tool_visibility",
-        "store:global:store.svc",
+        &format!("store:global:{instance_id}"),
         serde_json::to_value(ContextToolVisibilityState {
             context_key: "store:global".to_string(),
-            service_global_name: "store.svc".to_string(),
+            instance_id,
+            service_name: "svc".to_string(),
+            scope: ScopeRef::Store,
             mode: ToolVisibilityMode::Allowlist,
             tools: vec![SessionToolItem {
-                service_global_name: "store.svc".to_string(),
-                tool_global_name: "store.svc.echo".to_string(),
-                tool_original_name: "echo".to_string(),
+                instance_id,
+                service_name: "svc".to_string(),
+                scope: ScopeRef::Store,
+                tool_name: "echo".to_string(),
             }],
             updated_at: 103,
             version: 1,
@@ -246,12 +412,13 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     .unwrap();
     mgr.put_state(
         "tool_preferences",
-        "store:global:store.svc.echo",
+        &format!("store:global:{instance_id}:echo"),
         serde_json::to_value(ToolPreferenceState {
             context_key: "store:global".to_string(),
-            service_global_name: "store.svc".to_string(),
-            tool_global_name: "store.svc.echo".to_string(),
-            tool_original_name: "echo".to_string(),
+            instance_id,
+            service_name: "svc".to_string(),
+            scope: ScopeRef::Store,
+            tool_name: "echo".to_string(),
             preferences: serde_json::Map::from_iter([(
                 "return_direct".to_string(),
                 serde_json::json!(true),
@@ -324,12 +491,18 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
         .unwrap()
         .is_some());
     assert!(mgr
-        .get_state("context_tool_visibility", "store:global:store.svc")
+        .get_state(
+            "context_tool_visibility",
+            &format!("store:global:{instance_id}")
+        )
         .await
         .unwrap()
         .is_some());
     assert!(mgr
-        .get_state("tool_preferences", "store:global:store.svc.echo")
+        .get_state(
+            "tool_preferences",
+            &format!("store:global:{instance_id}:echo")
+        )
         .await
         .unwrap()
         .is_some());

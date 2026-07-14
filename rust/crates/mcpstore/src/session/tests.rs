@@ -24,14 +24,43 @@ fn stdio_config() -> ServerConfig {
         working_dir: None,
         description: Some("fixture".to_string()),
         mcpstore: None,
+        extra: Default::default(),
     }
 }
 
-async fn register_tool_service(store: &MCPStore, name: &str, tools: &[&str]) {
-    store.add_service(name, stdio_config()).await.unwrap();
-    let mut service = store.registry.find_service(name).await.unwrap();
-    service.status = ConnectionStatus::Connected;
-    service.tools = tools
+fn scoped_stdio_config(scope: &ScopeRef) -> ServerConfig {
+    let mut config = stdio_config();
+    let mut scopes = crate::config::ScopeDeclarations::default();
+    match scope {
+        ScopeRef::Store => scopes.store = Some(crate::config::ScopeDescriptor::default()),
+        ScopeRef::Agent { agent_id } => {
+            scopes
+                .agents
+                .insert(agent_id.clone(), crate::config::ScopeDescriptor::default());
+        }
+    }
+    config.mcpstore = Some(crate::config::McpStoreExtension {
+        scopes,
+        revision: 1,
+        ..crate::config::McpStoreExtension::default()
+    });
+    config
+}
+
+async fn register_tool_service(
+    store: &MCPStore,
+    service_name: &str,
+    scope: ScopeRef,
+    tools: &[&str],
+) -> InstanceId {
+    store
+        .add_service(service_name, scoped_stdio_config(&scope))
+        .await
+        .unwrap();
+    let instance_id = ServiceInstanceKey::new(service_name, scope).instance_id();
+    let mut instance = store.registry.find_instance(instance_id).await.unwrap();
+    instance.status = ConnectionStatus::Connected;
+    instance.tools = tools
         .iter()
         .map(|tool| crate::registry::ToolInfo {
             name: (*tool).to_string(),
@@ -43,7 +72,8 @@ async fn register_tool_service(store: &MCPStore, name: &str, tools: &[&str]) {
             meta: None,
         })
         .collect();
-    store.registry.register(service).await;
+    store.registry.register_instance(instance).await;
+    instance_id
 }
 
 #[tokio::test]
@@ -74,8 +104,8 @@ async fn create_session_defaults_to_store_scope_key() {
 async fn session_context_create_or_get_wraps_rust_agent_session_flow() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "alpha", &["echo", "search"]).await;
-    register_tool_service(&store, "beta", &["read"]).await;
+    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &["echo", "search"]).await;
+    register_tool_service(&store, "beta", ScopeRef::Store, &["read"]).await;
 
     let session = store
         .session("task-1")
@@ -90,10 +120,10 @@ async fn session_context_create_or_get_wraps_rust_agent_session_flow() {
         session.entity().await.unwrap().metadata["owner"],
         "rust-agent"
     );
-    session.bind_service("alpha").await.unwrap();
+    session.bind_service(alpha).await.unwrap();
     session
         .set_tool_visibility(vec![SessionToolSelection {
-            service_name: "alpha".to_string(),
+            instance_id: alpha,
             tool_name: "search".to_string(),
         }])
         .await
@@ -101,7 +131,9 @@ async fn session_context_create_or_get_wraps_rust_agent_session_flow() {
 
     let tools = session.list_tools().await.unwrap();
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name, "alpha_search");
+    assert_eq!(tools[0].name, "search");
+    assert_eq!(tools[0].instance_id, alpha);
+    assert_eq!(tools[0].service_name, "alpha");
 
     let same_session = store.session("task-1").create_or_get().await.unwrap();
     assert_eq!(same_session.session_key(), session.session_key());
@@ -271,19 +303,19 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
         namespace: Some(namespace),
     })
     .unwrap();
-    register_tool_service(&first, "alpha", &["echo", "search"]).await;
-    register_tool_service(&second, "alpha", &["echo", "search"]).await;
+    let alpha = register_tool_service(&first, "alpha", ScopeRef::Store, &["echo", "search"]).await;
+    register_tool_service(&second, "alpha", ScopeRef::Store, &["echo", "search"]).await;
 
     let created = first.session("shared-tools").create().await.unwrap();
     first
-        .bind_service_to_session(created.session_key(), "alpha")
+        .bind_service_to_session(created.session_key(), alpha)
         .await
         .unwrap();
     first
         .set_session_tool_visibility(
             created.session_key(),
             vec![SessionToolSelection {
-                service_name: "alpha".to_string(),
+                instance_id: alpha,
                 tool_name: "search".to_string(),
             }],
         )
@@ -294,10 +326,10 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
     assert_eq!(seen.session_key(), created.session_key());
     assert_eq!(seen.list_services().await.unwrap().len(), 1);
     assert_eq!(seen.list_session_tools().await.unwrap().len(), 1);
-    assert_eq!(seen.list_tools().await.unwrap()[0].name, "alpha_search");
+    assert_eq!(seen.list_tools().await.unwrap()[0].name, "search");
 
     second
-        .unbind_service_from_session(created.session_key(), "alpha")
+        .unbind_service_from_session(created.session_key(), alpha)
         .await
         .unwrap();
     assert!(first
@@ -897,33 +929,20 @@ async fn expired_session_rejects_extend_and_marks_status_expired() {
 async fn bind_and_unbind_service_updates_session_relation() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    store.add_service("svc", stdio_config()).await.unwrap();
-    store
-        .cache_service_connected(
-            "svc",
-            &[crate::registry::ToolInfo {
-                name: "echo".to_string(),
-                title: None,
-                description: "echo".to_string(),
-                input_schema: serde_json::json!({"type": "object"}),
-                output_schema: None,
-                annotations: None,
-                meta: None,
-            }],
-        )
-        .await
-        .unwrap();
+    let instance_id = register_tool_service(&store, "svc", ScopeRef::Store, &["echo"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
 
     let relation = store
-        .bind_service_to_session(&session.session_key, "svc")
+        .bind_service_to_session(&session.session_key, instance_id)
         .await
         .unwrap();
     assert_eq!(relation.services.len(), 1);
-    assert_eq!(relation.services[0].service_original_name, "svc");
+    assert_eq!(relation.services[0].instance_id, instance_id);
+    assert_eq!(relation.services[0].service_name, "svc");
+    assert_eq!(relation.services[0].scope, ScopeRef::Store);
 
     let services = store
         .list_session_services(&session.session_key)
@@ -932,7 +951,7 @@ async fn bind_and_unbind_service_updates_session_relation() {
     assert_eq!(services.len(), 1);
 
     let relation = store
-        .unbind_service_from_session(&session.session_key, "svc")
+        .unbind_service_from_session(&session.session_key, instance_id)
         .await
         .unwrap();
     assert!(relation.services.is_empty());
@@ -941,10 +960,88 @@ async fn bind_and_unbind_service_updates_session_relation() {
 }
 
 #[tokio::test]
+async fn session_binding_rejects_instances_outside_exact_scope() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let store_instance =
+        register_tool_service(&store, "store-svc", ScopeRef::Store, &["echo"]).await;
+    let agent_a_instance = register_tool_service(
+        &store,
+        "agent-a-svc",
+        ScopeRef::Agent {
+            agent_id: "agent-a".to_string(),
+        },
+        &["echo"],
+    )
+    .await;
+    let agent_b_instance = register_tool_service(
+        &store,
+        "agent-b-svc",
+        ScopeRef::Agent {
+            agent_id: "agent-b".to_string(),
+        },
+        &["echo"],
+    )
+    .await;
+    let store_session = store.session("store-session").create().await.unwrap();
+    let agent_session = store
+        .session("agent-session")
+        .for_agent("agent-a")
+        .create()
+        .await
+        .unwrap();
+
+    let err = store_session
+        .bind_service(agent_a_instance)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("instance does not belong to session scope"));
+
+    let err = agent_session
+        .bind_service(store_instance)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("instance does not belong to session scope"));
+
+    let err = agent_session
+        .bind_service(agent_b_instance)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("instance does not belong to session scope"));
+
+    agent_session.bind_service(agent_a_instance).await.unwrap();
+    assert_eq!(
+        agent_session.list_services().await.unwrap()[0].instance_id,
+        agent_a_instance
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn explicit_empty_session_bindings_remain_empty() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let instance_id = register_tool_service(&store, "svc", ScopeRef::Store, &["echo"]).await;
+    let session = store.session("empty-bindings").create().await.unwrap();
+
+    session.bind_service(instance_id).await.unwrap();
+    session.unbind_service(instance_id).await.unwrap();
+
+    assert!(session.list_services().await.unwrap().is_empty());
+    assert!(session.list_tools().await.unwrap().is_empty());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn set_session_tool_visibility_uses_allowlist() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "svc", &["echo"]).await;
+    let instance_id = register_tool_service(&store, "svc", ScopeRef::Store, &["echo"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
@@ -954,7 +1051,7 @@ async fn set_session_tool_visibility_uses_allowlist() {
         .set_session_tool_visibility(
             &session.session_key,
             vec![SessionToolSelection {
-                service_name: "svc".to_string(),
+                instance_id,
                 tool_name: "echo".to_string(),
             }],
         )
@@ -963,7 +1060,10 @@ async fn set_session_tool_visibility_uses_allowlist() {
 
     assert_eq!(visibility.mode, ToolVisibilityMode::Allowlist);
     assert_eq!(visibility.tools.len(), 1);
-    assert_eq!(visibility.tools[0].tool_original_name, "echo");
+    assert_eq!(visibility.tools[0].instance_id, instance_id);
+    assert_eq!(visibility.tools[0].service_name, "svc");
+    assert_eq!(visibility.tools[0].scope, ScopeRef::Store);
+    assert_eq!(visibility.tools[0].tool_name, "echo");
     let tools = store
         .list_session_tools(&session.session_key)
         .await
@@ -974,11 +1074,19 @@ async fn set_session_tool_visibility_uses_allowlist() {
 }
 
 #[tokio::test]
-async fn list_tools_in_unbound_store_session_inherits_store_services() {
+async fn list_tools_in_store_session_uses_store_instances_only() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "alpha", &["echo"]).await;
-    register_tool_service(&store, "beta", &["search"]).await;
+    register_tool_service(&store, "alpha", ScopeRef::Store, &["echo"]).await;
+    register_tool_service(
+        &store,
+        "beta",
+        ScopeRef::Agent {
+            agent_id: "agent-a".to_string(),
+        },
+        &["search"],
+    )
+    .await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
@@ -990,7 +1098,7 @@ async fn list_tools_in_unbound_store_session_inherits_store_services() {
         .unwrap();
 
     let names = tools.into_iter().map(|tool| tool.name).collect::<Vec<_>>();
-    assert_eq!(names, vec!["alpha_echo", "beta_search"]);
+    assert_eq!(names, vec!["echo"]);
 
     std::fs::remove_file(path).ok();
 }
@@ -999,14 +1107,14 @@ async fn list_tools_in_unbound_store_session_inherits_store_services() {
 async fn list_tools_in_bound_session_only_returns_bound_services() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "alpha", &["echo"]).await;
-    register_tool_service(&store, "beta", &["search"]).await;
+    register_tool_service(&store, "alpha", ScopeRef::Store, &["echo"]).await;
+    let beta = register_tool_service(&store, "beta", ScopeRef::Store, &["search"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
     store
-        .bind_service_to_session(&session.session_key, "beta")
+        .bind_service_to_session(&session.session_key, beta)
         .await
         .unwrap();
 
@@ -1016,8 +1124,10 @@ async fn list_tools_in_bound_session_only_returns_bound_services() {
         .unwrap();
 
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name, "beta_search");
-    assert_eq!(tools[0].service_global_name, "beta");
+    assert_eq!(tools[0].name, "search");
+    assert_eq!(tools[0].instance_id, beta);
+    assert_eq!(tools[0].service_name, "beta");
+    assert_eq!(tools[0].scope, ScopeRef::Store);
 
     std::fs::remove_file(path).ok();
 }
@@ -1026,7 +1136,8 @@ async fn list_tools_in_bound_session_only_returns_bound_services() {
 async fn list_tools_in_session_intersects_with_tool_allowlist() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "svc", &["echo", "search"]).await;
+    let instance_id =
+        register_tool_service(&store, "svc", ScopeRef::Store, &["echo", "search"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
@@ -1035,7 +1146,7 @@ async fn list_tools_in_session_intersects_with_tool_allowlist() {
         .set_session_tool_visibility(
             &session.session_key,
             vec![SessionToolSelection {
-                service_name: "svc".to_string(),
+                instance_id,
                 tool_name: "search".to_string(),
             }],
         )
@@ -1048,7 +1159,7 @@ async fn list_tools_in_session_intersects_with_tool_allowlist() {
         .unwrap();
 
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name, "svc_search");
+    assert_eq!(tools[0].name, "search");
 
     std::fs::remove_file(path).ok();
 }
@@ -1057,28 +1168,25 @@ async fn list_tools_in_session_intersects_with_tool_allowlist() {
 async fn list_tools_in_agent_session_intersects_agent_services() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    let alpha = store
-        .add_service_for_agent("agent-a", "alpha", stdio_config())
-        .await
-        .unwrap();
-    let beta = store
-        .add_service_for_agent("agent-b", "beta", stdio_config())
-        .await
-        .unwrap();
-    for name in [&alpha, &beta] {
-        let mut service = store.registry.find_service(name).await.unwrap();
-        service.status = ConnectionStatus::Connected;
-        service.tools = vec![crate::registry::ToolInfo {
-            name: "echo".to_string(),
-            title: None,
-            description: "echo".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: None,
-            annotations: None,
-            meta: None,
-        }];
-        store.registry.register(service).await;
-    }
+    let alpha = register_tool_service(
+        &store,
+        "alpha",
+        ScopeRef::Agent {
+            agent_id: "agent-a".to_string(),
+        },
+        &["echo"],
+    )
+    .await;
+    register_tool_service(
+        &store,
+        "beta",
+        ScopeRef::Agent {
+            agent_id: "agent-b".to_string(),
+        },
+        &["echo"],
+    )
+    .await;
+    register_tool_service(&store, "store-only", ScopeRef::Store, &["echo"]).await;
     let session = store
         .create_session(CreateSessionRequest::agent("s1", "agent-a"))
         .await
@@ -1090,8 +1198,15 @@ async fn list_tools_in_agent_session_intersects_agent_services() {
         .unwrap();
 
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name, "alpha_echo");
-    assert_eq!(tools[0].service_global_name, alpha);
+    assert_eq!(tools[0].name, "echo");
+    assert_eq!(tools[0].instance_id, alpha);
+    assert_eq!(tools[0].service_name, "alpha");
+    assert_eq!(
+        tools[0].scope,
+        ScopeRef::Agent {
+            agent_id: "agent-a".to_string()
+        }
+    );
 
     std::fs::remove_file(path).ok();
 }
@@ -1100,7 +1215,7 @@ async fn list_tools_in_agent_session_intersects_agent_services() {
 async fn closed_session_rejects_session_tool_listing() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "svc", &["echo"]).await;
+    register_tool_service(&store, "svc", ScopeRef::Store, &["echo"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
@@ -1125,7 +1240,8 @@ async fn closed_session_rejects_session_tool_listing() {
 async fn call_tool_in_session_rejects_tools_outside_allowlist() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "svc", &["echo", "search"]).await;
+    let instance_id =
+        register_tool_service(&store, "svc", ScopeRef::Store, &["echo", "search"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
@@ -1134,7 +1250,7 @@ async fn call_tool_in_session_rejects_tools_outside_allowlist() {
         .set_session_tool_visibility(
             &session.session_key,
             vec![SessionToolSelection {
-                service_name: "svc".to_string(),
+                instance_id,
                 tool_name: "search".to_string(),
             }],
         )
@@ -1142,12 +1258,17 @@ async fn call_tool_in_session_rejects_tools_outside_allowlist() {
         .unwrap();
 
     let err = store
-        .call_tool_in_session(&session.session_key, "svc_echo", serde_json::json!({}))
+        .call_tool_in_session(
+            &session.session_key,
+            instance_id,
+            "echo",
+            serde_json::json!({}),
+        )
         .await
         .unwrap_err()
         .to_string();
 
-    assert!(err.contains("Tool 'svc_echo' not found"));
+    assert!(err.contains("tool is not available in session"));
     let events = store
         .cache()
         .get_all_events_async("session_events")
@@ -1164,24 +1285,24 @@ async fn call_tool_in_session_rejects_tools_outside_allowlist() {
 async fn read_resource_in_session_rejects_unbound_service_before_transport() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    store.add_service("alpha", stdio_config()).await.unwrap();
-    store.add_service("beta", stdio_config()).await.unwrap();
+    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &[]).await;
+    let beta = register_tool_service(&store, "beta", ScopeRef::Store, &[]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
     store
-        .bind_service_to_session(&session.session_key, "alpha")
+        .bind_service_to_session(&session.session_key, alpha)
         .await
         .unwrap();
 
     let err = store
-        .read_resource_in_session(&session.session_key, "file:///secret", Some("beta"))
+        .read_resource_in_session(&session.session_key, "file:///secret", Some(beta))
         .await
         .unwrap_err()
         .to_string();
 
-    assert!(err.contains("Service not found: beta"));
+    assert!(err.contains("instance is not bound to session"));
 
     std::fs::remove_file(path).ok();
 }
@@ -1190,14 +1311,14 @@ async fn read_resource_in_session_rejects_unbound_service_before_transport() {
 async fn get_prompt_in_session_rejects_unbound_service_before_transport() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    store.add_service("alpha", stdio_config()).await.unwrap();
-    store.add_service("beta", stdio_config()).await.unwrap();
+    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &[]).await;
+    let beta = register_tool_service(&store, "beta", ScopeRef::Store, &[]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
     store
-        .bind_service_to_session(&session.session_key, "alpha")
+        .bind_service_to_session(&session.session_key, alpha)
         .await
         .unwrap();
 
@@ -1206,13 +1327,13 @@ async fn get_prompt_in_session_rejects_unbound_service_before_transport() {
             &session.session_key,
             "summarize",
             serde_json::json!({}),
-            Some("beta"),
+            Some(beta),
         )
         .await
         .unwrap_err()
         .to_string();
 
-    assert!(err.contains("Service not found: beta"));
+    assert!(err.contains("instance is not bound to session"));
 
     std::fs::remove_file(path).ok();
 }
@@ -1221,7 +1342,7 @@ async fn get_prompt_in_session_rejects_unbound_service_before_transport() {
 async fn export_sessions_snapshot_contains_serializable_business_state() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    store.add_service("alpha", stdio_config()).await.unwrap();
+    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &[]).await;
     let session = store
         .create_session(CreateSessionRequest::store("exportable"))
         .await
@@ -1231,7 +1352,7 @@ async fn export_sessions_snapshot_contains_serializable_business_state() {
         .await
         .unwrap();
     store
-        .bind_service_to_session(&session.session_key, "alpha")
+        .bind_service_to_session(&session.session_key, alpha)
         .await
         .unwrap();
 
@@ -1243,8 +1364,18 @@ async fn export_sessions_snapshot_contains_serializable_business_state() {
     );
     assert_eq!(
         snapshot["relations"]["session_services"]["store:global:exportable"]["services"][0]
-            ["service_global_name"],
+            ["service_name"],
         "alpha"
+    );
+    assert_eq!(
+        snapshot["relations"]["session_services"]["store:global:exportable"]["services"][0]
+            ["instance_id"],
+        alpha.to_string()
+    );
+    assert_eq!(
+        snapshot["relations"]["session_services"]["store:global:exportable"]["services"][0]
+            ["scope"]["type"],
+        "store"
     );
     assert_eq!(
         snapshot["states"]["session_status"]["store:global:exportable"]["status"],
@@ -1271,7 +1402,7 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
     let target_path = temp_config_path();
     let conflict_path = temp_config_path();
     let source = MCPStore::setup(Some(&source_path)).unwrap();
-    source.add_service("alpha", stdio_config()).await.unwrap();
+    let alpha = register_tool_service(&source, "alpha", ScopeRef::Store, &[]).await;
     let session = source
         .session("portable")
         .metadata(serde_json::json!({"owner": "source"}))
@@ -1282,7 +1413,7 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
         .set_active_session_for_context(SessionScope::Store, None, Some(session.session_key()))
         .await
         .unwrap();
-    session.bind_service("alpha").await.unwrap();
+    session.bind_service(alpha).await.unwrap();
 
     let snapshot = source.export_sessions_snapshot().await.unwrap();
     let target = MCPStore::setup(Some(&target_path)).unwrap();
@@ -1303,8 +1434,13 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
         SessionStatus::Active
     );
     assert_eq!(
-        restored.list_services().await.unwrap()[0].service_global_name,
-        "alpha"
+        restored.list_services().await.unwrap()[0],
+        SessionServiceItem {
+            instance_id: alpha,
+            service_name: "alpha".to_string(),
+            scope: ScopeRef::Store,
+            bound_at: restored.list_services().await.unwrap()[0].bound_at,
+        }
     );
     assert_eq!(
         target
@@ -1356,4 +1492,49 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
     std::fs::remove_file(source_path).ok();
     std::fs::remove_file(target_path).ok();
     std::fs::remove_file(conflict_path).ok();
+}
+
+#[tokio::test]
+async fn import_sessions_snapshot_rejects_scope_and_instance_identity_mismatches() {
+    let source_path = temp_config_path();
+    let target_path = temp_config_path();
+    let source = MCPStore::setup(Some(&source_path)).unwrap();
+    let alpha = register_tool_service(&source, "alpha", ScopeRef::Store, &["echo"]).await;
+    let session = source.session("validated").create().await.unwrap();
+    session.bind_service(alpha).await.unwrap();
+    session
+        .set_tool_visibility(vec![SessionToolSelection {
+            instance_id: alpha,
+            tool_name: "echo".to_string(),
+        }])
+        .await
+        .unwrap();
+    let snapshot = source.export_sessions_snapshot().await.unwrap();
+    let target = MCPStore::setup(Some(&target_path)).unwrap();
+
+    let mut wrong_scope = snapshot.clone();
+    wrong_scope["relations"]["session_services"]["store:global:validated"]["services"][0]
+        ["scope"] = serde_json::json!({"type": "agent", "agent_id": "agent-a"});
+    let err = target
+        .import_sessions_snapshot(wrong_scope)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("scope does not match session"));
+
+    let mut wrong_instance_id = snapshot;
+    let unrelated_id = ServiceInstanceKey::new("other", ScopeRef::Store)
+        .instance_id()
+        .to_string();
+    wrong_instance_id["relations"]["session_tools"]["store:global:validated"]["tools"][0]
+        ["instance_id"] = serde_json::json!(unrelated_id);
+    let err = target
+        .import_sessions_snapshot(wrong_instance_id)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("instance identity mismatch"));
+
+    std::fs::remove_file(source_path).ok();
+    std::fs::remove_file(target_path).ok();
 }

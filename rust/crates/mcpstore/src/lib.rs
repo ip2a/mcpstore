@@ -42,7 +42,9 @@ pub use events::{Event, EventBus};
 pub use identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
 // Facade re-exports: registry
-pub use registry::{ConnectionStatus, ServiceEntry, ToolInfo};
+pub use registry::{
+    ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance, ToolInfo,
+};
 
 // Facade re-exports: business sessions
 pub use cache::models::{
