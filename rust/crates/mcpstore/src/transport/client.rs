@@ -9,7 +9,9 @@ use crate::transport::{Result, TransportError};
 
 pub use crate::transport::pool::ConnectionPool;
 
+use rmcp::model::InitializeResult;
 use rmcp::service::{RoleClient, RunningService};
+use std::sync::Arc;
 
 pub(super) type McpClient = RunningService<RoleClient, McpStoreClientHandler>;
 
@@ -48,6 +50,22 @@ impl McpConnection {
 
     pub fn is_connected(&self) -> bool {
         self.client.is_some()
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_test_client(
+        instance_id: InstanceId,
+        client: McpClient,
+        handler: McpStoreClientHandler,
+    ) -> Self {
+        Self {
+            instance_id,
+            name: "protocol-test".to_string(),
+            config: ServerConfig::default(),
+            client: Some(ActiveClient::Stdio(client)),
+            auth_coordinator: AuthCoordinator::new().expect("test auth coordinator"),
+            handler,
+        }
     }
 
     pub async fn connect(&mut self) -> Result<()> {
@@ -101,6 +119,19 @@ impl McpConnection {
             tracing::info!("[TRANSPORT] Disconnected: {}", self.name);
         }
         Ok(())
+    }
+
+    pub(in crate::transport) fn instance_id(&self) -> InstanceId {
+        self.instance_id
+    }
+
+    pub(in crate::transport) fn peer_info(&self) -> Result<Arc<InitializeResult>> {
+        self.get_client()?.peer_info().ok_or_else(|| {
+            TransportError::Protocol(format!(
+                "MCP handshake metadata unavailable for {}",
+                self.name
+            ))
+        })
     }
 
     pub(in crate::transport) fn get_client(&self) -> Result<&McpClient> {

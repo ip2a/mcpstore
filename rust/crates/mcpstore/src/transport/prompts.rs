@@ -5,6 +5,7 @@ use crate::transport::{DiscoveredPrompt, Result, TransportError};
 
 impl McpConnection {
     pub async fn list_prompts(&self) -> Result<Vec<DiscoveredPrompt>> {
+        self.require_prompts()?;
         let client = self.get_client()?;
         let prompts = match client.list_all_prompts().await {
             Ok(prompts) => prompts,
@@ -34,6 +35,7 @@ impl McpConnection {
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        self.require_prompts()?;
         let client = self.get_client()?;
         let args_map = match arguments {
             serde_json::Value::Object(map) => map,

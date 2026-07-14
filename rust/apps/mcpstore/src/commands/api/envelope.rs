@@ -205,6 +205,19 @@ impl ApiError {
                     "required_scope": required_scope,
                 })),
             ),
+            StoreError::Transport(mcpstore::transport::TransportError::CapabilityUnsupported {
+                instance_id,
+                capability,
+            }) => Self::new(
+                StatusCode::CONFLICT,
+                "MCP_CAPABILITY_UNSUPPORTED",
+                format!("远端 MCP 服务不支持 {capability} capability"),
+                None,
+                Some(json!({
+                    "instance_id": instance_id,
+                    "capability": capability,
+                })),
+            ),
             StoreError::Transport(error) => Self::new(
                 StatusCode::BAD_GATEWAY,
                 "SERVICE_OPERATION_FAILED",
@@ -312,6 +325,28 @@ mod tests {
                 .and_then(|details| details.get("required_scope"))
                 .and_then(Value::as_str),
             Some("resources.read tools.call")
+        );
+    }
+
+    #[test]
+    fn unsupported_capability_maps_to_http_409_with_stable_error_code() {
+        let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
+        let error = ApiError::from_store(StoreError::Transport(
+            TransportError::CapabilityUnsupported {
+                instance_id,
+                capability: "completions",
+            },
+        ));
+
+        assert_eq!(error.status, StatusCode::CONFLICT);
+        assert_eq!(error.code, "MCP_CAPABILITY_UNSUPPORTED");
+        assert_eq!(
+            error
+                .details
+                .as_ref()
+                .and_then(|details| details.get("capability"))
+                .and_then(Value::as_str),
+            Some("completions")
         );
     }
 }
