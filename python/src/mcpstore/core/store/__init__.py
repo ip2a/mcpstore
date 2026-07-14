@@ -13,14 +13,6 @@ from .rust_backend import (
     RustStoreContext,
     RustToolProxy,
 )
-from .client_manager import ClientManager
-from .config_management import ConfigManagementMixin
-from .setup_manager import StoreSetupManager
-
-MCPStore.setup_store = staticmethod(StoreSetupManager.setup_store)
-MCPStore.setup_store_async = staticmethod(StoreSetupManager.setup_store_async)
-RustStoreBackend.setup_store = staticmethod(StoreSetupManager.setup_store)
-RustStoreBackend.setup_store_async = staticmethod(StoreSetupManager.setup_store_async)
 
 MCPStoreContext = RustStoreContext
 ServiceProxy = RustServiceProxy
@@ -31,8 +23,6 @@ SessionContext = RustSession
 
 __all__ = [
     "MCPStore",
-    "ClientManager",
-    "ConfigManagementMixin",
     "RustStoreBackend",
     "RustStoreContext",
     "RustSession",
