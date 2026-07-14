@@ -10,7 +10,8 @@ use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
 use crate::transport::client::McpConnection;
 use crate::transport::{
-    DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool, Result,
+    DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
+    McpCompletion, McpCompletionRequest, McpLoggingLevel, McpServerMetadata, Result,
     ToolCallResult, TransportError,
 };
 
@@ -152,6 +153,60 @@ impl ConnectionPool {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
         conn.get_prompt(prompt_name, arguments).await
+    }
+
+    pub async fn server_metadata(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<McpServerMetadata>> {
+        let conns = self.connections.read().await;
+        let Some(conn) = conns.get(&instance_id) else {
+            return Ok(None);
+        };
+        if !conn.is_connected() {
+            return Ok(None);
+        }
+        conn.server_metadata().map(Some)
+    }
+
+    pub async fn complete(
+        &self,
+        instance_id: InstanceId,
+        request: McpCompletionRequest,
+    ) -> Result<McpCompletion> {
+        let conns = self.connections.read().await;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
+        conn.complete(request).await
+    }
+
+    pub async fn subscribe_resource(&self, instance_id: InstanceId, uri: &str) -> Result<()> {
+        let conns = self.connections.read().await;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
+        conn.subscribe_resource(uri).await
+    }
+
+    pub async fn unsubscribe_resource(&self, instance_id: InstanceId, uri: &str) -> Result<()> {
+        let conns = self.connections.read().await;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
+        conn.unsubscribe_resource(uri).await
+    }
+
+    pub async fn set_logging_level(
+        &self,
+        instance_id: InstanceId,
+        level: McpLoggingLevel,
+    ) -> Result<()> {
+        let conns = self.connections.read().await;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
+        conn.set_logging_level(level).await
     }
 
     pub async fn is_connected(&self, instance_id: InstanceId) -> bool {

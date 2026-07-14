@@ -6,6 +6,7 @@ use crate::transport::{DiscoveredTool, Result, ToolCallResult, TransportError};
 
 impl McpConnection {
     pub async fn list_tools(&self) -> Result<Vec<DiscoveredTool>> {
+        self.require_tools()?;
         let client = self.get_client()?;
         let resp = match client.list_tools(None).await {
             Ok(response) => response,
@@ -27,6 +28,7 @@ impl McpConnection {
         tool_name: &str,
         arguments: serde_json::Value,
     ) -> Result<ToolCallResult> {
+        self.require_tools()?;
         let client = self.get_client()?;
 
         let args_map = match arguments {

@@ -5,6 +5,7 @@ use crate::transport::{DiscoveredResource, DiscoveredResourceTemplate, Result, T
 
 impl McpConnection {
     pub async fn list_resources(&self) -> Result<Vec<DiscoveredResource>> {
+        self.require_resources()?;
         let client = self.get_client()?;
         let resources = match client.list_all_resources().await {
             Ok(resources) => resources,
@@ -30,6 +31,7 @@ impl McpConnection {
     }
 
     pub async fn list_resource_templates(&self) -> Result<Vec<DiscoveredResourceTemplate>> {
+        self.require_resources()?;
         let client = self.get_client()?;
         let templates = match client.list_all_resource_templates().await {
             Ok(templates) => templates,
@@ -57,6 +59,7 @@ impl McpConnection {
     }
 
     pub async fn read_resource(&self, uri: &str) -> Result<serde_json::Value> {
+        self.require_resources()?;
         let client = self.get_client()?;
         let result = match client
             .read_resource(ReadResourceRequestParams::new(uri))

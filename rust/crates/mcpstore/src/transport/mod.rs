@@ -9,9 +9,15 @@ mod http;
 mod oauth;
 mod pool;
 mod prompts;
+mod protocol;
 mod resources;
 mod stdio;
 mod tools;
+
+pub use protocol::{
+    McpCompletion, McpCompletionReference, McpCompletionRequest, McpLoggingLevel,
+    McpServerCapabilities, McpServerImplementation, McpServerMetadata,
+};
 
 #[derive(Error, Debug)]
 pub enum TransportError {
@@ -21,6 +27,11 @@ pub enum TransportError {
     InsufficientScope {
         instance_id: crate::identity::InstanceId,
         required_scope: Option<String>,
+    },
+    #[error("MCP service instance {instance_id} does not support capability {capability}")]
+    CapabilityUnsupported {
+        instance_id: crate::identity::InstanceId,
+        capability: &'static str,
     },
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
