@@ -1,20 +1,22 @@
 export type CacheBackend = "memory" | "redis" | "openkeyv_memory" | "openkeyv_redis"
 
-export type ConnectionStatus = "Connected" | "Disconnected" | "Connecting" | "Error" | string
+export type ConnectionStatus = "connected" | "disconnected" | "connecting" | "error"
+
+export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string }
+
+export type ConfigRevision = {
+  base_revision: number
+  scope_revision: number
+}
 
 export type ToolInfo = {
   name: string
   title?: string | null
-  description?: string
-  input_schema?: unknown
+  description: string
+  input_schema: unknown
   output_schema?: unknown
   annotations?: unknown
   meta?: unknown
-  _meta?: unknown
-  service_name?: string
-  service?: string
-  agent_id?: string
-  [key: string]: unknown
 }
 
 export type ResourceInfo = {
@@ -26,8 +28,6 @@ export type ResourceInfo = {
   size?: number
   annotations?: unknown
   _meta?: unknown
-  service_name?: string
-  [key: string]: unknown
 }
 
 export type PromptInfo = {
@@ -36,71 +36,60 @@ export type PromptInfo = {
   description?: string
   arguments?: unknown
   _meta?: unknown
-  service_name?: string
-  [key: string]: unknown
 }
 
 export type ResourceTemplateInfo = {
-  uriTemplate?: string
-  uri_template?: string
+  uriTemplate: string
   name: string
   title?: string
   description?: string
   mimeType?: string
-  mime_type?: string
   annotations?: unknown
-  meta?: unknown
   _meta?: unknown
-  original_uri_template?: string
-  service_name?: string
-  global_service_name?: string
-  service_global_name?: string
-  [key: string]: unknown
 }
 
-export type ServiceEntry = {
-  name: string
-  original_name?: string
-  transport?: string
-  status?: ConnectionStatus
-  tools?: ToolInfo[]
-  config?: Record<string, unknown>
-  agent_id?: string
-  added_time?: number
-  url?: string
-  command?: string
-  [key: string]: unknown
+export type ServiceInstance = {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  transport: string
+  url: string | null
+  command: string | null
+  status: ConnectionStatus
+  tools: ToolInfo[]
+  effective_config: Record<string, unknown>
+  config_revision: ConfigRevision
+  applied_config_revision: ConfigRevision | null
+  added_time: number
 }
 
 export type ToolStatusItem = {
-  status?: string
-  tool_global_name?: string
-  tool_original_name?: string
+  tool_name: string
+  status: string
 }
 
-export type ServiceStatusReport = {
-  service_global_name?: string
-  health_status?: string
-  last_health_check?: number
-  connection_attempts?: number
-  max_connection_attempts?: number
-  current_error?: string | null
-  tools?: ToolStatusItem[]
-  window_error_rate?: number | null
-  latency_p95?: number | null
-  latency_p99?: number | null
-  sample_size?: number | null
-  next_retry_time?: number | null
-  hard_deadline?: number | null
-  lease_deadline?: number | null
+export type InstanceStatus = {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  health_status: string
+  last_health_check: number
+  connection_attempts: number
+  max_connection_attempts: number
+  current_error: string | null
+  tools: ToolStatusItem[]
+  window_error_rate: number | null
+  latency_p95: number | null
+  latency_p99: number | null
+  sample_size: number | null
+  next_retry_time: number | null
+  hard_deadline: number | null
+  lease_deadline: number | null
 }
 
 export type AgentItem = {
-  agent_id?: string
-  id?: string
-  services?: string[]
-  service_names?: string[]
-  [key: string]: unknown
+  agent_id: string
+  instance_ids: string[]
 }
 
 export type CacheReport = Record<string, unknown>
@@ -177,10 +166,26 @@ export type ServiceLifecycleConfig = {
   restart_policy?: ServiceRestartPolicy
 }
 
+export type ScopeDescriptor = {
+  config?: Record<string, unknown>
+  lifecycle?: ServiceLifecycleConfig
+}
+
 export type AddServiceInput = {
   name: string
-  scope: "store" | "agent"
-  agentId?: string
+  scope: ScopeRef
+  transport: "stdio" | "streamable-http" | "sse"
+  commandOrUrl: string
+  description?: string
+  workingDir?: string
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  lifecycle?: ServiceLifecycleConfig
+}
+
+export type UpdateServiceScopeInput = {
+  serviceName: string
+  scope: ScopeRef
   transport: "stdio" | "streamable-http" | "sse"
   commandOrUrl: string
   description?: string
@@ -262,94 +267,91 @@ export async function health() {
   return readJson<{ status: string; backend: CacheBackend }>(await fetch(apiUrl("/health")))
 }
 
-export async function listServices(): Promise<ServiceEntry[]> {
-  const data = await request<{ services?: ServiceEntry[] }>("/for_store/list_services")
-  return data?.services || []
+export async function listServices(): Promise<ServiceInstance[]> {
+  const data = await request<{ services: ServiceInstance[] }>("/scopes/store/instances")
+  return data.services
 }
 
 export async function listAgents(): Promise<AgentItem[]> {
-  const data = await request<{ agents?: AgentItem[] }>("/agents/list")
-  return data?.agents || []
+  const data = await request<{ agents: AgentItem[] }>("/agents/list")
+  return data.agents
 }
 
-export async function listTools(serviceName?: string): Promise<ToolInfo[]> {
-  const suffix = buildQuery({ service_name: serviceName })
-  const data = await request<{ tools?: ToolInfo[] }>(`/for_store/list_tools${suffix}`)
-  return data?.tools || []
+export async function listAgentServices(agentId: string): Promise<ServiceInstance[]> {
+  const data = await request<{ services: ServiceInstance[] }>(`/scopes/agents/${encodeURIComponent(agentId)}/instances`)
+  return data.services
 }
 
-export async function listResources(serviceName?: string): Promise<ResourceInfo[]> {
-  const suffix = buildQuery({ service_name: serviceName })
-  const data = await request<{ resources?: ResourceInfo[] }>(`/for_store/list_resources${suffix}`)
-  return data?.resources || []
+export async function getServiceInstance(instanceId: string): Promise<ServiceInstance> {
+  return request(`/instances/${encodeURIComponent(instanceId)}`)
 }
 
-export async function listPrompts(serviceName?: string): Promise<PromptInfo[]> {
-  const suffix = buildQuery({ service_name: serviceName })
-  const data = await request<{ prompts?: PromptInfo[] }>(`/for_store/list_prompts${suffix}`)
-  return data?.prompts || []
+export async function getInstanceStatus(instanceId: string): Promise<InstanceStatus> {
+  return request(`/instances/${encodeURIComponent(instanceId)}/status`)
 }
 
-export async function listResourceTemplates(serviceName?: string): Promise<ResourceTemplateInfo[]> {
-  const suffix = buildQuery({ service_name: serviceName })
-  const data = await request<{ resource_templates?: ResourceTemplateInfo[] }>(`/for_store/list_resource_templates${suffix}`)
-  return data?.resource_templates || []
+export async function listInstanceTools(instanceId: string): Promise<ToolInfo[]> {
+  const data = await request<{ tools: ToolInfo[] }>(`/instances/${encodeURIComponent(instanceId)}/tools`)
+  return data.tools
 }
 
-export async function readResource(uri: string, serviceName?: string) {
-  const suffix = buildQuery({ uri, service_name: serviceName })
-  return request(`/for_store/read_resource${suffix}`)
+export async function listInstanceResources(instanceId: string): Promise<ResourceInfo[]> {
+  const data = await request<{ resources: ResourceInfo[] }>(`/instances/${encodeURIComponent(instanceId)}/resources`)
+  return data.resources
 }
 
-export async function listAgentServices(agentId: string): Promise<ServiceEntry[]> {
-  const data = await request<{ services?: ServiceEntry[] }>(`/for_agent/${encodeURIComponent(agentId)}/list_services`)
-  return data?.services || []
-}
-
-export async function listAgentTools(agentId: string, serviceName?: string): Promise<ToolInfo[]> {
-  const suffix = buildQuery({ service_name: serviceName })
-  const data = await request<{ tools?: ToolInfo[] }>(`/for_agent/${encodeURIComponent(agentId)}/list_tools${suffix}`)
-  return data?.tools || []
-}
-
-export async function listAgentResourceTemplates(agentId: string, serviceName?: string): Promise<ResourceTemplateInfo[]> {
-  const suffix = buildQuery({ service_name: serviceName })
-  const data = await request<{ resource_templates?: ResourceTemplateInfo[] }>(
-    `/for_agent/${encodeURIComponent(agentId)}/list_resource_templates${suffix}`,
+export async function listInstanceResourceTemplates(instanceId: string): Promise<ResourceTemplateInfo[]> {
+  const data = await request<{ resource_templates: ResourceTemplateInfo[] }>(
+    `/instances/${encodeURIComponent(instanceId)}/resource_templates`,
   )
-  return data?.resource_templates || []
+  return data.resource_templates
 }
 
-export async function assignService(agentId: string, serviceName: string) {
-  return request(`/for_agent/${encodeURIComponent(agentId)}/assign_service/${encodeURIComponent(serviceName)}`, { method: "POST" })
+export async function listInstancePrompts(instanceId: string): Promise<PromptInfo[]> {
+  const data = await request<{ prompts: PromptInfo[] }>(`/instances/${encodeURIComponent(instanceId)}/prompts`)
+  return data.prompts
 }
 
-export async function unassignService(agentId: string, serviceName: string) {
-  return request(`/for_agent/${encodeURIComponent(agentId)}/unassign_service/${encodeURIComponent(serviceName)}`, { method: "POST" })
+export async function readInstanceResource(instanceId: string, uri: string) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/read_resource${buildQuery({ uri })}`)
 }
 
-export async function serviceInfo(name: string): Promise<ServiceEntry> {
-  return request(`/for_store/service_info/${encodeURIComponent(name)}`)
+export async function checkInstance(instanceId: string) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/check`)
 }
 
-export async function serviceStatus(name: string): Promise<ServiceStatusReport> {
-  return request(`/for_store/service_status/${encodeURIComponent(name)}`)
+export async function connectInstance(instanceId: string) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/connect`, { method: "POST" })
 }
 
-export async function checkServices(): Promise<unknown> {
-  return request("/for_store/check_services")
+export async function disconnectInstance(instanceId: string) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/disconnect`, { method: "POST" })
 }
 
-export async function showConfig(options: { format?: string } = {}): Promise<ConfigReport> {
+export async function restartInstance(instanceId: string) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/restart`, { method: "POST" })
+}
+
+export async function callInstanceTool(instanceId: string, toolName: string, args: Record<string, unknown>) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/call`, {
+    method: "POST",
+    body: JSON.stringify({ tool_name: toolName, args }),
+  })
+}
+
+export async function showConfig(options: { format?: string; instanceId?: string } = {}): Promise<ConfigReport> {
   const format = options.format ?? "native"
-  const query = format === "native" ? "" : `?format=${encodeURIComponent(format)}`
-  return request(`/for_store/show_config${query}`)
+  return request(`/config${buildQuery({ format: format === "native" ? undefined : format, instance_id: options.instanceId })}`)
 }
 
-export async function showAgentConfig(agentId: string, options: { format?: string } = {}): Promise<ConfigReport> {
+export async function showAgentConfig(
+  agentId: string,
+  options: { format?: string; instanceId?: string } = {},
+): Promise<ConfigReport> {
   const format = options.format ?? "native"
-  const query = format === "native" ? "" : `?format=${encodeURIComponent(format)}`
-  return request(`/for_agent/${encodeURIComponent(agentId)}/show_config${query}`)
+  return request(
+    `/scopes/agents/${encodeURIComponent(agentId)}/config${buildQuery({ format: format === "native" ? undefined : format, instance_id: options.instanceId })}`,
+  )
 }
 
 export async function getMeta(): Promise<MetaPayload> {
@@ -364,11 +366,11 @@ export async function updateSettings(payload: UpdateSettingsPayload): Promise<Se
 }
 
 export async function resetConfig() {
-  return request("/for_store/reset_config", { method: "POST" })
+  return request("/config/reset", { method: "POST" })
 }
 
 export async function resetAgentConfig(agentId: string) {
-  return request(`/for_agent/${encodeURIComponent(agentId)}/reset_config`, { method: "POST" })
+  return request(`/scopes/agents/${encodeURIComponent(agentId)}/reset`, { method: "POST" })
 }
 
 export async function cacheHealth(): Promise<CacheReport> {
@@ -379,22 +381,6 @@ export async function cacheInspect(): Promise<CacheReport> {
   return request("/cache/inspect")
 }
 
-export async function connectService(name: string) {
-  return request(`/for_store/connect_service/${encodeURIComponent(name)}`, { method: "POST" })
-}
-
-export async function disconnectService(name: string) {
-  return request(`/for_store/disconnect_service/${encodeURIComponent(name)}`, { method: "POST" })
-}
-
-export async function restartService(name: string) {
-  return request(`/for_store/restart_service/${encodeURIComponent(name)}`, { method: "POST" })
-}
-
-export async function removeService(name: string) {
-  return request(`/for_store/remove_service/${encodeURIComponent(name)}`, { method: "POST" })
-}
-
 export async function switchCache(backend: CacheBackend) {
   return request("/cache/switch", {
     method: "POST",
@@ -402,44 +388,52 @@ export async function switchCache(backend: CacheBackend) {
   })
 }
 
-export async function callTool(serviceName: string, toolName: string, args: Record<string, unknown>) {
-  return request("/for_store/call_tool", {
-    method: "POST",
-    body: JSON.stringify({ tool_name: `${serviceName}_${toolName}`, args }),
-  })
-}
-
-export async function callStoreTool(toolName: string, args: Record<string, unknown>) {
-  return request("/for_store/call_tool", {
-    method: "POST",
-    body: JSON.stringify({ tool_name: toolName, args }),
-  })
-}
-
-export async function callAgentTool(agentId: string, toolName: string, args: Record<string, unknown>) {
-  return request(`/for_agent/${encodeURIComponent(agentId)}/call_tool`, {
-    method: "POST",
-    body: JSON.stringify({ tool_name: toolName, args }),
-  })
-}
-
 export async function addService(input: AddServiceInput) {
+  const descriptor: ScopeDescriptor = {}
+  const scopes =
+    input.scope.type === "store"
+      ? { store: descriptor }
+      : { agents: { [input.scope.agent_id]: descriptor } }
   const payload = {
-    name: input.name,
-    ...buildServicePayload(input),
-    ...(input.lifecycle ? { _mcpstore: { lifecycle: input.lifecycle } } : {}),
+    ...buildServiceConfig(input),
+    _mcpstore: {
+      scopes,
+      ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+    },
   }
-
-  if (input.scope === "agent" && input.agentId) {
-    return request(`/for_agent/${encodeURIComponent(input.agentId)}/add_service`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    })
-  }
-
-  return request("/for_store/add_service", {
+  return request(`/services/${encodeURIComponent(input.name)}`, {
     method: "POST",
     body: JSON.stringify(payload),
+  })
+}
+
+export async function declareAgentServiceScope(agentId: string, serviceName: string, descriptor: ScopeDescriptor = {}) {
+  return request(`/services/${encodeURIComponent(serviceName)}/scopes/agents/${encodeURIComponent(agentId)}`, {
+    method: "PUT",
+    body: JSON.stringify(descriptor),
+  })
+}
+
+export async function removeServiceScope(serviceName: string, scope: ScopeRef) {
+  const path =
+    scope.type === "store"
+      ? `/services/${encodeURIComponent(serviceName)}/scopes/store`
+      : `/services/${encodeURIComponent(serviceName)}/scopes/agents/${encodeURIComponent(scope.agent_id)}`
+  return request(path, { method: "DELETE" })
+}
+
+export async function updateServiceScope(input: UpdateServiceScopeInput) {
+  const descriptor: ScopeDescriptor = {
+    config: buildServiceConfig(input),
+    ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+  }
+  const path =
+    input.scope.type === "store"
+      ? `/services/${encodeURIComponent(input.serviceName)}/scopes/store`
+      : `/services/${encodeURIComponent(input.serviceName)}/scopes/agents/${encodeURIComponent(input.scope.agent_id)}`
+  return request(path, {
+    method: "PUT",
+    body: JSON.stringify(descriptor),
   })
 }
 
@@ -465,43 +459,30 @@ export function formatKvLines(value?: Record<string, unknown>) {
     .join("\n")
 }
 
-export type UpdateServiceInput = {
-  name: string
-  transport: "stdio" | "streamable-http" | "sse"
-  commandOrUrl: string
-  description?: string
-  workingDir?: string
-  env?: Record<string, string>
-  headers?: Record<string, string>
-}
-
-function buildServicePayload(input: Pick<UpdateServiceInput, "transport" | "commandOrUrl" | "description" | "workingDir" | "env" | "headers">) {
-  const isStdio = input.transport === "stdio"
-  if (isStdio) {
+function buildServiceConfig(
+  input: Pick<
+    UpdateServiceScopeInput,
+    "transport" | "commandOrUrl" | "description" | "workingDir" | "env" | "headers"
+  >,
+) {
+  const common = {
+    transport: input.transport,
+    env: input.env || {},
+    headers: input.headers || {},
+    workingDir: input.workingDir || undefined,
+    description: input.description || undefined,
+  }
+  if (input.transport === "stdio") {
+    const command = input.commandOrUrl.split(/\s+/).filter(Boolean)
     return {
-      command: input.commandOrUrl.split(/\s+/).filter(Boolean)[0],
-      args: input.commandOrUrl.split(/\s+/).filter(Boolean).slice(1),
-      transport: "stdio",
-      env: input.env || {},
-      headers: input.headers || {},
-      working_dir: input.workingDir || undefined,
-      description: input.description || undefined,
+      ...common,
+      command: command[0],
+      args: command.slice(1),
     }
   }
 
   return {
+    ...common,
     url: input.commandOrUrl,
-    transport: input.transport,
-    env: input.env || {},
-    headers: input.headers || {},
-    working_dir: input.workingDir || undefined,
-    description: input.description || undefined,
   }
-}
-
-export async function updateService(input: UpdateServiceInput) {
-  return request(`/for_store/update_service/${encodeURIComponent(input.name)}`, {
-    method: "POST",
-    body: JSON.stringify(buildServicePayload(input)),
-  })
 }

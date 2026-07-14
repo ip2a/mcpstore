@@ -9,7 +9,7 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { useI18n } from "@/lib/i18n-context"
 import type { ToolInfo } from "@/lib/api"
-import { getToolSchema, getToolServiceName } from "@/lib/tool-info"
+import { getToolSchema } from "@/lib/tool-info"
 
 export function ToolCard({
   tool,
@@ -71,7 +71,7 @@ export function ToolCard({
       />
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary">{sourceLabel || getToolServiceName(tool) || t("store")}</Badge>
+          {sourceLabel ? <Badge variant="secondary">{sourceLabel}</Badge> : null}
           {schema.required?.length ? (
             <Badge variant="outline">{t("paramCount", { count: schema.required.length })} {t("required")}</Badge>
           ) : (

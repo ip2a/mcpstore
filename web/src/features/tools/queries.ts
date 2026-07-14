@@ -1,11 +1,18 @@
-import { useQuery } from "@tanstack/react-query"
-import { listAgentTools, listTools } from "@/lib/api"
+import { useQueries } from "@tanstack/react-query"
+
+import { listInstanceTools, type ServiceInstance, type ToolInfo } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
-export function useToolsQuery({ agentId, scope, serviceName }: { agentId: string; scope: string; serviceName?: string }) {
-  return useQuery({
-    enabled: false,
-    queryKey: scope === "agent" && agentId ? queryKeys.agentTools(agentId, serviceName) : queryKeys.tools(serviceName),
-    queryFn: () => (scope === "agent" && agentId ? listAgentTools(agentId, serviceName) : listTools(serviceName)),
+export type InstanceTool = {
+  instance: ServiceInstance
+  tool: ToolInfo
+}
+
+export function useInstanceToolsQueries(instances: ServiceInstance[]) {
+  return useQueries({
+    queries: instances.map((instance) => ({
+      queryKey: queryKeys.instanceTools(instance.instance_id),
+      queryFn: () => listInstanceTools(instance.instance_id),
+    })),
   })
 }

@@ -27,14 +27,14 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
 import { useI18n } from "@/lib/i18n-context"
-import { type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
-import { getToolOutputSchema, getToolSchema, getToolServiceName, toolKey } from "@/lib/tool-info"
+import { type AgentItem, type ServiceInstance, type ToolInfo } from "@/lib/api"
+import { getToolOutputSchema, getToolSchema, toolKey } from "@/lib/tool-info"
 import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
 import { cn } from "@/lib/utils"
 
 export function ToolsView(props: {
   agents: AgentItem[]
-  services: ServiceEntry[]
+  services: ServiceInstance[]
   onRunTool: (state: ToolDialogState) => void
   onToolDetail: (state: ToolDetailState) => void
 }) {
@@ -51,14 +51,15 @@ export function ToolsView(props: {
     scope,
     selectedTool,
     selectedToolKey,
-    serviceName,
+    instanceId,
+    scopeInstances,
     setAgentId,
     setQuery,
     setScope,
     setSelectedToolKey,
-    setServiceName,
+    setInstanceId,
     visibleTools,
-  } = useToolsRegistry({ agents: props.agents })
+  } = useToolsRegistry({ agents: props.agents, services: props.services })
 
   const sourceLabel = selectedTool
     ? makeRunner(selectedTool).sourceLabel
@@ -66,10 +67,10 @@ export function ToolsView(props: {
       ? t("agentScopeLabel", { agentId: agentId || "-" })
       : t("store")
   const schema = selectedTool
-    ? (getToolSchema(selectedTool) as { properties?: Record<string, unknown>; required?: string[] })
+    ? (getToolSchema(selectedTool.tool) as { properties?: Record<string, unknown>; required?: string[] })
     : null
   const outputSchema = selectedTool
-    ? (getToolOutputSchema(selectedTool) as { properties?: Record<string, unknown> })
+    ? (getToolOutputSchema(selectedTool.tool) as { properties?: Record<string, unknown> })
     : null
   const paramCount = Object.keys(schema?.properties || {}).length
   const outputCount = Object.keys(outputSchema?.properties || {}).length
@@ -104,14 +105,15 @@ export function ToolsView(props: {
             <PageSkeleton />
           ) : visibleTools.length ? (
             <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-              {visibleTools.map((tool) => {
-                const key = toolKey(tool)
+              {visibleTools.map(({ instance, tool }) => {
+                const key = toolKey(instance.instance_id, tool)
                 const itemSchema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
                 const itemParamCount = Object.keys(itemSchema.properties || {}).length
+                const scopeLabel = instance.scope.type === "store" ? t("store") : `${t("agent")} ${instance.scope.agent_id}`
                 return (
                   <SelectableRowButton
                     key={key}
-                    meta={`${getToolServiceName(tool) || t("store")} · ${t("paramCount", { count: itemParamCount })}`}
+                    meta={`${instance.service_name} · ${scopeLabel} · ${t("paramCount", { count: itemParamCount })}`}
                     onClick={() => setSelectedToolKey(key)}
                     selected={key === selectedToolKey}
                     title={tool.name}
@@ -139,7 +141,7 @@ export function ToolsView(props: {
             </Field>
             <Field>
               <FieldLabel>{t("scope")}</FieldLabel>
-              <Select value={scope} onValueChange={setScope}>
+              <Select value={scope} onValueChange={(value) => setScope(value as "store" | "agent")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -175,16 +177,18 @@ export function ToolsView(props: {
             </Field>
             <Field>
               <FieldLabel>{t("service")}</FieldLabel>
-              <Select value={serviceName} onValueChange={setServiceName}>
+              <Select value={instanceId} onValueChange={setInstanceId}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
                     <SelectItem value="all">{t("allServices")}</SelectItem>
-                    {props.services.map((service) => (
-                      <SelectItem key={service.name} value={service.name}>
-                        {service.name}
+                    {scopeInstances.map((service) => (
+                      <SelectItem key={service.instance_id} value={service.instance_id}>
+                        {service.scope.type === "store"
+                          ? `${service.service_name} · ${t("store")}`
+                          : `${service.service_name} · ${t("agent")} ${service.scope.agent_id}`}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -198,14 +202,14 @@ export function ToolsView(props: {
       <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
         <ToolPreviewHeader
           loading={loading}
-          selectedTool={selectedTool}
-          onCopy={selectedTool ? () => copyTool(selectedTool) : undefined}
+          selectedTool={selectedTool?.tool}
+          onCopy={selectedTool ? () => copyTool(selectedTool.tool) : undefined}
           onDetail={selectedTool ? () => props.onToolDetail(makeRunner(selectedTool)) : undefined}
           onRefresh={loadTools}
           onRun={selectedTool ? () => props.onRunTool(makeRunner(selectedTool)) : undefined}
         />
 
-        {selectedTool ? <ToolSummarySection tool={selectedTool} sourceLabel={sourceLabel} /> : null}
+        {selectedTool ? <ToolSummarySection tool={selectedTool.tool} sourceLabel={sourceLabel} /> : null}
 
         <MetricGrid columns="four">
           <MetricTile variant="compact" label={t("params")} value={String(paramCount)} hint={t("inputFields")} />
@@ -225,7 +229,7 @@ export function ToolsView(props: {
           ) : loading && !selectedTool ? (
             <PageSkeleton />
           ) : selectedTool ? (
-            <ToolDetailPane tool={selectedTool} />
+            <ToolDetailPane tool={selectedTool.tool} />
           ) : (
             <PageEmpty
               title={t("noToolSelected")}
@@ -305,7 +309,7 @@ function ToolSummarySection({ sourceLabel, tool }: { sourceLabel: string; tool: 
           </h2>
         </div>
         <div className="flex flex-col items-end gap-2 text-right">
-          <Badge variant="secondary">{sourceLabel || getToolServiceName(tool) || "store"}</Badge>
+          <Badge variant="secondary">{sourceLabel}</Badge>
           <ToolDescriptionBlock description={tool.description} showLabel={false} />
         </div>
       </div>

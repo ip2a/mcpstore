@@ -3,6 +3,7 @@ import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppHeader } from "@/components/layout/app-header"
+import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { AgentsView } from "@/features/agents/agents-view"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { CacheView } from "@/features/cache/cache-view"
@@ -20,17 +21,26 @@ import { useUiStore } from "@/stores/ui-store"
 import { cn } from "@/lib/utils"
 
 export function App() {
-  const { services, agents, agentMap, backend, loading, error: dashboardError, refresh } = useDashboard()
+  const { services, agents, backend, loading, error: dashboardError, refresh } = useDashboard()
   const {
     cacheRevision,
     refreshAgentQueries,
     refreshCacheQueries,
     refreshConfigQueries,
-    refreshServiceQueries,
+    refreshInstanceQueries,
     refreshServiceRegistryQueries,
     serviceDetailRevision,
   } = useAppQueryRefreshers()
-  const { goBack, pageTitle, selectedService, setView, view } = useAppView(services)
+  const {
+    goBack,
+    pageTitle,
+    refreshSelectedService,
+    selectedService,
+    selectedServiceError,
+    selectedServiceLoading,
+    setView,
+    view,
+  } = useAppView(services)
   const { busy, runAction } = useAppActions(refresh)
   const {
     closeToolDetail,
@@ -49,8 +59,12 @@ export function App() {
     disconnectServiceEntry,
     removeServiceEntry,
     restartServiceEntry,
-  } = useServiceActions({ refreshServiceQueries, runAction })
-  const { assignServiceToAgent, unassignServiceFromAgent } = useAgentActions({ refreshAgentQueries, refreshServiceQueries, runAction })
+  } = useServiceActions({ refreshInstanceQueries, runAction, services })
+  const { declareServiceScope, removeAgentServiceScope } = useAgentActions({
+    refreshAgentQueries,
+    refreshServiceRegistryQueries,
+    runAction,
+  })
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
   const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
   const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
@@ -78,22 +92,32 @@ export function App() {
           <main
             className={cn(
               "flex min-h-0 flex-col",
-              selectedService || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "config" || view.name === "tools" ? "h-full overflow-hidden gap-3 pt-3" : "gap-6 overflow-auto py-3",
+              view.name === "instance" || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "config" || view.name === "tools" ? "h-full overflow-hidden gap-3 pt-3" : "gap-6 overflow-auto py-3",
             )}
           >
-          {selectedService ? (
-            <ServiceDetailView
-              service={selectedService}
-              busy={busy}
-              refreshToken={serviceDetailRevision}
-              onBack={goBack}
-              onRunTool={(tool, args) => openServiceToolRunner(selectedService, tool, args)}
-              onToolDetail={(tool, service, statusReport) => openServiceToolDetail(service, tool, statusReport)}
-              onConnect={() => connectServiceEntry(selectedService)}
-              onDisconnect={() => disconnectServiceEntry(selectedService)}
-              onRestart={() => restartServiceEntry(selectedService)}
-              onDelete={() => setDeleteTarget(selectedService)}
-            />
+          {view.name === "instance" ? (
+            selectedService ? (
+              <ServiceDetailView
+                service={selectedService}
+                busy={busy}
+                refreshToken={serviceDetailRevision}
+                onBack={goBack}
+                onRunTool={(tool, args) => openServiceToolRunner(selectedService, tool, args)}
+                onToolDetail={(tool, service, statusReport) => openServiceToolDetail(service, tool, statusReport)}
+                onConnect={() => connectServiceEntry(selectedService)}
+                onDisconnect={() => disconnectServiceEntry(selectedService)}
+                onRestart={() => restartServiceEntry(selectedService)}
+                onDelete={() => setDeleteTarget(selectedService)}
+              />
+            ) : selectedServiceError ? (
+              <PageError
+                title="Instance failed to load"
+                message={selectedServiceError instanceof Error ? selectedServiceError.message : String(selectedServiceError)}
+                onRefresh={() => void refreshSelectedService()}
+              />
+            ) : selectedServiceLoading ? (
+              <PageSkeleton />
+            ) : null
           ) : view.name === "agents" ? (
             <AgentsView
               agents={agents}
@@ -101,9 +125,9 @@ export function App() {
               loading={loading}
               busy={busy}
               onRefresh={refresh}
-              onAssign={assignServiceToAgent}
-              onOpenService={(serviceName) => setView({ name: "service", serviceName })}
-              onUnassign={unassignServiceFromAgent}
+              onDeclareScope={declareServiceScope}
+              onOpenService={(instanceId) => setView({ name: "instance", instanceId })}
+              onRemoveScope={removeAgentServiceScope}
             />
           ) : view.name === "tools" ? (
             <ToolsView
@@ -120,7 +144,6 @@ export function App() {
             <ServicesView
               services={services}
               agents={agents}
-              agentMap={agentMap}
               backend={backend}
               busy={busy}
               error={dashboardError}
@@ -130,7 +153,7 @@ export function App() {
               onConnect={connectServiceEntry}
               onDelete={setDeleteTarget}
               onDisconnect={disconnectServiceEntry}
-              onOpen={(service) => setView({ name: "service", serviceName: service.name })}
+              onOpen={(service) => setView({ name: "instance", instanceId: service.instance_id })}
               onRefresh={refresh}
               onRestart={restartServiceEntry}
             />

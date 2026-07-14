@@ -22,8 +22,10 @@ export function useAddServiceForm({ onAdded, onBack }: { onAdded: () => Promise<
     try {
       await addService({
         name: String(data.get("name") || "").trim(),
-        scope,
-        agentId: scope === "agent" ? agentId || String(data.get("agentId") || "").trim() : undefined,
+        scope:
+          scope === "store"
+            ? { type: "store" }
+            : { type: "agent", agent_id: agentId || String(data.get("agentId") || "").trim() },
         transport,
         commandOrUrl: String(data.get("commandOrUrl") || "").trim(),
         description: String(data.get("description") || "").trim() || undefined,

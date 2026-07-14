@@ -19,11 +19,12 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field"
 import { InputGroup, InputGroupTextarea } from "@/components/ui/input-group"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceEntry, ServiceStatusReport, ToolInfo } from "@/lib/api"
+import type { ServiceInstance, InstanceStatus, ToolInfo } from "@/lib/api"
 import { getToolSchema } from "@/lib/tool-info"
 
 export type ToolDialogState = {
   tool: ToolInfo
+  service: ServiceInstance
   sourceLabel: string
   initialArgs?: Record<string, unknown>
   onRun: (args: Record<string, unknown>) => Promise<unknown>
@@ -31,10 +32,10 @@ export type ToolDialogState = {
 
 export type ToolDetailState = {
   tool: ToolInfo
+  service: ServiceInstance
   sourceLabel: string
   onRun?: (args: Record<string, unknown>) => Promise<unknown>
-  service?: ServiceEntry
-  statusReport?: ServiceStatusReport | null
+  statusReport?: InstanceStatus | null
 } | null
 
 export function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpenChange: (open: boolean) => void }) {

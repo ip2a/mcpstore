@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceEntry } from "@/lib/api"
+import type { ServiceInstance } from "@/lib/api"
 
 export function EditServiceForm({
   onCancel,
@@ -17,7 +17,7 @@ export function EditServiceForm({
 }: {
   onCancel: () => void
   onUpdated: () => Promise<void>
-  service: ServiceEntry
+  service: ServiceInstance
 }) {
   const { t } = useI18n()
   const { defaults, onSubmit, setTransport, submitting, transport } = useEditServiceForm({
@@ -29,11 +29,19 @@ export function EditServiceForm({
   return (
     <form onSubmit={onSubmit}>
       <FieldGroup>
-        <Field>
-          <FieldLabel htmlFor="edit-name">{t("name")}</FieldLabel>
-          <Input id="edit-name" name="name" value={service.name} disabled />
-        </Field>
-
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field>
+            <FieldLabel>{t("name")}</FieldLabel>
+            <Input value={service.service_name} readOnly />
+          </Field>
+          <Field>
+            <FieldLabel>{t("agentScope")}</FieldLabel>
+            <Input
+              value={service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`}
+              readOnly
+            />
+          </Field>
+        </div>
         <Field>
           <FieldLabel>{t("transport")}</FieldLabel>
           <Select value={transport} onValueChange={(value) => setTransport(value as AddServiceTransport)}>

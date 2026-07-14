@@ -4,7 +4,7 @@ import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { DeleteServiceDialog } from "@/features/services/delete-service-dialog"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { RunToolDialog, ToolDetailDialog, type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
-import type { CacheBackend, ServiceEntry } from "@/lib/api"
+import type { CacheBackend, ServiceInstance } from "@/lib/api"
 
 export function AppDialogs({
   backend,
@@ -27,10 +27,10 @@ export function AppDialogs({
 }: {
   backend?: CacheBackend
   cacheDialogOpen: boolean
-  deleteTarget: ServiceEntry | null
+  deleteTarget: ServiceInstance | null
   onCacheChanged: () => Promise<void>
   onCacheDialogOpenChange: (open: boolean) => void
-  onConfirmDelete: (service: ServiceEntry) => void
+  onConfirmDelete: (service: ServiceInstance) => void
   onConfirmReset: (target: ResetTarget) => void
   onDeleteDialogOpenChange: (open: boolean) => void
   onResetDialogOpenChange: (open: boolean) => void

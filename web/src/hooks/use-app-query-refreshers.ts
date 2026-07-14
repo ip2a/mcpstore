@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { ResetTarget } from "@/features/config/config-view"
+import type { ScopeRef } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 export function useAppQueryRefreshers() {
@@ -8,22 +9,26 @@ export function useAppQueryRefreshers() {
   const [cacheRevision, setCacheRevision] = useState(0)
   const [serviceDetailRevision, setServiceDetailRevision] = useState(0)
 
-  async function refreshServiceQueries(serviceName: string, agentId?: string) {
+  async function refreshInstanceQueries(instanceId: string, scope: ScopeRef) {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.services }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.service(serviceName) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.serviceStatus(serviceName) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.toolsRoot }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instances }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instance(instanceId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceStatus(instanceId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceTools(instanceId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceResources(instanceId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceResourceTemplates(instanceId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instancePrompts(instanceId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
-      agentId ? queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }) : Promise.resolve(),
+      scope.type === "agent"
+        ? queryClient.invalidateQueries({ queryKey: queryKeys.agentServices(scope.agent_id) })
+        : Promise.resolve(),
     ])
     setServiceDetailRevision((value) => value + 1)
   }
 
   async function refreshServiceRegistryQueries() {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.services }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.toolsRoot }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instances }),
       queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
     ])
   }
@@ -32,8 +37,7 @@ export function useAppQueryRefreshers() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
       queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.toolsRoot }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentToolsRoot(agentId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentServices(agentId) }),
     ])
   }
 
@@ -55,7 +59,7 @@ export function useAppQueryRefreshers() {
     refreshAgentQueries,
     refreshCacheQueries,
     refreshConfigQueries,
-    refreshServiceQueries,
+    refreshInstanceQueries,
     refreshServiceRegistryQueries,
     serviceDetailRevision,
   }
