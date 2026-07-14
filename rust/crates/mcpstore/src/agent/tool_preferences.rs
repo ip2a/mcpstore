@@ -7,29 +7,25 @@ const TOOL_PREFERENCES_STATE_TYPE: &str = "tool_preferences";
 impl MCPStore {
     pub async fn get_tool_preference(
         &self,
-        scope: &ScopeRef,
         instance_id: InstanceId,
         tool_name: &str,
         key: &str,
     ) -> Result<Option<serde_json::Value>> {
         Ok(self
-            .get_tool_preferences(scope, instance_id, tool_name)
+            .get_tool_preferences(instance_id, tool_name)
             .await?
             .and_then(|state| state.preferences.get(key).cloned()))
     }
 
     pub async fn set_tool_preference(
         &self,
-        scope: &ScopeRef,
         instance_id: InstanceId,
         tool_name: &str,
         key: &str,
         value: serde_json::Value,
     ) -> Result<ToolPreferenceState> {
         Self::validate_tool_preference_key(key)?;
-        let target = self
-            .tool_preference_target(scope, instance_id, tool_name)
-            .await?;
+        let target = self.tool_preference_target(instance_id, tool_name).await?;
         self.update_tool_preferences(&target, |state| {
             state.preferences.insert(key.to_string(), value.clone());
         })
@@ -38,15 +34,12 @@ impl MCPStore {
 
     pub async fn clear_tool_preference(
         &self,
-        scope: &ScopeRef,
         instance_id: InstanceId,
         tool_name: &str,
         key: &str,
     ) -> Result<Option<ToolPreferenceState>> {
         Self::validate_tool_preference_key(key)?;
-        let target = self
-            .tool_preference_target(scope, instance_id, tool_name)
-            .await?;
+        let target = self.tool_preference_target(instance_id, tool_name).await?;
         let Some(current) = self.load_tool_preferences(&target.state_key).await? else {
             return Ok(None);
         };
@@ -69,23 +62,19 @@ impl MCPStore {
 
     pub async fn get_tool_preferences(
         &self,
-        scope: &ScopeRef,
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<Option<ToolPreferenceState>> {
-        let target = self
-            .tool_preference_target(scope, instance_id, tool_name)
-            .await?;
+        let target = self.tool_preference_target(instance_id, tool_name).await?;
         self.load_tool_preferences(&target.state_key).await
     }
 
     async fn tool_preference_target(
         &self,
-        scope: &ScopeRef,
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<ToolPreferenceTarget> {
-        let instance = self.require_instance_in_scope(instance_id, scope).await?;
+        let instance = self.require_instance(instance_id).await?;
         if self
             .registry
             .find_tool(instance_id, tool_name)
@@ -96,7 +85,7 @@ impl MCPStore {
                 "Tool '{tool_name}' not found in service instance '{instance_id}'"
             )));
         }
-        let context_key = match scope {
+        let context_key = match &instance.scope {
             ScopeRef::Store => Self::build_session_context_key(&SessionScope::Store, None)?,
             ScopeRef::Agent { agent_id } => {
                 Self::build_session_context_key(&SessionScope::Agent, Some(agent_id))?
