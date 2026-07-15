@@ -64,6 +64,9 @@ export function ToolParameterDocList({
                 </span>
               ) : null}
             </div>
+            {paramDoc ? (
+              <p className="text-sm leading-relaxed text-muted-foreground">{paramDoc}</p>
+            ) : null}
             {editable ? (
               <div
                 className={cn(
@@ -71,11 +74,7 @@ export function ToolParameterDocList({
                   formType === "boolean" ? "sm:items-center" : "sm:items-start",
                 )}
               >
-                {paramDoc ? (
-                  <p className="text-sm leading-relaxed text-muted-foreground">{paramDoc}</p>
-                ) : (
-                  <span />
-                )}
+                <span aria-hidden="true" />
                 <ToolArgFieldInput
                   id={`tool-param-${name}`}
                   field={field}
@@ -86,8 +85,6 @@ export function ToolParameterDocList({
                   onChange={(value) => onChange!(name, value)}
                 />
               </div>
-            ) : paramDoc ? (
-              <p className="text-sm leading-relaxed text-muted-foreground">{paramDoc}</p>
             ) : null}
           </article>
         )
