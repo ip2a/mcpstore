@@ -8,4 +8,5 @@ pub(crate) mod prompts;
 pub(crate) mod protocol;
 pub(crate) mod resources;
 pub(crate) mod session;
+pub(crate) mod tasks;
 pub(crate) mod tool_changes;
