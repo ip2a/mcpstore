@@ -24,6 +24,34 @@ pub enum OutputFormat {
     Json,
 }
 
+#[derive(Debug)]
+pub struct JsonAuthError {
+    message: String,
+}
+
+impl JsonAuthError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for JsonAuthError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        json!({
+            "event": "error",
+            "error": {
+                "code": "auth_command_failed",
+                "message": self.message,
+            }
+        })
+        .fmt(formatter)
+    }
+}
+
+impl std::error::Error for JsonAuthError {}
+
 #[derive(Args)]
 pub struct AuthOutputArgs {
     #[arg(
@@ -61,6 +89,20 @@ pub enum AuthAction {
     ScopeUpgrade(AuthScopeUpgradeArgs),
     SetClientSecret(AuthInstanceArgs),
     SetPrivateKey(AuthPrivateKeyArgs),
+}
+
+impl AuthAction {
+    fn output_format(&self) -> OutputFormat {
+        match self {
+            Self::Status(args)
+            | Self::Refresh(args)
+            | Self::Logout(args)
+            | Self::SetClientSecret(args) => args.output.output,
+            Self::Login(args) => args.flow_output.output.output,
+            Self::ScopeUpgrade(args) => args.flow_output.output.output,
+            Self::SetPrivateKey(args) => args.output.output,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -176,7 +218,8 @@ struct LocalCallbackListener {
 }
 
 pub async fn run(args: AuthArgs) -> Result<(), BoxErr> {
-    match args.action {
+    let output = args.action.output_format();
+    let result = match args.action {
         AuthAction::Status(args) => status(args).await,
         AuthAction::Login(args) => login(args).await,
         AuthAction::Refresh(args) => refresh(args).await,
@@ -184,6 +227,10 @@ pub async fn run(args: AuthArgs) -> Result<(), BoxErr> {
         AuthAction::ScopeUpgrade(args) => scope_upgrade(args).await,
         AuthAction::SetClientSecret(args) => set_client_secret(args).await,
         AuthAction::SetPrivateKey(args) => set_private_key(args).await,
+    };
+    match (output, result) {
+        (OutputFormat::Json, Err(error)) => Err(Box::new(JsonAuthError::new(error.to_string()))),
+        (_, result) => result,
     }
 }
 
@@ -770,6 +817,27 @@ async fn write_browser_response(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn json_auth_error_is_a_stable_non_sensitive_event() {
+        let error = JsonAuthError::new("OAuth callback was rejected");
+        let value: Value = serde_json::from_str(&error.to_string()).unwrap();
+
+        assert_eq!(value["event"], "error");
+        assert_eq!(value["error"]["code"], "auth_command_failed");
+        assert_eq!(value["error"]["message"], "OAuth callback was rejected");
+        for forbidden in [
+            "access_token",
+            "refresh_token",
+            "client_secret",
+            "private_key",
+            "authorization_code",
+            "state",
+        ] {
+            assert!(value.get(forbidden).is_none());
+            assert!(value["error"].get(forbidden).is_none());
+        }
+    }
 
     #[test]
     fn json_status_event_contains_only_non_sensitive_auth_state() {
