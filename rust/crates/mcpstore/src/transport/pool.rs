@@ -389,6 +389,15 @@ impl ConnectionPool {
         }));
     }
 
+    pub(crate) async fn observe_tool_task(
+        &self,
+        instance_id: InstanceId,
+        task: McpTask,
+        tool_name: Option<&str>,
+    ) -> Result<McpTaskRecord> {
+        self.observe_task(instance_id, task, tool_name).await
+    }
+
     async fn observe_task(
         &self,
         instance_id: InstanceId,
