@@ -12,6 +12,10 @@ use mcpstore::{
 };
 
 use crate::{
+    commands::elicitation::{
+        handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
+        ElicitationCommandError, ElicitationErrorKind, ElicitationOutputFormat,
+    },
     store_args::{build_store, CacheStorageArg, StoreSourceArgs},
     BoxErr,
 };
@@ -603,6 +607,10 @@ enum CallErrorCode {
     Disconnected,
     ToolFailed,
     ProtocolFailed,
+    ElicitationInputRequired,
+    ElicitationCancelled,
+    ElicitationTimedOut,
+    ElicitationInvalidResponse,
     CommandFailed,
 }
 
@@ -619,6 +627,10 @@ impl CallErrorCode {
             Self::Disconnected => "execution_disconnected",
             Self::ToolFailed => "tool_failed",
             Self::ProtocolFailed => "protocol_failed",
+            Self::ElicitationInputRequired => "input_required",
+            Self::ElicitationCancelled => "elicitation_cancelled",
+            Self::ElicitationTimedOut => "elicitation_timed_out",
+            Self::ElicitationInvalidResponse => "elicitation_invalid_response",
             Self::CommandFailed => "call_command_failed",
         }
     }
@@ -635,6 +647,10 @@ impl CallErrorCode {
             Self::Disconnected => 32,
             Self::ToolFailed => 33,
             Self::ProtocolFailed => 34,
+            Self::ElicitationInputRequired => 35,
+            Self::ElicitationCancelled => 36,
+            Self::ElicitationTimedOut => 37,
+            Self::ElicitationInvalidResponse => 38,
             Self::CommandFailed => 1,
         }
     }
@@ -643,6 +659,10 @@ impl CallErrorCode {
         match self {
             Self::Cancelled => "execution.cancelled",
             Self::TimedOut => "execution.timed_out",
+            Self::ElicitationInputRequired => "elicitation.input_required",
+            Self::ElicitationCancelled => "elicitation.cancelled",
+            Self::ElicitationTimedOut => "elicitation.timed_out",
+            Self::ElicitationInvalidResponse => "elicitation.invalid_response",
             _ => "execution.failed",
         }
     }
@@ -708,6 +728,9 @@ impl CallCommandError {
                 | TransportError::Io(_) => CallErrorCode::ConnectionFailed,
                 TransportError::ToolCallFailed(_) => CallErrorCode::ToolFailed,
                 TransportError::Protocol(_) => CallErrorCode::ProtocolFailed,
+                TransportError::ElicitationSessionActive { .. } => {
+                    CallErrorCode::ElicitationInvalidResponse
+                }
                 TransportError::TaskNotFound { .. } | TransportError::TaskState(_) => {
                     CallErrorCode::CommandFailed
                 }
@@ -779,6 +802,8 @@ pub struct CallToolArgs {
     #[arg(long, help = "Guarantee that the command does not prompt for input")]
     pub non_interactive: bool,
     #[command(flatten)]
+    pub elicitation: ElicitationArgs,
+    #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
@@ -831,6 +856,12 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
         options = options.with_max_total_timeout(Duration::from_secs(timeout));
     }
 
+    let mut elicitation = store
+        .open_elicitation_session(instance_id, a.elicitation.session_options())
+        .await
+        .map_err(|error| {
+            CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+        })?;
     let mut execution = store
         .start_tool_execution(instance_id, &a.tool_name, args, options)
         .await
@@ -847,6 +878,35 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
             tokio::select! {
                 biased;
                 update = execution.next_update() => update,
+                request = async {
+                    match elicitation.as_mut() {
+                        Some(session) => session.next_request().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    match request {
+                        Some(request) => {
+                            if let Err(error) = handle_elicitation(
+                                request,
+                                &a.elicitation,
+                                call_elicitation_output(a.output),
+                                a.non_interactive,
+                            )
+                            .await
+                            {
+                                settle_execution_after_elicitation_error(&mut execution).await;
+                                return Err(call_elicitation_error(
+                                    error,
+                                    a.output,
+                                    instance_id,
+                                    &a.tool_name,
+                                ));
+                            }
+                        }
+                        None => elicitation = None,
+                    }
+                    continue;
+                }
                 signal = tokio::signal::ctrl_c() => {
                     signal.map_err(|error| CallCommandError::for_call(
                         a.output,
@@ -885,6 +945,29 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
             }
         }
     }
+}
+
+fn call_elicitation_output(output: CallOutputFormat) -> ElicitationOutputFormat {
+    match output {
+        CallOutputFormat::Human => ElicitationOutputFormat::Human,
+        CallOutputFormat::Json => ElicitationOutputFormat::Json,
+        CallOutputFormat::Jsonl => ElicitationOutputFormat::Jsonl,
+    }
+}
+
+fn call_elicitation_error(
+    error: ElicitationCommandError,
+    output: CallOutputFormat,
+    instance_id: InstanceId,
+    tool_name: &str,
+) -> CallCommandError {
+    let code = match error.kind() {
+        ElicitationErrorKind::InputRequired => CallErrorCode::ElicitationInputRequired,
+        ElicitationErrorKind::Cancelled => CallErrorCode::ElicitationCancelled,
+        ElicitationErrorKind::TimedOut => CallErrorCode::ElicitationTimedOut,
+        ElicitationErrorKind::InvalidResponse => CallErrorCode::ElicitationInvalidResponse,
+    };
+    CallCommandError::for_call(output, code, error.message(), instance_id, tool_name)
 }
 
 fn parse_call_arguments(

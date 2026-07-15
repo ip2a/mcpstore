@@ -7,6 +7,10 @@ use mcpstore::{
 use serde_json::{json, Value};
 use std::time::Duration;
 
+use crate::commands::elicitation::{
+    handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
+    ElicitationCommandError, ElicitationErrorKind, ElicitationOutputFormat,
+};
 use crate::store_args::{build_store, StoreSourceArgs};
 use crate::BoxErr;
 
@@ -35,6 +39,10 @@ enum TaskErrorCode {
     ExecutionCancelled,
     ExecutionTimedOut,
     ExecutionDisconnected,
+    ElicitationInputRequired,
+    ElicitationCancelled,
+    ElicitationTimedOut,
+    ElicitationInvalidResponse,
     CommandFailed,
 }
 
@@ -56,6 +64,10 @@ impl TaskErrorCode {
             Self::ExecutionCancelled => "execution_cancelled",
             Self::ExecutionTimedOut => "execution_timed_out",
             Self::ExecutionDisconnected => "execution_disconnected",
+            Self::ElicitationInputRequired => "input_required",
+            Self::ElicitationCancelled => "elicitation_cancelled",
+            Self::ElicitationTimedOut => "elicitation_timed_out",
+            Self::ElicitationInvalidResponse => "elicitation_invalid_response",
             Self::CommandFailed => "task_command_failed",
         }
     }
@@ -77,6 +89,10 @@ impl TaskErrorCode {
             Self::ExecutionCancelled => 30,
             Self::ExecutionTimedOut => 31,
             Self::ExecutionDisconnected => 32,
+            Self::ElicitationInputRequired => 35,
+            Self::ElicitationCancelled => 36,
+            Self::ElicitationTimedOut => 37,
+            Self::ElicitationInvalidResponse => 38,
             Self::CommandFailed => 1,
         }
     }
@@ -86,6 +102,10 @@ impl TaskErrorCode {
             Self::ExecutionCancelled => "task.cancelled",
             Self::ExecutionTimedOut => "task.timed_out",
             Self::ExecutionDisconnected => "task.failed",
+            Self::ElicitationInputRequired => "elicitation.input_required",
+            Self::ElicitationCancelled => "elicitation.cancelled",
+            Self::ElicitationTimedOut => "elicitation.timed_out",
+            Self::ElicitationInvalidResponse => "elicitation.invalid_response",
             _ => "task.error",
         }
     }
@@ -144,6 +164,9 @@ impl TaskCommandError {
                 TransportError::ConnectionFailed(_)
                 | TransportError::NotConnected(_)
                 | TransportError::Io(_) => TaskErrorCode::ConnectionFailed,
+                TransportError::ElicitationSessionActive { .. } => {
+                    TaskErrorCode::ElicitationInvalidResponse
+                }
                 TransportError::TaskNotFound { .. } => TaskErrorCode::TaskNotFound,
                 TransportError::Protocol(_) => TaskErrorCode::TaskProtocolFailed,
                 TransportError::TaskState(_) => TaskErrorCode::TaskStateFailed,
@@ -243,6 +266,8 @@ pub struct TaskRunArgs {
     )]
     pub max_total_timeout: Option<u64>,
     #[command(flatten)]
+    pub elicitation: ElicitationArgs,
+    #[command(flatten)]
     pub runtime: TaskRuntimeArgs,
 }
 
@@ -292,6 +317,10 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
         options = options.with_max_total_timeout(Duration::from_secs(timeout));
     }
 
+    let mut elicitation = store
+        .open_elicitation_session(args.instance_id, args.elicitation.session_options())
+        .await
+        .map_err(|error| TaskCommandError::from_store(error, output))?;
     let mut execution = store
         .start_task_execution(args.instance_id, &args.tool_name, input, args.ttl, options)
         .await
@@ -306,6 +335,34 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
             tokio::select! {
                 biased;
                 update = execution.next_update() => update,
+                request = async {
+                    match elicitation.as_mut() {
+                        Some(session) => session.next_request().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    match request {
+                        Some(request) => {
+                            if let Err(error) = handle_elicitation(
+                                request,
+                                &args.elicitation,
+                                task_elicitation_output(output),
+                                args.runtime.non_interactive,
+                            )
+                            .await
+                            {
+                                settle_execution_after_elicitation_error(&mut execution).await;
+                                return Err(task_elicitation_error(
+                                    error,
+                                    output,
+                                    args.instance_id,
+                                ));
+                            }
+                        }
+                        None => elicitation = None,
+                    }
+                    continue;
+                }
                 signal = tokio::signal::ctrl_c() => {
                     signal.map_err(|error| TaskCommandError::new(
                         output,
@@ -358,6 +415,28 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
             }
         }
     }
+}
+
+fn task_elicitation_output(output: TaskOutputFormat) -> ElicitationOutputFormat {
+    match output {
+        TaskOutputFormat::Human => ElicitationOutputFormat::Human,
+        TaskOutputFormat::Json => ElicitationOutputFormat::Json,
+        TaskOutputFormat::Jsonl => ElicitationOutputFormat::Jsonl,
+    }
+}
+
+fn task_elicitation_error(
+    error: ElicitationCommandError,
+    output: TaskOutputFormat,
+    instance_id: InstanceId,
+) -> TaskCommandError {
+    let code = match error.kind() {
+        ElicitationErrorKind::InputRequired => TaskErrorCode::ElicitationInputRequired,
+        ElicitationErrorKind::Cancelled => TaskErrorCode::ElicitationCancelled,
+        ElicitationErrorKind::TimedOut => TaskErrorCode::ElicitationTimedOut,
+        ElicitationErrorKind::InvalidResponse => TaskErrorCode::ElicitationInvalidResponse,
+    };
+    TaskCommandError::new(output, code, error.message()).with_instance(instance_id)
 }
 
 async fn finish_task_execution(
