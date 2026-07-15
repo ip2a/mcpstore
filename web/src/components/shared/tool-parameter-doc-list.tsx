@@ -36,7 +36,7 @@ export function ToolParameterDocList({
   }
 
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div className={cn("@container flex flex-col", className)}>
       {fields.map(([name, field], index) => {
         const isRequired = required.includes(name)
         const fieldType = resolveSchemaFieldType(field)
