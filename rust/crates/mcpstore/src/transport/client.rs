@@ -125,6 +125,17 @@ impl McpConnection {
         self.instance_id
     }
 
+    pub(in crate::transport) fn open_elicitation_session(
+        &self,
+        options: crate::transport::McpElicitationSessionOptions,
+    ) -> Result<crate::transport::McpElicitationSession> {
+        self.handler
+            .open_elicitation_session(options)
+            .map_err(|()| TransportError::ElicitationSessionActive {
+                instance_id: self.instance_id,
+            })
+    }
+
     pub(in crate::transport) fn subscribe_progress(
         &self,
     ) -> tokio::sync::broadcast::Receiver<rmcp::model::ProgressNotificationParam> {
