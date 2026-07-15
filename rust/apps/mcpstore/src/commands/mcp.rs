@@ -1,9 +1,15 @@
 use clap::{Args, ValueEnum};
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
+use mcpstore::transport::TransportError;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::time::Duration;
 
-use mcpstore::{InstanceId, ScopeRef};
+use mcpstore::{
+    InstanceId, McpExecutionOptions, McpStoreExecutionUpdate, McpToolExecution, ScopeRef,
+    StoreError, ToolCallResult,
+};
 
 use crate::{
     store_args::{build_store, CacheStorageArg, StoreSourceArgs},
@@ -577,14 +583,201 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
+pub enum CallOutputFormat {
+    #[default]
+    Human,
+    Json,
+    Jsonl,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum CallErrorCode {
+    InvalidInput,
+    ServiceNotFound,
+    ConnectionFailed,
+    AuthenticationRequired,
+    CapabilityUnsupported,
+    Cancelled,
+    TimedOut,
+    Disconnected,
+    ToolFailed,
+    ProtocolFailed,
+    CommandFailed,
+}
+
+impl CallErrorCode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidInput => "invalid_input",
+            Self::ServiceNotFound => "service_not_found",
+            Self::ConnectionFailed => "connection_failed",
+            Self::AuthenticationRequired => "authentication_required",
+            Self::CapabilityUnsupported => "capability_unsupported",
+            Self::Cancelled => "execution_cancelled",
+            Self::TimedOut => "execution_timed_out",
+            Self::Disconnected => "execution_disconnected",
+            Self::ToolFailed => "tool_failed",
+            Self::ProtocolFailed => "protocol_failed",
+            Self::CommandFailed => "call_command_failed",
+        }
+    }
+
+    fn exit_code(self) -> i32 {
+        match self {
+            Self::InvalidInput => 2,
+            Self::ServiceNotFound => 10,
+            Self::ConnectionFailed => 11,
+            Self::AuthenticationRequired => 12,
+            Self::CapabilityUnsupported => 20,
+            Self::Cancelled => 30,
+            Self::TimedOut => 31,
+            Self::Disconnected => 32,
+            Self::ToolFailed => 33,
+            Self::ProtocolFailed => 34,
+            Self::CommandFailed => 1,
+        }
+    }
+
+    fn event(self) -> &'static str {
+        match self {
+            Self::Cancelled => "execution.cancelled",
+            Self::TimedOut => "execution.timed_out",
+            _ => "execution.failed",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CallCommandError {
+    format: CallOutputFormat,
+    code: CallErrorCode,
+    message: String,
+    instance_id: Option<InstanceId>,
+    tool_name: Option<String>,
+}
+
+impl CallCommandError {
+    fn new(format: CallOutputFormat, code: CallErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            format,
+            code,
+            message: message.into(),
+            instance_id: None,
+            tool_name: None,
+        }
+    }
+
+    fn for_call(
+        format: CallOutputFormat,
+        code: CallErrorCode,
+        message: impl Into<String>,
+        instance_id: InstanceId,
+        tool_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            format,
+            code,
+            message: message.into(),
+            instance_id: Some(instance_id),
+            tool_name: Some(tool_name.into()),
+        }
+    }
+
+    fn from_store(
+        error: StoreError,
+        format: CallOutputFormat,
+        instance_id: InstanceId,
+        tool_name: &str,
+    ) -> Self {
+        let code = match &error {
+            StoreError::ServiceNotFound(_) => CallErrorCode::ServiceNotFound,
+            StoreError::Auth(_) => CallErrorCode::AuthenticationRequired,
+            StoreError::Transport(error) => match error {
+                TransportError::AuthRequired(_) | TransportError::InsufficientScope { .. } => {
+                    CallErrorCode::AuthenticationRequired
+                }
+                TransportError::CapabilityUnsupported { .. } => {
+                    CallErrorCode::CapabilityUnsupported
+                }
+                TransportError::RequestCancelled { .. } => CallErrorCode::Cancelled,
+                TransportError::RequestTimedOut { .. } => CallErrorCode::TimedOut,
+                TransportError::RequestDisconnected { .. } => CallErrorCode::Disconnected,
+                TransportError::ConnectionFailed(_)
+                | TransportError::NotConnected(_)
+                | TransportError::Io(_) => CallErrorCode::ConnectionFailed,
+                TransportError::ToolCallFailed(_) => CallErrorCode::ToolFailed,
+                TransportError::Protocol(_) => CallErrorCode::ProtocolFailed,
+                TransportError::TaskNotFound { .. } | TransportError::TaskState(_) => {
+                    CallErrorCode::CommandFailed
+                }
+            },
+            StoreError::Cache(_) | StoreError::Config(_) | StoreError::Other(_) => {
+                CallErrorCode::CommandFailed
+            }
+        };
+        Self::for_call(format, code, error.to_string(), instance_id, tool_name)
+    }
+
+    pub fn exit_code(&self) -> i32 {
+        self.code.exit_code()
+    }
+
+    fn json_value(&self) -> Value {
+        json!({
+            "event": self.code.event(),
+            "error": {
+                "code": self.code.as_str(),
+                "message": self.message,
+            },
+            "instance_id": self.instance_id,
+            "tool_name": self.tool_name,
+        })
+    }
+}
+
+impl std::fmt::Display for CallCommandError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.format {
+            CallOutputFormat::Human => {
+                write!(formatter, "{}: {}", self.code.as_str(), self.message)
+            }
+            CallOutputFormat::Json | CallOutputFormat::Jsonl => self.json_value().fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for CallCommandError {}
+
 #[derive(Args)]
 pub struct CallToolArgs {
     #[arg(help = "Service instance ID")]
     pub instance_id: String,
     #[arg(help = "Tool name")]
     pub tool_name: String,
-    #[arg(long, default_value = "{}", help = "Tool call arguments JSON string")]
+    #[arg(long, default_value = "{}", help = "Tool call arguments JSON object")]
     pub arguments: String,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = CallOutputFormat::Human,
+        help = "Output format: human, json, or jsonl"
+    )]
+    pub output: CallOutputFormat,
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        help = "Idle timeout, reset by matching progress"
+    )]
+    pub timeout: Option<u64>,
+    #[arg(
+        long = "max-total-timeout",
+        value_name = "SECONDS",
+        help = "Maximum total execution time"
+    )]
+    pub max_total_timeout: Option<u64>,
+    #[arg(long, help = "Guarantee that the command does not prompt for input")]
+    pub non_interactive: bool,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
@@ -607,55 +800,234 @@ pub struct MigrateBackendArgs {
 }
 
 pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
-    let args: serde_json::Value = serde_json::from_str(&a.arguments)?;
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({
-            "instance_id": a.instance_id,
-            "tool_name": a.tool_name,
-            "args": args,
-        });
-        let result = crate::daemon::client::call_daemon("call_tool", params).await?;
-        let is_error = result
-            .get("is_error")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        if is_error {
-            eprintln!("[Error] Tool call returned error");
-        }
-        let content = result
-            .get("content")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        for item in content {
-            let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("text");
-            match item_type {
-                "text" => {
-                    let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                    println!("{}", text);
+    execute_call_tool(a)
+        .await
+        .map_err(|error| Box::new(error) as BoxErr)
+}
+
+async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
+    let args = parse_call_arguments(&a.arguments, a.output)?;
+    let instance_id = parse_instance_id(&a.instance_id).map_err(|error| {
+        CallCommandError::new(a.output, CallErrorCode::InvalidInput, error.to_string())
+    })?;
+    let store = build_store(&a.store).map_err(|error| {
+        CallCommandError::for_call(
+            a.output,
+            CallErrorCode::CommandFailed,
+            error.to_string(),
+            instance_id,
+            &a.tool_name,
+        )
+    })?;
+    store.load_from_source().await.map_err(|error| {
+        CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+    })?;
+
+    let mut options = McpExecutionOptions::default();
+    if let Some(timeout) = a.timeout {
+        options = options.with_idle_timeout(Duration::from_secs(timeout));
+    }
+    if let Some(timeout) = a.max_total_timeout {
+        options = options.with_max_total_timeout(Duration::from_secs(timeout));
+    }
+
+    let mut execution = store
+        .start_tool_execution(instance_id, &a.tool_name, args, options)
+        .await
+        .map_err(|error| {
+            CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+        })?;
+    emit_call_started(a.output, &a.tool_name, &execution)?;
+
+    let mut cancellation_requested = false;
+    loop {
+        let update = if cancellation_requested {
+            execution.next_update().await
+        } else {
+            tokio::select! {
+                biased;
+                update = execution.next_update() => update,
+                signal = tokio::signal::ctrl_c() => {
+                    signal.map_err(|error| CallCommandError::for_call(
+                        a.output,
+                        CallErrorCode::CommandFailed,
+                        format!("failed to listen for Ctrl+C: {error}"),
+                        instance_id,
+                        &a.tool_name,
+                    ))?;
+                    if execution.cancel("cancelled by user (Ctrl+C)") {
+                        cancellation_requested = true;
+                        emit_call_cancellation_requested(a.output, instance_id, &a.tool_name)?;
+                    }
+                    continue;
                 }
-                "image" => {
-                    let mime = item
-                        .get("mime_type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
-                    println!("[Image: {}]", mime);
-                }
-                _ => {}
+            }
+        };
+
+        match update {
+            Some(McpStoreExecutionUpdate::Progress(progress)) => {
+                emit_call_progress(a.output, &a.tool_name, &progress)?;
+            }
+            Some(McpStoreExecutionUpdate::Finished(result)) => {
+                let execution = result.map_err(|error| {
+                    CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+                })?;
+                return finish_call_execution(a.output, instance_id, &a.tool_name, execution);
+            }
+            None => {
+                return Err(CallCommandError::for_call(
+                    a.output,
+                    CallErrorCode::ProtocolFailed,
+                    "tool execution ended without a result",
+                    instance_id,
+                    &a.tool_name,
+                ));
             }
         }
+    }
+}
+
+fn parse_call_arguments(
+    arguments: &str,
+    output: CallOutputFormat,
+) -> Result<Value, CallCommandError> {
+    let value: Value = serde_json::from_str(arguments).map_err(|error| {
+        CallCommandError::new(
+            output,
+            CallErrorCode::InvalidInput,
+            format!("invalid --arguments JSON: {error}"),
+        )
+    })?;
+    if !value.is_object() {
+        return Err(CallCommandError::new(
+            output,
+            CallErrorCode::InvalidInput,
+            "--arguments must be a JSON object",
+        ));
+    }
+    Ok(value)
+}
+
+fn emit_call_started(
+    output: CallOutputFormat,
+    tool_name: &str,
+    execution: &mcpstore::McpStoreToolExecutionHandle<'_>,
+) -> Result<(), CallCommandError> {
+    if output != CallOutputFormat::Jsonl {
         return Ok(());
     }
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-    let instance_id = parse_instance_id(&a.instance_id)?;
-    store.connect_service(instance_id).await?;
+    emit_call_value(
+        output,
+        json!({
+            "event": "execution.started",
+            "instance_id": execution.instance_id(),
+            "tool_name": tool_name,
+            "request_id": execution.request_id(),
+            "progress_token": execution.progress_token(),
+            "cancellable": execution.supports_cancellation(),
+        }),
+    )
+}
 
-    let result = store.call_tool(instance_id, &a.tool_name, args).await?;
-
-    if result.is_error {
-        eprintln!("[Error] Tool call returned error");
+fn emit_call_progress(
+    output: CallOutputFormat,
+    tool_name: &str,
+    progress: &mcpstore::McpExecutionProgress,
+) -> Result<(), CallCommandError> {
+    match output {
+        CallOutputFormat::Human => {
+            let amount = progress.total.map_or_else(
+                || progress.progress.to_string(),
+                |total| format!("{}/{}", progress.progress, total),
+            );
+            if let Some(message) = &progress.message {
+                eprintln!("[Progress] {tool_name}: {amount} {message}");
+            } else {
+                eprintln!("[Progress] {tool_name}: {amount}");
+            }
+            Ok(())
+        }
+        CallOutputFormat::Json => Ok(()),
+        CallOutputFormat::Jsonl => emit_call_value(
+            output,
+            json!({
+                "event": "execution.progress",
+                "instance_id": progress.instance_id,
+                "tool_name": tool_name,
+                "progress_token": progress.progress_token,
+                "progress": progress.progress,
+                "total": progress.total,
+                "message": progress.message,
+            }),
+        ),
     }
+}
+
+fn emit_call_cancellation_requested(
+    output: CallOutputFormat,
+    instance_id: InstanceId,
+    tool_name: &str,
+) -> Result<(), CallCommandError> {
+    match output {
+        CallOutputFormat::Human => {
+            eprintln!("[Cancellation requested] {tool_name}");
+            Ok(())
+        }
+        CallOutputFormat::Json => Ok(()),
+        CallOutputFormat::Jsonl => emit_call_value(
+            output,
+            json!({
+                "event": "execution.cancellation_requested",
+                "instance_id": instance_id,
+                "tool_name": tool_name,
+            }),
+        ),
+    }
+}
+
+fn finish_call_execution(
+    output: CallOutputFormat,
+    instance_id: InstanceId,
+    tool_name: &str,
+    execution: McpToolExecution,
+) -> Result<(), CallCommandError> {
+    let McpToolExecution::Immediate { result } = execution else {
+        return Err(CallCommandError::for_call(
+            output,
+            CallErrorCode::ProtocolFailed,
+            "tool call unexpectedly returned a task",
+            instance_id,
+            tool_name,
+        ));
+    };
+    if result.is_error {
+        return Err(CallCommandError::for_call(
+            output,
+            CallErrorCode::ToolFailed,
+            tool_error_message(&result),
+            instance_id,
+            tool_name,
+        ));
+    }
+
+    match output {
+        CallOutputFormat::Human => {
+            print_tool_content(&result);
+            Ok(())
+        }
+        CallOutputFormat::Json | CallOutputFormat::Jsonl => emit_call_value(
+            output,
+            json!({
+                "event": "execution.completed",
+                "instance_id": instance_id,
+                "tool_name": tool_name,
+                "result": result,
+            }),
+        ),
+    }
+}
+
+fn print_tool_content(result: &ToolCallResult) {
     for item in &result.content {
         match item {
             mcpstore::transport::ContentItem::Text { text, .. } => println!("{text}"),
@@ -673,6 +1045,33 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
             }
         }
     }
+}
+
+fn tool_error_message(result: &ToolCallResult) -> String {
+    result
+        .content
+        .iter()
+        .find_map(|item| match item {
+            mcpstore::transport::ContentItem::Text { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "tool returned an error result".to_string())
+}
+
+fn emit_call_value(output: CallOutputFormat, value: Value) -> Result<(), CallCommandError> {
+    let encoded = match output {
+        CallOutputFormat::Human => Ok(value.to_string()),
+        CallOutputFormat::Json => serde_json::to_string_pretty(&value),
+        CallOutputFormat::Jsonl => serde_json::to_string(&value),
+    }
+    .map_err(|error| {
+        CallCommandError::new(
+            output,
+            CallErrorCode::CommandFailed,
+            format!("failed to encode call output: {error}"),
+        )
+    })?;
+    println!("{encoded}");
     Ok(())
 }
 
@@ -880,6 +1279,59 @@ fn validate_scope_target(scope: &Scope, agent: Option<&str>) -> std::result::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn call_arguments_require_a_json_object() {
+        assert_eq!(
+            parse_call_arguments(r#"{"value":1}"#, CallOutputFormat::Human).unwrap()["value"],
+            1
+        );
+        let error = parse_call_arguments("[]", CallOutputFormat::Jsonl).unwrap_err();
+        assert_eq!(error.code, CallErrorCode::InvalidInput);
+        assert_eq!(error.exit_code(), 2);
+        let value: Value = serde_json::from_str(&error.to_string()).unwrap();
+        assert_eq!(value["event"], "execution.failed");
+        assert_eq!(value["error"]["code"], "invalid_input");
+    }
+
+    #[test]
+    fn execution_store_errors_have_stable_codes_and_events() {
+        let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
+        for (error, code, exit_code, event) in [
+            (
+                TransportError::RequestCancelled {
+                    reason: Some("cancelled".to_string()),
+                },
+                CallErrorCode::Cancelled,
+                30,
+                "execution.cancelled",
+            ),
+            (
+                TransportError::RequestTimedOut {
+                    timeout: Duration::from_secs(1),
+                },
+                CallErrorCode::TimedOut,
+                31,
+                "execution.timed_out",
+            ),
+            (
+                TransportError::RequestDisconnected { instance_id },
+                CallErrorCode::Disconnected,
+                32,
+                "execution.failed",
+            ),
+        ] {
+            let error = CallCommandError::from_store(
+                StoreError::Transport(error),
+                CallOutputFormat::Jsonl,
+                instance_id,
+                "long_tool",
+            );
+            assert_eq!(error.code, code);
+            assert_eq!(error.exit_code(), exit_code);
+            assert_eq!(error.json_value()["event"], event);
+        }
+    }
 
     #[test]
     fn parse_key_values_rejects_missing_separator() {

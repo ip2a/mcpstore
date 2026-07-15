@@ -1,9 +1,11 @@
 use clap::{Args, Subcommand, ValueEnum};
 use mcpstore::transport::TransportError;
 use mcpstore::{
-    InstanceId, MCPStore, McpTask, McpTaskRecord, McpTaskStatus, McpToolExecution, StoreError,
+    InstanceId, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpTask, McpTaskRecord,
+    McpTaskStatus, McpToolExecution, StoreError,
 };
 use serde_json::{json, Value};
+use std::time::Duration;
 
 use crate::store_args::{build_store, StoreSourceArgs};
 use crate::BoxErr;
@@ -30,6 +32,9 @@ enum TaskErrorCode {
     TaskNotCancellable,
     TaskProtocolFailed,
     TaskStateFailed,
+    ExecutionCancelled,
+    ExecutionTimedOut,
+    ExecutionDisconnected,
     CommandFailed,
 }
 
@@ -48,6 +53,9 @@ impl TaskErrorCode {
             Self::TaskNotCancellable => "task_not_cancellable",
             Self::TaskProtocolFailed => "task_protocol_failed",
             Self::TaskStateFailed => "task_state_failed",
+            Self::ExecutionCancelled => "execution_cancelled",
+            Self::ExecutionTimedOut => "execution_timed_out",
+            Self::ExecutionDisconnected => "execution_disconnected",
             Self::CommandFailed => "task_command_failed",
         }
     }
@@ -66,7 +74,19 @@ impl TaskErrorCode {
             Self::TaskProtocolFailed => 25,
             Self::TaskStateFailed => 26,
             Self::TaskNotCancellable => 27,
+            Self::ExecutionCancelled => 30,
+            Self::ExecutionTimedOut => 31,
+            Self::ExecutionDisconnected => 32,
             Self::CommandFailed => 1,
+        }
+    }
+
+    fn event(self) -> &'static str {
+        match self {
+            Self::ExecutionCancelled => "task.cancelled",
+            Self::ExecutionTimedOut => "task.timed_out",
+            Self::ExecutionDisconnected => "task.failed",
+            _ => "task.error",
         }
     }
 }
@@ -118,21 +138,26 @@ impl TaskCommandError {
                 TransportError::CapabilityUnsupported { .. } => {
                     TaskErrorCode::CapabilityUnsupported
                 }
+                TransportError::RequestCancelled { .. } => TaskErrorCode::ExecutionCancelled,
+                TransportError::RequestTimedOut { .. } => TaskErrorCode::ExecutionTimedOut,
+                TransportError::RequestDisconnected { .. } => TaskErrorCode::ExecutionDisconnected,
                 TransportError::ConnectionFailed(_)
                 | TransportError::NotConnected(_)
-                | TransportError::RequestDisconnected { .. }
                 | TransportError::Io(_) => TaskErrorCode::ConnectionFailed,
                 TransportError::TaskNotFound { .. } => TaskErrorCode::TaskNotFound,
                 TransportError::Protocol(_) => TaskErrorCode::TaskProtocolFailed,
                 TransportError::TaskState(_) => TaskErrorCode::TaskStateFailed,
-                TransportError::ToolCallFailed(_)
-                | TransportError::RequestCancelled { .. }
-                | TransportError::RequestTimedOut { .. } => TaskErrorCode::CommandFailed,
+                TransportError::ToolCallFailed(_) => TaskErrorCode::CommandFailed,
             },
             StoreError::Cache(_) => TaskErrorCode::TaskStateFailed,
             StoreError::Config(_) | StoreError::Other(_) => TaskErrorCode::CommandFailed,
         };
         Self::new(format, code, error.to_string())
+    }
+
+    fn with_instance(mut self, instance_id: InstanceId) -> Self {
+        self.instance_id = Some(instance_id);
+        self
     }
 
     pub fn exit_code(&self) -> i32 {
@@ -141,7 +166,7 @@ impl TaskCommandError {
 
     fn json_value(&self) -> Value {
         json!({
-            "event": "task.error",
+            "event": self.code.event(),
             "error": {
                 "code": self.code.as_str(),
                 "message": self.message,
@@ -205,6 +230,18 @@ pub struct TaskRunArgs {
     pub input: String,
     #[arg(long, help = "Requested task retention TTL in milliseconds")]
     pub ttl: Option<u64>,
+    #[arg(
+        long,
+        value_name = "SECONDS",
+        help = "Idle timeout, reset by matching progress"
+    )]
+    pub timeout: Option<u64>,
+    #[arg(
+        long = "max-total-timeout",
+        value_name = "SECONDS",
+        help = "Maximum total execution time"
+    )]
+    pub max_total_timeout: Option<u64>,
     #[command(flatten)]
     pub runtime: TaskRuntimeArgs,
 }
@@ -247,32 +284,213 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
     let output = args.runtime.output;
     let input = parse_input(&args.input, output)?;
     let store = loaded_store(&args.runtime, output).await?;
-    let execution = store
-        .call_task_tool(args.instance_id, &args.tool_name, input, args.ttl)
+    let mut options = McpExecutionOptions::default();
+    if let Some(timeout) = args.timeout {
+        options = options.with_idle_timeout(Duration::from_secs(timeout));
+    }
+    if let Some(timeout) = args.max_total_timeout {
+        options = options.with_max_total_timeout(Duration::from_secs(timeout));
+    }
+
+    let mut execution = store
+        .start_task_execution(args.instance_id, &args.tool_name, input, args.ttl, options)
         .await
         .map_err(|error| TaskCommandError::from_store(error, output))?;
+    emit_task_started(output, &args.tool_name, &execution)?;
 
+    let mut cancellation_requested = false;
+    loop {
+        let update = if cancellation_requested {
+            execution.next_update().await
+        } else {
+            tokio::select! {
+                biased;
+                update = execution.next_update() => update,
+                signal = tokio::signal::ctrl_c() => {
+                    signal.map_err(|error| TaskCommandError::new(
+                        output,
+                        TaskErrorCode::CommandFailed,
+                        format!("failed to listen for Ctrl+C: {error}"),
+                    ))?;
+                    if execution.cancel("cancelled by user (Ctrl+C)") {
+                        cancellation_requested = true;
+                        emit_task_cancellation_requested(output, args.instance_id, &args.tool_name)?;
+                    }
+                    continue;
+                }
+            }
+        };
+
+        match update {
+            Some(McpStoreExecutionUpdate::Progress(progress)) => {
+                emit_task_progress(output, &args.tool_name, &progress)?;
+            }
+            Some(McpStoreExecutionUpdate::Finished(result)) => {
+                let execution = result.map_err(|error| {
+                    TaskCommandError::from_store(error, output).with_instance(args.instance_id)
+                })?;
+                if cancellation_requested {
+                    return cancel_created_task(
+                        &store,
+                        output,
+                        args.instance_id,
+                        &args.tool_name,
+                        execution,
+                    )
+                    .await;
+                }
+                return finish_task_execution(
+                    &store,
+                    output,
+                    args.instance_id,
+                    &args.tool_name,
+                    execution,
+                )
+                .await;
+            }
+            None => {
+                return Err(TaskCommandError::new(
+                    output,
+                    TaskErrorCode::TaskProtocolFailed,
+                    "task execution ended without a result",
+                )
+                .with_instance(args.instance_id));
+            }
+        }
+    }
+}
+
+async fn finish_task_execution(
+    store: &MCPStore,
+    output: TaskOutputFormat,
+    instance_id: InstanceId,
+    tool_name: &str,
+    execution: McpToolExecution,
+) -> Result<(), TaskCommandError> {
     match execution {
         McpToolExecution::Immediate { result } => emit(
             output,
-            immediate_human(&args.tool_name, &result),
+            immediate_human(tool_name, &result),
             json!({
                 "event": "task.completed",
-                "instance_id": args.instance_id,
-                "tool_name": args.tool_name,
+                "instance_id": instance_id,
+                "tool_name": tool_name,
                 "execution": "immediate",
                 "result": result,
             }),
         ),
         McpToolExecution::Task { task } => {
-            let record =
-                require_task_record(&store, args.instance_id, &task.task_id, output).await?;
+            let record = require_task_record(store, instance_id, &task.task_id, output).await?;
             emit(
                 output,
                 task_human("created", &record),
                 task_event("task.created", &record),
             )
         }
+    }
+}
+
+async fn cancel_created_task(
+    store: &MCPStore,
+    output: TaskOutputFormat,
+    instance_id: InstanceId,
+    tool_name: &str,
+    execution: McpToolExecution,
+) -> Result<(), TaskCommandError> {
+    let task_id = match execution {
+        McpToolExecution::Task { task } => {
+            store
+                .cancel_task(instance_id, &task.task_id)
+                .await
+                .map_err(|error| with_task_context(error, output, instance_id, &task.task_id))?;
+            Some(task.task_id)
+        }
+        McpToolExecution::Immediate { .. } => None,
+    };
+    let mut error = TaskCommandError::new(
+        output,
+        TaskErrorCode::ExecutionCancelled,
+        format!("task execution for {tool_name} was cancelled by user"),
+    )
+    .with_instance(instance_id);
+    error.task_id = task_id;
+    Err(error)
+}
+
+fn emit_task_started(
+    output: TaskOutputFormat,
+    tool_name: &str,
+    execution: &mcpstore::McpStoreToolExecutionHandle<'_>,
+) -> Result<(), TaskCommandError> {
+    if output != TaskOutputFormat::Jsonl {
+        return Ok(());
+    }
+    emit_value(
+        output,
+        json!({
+            "event": "task.started",
+            "instance_id": execution.instance_id(),
+            "tool_name": tool_name,
+            "request_id": execution.request_id(),
+            "progress_token": execution.progress_token(),
+            "cancellable": execution.supports_cancellation(),
+        }),
+    )
+}
+
+fn emit_task_progress(
+    output: TaskOutputFormat,
+    tool_name: &str,
+    progress: &mcpstore::McpExecutionProgress,
+) -> Result<(), TaskCommandError> {
+    match output {
+        TaskOutputFormat::Human => {
+            let amount = progress.total.map_or_else(
+                || progress.progress.to_string(),
+                |total| format!("{}/{}", progress.progress, total),
+            );
+            if let Some(message) = &progress.message {
+                eprintln!("[Progress] {tool_name}: {amount} {message}");
+            } else {
+                eprintln!("[Progress] {tool_name}: {amount}");
+            }
+            Ok(())
+        }
+        TaskOutputFormat::Json => Ok(()),
+        TaskOutputFormat::Jsonl => emit_value(
+            output,
+            json!({
+                "event": "task.progress",
+                "instance_id": progress.instance_id,
+                "tool_name": tool_name,
+                "progress_token": progress.progress_token,
+                "progress": progress.progress,
+                "total": progress.total,
+                "message": progress.message,
+            }),
+        ),
+    }
+}
+
+fn emit_task_cancellation_requested(
+    output: TaskOutputFormat,
+    instance_id: InstanceId,
+    tool_name: &str,
+) -> Result<(), TaskCommandError> {
+    match output {
+        TaskOutputFormat::Human => {
+            eprintln!("[Cancellation requested] {tool_name}");
+            Ok(())
+        }
+        TaskOutputFormat::Json => Ok(()),
+        TaskOutputFormat::Jsonl => emit_value(
+            output,
+            json!({
+                "event": "task.cancellation_requested",
+                "instance_id": instance_id,
+                "tool_name": tool_name,
+            }),
+        ),
     }
 }
 
@@ -710,6 +928,40 @@ mod tests {
         );
         assert_eq!(missing.code, TaskErrorCode::TaskNotFound);
         assert_eq!(missing.exit_code(), 21);
+    }
+
+    #[test]
+    fn execution_errors_have_stable_task_codes_and_events() {
+        let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
+        for (error, code, exit_code, event) in [
+            (
+                TransportError::RequestCancelled { reason: None },
+                TaskErrorCode::ExecutionCancelled,
+                30,
+                "task.cancelled",
+            ),
+            (
+                TransportError::RequestTimedOut {
+                    timeout: Duration::from_secs(1),
+                },
+                TaskErrorCode::ExecutionTimedOut,
+                31,
+                "task.timed_out",
+            ),
+            (
+                TransportError::RequestDisconnected { instance_id },
+                TaskErrorCode::ExecutionDisconnected,
+                32,
+                "task.failed",
+            ),
+        ] {
+            let error =
+                TaskCommandError::from_store(StoreError::Transport(error), TaskOutputFormat::Jsonl)
+                    .with_instance(instance_id);
+            assert_eq!(error.code, code);
+            assert_eq!(error.exit_code(), exit_code);
+            assert_eq!(error.json_value()["event"], event);
+        }
     }
 
     #[test]

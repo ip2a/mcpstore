@@ -1,5 +1,9 @@
 fn main() {
     if let Err(error) = mcpstore_cli::cli_app::run() {
+        if let Some(error) = error.downcast_ref::<mcpstore_cli::commands::mcp::CallCommandError>() {
+            eprintln!("{error}");
+            std::process::exit(error.exit_code());
+        }
         if let Some(error) = error.downcast_ref::<mcpstore_cli::commands::task::TaskCommandError>()
         {
             eprintln!("{error}");
