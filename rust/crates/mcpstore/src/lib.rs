@@ -68,9 +68,10 @@ pub use session::{
 // Facade re-exports: transport
 pub use transport::{
     ContentItem, DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
-    McpCompletion, McpCompletionReference, McpCompletionRequest, McpLoggingLevel,
-    McpServerCapabilities, McpServerImplementation, McpServerMetadata, McpTask, McpTaskRecord,
-    McpTaskStatus, McpToolExecution, ToolCallResult,
+    McpCompletion, McpCompletionReference, McpCompletionRequest, McpExecutionOptions,
+    McpExecutionProgress, McpExecutionUpdate, McpLoggingLevel, McpServerCapabilities,
+    McpServerImplementation, McpServerMetadata, McpTask, McpTaskRecord, McpTaskStatus,
+    McpToolExecution, McpToolExecutionHandle, ToolCallResult,
 };
 
 // Facade re-exports: core store

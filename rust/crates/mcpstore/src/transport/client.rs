@@ -125,6 +125,18 @@ impl McpConnection {
         self.instance_id
     }
 
+    pub(in crate::transport) fn subscribe_progress(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<rmcp::model::ProgressNotificationParam> {
+        self.handler.subscribe_progress()
+    }
+
+    pub(in crate::transport) fn execution_auth(
+        &self,
+    ) -> (AuthCoordinator, crate::auth::AuthConfig) {
+        (self.auth_coordinator.clone(), self.config.auth.clone())
+    }
+
     pub(in crate::transport) fn peer_info(&self) -> Result<Arc<InitializeResult>> {
         self.get_client()?.peer_info().ok_or_else(|| {
             TransportError::Protocol(format!(
