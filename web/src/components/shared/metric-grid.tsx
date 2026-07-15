@@ -19,10 +19,10 @@ type MetricTileProps = {
 }
 
 const gridColumns = {
-  auto: "grid gap-3 sm:grid-cols-2 xl:grid-cols-4",
+  auto: "grid min-w-0 grid-cols-1 gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-4 @min-[28rem]:gap-3",
   two: "grid grid-cols-2 gap-3",
   three: "grid grid-cols-3 gap-2",
-  four: "grid min-w-0 grid-cols-[repeat(4,minmax(0,1fr))] gap-2 sm:gap-3 [&>*]:min-w-0 [&>*]:overflow-hidden",
+  four: "grid min-w-0 grid-cols-1 gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-4 @min-[28rem]:gap-3 [&>*]:min-w-0 [&>*]:overflow-hidden",
 }
 
 export function MetricGrid({ columns = "auto", className, ...props }: MetricGridProps) {

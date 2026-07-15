@@ -92,7 +92,7 @@ function useToolPlaygroundData({
 export function ToolDetailDocHeader({ tool, className }: { tool: ToolInfo; className?: string }) {
   return (
     <header className={cn("shrink-0 space-y-3 border-b pb-4", className)}>
-      <TypographyH2 className="border-b-0 pb-0 font-mono text-xl">{tool.name}</TypographyH2>
+      <TypographyH2 className="border-b-0 pb-0 break-words font-mono text-xl">{tool.name}</TypographyH2>
       <ToolDescriptionBlock
         description={tool.description}
         showLabel={false}

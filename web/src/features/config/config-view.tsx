@@ -307,7 +307,7 @@ function ConfigDetailPane({
           </div>
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("endpoint")}</dt>
-            <dd className="font-mono">{scope.path}</dd>
+            <dd className="break-all font-mono">{scope.path}</dd>
           </div>
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("keys")}</dt>
