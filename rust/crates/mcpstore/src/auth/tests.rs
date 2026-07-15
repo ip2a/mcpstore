@@ -1004,6 +1004,38 @@ async fn complete_fixture_authorization(
         .unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_refreshes_are_serialized_per_instance() {
+    let fixture = OAuthFixture::spawn().await;
+    let keyring = test_keyring();
+    let coordinator = AuthCoordinator::for_tests(keyring).unwrap();
+    let instance_id = instance_id("concurrent-refresh");
+    let auth = authorization_code_config();
+    let mcp_url = fixture.mcp_url();
+
+    complete_fixture_authorization(&coordinator, &fixture, instance_id, &auth).await;
+
+    let first = coordinator.refresh(instance_id, &mcp_url, &auth);
+    let second = coordinator.refresh(instance_id, &mcp_url, &auth);
+    let (first_result, second_result) = tokio::join!(first, second);
+    assert!(first_result.is_ok());
+    assert!(second_result.is_ok());
+    assert_eq!(fixture.refresh_requests.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        coordinator.status(instance_id).await,
+        AuthStatus::Authenticated
+    );
+
+    let manager = coordinator
+        .prepare_http_authorization(instance_id, &mcp_url, &auth)
+        .await
+        .unwrap();
+    assert_eq!(
+        manager.get_access_token().await.unwrap(),
+        "fixture-refreshed-token"
+    );
+}
+
 #[tokio::test]
 async fn refresh_failure_clears_tokens_and_requires_authorization_again() {
     let fixture = OAuthFixture::spawn().await;
