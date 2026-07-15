@@ -21,6 +21,7 @@ impl CacheLayerManager {
             "sessions",
             "store",
             "tools",
+            "tasks",
         ];
         if ENTITY_TYPES.contains(&entity_type) {
             return Ok(());
