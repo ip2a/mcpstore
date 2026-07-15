@@ -3,9 +3,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use mcpstore::{AuthFlow, AuthStatusView, AuthorizationStart, InstanceId, MCPStore};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -16,6 +16,35 @@ use crate::BoxErr;
 
 const DEFAULT_CALLBACK_TIMEOUT_SECONDS: u64 = 300;
 const MAX_CALLBACK_REQUEST_BYTES: usize = 16 * 1024;
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
+pub enum OutputFormat {
+    #[default]
+    Human,
+    Json,
+}
+
+#[derive(Args)]
+pub struct AuthOutputArgs {
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = OutputFormat::Human,
+        help = "Output format: human or json (JSON is emitted as JSON Lines for multi-step flows)"
+    )]
+    pub output: OutputFormat,
+}
+
+#[derive(Args)]
+pub struct AuthFlowOutputArgs {
+    #[command(flatten)]
+    pub output: AuthOutputArgs,
+    #[arg(
+        long,
+        help = "Do not open a browser automatically; print the authorization handoff and wait for the callback"
+    )]
+    pub non_interactive: bool,
+}
 
 #[derive(Args)]
 pub struct AuthArgs {
@@ -39,6 +68,8 @@ pub struct AuthInstanceArgs {
     #[arg(help = "Service instance ID")]
     pub instance_id: InstanceId,
     #[command(flatten)]
+    pub output: AuthOutputArgs,
+    #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
@@ -52,6 +83,8 @@ pub struct AuthLoginArgs {
         help = "Local OAuth callback timeout in seconds"
     )]
     pub timeout: u64,
+    #[command(flatten)]
+    pub flow_output: AuthFlowOutputArgs,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
@@ -69,6 +102,8 @@ pub struct AuthScopeUpgradeArgs {
     )]
     pub timeout: u64,
     #[command(flatten)]
+    pub flow_output: AuthFlowOutputArgs,
+    #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
@@ -82,6 +117,8 @@ pub struct AuthPrivateKeyArgs {
         help = "Read the private key from this file instead of stdin"
     )]
     pub file: Option<PathBuf>,
+    #[command(flatten)]
+    pub output: AuthOutputArgs,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
@@ -100,6 +137,24 @@ struct AuthStartResponse {
 #[derive(Debug, Deserialize)]
 struct CallbackUriResponse {
     callback_uri: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+enum AuthOutputEvent<'a> {
+    Status {
+        auth: &'a AuthStatusView,
+    },
+    AuthorizationRequired {
+        instance_id: &'a InstanceId,
+        authorization_url: &'a str,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        scopes: &'a Vec<String>,
+    },
+    CredentialStored {
+        credential: &'a str,
+        stored: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -133,17 +188,19 @@ pub async fn run(args: AuthArgs) -> Result<(), BoxErr> {
 }
 
 async fn status(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+    let output = args.output.output;
     let auth = if crate::daemon::client::daemon_socket_exists() {
         daemon_auth_status(args.instance_id).await?
     } else {
         let store = loaded_store(&args.store).await?;
         store.auth_status_view(args.instance_id).await?
     };
-    print_auth_status(&auth);
-    Ok(())
+    print_auth_status(&auth, output)
 }
 
 async fn login(args: AuthLoginArgs) -> Result<(), BoxErr> {
+    let output = args.flow_output.output.output;
+    let open_browser = !args.flow_output.non_interactive;
     if crate::daemon::client::daemon_socket_exists() {
         let auth = daemon_auth_status(args.instance_id).await?;
         match auth.flow {
@@ -160,14 +217,15 @@ async fn login(args: AuthLoginArgs) -> Result<(), BoxErr> {
                     listener,
                     authorization,
                     args.timeout,
+                    output,
+                    open_browser,
                 )
                 .await
             }
             Some(AuthFlow::ClientCredentials) => {
                 let response: AuthStartResponse =
                     daemon_call("auth_begin", args.instance_id, json!({})).await?;
-                print_auth_status(&response.auth);
-                Ok(())
+                print_auth_status(&response.auth, output)
             }
             None => Err("Authentication is not configured for this instance".into()),
         }
@@ -188,14 +246,16 @@ async fn login(args: AuthLoginArgs) -> Result<(), BoxErr> {
                     listener,
                     authorization,
                     args.timeout,
+                    output,
+                    open_browser,
                 )
                 .await
             }
             Some(AuthFlow::ClientCredentials) => {
                 store.refresh_authorization(args.instance_id).await?;
                 reconnect_authorized_service(&store, args.instance_id).await?;
-                print_auth_status(&store.auth_status_view(args.instance_id).await?);
-                Ok(())
+                let auth = store.auth_status_view(args.instance_id).await?;
+                print_auth_status(&auth, output)
             }
             None => Err("Authentication is not configured for this instance".into()),
         }
@@ -203,6 +263,7 @@ async fn login(args: AuthLoginArgs) -> Result<(), BoxErr> {
 }
 
 async fn refresh(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+    let output = args.output.output;
     let auth = if crate::daemon::client::daemon_socket_exists() {
         let response: AuthStatusResponse =
             daemon_call("auth_refresh", args.instance_id, json!({})).await?;
@@ -213,11 +274,11 @@ async fn refresh(args: AuthInstanceArgs) -> Result<(), BoxErr> {
         reconnect_authorized_service(&store, args.instance_id).await?;
         store.auth_status_view(args.instance_id).await?
     };
-    print_auth_status(&auth);
-    Ok(())
+    print_auth_status(&auth, output)
 }
 
 async fn logout(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+    let output = args.output.output;
     let auth = if crate::daemon::client::daemon_socket_exists() {
         let response: AuthStatusResponse =
             daemon_call("auth_logout", args.instance_id, json!({})).await?;
@@ -227,11 +288,12 @@ async fn logout(args: AuthInstanceArgs) -> Result<(), BoxErr> {
         store.logout_authorization(args.instance_id).await?;
         store.auth_status_view(args.instance_id).await?
     };
-    print_auth_status(&auth);
-    Ok(())
+    print_auth_status(&auth, output)
 }
 
 async fn scope_upgrade(args: AuthScopeUpgradeArgs) -> Result<(), BoxErr> {
+    let output = args.flow_output.output.output;
+    let open_browser = !args.flow_output.non_interactive;
     if crate::daemon::client::daemon_socket_exists() {
         let auth = daemon_auth_status(args.instance_id).await?;
         let required_scope = required_scope(args.scope, &auth)?;
@@ -246,7 +308,15 @@ async fn scope_upgrade(args: AuthScopeUpgradeArgs) -> Result<(), BoxErr> {
         let authorization = started
             .authorization
             .ok_or("Authorization server did not return an authorization URL")?;
-        complete_daemon_browser_flow(args.instance_id, listener, authorization, args.timeout).await
+        complete_daemon_browser_flow(
+            args.instance_id,
+            listener,
+            authorization,
+            args.timeout,
+            output,
+            open_browser,
+        )
+        .await
     } else {
         let store = loaded_store(&args.store).await?;
         let auth = store.auth_status_view(args.instance_id).await?;
@@ -265,12 +335,15 @@ async fn scope_upgrade(args: AuthScopeUpgradeArgs) -> Result<(), BoxErr> {
             listener,
             authorization,
             args.timeout,
+            output,
+            open_browser,
         )
         .await
     }
 }
 
 async fn set_client_secret(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+    let output = args.output.output;
     let secret = read_stdin_secret("client secret")?;
     if crate::daemon::client::daemon_socket_exists() {
         let _: Value = daemon_call(
@@ -285,11 +358,11 @@ async fn set_client_secret(args: AuthInstanceArgs) -> Result<(), BoxErr> {
             .save_oauth_client_secret(args.instance_id, secret)
             .await?;
     }
-    println!("OAuth client secret stored securely.");
-    Ok(())
+    print_credential_stored(output, "client_secret")
 }
 
 async fn set_private_key(args: AuthPrivateKeyArgs) -> Result<(), BoxErr> {
+    let output = args.output.output;
     let private_key = match args.file {
         Some(path) => std::fs::read(path)?,
         None => read_stdin_bytes("private key")?,
@@ -309,8 +382,7 @@ async fn set_private_key(args: AuthPrivateKeyArgs) -> Result<(), BoxErr> {
             .save_oauth_private_key(args.instance_id, private_key)
             .await?;
     }
-    println!("OAuth private key stored securely.");
-    Ok(())
+    print_credential_stored(output, "private_key")
 }
 
 async fn loaded_store(args: &StoreSourceArgs) -> Result<MCPStore, BoxErr> {
@@ -351,8 +423,10 @@ async fn complete_daemon_browser_flow(
     listener: LocalCallbackListener,
     authorization: AuthorizationStart,
     timeout_seconds: u64,
+    output: OutputFormat,
+    open_browser: bool,
 ) -> Result<(), BoxErr> {
-    announce_authorization(&authorization);
+    announce_authorization(&authorization, output, open_browser)?;
     let mut pending = listener.wait(timeout_seconds).await?;
     let result: Result<AuthStatusResponse, BoxErr> = daemon_call(
         "auth_callback",
@@ -366,8 +440,7 @@ async fn complete_daemon_browser_flow(
     .await;
     write_browser_response(&mut pending.stream, result.is_ok()).await?;
     let response = result?;
-    print_auth_status(&response.auth);
-    Ok(())
+    print_auth_status(&response.auth, output)
 }
 
 async fn complete_local_browser_flow(
@@ -376,8 +449,10 @@ async fn complete_local_browser_flow(
     listener: LocalCallbackListener,
     authorization: AuthorizationStart,
     timeout_seconds: u64,
+    output: OutputFormat,
+    open_browser: bool,
 ) -> Result<(), BoxErr> {
-    announce_authorization(&authorization);
+    announce_authorization(&authorization, output, open_browser)?;
     let mut pending = listener.wait(timeout_seconds).await?;
     let result = async {
         store
@@ -394,8 +469,7 @@ async fn complete_local_browser_flow(
     .await;
     write_browser_response(&mut pending.stream, result.is_ok()).await?;
     let auth = result?;
-    print_auth_status(&auth);
-    Ok(())
+    print_auth_status(&auth, output)
 }
 
 async fn reconnect_authorized_service(
@@ -414,12 +488,33 @@ fn required_scope(requested: Option<String>, auth: &AuthStatusView) -> Result<St
         .ok_or_else(|| "No required scope is pending; provide --scope".into())
 }
 
-fn announce_authorization(authorization: &AuthorizationStart) {
-    println!("Open this URL to authorize MCPStore:");
-    println!("{}", authorization.authorization_url);
-    if !try_open_browser(&authorization.authorization_url) {
-        println!("The browser could not be opened automatically; use the URL above.");
+fn announce_authorization(
+    authorization: &AuthorizationStart,
+    output: OutputFormat,
+    open_browser: bool,
+) -> Result<(), BoxErr> {
+    match output {
+        OutputFormat::Human => {
+            println!("Open this URL to authorize MCPStore:");
+            println!("{}", authorization.authorization_url);
+            if open_browser && !try_open_browser(&authorization.authorization_url) {
+                println!("The browser could not be opened automatically; use the URL above.");
+            }
+        }
+        OutputFormat::Json => {
+            // The authorization URL is an opaque provider handoff. The OAuth state,
+            // authorization code, and tokens are never emitted as separate fields.
+            print_json_event(&AuthOutputEvent::AuthorizationRequired {
+                instance_id: &authorization.instance_id,
+                authorization_url: &authorization.authorization_url,
+                scopes: &authorization.scopes,
+            })?;
+            if open_browser {
+                let _ = try_open_browser(&authorization.authorization_url);
+            }
+        }
     }
+    Ok(())
 }
 
 fn try_open_browser(url: &str) -> bool {
@@ -436,24 +531,48 @@ fn try_open_browser(url: &str) -> bool {
         .is_ok()
 }
 
-fn print_auth_status(auth: &AuthStatusView) {
-    println!("instance: {}", auth.instance_id);
-    println!("status: {}", auth_status_name(auth));
-    if let Some(flow) = auth.flow {
-        println!(
-            "flow: {}",
-            match flow {
-                AuthFlow::AuthorizationCode => "authorization_code",
-                AuthFlow::ClientCredentials => "client_credentials",
+fn print_auth_status(auth: &AuthStatusView, output: OutputFormat) -> Result<(), BoxErr> {
+    match output {
+        OutputFormat::Human => {
+            println!("instance: {}", auth.instance_id);
+            println!("status: {}", auth_status_name(auth));
+            if let Some(flow) = auth.flow {
+                println!(
+                    "flow: {}",
+                    match flow {
+                        AuthFlow::AuthorizationCode => "authorization_code",
+                        AuthFlow::ClientCredentials => "client_credentials",
+                    }
+                );
             }
-        );
+            if !auth.scopes.is_empty() {
+                println!("scopes: {}", auth.scopes.join(" "));
+            }
+            if let Some(scope) = &auth.required_scope {
+                println!("required_scope: {scope}");
+            }
+            Ok(())
+        }
+        OutputFormat::Json => print_json_event(&AuthOutputEvent::Status { auth }),
     }
-    if !auth.scopes.is_empty() {
-        println!("scopes: {}", auth.scopes.join(" "));
+}
+
+fn print_credential_stored(output: OutputFormat, credential: &str) -> Result<(), BoxErr> {
+    match output {
+        OutputFormat::Human => {
+            println!("OAuth {credential} stored securely.");
+            Ok(())
+        }
+        OutputFormat::Json => print_json_event(&AuthOutputEvent::CredentialStored {
+            credential,
+            stored: true,
+        }),
     }
-    if let Some(scope) = &auth.required_scope {
-        println!("required_scope: {scope}");
-    }
+}
+
+fn print_json_event(event: &AuthOutputEvent<'_>) -> Result<(), BoxErr> {
+    println!("{}", serde_json::to_string(event)?);
+    Ok(())
 }
 
 fn auth_status_name(auth: &AuthStatusView) -> &'static str {
@@ -651,6 +770,52 @@ async fn write_browser_response(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn json_status_event_contains_only_non_sensitive_auth_state() {
+        let auth = AuthStatusView {
+            instance_id: "c81af510-755b-55c7-8487-5668ab36e06e".parse().unwrap(),
+            status: mcpstore::AuthStatus::Authenticated,
+            flow: Some(AuthFlow::AuthorizationCode),
+            scopes: vec!["read".to_string()],
+            required_scope: None,
+        };
+        let value = serde_json::to_value(AuthOutputEvent::Status { auth: &auth }).unwrap();
+
+        assert_eq!(value["event"], "status");
+        assert_eq!(value["auth"]["status"], "authenticated");
+        for forbidden in [
+            "access_token",
+            "refresh_token",
+            "client_secret",
+            "private_key",
+            "authorization_code",
+            "state",
+        ] {
+            assert!(value.get(forbidden).is_none());
+            assert!(value["auth"].get(forbidden).is_none());
+        }
+    }
+
+    #[test]
+    fn authorization_json_event_keeps_url_opaque_and_does_not_emit_callback_fields() {
+        let authorization = AuthorizationStart {
+            instance_id: "c81af510-755b-55c7-8487-5668ab36e06e".parse().unwrap(),
+            authorization_url: "https://issuer.example/authorize?state=opaque-state".to_string(),
+            scopes: vec!["read".to_string()],
+        };
+        let value = serde_json::to_value(AuthOutputEvent::AuthorizationRequired {
+            instance_id: &authorization.instance_id,
+            authorization_url: &authorization.authorization_url,
+            scopes: &authorization.scopes,
+        })
+        .unwrap();
+
+        assert_eq!(value["event"], "authorization_required");
+        assert_eq!(value["authorization_url"], authorization.authorization_url);
+        assert!(value.get("state").is_none());
+        assert!(value.get("code").is_none());
+    }
 
     async fn listener_fixture(path: &str) -> (LocalCallbackListener, String) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
