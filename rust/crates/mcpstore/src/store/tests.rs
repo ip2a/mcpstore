@@ -2504,14 +2504,25 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
         .await
         .unwrap();
 
-    let call_result = store
-        .call_tool(
-            store_instance_id("inventory"),
+    let instance_id = store_instance_id("inventory");
+    let execution = store
+        .start_tool_execution(
+            instance_id,
             "rejectItem",
             serde_json::json!({"body": {"sku": "sku-1"}}),
+            crate::transport::McpExecutionOptions::default(),
         )
         .await
         .unwrap();
+    assert_eq!(execution.instance_id(), instance_id);
+    assert!(!execution.supports_cancellation());
+    assert!(execution.request_id().is_none());
+    let crate::transport::McpToolExecution::Immediate {
+        result: call_result,
+    } = execution.wait().await.unwrap()
+    else {
+        panic!("OpenAPI execution must complete immediately");
+    };
     assert!(call_result.is_error);
     let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
         panic!("expected text content");
@@ -2522,6 +2533,17 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
         .as_str()
         .unwrap()
         .contains("POST /items/reject"));
+    let completed = store
+        .event_history(10)
+        .await
+        .into_iter()
+        .find(|event| event.event_type == "TOOL_CALL_COMPLETED")
+        .expect("OpenAPI execution must publish the existing completion event");
+    assert_eq!(
+        completed.payload["instance_id"],
+        serde_json::json!(instance_id)
+    );
+    assert_eq!(completed.payload["status"], serde_json::json!("error"));
 
     let service = store
         .find_instance(store_instance_id("inventory"))
