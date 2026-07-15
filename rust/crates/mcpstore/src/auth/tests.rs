@@ -125,6 +125,21 @@ fn auth_config_rejects_secret_fields() {
 }
 
 #[test]
+fn dynamic_authorization_cannot_force_token_endpoint_authentication() {
+    let config = serde_json::json!({
+        "type": "oauth_authorization_code",
+        "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+        "dynamic_client_registration": true,
+        "client_auth_method": "client_secret_post"
+    });
+
+    let error = serde_json::from_value::<AuthConfig>(config).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("client_auth_method cannot be forced"));
+}
+
+#[test]
 fn auth_config_rejects_incomplete_or_empty_declarations() {
     let invalid = [
         serde_json::json!({
@@ -900,6 +915,49 @@ async fn authorization_code_validates_state_pkce_and_restores_tokens_after_resta
         restarted.status(instance_id).await,
         AuthStatus::Authenticated
     );
+}
+
+#[tokio::test]
+async fn authorization_code_rejects_resource_not_supported_by_rmcp_public_api() {
+    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
+    let instance_id = instance_id("authorization-resource");
+    let auth: AuthConfig = serde_json::from_value(serde_json::json!({
+        "type": "oauth_authorization_code",
+        "client_id": "client-1",
+        "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+        "resource": "https://other.example/mcp"
+    }))
+    .unwrap();
+
+    let error = coordinator
+        .begin_authorization(instance_id, "https://mcp.example/mcp", &auth)
+        .await
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("auth.resource must be omitted or equal to the service URL"));
+}
+
+#[tokio::test]
+async fn authorization_code_rejects_client_auth_method_rmcp_would_not_use() {
+    let fixture = OAuthFixture::spawn().await;
+    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
+    let instance_id = instance_id("authorization-client-auth");
+    let auth: AuthConfig = serde_json::from_value(serde_json::json!({
+        "type": "oauth_authorization_code",
+        "client_id": "client-1",
+        "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+        "client_auth_method": "client_secret_basic"
+    }))
+    .unwrap();
+
+    let error = coordinator
+        .begin_authorization(instance_id, &fixture.mcp_url(), &auth)
+        .await
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("cannot be forced through the public API"));
 }
 
 fn dynamic_authorization_code_config() -> AuthConfig {

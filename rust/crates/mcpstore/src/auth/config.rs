@@ -85,6 +85,14 @@ impl AuthConfig {
                         "auth.client_id is required unless dynamic_client_registration is enabled"
                             .to_string(),
                     );
+                } else if !matches!(
+                    config.client_auth_method,
+                    AuthorizationCodeClientAuthMethod::None
+                ) {
+                    return Err(
+                        "auth.client_auth_method cannot be forced when dynamic_client_registration is enabled"
+                            .to_string(),
+                    );
                 }
                 validate_common_fields(
                     &config.scopes,
