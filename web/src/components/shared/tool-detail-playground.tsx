@@ -196,7 +196,7 @@ export function ToolPlaygroundAside({
   })
 
   return (
-    <aside className={cn("flex h-full min-h-0 w-full shrink-0 flex-col gap-4 xl:w-[22rem]", className)}>
+    <aside className={cn("flex h-full min-h-0 min-w-0 w-full flex-col gap-4", className)}>
       <ToolRequestPanel command={cliCommand} toolName={tool.name} onRun={onRun} />
       <ToolResponsePanel
         requestArgsText={requestArgsText}
