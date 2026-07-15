@@ -4,6 +4,7 @@ use thiserror::Error;
 
 pub mod client;
 mod content;
+mod execution;
 mod handler;
 mod http;
 mod oauth;
@@ -16,6 +17,9 @@ mod task_state;
 mod tasks;
 mod tools;
 
+pub use execution::{
+    McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecutionHandle,
+};
 pub use protocol::{
     McpCompletion, McpCompletionReference, McpCompletionRequest, McpLoggingLevel,
     McpServerCapabilities, McpServerImplementation, McpServerMetadata,
@@ -46,6 +50,14 @@ pub enum TransportError {
     ToolCallFailed(String),
     #[error("MCP protocol error: {0}")]
     Protocol(String),
+    #[error("MCP request cancelled{reason_suffix}", reason_suffix = reason.as_ref().map(|reason| format!(": {reason}")).unwrap_or_default())]
+    RequestCancelled { reason: Option<String> },
+    #[error("MCP request timed out after {timeout:?}")]
+    RequestTimedOut { timeout: std::time::Duration },
+    #[error("MCP request disconnected for service instance {instance_id}")]
+    RequestDisconnected {
+        instance_id: crate::identity::InstanceId,
+    },
     #[error("task not found: {task_id}")]
     TaskNotFound { task_id: String },
     #[error("task state error: {0}")]

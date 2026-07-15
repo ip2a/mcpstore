@@ -120,11 +120,14 @@ impl TaskCommandError {
                 }
                 TransportError::ConnectionFailed(_)
                 | TransportError::NotConnected(_)
+                | TransportError::RequestDisconnected { .. }
                 | TransportError::Io(_) => TaskErrorCode::ConnectionFailed,
                 TransportError::TaskNotFound { .. } => TaskErrorCode::TaskNotFound,
                 TransportError::Protocol(_) => TaskErrorCode::TaskProtocolFailed,
                 TransportError::TaskState(_) => TaskErrorCode::TaskStateFailed,
-                TransportError::ToolCallFailed(_) => TaskErrorCode::CommandFailed,
+                TransportError::ToolCallFailed(_)
+                | TransportError::RequestCancelled { .. }
+                | TransportError::RequestTimedOut { .. } => TaskErrorCode::CommandFailed,
             },
             StoreError::Cache(_) => TaskErrorCode::TaskStateFailed,
             StoreError::Config(_) | StoreError::Other(_) => TaskErrorCode::CommandFailed,

@@ -11,7 +11,7 @@ use rmcp::model::{
 use rmcp::service::{NotificationContext, Peer, RoleClient};
 use rmcp::ClientHandler;
 use serde::Serialize;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::JoinSet;
 
 use crate::events::types::EventKind;
@@ -36,6 +36,7 @@ pub(crate) struct McpStoreClientHandler {
     event_bus: EventBus,
     runtime: Arc<RwLock<McpClientRuntimeSnapshot>>,
     notification_work: Arc<Mutex<JoinSet<()>>>,
+    progress_notifications: broadcast::Sender<ProgressNotificationParam>,
 }
 
 impl std::fmt::Debug for McpStoreClientHandler {
@@ -59,7 +60,12 @@ impl McpStoreClientHandler {
             event_bus,
             runtime: Arc::new(RwLock::new(McpClientRuntimeSnapshot::default())),
             notification_work: Arc::new(Mutex::new(JoinSet::new())),
+            progress_notifications: broadcast::channel(128).0,
         }
+    }
+
+    pub(crate) fn subscribe_progress(&self) -> broadcast::Receiver<ProgressNotificationParam> {
+        self.progress_notifications.subscribe()
     }
 
     #[cfg(test)]
@@ -318,6 +324,7 @@ impl ClientHandler for McpStoreClientHandler {
         params: ProgressNotificationParam,
         _context: NotificationContext<RoleClient>,
     ) {
+        let _ = self.progress_notifications.send(params.clone());
         self.publish(
             EventKind::McpProgress,
             serde_json::json!({
