@@ -28,8 +28,8 @@ export function ToolDescriptionBlock({
   const sections = omitStructuredSections ? parsed.otherSections : parseToolDescription(fallback).sections
 
   return (
-    <div className={cn("text-sm", className)}>
-      <div className={cn(showLabel && "grid gap-3 sm:grid-cols-[4.5rem_minmax(0,1fr)]")}>
+    <div className={cn("@container text-sm", className)}>
+      <div className={cn(showLabel && "grid gap-3 @min-[32rem]:grid-cols-[4.5rem_minmax(0,1fr)]")}>
         {showLabel ? (
           <span className="pt-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("description")}</span>
         ) : null}

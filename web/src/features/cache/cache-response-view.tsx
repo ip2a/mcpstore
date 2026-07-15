@@ -30,7 +30,7 @@ function RequestMetricsSection({ metrics }: { metrics: Record<string, unknown> }
   return (
     <section className="border-b pb-4">
       <SectionHeading title={t("cacheRequestMetrics")} titleAs="h2" className="border-b-0 pb-3" />
-      <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <dl className="grid gap-3 text-sm @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-3">
         {fields.map(([label, value]) => (
           <ScalarField key={label} label={label} value={String(value)} />
         ))}
@@ -43,10 +43,10 @@ export function CacheOverviewContent({ tree }: { tree: CacheTree }) {
   const { t } = useI18n()
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className="@container flex min-w-0 flex-col gap-4">
       <section className="border-b pb-4">
         <SectionHeading title={t("cacheStorageTitle")} titleAs="h2" className="border-b-0 pb-3" />
-        <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <dl className="grid gap-3 text-sm @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-4">
           {tree.backend ? <ScalarField label={t("backend")} value={tree.backend} /> : null}
           <ScalarField label={t("cacheNamespace")} value={tree.namespace} />
           {tree.scope ? <ScalarField label={t("scope")} value={tree.scope} /> : null}
@@ -57,7 +57,7 @@ export function CacheOverviewContent({ tree }: { tree: CacheTree }) {
       {tree.requestMetrics ? <RequestMetricsSection metrics={tree.requestMetrics} /> : null}
       <section className="pb-2">
         <SectionHeading title={t("cacheLayers")} titleAs="h2" className="border-b-0 pb-3" />
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 @min-[32rem]:grid-cols-2">
           {tree.layers.map((layerNode) => (
             <div key={layerNode.layer} className="rounded-md border px-3 py-3">
               <div className="flex items-center justify-between gap-3">
