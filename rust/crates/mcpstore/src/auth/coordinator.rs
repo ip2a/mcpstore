@@ -29,6 +29,7 @@ pub struct AuthCoordinator {
     keyring: SystemKeyring,
     statuses: Arc<RwLock<HashMap<InstanceId, AuthStatus>>>,
     required_scopes: Arc<RwLock<HashMap<InstanceId, String>>>,
+    refresh_locks: Arc<Mutex<HashMap<InstanceId, Arc<Mutex<()>>>>>,
     sessions: Arc<Mutex<HashMap<InstanceId, AuthorizationSession>>>,
     #[cfg(test)]
     oauth_http_client: Option<Arc<dyn OAuthHttpClient>>,
@@ -50,6 +51,7 @@ impl AuthCoordinator {
             keyring,
             statuses: Arc::new(RwLock::new(HashMap::new())),
             required_scopes: Arc::new(RwLock::new(HashMap::new())),
+            refresh_locks: Arc::new(Mutex::new(HashMap::new())),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             oauth_http_client: None,
@@ -148,12 +150,14 @@ impl AuthCoordinator {
     pub async fn remove_status(&self, instance_id: InstanceId) {
         self.statuses.write().await.remove(&instance_id);
         self.required_scopes.write().await.remove(&instance_id);
+        self.refresh_locks.lock().await.remove(&instance_id);
         self.sessions.lock().await.remove(&instance_id);
     }
 
     pub async fn clear_statuses(&self) {
         self.statuses.write().await.clear();
         self.required_scopes.write().await.clear();
+        self.refresh_locks.lock().await.clear();
         self.sessions.lock().await.clear();
     }
 
@@ -164,6 +168,10 @@ impl AuthCoordinator {
             .retain(|instance_id, _| instance_ids.contains(instance_id));
         self.required_scopes
             .write()
+            .await
+            .retain(|instance_id, _| instance_ids.contains(instance_id));
+        self.refresh_locks
+            .lock()
             .await
             .retain(|instance_id, _| instance_ids.contains(instance_id));
         self.sessions
@@ -349,6 +357,8 @@ impl AuthCoordinator {
         base_url: &str,
         auth: &AuthConfig,
     ) -> Result<AuthorizationManager, AuthError> {
+        let refresh_lock = self.refresh_lock(instance_id).await;
+        let _refresh_guard = refresh_lock.lock().await;
         self.set_status(instance_id, AuthStatus::Refreshing).await;
         let result: Result<AuthorizationManager, AuthError> = async {
             match auth {
@@ -588,6 +598,15 @@ impl AuthCoordinator {
         })
         .await
         .map_err(|_| AuthError::ProviderFailure)?
+    }
+
+    async fn refresh_lock(&self, instance_id: InstanceId) -> Arc<Mutex<()>> {
+        let mut locks = self.refresh_locks.lock().await;
+        Arc::clone(
+            locks
+                .entry(instance_id)
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
     }
 
     async fn new_manager(
