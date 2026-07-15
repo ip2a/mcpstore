@@ -451,8 +451,8 @@ export function ServiceDetailView(props: {
               <PageError title={t("serviceDetailLoadFailed")} message={errorMessage} onRefresh={loadDetail} />
             </ScrollPane>
           ) : rightPaneView === "catalog" && activeTab === "tools" && selectedTool ? (
-            <div className="flex min-h-0 flex-1 gap-6 overflow-hidden">
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_22rem] xl:grid-rows-1">
+              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
                 <ToolDetailDocHeader tool={selectedTool} />
                 <ScrollPane className="min-h-0 flex-1">
                   <ToolDetailDocBody tool={selectedTool} toolArgs={toolArgs} onToolArgChange={setToolArg} />
