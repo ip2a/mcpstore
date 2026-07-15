@@ -112,6 +112,58 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_auth_status_json_output() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "auth",
+            "status",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Auth(commands::auth::AuthArgs {
+                action: commands::auth::AuthAction::Status(args),
+            }) => {
+                assert_eq!(args.output.output, commands::auth::OutputFormat::Json);
+            }
+            _ => panic!("Expected auth status command"),
+        }
+    }
+
+    #[test]
+    fn parses_auth_login_non_interactive_json_output() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "auth",
+            "login",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "--non-interactive",
+            "--output",
+            "json",
+            "--timeout",
+            "17",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Auth(commands::auth::AuthArgs {
+                action: commands::auth::AuthAction::Login(args),
+            }) => {
+                assert!(args.flow_output.non_interactive);
+                assert_eq!(
+                    args.flow_output.output.output,
+                    commands::auth::OutputFormat::Json
+                );
+                assert_eq!(args.timeout, 17);
+            }
+            _ => panic!("Expected auth login command"),
+        }
+    }
+
+    #[test]
     fn parses_add_with_agent_scope_and_header() {
         let cli = Cli::try_parse_from([
             "mcpstore",
