@@ -225,6 +225,18 @@ impl ConnectionPool {
         conn.list_tools().await
     }
 
+    pub async fn open_elicitation_session(
+        &self,
+        instance_id: InstanceId,
+        options: crate::transport::McpElicitationSessionOptions,
+    ) -> Result<Option<crate::transport::McpElicitationSession>> {
+        let conns = self.connections.read().await;
+        let Some(conn) = conns.get(&instance_id) else {
+            return Ok(None);
+        };
+        conn.open_elicitation_session(options).map(Some)
+    }
+
     pub async fn start_tool_execution(
         &self,
         instance_id: InstanceId,

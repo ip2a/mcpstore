@@ -4,6 +4,7 @@ use thiserror::Error;
 
 pub mod client;
 mod content;
+mod elicitation;
 mod execution;
 mod handler;
 mod http;
@@ -17,6 +18,11 @@ mod task_state;
 mod tasks;
 mod tools;
 
+pub(crate) use elicitation::McpElicitationController;
+pub use elicitation::{
+    validate_form_response, validate_handoff_url, McpElicitationRequest, McpElicitationRequestKind,
+    McpElicitationResponseError, McpElicitationSession, McpElicitationSessionOptions,
+};
 pub use execution::{
     McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecutionHandle,
 };
@@ -56,6 +62,10 @@ pub enum TransportError {
     RequestTimedOut { timeout: std::time::Duration },
     #[error("MCP request disconnected for service instance {instance_id}")]
     RequestDisconnected {
+        instance_id: crate::identity::InstanceId,
+    },
+    #[error("an elicitation session is already active for service instance {instance_id}")]
+    ElicitationSessionActive {
         instance_id: crate::identity::InstanceId,
     },
     #[error("task not found: {task_id}")]

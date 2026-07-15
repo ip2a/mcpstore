@@ -5,10 +5,12 @@ use std::sync::Arc;
 #[allow(deprecated)]
 use rmcp::model::LoggingMessageNotificationParam;
 use rmcp::model::{
-    CancelledNotificationParam, ClientCapabilities, ClientInfo, CustomNotification, Implementation,
-    ProgressNotificationParam, ReadResourceRequestParams, ResourceUpdatedNotificationParam,
+    CancelledNotificationParam, ClientCapabilities, ClientInfo, CustomNotification,
+    ElicitRequestParams, ElicitResult, ElicitationCapability, FormElicitationCapability,
+    Implementation, ProgressNotificationParam, ReadResourceRequestParams,
+    ResourceUpdatedNotificationParam, UrlElicitationCapability,
 };
-use rmcp::service::{NotificationContext, Peer, RoleClient};
+use rmcp::service::{NotificationContext, Peer, RequestContext, RoleClient};
 use rmcp::ClientHandler;
 use serde::Serialize;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -18,7 +20,10 @@ use crate::events::types::EventKind;
 use crate::events::{Event, EventBus};
 use crate::identity::InstanceId;
 use crate::registry::{ServiceRegistry, ToolInfo};
-use crate::transport::{DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate};
+use crate::transport::{
+    DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, McpElicitationController,
+    McpElicitationSession, McpElicitationSessionOptions,
+};
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +42,7 @@ pub(crate) struct McpStoreClientHandler {
     runtime: Arc<RwLock<McpClientRuntimeSnapshot>>,
     notification_work: Arc<Mutex<JoinSet<()>>>,
     progress_notifications: broadcast::Sender<ProgressNotificationParam>,
+    elicitation: McpElicitationController,
 }
 
 impl std::fmt::Debug for McpStoreClientHandler {
@@ -61,7 +67,15 @@ impl McpStoreClientHandler {
             runtime: Arc::new(RwLock::new(McpClientRuntimeSnapshot::default())),
             notification_work: Arc::new(Mutex::new(JoinSet::new())),
             progress_notifications: broadcast::channel(128).0,
+            elicitation: McpElicitationController::new(instance_id),
         }
+    }
+
+    pub(crate) fn open_elicitation_session(
+        &self,
+        options: McpElicitationSessionOptions,
+    ) -> Result<McpElicitationSession, ()> {
+        self.elicitation.open_session(options)
     }
 
     pub(crate) fn subscribe_progress(&self) -> broadcast::Receiver<ProgressNotificationParam> {
@@ -298,10 +312,23 @@ impl McpStoreClientHandler {
 
 impl ClientHandler for McpStoreClientHandler {
     fn get_info(&self) -> ClientInfo {
+        let elicitation = ElicitationCapability::new()
+            .with_form(FormElicitationCapability::new().with_schema_validation(true))
+            .with_url(UrlElicitationCapability::new());
         ClientInfo::new(
-            ClientCapabilities::default(),
+            ClientCapabilities::builder()
+                .enable_elicitation_with(elicitation)
+                .build(),
             Implementation::new("mcpstore", env!("CARGO_PKG_VERSION")),
         )
+    }
+
+    async fn create_elicitation(
+        &self,
+        request: ElicitRequestParams,
+        _context: RequestContext<RoleClient>,
+    ) -> Result<ElicitResult, rmcp::ErrorData> {
+        Ok(self.elicitation.elicit(request).await)
     }
 
     async fn on_cancelled(
@@ -411,11 +438,12 @@ mod tests {
     use std::time::Duration;
 
     use rmcp::model::{
-        CancelledNotificationParam, CustomNotification, ListPromptsResult,
-        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, NumberOrString,
-        PaginatedRequestParams, ProgressNotificationParam, ProgressToken, Prompt,
-        ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
-        ResourceTemplate, ServerCapabilities, ServerInfo, ServerNotification, Tool,
+        CancelledNotificationParam, CustomNotification, ElicitRequestParams, ElicitationAction,
+        ElicitationSchema, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
+        ListToolsResult, NumberOrString, PaginatedRequestParams, ProgressNotificationParam,
+        ProgressToken, Prompt, ReadResourceRequestParams, ReadResourceResult, Resource,
+        ResourceContents, ResourceTemplate, ServerCapabilities, ServerInfo, ServerNotification,
+        Tool,
     };
     #[allow(deprecated)]
     use rmcp::model::{LoggingLevel, LoggingMessageNotificationParam};
@@ -561,11 +589,56 @@ mod tests {
         let info = ClientHandler::get_info(&handler);
         assert_eq!(info.client_info.name, "mcpstore");
         assert_eq!(info.client_info.version, env!("CARGO_PKG_VERSION"));
-        assert_eq!(info.capabilities, ClientCapabilities::default());
         assert!(info.capabilities.sampling.is_none());
         assert!(info.capabilities.roots.is_none());
-        assert!(info.capabilities.elicitation.is_none());
+        let elicitation = info.capabilities.elicitation.as_ref().unwrap();
+        assert_eq!(
+            elicitation
+                .form
+                .as_ref()
+                .and_then(|form| form.schema_validation),
+            Some(true)
+        );
+        assert!(elicitation.url.is_some());
         assert!(info.capabilities.tasks.is_none());
+    }
+
+    #[tokio::test]
+    async fn typed_elicitation_request_is_delivered_and_answered() {
+        let instance_id = ServiceInstanceKey::new("elicitation", ScopeRef::Store).instance_id();
+        let handler =
+            McpStoreClientHandler::new(instance_id, ServiceRegistry::new(), EventBus::new());
+        let mut session = handler
+            .open_elicitation_session(McpElicitationSessionOptions::default())
+            .unwrap();
+        let server_handler = NotificationServer {
+            tool_name: Arc::new(RwLock::new("tool".to_string())),
+        };
+        let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
+        let server_start =
+            tokio::spawn(async move { server_handler.serve(server_transport).await.unwrap() });
+        let client = handler.serve(client_transport).await.unwrap();
+        let server = server_start.await.unwrap();
+
+        let response = tokio::spawn({
+            let peer = server.peer().clone();
+            async move {
+                peer.create_elicitation(ElicitRequestParams::FormElicitationParams {
+                    meta: None,
+                    message: "Confirm".to_string(),
+                    requested_schema: ElicitationSchema::builder().build().unwrap(),
+                })
+                .await
+                .unwrap()
+            }
+        });
+        let request = session.next_request().await.unwrap();
+        assert_eq!(request.instance_id(), instance_id);
+        request.accept(Some(json!({}))).unwrap();
+        assert_eq!(response.await.unwrap().action, ElicitationAction::Accept);
+
+        client.cancel().await.unwrap();
+        server.cancel().await.unwrap();
     }
 
     #[tokio::test]

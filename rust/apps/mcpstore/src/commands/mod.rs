@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod config;
 pub mod daemon_cmd;
+pub mod elicitation;
 pub mod mcp;
 pub mod mcp_server;
 pub mod task;
