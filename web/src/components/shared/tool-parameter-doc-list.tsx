@@ -48,7 +48,7 @@ export function ToolParameterDocList({
         return (
           <article key={name} className={cn("grid gap-3 border-b py-4", isLast && "border-b-0 pb-0")}>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <TypographyInlineCode className="text-sm font-semibold">{name}</TypographyInlineCode>
+              <TypographyInlineCode className="break-all text-sm font-semibold">{name}</TypographyInlineCode>
               <span className="font-mono text-xs text-muted-foreground">{fieldType}</span>
               {isRequired ? (
                 <span className="text-xs font-medium text-foreground">{t("required")}</span>
@@ -70,8 +70,8 @@ export function ToolParameterDocList({
             {editable ? (
               <div
                 className={cn(
-                  "grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]",
-                  formType === "boolean" ? "sm:items-center" : "sm:items-start",
+                  "grid gap-3 @min-[32rem]:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]",
+                  formType === "boolean" ? "@min-[32rem]:items-center" : "@min-[32rem]:items-start",
                 )}
               >
                 <span aria-hidden="true" />

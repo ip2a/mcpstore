@@ -57,10 +57,12 @@ export function ServicesView(props: {
               title={t("storeActivityOverview")}
             />
           }
-          className="shrink-0 border-b-0 pb-0 md:grid-cols-[auto_minmax(0,1fr)] md:items-center"
+          className="shrink-0 border-b-0 pb-0 @min-[42rem]:grid-cols-[auto_minmax(0,1fr)] @min-[42rem]:items-center"
           actions={
             <>
-              <SearchBox placeholder={t("searchServices")} value={query} onChange={setQuery} />
+              <div className="min-w-0 @min-[28rem]:col-span-2 @min-[42rem]:col-span-1">
+                <SearchBox placeholder={t("searchServices")} value={query} onChange={setQuery} />
+              </div>
               <Button variant="outline" onClick={props.onCache}>
                 <DatabaseIcon data-icon="inline-start" />
                 {t("cache")}
@@ -73,7 +75,7 @@ export function ServicesView(props: {
           }
           actionsProps={{
             className:
-                "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 md:justify-end",
+                "grid w-full min-w-0 grid-cols-1 items-center gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto_auto] @min-[42rem]:justify-end",
           }}
         />
         <ScrollPane className="min-h-0 flex-1">
