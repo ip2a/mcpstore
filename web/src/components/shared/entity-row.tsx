@@ -37,8 +37,10 @@ export function EntityRow({ actions, actionsProps, asChild = false, children, cl
 
   if (variant === "inline") {
     return (
-      <div className={cn("@container grid gap-3 border-b py-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-center", className)} {...props}>
-        {content}
+      <div className={cn("@container border-b py-3", className)} {...props}>
+        <div className="grid gap-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-center">
+          {content}
+        </div>
       </div>
     )
   }
