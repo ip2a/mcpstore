@@ -4,7 +4,7 @@ import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
 export function CatalogTabsList({ className, ...props }: ComponentProps<typeof TabsList>) {
-  return <TabsList className={cn("w-full", className)} {...props} />
+  return <TabsList className={cn("@container w-full", className)} {...props} />
 }
 
 export function CatalogTabTrigger({
