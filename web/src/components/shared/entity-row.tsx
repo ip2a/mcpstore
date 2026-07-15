@@ -28,7 +28,7 @@ export function EntityRow({ actions, actionsProps, asChild = false, children, cl
     <>
       <div className="min-w-0">{children}</div>
       {actions ? (
-        <div {...actionsProps} className={cn("flex flex-wrap justify-start gap-2 md:justify-end", actionsProps?.className)}>
+        <div {...actionsProps} className={cn("flex flex-wrap justify-start gap-2 @min-[36rem]:justify-end", actionsProps?.className)}>
           {actions}
         </div>
       ) : null}
@@ -37,15 +37,15 @@ export function EntityRow({ actions, actionsProps, asChild = false, children, cl
 
   if (variant === "inline") {
     return (
-      <div className={cn("grid gap-3 border-b py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", className)} {...props}>
+      <div className={cn("@container grid gap-3 border-b py-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-center", className)} {...props}>
         {content}
       </div>
     )
   }
 
   return (
-    <article className={cn("rounded-md border px-3 py-3", selected && "bg-muted", className)} data-selected={selected ? "true" : "false"} {...props}>
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">{content}</div>
+    <article className={cn("@container rounded-md border px-3 py-3", selected && "bg-muted", className)} data-selected={selected ? "true" : "false"} {...props}>
+      <div className="grid gap-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-start">{content}</div>
     </article>
   )
 }

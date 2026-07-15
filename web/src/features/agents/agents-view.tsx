@@ -550,7 +550,7 @@ function AgentToolDetailPane({ item }: { item: InstanceTool }) {
   const scope = instance.scope.type === "store" ? t("store") : `${t("agent")} ${instance.scope.agent_id}`
 
   return (
-    <div className="flex min-w-0 flex-col">
+    <div className="@container flex min-w-0 flex-col">
       <section className="border-b pb-4">
         <div className={toolDetailSectionGrid}>
           <div className={toolDetailSectionAside}>
@@ -561,7 +561,7 @@ function AgentToolDetailPane({ item }: { item: InstanceTool }) {
           <ToolDescriptionBlock description={tool.description} showLabel={false} className="text-right" />
         </div>
       </section>
-      <section className="grid gap-3 pt-4 text-sm sm:grid-cols-2">
+      <section className="grid gap-3 pt-4 text-sm @min-[32rem]:grid-cols-2">
         <div>
           <p className="text-muted-foreground">{t("service")}</p>
           <p className="break-words font-mono">{instance.service_name}</p>
@@ -570,7 +570,7 @@ function AgentToolDetailPane({ item }: { item: InstanceTool }) {
           <p className="text-muted-foreground">{t("scope")}</p>
           <p className="font-mono">{scope}</p>
         </div>
-        <div className="sm:col-span-2">
+        <div className="@min-[32rem]:col-span-2">
           <p className="text-muted-foreground">Instance ID</p>
           <p className="break-all font-mono">{instance.instance_id}</p>
         </div>

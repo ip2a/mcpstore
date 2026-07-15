@@ -88,21 +88,23 @@ function ToolArgRow({
   const type = resolveFormFieldType(field)
 
   return (
-    <div className={cn("grid gap-3 py-3 sm:grid-cols-[minmax(7rem,10rem)_minmax(0,1fr)] sm:items-center", !isLast && "border-b")}>
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <code className="text-sm font-medium">{name}</code>
-          {required ? <Badge variant="secondary" className="px-1.5 py-0 text-[10px] uppercase">{t("required")}</Badge> : null}
+    <div className={cn("@container", !isLast && "border-b")}>
+      <div className="grid gap-3 py-3 @min-[32rem]:grid-cols-[minmax(7rem,10rem)_minmax(0,1fr)] @min-[32rem]:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="text-sm font-medium">{name}</code>
+            {required ? <Badge variant="secondary" className="px-1.5 py-0 text-[10px] uppercase">{t("required")}</Badge> : null}
+          </div>
+          {subtitle && subtitle !== label ? (
+            <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
+          ) : label !== name ? (
+            <p className="mt-0.5 text-sm text-muted-foreground">{label}</p>
+          ) : null}
         </div>
-        {subtitle && subtitle !== label ? (
-          <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
-        ) : label !== name ? (
-          <p className="mt-0.5 text-sm text-muted-foreground">{label}</p>
-        ) : null}
-      </div>
 
-      <div className={cn("min-w-0", valueAlign === "right" && "text-right")}>
-        <ToolArgFieldInput id={name} field={field} type={type} value={value} valueAlign={valueAlign} onChange={onChange} />
+        <div className={cn("min-w-0", valueAlign === "right" && "text-right")}>
+          <ToolArgFieldInput id={name} field={field} type={type} value={value} valueAlign={valueAlign} onChange={onChange} />
+        </div>
       </div>
     </div>
   )
@@ -216,7 +218,8 @@ export function ToolArgFieldInput({
           inputMutedClass,
           compact && compactTextareaClass,
           aligned && "text-right",
-        )}
+        )
+}
         onChange={(event) => onChange(event.target.value)}
       />
     )
