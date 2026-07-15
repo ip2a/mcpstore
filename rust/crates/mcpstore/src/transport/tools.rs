@@ -1,8 +1,7 @@
-use rmcp::model::CallToolRequestParams;
-
 use crate::transport::client::McpConnection;
-use crate::transport::content::content_item_from_rmcp;
-use crate::transport::{DiscoveredTool, Result, ToolCallResult, TransportError};
+use crate::transport::{
+    DiscoveredTool, McpExecutionOptions, McpToolExecution, Result, ToolCallResult, TransportError,
+};
 
 impl McpConnection {
     pub async fn list_tools(&self) -> Result<Vec<DiscoveredTool>> {
@@ -28,33 +27,16 @@ impl McpConnection {
         tool_name: &str,
         arguments: serde_json::Value,
     ) -> Result<ToolCallResult> {
-        self.require_tools()?;
-        let client = self.get_client()?;
-
-        let args_map = match arguments {
-            serde_json::Value::Object(map) => map,
-            _ => serde_json::Map::new(),
-        };
-        let param = CallToolRequestParams::new(tool_name.to_string()).with_arguments(args_map);
-
-        let resp = match client.call_tool(param).await {
-            Ok(response) => response,
-            Err(error) => {
-                return Err(self
-                    .classify_client_failure(TransportError::ToolCallFailed(error.to_string()))
-                    .await);
-            }
-        };
-
-        let content = resp
-            .content
-            .into_iter()
-            .map(content_item_from_rmcp)
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(ToolCallResult {
-            content,
-            is_error: resp.is_error.unwrap_or(false),
-        })
+        match self
+            .start_tool_call(tool_name, arguments, McpExecutionOptions::default())
+            .await?
+            .wait()
+            .await?
+        {
+            McpToolExecution::Immediate { result } => Ok(result),
+            McpToolExecution::Task { .. } => Err(TransportError::Protocol(
+                "tool call unexpectedly returned a task".to_string(),
+            )),
+        }
     }
 }

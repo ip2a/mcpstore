@@ -13,8 +13,9 @@ use crate::registry::ServiceRegistry;
 use crate::transport::client::McpConnection;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
-    McpCompletion, McpCompletionRequest, McpLoggingLevel, McpServerMetadata, McpTask,
-    McpTaskRecord, McpToolExecution, Result, TaskStateStore, ToolCallResult, TransportError,
+    McpCompletion, McpCompletionRequest, McpExecutionOptions, McpLoggingLevel, McpServerMetadata,
+    McpTask, McpTaskRecord, McpToolExecution, McpToolExecutionHandle, Result, TaskStateStore,
+    ToolCallResult, TransportError,
 };
 
 pub struct ConnectionPool {
@@ -102,6 +103,21 @@ impl ConnectionPool {
         }
     }
 
+    pub async fn start_task_tool_execution(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        ttl: Option<u64>,
+        options: McpExecutionOptions,
+    ) -> Result<McpToolExecutionHandle> {
+        let conns = self.connections.read().await;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
+        conn.start_tool_task(tool_name, args, ttl, options).await
+    }
+
     pub async fn call_tool_task(
         &self,
         instance_id: InstanceId,
@@ -109,13 +125,17 @@ impl ConnectionPool {
         args: serde_json::Value,
         ttl: Option<u64>,
     ) -> Result<McpToolExecution> {
-        let execution = {
-            let conns = self.connections.read().await;
-            let conn = conns.get(&instance_id).ok_or_else(|| {
-                TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
-            })?;
-            conn.call_tool_task(tool_name, args, ttl).await?
-        };
+        let execution = self
+            .start_task_tool_execution(
+                instance_id,
+                tool_name,
+                args,
+                ttl,
+                McpExecutionOptions::default(),
+            )
+            .await?
+            .wait()
+            .await?;
         if let McpToolExecution::Task { task } = &execution {
             self.observe_task(instance_id, task.clone(), Some(tool_name))
                 .await?;
@@ -205,17 +225,37 @@ impl ConnectionPool {
         conn.list_tools().await
     }
 
+    pub async fn start_tool_execution(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        options: McpExecutionOptions,
+    ) -> Result<McpToolExecutionHandle> {
+        let conns = self.connections.read().await;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
+        conn.start_tool_call(tool_name, args, options).await
+    }
+
     pub async fn call_tool(
         &self,
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
-        })?;
-        conn.call_tool(tool_name, args).await
+        match self
+            .start_tool_execution(instance_id, tool_name, args, McpExecutionOptions::default())
+            .await?
+            .wait()
+            .await?
+        {
+            McpToolExecution::Immediate { result } => Ok(result),
+            McpToolExecution::Task { .. } => Err(TransportError::Protocol(
+                "tool call unexpectedly returned a task".to_string(),
+            )),
+        }
     }
 
     pub async fn list_resources(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredResource>> {
