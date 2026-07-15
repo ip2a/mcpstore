@@ -328,7 +328,7 @@ impl McpConnection {
         self.require_capability("prompts", |info| info.capabilities.prompts.is_some())
     }
 
-    fn require_capability(
+    pub(in crate::transport) fn require_capability(
         &self,
         capability: &'static str,
         supported: impl FnOnce(&InitializeResult) -> bool,
@@ -353,9 +353,11 @@ mod tests {
     use rmcp::model::SetLevelRequestParams;
     use rmcp::model::{
         CallToolRequestParams, CallToolResult, CompleteRequestParams, CompleteResult,
-        GetPromptRequestParams, GetPromptResult, Implementation, ListPromptsResult,
-        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-        ReadResourceRequestParams, ReadResourceResult, ServerCapabilities, ServerInfo,
+        CreateTaskResult, GetPromptRequestParams, GetPromptResult, GetTaskParams,
+        GetTaskPayloadParams, GetTaskPayloadResult, GetTaskResult, Implementation,
+        ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListTasksResult,
+        ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
+        ServerCapabilities, ServerInfo, Task, TaskStatus, TasksCapability,
     };
     use rmcp::service::{RequestContext, RoleServer, RunningService};
     use rmcp::{ServerHandler, ServiceExt};
@@ -366,6 +368,7 @@ mod tests {
     use crate::identity::{ScopeRef, ServiceInstanceKey};
     use crate::registry::ServiceRegistry;
     use crate::transport::handler::McpStoreClientHandler;
+    use crate::transport::{McpTask, McpTaskStatus, McpToolExecution, ToolCallResult};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum ProtocolCall {
@@ -385,6 +388,15 @@ mod tests {
         ReadResource,
         ListPrompts,
         GetPrompt,
+        TaskToolCall {
+            name: String,
+            arguments: Value,
+            ttl: Option<u64>,
+        },
+        ListTasks(Option<String>),
+        GetTask(String),
+        GetTaskResult(String),
+        CancelTask(String),
     }
 
     #[derive(Clone)]
@@ -490,6 +502,116 @@ mod tests {
             Ok(CallToolResult::success(Vec::new()))
         }
 
+        fn enqueue_task(
+            &self,
+            request: CallToolRequestParams,
+            _context: RequestContext<RoleServer>,
+        ) -> impl std::future::Future<Output = std::result::Result<CreateTaskResult, rmcp::ErrorData>>
+               + Send
+               + '_ {
+            let call = ProtocolCall::TaskToolCall {
+                name: request.name.to_string(),
+                arguments: Value::Object(request.arguments.unwrap_or_default()),
+                ttl: request.task.and_then(|task| task.ttl),
+            };
+            let calls = self.calls.clone();
+            async move {
+                calls.lock().await.push(call);
+                Ok(CreateTaskResult::new(fixture_task(
+                    "task-created",
+                    TaskStatus::Working,
+                )))
+            }
+        }
+
+        fn list_tasks(
+            &self,
+            request: Option<PaginatedRequestParams>,
+            _context: RequestContext<RoleServer>,
+        ) -> impl std::future::Future<Output = std::result::Result<ListTasksResult, rmcp::ErrorData>>
+               + Send
+               + '_ {
+            let cursor = request.and_then(|request| request.cursor);
+            let next_cursor = cursor.is_none().then(|| "page-2".to_string());
+            let task = if cursor.is_none() {
+                fixture_task("task-page-1", TaskStatus::Working)
+            } else {
+                fixture_task("task-page-2", TaskStatus::Completed)
+            };
+            let calls = self.calls.clone();
+            async move {
+                calls.lock().await.push(ProtocolCall::ListTasks(cursor));
+                let mut result = ListTasksResult::new(vec![task]);
+                result.next_cursor = next_cursor;
+                Ok(result)
+            }
+        }
+
+        fn get_task_info(
+            &self,
+            request: GetTaskParams,
+            _context: RequestContext<RoleServer>,
+        ) -> impl std::future::Future<Output = std::result::Result<GetTaskResult, rmcp::ErrorData>>
+               + Send
+               + '_ {
+            let task_id = request.task_id;
+            let calls = self.calls.clone();
+            async move {
+                calls
+                    .lock()
+                    .await
+                    .push(ProtocolCall::GetTask(task_id.clone()));
+                Ok(GetTaskResult::new(fixture_task(
+                    &task_id,
+                    TaskStatus::Working,
+                )))
+            }
+        }
+
+        fn get_task_result(
+            &self,
+            request: GetTaskPayloadParams,
+            _context: RequestContext<RoleServer>,
+        ) -> impl std::future::Future<
+            Output = std::result::Result<GetTaskPayloadResult, rmcp::ErrorData>,
+        > + Send
+               + '_ {
+            let task_id = request.task_id;
+            let calls = self.calls.clone();
+            async move {
+                calls
+                    .lock()
+                    .await
+                    .push(ProtocolCall::GetTaskResult(task_id.clone()));
+                Ok(GetTaskPayloadResult::new(serde_json::json!({
+                    "content": [{"type": "text", "text": "task result"}],
+                    "isError": false
+                })))
+            }
+        }
+
+        fn cancel_task(
+            &self,
+            request: rmcp::model::CancelTaskParams,
+            _context: RequestContext<RoleServer>,
+        ) -> impl std::future::Future<
+            Output = std::result::Result<rmcp::model::CancelTaskResult, rmcp::ErrorData>,
+        > + Send
+               + '_ {
+            let task_id = request.task_id;
+            let calls = self.calls.clone();
+            async move {
+                calls
+                    .lock()
+                    .await
+                    .push(ProtocolCall::CancelTask(task_id.clone()));
+                Ok(rmcp::model::CancelTaskResult::new(fixture_task(
+                    &task_id,
+                    TaskStatus::Cancelled,
+                )))
+            }
+        }
+
         async fn list_resources(
             &self,
             _request: Option<PaginatedRequestParams>,
@@ -534,6 +656,18 @@ mod tests {
             self.record(ProtocolCall::GetPrompt).await;
             Ok(GetPromptResult::new(Vec::new()))
         }
+    }
+
+    fn fixture_task(task_id: &str, status: TaskStatus) -> Task {
+        Task::new(
+            task_id.to_string(),
+            status,
+            "2026-07-15T00:00:00Z".to_string(),
+            "2026-07-15T00:00:01Z".to_string(),
+        )
+        .with_status_message("fixture task")
+        .with_ttl(60_000)
+        .with_poll_interval(250)
     }
 
     async fn connect_fixture(
@@ -707,6 +841,113 @@ mod tests {
                 ProtocolCall::SetLevel("info".to_string()),
             ]
         );
+
+        connection.disconnect().await.unwrap();
+        server.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn task_operations_use_typed_rmcp_requests_and_preserve_lifecycle_data() {
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_tasks_with(TasksCapability::server_default())
+            .build();
+        let (mut connection, server, calls) = connect_fixture(capabilities).await;
+
+        let execution = connection
+            .call_tool_task(
+                "long_tool",
+                serde_json::json!({"input": "value"}),
+                Some(5_000),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            execution,
+            McpToolExecution::Task {
+                task: McpTask {
+                    task_id: "task-created".to_string(),
+                    status: McpTaskStatus::Working,
+                    status_message: Some("fixture task".to_string()),
+                    created_at: "2026-07-15T00:00:00Z".to_string(),
+                    last_updated_at: "2026-07-15T00:00:01Z".to_string(),
+                    ttl: Some(60_000),
+                    poll_interval: Some(250),
+                },
+            }
+        );
+
+        let immediate = connection
+            .call_tool("regular_tool", serde_json::json!({}))
+            .await
+            .unwrap();
+        assert_eq!(
+            immediate,
+            ToolCallResult {
+                content: Vec::new(),
+                is_error: false,
+            }
+        );
+
+        let tasks = connection.list_tasks().await.unwrap();
+        assert_eq!(
+            tasks
+                .iter()
+                .map(|task| task.task_id.as_str())
+                .collect::<Vec<_>>(),
+            ["task-page-1", "task-page-2"]
+        );
+        assert_eq!(tasks[0].status, McpTaskStatus::Working);
+        assert_eq!(tasks[1].status, McpTaskStatus::Completed);
+
+        let task = connection.get_task("task-page-1").await.unwrap();
+        assert_eq!(task.task_id, "task-page-1");
+        assert_eq!(task.status, McpTaskStatus::Working);
+
+        let result = connection.get_task_result("task-page-1").await.unwrap();
+        assert_eq!(result["content"][0]["text"], "task result");
+        assert_eq!(result["isError"], false);
+
+        let cancelled = connection.cancel_task("task-page-1").await.unwrap();
+        assert_eq!(cancelled.task_id, "task-page-1");
+        assert_eq!(cancelled.status, McpTaskStatus::Cancelled);
+
+        assert_eq!(
+            calls.lock().await.as_slice(),
+            [
+                ProtocolCall::TaskToolCall {
+                    name: "long_tool".to_string(),
+                    arguments: serde_json::json!({"input": "value"}),
+                    ttl: Some(5_000),
+                },
+                ProtocolCall::CallTool,
+                ProtocolCall::ListTasks(None),
+                ProtocolCall::ListTasks(Some("page-2".to_string())),
+                ProtocolCall::GetTask("task-page-1".to_string()),
+                ProtocolCall::GetTaskResult("task-page-1".to_string()),
+                ProtocolCall::CancelTask("task-page-1".to_string()),
+            ]
+        );
+
+        connection.disconnect().await.unwrap();
+        server.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unsupported_task_capabilities_fail_before_requests_are_sent() {
+        let (mut connection, server, calls) = connect_fixture(ServerCapabilities::default()).await;
+
+        assert_unsupported(
+            connection
+                .call_tool_task("long_tool", serde_json::json!({}), None)
+                .await,
+            "tasks.requests.tools",
+        );
+        assert_unsupported(connection.list_tasks().await, "tasks.list");
+        assert_unsupported(connection.get_task("task-1").await, "tasks");
+        assert_unsupported(connection.get_task_result("task-1").await, "tasks");
+        assert_unsupported(connection.cancel_task("task-1").await, "tasks.cancel");
+        assert!(calls.lock().await.is_empty());
 
         connection.disconnect().await.unwrap();
         server.cancel().await.unwrap();
