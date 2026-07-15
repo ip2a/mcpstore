@@ -1,7 +1,22 @@
+use crate::service::McpStoreToolExecutionHandle;
 use crate::store::prelude::*;
-use crate::transport::{McpTask, McpTaskRecord, McpToolExecution, TransportError};
+use crate::transport::{
+    McpExecutionOptions, McpTask, McpTaskRecord, McpToolExecution, TransportError,
+};
 
 impl MCPStore {
+    pub async fn start_task_execution(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        ttl: Option<u64>,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'_>> {
+        self.start_task_tool_execution(instance_id, tool_name, args, ttl, options)
+            .await
+    }
+
     pub async fn call_task_tool(
         &self,
         instance_id: InstanceId,
@@ -9,14 +24,16 @@ impl MCPStore {
         args: serde_json::Value,
         ttl: Option<u64>,
     ) -> Result<McpToolExecution> {
-        self.ensure_task_instance_connected(instance_id).await?;
-        let (instance_id, tool_name, args) = self
-            .resolve_transformed_tool_call(instance_id, tool_name, args)
-            .await?;
-        self.pool
-            .call_tool_task(instance_id, &tool_name, args, ttl)
-            .await
-            .map_err(StoreError::Transport)
+        self.start_task_execution(
+            instance_id,
+            tool_name,
+            args,
+            ttl,
+            McpExecutionOptions::default(),
+        )
+        .await?
+        .wait()
+        .await
     }
 
     pub async fn list_tasks(&self, instance_id: InstanceId) -> Result<Vec<McpTask>> {

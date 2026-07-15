@@ -74,6 +74,9 @@ pub use transport::{
     McpToolExecution, McpToolExecutionHandle, ToolCallResult,
 };
 
+// Facade re-exports: execution service
+pub use service::{McpStoreExecutionUpdate, McpStoreToolExecutionHandle};
+
 // Facade re-exports: core store
 pub use core::{Result, StoreError};
 pub use store::{
