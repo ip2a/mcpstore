@@ -39,6 +39,7 @@ pub enum Commands {
     Update(commands::mcp::UpdateArgs),
     Tools(commands::mcp::ToolsArgs),
     Call(commands::mcp::CallToolArgs),
+    Task(commands::task::TaskArgs),
     MigrateBackend(commands::mcp::MigrateBackendArgs),
     #[command(name = "mcp-server", visible_alias = "serve-mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
@@ -86,6 +87,7 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Update(args) => commands::mcp::update(args).await,
             Commands::Tools(args) => commands::mcp::tools(args).await,
             Commands::Call(args) => commands::mcp::call_tool(args).await,
+            Commands::Task(args) => commands::task::run(args).await,
             Commands::MigrateBackend(args) => commands::mcp::migrate_backend(args).await,
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
             Commands::Web(args) => commands::web::run(args).await,
@@ -291,6 +293,107 @@ mod tests {
             }
             _ => panic!("Expected to parse as call command"),
         }
+    }
+
+    #[test]
+    fn parses_task_run_with_jsonl_output() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "task",
+            "run",
+            instance_id,
+            "long_tool",
+            "--input",
+            r#"{"value":1}"#,
+            "--ttl",
+            "5000",
+            "--output",
+            "jsonl",
+            "--non-interactive",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Task(commands::task::TaskArgs {
+                action: commands::task::TaskAction::Run(args),
+            }) => {
+                assert_eq!(args.instance_id.to_string(), instance_id);
+                assert_eq!(args.tool_name, "long_tool");
+                assert_eq!(args.input, r#"{"value":1}"#);
+                assert_eq!(args.ttl, Some(5000));
+                assert_eq!(args.runtime.output, commands::task::TaskOutputFormat::Jsonl);
+                assert!(args.runtime.non_interactive);
+            }
+            _ => panic!("Expected to parse as task run command"),
+        }
+    }
+
+    #[test]
+    fn parses_task_list_with_json_output() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli =
+            Cli::try_parse_from(["mcpstore", "task", "list", instance_id, "--output", "json"])
+                .unwrap();
+
+        match cli.command {
+            Commands::Task(commands::task::TaskArgs {
+                action: commands::task::TaskAction::List(args),
+            }) => {
+                assert_eq!(args.instance_id.to_string(), instance_id);
+                assert_eq!(args.runtime.output, commands::task::TaskOutputFormat::Json);
+            }
+            _ => panic!("Expected to parse as task list command"),
+        }
+    }
+
+    #[test]
+    fn parses_task_status_result_and_cancel_targets() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        for action in ["status", "result", "cancel"] {
+            let cli = Cli::try_parse_from([
+                "mcpstore",
+                "task",
+                action,
+                instance_id,
+                "task-1",
+                "--output",
+                "jsonl",
+            ])
+            .unwrap();
+
+            let target = match cli.command {
+                Commands::Task(commands::task::TaskArgs {
+                    action: commands::task::TaskAction::Status(args),
+                })
+                | Commands::Task(commands::task::TaskArgs {
+                    action: commands::task::TaskAction::Result(args),
+                })
+                | Commands::Task(commands::task::TaskArgs {
+                    action: commands::task::TaskAction::Cancel(args),
+                }) => args,
+                _ => panic!("Expected to parse as task target command"),
+            };
+            assert_eq!(target.instance_id.to_string(), instance_id);
+            assert_eq!(target.task_id, "task-1");
+            assert_eq!(
+                target.runtime.output,
+                commands::task::TaskOutputFormat::Jsonl
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_task_commands_missing_required_targets() {
+        assert!(Cli::try_parse_from(["mcpstore", "task", "run"]).is_err());
+        assert!(Cli::try_parse_from(["mcpstore", "task", "status"]).is_err());
+        assert!(Cli::try_parse_from([
+            "mcpstore",
+            "task",
+            "result",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+        ])
+        .is_err());
     }
 
     #[test]

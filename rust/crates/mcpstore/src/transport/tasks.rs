@@ -1,7 +1,8 @@
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CancelTaskParams, CancelTaskRequest, ClientRequest,
-    GetTaskParams, GetTaskPayloadParams, GetTaskPayloadRequest, GetTaskRequest, ListTasksRequest,
-    PaginatedRequestParams, ServerResult, Task as RmcpTask, TaskMetadata, TaskStatus,
+    ErrorCode, GetTaskParams, GetTaskPayloadParams, GetTaskPayloadRequest, GetTaskRequest,
+    ListTasksRequest, PaginatedRequestParams, ServerResult, Task as RmcpTask, TaskMetadata,
+    TaskStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -161,7 +162,7 @@ impl McpConnection {
                 GetTaskParams::new(task_id),
             )))
             .await
-            .map_err(|error| self.protocol_error("get task", error))?;
+            .map_err(|error| self.task_protocol_error("get task", task_id, error))?;
         match response {
             ServerResult::GetTaskResult(result) => Ok(result.task.into()),
             _ => Err(TransportError::Protocol(
@@ -178,7 +179,7 @@ impl McpConnection {
                 GetTaskPayloadRequest::new(GetTaskPayloadParams::new(task_id)),
             ))
             .await
-            .map_err(|error| self.protocol_error("get task result", error))?;
+            .map_err(|error| self.task_protocol_error("get task result", task_id, error))?;
         match response {
             ServerResult::GetTaskPayloadResult(result) => Ok(result.0),
             // rmcp 2.2.0 intentionally deserializes the wire shape of
@@ -207,7 +208,7 @@ impl McpConnection {
                 CancelTaskParams::new(task_id),
             )))
             .await
-            .map_err(|error| self.protocol_error("cancel task", error))?;
+            .map_err(|error| self.task_protocol_error("cancel task", task_id, error))?;
         match response {
             ServerResult::CancelTaskResult(result) => Ok(result.task.into()),
             // `CancelTaskResult` and `GetTaskResult` have the same wire shape;
@@ -221,5 +222,24 @@ impl McpConnection {
 
     fn protocol_error(&self, operation: &str, error: rmcp::ServiceError) -> TransportError {
         TransportError::Protocol(format!("{operation} failed: {error}"))
+    }
+
+    fn task_protocol_error(
+        &self,
+        operation: &str,
+        task_id: &str,
+        error: rmcp::ServiceError,
+    ) -> TransportError {
+        if matches!(
+            &error,
+            rmcp::ServiceError::McpError(error)
+                if error.code == ErrorCode::RESOURCE_NOT_FOUND
+                    || error.code == ErrorCode::INVALID_PARAMS
+        ) {
+            return TransportError::TaskNotFound {
+                task_id: task_id.to_string(),
+            };
+        }
+        self.protocol_error(operation, error)
     }
 }
