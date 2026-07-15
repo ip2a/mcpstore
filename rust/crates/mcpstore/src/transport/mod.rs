@@ -12,12 +12,14 @@ mod prompts;
 mod protocol;
 mod resources;
 mod stdio;
+mod tasks;
 mod tools;
 
 pub use protocol::{
     McpCompletion, McpCompletionReference, McpCompletionRequest, McpLoggingLevel,
     McpServerCapabilities, McpServerImplementation, McpServerMetadata,
 };
+pub use tasks::{McpTask, McpTaskStatus, McpToolExecution};
 
 #[derive(Error, Debug)]
 pub enum TransportError {
@@ -159,13 +161,13 @@ pub struct DiscoveredPrompt {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolCallResult {
     pub content: Vec<ContentItem>,
     pub is_error: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ContentItem {
     #[serde(rename = "text")]
