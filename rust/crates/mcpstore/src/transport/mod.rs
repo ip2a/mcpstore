@@ -12,6 +12,7 @@ mod prompts;
 mod protocol;
 mod resources;
 mod stdio;
+mod task_state;
 mod tasks;
 mod tools;
 
@@ -19,6 +20,8 @@ pub use protocol::{
     McpCompletion, McpCompletionReference, McpCompletionRequest, McpLoggingLevel,
     McpServerCapabilities, McpServerImplementation, McpServerMetadata,
 };
+pub use task_state::McpTaskRecord;
+pub(crate) use task_state::TaskStateStore;
 pub use tasks::{McpTask, McpTaskStatus, McpToolExecution};
 
 #[derive(Error, Debug)]
@@ -43,6 +46,8 @@ pub enum TransportError {
     ToolCallFailed(String),
     #[error("MCP protocol error: {0}")]
     Protocol(String),
+    #[error("task state error: {0}")]
+    TaskState(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
