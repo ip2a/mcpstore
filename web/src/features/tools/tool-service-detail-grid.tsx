@@ -26,8 +26,8 @@ export function ToolServiceDetailGrid({
   const scopeLabel = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-2 text-sm sm:grid-cols-2">
+    <div className="@container flex flex-col gap-4">
+      <div className="grid gap-2 text-sm @min-[32rem]:grid-cols-2">
         <MetaLine label={t("params")} value={`${paramCount} · ${t("schemaFields")}`} valueClassName="font-mono" />
         <MetaLine label={t("required")} value={`${schema.required?.length || 0} · ${t("mandatory")}`} valueClassName="font-mono" />
         <MetaLine label={t("output")} value={`${outputParamCount} · ${t("schemaFields")}`} valueClassName="font-mono" />
@@ -54,7 +54,7 @@ export function ToolServiceDetailGrid({
       {statusReport ? (
         <div className="border-t pt-4">
           <p className="mb-3 text-sm font-medium">{t("runtimeStatus")}</p>
-          <div className="grid gap-2 text-sm sm:grid-cols-2">
+          <div className="grid gap-2 text-sm @min-[32rem]:grid-cols-2">
             <MetaLine label={t("health")} value={statusReport.health_status || "-"} valueClassName="font-mono capitalize" />
             <MetaLine label={t("lastCheck")} value={formatDateTime(statusReport.last_health_check)} valueClassName="font-mono" />
             <MetaLine

@@ -39,7 +39,7 @@ export function DetailHeader({
       {...actionsProps}
       className={cn(
         "flex flex-wrap gap-2",
-        actionsPlacement === "inline" ? "justify-start md:justify-end" : "justify-start",
+        actionsPlacement === "inline" ? "justify-start @min-[42rem]:justify-end" : "justify-start",
         actionsProps?.className,
       )}
     >
@@ -48,8 +48,8 @@ export function DetailHeader({
   ) : null
 
   return (
-    <section className={cn("flex flex-col gap-3", separated && "border-b pb-4", className)} {...props}>
-      <div className={cn(actionsPlacement === "inline" && actions ? "grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start" : "flex flex-col gap-2")}>
+    <section className={cn("@container flex flex-col gap-3", separated && "border-b pb-4", className)} {...props}>
+      <div className={cn(actionsPlacement === "inline" && actions ? "grid gap-3 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto] @min-[42rem]:items-start" : "flex flex-col gap-2")}>
         <div className="flex min-w-0 flex-col gap-2">
           {badges ? <div className="flex flex-wrap gap-2">{badges}</div> : null}
           {eyebrow ? <p className="font-mono text-xs uppercase text-muted-foreground">{eyebrow}</p> : null}
