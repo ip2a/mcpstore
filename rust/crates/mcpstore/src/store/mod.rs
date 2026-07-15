@@ -67,7 +67,7 @@ pub struct MCPStore {
         HashMap<crate::identity::InstanceId, serde_json::Map<String, serde_json::Value>>,
     >,
     pub(crate) event_bus: EventBus,
-    pub(crate) cache: CacheLayerManager,
+    pub(crate) cache: std::sync::Arc<CacheLayerManager>,
 }
 
 impl MCPStore {
@@ -109,10 +109,12 @@ impl MCPStore {
 
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(1000);
+        let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
         let pool = ConnectionPool::new(
             auth_coordinator.clone(),
             registry.clone(),
             event_bus.clone(),
+            cache.clone(),
         );
 
         Ok(Self {
@@ -127,7 +129,7 @@ impl MCPStore {
             pool,
             applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
             event_bus,
-            cache: CacheLayerManager::new(cache_store, namespace),
+            cache,
         })
     }
 

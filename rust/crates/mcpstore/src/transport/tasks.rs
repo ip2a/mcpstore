@@ -18,6 +18,8 @@ pub enum McpTaskStatus {
     Completed,
     Failed,
     Cancelled,
+    Expired,
+    Disconnected,
     Unknown,
 }
 
