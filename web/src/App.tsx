@@ -78,7 +78,7 @@ export function App() {
   return (
     <TooltipProvider>
       <div className="min-h-dvh bg-background">
-        <div className="mx-auto grid h-dvh w-[min(1280px,calc(100vw-24px))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        <div className="mx-auto grid h-dvh w-[min(1280px,calc(100vw-24px))] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
           <AppHeader
             agents={agents}
             pageTitle={pageTitle}
@@ -91,7 +91,7 @@ export function App() {
 
           <main
             className={cn(
-              "flex min-h-0 flex-col",
+              "flex min-h-0 min-w-0 flex-col",
               view.name === "instance" || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "config" || view.name === "tools" ? "h-full overflow-hidden gap-3 pt-3" : "gap-6 overflow-auto py-3",
             )}
           >

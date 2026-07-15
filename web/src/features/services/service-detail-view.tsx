@@ -693,7 +693,7 @@ function ServiceOverviewPane({
         <dl className="grid gap-3 text-sm">
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("name")}</dt>
-            <dd className="font-mono">{service.service_name}</dd>
+            <dd className="break-words font-mono">{service.service_name}</dd>
           </div>
           <div className="grid gap-1">
             <dt className="text-muted-foreground">Instance ID</dt>

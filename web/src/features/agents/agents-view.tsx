@@ -494,7 +494,7 @@ function AgentSummarySection({ agentId, services }: { agentId: string; services:
             {agentId}
           </h2>
         </div>
-        <p className="text-right text-sm text-muted-foreground">
+        <p className="break-words text-right text-sm text-muted-foreground">
           {services.length ? services.map((service) => service.service_name).join(" · ") : t("noServices")}
         </p>
       </div>
@@ -514,7 +514,7 @@ function AgentServiceDetailPane({ service }: { service: ServiceInstance }) {
         <dl className="grid gap-3 text-sm">
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("name")}</dt>
-            <dd className="font-mono">{service.service_name}</dd>
+            <dd className="break-words font-mono">{service.service_name}</dd>
           </div>
           <div className="grid gap-1">
             <dt className="text-muted-foreground">Instance ID</dt>
@@ -564,7 +564,7 @@ function AgentToolDetailPane({ item }: { item: InstanceTool }) {
       <section className="grid gap-3 pt-4 text-sm sm:grid-cols-2">
         <div>
           <p className="text-muted-foreground">{t("service")}</p>
-          <p className="font-mono">{instance.service_name}</p>
+          <p className="break-words font-mono">{instance.service_name}</p>
         </div>
         <div>
           <p className="text-muted-foreground">{t("scope")}</p>

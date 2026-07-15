@@ -34,7 +34,7 @@ export function ToolDescriptionBlock({
           <span className="pt-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("description")}</span>
         ) : null}
         <div className="min-w-0 space-y-3">
-          <p className="leading-relaxed text-foreground">{parsed.summary || t("noDescription")}</p>
+          <p className="break-words leading-relaxed text-foreground">{parsed.summary || t("noDescription")}</p>
           {sections.map((section, index) => (
             <div key={`${section.label}-${index}`} className="border-t pt-3">
               {section.label ? (
@@ -42,7 +42,7 @@ export function ToolDescriptionBlock({
                   {sectionLabelKeys[section.label] ? t(sectionLabelKeys[section.label]) : section.label}
                 </p>
               ) : null}
-              <p className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">{section.content}</p>
+              <p className="break-words whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">{section.content}</p>
             </div>
           ))}
         </div>
