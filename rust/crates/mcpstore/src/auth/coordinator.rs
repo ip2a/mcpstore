@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rmcp::transport::auth::{
-    AuthError as RmcpAuthError, AuthorizationCallback, AuthorizationManager, AuthorizationSession,
-    ClientCredentialsConfig, CredentialStore, JwtSigningAlgorithm as RmcpJwtSigningAlgorithm,
-    OAuthClientConfig, OAuthState,
+    AuthError as RmcpAuthError, AuthorizationCallback, AuthorizationManager, AuthorizationMetadata,
+    AuthorizationSession, ClientCredentialsConfig, CredentialStore,
+    JwtSigningAlgorithm as RmcpJwtSigningAlgorithm, OAuthClientConfig, OAuthState,
 };
 use tokio::sync::{Mutex, RwLock};
 
@@ -227,6 +227,7 @@ impl AuthCoordinator {
         let AuthConfig::OAuthAuthorizationCode(config) = auth else {
             return Err(AuthError::UnsupportedFlow);
         };
+        validate_rmcp_resource(base_url, auth)?;
 
         self.set_status(instance_id, AuthStatus::Authorizing).await;
         let result = async {
@@ -236,6 +237,10 @@ impl AuthCoordinator {
                 .discover_metadata()
                 .await
                 .map_err(|_| AuthError::AuthorizationStartFailed)?;
+            validate_authorization_code_client_auth_method(
+                config.client_auth_method.clone(),
+                &metadata,
+            )?;
             manager.set_metadata(metadata);
 
             let scopes = config.scopes.iter().map(String::as_str).collect::<Vec<_>>();
@@ -357,14 +362,29 @@ impl AuthCoordinator {
         base_url: &str,
         auth: &AuthConfig,
     ) -> Result<AuthorizationManager, AuthError> {
+        validate_rmcp_resource(base_url, auth)?;
         let refresh_lock = self.refresh_lock(instance_id).await;
         let _refresh_guard = refresh_lock.lock().await;
         self.set_status(instance_id, AuthStatus::Refreshing).await;
         let result: Result<AuthorizationManager, AuthError> = async {
             match auth {
-                AuthConfig::OAuthAuthorizationCode(_) => {
+                AuthConfig::OAuthAuthorizationCode(config) => {
                     let key = credential_key(instance_id, base_url, auth)?;
                     let mut manager = self.new_manager(base_url, &key).await?;
+                    if !matches!(
+                        config.client_auth_method,
+                        super::AuthorizationCodeClientAuthMethod::None
+                    ) {
+                        let metadata = manager
+                            .discover_metadata()
+                            .await
+                            .map_err(|_| AuthError::RefreshFailed)?;
+                        validate_authorization_code_client_auth_method(
+                            config.client_auth_method.clone(),
+                            &metadata,
+                        )?;
+                        manager.set_metadata(metadata);
+                    }
                     if !manager
                         .initialize_from_store()
                         .await
@@ -424,8 +444,18 @@ impl AuthCoordinator {
         let AuthConfig::OAuthAuthorizationCode(config) = auth else {
             return Err(AuthError::UnsupportedFlow);
         };
+        validate_rmcp_resource(base_url, auth)?;
         let key = credential_key(instance_id, base_url, auth)?;
         let mut manager = self.new_manager(base_url, &key).await?;
+        let metadata = manager
+            .discover_metadata()
+            .await
+            .map_err(|_| AuthError::AuthorizationStartFailed)?;
+        validate_authorization_code_client_auth_method(
+            config.client_auth_method.clone(),
+            &metadata,
+        )?;
+        manager.set_metadata(metadata);
         if !manager
             .initialize_from_store()
             .await
@@ -484,6 +514,7 @@ impl AuthCoordinator {
         base_url: &str,
         auth: &AuthConfig,
     ) -> Result<AuthorizationManager, AuthError> {
+        validate_rmcp_resource(base_url, auth)?;
         let key = credential_key(instance_id, base_url, auth)?;
         let mut manager = self.new_manager(base_url, &key).await?;
         let initialized = manager
@@ -492,6 +523,17 @@ impl AuthCoordinator {
             .map_err(|_| AuthError::ProviderFailure)?;
 
         if initialized {
+            if let AuthConfig::OAuthAuthorizationCode(config) = auth {
+                let metadata = manager
+                    .discover_metadata()
+                    .await
+                    .map_err(|_| AuthError::ProviderFailure)?;
+                validate_authorization_code_client_auth_method(
+                    config.client_auth_method.clone(),
+                    &metadata,
+                )?;
+                manager.set_metadata(metadata);
+            }
             match manager.get_access_token().await {
                 Ok(_) => {
                     self.set_status(instance_id, AuthStatus::Authenticated)
@@ -640,6 +682,71 @@ impl AuthCoordinator {
             .clear()
             .await
             .map_err(|_| AuthError::ProviderFailure)
+    }
+}
+
+fn validate_rmcp_resource(base_url: &str, auth: &AuthConfig) -> Result<(), AuthError> {
+    if let AuthConfig::OAuthAuthorizationCode(config) = auth {
+        if let Some(resource) = config.resource.as_deref() {
+            if resource != base_url {
+                return Err(AuthError::InvalidConfig(
+                    "rmcp 2.2.0 Authorization Code OAuth uses the MCP service URL as the resource; auth.resource must be omitted or equal to the service URL".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_authorization_code_client_auth_method(
+    method: super::AuthorizationCodeClientAuthMethod,
+    metadata: &AuthorizationMetadata,
+) -> Result<(), AuthError> {
+    let Some(methods) = metadata
+        .additional_fields
+        .get("token_endpoint_auth_methods_supported")
+        .and_then(|value| value.as_array())
+    else {
+        if matches!(
+            method,
+            super::AuthorizationCodeClientAuthMethod::ClientSecretPost
+        ) {
+            return Err(AuthError::InvalidConfig(
+                "rmcp 2.2.0 cannot force Authorization Code client_secret_post when the authorization server does not advertise token_endpoint_auth_methods_supported".to_string(),
+            ));
+        }
+        return Ok(());
+    };
+
+    let has_basic = methods
+        .iter()
+        .any(|value| value.as_str() == Some("client_secret_basic"));
+    let has_post = methods
+        .iter()
+        .any(|value| value.as_str() == Some("client_secret_post"));
+
+    let rmcp_method = if has_post && !has_basic {
+        super::AuthorizationCodeClientAuthMethod::ClientSecretPost
+    } else {
+        super::AuthorizationCodeClientAuthMethod::ClientSecretBasic
+    };
+
+    match method {
+        super::AuthorizationCodeClientAuthMethod::None => Ok(()),
+        requested if requested == rmcp_method => Ok(()),
+        requested => Err(AuthError::InvalidConfig(format!(
+            "rmcp 2.2.0 selects Authorization Code token endpoint authentication as {}; requested {} cannot be forced through the public API",
+            auth_method_name(&rmcp_method),
+            auth_method_name(&requested),
+        ))),
+    }
+}
+
+fn auth_method_name(method: &super::AuthorizationCodeClientAuthMethod) -> &'static str {
+    match method {
+        super::AuthorizationCodeClientAuthMethod::None => "none",
+        super::AuthorizationCodeClientAuthMethod::ClientSecretBasic => "client_secret_basic",
+        super::AuthorizationCodeClientAuthMethod::ClientSecretPost => "client_secret_post",
     }
 }
 
