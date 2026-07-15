@@ -561,6 +561,9 @@ mod tests {
                     .lock()
                     .await
                     .push(ProtocolCall::GetTask(task_id.clone()));
+                if task_id == "missing" {
+                    return Err(rmcp::ErrorData::resource_not_found("task not found", None));
+                }
                 Ok(GetTaskResult::new(fixture_task(
                     &task_id,
                     TaskStatus::Working,
@@ -583,6 +586,9 @@ mod tests {
                     .lock()
                     .await
                     .push(ProtocolCall::GetTaskResult(task_id.clone()));
+                if task_id == "missing" {
+                    return Err(rmcp::ErrorData::resource_not_found("task not found", None));
+                }
                 Ok(GetTaskPayloadResult::new(serde_json::json!({
                     "content": [{"type": "text", "text": "task result"}],
                     "isError": false
@@ -605,6 +611,9 @@ mod tests {
                     .lock()
                     .await
                     .push(ProtocolCall::CancelTask(task_id.clone()));
+                if task_id == "missing" {
+                    return Err(rmcp::ErrorData::resource_not_found("task not found", None));
+                }
                 Ok(rmcp::model::CancelTaskResult::new(fixture_task(
                     &task_id,
                     TaskStatus::Cancelled,
@@ -928,6 +937,29 @@ mod tests {
                 ProtocolCall::CancelTask("task-page-1".to_string()),
             ]
         );
+
+        connection.disconnect().await.unwrap();
+        server.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn task_resource_errors_are_classified_without_parsing_messages() {
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_tasks_with(TasksCapability::server_default())
+            .build();
+        let (mut connection, server, _) = connect_fixture(capabilities).await;
+
+        for error in [
+            connection.get_task("missing").await.unwrap_err(),
+            connection.get_task_result("missing").await.unwrap_err(),
+            connection.cancel_task("missing").await.unwrap_err(),
+        ] {
+            assert!(matches!(
+                error,
+                TransportError::TaskNotFound { ref task_id } if task_id == "missing"
+            ));
+        }
 
         connection.disconnect().await.unwrap();
         server.cancel().await.unwrap();

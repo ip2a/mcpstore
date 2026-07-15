@@ -46,6 +46,8 @@ pub enum TransportError {
     ToolCallFailed(String),
     #[error("MCP protocol error: {0}")]
     Protocol(String),
+    #[error("task not found: {task_id}")]
+    TaskNotFound { task_id: String },
     #[error("task state error: {0}")]
     TaskState(String),
     #[error("IO error: {0}")]
