@@ -57,7 +57,11 @@ pub fn run() -> Result<(), BoxErr> {
         return crate::tui::run_from_args(&args);
     }
 
-    bootstrap::init_tracing("mcpstore=info");
+    if uses_machine_output(&cli.command) {
+        bootstrap::init_tracing_silent("mcpstore=info");
+    } else {
+        bootstrap::init_tracing("mcpstore=info");
+    }
 
     let rt = bootstrap::build_runtime()?;
 
@@ -94,6 +98,23 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
     })
+}
+
+fn uses_machine_output(command: &Commands) -> bool {
+    match command {
+        Commands::Call(args) => args.output != commands::mcp::CallOutputFormat::Human,
+        Commands::Task(args) => {
+            let output = match &args.action {
+                commands::task::TaskAction::Run(args) => args.runtime.output,
+                commands::task::TaskAction::List(args) => args.runtime.output,
+                commands::task::TaskAction::Status(args)
+                | commands::task::TaskAction::Result(args)
+                | commands::task::TaskAction::Cancel(args) => args.runtime.output,
+            };
+            output != commands::task::TaskOutputFormat::Human
+        }
+        _ => false,
+    }
 }
 
 pub fn print_banner() {
@@ -282,6 +303,13 @@ mod tests {
             "get_repo_status",
             "--arguments",
             "{}",
+            "--output",
+            "jsonl",
+            "--timeout",
+            "15",
+            "--max-total-timeout",
+            "60",
+            "--non-interactive",
         ])
         .unwrap();
 
@@ -290,9 +318,47 @@ mod tests {
                 assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.tool_name, "get_repo_status");
                 assert_eq!(args.arguments, "{}");
+                assert_eq!(args.output, commands::mcp::CallOutputFormat::Jsonl);
+                assert_eq!(args.timeout, Some(15));
+                assert_eq!(args.max_total_timeout, Some(60));
+                assert!(args.non_interactive);
             }
             _ => panic!("Expected to parse as call command"),
         }
+    }
+
+    #[test]
+    fn machine_output_commands_use_silent_tracing() {
+        let call = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "get_repo_status",
+            "--output",
+            "jsonl",
+        ])
+        .unwrap();
+        assert!(uses_machine_output(&call.command));
+
+        let task = Cli::try_parse_from([
+            "mcpstore",
+            "task",
+            "list",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+        assert!(uses_machine_output(&task.command));
+
+        let human = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "get_repo_status",
+        ])
+        .unwrap();
+        assert!(!uses_machine_output(&human.command));
     }
 
     #[test]
@@ -308,6 +374,10 @@ mod tests {
             r#"{"value":1}"#,
             "--ttl",
             "5000",
+            "--timeout",
+            "20",
+            "--max-total-timeout",
+            "90",
             "--output",
             "jsonl",
             "--non-interactive",
@@ -322,6 +392,8 @@ mod tests {
                 assert_eq!(args.tool_name, "long_tool");
                 assert_eq!(args.input, r#"{"value":1}"#);
                 assert_eq!(args.ttl, Some(5000));
+                assert_eq!(args.timeout, Some(20));
+                assert_eq!(args.max_total_timeout, Some(90));
                 assert_eq!(args.runtime.output, commands::task::TaskOutputFormat::Jsonl);
                 assert!(args.runtime.non_interactive);
             }

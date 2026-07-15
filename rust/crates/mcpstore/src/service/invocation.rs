@@ -208,9 +208,15 @@ impl MCPStore {
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
         self.refresh_from_db_if_needed().await?;
-        let (instance_id, tool_name, args) = self
-            .resolve_transformed_tool_call(instance_id, tool_name, args)
+        let requested_instance_id = instance_id;
+        self.ensure_instance_connected(requested_instance_id)
             .await?;
+        let (instance_id, tool_name, args) = self
+            .resolve_transformed_tool_call(requested_instance_id, tool_name, args)
+            .await?;
+        if instance_id != requested_instance_id {
+            self.ensure_instance_connected(instance_id).await?;
+        }
         let instance = self
             .registry
             .find_instance(instance_id)
@@ -225,8 +231,6 @@ impl MCPStore {
                 },
             ));
         }
-        self.ensure_instance_connected(instance_id).await?;
-
         let context = ToolExecutionContext {
             instance_id,
             service_name: instance.service_name,
