@@ -7089,7 +7089,6 @@ mod event_reactor_facade {
             owner_id: "facade-test-owner".into(),
             namespace: "mcpstore".into(),
             watch_collections: vec!["mcpstore:event:facade.test".into()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
 
@@ -7187,7 +7186,6 @@ mod control_reactor_tests {
             owner_id: "control-test-owner".into(),
             namespace: "test-control-reactor".into(),
             watch_collections: vec![collection.clone()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
         store.setup_event_reactor(config).await.unwrap();
@@ -7298,7 +7296,6 @@ mod control_reactor_tests {
             owner_id: "control-skip-owner".into(),
             namespace: "test-control-reactor-skip".into(),
             watch_collections: vec![collection],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
         store.setup_event_reactor(config).await.unwrap();
