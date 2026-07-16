@@ -375,6 +375,15 @@ where
         debug!(collection = %collection, key = %key, matched = matched.len(), "rule matching complete");
 
         // ── Claim + execute each matched rule ──
+        // Track whether any rule returned Retryable. If so, we must NOT advance
+        // the cursor — the ChangeFeed will re-deliver this same change on the
+        // next `recv()`. The claim's TTL (set via mark_failed) acts as the
+        // backoff: until it expires, `try_claim` returns AlreadyClaimed and the
+        // re-delivery is skipped cheaply. Once TTL expires, the claim succeeds
+        // again and the reaction re-executes. This is the correct ALO + retry
+        // semantics without polling.
+        let mut any_retryable = false;
+
         for rule in matched {
             let reaction_ctx = ReactionContext {
                 collection: collection.clone(),
@@ -388,10 +397,15 @@ where
                 }
                 Ok(ClaimResult::AlreadyClaimed { owner }) => {
                     debug!(rule = rule.id(), change = %change_id, owner = %owner, "already claimed, skipping");
+                    // If the claim is live, the previous attempt may still be
+                    // in-flight or waiting for TTL expiry. Don't advance cursor
+                    // — let it retry after TTL.
+                    any_retryable = true;
                     continue;
                 }
                 Err(e) => {
                     error!(rule = rule.id(), change = %change_id, error = ?e, "claim error, skipping");
+                    any_retryable = true;
                     continue;
                 }
             }
@@ -407,6 +421,7 @@ where
                 }
                 ReactionOutcome::Retryable(reason) => {
                     warn!(rule = rule.id(), change = %change_id, reason = %reason, "reaction retryable");
+                    any_retryable = true;
                     if let Err(e) = self
                         .claim_store
                         .mark_failed(&change_id, rule.id(), Some(std::time::Duration::from_secs(300)))
@@ -429,9 +444,15 @@ where
         }
 
         // ── Advance cursor (ack point) ──
-        // Cursor advances after all matched reactions for this change have been
-        // dispatched and their outcomes recorded. This ensures that on restart,
-        // we never skip a change whose reactions were not yet processed.
+        // Cursor advances only when all matched rules reached a terminal state
+        // (Ok or Failed). If any rule returned Retryable (or a live claim was
+        // held by another instance), we skip the cursor advance. The ChangeFeed
+        // re-delivers the same change; the expired claim then allows re-execution.
+        if any_retryable {
+            debug!(change = %change_id, "cursor held back due to retryable outcome");
+            return;
+        }
+
         if let Err(e) = self.cursor_store.save(&change_id).await {
             warn!(error = ?e, "failed to save cursor after processing");
         }
