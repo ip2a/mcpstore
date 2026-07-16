@@ -40,6 +40,7 @@ where
     pub(in crate::cache) fn new(inner: T) -> Self {
         Self { inner }
     }
+
 }
 
 fn value_version(value: &JsonValue) -> Option<u64> {
