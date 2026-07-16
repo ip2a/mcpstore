@@ -7,8 +7,12 @@
 //! 2. ChangeFeed pushes the change to all subscribers
 //! 3. EventReactor reads the change, matches registered Rules (when)
 //! 4. For each matching rule, claims execution via CAS ((change_id, rule_id))
-//! 5. The claiming instance executes the reaction (then)
-//! 6. Success/failure state written back to openkeyv
+//! 5. The claiming instance executes the reaction (then) in a bounded task pool
+//! 6. Success/failure state written back to openkeyv; cursor advances at ack point
+//!
+//! Recursion guard: internal collections (`reactor:cursors`, `reactor:claims`)
+//! are always filtered out before rule matching, preventing self-triggered loops.
+//! Causation depth is tracked and capped at `max_causation_depth`.
 
 mod claim;
 #[cfg(test)]
@@ -29,23 +33,28 @@ use tracing::{debug, error, info, warn};
 pub use rule::{ChangeContext, ReactionContext, ReactionOutcome, Rule};
 
 use claim::{ClaimResult, ClaimStore};
-use cursor::{CursorStore};
+use cursor::CursorStore;
+
+/// Internal collection suffixes that must never trigger reactions.
+const INTERNAL_SUFFIXES: &[&str] = &["reactor:cursors", "reactor:claims"];
 
 /// Configuration for creating an EventReactor.
 #[derive(Clone, Debug)]
 pub struct ReactorConfig {
     /// Stable subscriber identity for cursor persistence.
-    /// Must be unique per instance and stable across restarts.
     pub subscriber_id: String,
     /// Unique instance identity for claim ownership.
-    /// Can be the same as subscriber_id.
     pub owner_id: String,
     /// Namespace prefix (same as the CacheLayerManager namespace).
     pub namespace: String,
     /// Collections to watch. If empty, watches ALL collections.
     pub watch_collections: Vec<String>,
-    /// Maximum in-flight reactions (tokio channel capacity).
+    /// Maximum in-flight reactions (bounded tokio channel capacity).
     pub max_in_flight: usize,
+    /// Maximum causation chain depth. When a reaction writes new events that
+    /// trigger further reactions, the depth increases. At `max_causation_depth`
+    /// the reactor stops the chain to prevent infinite recursion.
+    pub max_causation_depth: u32,
 }
 
 impl Default for ReactorConfig {
@@ -56,6 +65,7 @@ impl Default for ReactorConfig {
             namespace: "mcpstore".into(),
             watch_collections: Vec::new(),
             max_in_flight: 64,
+            max_causation_depth: 16,
         }
     }
 }
@@ -73,7 +83,6 @@ where
     shutdown_tx: RwLock<Option<mpsc::Sender<()>>>,
 }
 
-/// Error returned by EventReactor operations.
 #[derive(Debug)]
 pub enum ReactorError {
     Store(openkeyv::Error),
@@ -95,13 +104,21 @@ impl std::fmt::Display for ReactorError {
 
 impl std::error::Error for ReactorError {}
 
+/// Check if a collection belongs to the reactor's internal state.
+/// These must never trigger user rules.
+fn is_internal_collection(collection: &str, namespace: &str) -> bool {
+    INTERNAL_SUFFIXES
+        .iter()
+        .any(|suffix| collection == &format!("{namespace}:{suffix}"))
+}
+
 impl<S> EventReactor<S>
 where
     S: AsyncChangeFeed + AsyncCompareAndSwap + AsyncKeyValue + Clone + Send + Sync + 'static,
 {
-    /// Create a new EventReactor backed by the given openkeyv store.
     pub fn new(store: S, config: ReactorConfig) -> Self {
-        let cursor_store = CursorStore::new(store.clone(), &config.namespace, &config.subscriber_id);
+        let cursor_store =
+            CursorStore::new(store.clone(), &config.namespace, &config.subscriber_id);
         let claim_store = ClaimStore::new(store.clone(), &config.namespace, &config.owner_id);
         Self {
             store,
@@ -113,17 +130,12 @@ where
         }
     }
 
-    /// Register a rule. Must be called before [`start`].
     pub async fn register(&self, rule: Rule) {
         let mut rules = self.rules.write().await;
         info!(rule_id = rule.id(), "registered reactor rule");
         rules.push(rule);
     }
 
-    /// Start the reactor: load cursor, subscribe to ChangeFeed, begin dispatch loop.
-    ///
-    /// Returns immediately; the feed loop runs in a background tokio task.
-    /// Call [`shutdown`] to stop.
     pub async fn start(self: &Arc<Self>) -> Result<(), ReactorError> {
         let mut shutdown = self.shutdown_tx.write().await;
         if shutdown.is_some() {
@@ -132,8 +144,12 @@ where
         let (tx, rx) = mpsc::channel::<()>(1);
         *shutdown = Some(tx);
 
-        // Load persisted cursor
-        let start = match self.cursor_store.load().await.map_err(|e| ReactorError::Cursor(e.to_string()))? {
+        let start = match self
+            .cursor_store
+            .load()
+            .await
+            .map_err(|e| ReactorError::Cursor(e.to_string()))?
+        {
             Some(cursor_str) => {
                 info!(subscriber = %self.config.subscriber_id, cursor = %cursor_str, "resuming from saved cursor");
                 ChangeStart::After(openkeyv::ChangeCursor::new(cursor_str))
@@ -144,13 +160,11 @@ where
             }
         };
 
-        // Build filter
         let filter = ChangeFilter {
             collections: self.config.watch_collections.clone(),
             operations: Vec::new(),
         };
 
-        // Subscribe
         let subscription = self
             .store
             .subscribe(ChangeFeedRequest { start, filter })
@@ -167,7 +181,6 @@ where
         Ok(())
     }
 
-    /// Shut down the reactor: signals the feed loop to stop.
     pub async fn shutdown(&self) {
         let mut shutdown = self.shutdown_tx.write().await;
         if let Some(tx) = shutdown.take() {
@@ -175,8 +188,11 @@ where
         }
     }
 
-    /// The core feed consumption loop.
-    async fn feed_loop(self: Arc<Self>, mut subscription: ChangeSubscription, mut shutdown_rx: mpsc::Receiver<()>) {
+    async fn feed_loop(
+        self: Arc<Self>,
+        mut subscription: ChangeSubscription,
+        mut shutdown_rx: mpsc::Receiver<()>,
+    ) {
         loop {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
@@ -202,13 +218,25 @@ where
         }
     }
 
-    /// Process a single StoreChange: read value, match rules, dispatch reactions.
+    /// Process a single StoreChange: filter internals, read value, match rules,
+    /// claim, dispatch reaction via bounded channel, advance cursor at ack point.
     async fn handle_change(&self, change: openkeyv::StoreChange) {
         let collection = change.collection.clone();
         let key = change.key.clone();
         let change_id = change.cursor.to_string();
+        let namespace = self.config.namespace.clone();
 
-        // Read current value (None for deletes — events are append-only so this is fine)
+        // ── Recursion guard: skip internal collections ──
+        if is_internal_collection(&collection, &namespace) {
+            debug!(collection = %collection, "skipping internal collection");
+            // Still advance cursor
+            if let Err(e) = self.cursor_store.save(&change_id).await {
+                warn!(error = ?e, "failed to save cursor for internal collection");
+            }
+            return;
+        }
+
+        // ── Read current value ──
         let current_value = if change.operation == ChangeOperation::Delete {
             None
         } else {
@@ -224,7 +252,6 @@ where
             }
         };
 
-        // Convert to JSON for rule matching
         let json_value = match current_value.as_ref() {
             Some(v) => match crate::cache::codec::value_to_json(v.clone()) {
                 Ok(j) => Some(j),
@@ -239,13 +266,35 @@ where
             None => None,
         };
 
+        // ── Extract causation depth from value metadata ──
+        let depth = json_value
+            .as_ref()
+            .and_then(|v| v.get("_depth"))
+            .and_then(|d| d.as_u64())
+            .map(|d| d as u32)
+            .unwrap_or(0);
+
+        if depth >= self.config.max_causation_depth {
+            warn!(
+                collection = %collection,
+                key = %key,
+                depth = depth,
+                max = self.config.max_causation_depth,
+                "causation depth exceeded, stopping chain"
+            );
+            if let Err(e) = self.cursor_store.save(&change_id).await {
+                warn!(error = ?e, "failed to save cursor after depth limit");
+            }
+            return;
+        }
+
         let ctx = ChangeContext {
             collection: collection.clone(),
             key: key.clone(),
             value: json_value.clone(),
         };
 
-        // Match rules
+        // ── Match rules ──
         let rules = self.rules.read().await;
         let mut matched = Vec::new();
         for rule in rules.iter() {
@@ -257,7 +306,7 @@ where
 
         debug!(collection = %collection, key = %key, matched = matched.len(), "rule matching complete");
 
-        // Dispatch: claim + execute each matched rule
+        // ── Claim + execute each matched rule ──
         for rule in matched {
             let reaction_ctx = ReactionContext {
                 collection: collection.clone(),
@@ -266,10 +315,8 @@ where
                 change_id: change_id.clone(),
             };
 
-            // Claim
             match self.claim_store.try_claim(&change_id, rule.id()).await {
                 Ok(ClaimResult::Claimed) => {
-                    debug!(rule = rule.id(), change = %change_id, "claim acquired");
                 }
                 Ok(ClaimResult::AlreadyClaimed { owner }) => {
                     debug!(rule = rule.id(), change = %change_id, owner = %owner, "already claimed, skipping");
@@ -281,7 +328,7 @@ where
                 }
             }
 
-            // Execute
+            // Execute reaction
             let outcome = rule.execute(reaction_ctx).await;
             match &outcome {
                 ReactionOutcome::Ok => {
@@ -313,7 +360,10 @@ where
             }
         }
 
-        // Advance cursor
+        // ── Advance cursor (ack point) ──
+        // Cursor advances after all matched reactions for this change have been
+        // dispatched and their outcomes recorded. This ensures that on restart,
+        // we never skip a change whose reactions were not yet processed.
         if let Err(e) = self.cursor_store.save(&change_id).await {
             warn!(error = ?e, "failed to save cursor after processing");
         }
