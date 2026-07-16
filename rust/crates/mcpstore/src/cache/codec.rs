@@ -1,16 +1,18 @@
-use std::collections::HashMap;
-
-use serde_json::{Map, Value};
+use openkeyv::{StructuredValue, Value};
+use serde_json::Value as JsonValue;
 
 use crate::cache::{CacheError, Result};
 
-pub(super) fn value_to_object(value: Value) -> Result<HashMap<String, Value>> {
-    match value {
-        Value::Object(object) => Ok(object.into_iter().collect()),
-        other => Err(CacheError::NotAnObject(format!("value={other}"))),
-    }
+pub(super) fn json_to_value(json: JsonValue) -> Result<Value> {
+    let structured = StructuredValue::from_json(&json).map_err(map_openkeyv_err)?;
+    Value::from_structured(&structured).map_err(map_openkeyv_err)
 }
 
-pub(super) fn object_to_value(value: HashMap<String, Value>) -> Value {
-    Value::Object(Map::from_iter(value))
+pub(super) fn value_to_json(value: Value) -> Result<JsonValue> {
+    let structured = value.decode_structured().map_err(map_openkeyv_err)?;
+    structured.to_json().map_err(map_openkeyv_err)
+}
+
+fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
+    CacheError::StoreError(format!("openkeyv value conversion failed: {err}"))
 }

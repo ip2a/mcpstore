@@ -1,134 +1,38 @@
-use std::collections::HashMap;
-
 use openkeyv::{
-    store::redis::RedisStore as OpenKeyvRedisInner, AsyncEnumerateCollections, AsyncEnumerateKeys,
-    AsyncKeyValue,
+    store::redis::RedisStore as OpenKeyvRedisInner, AsyncCompareAndSwap, AsyncEnumerateCollections,
+    AsyncEnumerateKeys, AsyncKeyValue, Revision,
 };
-use redis::AsyncCommands;
-use serde_json::Value;
+use serde_json::Value as JsonValue;
 use tokio::sync::OnceCell;
 
 use crate::cache::storage::CacheStore;
 use crate::cache::{codec, CacheError, Result};
 
-const COLLECTION_SEPARATOR: &str = ":";
-
-const COMPARE_AND_PUT_SCRIPT: &str = r#"
-local current = redis.call('GET', KEYS[1])
-local expected = ARGV[1]
-if current == false then
-    if expected ~= '__none__' then
-        return 0
-    end
-else
-    local decoded = cjson.decode(current)
-    local current_version = decoded['value']['version']
-    if current_version == cjson.null then
-        current_version = nil
-    end
-    if expected == '__none__' then
-        return 0
-    elseif tostring(current_version) ~= expected then
-        return 0
-    end
-end
-redis.call('SET', KEYS[1], ARGV[2])
-return 1
-"#;
-
-pub(super) struct LazyRedisStore {
-    redis_url: String,
-    inner: OnceCell<OpenKeyvRedisInner>,
-    client: OnceCell<redis::Client>,
-}
-
 pub(in crate::cache) struct RedisCacheStore {
-    inner: LazyRedisStore,
+    inner: OnceCell<OpenKeyvRedisInner>,
+    redis_url: String,
 }
 
 impl RedisCacheStore {
     pub(in crate::cache) fn new(redis_url: impl Into<String>) -> Self {
         Self {
-            inner: LazyRedisStore::new(redis_url),
+            inner: OnceCell::new(),
+            redis_url: redis_url.into(),
         }
+    }
+
+    async fn store(&self) -> Result<&OpenKeyvRedisInner> {
+        self.inner
+            .get_or_try_init(|| async {
+                OpenKeyvRedisInner::new(&self.redis_url).await
+            })
+            .await
+            .map_err(map_openkeyv_err)
     }
 }
 
-impl LazyRedisStore {
-    pub(super) fn new(redis_url: impl Into<String>) -> Self {
-        Self {
-            redis_url: redis_url.into(),
-            inner: OnceCell::new(),
-            client: OnceCell::new(),
-        }
-    }
-
-    async fn inner(&self) -> openkeyv::Result<&OpenKeyvRedisInner> {
-        self.inner
-            .get_or_try_init(|| async { OpenKeyvRedisInner::new(&self.redis_url).await })
-            .await
-    }
-
-    async fn client(&self) -> Result<&redis::Client> {
-        self.client
-            .get_or_try_init(|| async {
-                redis::Client::open(self.redis_url.as_str())
-                    .map_err(|err| CacheError::StoreError(format!("redis operation failed: {err}")))
-            })
-            .await
-    }
-
-    fn compound_key(collection: &str, key: &str) -> String {
-        format!("{collection}{COLLECTION_SEPARATOR}{key}")
-    }
-
-    fn managed_entry_json(value: Value) -> Result<String> {
-        serde_json::to_string(&serde_json::json!({
-            "value": codec::value_to_object(value)?,
-            "created_at": chrono::Utc::now(),
-        }))
-        .map_err(Into::into)
-    }
-
-    pub(super) async fn compare_and_put(
-        &self,
-        key: &str,
-        expected_version: Option<u64>,
-        value: Value,
-        collection: &str,
-    ) -> Result<()> {
-        let client = self.client().await?;
-        let mut conn = client
-            .get_multiplexed_tokio_connection()
-            .await
-            .map_err(|err| CacheError::StoreError(format!("redis operation failed: {err}")))?;
-        let redis_key = Self::compound_key(collection, key);
-        let expected = expected_version
-            .map(|version| version.to_string())
-            .unwrap_or_else(|| "__none__".to_string());
-        let payload = Self::managed_entry_json(value)?;
-        let updated: i64 = redis::Script::new(COMPARE_AND_PUT_SCRIPT)
-            .key(&redis_key)
-            .arg(&expected)
-            .arg(&payload)
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|err| CacheError::StoreError(format!("redis operation failed: {err}")))?;
-        if updated == 1 {
-            Ok(())
-        } else {
-            let current: Option<String> = conn
-                .get(&redis_key)
-                .await
-                .map_err(|err| CacheError::StoreError(format!("redis operation failed: {err}")))?;
-            let current_version = current
-                .and_then(|json| serde_json::from_str::<Value>(&json).ok())
-                .and_then(|entry| entry.get("value")?.get("version")?.as_u64());
-            Err(CacheError::Conflict(format!(
-                "collection={collection}, key={key}, expected_version={expected_version:?}, current_version={current_version:?}"
-            )))
-        }
-    }
+fn value_version(value: &JsonValue) -> Option<u64> {
+    value.get("version").and_then(JsonValue::as_u64)
 }
 
 fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
@@ -137,9 +41,11 @@ fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
 
 #[async_trait::async_trait]
 impl CacheStore for RedisCacheStore {
-    async fn put(&self, key: &str, value: Value, collection: &str) -> Result<()> {
-        self.inner
-            .put(key, codec::value_to_object(value)?, Some(collection), None)
+    async fn put(&self, key: &str, value: JsonValue, collection: &str) -> Result<()> {
+        let okv_value = codec::json_to_value(value)?;
+        self.store()
+            .await?
+            .put(key, okv_value, Some(collection), None)
             .await
             .map_err(map_openkeyv_err)
     }
@@ -148,139 +54,93 @@ impl CacheStore for RedisCacheStore {
         &self,
         key: &str,
         expected_version: Option<u64>,
-        value: Value,
+        value: JsonValue,
         collection: &str,
     ) -> Result<()> {
-        self.inner
-            .compare_and_put(key, expected_version, value, collection)
+        let store = self.store().await?;
+
+        let revisioned = store
+            .get_with_revision(key, Some(collection))
             .await
+            .map_err(map_openkeyv_err)?;
+
+        let current_version = revisioned
+            .as_ref()
+            .and_then(|r| value_version(&codec::value_to_json(r.value.clone()).ok()?));
+
+        let matches = match expected_version {
+            Some(expected) => current_version == Some(expected),
+            None => revisioned.is_none(),
+        };
+
+        if !matches {
+            return Err(CacheError::Conflict(format!(
+                "collection={collection}, key={key}, expected_version={expected_version:?}, current_version={current_version:?}"
+            )));
+        }
+
+        let expected_revision: Option<&Revision> = revisioned.as_ref().map(|r| &r.revision);
+        let okv_value = codec::json_to_value(value)?;
+        let outcome = store
+            .compare_and_swap(key, expected_revision, okv_value, Some(collection), None)
+            .await
+            .map_err(map_openkeyv_err)?;
+
+        match outcome {
+            openkeyv::CompareAndSwapResult::Applied { .. } => Ok(()),
+            openkeyv::CompareAndSwapResult::Conflict { .. } => Err(CacheError::Conflict(
+                format!("concurrent modification: collection={collection}, key={key}"),
+            )),
+        }
     }
 
-    async fn get(&self, key: &str, collection: &str) -> Result<Option<Value>> {
-        self.inner
+    async fn get(&self, key: &str, collection: &str) -> Result<Option<JsonValue>> {
+        self.store()
+            .await?
             .get(key, Some(collection))
             .await
-            .map(|value| value.map(codec::object_to_value))
-            .map_err(map_openkeyv_err)
+            .map_err(map_openkeyv_err)?
+            .map(|v| codec::value_to_json(v))
+            .transpose()
     }
 
     async fn delete(&self, key: &str, collection: &str) -> Result<()> {
-        self.inner
+        self.store()
+            .await?
             .delete(key, Some(collection))
             .await
-            .map(|_| ())
-            .map_err(map_openkeyv_err)
+            .map_err(map_openkeyv_err)?;
+        Ok(())
     }
 
     async fn collections(&self) -> Result<Vec<String>> {
-        self.inner.collections(None).await.map_err(map_openkeyv_err)
+        self.store()
+            .await?
+            .collections(None)
+            .await
+            .map_err(map_openkeyv_err)
     }
 
     async fn keys(&self, collection: &str) -> Result<Vec<String>> {
-        self.inner
+        self.store()
+            .await?
             .keys(Some(collection), None)
             .await
             .map_err(map_openkeyv_err)
     }
 
-    async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<Value>>> {
-        self.inner
-            .get_many(keys, Some(collection))
-            .await
-            .map(|values| {
-                values
-                    .into_iter()
-                    .map(|value| value.map(codec::object_to_value))
-                    .collect()
-            })
-            .map_err(map_openkeyv_err)
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncKeyValue for LazyRedisStore {
-    async fn get(
-        &self,
-        key: &str,
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Option<HashMap<String, Value>>> {
-        self.inner().await?.get(key, collection).await
-    }
-
-    async fn ttl(
-        &self,
-        key: &str,
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Option<(HashMap<String, Value>, f64)>> {
-        self.inner().await?.ttl(key, collection).await
-    }
-
-    async fn put(
-        &self,
-        key: &str,
-        value: HashMap<String, Value>,
-        collection: Option<&str>,
-        ttl: Option<f64>,
-    ) -> openkeyv::Result<()> {
-        self.inner().await?.put(key, value, collection, ttl).await
-    }
-
-    async fn delete(&self, key: &str, collection: Option<&str>) -> openkeyv::Result<bool> {
-        self.inner().await?.delete(key, collection).await
-    }
-
     async fn get_many(
         &self,
         keys: &[String],
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Vec<Option<HashMap<String, Value>>>> {
-        self.inner().await?.get_many(keys, collection).await
-    }
-
-    async fn ttl_many(
-        &self,
-        keys: &[String],
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Vec<Option<(HashMap<String, Value>, f64)>>> {
-        self.inner().await?.ttl_many(keys, collection).await
-    }
-
-    async fn put_many(
-        &self,
-        keys: &[String],
-        values: &[HashMap<String, Value>],
-        collection: Option<&str>,
-        ttl: Option<f64>,
-    ) -> openkeyv::Result<()> {
-        self.inner()
+        collection: &str,
+    ) -> Result<Vec<Option<JsonValue>>> {
+        self.store()
             .await?
-            .put_many(keys, values, collection, ttl)
+            .get_many(keys, Some(collection))
             .await
-    }
-
-    async fn delete_many(
-        &self,
-        keys: &[String],
-        collection: Option<&str>,
-    ) -> openkeyv::Result<usize> {
-        self.inner().await?.delete_many(keys, collection).await
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncEnumerateKeys for LazyRedisStore {
-    async fn keys(
-        &self,
-        collection: Option<&str>,
-        limit: Option<usize>,
-    ) -> openkeyv::Result<Vec<String>> {
-        self.inner().await?.keys(collection, limit).await
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncEnumerateCollections for LazyRedisStore {
-    async fn collections(&self, limit: Option<usize>) -> openkeyv::Result<Vec<String>> {
-        self.inner().await?.collections(limit).await
+            .map_err(map_openkeyv_err)?
+            .into_iter()
+            .map(|v| v.map(codec::value_to_json).transpose())
+            .collect()
     }
 }

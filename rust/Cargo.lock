@@ -2196,18 +2196,17 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "openkeyv"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45edcd596137fd7612e2c8e5d03b06bf9f4385433d2c9616ba7bde4450fdaeae"
+version = "0.4.4"
 dependencies = [
  "async-trait",
  "base64",
  "blake3",
+ "bytes",
  "chrono",
  "dashmap",
  "flate2",
+ "getrandom 0.3.4",
  "redis",
- "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -2680,7 +2679,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.3",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3079,7 +3078,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
