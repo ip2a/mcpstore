@@ -207,7 +207,9 @@ impl MCPStore {
                 }
             }
         };
-        let reactor = std::sync::Arc::new(EventReactor::new(backend, config));
+        let reactor = std::sync::Arc::new(
+            EventReactor::new(backend, config).with_event_bus(self.event_bus.clone()),
+        );
         *self.event_reactor.write().await = Some(reactor);
         Ok(())
     }
