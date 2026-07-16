@@ -170,11 +170,34 @@ where
             operations: Vec::new(),
         };
 
-        let subscription = self
+        let subscription = match self
             .store
-            .subscribe(ChangeFeedRequest { start, filter })
+            .subscribe(ChangeFeedRequest { start: start.clone(), filter: filter.clone() })
             .await
-            .map_err(ReactorError::Store)?;
+        {
+            Ok(sub) => sub,
+            Err(openkeyv::Error::ChangeCursorExpired { requested, oldest }) => {
+                warn!(
+                    subscriber = %self.config.subscriber_id,
+                    requested = %requested,
+                    oldest = %oldest,
+                    "cursor expired, falling back to beginning"
+                );
+                // Reset persisted cursor and resubscribe from beginning
+                self.cursor_store
+                    .save(&openkeyv::ChangeCursor::new(&oldest).to_string())
+                    .await
+                    .map_err(|e| ReactorError::Cursor(e.to_string()))?;
+                self.store
+                    .subscribe(ChangeFeedRequest {
+                        start: ChangeStart::Beginning,
+                        filter,
+                    })
+                    .await
+                    .map_err(ReactorError::Store)?
+            }
+            Err(e) => return Err(ReactorError::Store(e)),
+        };
 
         info!("event reactor started, dispatching feed loop");
 
@@ -217,6 +240,35 @@ where
                 }
                 recv = subscription.recv() => {
                     match recv {
+                        Err(openkeyv::Error::ChangeCursorExpired { requested, oldest }) => {
+                            warn!(
+                                subscriber = %self.config.subscriber_id,
+                                requested = %requested,
+                                oldest = %oldest,
+                                "cursor expired during feed, resubscribing from oldest available"
+                            );
+                            let _ = self
+                                .cursor_store
+                                .save(&openkeyv::ChangeCursor::new(&oldest).to_string())
+                                .await;
+                            let cursor = openkeyv::ChangeCursor::new(oldest);
+                            match self.store.subscribe(ChangeFeedRequest {
+                                start: ChangeStart::After(cursor),
+                                filter: ChangeFilter {
+                                    collections: self.config.watch_collections.clone(),
+                                    operations: Vec::new(),
+                                },
+                            }).await {
+                                Ok(new_sub) => {
+                                    info!("resubscribed after cursor expiry");
+                                    subscription = new_sub;
+                                }
+                                Err(e) => {
+                                    error!(error = %e, "failed to resubscribe after cursor expiry, reactor stopping");
+                                    break;
+                                }
+                            }
+                        }
                         Err(e) => {
                             error!(error = %e, "change feed error, reactor stopping");
                             break;
