@@ -6,6 +6,7 @@ pub mod cache;
 pub mod config;
 pub mod config_formats;
 pub(crate) mod control;
+pub mod event_reactor;
 pub mod core;
 pub mod events;
 pub(crate) mod health;
