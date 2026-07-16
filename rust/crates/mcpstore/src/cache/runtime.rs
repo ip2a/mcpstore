@@ -40,12 +40,29 @@ impl MCPStore {
                 .unwrap_or_else(|| "redis://127.0.0.1/".to_string()),
         };
         let resolved_namespace = namespace.unwrap_or_else(|| self.namespace());
-        let cache_store =
-            Self::build_cache_store(&cache_storage, &resolved_redis_url, &resolved_namespace)?;
+
+        // Build the new cache store and, for Memory, a shared EventBackend.
+        let (cache_store, event_backend) = match cache_storage {
+            CacheStorage::Memory | CacheStorage::OpenKeyvMemory => {
+                let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
+                (store, Some(crate::event_reactor::EventBackend::from_memory(mem)))
+            }
+            CacheStorage::Redis | CacheStorage::OpenKeyvRedis => {
+                let store = Self::build_cache_store(&cache_storage, &resolved_redis_url, &resolved_namespace)?;
+                let backend = crate::event_reactor::EventBackend::from_redis_url(&resolved_redis_url)
+                    .await
+                    .map_err(|e| StoreError::Other(format!("event backend init: {e}")))?;
+                (store, Some(backend))
+            }
+        };
+
         let snapshot = self
             .cache
             .replace_store_with_snapshot_and_namespace(cache_store, resolved_namespace.clone())
             .await?;
+
+        // Stop any running reactor before swapping the backend.
+        self.stop_reactor().await;
 
         *self.cache_storage.write().await = cache_storage;
         *self.redis_url.write().await = Some(resolved_redis_url);
@@ -53,6 +70,8 @@ impl MCPStore {
             .namespace
             .write()
             .expect("store namespace lock poisoned") = resolved_namespace;
+        *self.event_backend.write().await = event_backend;
+        *self.event_reactor.write().await = None;
         Ok(snapshot)
     }
 
