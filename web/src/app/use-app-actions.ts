@@ -12,8 +12,11 @@ export function useAppActions(refresh: () => Promise<void>) {
     try {
       await action()
       toast.success("操作已完成")
-      await refresh()
-      await onSuccess?.()
+      if (onSuccess) {
+        await onSuccess()
+      } else {
+        await refresh()
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败")
     } finally {

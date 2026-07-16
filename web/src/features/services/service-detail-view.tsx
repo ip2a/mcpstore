@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { ClipboardIcon, EyeIcon, FileIcon, LayoutTemplateIcon, MessageSquareIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
+import { ClipboardIcon, EyeIcon, FileIcon, LayoutTemplateIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { JsonBlock } from "@/components/shared/json-block"
@@ -15,7 +15,8 @@ import { ToolDetailDocBody, ToolDetailDocHeader, ToolPlaygroundAside } from "@/c
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent } from "@/components/ui/tabs"
+import { Spinner } from "@/components/ui/spinner"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useServiceDetailQuery,
   useServicePromptsQuery,
@@ -50,7 +51,8 @@ import { formatServiceLaunchLine } from "@/lib/service-info"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
-type CatalogTab = "tools" | "resources" | "templates" | "prompts"
+type CatalogTab = "tools" | "resources" | "prompts"
+type ResourceSubTab = "items" | "templates"
 type RightPaneView = "service" | "catalog"
 
 function resourceKey(resource: ResourceInfo) {
@@ -81,6 +83,7 @@ export function ServiceDetailView(props: {
   refreshToken?: number
   onBack: () => void
   onRunTool: (tool: ToolInfo, args: Record<string, unknown>) => void
+  isToolRunning?: (tool: ToolInfo) => boolean
   onToolDetail: (tool: ToolInfo, service: ServiceInstance, statusReport?: InstanceStatus | null) => void
   onConnect: () => void
   onDisconnect: () => void
@@ -91,6 +94,7 @@ export function ServiceDetailView(props: {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [rightPaneView, setRightPaneView] = useState<RightPaneView>("service")
   const [activeTab, setActiveTab] = useState<CatalogTab>("tools")
+  const [resourceSubTab, setResourceSubTab] = useState<ResourceSubTab>("items")
   const [selectedToolKey, setSelectedToolKey] = useState<string | null>(null)
   const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null)
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null)
@@ -146,6 +150,7 @@ export function ServiceDetailView(props: {
     return prompts.find((prompt) => promptKey(prompt) === selectedPromptKey) || prompts[0]
   }, [prompts, selectedPromptKey])
   const { values: toolArgs, setField: setToolArg, schema: toolArgsSchema } = useToolArgsForm(selectedTool)
+  const runningSelectedTool = Boolean(selectedTool && props.isToolRunning?.(selectedTool))
 
   useEffect(() => {
     if (!tools.length) {
@@ -208,6 +213,7 @@ export function ServiceDetailView(props: {
   useEffect(() => {
     setRightPaneView("service")
     setToolSearchQuery("")
+    setResourceSubTab("items")
   }, [props.service.instance_id])
 
   useEffect(() => {
@@ -252,18 +258,9 @@ export function ServiceDetailView(props: {
             className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
           >
             <CatalogTabsList>
-              <CatalogTabTrigger value="tools" label={t("tools")}>
-                <WrenchIcon />
-              </CatalogTabTrigger>
-              <CatalogTabTrigger value="resources" label={t("resources")}>
-                <FileIcon />
-              </CatalogTabTrigger>
-              <CatalogTabTrigger value="templates" label={t("templates")}>
-                <LayoutTemplateIcon />
-              </CatalogTabTrigger>
-              <CatalogTabTrigger value="prompts" label={t("prompts")}>
-                <MessageSquareIcon />
-              </CatalogTabTrigger>
+              <CatalogTabTrigger value="tools" label={t("tools")} variant="text" />
+              <CatalogTabTrigger value="resources" label={t("resources")} variant="text" />
+              <CatalogTabTrigger value="prompts" label={t("prompts")} variant="text" />
             </CatalogTabsList>
 
             <TabsContent value="tools" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
@@ -298,57 +295,79 @@ export function ServiceDetailView(props: {
               )}
             </TabsContent>
 
-            <TabsContent value="resources" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-              <SectionHeading title={t("resourceList")} titleAs="h2" description={t("itemsCount", { count: resources.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
-              {resources.length ? (
-                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-                  {resources.map((resource) => {
-                    const key = resourceKey(resource)
-                    const mimeType = resourceMimeType(resource)
-                    return (
-                      <SelectableRowButton
-                        key={key}
-                        meta={mimeType || resource.uri}
-                        onClick={() => {
-                          setSelectedResourceKey(key)
-                          setRightPaneView("catalog")
-                        }}
-                        selected={rightPaneView === "catalog" && key === resourceKey(selectedResource || resource)}
-                        title={resource.title || resource.name || resource.uri}
-                      />
-                    )
-                  })}
-                </ScrollPane>
-              ) : (
-                <PageEmpty title={t("noResourcesFound")} description={t("noResourcesFoundDescription")} onRefresh={loadDetail} />
-              )}
-            </TabsContent>
+            <TabsContent value="resources" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Tabs
+                value={resourceSubTab}
+                onValueChange={(value) => {
+                  setResourceSubTab(value as ResourceSubTab)
+                  setRightPaneView("catalog")
+                }}
+                className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+              >
+                <TabsList variant="line" className="h-8 w-full">
+                  <TabsTrigger value="items" className="flex-1">
+                    <FileIcon />
+                    {t("resourceList")}
+                  </TabsTrigger>
+                  <TabsTrigger value="templates" className="flex-1">
+                    <LayoutTemplateIcon />
+                    {t("templateList")}
+                  </TabsTrigger>
+                </TabsList>
 
-            <TabsContent value="templates" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-              <SectionHeading title={t("templateList")} titleAs="h2" description={t("itemsCount", { count: resourceTemplates.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
-              {resourceTemplates.length ? (
-                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-                  {resourceTemplates.map((template) => {
-                    const key = resourceTemplateKey(template)
-                    const mimeType = resourceTemplateMimeType(template)
-                    const uriTemplate = resourceTemplateUri(template)
-                    return (
-                      <SelectableRowButton
-                        key={key}
-                        meta={mimeType || uriTemplate}
-                        onClick={() => {
-                          setSelectedTemplateKey(key)
-                          setRightPaneView("catalog")
-                        }}
-                        selected={rightPaneView === "catalog" && key === resourceTemplateKey(selectedTemplate || template)}
-                        title={template.title || template.name || uriTemplate}
-                      />
-                    )
-                  })}
-                </ScrollPane>
-              ) : (
-                <PageEmpty title={t("noTemplatesFound")} description={t("noTemplatesFoundDescription")} onRefresh={loadDetail} />
-              )}
+                <TabsContent value="items" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+                  <SectionHeading title={t("resourceList")} titleAs="h2" description={t("itemsCount", { count: resources.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
+                  {resources.length ? (
+                    <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                      {resources.map((resource) => {
+                        const key = resourceKey(resource)
+                        const mimeType = resourceMimeType(resource)
+                        return (
+                          <SelectableRowButton
+                            key={key}
+                            meta={mimeType || resource.uri}
+                            onClick={() => {
+                              setSelectedResourceKey(key)
+                              setRightPaneView("catalog")
+                            }}
+                            selected={rightPaneView === "catalog" && resourceSubTab === "items" && key === resourceKey(selectedResource || resource)}
+                            title={resource.title || resource.name || resource.uri}
+                          />
+                        )
+                      })}
+                    </ScrollPane>
+                  ) : (
+                    <PageEmpty title={t("noResourcesFound")} description={t("noResourcesFoundDescription")} onRefresh={loadDetail} />
+                  )}
+                </TabsContent>
+
+                <TabsContent value="templates" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+                  <SectionHeading title={t("templateList")} titleAs="h2" description={t("itemsCount", { count: resourceTemplates.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
+                  {resourceTemplates.length ? (
+                    <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                      {resourceTemplates.map((template) => {
+                        const key = resourceTemplateKey(template)
+                        const mimeType = resourceTemplateMimeType(template)
+                        const uriTemplate = resourceTemplateUri(template)
+                        return (
+                          <SelectableRowButton
+                            key={key}
+                            meta={mimeType || uriTemplate}
+                            onClick={() => {
+                              setSelectedTemplateKey(key)
+                              setRightPaneView("catalog")
+                            }}
+                            selected={rightPaneView === "catalog" && resourceSubTab === "templates" && key === resourceTemplateKey(selectedTemplate || template)}
+                            title={template.title || template.name || uriTemplate}
+                          />
+                        )
+                      })}
+                    </ScrollPane>
+                  ) : (
+                    <PageEmpty title={t("noTemplatesFound")} description={t("noTemplatesFoundDescription")} onRefresh={loadDetail} />
+                  )}
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
             <TabsContent value="prompts" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
@@ -383,6 +402,7 @@ export function ServiceDetailView(props: {
           <ServicePreviewHeader
             rightPaneView={rightPaneView}
             activeTab={activeTab}
+            resourceSubTab={resourceSubTab}
             loading={loading}
             service={service}
             selectedTool={selectedTool}
@@ -400,6 +420,7 @@ export function ServiceDetailView(props: {
                 ? () => props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
                 : undefined
             }
+            runningTool={runningSelectedTool}
             onDetail={
               rightPaneView === "catalog" && activeTab === "tools" && selectedTool
                 ? () => props.onToolDetail(selectedTool, service, statusReport)
@@ -451,7 +472,7 @@ export function ServiceDetailView(props: {
               <PageError title={t("serviceDetailLoadFailed")} message={errorMessage} onRefresh={loadDetail} />
             </ScrollPane>
           ) : rightPaneView === "catalog" && activeTab === "tools" && selectedTool ? (
-            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-6 overflow-hidden @min-[48rem]:grid-cols-[minmax(0,1fr)_22rem] @min-[48rem]:grid-rows-1">
+            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(12rem,22rem)] grid-rows-1 gap-6 overflow-hidden">
               <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
                 <ToolDetailDocHeader tool={selectedTool} />
                 <ScrollPane className="min-h-0 flex-1">
@@ -463,6 +484,7 @@ export function ServiceDetailView(props: {
                 instanceId={service.instance_id}
                 toolArgs={toolArgs}
                 toolArgsSchema={toolArgsSchema}
+                running={runningSelectedTool}
                 onRun={() => props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))}
               />
             </div>
@@ -482,16 +504,16 @@ export function ServiceDetailView(props: {
               ) : activeTab === "tools" ? (
                 <PageEmpty title={t("noToolSelected")} description={t("serviceToolDetailsWillAppear")} onRefresh={loadDetail} />
               ) : activeTab === "resources" ? (
-                selectedResource ? (
+                resourceSubTab === "templates" ? (
+                  selectedTemplate ? (
+                    <ServiceResourceTemplateDetailPane template={selectedTemplate} />
+                  ) : (
+                    <PageEmpty title={t("noTemplateSelected")} description={t("noTemplateSelectedDescription")} onRefresh={loadDetail} />
+                  )
+                ) : selectedResource ? (
                   <ServiceResourceDetailPane resource={selectedResource} instanceId={service.instance_id} />
                 ) : (
                   <PageEmpty title={t("noResourceSelected")} description={t("noResourceSelectedDescription")} onRefresh={loadDetail} />
-                )
-              ) : activeTab === "templates" ? (
-                selectedTemplate ? (
-                  <ServiceResourceTemplateDetailPane template={selectedTemplate} />
-                ) : (
-                  <PageEmpty title={t("noTemplateSelected")} description={t("noTemplateSelectedDescription")} onRefresh={loadDetail} />
                 )
               ) : selectedPrompt ? (
                 <ServicePromptDetailPane prompt={selectedPrompt} />
@@ -521,6 +543,7 @@ export function ServiceDetailView(props: {
 function ServicePreviewHeader({
   rightPaneView,
   activeTab,
+  resourceSubTab,
   loading,
   service,
   selectedTool,
@@ -534,12 +557,14 @@ function ServicePreviewHeader({
   instanceId,
   onRefresh,
   onRun,
+  runningTool,
   onDetail,
   toolSearchQuery,
   onToolSearchQueryChange,
 }: {
   rightPaneView: RightPaneView
   activeTab: CatalogTab
+  resourceSubTab: ResourceSubTab
   loading: boolean
   service: ServiceInstance
   selectedTool: ToolInfo | null
@@ -553,6 +578,7 @@ function ServicePreviewHeader({
   instanceId: string
   onRefresh: () => void
   onRun?: () => void
+  runningTool?: boolean
   onDetail?: () => void
   toolSearchQuery: string
   onToolSearchQueryChange: (value: string) => void
@@ -564,10 +590,10 @@ function ServicePreviewHeader({
       : activeTab === "tools"
         ? selectedTool?.name || t("toolsAvailable", { count: toolCount })
         : activeTab === "resources"
-          ? selectedResource?.title || selectedResource?.name || selectedResource?.uri || t("resourcesAvailable", { count: resourceCount })
-          : activeTab === "templates"
+          ? resourceSubTab === "templates"
             ? selectedTemplate?.title || selectedTemplate?.name || (selectedTemplate ? resourceTemplateUri(selectedTemplate) : "") || t("templatesAvailable", { count: templateCount })
-            : selectedPrompt?.title || selectedPrompt?.name || t("promptsAvailable", { count: promptCount })
+            : selectedResource?.title || selectedResource?.name || selectedResource?.uri || t("resourcesAvailable", { count: resourceCount })
+          : selectedPrompt?.title || selectedPrompt?.name || t("promptsAvailable", { count: promptCount })
 
   const copyPayload =
     rightPaneView === "service"
@@ -575,10 +601,10 @@ function ServicePreviewHeader({
       : activeTab === "tools"
         ? selectedTool
         : activeTab === "resources"
-          ? selectedResource
-          : activeTab === "templates"
+          ? resourceSubTab === "templates"
             ? selectedTemplate
-            : selectedPrompt
+            : selectedResource
+          : selectedPrompt
 
   async function onCopy() {
     if (!copyPayload) return
@@ -620,9 +646,9 @@ function ServicePreviewHeader({
       </div>
       <div className="flex shrink-0 flex-wrap justify-end gap-2">
         {rightPaneView === "catalog" && activeTab === "tools" && onRun ? (
-          <Button size="sm" onClick={onRun}>
-            <WrenchIcon data-icon="inline-start" />
-            {t("run")}
+          <Button size="sm" onClick={onRun} disabled={runningTool}>
+            {runningTool ? <Spinner data-icon="inline-start" /> : <WrenchIcon data-icon="inline-start" />}
+            {runningTool ? t("executing") : t("run")}
           </Button>
         ) : null}
         {rightPaneView === "catalog" && activeTab === "tools" && onDetail ? (
@@ -631,7 +657,7 @@ function ServicePreviewHeader({
             {t("details")}
           </Button>
         ) : null}
-        {rightPaneView === "catalog" && activeTab === "resources" && selectedResource ? (
+        {rightPaneView === "catalog" && activeTab === "resources" && resourceSubTab === "items" && selectedResource ? (
           <Button size="sm" variant="outline" onClick={onReadResource}>
             <FileIcon data-icon="inline-start" />
             {t("read")}

@@ -3,7 +3,7 @@ import { ResetConfigDialog } from "@/features/config/reset-config-dialog"
 import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { DeleteServiceDialog } from "@/features/services/delete-service-dialog"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
-import { RunToolDialog, ToolDetailDialog, type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
+import { RunToolDialog, ToolDetailDialog, ToolResultDialog, type ToolDetailState, type ToolDialogState, type ToolResultState } from "@/features/tools/tool-dialogs"
 import type { CacheBackend, ServiceInstance } from "@/lib/api"
 
 export function AppDialogs({
@@ -20,10 +20,12 @@ export function AppDialogs({
   onSettingsDialogOpenChange,
   onToolDetailOpenChange,
   onToolDialogOpenChange,
+  onToolResultOpenChange,
   resetTarget,
   settingsDialogOpen,
   toolDetail,
   toolDialog,
+  toolResult,
 }: {
   backend?: CacheBackend
   cacheDialogOpen: boolean
@@ -38,14 +40,17 @@ export function AppDialogs({
   onSettingsDialogOpenChange: (open: boolean) => void
   onToolDetailOpenChange: (open: boolean) => void
   onToolDialogOpenChange: (open: boolean) => void
+  onToolResultOpenChange: (open: boolean) => void
   resetTarget: ResetTarget | null
   settingsDialogOpen: boolean
   toolDetail: ToolDetailState
   toolDialog: ToolDialogState
+  toolResult: ToolResultState
 }) {
   return (
     <>
       <RunToolDialog state={toolDialog} onOpenChange={onToolDialogOpenChange} />
+      <ToolResultDialog state={toolResult} onOpenChange={onToolResultOpenChange} />
       <ToolDetailDialog
         state={toolDetail}
         onOpenChange={onToolDetailOpenChange}

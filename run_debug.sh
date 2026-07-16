@@ -82,7 +82,14 @@ run_external_web() {
 
 run_app() {
   require_cmd cargo
-  cargo run --manifest-path "$TAURI_MANIFEST"
+  ensure_web_deps
+
+  echo "[Web] 构建 React 产物（确保桌面端加载最新前端）..."
+  npm --prefix "$WEB_DIR" run build
+
+  echo "[App] 启动 Tauri 桌面端（通过 MCPSTORE_WEB_ASSETS_DIR 实时加载最新 dist）..."
+  MCPSTORE_WEB_ASSETS_DIR="$WEB_DIR/dist" \
+    cargo run --manifest-path "$TAURI_MANIFEST"
 }
 
 run_tui() {

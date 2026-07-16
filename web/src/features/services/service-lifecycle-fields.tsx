@@ -1,12 +1,6 @@
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  getRestartPolicyOption,
-  getStartupPolicyOption,
-  SERVICE_RESTART_POLICY_OPTIONS,
-  SERVICE_STARTUP_POLICY_OPTIONS,
-} from "@/features/services/service-lifecycle"
-import { useI18n } from "@/lib/i18n-context"
+import { SERVICE_RESTART_POLICY_OPTIONS, SERVICE_STARTUP_POLICY_OPTIONS } from "@/features/services/service-lifecycle"
 import type { ServiceRestartPolicy, ServiceStartupPolicy } from "@/lib/api"
 
 export function ServiceStartupPolicySelect({
@@ -16,9 +10,6 @@ export function ServiceStartupPolicySelect({
   value: ServiceStartupPolicy
   onChange: (value: ServiceStartupPolicy) => void
 }) {
-  const { t } = useI18n()
-  const selected = getStartupPolicyOption(value)
-
   return (
     <Field>
       <FieldLabel>startup_policy</FieldLabel>
@@ -36,7 +27,6 @@ export function ServiceStartupPolicySelect({
           </SelectGroup>
         </SelectContent>
       </Select>
-      <FieldDescription>{t(selected.descriptionKey)}</FieldDescription>
     </Field>
   )
 }
@@ -48,9 +38,6 @@ export function ServiceRestartPolicySelect({
   value: ServiceRestartPolicy
   onChange: (value: ServiceRestartPolicy) => void
 }) {
-  const { t } = useI18n()
-  const selected = getRestartPolicyOption(value, t)
-
   return (
     <Field>
       <FieldLabel>restart_policy</FieldLabel>
@@ -68,9 +55,6 @@ export function ServiceRestartPolicySelect({
           </SelectGroup>
         </SelectContent>
       </Select>
-      <FieldDescription>
-        {"description" in selected && selected.description ? selected.description : t(selected.descriptionKey)}
-      </FieldDescription>
     </Field>
   )
 }

@@ -82,9 +82,27 @@ export function CodeBlockBody({
   children,
   maxHeight = "14rem",
   fill = false,
+  bare = false,
   ...props
-}: ComponentProps<"div"> & { variant?: CodeBlockVariant; maxHeight?: string; fill?: boolean }) {
+}: ComponentProps<"div"> & {
+  variant?: CodeBlockVariant
+  maxHeight?: string
+  fill?: boolean
+  bare?: boolean
+}) {
   const styles = variantStyles[variant]
+
+  if (bare) {
+    return (
+      <div
+        data-slot="code-block-body"
+        className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden", styles.body, className)}
+        {...props}
+      >
+        {children}
+      </div>
+    )
+  }
 
   return (
     <div

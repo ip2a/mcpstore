@@ -1,30 +1,21 @@
-import {
-  getConfigTextPlaceholder,
-  useAddServiceForm,
-  type AddServiceMode,
-  type AddServiceScope,
-} from "@/features/services/use-add-service-form"
+import { useAddServiceForm } from "@/features/services/use-add-service-form"
+import { AddServicePlaygroundAside } from "@/features/services/add-service-playground-aside"
+import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
+import { getUiTransportMode, resolveHttpTransport } from "@/features/services/service-config-draft"
 import { ServiceRestartPolicySelect, ServiceStartupPolicySelect } from "@/features/services/service-lifecycle-fields"
 import { DialogFormFooter } from "@/components/shared/dialog-form"
+import { FieldCollapsible } from "@/components/shared/field-collapsible"
+import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Button } from "@/components/ui/button"
-import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Spinner } from "@/components/ui/spinner"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useI18n } from "@/lib/i18n-context"
 import { getAgentId } from "@/features/agents/model"
 import { type AgentItem } from "@/lib/api"
 import { cn } from "@/lib/utils"
-
-const MODE_OPTIONS: Array<{ value: AddServiceMode; label: string }> = [
-  { value: "stdio", label: "stdio" },
-  { value: "streamable-http", label: "streamable-http" },
-  { value: "sse", label: "sse" },
-  { value: "json", label: "json" },
-  { value: "toml", label: "toml" },
-]
 
 export function AddServiceForm({
   agents,
@@ -43,14 +34,18 @@ export function AddServiceForm({
   const agentIds = agents.map(getAgentId).filter(Boolean)
   const {
     agentId,
-    mode,
+    configFields,
     onSubmit,
+    previewFormat,
     restartPolicy,
     scope,
+    serviceName,
     setAgentId,
-    setMode,
+    setConfigFields,
+    setPreviewFormat,
     setRestartPolicy,
     setScope,
+    setServiceName,
     setStartupPolicy,
     startupPolicy,
     submitting,
@@ -59,238 +54,117 @@ export function AddServiceForm({
     onBack: () => onCancel?.(),
   })
 
-  const isStdio = mode === "stdio"
-  const isTextConfig = mode === "json" || mode === "toml"
-  const isHttpLike = mode === "streamable-http" || mode === "sse"
+  const connectionMode = getUiTransportMode(configFields.transport)
+
+  function onConnectionModeChange(mode: "stdio" | "http") {
+    setConfigFields({
+      ...configFields,
+      transport: resolveHttpTransport(mode, configFields.transport),
+      ...(mode === "http" ? { envText: "" } : {}),
+    })
+  }
 
   return (
-    <form className={cn("flex min-h-0 flex-1 flex-col", className)} onSubmit={onSubmit}>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <FieldGroup className="gap-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="name">{t("name")}</FieldLabel>
-              <Input id="name" name="name" placeholder="github" required autoFocus />
-            </Field>
+    <form className={cn("@container flex min-h-0 flex-1 flex-col", className)} onSubmit={onSubmit}>
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[minmax(0,1fr)_minmax(260px,22rem)] @min-[640px]:grid-rows-1 @min-[640px]:gap-6 @min-[640px]:px-6 @min-[640px]:py-5">
+        <ScrollPane className="min-h-0 @min-[640px]:min-h-0">
+          <FieldGroup className="gap-5 pr-1">
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <Field>
+                <FieldLabel htmlFor="name">{t("name")}</FieldLabel>
+                <Input
+                  id="name"
+                  name="name"
+                  value={serviceName}
+                  placeholder="github"
+                  required
+                  autoFocus
+                  onChange={(event) => setServiceName(event.target.value)}
+                />
+              </Field>
 
-            <Field>
-              <FieldLabel>{t("scope")}</FieldLabel>
-              <Tabs
-                value={scope}
-                onValueChange={(value) => setScope(value as AddServiceScope)}
-              >
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="store">{t("store")}</TabsTrigger>
-                  <TabsTrigger value="agent">{t("agent")}</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <FieldDescription>{t("fieldHelpScope")}</FieldDescription>
-            </Field>
-          </div>
-
-          {scope === "agent" ? (
-            <Field>
-              <FieldLabel htmlFor="agentId">{t("agent")}</FieldLabel>
-              {agentIds.length ? (
-                <Select
-                  value={agentId || "manual"}
-                  onValueChange={(value) => setAgentId(value === "manual" ? "" : value)}
+              <Field className="sm:min-w-[10rem]">
+                <FieldLabel>{t("transport")}</FieldLabel>
+                <Tabs
+                  value={connectionMode}
+                  onValueChange={(value) => onConnectionModeChange(value as "stdio" | "http")}
                 >
-                  <SelectTrigger id="agentId" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="manual">{t("manual")}</SelectItem>
-                      {agentIds.map((id) => (
-                        <SelectItem key={id} value={id}>
-                          {id}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input id="agentId" name="agentId" placeholder="agent-a" required />
-              )}
-              <FieldDescription>{t("fieldHelpAgent")}</FieldDescription>
-            </Field>
-          ) : null}
-
-          {scope === "agent" && agentIds.length && !agentId ? (
-            <Field>
-              <FieldLabel htmlFor="manualAgentId">{t("manualAgentId")}</FieldLabel>
-              <Input id="manualAgentId" name="agentId" placeholder="agent-a" required />
-            </Field>
-          ) : null}
-
-          <FieldSet className="gap-4">
-            <FieldLegend variant="label">{t("connection")}</FieldLegend>
-
-            <Tabs
-              value={mode}
-              onValueChange={(value) => setMode(value as AddServiceMode)}
-              orientation="vertical"
-              className="flex-col items-stretch gap-4 sm:flex-row sm:items-start"
-            >
-              <TabsList className="h-fit w-full shrink-0 sm:w-48">
-                {MODE_OPTIONS.map((option) => (
-                  <TabsTrigger key={option.value} value={option.value} className="justify-start px-3 text-xs sm:text-sm">
-                    {option.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-
-              <div className="min-w-0 flex-1">
-                <TabsContent value="stdio" className="mt-0 flex flex-col gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="commandOrUrl-stdio">{t("commandOrUrl")}</FieldLabel>
-                    <InputGroup>
-                      <InputGroupAddon align="inline-start">stdio</InputGroupAddon>
-                      <InputGroupInput
-                        id="commandOrUrl-stdio"
-                        name="commandOrUrl"
-                        placeholder="npx -y @modelcontextprotocol/server-filesystem ."
-                        required={isStdio}
-                      />
-                    </InputGroup>
-                    <FieldDescription>{t("fieldHelpCommand")}</FieldDescription>
-                  </Field>
-                </TabsContent>
-
-                <TabsContent value="streamable-http" className="mt-0">
-                  <Field>
-                    <FieldLabel htmlFor="commandOrUrl-http">{t("commandOrUrl")}</FieldLabel>
-                    <InputGroup>
-                      <InputGroupAddon align="inline-start">streamable-http</InputGroupAddon>
-                      <InputGroupInput
-                        id="commandOrUrl-http"
-                        name="commandOrUrl"
-                        placeholder="https://example.com/mcp"
-                        required={mode === "streamable-http"}
-                      />
-                    </InputGroup>
-                    <FieldDescription>{t("fieldHelpUrl")}</FieldDescription>
-                  </Field>
-                </TabsContent>
-
-                <TabsContent value="sse" className="mt-0">
-                  <Field>
-                    <FieldLabel htmlFor="commandOrUrl-sse">{t("commandOrUrl")}</FieldLabel>
-                    <InputGroup>
-                      <InputGroupAddon align="inline-start">sse</InputGroupAddon>
-                      <InputGroupInput
-                        id="commandOrUrl-sse"
-                        name="commandOrUrl"
-                        placeholder="https://example.com/sse"
-                        required={mode === "sse"}
-                      />
-                    </InputGroup>
-                    <FieldDescription>{t("fieldHelpUrl")}</FieldDescription>
-                  </Field>
-                </TabsContent>
-
-                <TabsContent value="json" className="mt-0">
-                  <Field>
-                    <FieldLabel htmlFor="configText-json">JSON</FieldLabel>
-                    <InputGroup>
-                      <InputGroupTextarea
-                        id="configText-json"
-                        name="configText"
-                        rows={10}
-                        className="font-mono text-xs"
-                        placeholder={getConfigTextPlaceholder("json")}
-                        required={mode === "json"}
-                      />
-                    </InputGroup>
-                    <FieldDescription>{t("fieldHelpJson")}</FieldDescription>
-                  </Field>
-                </TabsContent>
-
-                <TabsContent value="toml" className="mt-0">
-                  <Field>
-                    <FieldLabel htmlFor="configText-toml">TOML</FieldLabel>
-                    <InputGroup>
-                      <InputGroupTextarea
-                        id="configText-toml"
-                        name="configText"
-                        rows={10}
-                        className="font-mono text-xs"
-                        placeholder={getConfigTextPlaceholder("toml")}
-                        required={mode === "toml"}
-                      />
-                    </InputGroup>
-                    <FieldDescription>{t("fieldHelpToml")}</FieldDescription>
-                  </Field>
-                </TabsContent>
-              </div>
-            </Tabs>
-          </FieldSet>
-
-          {!isTextConfig ? (
-            <>
-              <div className={cn("grid gap-4", isStdio && "sm:grid-cols-2")}>
-                <Field>
-                  <FieldLabel htmlFor="description">{t("description")}</FieldLabel>
-                  <Input id="description" name="description" placeholder={t("optionalDescription")} />
-                </Field>
-                {isStdio ? (
-                  <Field>
-                    <FieldLabel htmlFor="workingDir">{t("workingDirectory")}</FieldLabel>
-                    <InputGroup>
-                      <InputGroupAddon align="inline-start">cwd</InputGroupAddon>
-                      <InputGroupInput id="workingDir" name="workingDir" placeholder={t("optional")} />
-                    </InputGroup>
-                  </Field>
-                ) : null}
-              </div>
-
-              <FieldSet className="gap-3">
-                <FieldLegend variant="label">{t("envVars")}</FieldLegend>
-                <Tabs key={isHttpLike ? "http" : "stdio"} defaultValue={isHttpLike ? "headers" : "env"}>
-                  <TabsList>
-                    <TabsTrigger value="env">{t("env")}</TabsTrigger>
-                    <TabsTrigger value="headers">{t("headers")}</TabsTrigger>
+                  <TabsList className="grid h-9 w-full grid-cols-2">
+                    <TabsTrigger value="stdio">stdio</TabsTrigger>
+                    <TabsTrigger value="http">http</TabsTrigger>
                   </TabsList>
-                  <TabsContent value="env" className="mt-3">
-                    <Field>
-                      <FieldLabel htmlFor="env" className="sr-only">
-                        {t("envVars")}
-                      </FieldLabel>
-                      <InputGroup>
-                        <InputGroupTextarea id="env" name="env" rows={4} placeholder="TOKEN=..." />
-                      </InputGroup>
-                    </Field>
-                  </TabsContent>
-                  <TabsContent value="headers" className="mt-3">
-                    <Field>
-                      <FieldLabel htmlFor="headers" className="sr-only">
-                        {t("headers")}
-                      </FieldLabel>
-                      <InputGroup>
-                        <InputGroupTextarea
-                          id="headers"
-                          name="headers"
-                          rows={4}
-                          placeholder="Authorization=Bearer ..."
-                        />
-                      </InputGroup>
-                    </Field>
-                  </TabsContent>
                 </Tabs>
-              </FieldSet>
-            </>
-          ) : null}
-
-          <FieldSet className="gap-4">
-            <FieldLegend variant="label">{t("lifecyclePolicy")}</FieldLegend>
-            <FieldDescription>{t("lifecyclePolicyDescription")}</FieldDescription>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <ServiceStartupPolicySelect value={startupPolicy} onChange={setStartupPolicy} />
-              <ServiceRestartPolicySelect value={restartPolicy} onChange={setRestartPolicy} />
+              </Field>
             </div>
-          </FieldSet>
-        </FieldGroup>
+
+            <ServiceConfigFormFields
+              fields={configFields}
+              onFieldsChange={setConfigFields}
+              scopeExtra={
+                <FieldCollapsible title={t("scope")}>
+                  <Field>
+                    <InputGroup>
+                      <InputGroupInput
+                        id="agentId"
+                        name="agentId"
+                        value={agentId}
+                        placeholder={scope === "agent" ? "agent-a" : t("store")}
+                        disabled={scope !== "agent"}
+                        required={scope === "agent"}
+                        list={scope === "agent" && agentIds.length ? "add-service-agent-options" : undefined}
+                        onChange={(event) => setAgentId(event.target.value)}
+                      />
+                      {agentIds.length ? (
+                        <datalist id="add-service-agent-options">
+                          {agentIds.map((id) => (
+                            <option key={id} value={id} />
+                          ))}
+                        </datalist>
+                      ) : null}
+                      <InputGroupAddon align="inline-end" className="px-2">
+                        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground select-none">
+                          <input
+                            type="checkbox"
+                            className="size-4 shrink-0 rounded border border-input accent-primary"
+                            checked={scope === "agent"}
+                            onChange={(event) => {
+                              const useAgent = event.target.checked
+                              setScope(useAgent ? "agent" : "store")
+                              if (!useAgent) {
+                                setAgentId("")
+                              }
+                            }}
+                          />
+                          {t("agent")}
+                        </label>
+                      </InputGroupAddon>
+                    </InputGroup>
+                    <FieldDescription>{t("fieldHelpScope")}</FieldDescription>
+                  </Field>
+                </FieldCollapsible>
+              }
+            />
+
+            <FieldCollapsible title={t("lifecyclePolicy")}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ServiceStartupPolicySelect value={startupPolicy} onChange={setStartupPolicy} />
+                <ServiceRestartPolicySelect value={restartPolicy} onChange={setRestartPolicy} />
+              </div>
+            </FieldCollapsible>
+          </FieldGroup>
+        </ScrollPane>
+
+        <AddServicePlaygroundAside
+          agentId={agentId}
+          className="min-h-0 max-h-[min(45dvh,22rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none"
+          fields={configFields}
+          name={serviceName}
+          previewFormat={previewFormat}
+          scope={scope}
+          onFieldsChange={setConfigFields}
+          onNameChange={setServiceName}
+          onPreviewFormatChange={setPreviewFormat}
+        />
       </div>
 
       {showActions ? (
