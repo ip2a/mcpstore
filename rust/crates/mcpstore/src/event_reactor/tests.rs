@@ -332,6 +332,70 @@ mod tests {
 
         reactor.shutdown().await;
     }
+
+    /// Verify the EventBus bridge: reaction outcomes are published as
+    /// REACTION_COMPLETED events, visible via /events/history.
+    #[tokio::test]
+    async fn reactor_publishes_outcome_to_event_bus() {
+        use crate::events::EventBus;
+
+        let store = MemoryStore::new();
+        let collection = "mcpstore:event:bus.test";
+
+        let payload = crate::cache::codec::json_to_value(serde_json::json!({"k": "v"})).unwrap();
+        store
+            .put("b1", payload, Some(collection), None)
+            .await
+            .unwrap();
+
+        let event_bus = EventBus::with_history(100);
+        let notify = Arc::new(Notify::new());
+        let notify_clone = notify.clone();
+
+        let config = ReactorConfig {
+            subscriber_id: "bus-sub".into(),
+            owner_id: "bus-owner".into(),
+            namespace: "mcpstore".into(),
+            watch_collections: vec![collection.into()],
+            max_causation_depth: 16,
+        };
+        let reactor = Arc::new(
+            EventReactor::new(store.clone(), config).with_event_bus(event_bus.clone()),
+        );
+
+        reactor
+            .register(Rule::new(
+                "bus.rule.v1",
+                |_ctx| Box::pin(async { true }),
+                move |_ctx| {
+                    let n = notify_clone.clone();
+                    Box::pin(async move {
+                        n.notify_one();
+                        ReactionOutcome::Ok
+                    })
+                },
+            ))
+            .await;
+
+        reactor.start().await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), notify.notified())
+            .await
+            .expect("reaction should have fired");
+
+        // Give the publish a moment to complete
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let history = event_bus.get_history(100).await;
+        let found = history
+            .iter()
+            .any(|e| e.event_type == "REACTION_COMPLETED"
+                && e.payload.get("ruleId").and_then(|v| v.as_str()) == Some("bus.rule.v1")
+                && e.payload.get("outcome").and_then(|v| v.as_str()) == Some("ok"));
+        assert!(found, "REACTION_COMPLETED event should be in history");
+
+        reactor.shutdown().await;
+    }
 }
 
 /// Verify recursion guard: reactor internal collections (cursors, claims) do not trigger user rules.

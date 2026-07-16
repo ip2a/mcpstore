@@ -35,6 +35,8 @@ use tracing::{debug, error, info, warn};
 
 pub use rule::{ChangeContext, ReactionContext, ReactionOutcome, Rule};
 
+use crate::events::{Event, EventBus};
+
 use claim::{ClaimResult, ClaimStore};
 use cursor::CursorStore;
 
@@ -80,6 +82,9 @@ where
     rules: RwLock<Vec<Rule>>,
     cursor_store: CursorStore<S>,
     claim_store: ClaimStore<S>,
+    /// Optional EventBus bridge: when set, reaction outcomes are published
+    /// here so they become visible via `/events/history` and TUI.
+    event_bus: Option<crate::events::EventBus>,
     shutdown_tx: RwLock<Option<mpsc::Sender<()>>>,
     feed_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
 }
@@ -127,9 +132,17 @@ where
             rules: RwLock::new(Vec::new()),
             cursor_store,
             claim_store,
+            event_bus: None,
             shutdown_tx: RwLock::new(None),
             feed_task: RwLock::new(None),
         }
+    }
+
+    /// Attach an EventBus so reaction outcomes are published as events, making
+    /// them visible via `/events/history` and TUI. Should be called before `start()`.
+    pub fn with_event_bus(mut self, bus: EventBus) -> Self {
+        self.event_bus = Some(bus);
+        self
     }
 
     pub async fn register(&self, rule: Rule) {
@@ -415,6 +428,9 @@ where
                     if let Err(e) = self.claim_store.mark_succeeded(&change_id, rule.id()).await {
                         warn!(rule = rule.id(), error = ?e, "failed to mark claim succeeded");
                     }
+                    self.publish_outcome(
+                        rule.id(), &change_id, &collection, &key, "ok", None,
+                    ).await;
                 }
                 ReactionOutcome::Retryable(reason) => {
                     warn!(rule = rule.id(), change = %change_id, reason = %reason, "reaction retryable");
@@ -426,6 +442,9 @@ where
                     {
                         warn!(rule = rule.id(), error = ?e, "failed to mark claim failed");
                     }
+                    self.publish_outcome(
+                        rule.id(), &change_id, &collection, &key, "retryable", Some(reason),
+                    ).await;
                 }
                 ReactionOutcome::Failed(reason) => {
                     error!(rule = rule.id(), change = %change_id, reason = %reason, "reaction failed permanently");
@@ -436,6 +455,9 @@ where
                     {
                         warn!(rule = rule.id(), error = ?e, "failed to mark claim failed");
                     }
+                    self.publish_outcome(
+                        rule.id(), &change_id, &collection, &key, "failed", Some(reason),
+                    ).await;
                 }
             }
         }
@@ -453,5 +475,34 @@ where
         if let Err(e) = self.cursor_store.save(&change_id).await {
             warn!(error = ?e, "failed to save cursor after processing");
         }
+    }
+
+    /// Publish a reaction outcome event to the EventBus bridge.
+    /// This makes reactor activity visible via `/events/history` and TUI.
+    /// Uses `wait=false` — the event is published best-effort.
+    async fn publish_outcome(
+        &self,
+        rule_id: &str,
+        change_id: &str,
+        collection: &str,
+        key: &str,
+        outcome: &str,
+        reason: Option<&str>,
+    ) {
+        let Some(bus) = &self.event_bus else { return };
+        let payload = serde_json::json!({
+            "ruleId": rule_id,
+            "changeId": change_id,
+            "collection": collection,
+            "key": key,
+            "outcome": outcome,
+            "reason": reason,
+            "ownerId": self.config.owner_id,
+        });
+        bus.publish(
+            Event::new("REACTION_COMPLETED", payload),
+            false,
+        )
+        .await;
     }
 }
