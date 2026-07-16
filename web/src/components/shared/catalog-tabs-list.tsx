@@ -4,27 +4,33 @@ import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
 export function CatalogTabsList({ className, ...props }: ComponentProps<typeof TabsList>) {
-  return <TabsList className={cn("@container w-full", className)} {...props} />
+  return <TabsList className={cn("@container w-fit max-w-full", className)} {...props} />
 }
 
 export function CatalogTabTrigger({
   className,
   label,
   children,
+  variant = "icon",
   ...props
 }: ComponentProps<typeof TabsTrigger> & {
   label: string
-  children: ReactNode
+  children?: ReactNode
+  variant?: "icon" | "text"
 }) {
   return (
     <TabsTrigger
       title={label}
       aria-label={label}
-      className={cn("min-w-0 flex-1 px-1 @min-[360px]:gap-1.5 @min-[360px]:px-2", className)}
+      className={cn(
+        "flex-none shrink-0",
+        variant === "text" ? "px-3" : "px-1 @min-[360px]:gap-1.5 @min-[360px]:px-2",
+        className,
+      )}
       {...props}
     >
-      {children}
-      <span className="hidden truncate @min-[360px]:inline">{label}</span>
+      {variant === "icon" ? children : null}
+      <span className={cn(variant === "text" ? "inline" : "hidden truncate @min-[360px]:inline")}>{label}</span>
     </TabsTrigger>
   )
 }

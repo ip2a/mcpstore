@@ -49,6 +49,7 @@ export function ServiceStatusActionsDialog({
         <div className="flex flex-col gap-2">
           <ServiceConnectionButton
             busy={busy}
+            className="w-full"
             instanceId={service.instance_id}
             status={serviceStatus}
             onConnect={onConnect}

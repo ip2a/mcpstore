@@ -18,14 +18,14 @@
 
 ---
 
-![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore)
+![GitHub stars](https://img.shields.io/github/stars/ip2a/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/ip2a/mcpstore) ![GitHub license](https://img.shields.io/github/license/ip2a/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore)
 
 
 
 [English](README_en.md) | [简体中文](README_zh.md)
 
 
-[在线体验](https://web.mcpstore.wiki) | [详细文档](https://doc.mcpstore.wiki/) | [快速使用](###简单示例)
+[文档](https://ip2a.github.io/mcpstore/) | [快速使用](###简单示例)
 
 </div>
 
@@ -70,7 +70,7 @@ store = MCPStore.setup_store()
 
 ```python
 #在上面的代码下面加入
-store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://www.mcpstore.wiki/mcp"}}})
+store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://example.com/mcp"}}})
 store.for_store().wait_service("mcpstore_wiki")
 ```
 
@@ -127,7 +127,7 @@ print(events)
 #不同的agent需要不同的mcp的集合
 
 agent_id1 = "agent1"
-store.for_agent(agent_id1).add_service({"name": "mcpstore_wiki", "url": "https://www.mcpstore.wiki/mcp"})
+store.for_agent(agent_id1).add_service({"name": "mcpstore_wiki", "url": "https://example.com/mcp"})
 
 agent_id2 = "agent2"
 store.for_agent(agent_id2).add_service({"name": "gitodo", "command": "uvx", "args": ["gitodo"]})
@@ -250,7 +250,7 @@ store.for_store().list_services()
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=whillhill/mcpstore&type=Date)](https://star-history.com/#whillhill/mcpstore&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=ip2a/mcpstore&type=Date)](https://star-history.com/#ip2a/mcpstore&Date)
 
 </div>
 

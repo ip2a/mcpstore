@@ -1,14 +1,13 @@
 import { ActivityIcon, DatabaseIcon } from "lucide-react"
 
 import { HomeHero } from "@/components/home-hero"
-import { ActivitySparkline } from "@/components/shared/activity-sparkline"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SearchBox } from "@/components/shared/search-box"
-import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { ServiceList } from "@/features/services/service-list"
+import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, CacheBackend, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
@@ -30,7 +29,21 @@ export function ServicesView(props: {
   onRestart: (service: ServiceInstance) => void
 }) {
   const { t } = useI18n()
-  const { filteredServices, query, setQuery, totals } = useServicesList(props.services)
+  const {
+    activeFilterCount,
+    agentFilter,
+    filteredServices,
+    query,
+    scopeFilter,
+    setAgentFilter,
+    setQuery,
+    setScopeFilter,
+    setSortBy,
+    setStatusFilter,
+    sortBy,
+    statusFilter,
+    totals,
+  } = useServicesList(props.services)
   const agentIds = props.agents.map((agent) => agent.agent_id)
 
   return (
@@ -46,42 +59,37 @@ export function ServicesView(props: {
       />
 
       <PanelCard className="min-h-0">
-        <SectionHeading
-          title={t("serviceList")}
-          titleAs="h2"
-          titleAddon={
-            <ActivitySparkline
-              className="min-w-[120px] max-w-[280px] flex-1"
-              values={[totals.services, totals.connecting, agentIds.length]}
-              isLoading={props.loading}
-              title={t("storeActivityOverview")}
+        <div className="@container shrink-0">
+          <div className="grid w-full min-w-0 grid-cols-1 items-center gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto_auto_auto] @min-[42rem]:justify-end">
+            <div className="min-w-0 @min-[28rem]:col-span-2 @min-[42rem]:col-span-1">
+              <SearchBox placeholder={t("searchServices")} value={query} onChange={setQuery} />
+            </div>
+            <ServicesFilterDialog
+              activeFilterCount={activeFilterCount}
+              agentFilter={agentFilter}
+              agentIds={agentIds}
+              onAgentFilterChange={setAgentFilter}
+              onScopeFilterChange={setScopeFilter}
+              onSortByChange={setSortBy}
+              onStatusFilterChange={setStatusFilter}
+              scopeFilter={scopeFilter}
+              sortBy={sortBy}
+              statusFilter={statusFilter}
             />
-          }
-          className="shrink-0 border-b-0 pb-0 @min-[42rem]:grid-cols-[auto_minmax(0,1fr)] @min-[42rem]:items-center"
-          actions={
-            <>
-              <div className="min-w-0 @min-[28rem]:col-span-2 @min-[42rem]:col-span-1">
-                <SearchBox placeholder={t("searchServices")} value={query} onChange={setQuery} />
-              </div>
-              <Button variant="outline" onClick={props.onCache}>
-                <DatabaseIcon data-icon="inline-start" />
-                {t("cache")}
-              </Button>
-              <Button variant="outline" onClick={props.onCheck} disabled={Boolean(props.busy)}>
-                <ActivityIcon data-icon="inline-start" />
-                {t("inspect")}
-              </Button>
-            </>
-          }
-          actionsProps={{
-            className:
-                "grid w-full min-w-0 grid-cols-1 items-center gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto_auto] @min-[42rem]:justify-end",
-          }}
-        />
+            <Button variant="outline" onClick={props.onCache}>
+              <DatabaseIcon data-icon="inline-start" />
+              {t("cache")}
+            </Button>
+            <Button variant="outline" onClick={props.onCheck} disabled={Boolean(props.busy)}>
+              <ActivityIcon data-icon="inline-start" />
+              {t("inspect")}
+            </Button>
+          </div>
+        </div>
         <ScrollPane className="min-h-0 flex-1">
           {props.error ? (
             <PageError title={t("dashboardFailedToLoad")} message={props.error} onRefresh={props.onRefresh} />
-          ) : props.loading ? (
+          ) : props.loading && props.services.length === 0 ? (
             <PageSkeleton />
           ) : filteredServices.length ? (
             <ServiceList {...props} services={filteredServices} />

@@ -3,6 +3,8 @@ import { toast } from "sonner"
 
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { JsonBlock } from "@/components/shared/json-block"
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { ToolResultView } from "@/components/shared/tool-result-view"
 import {
   ToolAnnotationsSection,
   ToolMetaSection,
@@ -37,6 +39,40 @@ export type ToolDetailState = {
   onRun?: (args: Record<string, unknown>) => Promise<unknown>
   statusReport?: InstanceStatus | null
 } | null
+
+export type ToolResultState = {
+  tool: ToolInfo
+  sourceLabel: string
+  result: unknown
+} | null
+
+export function ToolResultDialog({ state, onOpenChange }: { state: ToolResultState; onOpenChange: (open: boolean) => void }) {
+  const { t } = useI18n()
+
+  return (
+    <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[min(85dvh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b px-4 py-3 sm:px-5">
+          <DialogTitle>{state ? t("result") : null}</DialogTitle>
+          <DialogDescription>
+            {state ? `${state.tool.name} · ${state.sourceLabel}` : null}
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollPane className="min-h-0 flex-1 px-4 py-4 sm:px-5">
+          {state ? <ToolResultView result={state.result} /> : null}
+        </ScrollPane>
+        <div className="border-t px-4 py-3 sm:px-5">
+          <DialogFormFooter
+            cancelLabel={t("close")}
+            onCancel={() => onOpenChange(false)}
+            submitButtonProps={{ className: "hidden" }}
+            submitLabel={t("close")}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 export function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpenChange: (open: boolean) => void }) {
   const { t } = useI18n()

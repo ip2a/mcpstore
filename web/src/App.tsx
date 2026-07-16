@@ -45,13 +45,15 @@ export function App() {
   const {
     closeToolDetail,
     closeToolDialog,
+    closeToolResult,
+    isToolRunning,
     openServiceToolDetail,
     openServiceToolRunner,
     openToolRunnerFromDetail,
+    runToolFromDialogState,
     setToolDetail,
-    setToolDialog,
     toolDetail,
-    toolDialog,
+    toolResult,
   } = useToolDialogState()
   const {
     checkAllServices,
@@ -103,6 +105,7 @@ export function App() {
                 refreshToken={serviceDetailRevision}
                 onBack={goBack}
                 onRunTool={(tool, args) => openServiceToolRunner(selectedService, tool, args)}
+                isToolRunning={(tool) => isToolRunning(selectedService.instance_id, tool.name)}
                 onToolDetail={(tool, service, statusReport) => openServiceToolDetail(service, tool, statusReport)}
                 onConnect={() => connectServiceEntry(selectedService)}
                 onDisconnect={() => disconnectServiceEntry(selectedService)}
@@ -134,7 +137,8 @@ export function App() {
               agents={agents}
               services={services}
               onToolDetail={setToolDetail}
-              onRunTool={setToolDialog}
+              onRunTool={runToolFromDialogState}
+              isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
             />
           ) : view.name === "config" ? (
             <ConfigView agents={agents} resetTarget={resetTarget} onResetTarget={setResetTarget} />
@@ -169,7 +173,8 @@ export function App() {
         resetTarget={resetTarget}
         settingsDialogOpen={settingsDialogOpen}
         toolDetail={toolDetail}
-        toolDialog={toolDialog}
+        toolDialog={null}
+        toolResult={toolResult}
         onCacheChanged={async () => {
           await refresh()
           await refreshCacheQueries()
@@ -183,6 +188,7 @@ export function App() {
         onSettingsDialogOpenChange={setSettingsDialogOpen}
         onToolDetailOpenChange={closeToolDetail}
         onToolDialogOpenChange={closeToolDialog}
+        onToolResultOpenChange={closeToolResult}
       />
       <Toaster />
     </TooltipProvider>

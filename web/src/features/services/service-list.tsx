@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { LinkIcon, RotateCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
+import { EyeIcon, LinkIcon, MoreHorizontalIcon, PencilIcon, RotateCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
 
 import { EntityRow } from "@/components/shared/entity-row"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
@@ -162,13 +162,16 @@ function ServiceRow({
       actions={
         <>
           <Button variant="outline" size="sm" onClick={() => onOpen(service)}>
+            <EyeIcon data-icon="inline-start" />
             {t("detail")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => onEdit(service)}>
+            <PencilIcon data-icon="inline-start" />
             {t("edit")}
           </Button>
           <ServiceConnectionButtonForEntry busy={busy} service={service} onConnect={onConnect} onDisconnect={onDisconnect} />
           <Button variant="outline" size="sm" aria-label={t("serviceListMoreActionsFor", { name: service.service_name })} onClick={() => onMore(service)}>
+            <MoreHorizontalIcon data-icon="inline-start" />
             {t("more")}
           </Button>
         </>

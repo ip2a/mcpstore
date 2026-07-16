@@ -17,7 +17,7 @@ export type AuthStatusView = {
   instance_id: string
   status: AuthStatus
   flow?: AuthFlow
-  scopes: string[]
+  scopes?: string[]
   required_scope?: string
 }
 
