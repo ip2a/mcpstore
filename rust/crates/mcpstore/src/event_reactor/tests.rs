@@ -401,6 +401,85 @@ mod m4_tests {
     }
 }
 
+// ── M5.5: CursorExpired recovery ──
+mod m5_tests {
+    use super::*;
+
+    /// When a persisted cursor points before the oldest available change,
+    /// EventReactor should fall back to Beginning and continue operating.
+    #[tokio::test]
+    async fn reactor_cursor_expired_falls_back_to_beginning() {
+        let store = MemoryStore::new();
+        let collection = "mcpstore:event:cursor.expired";
+
+        // Write a few events first so entries exist (revision advances).
+        for i in 0..5 {
+            let v = crate::cache::codec::json_to_value(serde_json::json!({"n": i})).unwrap();
+            store
+                .put(&format!("e{i}"), v, Some(collection), None)
+                .await
+                .unwrap();
+        }
+
+        let config = ReactorConfig {
+            subscriber_id: "cursor-expired-sub".into(),
+            owner_id: "cursor-expired-owner".into(),
+            namespace: "mcpstore".into(),
+            watch_collections: vec![collection.into()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+
+        let reactor = Arc::new(EventReactor::new(store.clone(), config));
+
+        // Poison the cursor: write cursor value "0" directly to the store so
+        // ChangeStart::After("0") triggers CursorExpired (oldest revision > 1).
+        let cursor_value =
+            crate::cache::codec::json_to_value(serde_json::json!({"cursor": "0"})).unwrap();
+        store
+            .put(
+                "cursor-expired-sub",
+                cursor_value,
+                Some("mcpstore:reactor:cursors"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Register a rule that counts all events.
+        let count = Arc::new(AtomicU32::new(0));
+        let cc = count.clone();
+        reactor
+            .register(Rule::new(
+                "cursor.recovery.rule",
+                move |ctx| {
+                    Box::pin(async move { ctx.collection == "mcpstore:event:cursor.expired" })
+                },
+                move |_ctx| {
+                    let cc = cc.clone();
+                    Box::pin(async move {
+                        cc.fetch_add(1, Ordering::SeqCst);
+                        ReactionOutcome::Ok
+                    })
+                },
+            ))
+            .await;
+
+        // start() should detect CursorExpired and fall back to Beginning.
+        reactor.start().await.expect("start should succeed with cursor recovery");
+
+        // The reactor should process all 5 events from the beginning.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(
+            count.load(Ordering::SeqCst) >= 5,
+            "should have processed all events after cursor recovery, got {}",
+            count.load(Ordering::SeqCst)
+        );
+
+        reactor.shutdown().await;
+    }
+}
+
 // ── M5: Redis integration tests ──
 // These tests require a live Redis instance via OPENKEYV_REDIS_URL.
 // They verify cross-instance event delivery and distributed claim.
