@@ -31,7 +31,6 @@ async fn run_reactor_basic() {
         owner_id: "test-owner-1".into(),
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
-        max_in_flight: 8,
         max_causation_depth: 16,
     };
 
@@ -82,7 +81,6 @@ async fn run_reactor_cursor_resume() {
         owner_id: "test-owner-resume".into(),
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
-        max_in_flight: 8,
         max_causation_depth: 16,
     };
 
@@ -134,7 +132,6 @@ async fn run_reactor_cursor_resume() {
         owner_id: "test-owner-resume".into(),
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
-        max_in_flight: 8,
         max_causation_depth: 16,
     };
     let reactor2 = Arc::new(EventReactor::new(store.clone(), config2));
@@ -179,7 +176,6 @@ async fn run_reactor_distributed_claim() {
         owner_id: "claim-owner-a".into(),
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
-        max_in_flight: 8,
         max_causation_depth: 16,
     };
     let config_b = ReactorConfig {
@@ -187,7 +183,6 @@ async fn run_reactor_distributed_claim() {
         owner_id: "claim-owner-b".into(),
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
-        max_in_flight: 8,
         max_causation_depth: 16,
     };
 
@@ -282,7 +277,6 @@ mod tests {
             owner_id: "retry-owner".into(),
             namespace: "mcpstore".into(),
             watch_collections: vec![collection.into()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
         let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -353,7 +347,6 @@ async fn run_reactor_recursion_guard() {
         owner_id: "recursion-owner".into(),
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
-        max_in_flight: 8,
         max_causation_depth: 16,
     };
 
@@ -415,7 +408,6 @@ async fn run_reactor_depth_limit() {
         owner_id: "depth-owner".into(),
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
-        max_in_flight: 8,
         max_causation_depth: 3,
     };
 
@@ -507,7 +499,6 @@ mod m5_tests {
             owner_id: "cursor-expired-owner".into(),
             namespace: "mcpstore".into(),
             watch_collections: vec![collection.into()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
 
@@ -598,7 +589,6 @@ mod redis_tests {
             owner_id: format!("{ns}-reader"),
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
 
@@ -681,7 +671,6 @@ mod redis_tests {
             owner_id: format!("{ns}-owner-a"),
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
         let config_b = ReactorConfig {
@@ -689,7 +678,6 @@ mod redis_tests {
             owner_id: format!("{ns}-owner-b"),
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
 
@@ -772,7 +760,6 @@ mod redis_tests {
             owner_id: sub_id.clone(),
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
         let store1 = RedisStore::new(&url).await.unwrap();
@@ -816,7 +803,6 @@ mod redis_tests {
             owner_id: sub_id.clone(),
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
-            max_in_flight: 8,
             max_causation_depth: 16,
         };
         let store2 = RedisStore::new(&url).await.unwrap();
