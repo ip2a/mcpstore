@@ -14,11 +14,14 @@
 //! are always filtered out before rule matching, preventing self-triggered loops.
 //! Causation depth is tracked and capped at `max_causation_depth`.
 
+mod backend;
 mod claim;
 #[cfg(test)]
 mod tests;
 mod cursor;
 mod rule;
+
+pub use backend::EventBackend;
 
 use std::sync::Arc;
 
