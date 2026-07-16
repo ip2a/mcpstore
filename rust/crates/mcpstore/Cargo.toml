@@ -27,7 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rmcp = { workspace = true }
 
 # Cache backends
-openkeyv = { version = "0.1.4", default-features = false, features = ["redis"] }
+openkeyv = { path = "/Volumes/data0/data4work/2026_4/openkeyv/rust/crates/openkeyv", default-features = false, features = ["redis", "json"] }
 redis = { workspace = true }
 # HTTP / web (only needed for the optional MCP server runner)
 axum = { version = "0.7", optional = true }
