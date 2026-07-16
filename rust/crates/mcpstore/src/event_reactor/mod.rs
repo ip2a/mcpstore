@@ -52,8 +52,6 @@ pub struct ReactorConfig {
     pub namespace: String,
     /// Collections to watch. If empty, watches ALL collections.
     pub watch_collections: Vec<String>,
-    /// Maximum in-flight reactions (bounded tokio channel capacity).
-    pub max_in_flight: usize,
     /// Maximum causation chain depth. When a reaction writes new events that
     /// trigger further reactions, the depth increases. At `max_causation_depth`
     /// the reactor stops the chain to prevent infinite recursion.
@@ -67,7 +65,6 @@ impl Default for ReactorConfig {
             owner_id: "reactor-default".into(),
             namespace: "mcpstore".into(),
             watch_collections: Vec::new(),
-            max_in_flight: 64,
             max_causation_depth: 16,
         }
     }
