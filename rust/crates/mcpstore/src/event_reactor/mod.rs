@@ -81,6 +81,7 @@ where
     cursor_store: CursorStore<S>,
     claim_store: ClaimStore<S>,
     shutdown_tx: RwLock<Option<mpsc::Sender<()>>>,
+    feed_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
 }
 
 #[derive(Debug)]
@@ -127,6 +128,7 @@ where
             cursor_store,
             claim_store,
             shutdown_tx: RwLock::new(None),
+            feed_task: RwLock::new(None),
         }
     }
 
@@ -174,17 +176,28 @@ where
         info!("event reactor started, dispatching feed loop");
 
         let this = self.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             this.feed_loop(subscription, rx).await;
         });
+        *self.feed_task.write().await = Some(handle);
 
         Ok(())
     }
 
     pub async fn shutdown(&self) {
-        let mut shutdown = self.shutdown_tx.write().await;
-        if let Some(tx) = shutdown.take() {
+        let tx = {
+            let mut shutdown = self.shutdown_tx.write().await;
+            shutdown.take()
+        };
+        if let Some(tx) = tx {
             let _ = tx.send(()).await;
+        }
+        let handle = {
+            let mut feed = self.feed_task.write().await;
+            feed.take()
+        };
+        if let Some(handle) = handle {
+            let _ = handle.await;
         }
     }
 
