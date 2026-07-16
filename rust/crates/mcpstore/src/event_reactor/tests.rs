@@ -400,3 +400,299 @@ mod m4_tests {
         run_reactor_depth_limit().await;
     }
 }
+
+// ── M5: Redis integration tests ──
+// These tests require a live Redis instance via OPENKEYV_REDIS_URL.
+// They verify cross-instance event delivery and distributed claim.
+
+#[cfg(test)]
+mod redis_tests {
+    use super::*;
+    use openkeyv::store::redis::RedisStore;
+
+    fn redis_url() -> Option<String> {
+        std::env::var("OPENKEYV_REDIS_URL").ok()
+    }
+
+    /// M5 core test: instance A writes an event to Redis, instance B
+    /// (separate RedisStore connection) receives the ChangeFeed notification
+    /// and executes the reaction. A does not need to know B's address.
+    #[tokio::test]
+    #[ignore = "requires OPENKEYV_REDIS_URL"]
+    async fn redis_cross_instance_delivery() {
+        let url = redis_url().unwrap();
+        let ns = format!(
+            "mcpstore_redis_test_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        );
+        let collection = format!("{ns}:event:cross.instance");
+
+        // Writer (instance A) — no reactor, just writes events
+        let writer = RedisStore::new(&url).await.unwrap();
+
+        // Reader (instance B) — has a reactor that reacts to the event
+        let reader_store = RedisStore::new(&url).await.unwrap();
+        let config = ReactorConfig {
+            subscriber_id: format!("{ns}-reader"),
+            owner_id: format!("{ns}-reader"),
+            namespace: ns.clone(),
+            watch_collections: vec![collection.clone()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+
+        let reactor = Arc::new(EventReactor::new(reader_store, config));
+        let fired = Arc::new(AtomicU32::new(0));
+        let notify = Arc::new(Notify::new());
+
+        let fc = fired.clone();
+        let nc = notify.clone();
+        reactor
+            .register(Rule::new(
+                "cross.instance.v1",
+                {
+                    let col = collection.clone();
+                    move |ctx| {
+                        let col = col.clone();
+                        Box::pin(async move { ctx.collection == col })
+                    }
+                },
+                move |ctx| {
+                    let fc = fc.clone();
+                    let nc = nc.clone();
+                    Box::pin(async move {
+                        assert_eq!(ctx.key, "evt-from-a");
+                        assert_eq!(
+                            ctx.value,
+                            Some(serde_json::json!({"source": "instance-a"}))
+                        );
+                        fc.fetch_add(1, Ordering::SeqCst);
+                        nc.notify_one();
+                        ReactionOutcome::Ok
+                    })
+                },
+            ))
+            .await;
+
+        reactor.start().await.unwrap();
+
+        // Give the subscription a moment to establish
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Instance A writes the event
+        let v = crate::cache::codec::json_to_value(serde_json::json!({"source": "instance-a"}))
+            .unwrap();
+        writer
+            .put("evt-from-a", v, Some(&collection), None)
+            .await
+            .unwrap();
+
+        // Instance B should fire within 5 seconds
+        tokio::time::timeout(Duration::from_secs(10), notify.notified())
+            .await
+            .expect("instance B did not receive event from A within 10s");
+
+        assert_eq!(fired.load(Ordering::SeqCst), 1);
+
+        reactor.shutdown().await;
+    }
+
+    /// M5 distributed claim on Redis: two reactor instances share the same
+    /// Redis backend. When an event arrives, both see it via ChangeFeed, but
+    /// only one claims and executes via CAS.
+    #[tokio::test]
+    #[ignore = "requires OPENKEYV_REDIS_URL"]
+    async fn redis_distributed_claim_two_instances() {
+        let url = redis_url().unwrap();
+        let ns = format!(
+            "mcpstore_redis_claim_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        );
+        let collection = format!("{ns}:event:claim.test");
+
+        let writer = RedisStore::new(&url).await.unwrap();
+        let store_a = RedisStore::new(&url).await.unwrap();
+        let store_b = RedisStore::new(&url).await.unwrap();
+
+        let config_a = ReactorConfig {
+            subscriber_id: format!("{ns}-a"),
+            owner_id: format!("{ns}-owner-a"),
+            namespace: ns.clone(),
+            watch_collections: vec![collection.clone()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+        let config_b = ReactorConfig {
+            subscriber_id: format!("{ns}-b"),
+            owner_id: format!("{ns}-owner-b"),
+            namespace: ns.clone(),
+            watch_collections: vec![collection.clone()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+
+        let reactor_a = Arc::new(EventReactor::new(store_a, config_a));
+        let reactor_b = Arc::new(EventReactor::new(store_b, config_b));
+
+        let total = Arc::new(AtomicU32::new(0));
+        let notify = Arc::new(Notify::new());
+
+        for reactor in [&reactor_a, &reactor_b] {
+            let tc = total.clone();
+            let n = notify.clone();
+            reactor
+                .register(Rule::new(
+                    "redis.claim.v1",
+                    |_ctx| Box::pin(async { true }),
+                    move |_ctx| {
+                        let tc = tc.clone();
+                        let n = n.clone();
+                        Box::pin(async move {
+                            tc.fetch_add(1, Ordering::SeqCst);
+                            n.notify_one();
+                            ReactionOutcome::Ok
+                        })
+                    },
+                ))
+                .await;
+        }
+
+        reactor_a.start().await.unwrap();
+        reactor_b.start().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let v = crate::cache::codec::json_to_value(serde_json::json!({"claim": "redis"})).unwrap();
+        writer
+            .put("claim-evt", v, Some(&collection), None)
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(10), notify.notified())
+            .await
+            .expect("no reaction fired within 10s");
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        assert_eq!(
+            total.load(Ordering::SeqCst),
+            1,
+            "exactly one of two Redis instances should execute, not both"
+        );
+
+        reactor_a.shutdown().await;
+        reactor_b.shutdown().await;
+    }
+
+    /// M5 cursor resume on Redis: reactor processes an event, shuts down,
+    /// a new event is written, then reactor restarts and only sees the new event.
+    #[tokio::test]
+    #[ignore = "requires OPENKEYV_REDIS_URL"]
+    async fn redis_cursor_resume_after_restart() {
+        let url = redis_url().unwrap();
+        let ns = format!(
+            "mcpstore_redis_resume_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        );
+        let collection = format!("{ns}:event:resume.test");
+
+        let writer = RedisStore::new(&url).await.unwrap();
+
+        // Write first event
+        let v1 = crate::cache::codec::json_to_value(serde_json::json!({"n": 1})).unwrap();
+        writer.put("e1", v1, Some(&collection), None).await.unwrap();
+
+        let sub_id = format!("{ns}-resume");
+
+        // First reactor run
+        let config1 = ReactorConfig {
+            subscriber_id: sub_id.clone(),
+            owner_id: sub_id.clone(),
+            namespace: ns.clone(),
+            watch_collections: vec![collection.clone()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+        let store1 = RedisStore::new(&url).await.unwrap();
+        let reactor1 = Arc::new(EventReactor::new(store1, config1));
+
+        let count1 = Arc::new(AtomicU32::new(0));
+        let notify1 = Arc::new(Notify::new());
+        let c1 = count1.clone();
+        let n1 = notify1.clone();
+        reactor1
+            .register(Rule::new(
+                "resume.v1",
+                |_ctx| Box::pin(async { true }),
+                move |_ctx| {
+                    let c1 = c1.clone();
+                    let n1 = n1.clone();
+                    Box::pin(async move {
+                        c1.fetch_add(1, Ordering::SeqCst);
+                        n1.notify_one();
+                        ReactionOutcome::Ok
+                    })
+                },
+            ))
+            .await;
+        reactor1.start().await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(10), notify1.notified())
+            .await
+            .expect("first event should have fired");
+        assert_eq!(count1.load(Ordering::SeqCst), 1);
+        reactor1.shutdown().await;
+
+        // Write second event after shutdown
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let v2 = crate::cache::codec::json_to_value(serde_json::json!({"n": 2})).unwrap();
+        writer.put("e2", v2, Some(&collection), None).await.unwrap();
+
+        // Second reactor run — same subscriber_id, should resume cursor
+        let config2 = ReactorConfig {
+            subscriber_id: sub_id.clone(),
+            owner_id: sub_id.clone(),
+            namespace: ns.clone(),
+            watch_collections: vec![collection.clone()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+        let store2 = RedisStore::new(&url).await.unwrap();
+        let reactor2 = Arc::new(EventReactor::new(store2, config2));
+
+        let count2 = Arc::new(AtomicU32::new(0));
+        let notify2 = Arc::new(Notify::new());
+        let c2 = count2.clone();
+        let n2 = notify2.clone();
+        reactor2
+            .register(Rule::new(
+                "resume.v1",
+                |_ctx| Box::pin(async { true }),
+                move |_ctx| {
+                    let c2 = c2.clone();
+                    let n2 = n2.clone();
+                    Box::pin(async move {
+                        c2.fetch_add(1, Ordering::SeqCst);
+                        n2.notify_one();
+                        ReactionOutcome::Ok
+                    })
+                },
+            ))
+            .await;
+        reactor2.start().await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(10), notify2.notified())
+            .await
+            .expect("second event should have fired after resume");
+
+        assert_eq!(
+            count2.load(Ordering::SeqCst),
+            1,
+            "should only process e2, not re-process e1"
+        );
+
+        reactor2.shutdown().await;
+    }
+}
