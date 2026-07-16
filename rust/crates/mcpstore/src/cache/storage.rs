@@ -26,6 +26,14 @@ pub(crate) fn memory_cache_store() -> Arc<dyn CacheStore> {
     Arc::new(OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new()))
 }
 
+/// Like `memory_cache_store`, but also returns the underlying MemoryStore
+/// handle (sharing the same `Arc<MemoryClient>`) for use by EventReactor.
+pub(crate) fn memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore) {
+    let inner = OpenKeyvMemoryStore::new();
+    let store: Arc<dyn CacheStore> = Arc::new(OpenKeyvCacheStore::new(inner.clone()));
+    (store, inner)
+}
+
 pub(crate) fn redis_cache_store(redis_url: &str) -> Arc<dyn CacheStore> {
     Arc::new(RedisCacheStore::new(redis_url))
 }

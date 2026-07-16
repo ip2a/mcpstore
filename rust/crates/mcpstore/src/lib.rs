@@ -47,6 +47,12 @@ pub use openapi::{
 // Facade re-exports: event bus
 pub use events::{Event, EventBus};
 
+// Facade re-exports: event reactor
+pub use event_reactor::{
+    ChangeContext, EventBackend, EventReactor, ReactionContext, ReactionOutcome, ReactorConfig,
+    Rule,
+};
+
 // Facade re-exports: service instance identity
 pub use identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 

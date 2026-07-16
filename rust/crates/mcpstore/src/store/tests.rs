@@ -7066,3 +7066,91 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     server.abort();
     std::fs::remove_file(path).ok();
 }
+
+#[cfg(test)]
+mod event_reactor_facade {
+    use super::*;
+    use crate::event_reactor::{ReactionOutcome, ReactorConfig, Rule};
+    use crate::store::CacheStorage;
+    use tokio::sync::Notify;
+    use tokio::time::Duration;
+
+    /// MCPStore facade: setup reactor → register rule → start → write → trigger.
+    #[tokio::test]
+    async fn facade_reactor_end_to_end_memory() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            backend: Some(CacheStorage::Memory),
+            ..StoreOptions::default()
+        })
+        .unwrap();
+
+        let config = ReactorConfig {
+            subscriber_id: "facade-test-sub".into(),
+            owner_id: "facade-test-owner".into(),
+            namespace: "mcpstore".into(),
+            watch_collections: vec!["mcpstore:event:facade.test".into()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+
+        store.setup_event_reactor(config).await.unwrap();
+        assert!(store.has_reactor().await);
+
+        let notify = Arc::new(Notify::new());
+        let nc = notify.clone();
+        store
+            .register_rule(Rule::new(
+                "facade.rule.v1",
+                |ctx| Box::pin(async move { ctx.collection == "mcpstore:event:facade.test" }),
+                move |_ctx| {
+                    let nc = nc.clone();
+                    Box::pin(async move {
+                        nc.notify_one();
+                        ReactionOutcome::Ok
+                    })
+                },
+            ))
+            .await
+            .unwrap();
+
+        store.start_reactor().await.unwrap();
+
+        // Give subscription a moment to establish.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Write a value to the watched collection via the cache layer — the
+        // EventReactor's independent backend will see it via ChangeFeed.
+        store
+            .cache
+            .put_event(
+                "facade.test",
+                "evt-1",
+                serde_json::json!({"source": "facade-test"}),
+            )
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), notify.notified())
+            .await
+            .expect("facade reaction did not fire");
+
+        store.stop_reactor().await;
+    }
+
+    /// Calling facade methods without setup_event_reactor should error gracefully.
+    #[tokio::test]
+    async fn facade_reactor_not_initialized_errors() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            backend: Some(CacheStorage::Memory),
+            ..StoreOptions::default()
+        })
+        .unwrap();
+
+        assert!(!store.has_reactor().await);
+
+        let result = store.start_reactor().await;
+        assert!(result.is_err());
+
+        store.stop_reactor().await; // no-op, should not panic
+    }
+}
