@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Args, Subcommand, ValueEnum};
-use mcpstore::{AuthFlow, AuthStatusView, AuthorizationStart, InstanceId, MCPStore};
+use mcpstore::{AuthError, AuthFlow, AuthStatusView, AuthorizationStart, InstanceId, MCPStore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -24,16 +24,42 @@ pub enum OutputFormat {
     Json,
 }
 
+/// Stable, machine-readable classification of an OAuth CLI failure.
+///
+/// The CLI never leaks secrets here. `message` carries a non-sensitive,
+/// human-readable description derived from the typed error chain.
 #[derive(Debug)]
 pub struct JsonAuthError {
+    code: &'static str,
+    category: AuthErrorCategory,
+    retryable: bool,
     message: String,
 }
 
 impl JsonAuthError {
-    fn new(message: impl Into<String>) -> Self {
+    fn classified(
+        code: &'static str,
+        category: AuthErrorCategory,
+        retryable: bool,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
+            code,
+            category,
+            retryable,
             message: message.into(),
         }
+    }
+
+    fn from_error(error: &(dyn std::error::Error + 'static)) -> Self {
+        classify_auth_error(error).unwrap_or_else(|| {
+            JsonAuthError::classified(
+                "auth_command_failed",
+                AuthErrorCategory::Unknown,
+                false,
+                non_sensitive_message(error),
+            )
+        })
     }
 }
 
@@ -42,7 +68,9 @@ impl std::fmt::Display for JsonAuthError {
         json!({
             "event": "error",
             "error": {
-                "code": "auth_command_failed",
+                "code": self.code,
+                "category": self.category,
+                "retryable": self.retryable,
                 "message": self.message,
             }
         })
@@ -51,6 +79,201 @@ impl std::fmt::Display for JsonAuthError {
 }
 
 impl std::error::Error for JsonAuthError {}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthErrorCategory {
+    /// Downstream authorization server or transport could not be reached.
+    ProviderUnavailable,
+    /// Authorization request could not be started (discovery / registration / URL build).
+    AuthorizationStart,
+    /// Authorization code callback was rejected, mismatched, or never arrived in time.
+    Callback,
+    /// Authorization or refresh timed out.
+    Timeout,
+    /// Stored token expired or could not be refreshed; re-authorization required.
+    Refresh,
+    /// Granted scopes are insufficient for the requested operation.
+    InsufficientScope,
+    /// Authentication is required before this operation can proceed.
+    AuthRequired,
+    /// Secure credential storage (keyring) is unavailable or corrupt.
+    SecureStorage,
+    /// Declared authentication configuration is not usable with rmcp 2.2.0.
+    InvalidConfig,
+    /// The requested auth operation is not supported for this flow.
+    Unsupported,
+    /// Missing machine credential required for the configured flow.
+    MissingCredential,
+    /// Failure that does not map to a known OAuth lifecycle category.
+    Unknown,
+}
+
+/// Classify a typed `mcpstore::AuthError` plus CLI-local callback conditions into a
+/// stable JSON error contract. Returns `None` for unrecognised errors so callers can
+/// fall back to a generic, still-safe classification.
+fn classify_auth_error(error: &(dyn std::error::Error + 'static)) -> Option<JsonAuthError> {
+    let message = non_sensitive_message(error);
+
+    // CLI-local callback listener failures are plain string errors; classify by text.
+    let text = message.as_str();
+    if text.contains("timed out") {
+        return Some(JsonAuthError::classified(
+            "oauth_callback_timeout",
+            AuthErrorCategory::Timeout,
+            true,
+            message,
+        ));
+    }
+    if text.contains("loopback") || text.contains("port must not be zero") {
+        return Some(JsonAuthError::classified(
+            "oauth_callback_unavailable",
+            AuthErrorCategory::Callback,
+            false,
+            message,
+        ));
+    }
+    if text.contains("callback")
+        && (text.contains("rejected")
+            || text.contains("missing")
+            || text.contains("does not match"))
+    {
+        return Some(JsonAuthError::classified(
+            "oauth_callback_rejected",
+            AuthErrorCategory::Callback,
+            false,
+            message,
+        ));
+    }
+
+    // Typed library errors are preserved through StoreError::Auth(#[from] AuthError).
+    let auth_error = find_auth_error(error)?;
+    Some(match auth_error {
+        AuthError::Required(_) => JsonAuthError::classified(
+            "auth_required",
+            AuthErrorCategory::AuthRequired,
+            true,
+            message,
+        ),
+        AuthError::RefreshFailed => JsonAuthError::classified(
+            "oauth_refresh_failed",
+            AuthErrorCategory::Refresh,
+            true,
+            message,
+        ),
+        AuthError::CallbackRejected => JsonAuthError::classified(
+            "oauth_callback_rejected",
+            AuthErrorCategory::Callback,
+            false,
+            message,
+        ),
+        AuthError::AuthorizationStartFailed => JsonAuthError::classified(
+            "oauth_authorization_start_failed",
+            AuthErrorCategory::AuthorizationStart,
+            true,
+            message,
+        ),
+        AuthError::SecureStorage { .. } => JsonAuthError::classified(
+            "oauth_secure_storage_unavailable",
+            AuthErrorCategory::SecureStorage,
+            false,
+            message,
+        ),
+        AuthError::InvalidStoredData => JsonAuthError::classified(
+            "oauth_invalid_stored_data",
+            AuthErrorCategory::SecureStorage,
+            false,
+            message,
+        ),
+        AuthError::MissingClientCredential => JsonAuthError::classified(
+            "oauth_missing_client_credential",
+            AuthErrorCategory::MissingCredential,
+            false,
+            message,
+        ),
+        AuthError::UnsupportedFlow => JsonAuthError::classified(
+            "oauth_unsupported_flow",
+            AuthErrorCategory::Unsupported,
+            false,
+            message,
+        ),
+        AuthError::InvalidConfig(_) => JsonAuthError::classified(
+            "oauth_invalid_config",
+            AuthErrorCategory::InvalidConfig,
+            false,
+            message,
+        ),
+        AuthError::ProviderFailure => JsonAuthError::classified(
+            "oauth_provider_failure",
+            AuthErrorCategory::ProviderUnavailable,
+            true,
+            message,
+        ),
+    })
+}
+
+/// Walk the `std::error::Error::source` chain to find a typed `mcpstore::AuthError`,
+/// without downcasting the top-level `StoreError` wrapper directly. This keeps the
+/// classification boundary in the CLI and avoids touching library error plumbing.
+fn find_auth_error<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a AuthError> {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(err) = current {
+        if let Some(auth_error) = err.downcast_ref::<AuthError>() {
+            return Some(auth_error);
+        }
+        current = err.source();
+    }
+    None
+}
+
+/// Build a non-sensitive message from an error chain. Only the outermost Display is
+/// used; nested sources (which rmcp/thiserror may render with provider detail) are
+/// not concatenated, preventing accidental leakage of tokens or provider internals.
+fn non_sensitive_message(error: &(dyn std::error::Error + 'static)) -> String {
+    let message = error.to_string();
+    redact_sensitive_substrings(message.trim()).to_string()
+}
+
+/// Redact obvious secret-looking substrings from a human-readable message. The typed
+/// `AuthError` Display values are already non-sensitive, but CLI-local string errors
+/// (e.g. raw HTTP callback lines) are passed through here defensively.
+///
+/// The key name is preserved while its value is replaced with `<redacted>`. A scan
+/// cursor advances past each replacement so the same key is never revisited, which
+/// keeps the loop terminating even when the redaction marker contains no delimiter.
+fn redact_sensitive_substrings(input: &str) -> String {
+    const SENSITIVE_KEYS: [&str; 6] = [
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "code=",
+        "state=",
+        "pkce_verifier",
+    ];
+    let mut output = input.to_string();
+    let mut cursor = 0;
+    loop {
+        // Find the earliest sensitive key occurrence at or after `cursor`.
+        let next = SENSITIVE_KEYS
+            .iter()
+            .filter_map(|key| {
+                output[cursor..]
+                    .find(key)
+                    .map(|offset| (cursor + offset, key.len()))
+            })
+            .min_by_key(|(start, _)| *start);
+        let Some((start, key_len)) = next else { break };
+        let value_start = start + key_len;
+        let value_end = output[value_start..]
+            .find(|ch: char| ch == '&' || ch.is_whitespace() || ch == '"' || ch == '\'')
+            .map(|offset| value_start + offset)
+            .unwrap_or(output.len());
+        output.replace_range(value_start..value_end, "<redacted>");
+        // Advance past this key so it is never matched again.
+        cursor = value_start + "<redacted>".len();
+    }
+    output
+}
 
 #[derive(Args)]
 pub struct AuthOutputArgs {
@@ -229,7 +452,9 @@ pub async fn run(args: AuthArgs) -> Result<(), BoxErr> {
         AuthAction::SetPrivateKey(args) => set_private_key(args).await,
     };
     match (output, result) {
-        (OutputFormat::Json, Err(error)) => Err(Box::new(JsonAuthError::new(error.to_string()))),
+        (OutputFormat::Json, Err(error)) => {
+            Err(Box::new(JsonAuthError::from_error(error.as_ref())))
+        }
         (_, result) => result,
     }
 }
@@ -818,13 +1043,31 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    fn string_error(message: &str) -> Box<dyn std::error::Error + 'static> {
+        struct StringError(String);
+        impl std::fmt::Display for StringError {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+        impl std::fmt::Debug for StringError {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+        impl std::error::Error for StringError {}
+        Box::new(StringError(message.to_string()))
+    }
+
     #[test]
-    fn json_auth_error_is_a_stable_non_sensitive_event() {
-        let error = JsonAuthError::new("OAuth callback was rejected");
+    fn json_auth_error_classifies_callback_rejection_and_stays_non_sensitive() {
+        let error = JsonAuthError::from_error(string_error("OAuth callback was rejected").as_ref());
         let value: Value = serde_json::from_str(&error.to_string()).unwrap();
 
         assert_eq!(value["event"], "error");
-        assert_eq!(value["error"]["code"], "auth_command_failed");
+        assert_eq!(value["error"]["code"], "oauth_callback_rejected");
+        assert_eq!(value["error"]["category"], "callback");
+        assert_eq!(value["error"]["retryable"], false);
         assert_eq!(value["error"]["message"], "OAuth callback was rejected");
         for forbidden in [
             "access_token",
@@ -837,6 +1080,75 @@ mod tests {
             assert!(value.get(forbidden).is_none());
             assert!(value["error"].get(forbidden).is_none());
         }
+    }
+
+    #[test]
+    fn json_auth_error_classifies_callback_timeout_as_retryable() {
+        let error = JsonAuthError::from_error(string_error("OAuth callback timed out").as_ref());
+        let value: Value = serde_json::from_str(&error.to_string()).unwrap();
+        assert_eq!(value["error"]["code"], "oauth_callback_timeout");
+        assert_eq!(value["error"]["category"], "timeout");
+        assert_eq!(value["error"]["retryable"], true);
+    }
+
+    #[test]
+    fn json_auth_error_classifies_loopback_bind_failure() {
+        let error = JsonAuthError::from_error(
+            string_error("OAuth callback URI host must be loopback").as_ref(),
+        );
+        let value: Value = serde_json::from_str(&error.to_string()).unwrap();
+        assert_eq!(value["error"]["code"], "oauth_callback_unavailable");
+        assert_eq!(value["error"]["category"], "callback");
+        assert_eq!(value["error"]["retryable"], false);
+    }
+
+    #[test]
+    fn json_auth_error_falls_back_to_generic_category_for_unknown_errors() {
+        let error = JsonAuthError::from_error(string_error("something unrelated broke").as_ref());
+        let value: Value = serde_json::from_str(&error.to_string()).unwrap();
+        assert_eq!(value["error"]["code"], "auth_command_failed");
+        assert_eq!(value["error"]["category"], "unknown");
+        assert_eq!(value["error"]["retryable"], false);
+    }
+
+    #[test]
+    fn json_auth_error_classifies_typed_refresh_failure() {
+        let store_error: mcpstore::StoreError = mcpstore::AuthError::RefreshFailed.into();
+        let json_error = JsonAuthError::from_error(&store_error);
+        let value: Value = serde_json::from_str(&json_error.to_string()).unwrap();
+        assert_eq!(value["error"]["code"], "oauth_refresh_failed");
+        assert_eq!(value["error"]["category"], "refresh");
+        assert_eq!(value["error"]["retryable"], true);
+    }
+
+    #[test]
+    fn json_auth_error_classifies_typed_auth_required() {
+        let instance_id: InstanceId = "c81af510-755b-55c7-8487-5668ab36e06e".parse().unwrap();
+        let required = mcpstore::AuthRequired {
+            instance_id,
+            flow: AuthFlow::AuthorizationCode,
+            scopes: vec!["tools.call".to_string()],
+        };
+        let store_error: mcpstore::StoreError = mcpstore::AuthError::Required(required).into();
+        let json_error = JsonAuthError::from_error(&store_error);
+        let value: Value = serde_json::from_str(&json_error.to_string()).unwrap();
+        assert_eq!(value["error"]["code"], "auth_required");
+        assert_eq!(value["error"]["category"], "auth_required");
+        assert_eq!(value["error"]["retryable"], true);
+        // scopes/instance identity are not leaked through the error envelope.
+        assert!(value["error"].get("scopes").is_none());
+        assert!(value["error"].get("instance_id").is_none());
+    }
+
+    #[test]
+    fn redaction_strips_secret_query_values_from_cli_messages() {
+        let error = JsonAuthError::from_error(
+            string_error("OAuth callback missing code=secret-code&state=secret-state").as_ref(),
+        );
+        let rendered = error.to_string();
+        assert!(!rendered.contains("secret-code"));
+        assert!(!rendered.contains("secret-state"));
+        assert!(rendered.contains("<redacted>"));
     }
 
     #[test]
