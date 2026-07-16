@@ -7154,3 +7154,173 @@ mod event_reactor_facade {
         store.stop_reactor().await; // no-op, should not panic
     }
 }
+
+#[cfg(test)]
+mod control_reactor_tests {
+    use super::*;
+    use crate::event_reactor::ReactorConfig;
+    use crate::store::CacheStorage;
+    use tokio::time::Duration;
+
+    /// Full pipeline: setup reactor → register control_request_rule → start →
+    /// queue a pending control request → verify it's auto-processed to completed.
+    #[tokio::test]
+    async fn control_reactor_auto_processes_pending_request() {
+        let path = temp_config_path();
+        let store = std::sync::Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(path.clone()),
+                source_mode: SourceMode::Local,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some("test-control-reactor".to_string()),
+            })
+            .unwrap(),
+        );
+
+        let collection = store
+            .cache()
+            .event_collection(CONTROL_REQUEST_EVENT_TYPE);
+
+        let config = ReactorConfig {
+            subscriber_id: "control-test-sub".into(),
+            owner_id: "control-test-owner".into(),
+            namespace: "test-control-reactor".into(),
+            watch_collections: vec![collection.clone()],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+        store.setup_event_reactor(config).await.unwrap();
+        let rule = store.control_request_rule();
+        store.register_rule(rule).await.unwrap();
+        store.start_reactor().await.unwrap();
+
+        // Give subscription a moment to establish.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Queue a pending control request (ServiceAddRequested).
+        store
+            .cache()
+            .put_event(
+                CONTROL_REQUEST_EVENT_TYPE,
+                "reactor-add",
+                serde_json::json!({
+                    "id": "reactor-add",
+                    "type": "ServiceAddRequested",
+                    "payload": {
+                        "service_name": "reactor-svc",
+                        "config": stdio_config(),
+                    },
+                    "source": "onlydb",
+                    "created_at": 222,
+                    "dedup_key": "ServiceAddRequested:reactor-svc",
+                    "trace_id": "reactor-add",
+                    "status": "pending",
+                }),
+            )
+            .await
+            .unwrap();
+
+        // Poll for completion (the reactor processes asynchronously).
+        let mut completed = false;
+        for _ in 0..50 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if let Some(evt) = store
+                .cache()
+                .get_event(CONTROL_REQUEST_EVENT_TYPE, "reactor-add")
+                .await
+                .unwrap()
+            {
+                if evt["status"] == serde_json::json!("completed") {
+                    completed = true;
+                    break;
+                }
+            }
+        }
+        assert!(completed, "control request was not auto-processed by reactor");
+
+        // Verify the service was actually added.
+        assert!(store
+            .cache()
+            .get_entity("service_definitions", "reactor-svc")
+            .await
+            .unwrap()
+            .is_some());
+
+        store.stop_reactor().await;
+        std::fs::remove_file(path).ok();
+    }
+
+    /// Verify the Rule's `when` predicate rejects non-pending requests (recursion guard).
+    #[tokio::test]
+    async fn control_reactor_skips_non_pending_requests() {
+        let path = temp_config_path();
+        let store = std::sync::Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(path.clone()),
+                source_mode: SourceMode::Local,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some("test-control-reactor-skip".to_string()),
+            })
+            .unwrap(),
+        );
+
+        // Insert a request that's already completed.
+        store
+            .cache()
+            .put_event(
+                CONTROL_REQUEST_EVENT_TYPE,
+                "already-done",
+                serde_json::json!({
+                    "id": "already-done",
+                    "type": "ServiceAddRequested",
+                    "payload": {
+                        "service_name": "should-not-run",
+                        "config": stdio_config(),
+                    },
+                    "source": "onlydb",
+                    "created_at": 333,
+                    "dedup_key": "ServiceAddRequested:should-not-run",
+                    "trace_id": "already-done",
+                    "status": "completed",
+                }),
+            )
+            .await
+            .unwrap();
+
+        let collection = store
+            .cache()
+            .event_collection(CONTROL_REQUEST_EVENT_TYPE);
+
+        let config = ReactorConfig {
+            subscriber_id: "control-skip-sub".into(),
+            owner_id: "control-skip-owner".into(),
+            namespace: "test-control-reactor-skip".into(),
+            watch_collections: vec![collection],
+            max_in_flight: 8,
+            max_causation_depth: 16,
+        };
+        store.setup_event_reactor(config).await.unwrap();
+        let rule = store.control_request_rule();
+        store.register_rule(rule).await.unwrap();
+        store.start_reactor().await.unwrap();
+
+        // Wait enough time for any (incorrect) reaction to fire.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // Verify no new "should-not-run" service was created.
+        let svc = store
+            .cache()
+            .get_entity("service_definitions", "should-not-run")
+            .await
+            .unwrap();
+        assert!(
+            svc.is_none(),
+            "rule should have skipped non-pending request, but service was created"
+        );
+
+        store.stop_reactor().await;
+        std::fs::remove_file(path).ok();
+    }
+}

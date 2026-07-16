@@ -10,8 +10,8 @@ use mcpstore::{
     config::{ConfigError, ScopeDescriptor},
     config_formats::ConfigFormat,
     AppConfig, AuthFlow, CreateSessionRequest, InstanceId, MCPStore, McpCompletionRequest,
-    McpLoggingLevel, OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef,
-    ServerConfig, SessionScope, ToolTransformPatch,
+    McpLoggingLevel, OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy,
+    ReactorConfig, ScopeRef, ServerConfig, SessionScope, ToolTransformPatch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -220,25 +220,48 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
 pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     let state = Arc::new(ApiState { store });
     if !state.store.is_db_source() {
-        spawn_control_request_worker(state.store.clone());
+        spawn_control_reactor(state.store.clone());
     }
     router(state, prefix)
 }
 
-fn spawn_control_request_worker(store: Arc<MCPStore>) {
+/// Start an EventReactor that processes control_requests via push-based
+/// ChangeFeed events (replaces the old 1-second polling scanner).
+///
+/// Before starting the reactor, one catch-up scan processes any backlog left
+/// from a previous shutdown. After that, all new requests are handled by the
+/// reactor's ChangeFeed subscription — no polling.
+fn spawn_control_reactor(store: Arc<MCPStore>) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-        loop {
-            interval.tick().await;
-            match store.process_control_requests().await {
-                Ok(processed) if processed > 0 => {
-                    tracing::info!("[API] Processed {processed} queued control request(s)");
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    tracing::warn!("[API] Control request processing failed: {error}");
-                }
+        // One-time catch-up: process any pending requests from before startup.
+        match store.process_control_requests().await {
+            Ok(processed) if processed > 0 => {
+                tracing::info!("[API] Catch-up: processed {processed} pending control request(s)");
             }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!("[API] Catch-up scan failed: {error}");
+            }
+        }
+
+        // Start the EventReactor for push-based processing.
+        let config = ReactorConfig {
+            subscriber_id: format!("api-control-{}", std::process::id()),
+            owner_id: format!("api-control-{}", std::process::id()),
+            namespace: store.namespace(),
+            ..Default::default()
+        };
+        if let Err(error) = store.setup_event_reactor(config).await {
+            tracing::error!("[API] Failed to setup event reactor: {error}");
+            return;
+        }
+        let rule = store.control_request_rule();
+        if let Err(error) = store.register_rule(rule).await {
+            tracing::error!("[API] Failed to register control request rule: {error}");
+            return;
+        }
+        if let Err(error) = store.start_reactor().await {
+            tracing::error!("[API] Failed to start event reactor: {error}");
         }
     });
 }

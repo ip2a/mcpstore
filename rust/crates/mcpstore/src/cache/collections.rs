@@ -61,11 +61,11 @@ impl CacheLayerManager {
         format!("{namespace}:state:{state_type}")
     }
 
-    pub(in crate::cache) fn event_collection(&self, event_type: &str) -> String {
+    pub(crate) fn event_collection(&self, event_type: &str) -> String {
         Self::event_collection_with_namespace(&self.namespace(), event_type)
     }
 
-    pub(in crate::cache) fn event_collection_with_namespace(
+    pub(crate) fn event_collection_with_namespace(
         namespace: &str,
         event_type: &str,
     ) -> String {
