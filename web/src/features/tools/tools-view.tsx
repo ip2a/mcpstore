@@ -23,6 +23,7 @@ import {
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
@@ -35,8 +36,9 @@ import { cn } from "@/lib/utils"
 export function ToolsView(props: {
   agents: AgentItem[]
   services: ServiceInstance[]
-  onRunTool: (state: ToolDialogState) => void
+  onRunTool: (state: NonNullable<ToolDialogState>) => void
   onToolDetail: (state: ToolDetailState) => void
+  isToolRunning?: (instanceId: string, toolName: string) => boolean
 }) {
   const { t } = useI18n()
   const {
@@ -74,6 +76,9 @@ export function ToolsView(props: {
     : null
   const paramCount = Object.keys(schema?.properties || {}).length
   const outputCount = Object.keys(outputSchema?.properties || {}).length
+  const runningSelectedTool = Boolean(
+    selectedTool && props.isToolRunning?.(selectedTool.instance.instance_id, selectedTool.tool.name),
+  )
 
   return (
     <TwoPanePage variant="full" className="h-full min-h-0 flex-1 gap-4">
@@ -207,6 +212,7 @@ export function ToolsView(props: {
           onDetail={selectedTool ? () => props.onToolDetail(makeRunner(selectedTool)) : undefined}
           onRefresh={loadTools}
           onRun={selectedTool ? () => props.onRunTool(makeRunner(selectedTool)) : undefined}
+          runningTool={runningSelectedTool}
         />
 
         {selectedTool ? <ToolSummarySection tool={selectedTool.tool} sourceLabel={sourceLabel} /> : null}
@@ -249,6 +255,7 @@ function ToolPreviewHeader({
   onDetail,
   onRefresh,
   onRun,
+  runningTool,
   selectedTool,
 }: {
   loading: boolean
@@ -256,6 +263,7 @@ function ToolPreviewHeader({
   onDetail?: () => void
   onRefresh: () => void
   onRun?: () => void
+  runningTool?: boolean
   selectedTool: ToolInfo | null | undefined
 }) {
   const { t } = useI18n()
@@ -273,9 +281,9 @@ function ToolPreviewHeader({
       ) : null}
       <div className="flex shrink-0 flex-wrap justify-end gap-2">
         {onRun ? (
-          <Button size="sm" onClick={onRun}>
-            <WrenchIcon data-icon="inline-start" />
-            {t("run")}
+          <Button size="sm" onClick={onRun} disabled={runningTool}>
+            {runningTool ? <Spinner data-icon="inline-start" /> : <WrenchIcon data-icon="inline-start" />}
+            {runningTool ? t("executing") : t("run")}
           </Button>
         ) : null}
         {onDetail ? (

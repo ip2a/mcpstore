@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react"
+
+import { KeyValuePairsEditor } from "@/components/shared/key-value-pairs-editor"
 import { useEditServiceForm } from "@/features/services/use-edit-service-form"
 import type { AddServiceTransport } from "@/features/services/use-add-service-form"
 import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -25,9 +28,18 @@ export function EditServiceForm({
     onUpdated,
     service,
   })
+  const [envText, setEnvText] = useState(defaults.env)
+  const [headersText, setHeadersText] = useState(defaults.headers)
+
+  useEffect(() => {
+    setEnvText(defaults.env)
+    setHeadersText(defaults.headers)
+  }, [defaults.env, defaults.headers])
 
   return (
     <form onSubmit={onSubmit}>
+      <input type="hidden" name="env" value={envText} />
+      <input type="hidden" name="headers" value={headersText} />
       <FieldGroup>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field>
@@ -92,18 +104,29 @@ export function EditServiceForm({
           </TabsList>
           <TabsContent value="env">
             <Field>
-              <FieldLabel htmlFor="edit-env">{t("envVars")}</FieldLabel>
-              <InputGroup>
-                <InputGroupTextarea id="edit-env" name="env" defaultValue={defaults.env} placeholder="TOKEN=..." />
-              </InputGroup>
+              <FieldLabel>{t("envVars")}</FieldLabel>
+              <KeyValuePairsEditor
+                idPrefix="edit-env"
+                defaultEmptyRow
+                value={envText}
+                keyPlaceholder="TOKEN"
+                valuePlaceholder="..."
+                onChange={setEnvText}
+              />
             </Field>
           </TabsContent>
           <TabsContent value="headers">
             <Field>
-              <FieldLabel htmlFor="edit-headers">{t("headers")}</FieldLabel>
-              <InputGroup>
-                <InputGroupTextarea id="edit-headers" name="headers" defaultValue={defaults.headers} placeholder="Authorization=Bearer ..." />
-              </InputGroup>
+              <FieldLabel>{t("headers")}</FieldLabel>
+              <KeyValuePairsEditor
+                idPrefix="edit-headers"
+                defaultEmptyRow
+                valueField="textarea"
+                value={headersText}
+                keyPlaceholder="Authorization"
+                valuePlaceholder="Bearer ..."
+                onChange={setHeadersText}
+              />
             </Field>
           </TabsContent>
         </Tabs>

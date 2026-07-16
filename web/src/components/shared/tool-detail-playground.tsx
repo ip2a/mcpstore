@@ -19,6 +19,7 @@ import { ToolAnnotationsSection, ToolMetaSection } from "@/components/shared/too
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { TypographyH2, TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
@@ -179,6 +180,7 @@ export function ToolPlaygroundAside({
   toolArgs,
   toolArgsSchema,
   onRun,
+  running,
   className,
 }: {
   tool: ToolInfo
@@ -186,6 +188,7 @@ export function ToolPlaygroundAside({
   toolArgs: Record<string, unknown>
   toolArgsSchema: ToolSchema
   onRun?: () => void
+  running?: boolean
   className?: string
 }) {
   const { cliCommand, hasOutputSchema, outputSchema, requestArgsText, responseText } = useToolPlaygroundData({
@@ -197,7 +200,7 @@ export function ToolPlaygroundAside({
 
   return (
     <aside className={cn("flex h-full min-h-0 min-w-0 w-full flex-col gap-4", className)}>
-      <ToolRequestPanel command={cliCommand} toolName={tool.name} onRun={onRun} />
+      <ToolRequestPanel command={cliCommand} toolName={tool.name} onRun={onRun} running={running} />
       <ToolResponsePanel
         requestArgsText={requestArgsText}
         responseText={responseText}
@@ -212,10 +215,12 @@ function ToolRequestPanel({
   command,
   toolName,
   onRun,
+  running,
 }: {
   command: string
   toolName: string
   onRun?: () => void
+  running?: boolean
 }) {
   const { t } = useI18n()
 
@@ -236,9 +241,14 @@ function ToolRequestPanel({
       </CodeBlockBody>
       <CodeBlockFooter variant="request" className="justify-end">
         {onRun ? (
-          <Button size="sm" className="h-8 bg-zinc-100 text-zinc-900 hover:bg-white" onClick={onRun}>
-            <PlayIcon data-icon="inline-start" />
-            {t("testRequest")}
+          <Button
+            size="sm"
+            className="h-8 bg-zinc-100 text-zinc-900 hover:bg-white"
+            onClick={onRun}
+            disabled={running}
+          >
+            {running ? <Spinner data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
+            {running ? t("executing") : t("testRequest")}
           </Button>
         ) : null}
       </CodeBlockFooter>

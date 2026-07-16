@@ -154,7 +154,7 @@ export function ServiceAuthPanel({ instanceId }: { instanceId: string }) {
           </span>
         ) : null}
       </div>
-      {auth.scopes.length ? (
+      {auth.scopes?.length ? (
         <p className="mt-3 break-words text-sm text-muted-foreground">
           {t("oauthScopes")}:{" "}
           <span className="font-mono">{auth.scopes.join(" ")}</span>

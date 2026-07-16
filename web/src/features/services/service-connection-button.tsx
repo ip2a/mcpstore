@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { useI18n } from "@/lib/i18n-context"
 import type { ConnectionStatus, ServiceInstance } from "@/lib/api"
+import { cn } from "@/lib/utils"
+
+const CONNECTION_BUTTON_WIDTH_CLASS = "w-[7.75rem] justify-center"
 
 export function isServiceConnected(status?: ConnectionStatus) {
   return status?.toLowerCase() === "connected"
@@ -19,6 +22,7 @@ export function isServiceDisconnecting(busy?: string | null, instanceId?: string
 
 export function ServiceConnectionButton({
   busy,
+  className,
   instanceId,
   status,
   onConnect,
@@ -27,6 +31,7 @@ export function ServiceConnectionButton({
   variant = "outline",
 }: {
   busy: string | null
+  className?: string
   instanceId: string
   status?: ConnectionStatus
   onConnect: () => void
@@ -38,10 +43,11 @@ export function ServiceConnectionButton({
   const connected = isServiceConnected(status)
   const connecting = isServiceConnecting(status, busy, instanceId)
   const disconnecting = isServiceDisconnecting(busy, instanceId)
+  const buttonClassName = cn(size === "sm" && CONNECTION_BUTTON_WIDTH_CLASS, className)
 
   if (connected) {
     return (
-      <Button variant={variant} size={size} onClick={onDisconnect} disabled={Boolean(busy)}>
+      <Button variant={variant} size={size} className={buttonClassName} onClick={onDisconnect} disabled={Boolean(busy)}>
         {disconnecting ? <Spinner data-icon="inline-start" /> : <UnlinkIcon data-icon="inline-start" />}
         {disconnecting ? t("disconnecting") : t("disconnect")}
       </Button>
@@ -50,7 +56,7 @@ export function ServiceConnectionButton({
 
   if (connecting) {
     return (
-      <Button variant={variant} size={size} disabled>
+      <Button variant={variant} size={size} className={buttonClassName} disabled>
         <Spinner data-icon="inline-start" />
         {t("connecting")}
       </Button>
@@ -58,7 +64,7 @@ export function ServiceConnectionButton({
   }
 
   return (
-    <Button variant={variant} size={size} onClick={onConnect} disabled={Boolean(busy)}>
+    <Button variant={variant} size={size} className={buttonClassName} onClick={onConnect} disabled={Boolean(busy)}>
       <LinkIcon data-icon="inline-start" />
       {t("connect")}
     </Button>

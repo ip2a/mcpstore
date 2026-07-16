@@ -18,7 +18,6 @@ export function useAppQueryRefreshers() {
       queryClient.invalidateQueries({ queryKey: queryKeys.instanceResources(instanceId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.instanceResourceTemplates(instanceId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.instancePrompts(instanceId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
       scope.type === "agent"
         ? queryClient.invalidateQueries({ queryKey: queryKeys.agentServices(scope.agent_id) })
         : Promise.resolve(),
