@@ -122,6 +122,20 @@ impl MCPStore {
             supervisor
                 .register(instance_id, startup.health_status.clone())
                 .await;
+            let probe_runner = std::sync::Arc::new(self.pool.clone());
+            let ping_timeout_secs = match instance.transport.as_str() {
+                "stdio" => self.runtime_config.ping_timeout_stdio_secs,
+                "sse" => self.runtime_config.ping_timeout_sse_secs,
+                _ => self.runtime_config.ping_timeout_http_secs,
+            };
+            supervisor
+                .start_liveness_worker(
+                    probe_runner,
+                    instance_id,
+                    std::time::Duration::from_secs_f64(self.runtime_config.liveness_interval_secs),
+                    std::time::Duration::from_secs_f64(ping_timeout_secs),
+                )
+                .await;
         }
         startup.health_status = HealthStatus::Startup;
         startup.last_health_check = Self::now_timestamp();

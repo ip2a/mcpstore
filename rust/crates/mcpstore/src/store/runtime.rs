@@ -10,6 +10,10 @@ pub(crate) struct StoreRuntimeConfig {
     pub(crate) reconnect_hard_timeout_secs: i64,
     pub(crate) half_open_lease_secs: i64,
     pub(crate) health_warn_latency_ms: f64,
+    pub(crate) liveness_interval_secs: f64,
+    pub(crate) ping_timeout_http_secs: f64,
+    pub(crate) ping_timeout_sse_secs: f64,
+    pub(crate) ping_timeout_stdio_secs: f64,
     pub(crate) supervisor_policy: SupervisorPolicy,
     pub(crate) service_lifecycle_defaults: ServiceLifecycleDefaults,
 }
@@ -38,6 +42,10 @@ impl StoreRuntimeConfig {
             reconnect_hard_timeout_secs: ceil_seconds(health.reconnect_hard_timeout, 1),
             half_open_lease_secs: ceil_seconds(health.lease_ttl, 1),
             health_warn_latency_ms: supervisor_policy.latency_p95_warn_ms,
+            liveness_interval_secs: health.liveness_interval.max(0.1),
+            ping_timeout_http_secs: health.ping_timeout_http.max(0.1),
+            ping_timeout_sse_secs: health.ping_timeout_sse.max(0.1),
+            ping_timeout_stdio_secs: health.ping_timeout_stdio.max(0.1),
             supervisor_policy,
             service_lifecycle_defaults: config.service_defaults.lifecycle.clone(),
         }

@@ -59,7 +59,7 @@ pub struct MCPStore {
     pub(crate) config_manager: ConfigManager,
     pub(crate) source_mode: SourceMode,
     pub(crate) runtime_config: StoreRuntimeConfig,
-    pub(crate) supervisor: Option<crate::health::supervisor::InstanceSupervisor>,
+    pub(crate) supervisor: Option<std::sync::Arc<crate::health::supervisor::InstanceSupervisor>>,
     pub(crate) cache_storage: tokio::sync::RwLock<CacheStorage>,
     pub(crate) redis_url: tokio::sync::RwLock<Option<String>>,
     pub(crate) namespace: SyncRwLock<String>,
@@ -124,7 +124,9 @@ impl MCPStore {
         };
         let auth_coordinator = crate::auth::AuthCoordinator::new()?;
         let supervisor = (options.source_mode == SourceMode::Local).then(|| {
-            crate::health::supervisor::InstanceSupervisor::new(runtime_config.supervisor_policy)
+            std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
+                runtime_config.supervisor_policy,
+            ))
         });
 
         let registry = ServiceRegistry::new();

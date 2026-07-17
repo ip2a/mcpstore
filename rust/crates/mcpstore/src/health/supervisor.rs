@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::cache::models::HealthStatus;
 use crate::identity::InstanceId;
 
+use super::probes::{ProbeKind, ProbeRunner};
 use super::state_machine::{
-    HealthObservation, HealthStateMachine, StateTransition, SupervisorPolicy,
+    HealthObservation, HealthStateMachine, ObservationKind, StateTransition, SupervisorPolicy,
 };
 use super::stats::WindowStats;
 
 pub(crate) struct InstanceSupervisor {
     policy: SupervisorPolicy,
     machines: Mutex<HashMap<InstanceId, HealthStateMachine>>,
+    workers: Mutex<HashMap<InstanceId, tokio::task::JoinHandle<()>>>,
 }
 
 impl InstanceSupervisor {
@@ -20,7 +23,49 @@ impl InstanceSupervisor {
         Self {
             policy,
             machines: Mutex::new(HashMap::new()),
+            workers: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) fn spawn_liveness_worker(
+        self: &Arc<Self>,
+        runner: Arc<dyn ProbeRunner>,
+        instance_id: InstanceId,
+        interval: std::time::Duration,
+        timeout: std::time::Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        let supervisor = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            loop {
+                ticker.tick().await;
+                let result = runner
+                    .run_probe(instance_id, ProbeKind::Liveness, timeout)
+                    .await;
+                let observation = HealthObservation {
+                    observed_at: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
+                    kind: ObservationKind::Liveness,
+                    succeeded: result.is_ok(),
+                    latency_ms: None,
+                };
+                let _ = supervisor.observe(instance_id, observation).await;
+            }
+        })
+    }
+
+    pub(crate) async fn start_liveness_worker(
+        self: &Arc<Self>,
+        runner: Arc<dyn ProbeRunner>,
+        instance_id: InstanceId,
+        interval: std::time::Duration,
+        timeout: std::time::Duration,
+    ) {
+        let mut workers = self.workers.lock().await;
+        if workers.contains_key(&instance_id) {
+            return;
+        }
+        let handle = self.spawn_liveness_worker(runner, instance_id, interval, timeout);
+        workers.insert(instance_id, handle);
     }
 
     pub(crate) async fn register(&self, instance_id: InstanceId, status: HealthStatus) {
@@ -32,7 +77,18 @@ impl InstanceSupervisor {
     }
 
     pub(crate) async fn remove(&self, instance_id: InstanceId) {
+        if let Some(worker) = self.workers.lock().await.remove(&instance_id) {
+            worker.abort();
+        }
         self.machines.lock().await.remove(&instance_id);
+    }
+
+    pub(crate) async fn shutdown(&self) {
+        let workers = std::mem::take(&mut *self.workers.lock().await);
+        for (_, worker) in workers {
+            worker.abort();
+            let _ = worker.await;
+        }
     }
 
     pub(crate) async fn observe(
