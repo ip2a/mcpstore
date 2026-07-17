@@ -35,10 +35,7 @@ impl MCPStore {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
         loop {
             let status = self.health_check(instance_id).await?;
-            if matches!(
-                status.health_status,
-                HealthStatus::Healthy | HealthStatus::Ready
-            ) {
+            if matches!(status.health_status, HealthStatus::Healthy) {
                 return Ok(status);
             }
             if !self.pool.is_connected(instance_id).await {

@@ -15,7 +15,7 @@ impl MCPStore {
             if let Some(status) = cached {
                 if matches!(
                     status.health_status,
-                    HealthStatus::Healthy | HealthStatus::Ready | HealthStatus::Startup
+                    HealthStatus::Healthy | HealthStatus::Startup
                 ) {
                     return Ok(status);
                 }
@@ -46,7 +46,7 @@ impl MCPStore {
             ConnectionStatus::Error => HealthStatus::Degraded,
         };
 
-        let availability = if matches!(health_status, HealthStatus::Healthy | HealthStatus::Ready) {
+        let availability = if matches!(health_status, HealthStatus::Healthy) {
             ToolAvailability::Available
         } else {
             ToolAvailability::Unavailable
@@ -58,7 +58,7 @@ impl MCPStore {
         state.health_status = health_status.clone();
         state.last_health_check = Self::now_timestamp();
         state.tools = tools;
-        if matches!(health_status, HealthStatus::Healthy | HealthStatus::Ready) {
+        if matches!(health_status, HealthStatus::Healthy) {
             state.connection_attempts = 0;
             state.current_error = None;
             state.window_error_rate = Some(0.0);

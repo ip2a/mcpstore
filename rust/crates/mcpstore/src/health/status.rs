@@ -102,7 +102,6 @@ impl MCPStore {
         match status {
             HealthStatus::Init => "init",
             HealthStatus::Startup => "startup",
-            HealthStatus::Ready => "ready",
             HealthStatus::Healthy => "healthy",
             HealthStatus::Degraded => "degraded",
             HealthStatus::CircuitOpen => "circuit_open",
@@ -113,7 +112,7 @@ impl MCPStore {
 
     fn connection_status_from_health_status(status: &HealthStatus) -> ConnectionStatus {
         match status {
-            HealthStatus::Healthy | HealthStatus::Ready => ConnectionStatus::Connected,
+            HealthStatus::Healthy => ConnectionStatus::Connected,
             HealthStatus::Startup | HealthStatus::HalfOpen => ConnectionStatus::Connecting,
             HealthStatus::Init | HealthStatus::Disconnected => ConnectionStatus::Disconnected,
             HealthStatus::Degraded | HealthStatus::CircuitOpen => ConnectionStatus::Error,

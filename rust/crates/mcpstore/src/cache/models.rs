@@ -267,7 +267,6 @@ pub struct ServiceLifecycleState {
 pub enum HealthStatus {
     Init,
     Startup,
-    Ready,
     Healthy,
     Degraded,
     CircuitOpen,
