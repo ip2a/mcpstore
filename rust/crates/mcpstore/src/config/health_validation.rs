@@ -23,27 +23,6 @@ pub(super) fn validate_health_check_config(health: &HealthCheckConfig, errors: &
         errors,
     );
     validate_range_f64(
-        "health_check.readiness_interval",
-        health.readiness_interval,
-        1.0,
-        300.0,
-        errors,
-    );
-    validate_range_i32(
-        "health_check.readiness_success_threshold",
-        health.readiness_success_threshold,
-        1,
-        10,
-        errors,
-    );
-    validate_range_i32(
-        "health_check.readiness_failure_threshold",
-        health.readiness_failure_threshold,
-        1,
-        10,
-        errors,
-    );
-    validate_range_f64(
         "health_check.liveness_interval",
         health.liveness_interval,
         1.0,
@@ -74,13 +53,6 @@ pub(super) fn validate_health_check_config(health: &HealthCheckConfig, errors: &
     validate_range_f64(
         "health_check.ping_timeout_stdio",
         health.ping_timeout_stdio,
-        0.1,
-        1200.0,
-        errors,
-    );
-    validate_range_f64(
-        "health_check.warning_ping_timeout",
-        health.warning_ping_timeout,
         0.1,
         1200.0,
         errors,
@@ -148,13 +120,6 @@ pub(super) fn validate_health_check_config(health: &HealthCheckConfig, errors: &
         1.0,
         errors,
     );
-    validate_range_f64(
-        "health_check.backoff_max_duration",
-        health.backoff_max_duration,
-        1.0,
-        7200.0,
-        errors,
-    );
     validate_range_i32(
         "health_check.half_open_max_calls",
         health.half_open_max_calls,
@@ -180,13 +145,6 @@ pub(super) fn validate_health_check_config(health: &HealthCheckConfig, errors: &
         "health_check.lease_ttl",
         health.lease_ttl,
         1.0,
-        3600.0,
-        errors,
-    );
-    validate_range_f64(
-        "health_check.lease_renew_interval",
-        health.lease_renew_interval,
-        0.5,
         3600.0,
         errors,
     );
