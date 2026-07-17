@@ -251,6 +251,9 @@ impl MCPStore {
         if let Some(reactor) = guard.as_ref() {
             reactor.shutdown().await;
         }
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.shutdown().await;
+        }
     }
 
     /// Check whether the EventReactor is initialized.
