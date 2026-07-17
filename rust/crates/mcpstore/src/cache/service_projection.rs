@@ -138,6 +138,9 @@ impl MCPStore {
     }
 
     pub(crate) async fn cache_instance_removed(&self, instance_id: InstanceId) -> Result<()> {
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.remove(instance_id).await;
+        }
         if let Some(value) = self
             .cache
             .get_relation("instance_tools", &instance_id.to_string())
