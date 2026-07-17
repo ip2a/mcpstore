@@ -172,7 +172,7 @@ impl MCPStore {
                         )));
                     }
                     Ok(match status.health_status {
-                        HealthStatus::Healthy | HealthStatus::Ready => ConnectionStatus::Connected,
+                        HealthStatus::Healthy => ConnectionStatus::Connected,
                         HealthStatus::Startup | HealthStatus::HalfOpen => {
                             ConnectionStatus::Connecting
                         }
