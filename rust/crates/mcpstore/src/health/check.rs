@@ -17,7 +17,7 @@ impl MCPStore {
             .await
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
 
-        let cached = self.sync_retry_window(instance_id).await?;
+        let cached = self.cached_instance_status(instance_id).await?;
         if self.pool.is_connected(instance_id).await {
             if let Some(status) = cached {
                 if matches!(
@@ -124,16 +124,13 @@ impl MCPStore {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
 
-        let mut payload = self.load_or_default_status(instance_id).await?;
-        let mut supervised_status = None;
-        let mut supervised_stats = None;
-        let transition = if let Some(supervisor) = &self.supervisor {
+        if let Some(supervisor) = &self.supervisor {
             supervisor
-                .register(instance_id, payload.health_status.clone())
+                .register(instance_id, HealthStatus::Healthy)
                 .await;
             let observed_at = Self::now_timestamp_f64();
-            let transition = supervisor
-                .observe(
+            supervisor
+                .observe_and_commit(
                     instance_id,
                     HealthObservation {
                         observed_at,
@@ -143,49 +140,24 @@ impl MCPStore {
                     },
                 )
                 .await;
-            supervised_stats = supervisor.stats(instance_id, observed_at).await;
-            supervised_status = supervisor.status(instance_id).await;
-            transition
-        } else {
-            None
-        };
-        if let Some(transition) = transition {
-            self.event_bus
-                .publish(
-                    Event::new(
-                        "HEALTH_STATUS_CHANGED",
-                        serde_json::json!({
-                            "instance_id": instance_id,
-                            "from": Self::health_status_name(&transition.from),
-                            "to": Self::health_status_name(&transition.to),
-                            "reason": transition.reason,
-                            "stats": transition.stats,
-                        }),
-                    ),
-                    true,
-                )
-                .await;
+            return self
+                .cached_instance_status(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
         }
 
-        if let Some(stats) = supervised_stats {
-            payload.window_error_rate = stats.error_rate;
-            payload.latency_p95 = stats.latency_p95;
-            payload.latency_p99 = stats.latency_p99;
-            payload.sample_size = Some(stats.sample_size.min(i32::MAX as usize) as i32);
-        }
+        let mut payload = self.load_or_default_status(instance_id).await?;
         payload.last_health_check = Self::now_timestamp();
 
         if ok {
-            payload.health_status = supervised_status.unwrap_or_else(|| {
-                if latency_ms
-                    .map(|value| value >= self.runtime_config.health_warn_latency_ms)
-                    .unwrap_or(false)
-                {
-                    HealthStatus::Degraded
-                } else {
-                    HealthStatus::Healthy
-                }
-            });
+            payload.health_status = if latency_ms
+                .map(|value| value >= self.runtime_config.supervisor_policy.latency_p95_warn_ms)
+                .unwrap_or(false)
+            {
+                HealthStatus::Degraded
+            } else {
+                HealthStatus::Healthy
+            };
             payload.connection_attempts = 0;
             payload.current_error = None;
             payload.tools = self
@@ -204,20 +176,8 @@ impl MCPStore {
             return Ok(payload);
         }
 
-        if supervised_status != Some(HealthStatus::CircuitOpen) {
-            payload.current_error = error;
-            self.put_instance_status(&payload).await?;
-            return Ok(payload);
-        }
-
-        self.pool.disconnect(instance_id).await.ok();
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Error)
-            .await;
-        self.mark_instance_retryable_failure(
-            instance_id,
-            error.unwrap_or_else(|| "Health check failed".to_string()),
-        )
-        .await
+        payload.current_error = error;
+        self.put_instance_status(&payload).await?;
+        Ok(payload)
     }
 }

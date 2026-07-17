@@ -8,11 +8,17 @@ use crate::cache::CacheLayerManager;
 use crate::events::{Event, EventBus};
 use crate::identity::InstanceId;
 
+use super::actions::SupervisorActions;
 use super::probes::{ProbeKind, ProbeRunner};
 use super::state_machine::{
     HealthObservation, HealthStateMachine, ObservationKind, StateTransition, SupervisorPolicy,
 };
-use super::stats::WindowStats;
+
+pub(crate) enum StartupOutcome {
+    Healthy,
+    Failed(StateTransition),
+    TimedOut,
+}
 
 pub(crate) struct InstanceSupervisor {
     policy: SupervisorPolicy,
@@ -20,6 +26,7 @@ pub(crate) struct InstanceSupervisor {
     workers: Mutex<HashMap<InstanceId, tokio::task::JoinHandle<()>>>,
     cache: Arc<CacheLayerManager>,
     event_bus: EventBus,
+    actions: std::sync::OnceLock<Arc<dyn SupervisorActions>>,
 }
 
 impl InstanceSupervisor {
@@ -34,10 +41,89 @@ impl InstanceSupervisor {
             workers: Mutex::new(HashMap::new()),
             cache,
             event_bus,
+            actions: std::sync::OnceLock::new(),
         }
     }
 
-    pub(crate) fn spawn_liveness_worker(
+    pub(crate) fn attach_actions(
+        &self,
+        actions: Arc<dyn SupervisorActions>,
+    ) {
+        let _ = self.actions.set(actions);
+    }
+
+    pub(crate) async fn run_startup_probe(
+        self: &Arc<Self>,
+        runner: Arc<dyn ProbeRunner>,
+        instance_id: InstanceId,
+    ) -> StartupOutcome {
+        let started_at = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+        let interval =
+            std::time::Duration::from_secs_f64(self.policy.startup_interval_secs.max(0.1));
+        let timeout =
+            std::time::Duration::from_secs_f64(self.policy.startup_timeout_secs.max(0.1));
+        let hard_deadline = started_at + self.policy.startup_hard_timeout_secs.max(1.0);
+
+        loop {
+            let now = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+            if now >= hard_deadline {
+                return StartupOutcome::TimedOut;
+            }
+
+            let result = runner
+                .run_probe(instance_id, ProbeKind::Startup, timeout)
+                .await;
+            let succeeded = result.is_ok();
+            let observed_at = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+            let observation = HealthObservation {
+                observed_at,
+                kind: ObservationKind::Startup,
+                succeeded,
+                latency_ms: None,
+            };
+            let transition = self.observe(instance_id, observation).await;
+            if let Some(transition) = transition.as_ref() {
+                let _ = self.commit_transition(instance_id, transition).await;
+                if transition.to == HealthStatus::Healthy {
+                    return StartupOutcome::Healthy;
+                }
+                if matches!(
+                    transition.to,
+                    HealthStatus::CircuitOpen | HealthStatus::Disconnected
+                ) {
+                    return StartupOutcome::Failed(transition.clone());
+                }
+            }
+
+            if succeeded {
+                // State machine should have transitioned to Healthy; if not, treat as success.
+                if self.status(instance_id).await != Some(HealthStatus::Healthy) {
+                    let forced = self
+                        .observe(
+                            instance_id,
+                            HealthObservation {
+                                observed_at,
+                                kind: ObservationKind::Startup,
+                                succeeded: true,
+                                latency_ms: None,
+                            },
+                        )
+                        .await;
+                    if let Some(transition) = forced.as_ref() {
+                        let _ = self.commit_transition(instance_id, transition).await;
+                        if transition.to == HealthStatus::Healthy {
+                            return StartupOutcome::Healthy;
+                        }
+                    }
+                }
+                return StartupOutcome::Healthy;
+            }
+
+            tokio::time::sleep(interval).await;
+        }
+    }
+
+    fn spawn_health_worker(
         self: &Arc<Self>,
         runner: Arc<dyn ProbeRunner>,
         instance_id: InstanceId,
@@ -49,16 +135,29 @@ impl InstanceSupervisor {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
+                let status = supervisor.status(instance_id).await;
                 let now = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
-                if supervisor.status(instance_id).await == Some(HealthStatus::CircuitOpen) {
+
+                if status == Some(HealthStatus::CircuitOpen) {
                     let _ = supervisor.enter_half_open(instance_id, now).await;
                 }
-                let result = runner
-                    .run_probe(instance_id, ProbeKind::Liveness, timeout)
-                    .await;
+
+                let (probe_kind, observation_kind) = match supervisor.status(instance_id).await {
+                    Some(HealthStatus::Startup) => {
+                        (ProbeKind::Startup, ObservationKind::Startup)
+                    }
+                    Some(HealthStatus::HalfOpen)
+                    | Some(HealthStatus::Healthy)
+                    | Some(HealthStatus::Degraded) => {
+                        (ProbeKind::Liveness, ObservationKind::Liveness)
+                    }
+                    _ => continue,
+                };
+
+                let result = runner.run_probe(instance_id, probe_kind, timeout).await;
                 let observation = HealthObservation {
-                    observed_at: now,
-                    kind: ObservationKind::Liveness,
+                    observed_at: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
+                    kind: observation_kind,
                     succeeded: result.is_ok(),
                     latency_ms: None,
                 };
@@ -70,7 +169,7 @@ impl InstanceSupervisor {
         })
     }
 
-    pub(crate) async fn start_liveness_worker(
+    pub(crate) async fn start_health_worker(
         self: &Arc<Self>,
         runner: Arc<dyn ProbeRunner>,
         instance_id: InstanceId,
@@ -81,7 +180,7 @@ impl InstanceSupervisor {
         if workers.contains_key(&instance_id) {
             return;
         }
-        let handle = self.spawn_liveness_worker(runner, instance_id, interval, timeout);
+        let handle = self.spawn_health_worker(runner, instance_id, interval, timeout);
         workers.insert(instance_id, handle);
     }
 
@@ -127,6 +226,16 @@ impl InstanceSupervisor {
                 true,
             )
             .await;
+        if let Some(actions) = self.actions.get() {
+            let _ = actions
+                .apply_transition(
+                    instance_id,
+                    transition.from.clone(),
+                    transition.to.clone(),
+                    transition.reason,
+                )
+                .await;
+        }
         Ok(())
     }
     pub(crate) async fn register(&self, instance_id: InstanceId, status: HealthStatus) {
@@ -152,6 +261,29 @@ impl InstanceSupervisor {
         }
     }
 
+    pub(crate) async fn observe_and_commit(
+        &self,
+        instance_id: InstanceId,
+        observation: HealthObservation,
+    ) -> Option<StateTransition> {
+        let transition = self.observe(instance_id, observation).await;
+        if let Some(transition) = transition.as_ref() {
+            let _ = self.commit_transition(instance_id, transition).await;
+        }
+        transition
+    }
+
+    pub(crate) async fn reset_machine(
+        &self,
+        instance_id: InstanceId,
+        status: HealthStatus,
+    ) {
+        self.machines
+            .lock()
+            .await
+            .insert(instance_id, HealthStateMachine::new(self.policy, status));
+    }
+
     pub(crate) async fn observe(
         &self,
         instance_id: InstanceId,
@@ -169,11 +301,16 @@ impl InstanceSupervisor {
         instance_id: InstanceId,
         now: f64,
     ) -> Option<StateTransition> {
-        self.machines
+        let transition = self
+            .machines
             .lock()
             .await
             .get_mut(&instance_id)
-            .and_then(|machine| machine.enter_half_open(now))
+            .and_then(|machine| machine.enter_half_open(now));
+        if let Some(transition) = transition.as_ref() {
+            let _ = self.commit_transition(instance_id, transition).await;
+        }
+        transition
     }
 
     pub(crate) async fn status(&self, instance_id: InstanceId) -> Option<HealthStatus> {
@@ -183,14 +320,6 @@ impl InstanceSupervisor {
             .get(&instance_id)
             .map(HealthStateMachine::status)
     }
-
-    pub(crate) async fn stats(&self, instance_id: InstanceId, now: f64) -> Option<WindowStats> {
-        self.machines
-            .lock()
-            .await
-            .get_mut(&instance_id)
-            .map(|machine| machine.stats(now))
-    }
 }
 
 #[cfg(test)]
@@ -198,6 +327,7 @@ mod tests {
     use super::*;
     use crate::health::state_machine::ObservationKind;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
+    use async_trait::async_trait;
 
     fn instance_id(name: &str) -> InstanceId {
         ServiceInstanceKey::new(name, ScopeRef::Store).instance_id()
@@ -205,6 +335,9 @@ mod tests {
 
     fn policy() -> SupervisorPolicy {
         SupervisorPolicy {
+            startup_interval_secs: 0.05,
+            startup_timeout_secs: 0.5,
+            startup_hard_timeout_secs: 2.0,
             window_secs: 60.0,
             window_max_samples: 20,
             window_min_calls: 3,
@@ -254,5 +387,163 @@ mod tests {
             .await;
         supervisor.remove(instance_id).await;
         assert_eq!(supervisor.status(instance_id).await, None);
+    }
+
+    #[derive(Default, Clone)]
+    struct ProbeRecorder {
+        calls: Arc<std::sync::Mutex<Vec<ProbeKind>>>,
+    }
+
+    impl ProbeRecorder {
+        fn record(&self, kind: ProbeKind) {
+            self.calls.lock().unwrap().push(kind);
+        }
+
+        fn calls(&self) -> Vec<ProbeKind> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    struct CountingProbeRunner {
+        recorder: ProbeRecorder,
+        fail_first: bool,
+    }
+
+    #[async_trait]
+    impl ProbeRunner for CountingProbeRunner {
+        async fn run_probe(
+            &self,
+            _instance_id: InstanceId,
+            kind: ProbeKind,
+            _timeout: std::time::Duration,
+        ) -> crate::transport::Result<()> {
+            self.recorder.record(kind);
+            if self.fail_first && self.recorder.calls().len() == 1 {
+                Err(crate::transport::TransportError::RequestTimedOut {
+                    timeout: std::time::Duration::from_millis(1),
+                })
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_probe_retries_until_success() {
+        let (store, _) = crate::cache::storage::memory_cache_store_with_handle();
+        let cache = Arc::new(CacheLayerManager::new(store, "health-test"));
+        let supervisor = Arc::new(InstanceSupervisor::new(policy(), cache, EventBus::new()));
+        let id = instance_id("startup-success");
+        supervisor.register(id, HealthStatus::Startup).await;
+
+        let recorder = ProbeRecorder::default();
+        let runner: Arc<dyn ProbeRunner> = Arc::new(CountingProbeRunner {
+            recorder: recorder.clone(),
+            fail_first: true,
+        });
+        let outcome = supervisor.run_startup_probe(runner, id).await;
+
+        assert!(matches!(outcome, StartupOutcome::Healthy));
+        assert_eq!(supervisor.status(id).await, Some(HealthStatus::Healthy));
+        let calls = recorder.calls();
+        assert!(calls.iter().all(|k| *k == ProbeKind::Startup));
+        assert!(calls.len() >= 2);
+    }
+
+    struct FailingProbeRunner {
+        recorder: ProbeRecorder,
+    }
+
+    #[async_trait]
+    impl ProbeRunner for FailingProbeRunner {
+        async fn run_probe(
+            &self,
+            _instance_id: InstanceId,
+            kind: ProbeKind,
+            _timeout: std::time::Duration,
+        ) -> crate::transport::Result<()> {
+            self.recorder.record(kind);
+            Err(crate::transport::TransportError::RequestTimedOut {
+                timeout: std::time::Duration::from_millis(1),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_probe_times_out_when_probe_never_succeeds() {
+        let (store, _) = crate::cache::storage::memory_cache_store_with_handle();
+        let cache = Arc::new(CacheLayerManager::new(store, "health-test"));
+        let supervisor = Arc::new(InstanceSupervisor::new(
+            SupervisorPolicy {
+                startup_interval_secs: 0.05,
+                startup_timeout_secs: 0.05,
+                startup_hard_timeout_secs: 0.15,
+                ..policy()
+            },
+            cache,
+            EventBus::new(),
+        ));
+        let id = instance_id("startup-timeout");
+        supervisor.register(id, HealthStatus::Startup).await;
+
+        let recorder = ProbeRecorder::default();
+        let runner: Arc<dyn ProbeRunner> = Arc::new(FailingProbeRunner {
+            recorder: recorder.clone(),
+        });
+        let outcome = supervisor.run_startup_probe(runner, id).await;
+
+        assert!(matches!(outcome, StartupOutcome::TimedOut));
+        let calls = recorder.calls();
+        assert!(calls.iter().all(|k| *k == ProbeKind::Startup));
+        assert!(!calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn health_worker_switches_probe_kind_by_state() {
+        let (store, _) = crate::cache::storage::memory_cache_store_with_handle();
+        let cache = Arc::new(CacheLayerManager::new(store, "health-test"));
+        let supervisor = Arc::new(InstanceSupervisor::new(
+            SupervisorPolicy {
+                startup_interval_secs: 0.05,
+                startup_timeout_secs: 0.5,
+                startup_hard_timeout_secs: 2.0,
+                ..policy()
+            },
+            cache,
+            EventBus::new(),
+        ));
+        let id = instance_id("worker-switch");
+        supervisor.register(id, HealthStatus::Startup).await;
+
+        let recorder = ProbeRecorder::default();
+        let runner: Arc<dyn ProbeRunner> = Arc::new(CountingProbeRunner {
+            recorder: recorder.clone(),
+            fail_first: true,
+        });
+        supervisor
+            .start_health_worker(
+                runner,
+                id,
+                std::time::Duration::from_millis(50),
+                std::time::Duration::from_millis(100),
+            )
+            .await;
+
+        // Wait for startup probe to succeed and liveness probe to start.
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let calls = recorder.calls();
+                if calls.iter().any(|k| *k == ProbeKind::Liveness) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let calls = recorder.calls();
+        assert!(calls.iter().any(|k| *k == ProbeKind::Startup));
+        assert!(calls.iter().any(|k| *k == ProbeKind::Liveness));
     }
 }

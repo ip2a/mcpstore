@@ -78,7 +78,7 @@ impl MCPStore {
             return Ok(());
         }
 
-        let retry_state = self.sync_retry_window(instance_id).await?;
+        let retry_state = self.cached_instance_status(instance_id).await?;
         let now = Self::now_timestamp_f64();
         if automatic_retry {
             if let Some(status) = retry_state.as_ref() {
@@ -108,7 +108,7 @@ impl MCPStore {
         self.registry
             .update_status(instance_id, ConnectionStatus::Connecting)
             .await;
-        let previous_status = retry_state
+        let _previous_status = retry_state
             .as_ref()
             .map(|status| status.health_status.clone());
         let mut startup = match retry_state {
@@ -118,19 +118,22 @@ impl MCPStore {
                     .await?
             }
         };
+        let probe_runner = std::sync::Arc::new(self.pool.clone());
+        let ping_timeout_secs = match instance.transport.as_str() {
+            "stdio" => self.runtime_config.ping_timeout_stdio_secs,
+            "sse" => self.runtime_config.ping_timeout_sse_secs,
+            _ => self.runtime_config.ping_timeout_http_secs,
+        };
         if let Some(supervisor) = &self.supervisor {
+            supervisor
+                .reset_machine(instance_id, startup.health_status.clone())
+                .await;
             supervisor
                 .register(instance_id, startup.health_status.clone())
                 .await;
-            let probe_runner = std::sync::Arc::new(self.pool.clone());
-            let ping_timeout_secs = match instance.transport.as_str() {
-                "stdio" => self.runtime_config.ping_timeout_stdio_secs,
-                "sse" => self.runtime_config.ping_timeout_sse_secs,
-                _ => self.runtime_config.ping_timeout_http_secs,
-            };
             supervisor
-                .start_liveness_worker(
-                    probe_runner,
+                .start_health_worker(
+                    probe_runner.clone(),
                     instance_id,
                     std::time::Duration::from_secs_f64(self.runtime_config.liveness_interval_secs),
                     std::time::Duration::from_secs_f64(ping_timeout_secs),
@@ -140,11 +143,7 @@ impl MCPStore {
         startup.health_status = HealthStatus::Startup;
         startup.last_health_check = Self::now_timestamp();
         startup.next_retry_time = None;
-        startup.lease_deadline = if matches!(previous_status, Some(HealthStatus::HalfOpen)) {
-            Some(now + self.runtime_config.half_open_lease_secs as f64)
-        } else {
-            None
-        };
+        startup.lease_deadline = None;
         self.put_instance_status(&startup).await?;
         self.event_bus
             .publish(
@@ -198,7 +197,7 @@ impl MCPStore {
                     self.registry
                         .update_status(instance_id, ConnectionStatus::Error)
                         .await;
-                    self.mark_instance_retryable_failure(
+                    self.record_instance_failure(
                         instance_id,
                         format!("Connection failed: {error}"),
                     )
@@ -210,6 +209,38 @@ impl MCPStore {
         self.registry
             .update_status(instance_id, ConnectionStatus::Connected)
             .await;
+
+        // Run startup probe before declaring the service connected. For OpenAPI virtual
+        // instances this is skipped; availability is determined by HTTP requests.
+        if !self.is_openapi_virtual_instance(instance_id).await? {
+            if let Some(supervisor) = &self.supervisor {
+                match supervisor
+                    .run_startup_probe(
+                        probe_runner,
+                        instance_id,
+                    )
+                    .await
+                {
+                    super::super::health::supervisor::StartupOutcome::Healthy => {}
+                    super::super::health::supervisor::StartupOutcome::Failed(transition) => {
+                        let error = format!("Startup probe failed: {}", transition.reason);
+                        self.record_instance_failure(instance_id, error)
+                            .await?;
+                        return Err(StoreError::Other(format!(
+                            "Service instance startup probe failed: {instance_id}"
+                        )));
+                    }
+                    super::super::health::supervisor::StartupOutcome::TimedOut => {
+                        let error = "Startup probe timed out".to_string();
+                        self.record_instance_failure(instance_id, error)
+                            .await?;
+                        return Err(StoreError::Other(format!(
+                            "Service instance startup probe timed out: {instance_id}"
+                        )));
+                    }
+                }
+            }
+        }
 
         let tools = match self.pool.list_tools(instance_id).await {
             Ok(tools) => tools,

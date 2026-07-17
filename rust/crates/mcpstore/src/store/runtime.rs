@@ -8,8 +8,7 @@ pub(crate) struct StoreRuntimeConfig {
     pub(crate) retry_backoff_base_secs: i64,
     pub(crate) retry_backoff_max_secs: i64,
     pub(crate) reconnect_hard_timeout_secs: i64,
-    pub(crate) half_open_lease_secs: i64,
-    pub(crate) health_warn_latency_ms: f64,
+    pub(crate) backoff_jitter_ratio: f64,
     pub(crate) liveness_interval_secs: f64,
     pub(crate) ping_timeout_http_secs: f64,
     pub(crate) ping_timeout_sse_secs: f64,
@@ -22,6 +21,9 @@ impl StoreRuntimeConfig {
     pub(crate) fn from_app_config(config: &AppConfig) -> Self {
         let health = &config.health_check;
         let supervisor_policy = SupervisorPolicy {
+            startup_interval_secs: health.startup_interval.max(0.1),
+            startup_timeout_secs: health.startup_timeout.max(0.1),
+            startup_hard_timeout_secs: health.startup_hard_timeout.max(1.0),
             window_secs: health.window_size.max(1) as f64,
             window_max_samples: health.window_size.max(1) as usize,
             window_min_calls: health.window_min_calls.max(1) as usize,
@@ -40,8 +42,7 @@ impl StoreRuntimeConfig {
             retry_backoff_base_secs: ceil_seconds(health.backoff_base, 1),
             retry_backoff_max_secs: ceil_seconds(health.backoff_max, 1),
             reconnect_hard_timeout_secs: ceil_seconds(health.reconnect_hard_timeout, 1),
-            half_open_lease_secs: ceil_seconds(health.lease_ttl, 1),
-            health_warn_latency_ms: supervisor_policy.latency_p95_warn_ms,
+            backoff_jitter_ratio: health.backoff_jitter.max(0.0),
             liveness_interval_secs: health.liveness_interval.max(0.1),
             ping_timeout_http_secs: health.ping_timeout_http.max(0.1),
             ping_timeout_sse_secs: health.ping_timeout_sse.max(0.1),

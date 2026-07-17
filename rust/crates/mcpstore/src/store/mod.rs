@@ -18,6 +18,9 @@ pub(crate) use crate::transport::{
 
 pub(crate) use crate::{Result, StoreError};
 
+pub(crate) use crate::health::actions::SupervisorActions;
+use crate::identity::InstanceId;
+
 mod openapi;
 mod options;
 pub(crate) mod payload;
@@ -79,14 +82,14 @@ pub struct MCPStore {
 }
 
 impl MCPStore {
-    pub fn setup(config_path: Option<&str>) -> Result<Self> {
+    pub fn setup(config_path: Option<&str>) -> Result<std::sync::Arc<Self>> {
         Self::setup_with_options(StoreOptions {
             config_path: config_path.map(ToString::to_string),
             ..StoreOptions::default()
         })
     }
 
-    pub fn setup_with_options(options: StoreOptions) -> Result<Self> {
+    pub fn setup_with_options(options: StoreOptions) -> Result<std::sync::Arc<Self>> {
         let config_manager = match options.config_path.as_deref() {
             Some(p) => ConfigManager::with_path(p),
             None => ConfigManager::new(),
@@ -127,6 +130,12 @@ impl MCPStore {
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(1000);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
+        let pool = ConnectionPool::new(
+            auth_coordinator.clone(),
+            registry.clone(),
+            event_bus.clone(),
+            cache.clone(),
+        );
         let supervisor = (options.source_mode == SourceMode::Local).then(|| {
             std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
                 runtime_config.supervisor_policy,
@@ -134,14 +143,11 @@ impl MCPStore {
                 event_bus.clone(),
             ))
         });
-        let pool = ConnectionPool::new(
-            auth_coordinator.clone(),
-            registry.clone(),
-            event_bus.clone(),
-            cache.clone(),
-        );
+        if let Some(supervisor) = &supervisor {
+            pool.attach_supervisor(supervisor.clone());
+        }
 
-        Ok(Self {
+        let store = std::sync::Arc::new(Self {
             auth_coordinator: auth_coordinator.clone(),
             config_manager,
             source_mode: options.source_mode,
@@ -157,7 +163,12 @@ impl MCPStore {
             cache,
             event_reactor: tokio::sync::RwLock::new(None),
             event_backend: tokio::sync::RwLock::new(event_backend),
-        })
+        });
+        if let Some(supervisor) = &store.supervisor {
+            let weak = std::sync::Arc::downgrade(&store);
+            supervisor.attach_actions(std::sync::Arc::new(StoreSupervisorActions(weak)));
+        }
+        Ok(store)
     }
 
     pub fn config_manager(&self) -> &ConfigManager {
@@ -261,6 +272,84 @@ impl MCPStore {
     /// Check whether the EventReactor is initialized.
     pub async fn has_reactor(&self) -> bool {
         self.event_reactor.read().await.is_some()
+    }
+}
+
+struct StoreSupervisorActions(std::sync::Weak<MCPStore>);
+
+#[async_trait::async_trait]
+impl SupervisorActions for StoreSupervisorActions {
+    async fn apply_transition(
+        &self,
+        instance_id: InstanceId,
+        _from: HealthStatus,
+        to: HealthStatus,
+        reason: &'static str,
+    ) -> std::result::Result<(), String> {
+        let Some(store) = self.0.upgrade() else {
+            return Ok(());
+        };
+        if store.source_mode == SourceMode::Db {
+            return Ok(());
+        }
+        if store.registry.find_instance(instance_id).await.is_none() {
+            return Ok(());
+        }
+
+        match to {
+            HealthStatus::CircuitOpen => {
+                store.pool.disconnect(instance_id).await.ok();
+                store
+                    .registry
+                    .update_status(instance_id, ConnectionStatus::Error)
+                    .await;
+                let _ = store
+                    .mark_instance_retryable_failure(
+                        instance_id,
+                        format!("Circuit open: {reason}"),
+                    )
+                    .await;
+            }
+            HealthStatus::HalfOpen => {
+                let _ = store.connect_service_internal(instance_id, true).await;
+            }
+            HealthStatus::Healthy => {
+                store
+                    .registry
+                    .update_status(instance_id, ConnectionStatus::Connected)
+                    .await;
+                let tools = store.registry.list_instance_tools(instance_id).await;
+                let _ = store.cache_instance_connected(instance_id, &tools).await;
+                if let Ok(mut status) = store.load_or_default_status(instance_id).await {
+                    if status.health_status != HealthStatus::Healthy {
+                        status.connection_attempts = 0;
+                        status.current_error = None;
+                        status.next_retry_time = None;
+                        status.hard_deadline = None;
+                        status.lifecycle_state.restart_attempts = 0;
+                        let _ = store.put_instance_status(&status).await;
+                    }
+                }
+            }
+            HealthStatus::Disconnected => {
+                store.pool.disconnect(instance_id).await.ok();
+                store
+                    .registry
+                    .update_status(instance_id, ConnectionStatus::Disconnected)
+                    .await;
+                if let Ok(mut status) = store.load_or_default_status(instance_id).await {
+                    status.connection_attempts = 0;
+                    status.current_error = None;
+                    status.next_retry_time = None;
+                    status.hard_deadline = None;
+                    status.lease_deadline = None;
+                    status.lifecycle_state.restart_attempts = 0;
+                    let _ = store.put_instance_status(&status).await;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 

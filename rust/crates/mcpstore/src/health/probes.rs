@@ -5,6 +5,7 @@ use async_trait::async_trait;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProbeKind {
+    Startup,
     Liveness,
 }
 

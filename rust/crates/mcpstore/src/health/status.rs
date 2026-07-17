@@ -110,7 +110,7 @@ impl MCPStore {
         }
     }
 
-    fn connection_status_from_health_status(status: &HealthStatus) -> ConnectionStatus {
+    pub(crate) fn connection_status_from_health_status(status: &HealthStatus) -> ConnectionStatus {
         match status {
             HealthStatus::Healthy => ConnectionStatus::Connected,
             HealthStatus::Startup | HealthStatus::HalfOpen => ConnectionStatus::Connecting,

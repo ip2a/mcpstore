@@ -4,6 +4,8 @@ use std::sync::{
 };
 
 use crate::config::ServerConfig;
+use crate::health::supervisor::InstanceSupervisor;
+use crate::identity::InstanceId;
 use crate::transport::client::McpClient;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::{Result, TransportError};
@@ -16,6 +18,7 @@ type StdioTransport =
 
 pub(super) struct StdioProcess {
     exited: Arc<AtomicBool>,
+    shutdown_requested: Arc<AtomicBool>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -25,6 +28,8 @@ impl StdioProcess {
     }
 
     pub(super) async fn shutdown(mut self) {
+        self.shutdown_requested
+            .store(true, Ordering::Release);
         if let Some(sender) = self.shutdown.take() {
             let _ = sender.send(());
         }
@@ -35,6 +40,8 @@ pub(super) async fn connect(
     name: &str,
     config: &ServerConfig,
     handler: McpStoreClientHandler,
+    instance_id: InstanceId,
+    supervisor: Option<Arc<InstanceSupervisor>>,
 ) -> Result<(McpClient, StdioProcess)> {
     let command = config.command.as_deref().ok_or_else(|| {
         TransportError::ConnectionFailed(format!("Service {name} missing command field"))
@@ -64,6 +71,8 @@ pub(super) async fn connect(
 
     let exited = Arc::new(AtomicBool::new(false));
     let exited_signal = Arc::clone(&exited);
+    let shutdown_requested = Arc::new(AtomicBool::new(false));
+    let shutdown_requested_signal = Arc::clone(&shutdown_requested);
     let (shutdown_sender, mut shutdown_receiver) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
         tokio::select! {
@@ -80,6 +89,20 @@ pub(super) async fn connect(
             }
         }
         exited_signal.store(true, Ordering::Release);
+        if !shutdown_requested_signal.load(Ordering::Acquire) {
+            if let Some(supervisor) = supervisor {
+                let observed_at = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+                let observation = crate::health::state_machine::HealthObservation {
+                    observed_at,
+                    kind: crate::health::state_machine::ObservationKind::ProcessExit,
+                    succeeded: false,
+                    latency_ms: None,
+                };
+                let _ = supervisor.observe(instance_id, observation).await;
+                // Transition persistence and recovery actions are handled by the
+                // health worker during its next tick.
+            }
+        }
     });
 
     let transport = StdioTransport::new_client(stdout, stdin);
@@ -91,6 +114,7 @@ pub(super) async fn connect(
         client,
         StdioProcess {
             exited,
+            shutdown_requested,
             shutdown: Some(shutdown_sender),
         },
     ))

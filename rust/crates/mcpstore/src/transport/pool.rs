@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 use crate::cache::CacheLayerManager;
+use crate::health::supervisor::InstanceSupervisor;
 
 use crate::auth::AuthCoordinator;
 use crate::config::ServerConfig;
@@ -25,6 +26,7 @@ pub struct ConnectionPool {
     event_bus: EventBus,
     task_state: TaskStateStore,
     task_worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    supervisor: Arc<Mutex<Option<Arc<InstanceSupervisor>>>>,
 }
 
 impl Clone for ConnectionPool {
@@ -36,6 +38,7 @@ impl Clone for ConnectionPool {
             event_bus: self.event_bus.clone(),
             task_state: self.task_state.clone(),
             task_worker: Mutex::new(None),
+            supervisor: Arc::clone(&self.supervisor),
         }
     }
 }
@@ -54,7 +57,12 @@ impl ConnectionPool {
             event_bus,
             task_state: TaskStateStore::new(cache),
             task_worker: Mutex::new(None),
+            supervisor: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub(crate) fn attach_supervisor(&self, supervisor: Arc<InstanceSupervisor>) {
+        *self.supervisor.lock().unwrap() = Some(supervisor);
     }
 
     pub async fn add(&self, instance_id: InstanceId, config: ServerConfig) {
@@ -71,6 +79,7 @@ impl ConnectionPool {
     }
 
     pub async fn connect(&self, instance_id: InstanceId) -> Result<()> {
+        let supervisor = self.supervisor.lock().unwrap().clone();
         let connected = {
             let mut conns = self.connections.write().await;
             let conn = conns.get_mut(&instance_id).ok_or_else(|| {
@@ -79,7 +88,7 @@ impl ConnectionPool {
             if conn.is_connected() {
                 true
             } else {
-                conn.connect().await?;
+                conn.connect(supervisor).await?;
                 false
             }
         };
