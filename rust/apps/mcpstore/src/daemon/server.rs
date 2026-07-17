@@ -16,7 +16,7 @@ use crate::store_args::StoreSourceArgs;
 pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
     use crate::store_args::build_store;
 
-    let store = Arc::new(build_store(&args)?);
+    let store = build_store(&args)?;
     store.load_from_source().await?;
 
     // Ensure any stale files are cleaned up.

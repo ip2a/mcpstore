@@ -85,6 +85,6 @@ impl StoreSourceArgs {
     }
 }
 
-pub fn build_store(source: &StoreSourceArgs) -> Result<MCPStore, BoxErr> {
+pub fn build_store(source: &StoreSourceArgs) -> Result<std::sync::Arc<MCPStore>, BoxErr> {
     Ok(MCPStore::setup_with_options(source.to_store_options())?)
 }

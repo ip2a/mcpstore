@@ -30,7 +30,7 @@ use crate::py_value::{py_to_serde_value, serde_value_to_py};
 
 #[pyclass(name = "MCPStore")]
 pub struct PyMCPStore {
-    inner: MCPStore,
+    inner: std::sync::Arc<MCPStore>,
 }
 
 fn map_store_err(err: StoreError) -> PyErr {
