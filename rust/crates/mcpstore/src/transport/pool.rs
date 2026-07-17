@@ -27,6 +27,19 @@ pub struct ConnectionPool {
     task_worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
+impl Clone for ConnectionPool {
+    fn clone(&self) -> Self {
+        Self {
+            connections: Arc::clone(&self.connections),
+            auth_coordinator: self.auth_coordinator.clone(),
+            registry: self.registry.clone(),
+            event_bus: self.event_bus.clone(),
+            task_state: self.task_state.clone(),
+            task_worker: Mutex::new(None),
+        }
+    }
+}
+
 impl ConnectionPool {
     pub fn new(
         auth_coordinator: AuthCoordinator,
