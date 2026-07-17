@@ -202,7 +202,7 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     store.load_from_source().await?;
 
     let prefix = normalize_prefix(&args.url_prefix);
-    let app = router_for_store(Arc::new(store), &prefix);
+    let app = router_for_store(store, &prefix);
 
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

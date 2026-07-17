@@ -28,7 +28,7 @@ pub async fn run(args: WebArgs) -> Result<(), BoxErr> {
     let store = build_store(&args.store)?;
     store.load_from_source().await?;
 
-    let app = router(Arc::new(store));
+    let app = router(store);
 
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

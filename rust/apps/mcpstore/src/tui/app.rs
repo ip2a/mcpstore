@@ -625,7 +625,7 @@ impl AddServiceFormState {
 }
 
 pub struct TuiApp {
-    pub store: mcpstore::MCPStore,
+    pub store: std::sync::Arc<mcpstore::MCPStore>,
     pub locale: Locale,
     pub active_view: MainView,
     pub service_tab: ServiceManagementTab,
@@ -682,7 +682,7 @@ pub struct TuiApp {
 
 impl TuiApp {
     pub fn new(
-        store: mcpstore::MCPStore,
+        store: std::sync::Arc<mcpstore::MCPStore>,
         tick_rate: Duration,
         locale: Locale,
         source_label: String,
