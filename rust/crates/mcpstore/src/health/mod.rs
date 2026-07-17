@@ -1,3 +1,4 @@
+pub(crate) mod actions;
 pub(crate) mod check;
 pub(crate) mod probes;
 pub(crate) mod retry;
