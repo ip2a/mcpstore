@@ -92,12 +92,12 @@ impl MCPStore {
         let mut payload = self.load_or_default_status(instance_id).await?;
         let mut supervised_status = None;
         let mut supervised_stats = None;
-        if let Some(supervisor) = &self.supervisor {
+        let transition = if let Some(supervisor) = &self.supervisor {
             supervisor
                 .register(instance_id, payload.health_status.clone())
                 .await;
             let observed_at = Self::now_timestamp_f64();
-            supervisor
+            let transition = supervisor
                 .observe(
                     instance_id,
                     HealthObservation {
@@ -108,8 +108,28 @@ impl MCPStore {
                     },
                 )
                 .await;
-            supervised_status = supervisor.status(instance_id).await;
             supervised_stats = supervisor.stats(instance_id, observed_at).await;
+            supervised_status = supervisor.status(instance_id).await;
+            transition
+        } else {
+            None
+        };
+        if let Some(transition) = transition {
+            self.event_bus
+                .publish(
+                    Event::new(
+                        "HEALTH_STATUS_CHANGED",
+                        serde_json::json!({
+                            "instance_id": instance_id,
+                            "from": Self::health_status_name(&transition.from),
+                            "to": Self::health_status_name(&transition.to),
+                            "reason": transition.reason,
+                            "stats": transition.stats,
+                        }),
+                    ),
+                    true,
+                )
+                .await;
         }
 
         if let Some(stats) = supervised_stats {
