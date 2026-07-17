@@ -39,11 +39,15 @@ impl InstanceSupervisor {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
+                let now = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+                if supervisor.status(instance_id).await == Some(HealthStatus::CircuitOpen) {
+                    let _ = supervisor.enter_half_open(instance_id, now).await;
+                }
                 let result = runner
                     .run_probe(instance_id, ProbeKind::Liveness, timeout)
                     .await;
                 let observation = HealthObservation {
-                    observed_at: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
+                    observed_at: now,
                     kind: ObservationKind::Liveness,
                     succeeded: result.is_ok(),
                     latency_ms: None,
