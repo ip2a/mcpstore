@@ -7177,9 +7177,7 @@ mod control_reactor_tests {
             .unwrap(),
         );
 
-        let collection = store
-            .cache()
-            .event_collection(CONTROL_REQUEST_EVENT_TYPE);
+        let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
 
         let config = ReactorConfig {
             subscriber_id: "control-test-sub".into(),
@@ -7235,7 +7233,10 @@ mod control_reactor_tests {
                 }
             }
         }
-        assert!(completed, "control request was not auto-processed by reactor");
+        assert!(
+            completed,
+            "control request was not auto-processed by reactor"
+        );
 
         // Verify the service was actually added.
         assert!(store
@@ -7287,9 +7288,7 @@ mod control_reactor_tests {
             .await
             .unwrap();
 
-        let collection = store
-            .cache()
-            .event_collection(CONTROL_REQUEST_EVENT_TYPE);
+        let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
 
         let config = ReactorConfig {
             subscriber_id: "control-skip-sub".into(),
