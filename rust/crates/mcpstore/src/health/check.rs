@@ -85,6 +85,41 @@ impl MCPStore {
         latency_ms: Option<f64>,
         error: Option<String>,
     ) -> Result<InstanceStatus> {
+        self.record_observation(
+            instance_id,
+            ObservationKind::Liveness,
+            ok,
+            latency_ms,
+            error,
+        )
+        .await
+    }
+
+    pub(crate) async fn record_tool_observation(
+        &self,
+        instance_id: InstanceId,
+        ok: bool,
+        latency_ms: Option<f64>,
+        error: Option<String>,
+    ) -> Result<InstanceStatus> {
+        self.record_observation(
+            instance_id,
+            ObservationKind::ToolCall,
+            ok,
+            latency_ms,
+            error,
+        )
+        .await
+    }
+
+    async fn record_observation(
+        &self,
+        instance_id: InstanceId,
+        observation_kind: ObservationKind,
+        ok: bool,
+        latency_ms: Option<f64>,
+        error: Option<String>,
+    ) -> Result<InstanceStatus> {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
@@ -102,7 +137,7 @@ impl MCPStore {
                     instance_id,
                     HealthObservation {
                         observed_at,
-                        kind: ObservationKind::Liveness,
+                        kind: observation_kind,
                         succeeded: ok,
                         latency_ms,
                     },

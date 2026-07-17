@@ -321,7 +321,7 @@ impl MCPStore {
                         )
                         .await?;
                 }
-                self.record_health_check_result(context.instance_id, true, Some(latency_ms), None)
+                self.record_tool_observation(context.instance_id, true, Some(latency_ms), None)
                     .await?;
                 let (is_error, status, task_id) = match &execution {
                     McpToolExecution::Immediate { result } => (
