@@ -4,12 +4,13 @@ use crate::events::EventBus;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
 use crate::transport::handler::McpStoreClientHandler;
+use crate::transport::stdio::StdioProcess;
 use crate::transport::{http as http_transport, stdio as stdio_transport};
 use crate::transport::{Result, TransportError};
 
 pub use crate::transport::pool::ConnectionPool;
 
-use rmcp::model::InitializeResult;
+use rmcp::model::{ClientRequest, InitializeResult, PingRequest};
 use rmcp::service::{RoleClient, RunningService};
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ pub struct McpConnection {
     name: String,
     config: ServerConfig,
     client: Option<ActiveClient>,
+    stdio_process: Option<stdio_transport::StdioProcess>,
     auth_coordinator: AuthCoordinator,
     handler: McpStoreClientHandler,
 }
@@ -43,6 +45,7 @@ impl McpConnection {
             name,
             config,
             client: None,
+            stdio_process: None,
             auth_coordinator,
             handler: McpStoreClientHandler::new(instance_id, registry, event_bus),
         }
@@ -50,6 +53,11 @@ impl McpConnection {
 
     pub fn is_connected(&self) -> bool {
         self.client.is_some()
+            && self
+                .stdio_process
+                .as_ref()
+                .map(StdioProcess::is_running)
+                .unwrap_or(true)
     }
 
     #[cfg(test)]
@@ -63,6 +71,7 @@ impl McpConnection {
             name: "protocol-test".to_string(),
             config: ServerConfig::default(),
             client: Some(ActiveClient::Stdio(client)),
+            stdio_process: None,
             auth_coordinator: AuthCoordinator::new().expect("test auth coordinator"),
             handler,
         }
@@ -87,10 +96,11 @@ impl McpConnection {
     }
 
     async fn connect_stdio(&mut self) -> Result<()> {
-        let client =
+        let (client, process) =
             stdio_transport::connect(&self.name, &self.config, self.handler.clone()).await?;
         tracing::info!("[TRANSPORT] stdio connected: {}", self.name);
         self.client = Some(ActiveClient::Stdio(client));
+        self.stdio_process = Some(process);
         Ok(())
     }
 
@@ -109,6 +119,9 @@ impl McpConnection {
     }
 
     pub async fn disconnect(&mut self) -> Result<()> {
+        if let Some(process) = self.stdio_process.take() {
+            process.shutdown().await;
+        }
         if let Some(client) = self.client.take() {
             let inner = match client {
                 ActiveClient::Stdio(c) => c,
@@ -155,6 +168,18 @@ impl McpConnection {
                 self.name
             ))
         })
+    }
+
+    pub async fn ping(&self, timeout: std::time::Duration) -> Result<()> {
+        let client = self.get_client()?;
+        tokio::time::timeout(
+            timeout,
+            client.send_request(ClientRequest::PingRequest(PingRequest::default())),
+        )
+        .await
+        .map_err(|_| TransportError::RequestTimedOut { timeout })?
+        .map_err(|error| TransportError::Protocol(format!("MCP ping failed: {error}")))?;
+        Ok(())
     }
 
     pub(in crate::transport) fn get_client(&self) -> Result<&McpClient> {

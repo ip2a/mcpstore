@@ -1,15 +1,41 @@
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use crate::config::ServerConfig;
 use crate::transport::client::McpClient;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::{Result, TransportError};
 
-use rmcp::transport::child_process::TokioChildProcess;
+use rmcp::transport::async_rw::AsyncRwTransport;
+use rmcp::RoleClient;
+
+type StdioTransport =
+    AsyncRwTransport<RoleClient, tokio::process::ChildStdout, tokio::process::ChildStdin>;
+
+pub(super) struct StdioProcess {
+    exited: Arc<AtomicBool>,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl StdioProcess {
+    pub(super) fn is_running(&self) -> bool {
+        !self.exited.load(Ordering::Acquire)
+    }
+
+    pub(super) async fn shutdown(mut self) {
+        if let Some(sender) = self.shutdown.take() {
+            let _ = sender.send(());
+        }
+    }
+}
 
 pub(super) async fn connect(
     name: &str,
     config: &ServerConfig,
     handler: McpStoreClientHandler,
-) -> Result<McpClient> {
+) -> Result<(McpClient, StdioProcess)> {
     let command = config.command.as_deref().ok_or_else(|| {
         TransportError::ConnectionFailed(format!("Service {name} missing command field"))
     })?;
@@ -22,12 +48,50 @@ pub(super) async fn connect(
     if let Some(working_dir) = &config.working_dir {
         cmd.current_dir(working_dir);
     }
+    cmd.stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit());
 
-    let transport = TokioChildProcess::new(cmd).map_err(|err| {
+    let mut child = cmd.spawn().map_err(|err| {
         TransportError::ConnectionFailed(format!("Failed to spawn child process: {err}"))
     })?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        TransportError::ConnectionFailed(format!("stdio child for {name} has no stdout"))
+    })?;
+    let stdin = child.stdin.take().ok_or_else(|| {
+        TransportError::ConnectionFailed(format!("stdio child for {name} has no stdin"))
+    })?;
 
-    rmcp::service::serve_client(handler, transport)
+    let exited = Arc::new(AtomicBool::new(false));
+    let exited_signal = Arc::clone(&exited);
+    let (shutdown_sender, mut shutdown_receiver) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        tokio::select! {
+            result = child.wait() => {
+                if let Err(error) = result {
+                    tracing::warn!("stdio child wait failed: {error}");
+                }
+            }
+            _ = &mut shutdown_receiver => {
+                if let Err(error) = child.kill().await {
+                    tracing::debug!("stdio child kill failed during shutdown: {error}");
+                }
+                let _ = child.wait().await;
+            }
+        }
+        exited_signal.store(true, Ordering::Release);
+    });
+
+    let transport = StdioTransport::new_client(stdout, stdin);
+    let client = rmcp::service::serve_client(handler, transport)
         .await
-        .map_err(|err| TransportError::ConnectionFailed(format!("MCP handshake failed: {err}")))
+        .map_err(|err| TransportError::ConnectionFailed(format!("MCP handshake failed: {err}")))?;
+
+    Ok((
+        client,
+        StdioProcess {
+            exited,
+            shutdown: Some(shutdown_sender),
+        },
+    ))
 }
