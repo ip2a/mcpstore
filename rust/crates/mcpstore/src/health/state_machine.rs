@@ -63,6 +63,17 @@ impl HealthStateMachine {
         }
     }
 
+    pub(crate) fn status_name(status: &HealthStatus) -> &'static str {
+        match status {
+            HealthStatus::Init => "init",
+            HealthStatus::Startup => "startup",
+            HealthStatus::Healthy => "healthy",
+            HealthStatus::Degraded => "degraded",
+            HealthStatus::CircuitOpen => "circuit_open",
+            HealthStatus::HalfOpen => "half_open",
+            HealthStatus::Disconnected => "disconnected",
+        }
+    }
     pub(crate) fn status(&self) -> HealthStatus {
         self.status.clone()
     }
