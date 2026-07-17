@@ -1,4 +1,5 @@
 use crate::config::{AppConfig, ServiceLifecycleDefaults};
+use crate::health::state_machine::SupervisorPolicy;
 
 #[derive(Clone, Debug)]
 pub(crate) struct StoreRuntimeConfig {
@@ -9,12 +10,26 @@ pub(crate) struct StoreRuntimeConfig {
     pub(crate) reconnect_hard_timeout_secs: i64,
     pub(crate) half_open_lease_secs: i64,
     pub(crate) health_warn_latency_ms: f64,
+    pub(crate) supervisor_policy: SupervisorPolicy,
     pub(crate) service_lifecycle_defaults: ServiceLifecycleDefaults,
 }
 
 impl StoreRuntimeConfig {
     pub(crate) fn from_app_config(config: &AppConfig) -> Self {
         let health = &config.health_check;
+        let supervisor_policy = SupervisorPolicy {
+            window_secs: health.window_size.max(1) as f64,
+            window_max_samples: health.window_size.max(1) as usize,
+            window_min_calls: health.window_min_calls.max(1) as usize,
+            error_rate_threshold: health.error_rate_threshold.clamp(0.0, 1.0),
+            latency_p95_warn_ms: health.latency_p95_warn.max(0.01) * 1000.0,
+            latency_p99_critical_ms: health.latency_p99_critical.max(0.01) * 1000.0,
+            liveness_failure_threshold: health.liveness_failure_threshold.max(1) as usize,
+            half_open_max_calls: health.half_open_max_calls.max(1) as usize,
+            half_open_success_rate_threshold: health
+                .half_open_success_rate_threshold
+                .clamp(0.0, 1.0),
+        };
         Self {
             max_connection_attempts: health.max_reconnect_attempts.max(1),
             connect_timeout_secs: ceil_seconds(health.startup_timeout, 1),
@@ -22,7 +37,8 @@ impl StoreRuntimeConfig {
             retry_backoff_max_secs: ceil_seconds(health.backoff_max, 1),
             reconnect_hard_timeout_secs: ceil_seconds(health.reconnect_hard_timeout, 1),
             half_open_lease_secs: ceil_seconds(health.lease_ttl, 1),
-            health_warn_latency_ms: health.latency_p95_warn.max(0.01) * 1000.0,
+            health_warn_latency_ms: supervisor_policy.latency_p95_warn_ms,
+            supervisor_policy,
             service_lifecycle_defaults: config.service_defaults.lifecycle.clone(),
         }
     }
