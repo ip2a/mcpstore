@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::cache::models::HealthStatus;
+use crate::cache::models::{HealthStatus, InstanceStatus};
+use crate::cache::CacheLayerManager;
+use crate::events::{Event, EventBus};
 use crate::identity::InstanceId;
 
 use super::probes::{ProbeKind, ProbeRunner};
@@ -16,14 +18,22 @@ pub(crate) struct InstanceSupervisor {
     policy: SupervisorPolicy,
     machines: Mutex<HashMap<InstanceId, HealthStateMachine>>,
     workers: Mutex<HashMap<InstanceId, tokio::task::JoinHandle<()>>>,
+    cache: Arc<CacheLayerManager>,
+    event_bus: EventBus,
 }
 
 impl InstanceSupervisor {
-    pub(crate) fn new(policy: SupervisorPolicy) -> Self {
+    pub(crate) fn new(
+        policy: SupervisorPolicy,
+        cache: Arc<CacheLayerManager>,
+        event_bus: EventBus,
+    ) -> Self {
         Self {
             policy,
             machines: Mutex::new(HashMap::new()),
             workers: Mutex::new(HashMap::new()),
+            cache,
+            event_bus,
         }
     }
 
@@ -52,7 +62,10 @@ impl InstanceSupervisor {
                     succeeded: result.is_ok(),
                     latency_ms: None,
                 };
-                let _ = supervisor.observe(instance_id, observation).await;
+                let transition = supervisor.observe(instance_id, observation).await;
+                if let Some(transition) = transition {
+                    let _ = supervisor.commit_transition(instance_id, &transition).await;
+                }
             }
         })
     }
@@ -72,6 +85,50 @@ impl InstanceSupervisor {
         workers.insert(instance_id, handle);
     }
 
+    async fn commit_transition(
+        &self,
+        instance_id: InstanceId,
+        transition: &StateTransition,
+    ) -> crate::cache::Result<()> {
+        let Some(value) = self
+            .cache
+            .get_state("instance_status", &instance_id.to_string())
+            .await?
+        else {
+            return Ok(());
+        };
+        let mut status: InstanceStatus = serde_json::from_value(value)
+            .map_err(|error| crate::cache::CacheError::Serialization(error))?;
+        status.health_status = transition.to.clone();
+        status.last_health_check = chrono::Utc::now().timestamp();
+        status.window_error_rate = transition.stats.error_rate;
+        status.latency_p95 = transition.stats.latency_p95;
+        status.latency_p99 = transition.stats.latency_p99;
+        status.sample_size = Some(transition.stats.sample_size.min(i32::MAX as usize) as i32);
+        self.cache
+            .put_state(
+                "instance_status",
+                &instance_id.to_string(),
+                serde_json::to_value(&status).unwrap_or_default(),
+            )
+            .await?;
+        self.event_bus
+            .publish(
+                Event::new(
+                    "HEALTH_STATUS_CHANGED",
+                    serde_json::json!({
+                        "instance_id": instance_id,
+                        "from": HealthStateMachine::status_name(&transition.from),
+                        "to": HealthStateMachine::status_name(&transition.to),
+                        "reason": transition.reason,
+                        "stats": transition.stats,
+                    }),
+                ),
+                true,
+            )
+            .await;
+        Ok(())
+    }
     pub(crate) async fn register(&self, instance_id: InstanceId, status: HealthStatus) {
         self.machines
             .lock()
