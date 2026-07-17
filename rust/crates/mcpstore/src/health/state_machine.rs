@@ -7,7 +7,6 @@ pub(crate) enum ObservationKind {
     Startup,
     Liveness,
     ToolCall,
-    TransportFailure,
     ProcessExit,
 }
 
