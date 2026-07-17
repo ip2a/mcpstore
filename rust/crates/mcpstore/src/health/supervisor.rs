@@ -219,7 +219,9 @@ mod tests {
 
     #[tokio::test]
     async fn keeps_state_isolated_per_instance() {
-        let supervisor = InstanceSupervisor::new(policy());
+        let (store, _) = crate::cache::storage::memory_cache_store_with_handle();
+        let cache = Arc::new(CacheLayerManager::new(store, "health-test"));
+        let supervisor = InstanceSupervisor::new(policy(), cache, EventBus::new());
         let first = instance_id("first");
         let second = instance_id("second");
         supervisor.register(first, HealthStatus::Startup).await;
@@ -243,7 +245,9 @@ mod tests {
 
     #[tokio::test]
     async fn removes_instance_state() {
-        let supervisor = InstanceSupervisor::new(policy());
+        let (store, _) = crate::cache::storage::memory_cache_store_with_handle();
+        let cache = Arc::new(CacheLayerManager::new(store, "health-test"));
+        let supervisor = InstanceSupervisor::new(policy(), cache, EventBus::new());
         let instance_id = instance_id("service");
         supervisor
             .register(instance_id, HealthStatus::Healthy)
