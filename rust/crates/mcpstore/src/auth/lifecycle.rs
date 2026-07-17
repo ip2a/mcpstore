@@ -213,7 +213,7 @@ impl MCPStore {
         self.registry
             .update_status(instance_id, ConnectionStatus::Error)
             .await;
-        self.mark_instance_retryable_failure(instance_id, format!("{context}: {error}"))
+        self.record_instance_failure(instance_id, format!("{context}: {error}"))
             .await?;
         Ok(())
     }

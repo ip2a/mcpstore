@@ -7,6 +7,7 @@ pub(crate) enum ObservationKind {
     Startup,
     Liveness,
     ToolCall,
+    TransportFailure,
     ProcessExit,
 }
 
@@ -20,6 +21,9 @@ pub(crate) struct HealthObservation {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SupervisorPolicy {
+    pub(crate) startup_interval_secs: f64,
+    pub(crate) startup_timeout_secs: f64,
+    pub(crate) startup_hard_timeout_secs: f64,
     pub(crate) window_secs: f64,
     pub(crate) window_max_samples: usize,
     pub(crate) window_min_calls: usize,
@@ -98,6 +102,12 @@ impl HealthStateMachine {
             HealthStatus::Init | HealthStatus::Startup if observation.succeeded => {
                 Some((HealthStatus::Healthy, "startup_probe_succeeded"))
             }
+            HealthStatus::Init | HealthStatus::Startup
+                if observation.kind == ObservationKind::TransportFailure
+                    || observation.kind == ObservationKind::ProcessExit =>
+            {
+                Some((HealthStatus::CircuitOpen, "startup_probe_failed"))
+            }
             HealthStatus::HalfOpen => self.observe_half_open(observation, stats),
             HealthStatus::Healthy | HealthStatus::Degraded => {
                 self.observe_open_state(observation, stats)
@@ -114,6 +124,7 @@ impl HealthStateMachine {
         stats: WindowStats,
     ) -> Option<(HealthStatus, &'static str)> {
         if observation.kind == ObservationKind::ProcessExit
+            || observation.kind == ObservationKind::TransportFailure
             || self.consecutive_liveness_failures >= self.policy.liveness_failure_threshold
         {
             return Some((HealthStatus::CircuitOpen, "liveness_failure_threshold"));
@@ -152,7 +163,10 @@ impl HealthStateMachine {
         if observation.succeeded {
             self.half_open_successes += 1;
         }
-        if !observation.succeeded {
+        if !observation.succeeded
+            || observation.kind == ObservationKind::TransportFailure
+            || observation.kind == ObservationKind::ProcessExit
+        {
             return Some((HealthStatus::CircuitOpen, "half_open_probe_failed"));
         }
         if self.half_open_calls >= self.policy.half_open_max_calls {
@@ -171,10 +185,6 @@ impl HealthStateMachine {
         self.half_open_calls = 0;
         self.half_open_successes = 0;
         self.transition(HealthStatus::HalfOpen, "cooldown_elapsed", stats)
-    }
-
-    pub(crate) fn stats(&mut self, now: f64) -> WindowStats {
-        self.window.stats(now)
     }
 
     fn transition(
@@ -203,6 +213,9 @@ mod tests {
 
     fn policy() -> SupervisorPolicy {
         SupervisorPolicy {
+            startup_interval_secs: 1.0,
+            startup_timeout_secs: 5.0,
+            startup_hard_timeout_secs: 30.0,
             window_secs: 60.0,
             window_max_samples: 20,
             window_min_calls: 3,

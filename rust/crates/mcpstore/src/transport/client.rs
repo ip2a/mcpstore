@@ -3,6 +3,7 @@ use crate::config::ServerConfig;
 use crate::events::EventBus;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
+use crate::health::supervisor::InstanceSupervisor;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::stdio::StdioProcess;
 use crate::transport::{http as http_transport, stdio as stdio_transport};
@@ -77,7 +78,10 @@ impl McpConnection {
         }
     }
 
-    pub async fn connect(&mut self) -> Result<()> {
+    pub(crate) async fn connect(
+        &mut self,
+        supervisor: Option<Arc<InstanceSupervisor>>,
+    ) -> Result<()> {
         let transport_type = self.config.infer_transport();
         tracing::info!(
             "[TRANSPORT] Connecting to service {} (transport={})",
@@ -86,7 +90,7 @@ impl McpConnection {
         );
 
         match transport_type {
-            "stdio" => self.connect_stdio().await,
+            "stdio" => self.connect_stdio(supervisor).await,
             "streamable-http" | "http" => self.connect_http().await,
             "sse" => self.connect_http().await,
             other => Err(TransportError::ConnectionFailed(format!(
@@ -95,9 +99,18 @@ impl McpConnection {
         }
     }
 
-    async fn connect_stdio(&mut self) -> Result<()> {
-        let (client, process) =
-            stdio_transport::connect(&self.name, &self.config, self.handler.clone()).await?;
+    async fn connect_stdio(
+        &mut self,
+        supervisor: Option<Arc<InstanceSupervisor>>,
+    ) -> Result<()> {
+        let (client, process) = stdio_transport::connect(
+            &self.name,
+            &self.config,
+            self.handler.clone(),
+            self.instance_id,
+            supervisor,
+        )
+        .await?;
         tracing::info!("[TRANSPORT] stdio connected: {}", self.name);
         self.client = Some(ActiveClient::Stdio(client));
         self.stdio_process = Some(process);
