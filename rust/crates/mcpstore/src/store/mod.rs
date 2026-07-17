@@ -123,15 +123,17 @@ impl MCPStore {
             }
         };
         let auth_coordinator = crate::auth::AuthCoordinator::new()?;
-        let supervisor = (options.source_mode == SourceMode::Local).then(|| {
-            std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
-                runtime_config.supervisor_policy,
-            ))
-        });
 
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(1000);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
+        let supervisor = (options.source_mode == SourceMode::Local).then(|| {
+            std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
+                runtime_config.supervisor_policy,
+                cache.clone(),
+                event_bus.clone(),
+            ))
+        });
         let pool = ConnectionPool::new(
             auth_coordinator.clone(),
             registry.clone(),
