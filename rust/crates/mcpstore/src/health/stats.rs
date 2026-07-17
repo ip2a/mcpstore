@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -17,7 +18,7 @@ impl HealthSample {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub(crate) struct WindowStats {
     pub(crate) error_rate: Option<f64>,
     pub(crate) latency_p95: Option<f64>,
