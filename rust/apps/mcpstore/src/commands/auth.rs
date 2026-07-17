@@ -657,7 +657,7 @@ async fn set_private_key(args: AuthPrivateKeyArgs) -> Result<(), BoxErr> {
     print_credential_stored(output, "private_key")
 }
 
-async fn loaded_store(args: &StoreSourceArgs) -> Result<MCPStore, BoxErr> {
+async fn loaded_store(args: &StoreSourceArgs) -> Result<std::sync::Arc<MCPStore>, BoxErr> {
     let store = build_store(args)?;
     store.load_from_source().await?;
     Ok(store)

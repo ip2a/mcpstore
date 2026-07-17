@@ -687,7 +687,7 @@ async fn cancel_task(args: TaskTargetArgs) -> Result<(), TaskCommandError> {
 async fn loaded_store(
     runtime: &TaskRuntimeArgs,
     output: TaskOutputFormat,
-) -> Result<MCPStore, TaskCommandError> {
+) -> Result<std::sync::Arc<MCPStore>, TaskCommandError> {
     let store = build_store(&runtime.store).map_err(|error| {
         TaskCommandError::new(output, TaskErrorCode::CommandFailed, error.to_string())
     })?;
