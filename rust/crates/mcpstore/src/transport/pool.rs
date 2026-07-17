@@ -376,6 +376,14 @@ impl ConnectionPool {
         conn.set_logging_level(level).await
     }
 
+    pub async fn ping(&self, instance_id: InstanceId, timeout: std::time::Duration) -> Result<()> {
+        let conns = self.connections.read().await;
+        let conn = conns.get(&instance_id).ok_or_else(|| {
+            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+        })?;
+        conn.ping(timeout).await
+    }
+
     pub async fn is_connected(&self, instance_id: InstanceId) -> bool {
         let conns = self.connections.read().await;
         conns

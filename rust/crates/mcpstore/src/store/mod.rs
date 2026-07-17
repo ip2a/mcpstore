@@ -6,8 +6,8 @@ pub(crate) use crate::cache::models::{
 };
 pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
-pub(crate) use crate::events::{Event, EventBus};
 use crate::event_reactor::{EventBackend, EventReactor, ReactorConfig, Rule};
+pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{
     ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance, ServiceRegistry,
 };
@@ -59,6 +59,7 @@ pub struct MCPStore {
     pub(crate) config_manager: ConfigManager,
     pub(crate) source_mode: SourceMode,
     pub(crate) runtime_config: StoreRuntimeConfig,
+    pub(crate) supervisor: Option<crate::health::supervisor::InstanceSupervisor>,
     pub(crate) cache_storage: tokio::sync::RwLock<CacheStorage>,
     pub(crate) redis_url: tokio::sync::RwLock<Option<String>>,
     pub(crate) namespace: SyncRwLock<String>,
@@ -69,7 +70,8 @@ pub struct MCPStore {
     >,
     pub(crate) event_bus: EventBus,
     pub(crate) cache: std::sync::Arc<CacheLayerManager>,
-    pub(crate) event_reactor: tokio::sync::RwLock<Option<std::sync::Arc<EventReactor<EventBackend>>>>,
+    pub(crate) event_reactor:
+        tokio::sync::RwLock<Option<std::sync::Arc<EventReactor<EventBackend>>>>,
     /// Shared backend for EventReactor. For Memory, this shares the same
     /// `Arc<MemoryClient>` as the cache layer. For Redis, a separate connection
     /// to the same Redis server (data shared naturally).
@@ -121,6 +123,9 @@ impl MCPStore {
             }
         };
         let auth_coordinator = crate::auth::AuthCoordinator::new()?;
+        let supervisor = (options.source_mode == SourceMode::Local).then(|| {
+            crate::health::supervisor::InstanceSupervisor::new(runtime_config.supervisor_policy)
+        });
 
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(1000);
@@ -137,6 +142,7 @@ impl MCPStore {
             config_manager,
             source_mode: options.source_mode,
             runtime_config,
+            supervisor,
             cache_storage: tokio::sync::RwLock::new(cache_storage),
             redis_url: tokio::sync::RwLock::new(Some(redis_url)),
             namespace: SyncRwLock::new(namespace.clone()),
