@@ -118,6 +118,11 @@ impl MCPStore {
                     .await?
             }
         };
+        if let Some(supervisor) = &self.supervisor {
+            supervisor
+                .register(instance_id, startup.health_status.clone())
+                .await;
+        }
         startup.health_status = HealthStatus::Startup;
         startup.last_health_check = Self::now_timestamp();
         startup.next_retry_time = None;
