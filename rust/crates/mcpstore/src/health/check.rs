@@ -1,9 +1,16 @@
 use crate::cache::models::InstanceStatus;
+use crate::health::state_machine::{HealthObservation, ObservationKind};
 use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn health_check(&self, instance_id: InstanceId) -> Result<InstanceStatus> {
         self.refresh_from_db_if_needed().await?;
+        if self.is_db_source() {
+            return self
+                .cached_instance_status(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+        }
         let instance = self
             .registry
             .find_instance(instance_id)
@@ -82,26 +89,53 @@ impl MCPStore {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
 
+        let mut payload = self.load_or_default_status(instance_id).await?;
+        let mut supervised_status = None;
+        let mut supervised_stats = None;
+        if let Some(supervisor) = &self.supervisor {
+            supervisor
+                .register(instance_id, payload.health_status.clone())
+                .await;
+            let observed_at = Self::now_timestamp_f64();
+            supervisor
+                .observe(
+                    instance_id,
+                    HealthObservation {
+                        observed_at,
+                        kind: ObservationKind::Liveness,
+                        succeeded: ok,
+                        latency_ms,
+                    },
+                )
+                .await;
+            supervised_status = supervisor.status(instance_id).await;
+            supervised_stats = supervisor.stats(instance_id, observed_at).await;
+        }
+
+        if let Some(stats) = supervised_stats {
+            payload.window_error_rate = stats.error_rate;
+            payload.latency_p95 = stats.latency_p95;
+            payload.latency_p99 = stats.latency_p99;
+            payload.sample_size = Some(stats.sample_size.min(i32::MAX as usize) as i32);
+        }
+        payload.last_health_check = Self::now_timestamp();
+
         if ok {
-            let mut payload = self.load_or_default_status(instance_id).await?;
-            payload.health_status = if latency_ms
-                .map(|value| value >= self.runtime_config.health_warn_latency_ms)
-                .unwrap_or(false)
-            {
-                HealthStatus::Degraded
-            } else {
-                HealthStatus::Healthy
-            };
-            payload.last_health_check = Self::now_timestamp();
+            payload.health_status = supervised_status.unwrap_or_else(|| {
+                if latency_ms
+                    .map(|value| value >= self.runtime_config.health_warn_latency_ms)
+                    .unwrap_or(false)
+                {
+                    HealthStatus::Degraded
+                } else {
+                    HealthStatus::Healthy
+                }
+            });
             payload.connection_attempts = 0;
             payload.current_error = None;
             payload.tools = self
                 .tool_statuses_with_availability(instance_id, ToolAvailability::Available)
                 .await?;
-            payload.window_error_rate = Some(0.0);
-            payload.latency_p95 = latency_ms;
-            payload.latency_p99 = latency_ms;
-            payload.sample_size = Some(1);
             payload.next_retry_time = None;
             payload.hard_deadline = None;
             payload.lease_deadline = None;
@@ -111,6 +145,12 @@ impl MCPStore {
                     .update_status(instance_id, ConnectionStatus::Connected)
                     .await;
             }
+            self.put_instance_status(&payload).await?;
+            return Ok(payload);
+        }
+
+        if supervised_status != Some(HealthStatus::CircuitOpen) {
+            payload.current_error = error;
             self.put_instance_status(&payload).await?;
             return Ok(payload);
         }
