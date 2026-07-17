@@ -10,18 +10,6 @@ pub(in crate::config) fn default_startup_hard_timeout() -> f64 {
     120.0
 }
 
-pub(in crate::config) fn default_readiness_interval() -> f64 {
-    5.0
-}
-
-pub(in crate::config) fn default_readiness_success_threshold() -> i32 {
-    1
-}
-
-pub(in crate::config) fn default_readiness_failure_threshold() -> i32 {
-    1
-}
-
 pub(in crate::config) fn default_liveness_interval() -> f64 {
     10.0
 }
@@ -40,10 +28,6 @@ pub(in crate::config) fn default_ping_timeout_sse() -> f64 {
 
 pub(in crate::config) fn default_ping_timeout_stdio() -> f64 {
     40.0
-}
-
-pub(in crate::config) fn default_warning_ping_timeout() -> f64 {
-    30.0
 }
 
 pub(in crate::config) fn default_window_size() -> i32 {
@@ -82,10 +66,6 @@ pub(in crate::config) fn default_backoff_jitter() -> f64 {
     0.1
 }
 
-pub(in crate::config) fn default_backoff_max_duration() -> f64 {
-    600.0
-}
-
 pub(in crate::config) fn default_half_open_max_calls() -> i32 {
     3
 }
@@ -100,8 +80,4 @@ pub(in crate::config) fn default_reconnect_hard_timeout() -> f64 {
 
 pub(in crate::config) fn default_lease_ttl() -> f64 {
     60.0
-}
-
-pub(in crate::config) fn default_lease_renew_interval() -> f64 {
-    20.0
 }
