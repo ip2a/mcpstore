@@ -2303,19 +2303,17 @@ mod tests {
             .unwrap();
     }
 
-    async fn spawn_test_api(store: MCPStore) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    async fn spawn_test_api(store: Arc<MCPStore>) -> (SocketAddr, tokio::task::JoinHandle<()>) {
         let (addr, handle, _) = spawn_test_api_with_state(store).await;
         (addr, handle)
     }
 
     async fn spawn_test_api_with_state(
-        store: MCPStore,
+        store: Arc<MCPStore>,
     ) -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<ApiState>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let state = Arc::new(ApiState {
-            store: Arc::new(store),
-        });
+        let state = Arc::new(ApiState { store });
         let app = router(Arc::clone(&state), "");
         let handle = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();

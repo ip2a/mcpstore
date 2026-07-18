@@ -321,8 +321,23 @@ impl MCPStore {
                         )
                         .await?;
                 }
-                self.record_tool_observation(context.instance_id, true, Some(latency_ms), None)
+                let openapi_available = !matches!(
+                    &execution,
+                    McpToolExecution::Immediate { result } if result.is_error
+                );
+                if context.is_openapi_virtual {
+                    self.record_openapi_availability(
+                        context.instance_id,
+                        openapi_available,
+                        Some(latency_ms),
+                        (!openapi_available)
+                            .then(|| "OpenAPI request returned an error".to_string()),
+                    )
                     .await?;
+                } else {
+                    self.record_tool_observation(context.instance_id, true, Some(latency_ms), None)
+                        .await?;
+                }
                 let (is_error, status, task_id) = match &execution {
                     McpToolExecution::Immediate { result } => (
                         result.is_error,
@@ -355,31 +370,31 @@ impl MCPStore {
                 Ok(execution)
             }
             Err(error) => {
-                let status = match &error {
-                    StoreError::Transport(transport_error) => {
-                        if execution_failure_impairs_connection(transport_error) {
-                            self.pool.disconnect(context.instance_id).await.ok();
-                            self.record_transport_failure(
-                                context.instance_id,
-                                transport_error,
-                                "Tool call failed",
-                            )
-                            .await?;
+                let status = if context.is_openapi_virtual {
+                    self.record_openapi_availability(
+                        context.instance_id,
+                        false,
+                        Some(latency_ms),
+                        Some(format!("OpenAPI tool call failed: {error}")),
+                    )
+                    .await?;
+                    "error"
+                } else {
+                    match &error {
+                        StoreError::Transport(transport_error) => {
+                            if execution_failure_impairs_connection(transport_error) {
+                                self.pool.disconnect(context.instance_id).await.ok();
+                                self.record_transport_failure(
+                                    context.instance_id,
+                                    transport_error,
+                                    "Tool call failed",
+                                )
+                                .await?;
+                            }
+                            execution_failure_status(transport_error)
                         }
-                        execution_failure_status(transport_error)
+                        _ => "error",
                     }
-                    _ if context.is_openapi_virtual => {
-                        self.registry
-                            .update_status(context.instance_id, ConnectionStatus::Error)
-                            .await;
-                        self.mark_instance_retryable_failure(
-                            context.instance_id,
-                            format!("OpenAPI tool call failed: {error}"),
-                        )
-                        .await?;
-                        "error"
-                    }
-                    _ => "error",
                 };
                 self.event_bus
                     .publish(
