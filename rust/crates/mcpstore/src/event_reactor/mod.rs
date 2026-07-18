@@ -10,16 +10,17 @@
 //! 5. The claiming instance executes the reaction (then) in a bounded task pool
 //! 6. Success/failure state written back to openkeyv; cursor advances at ack point
 //!
-//! Recursion guard: internal collections (`reactor:cursors`, `reactor:claims`)
+//! Recursion guard: internal collections (`reactor:cursors`, `reactor:claims`, `reactor:executions`)
 //! are always filtered out before rule matching, preventing self-triggered loops.
 //! Causation depth is tracked and capped at `max_causation_depth`.
 
 mod backend;
 mod claim;
+mod cursor;
+mod execution;
+mod rule;
 #[cfg(test)]
 mod tests;
-mod cursor;
-mod rule;
 
 pub use backend::EventBackend;
 
@@ -39,9 +40,10 @@ use crate::events::{Event, EventBus};
 
 use claim::{ClaimResult, ClaimStore};
 use cursor::CursorStore;
+use execution::{ReactionExecutionStatus, ReactionExecutionStore};
 
 /// Internal collection suffixes that must never trigger reactions.
-const INTERNAL_SUFFIXES: &[&str] = &["reactor:cursors", "reactor:claims"];
+const INTERNAL_SUFFIXES: &[&str] = &["reactor:cursors", "reactor:claims", "reactor:executions"];
 
 /// Configuration for creating an EventReactor.
 #[derive(Clone, Debug)]
@@ -82,6 +84,7 @@ where
     rules: RwLock<Vec<Rule>>,
     cursor_store: CursorStore<S>,
     claim_store: ClaimStore<S>,
+    execution_store: ReactionExecutionStore<S>,
     /// Optional EventBus bridge: when set, reaction outcomes are published
     /// here so they become visible via `/events/history` and TUI.
     event_bus: Option<crate::events::EventBus>,
@@ -126,12 +129,14 @@ where
         let cursor_store =
             CursorStore::new(store.clone(), &config.namespace, &config.subscriber_id);
         let claim_store = ClaimStore::new(store.clone(), &config.namespace, &config.owner_id);
+        let execution_store = ReactionExecutionStore::new(store.clone(), &config.namespace);
         Self {
             store,
             config,
             rules: RwLock::new(Vec::new()),
             cursor_store,
             claim_store,
+            execution_store,
             event_bus: None,
             shutdown_tx: RwLock::new(None),
             feed_task: RwLock::new(None),
@@ -182,7 +187,10 @@ where
 
         let subscription = match self
             .store
-            .subscribe(ChangeFeedRequest { start: start.clone(), filter: filter.clone() })
+            .subscribe(ChangeFeedRequest {
+                start: start.clone(),
+                filter: filter.clone(),
+            })
             .await
         {
             Ok(sub) => sub,
@@ -385,88 +393,102 @@ where
         debug!(collection = %collection, key = %key, matched = matched.len(), "rule matching complete");
 
         // ── Claim + execute each matched rule ──
-        // Track whether any rule returned Retryable. If so, we must NOT advance
-        // the cursor — the ChangeFeed will re-deliver this same change on the
-        // next `recv()`. The claim's TTL (set via mark_failed) acts as the
-        // backoff: until it expires, `try_claim` returns AlreadyClaimed and the
-        // re-delivery is skipped cheaply. Once TTL expires, the claim succeeds
-        // again and the reaction re-executes. This is the correct ALO + retry
-        // semantics without polling.
         let mut any_retryable = false;
 
         for rule in matched {
+            let rule_id = rule.id();
+            let now = chrono::Utc::now().timestamp_millis();
+            let execution = match self
+                .execution_store
+                .ensure_pending(&change_id, rule_id)
+                .await
+            {
+                Ok(execution) => execution,
+                Err(error) => {
+                    error!(rule = rule_id, change = %change_id, error = ?error, "execution state error");
+                    any_retryable = true;
+                    continue;
+                }
+            };
+            match execution {
+                ReactionExecutionStatus::Succeeded { .. }
+                | ReactionExecutionStatus::Failed { .. } => continue,
+                ReactionExecutionStatus::RetryWaiting { retry_at, .. } if retry_at > now => {
+                    any_retryable = true;
+                    continue;
+                }
+                ReactionExecutionStatus::Pending
+                | ReactionExecutionStatus::Running { .. }
+                | ReactionExecutionStatus::RetryWaiting { .. } => {}
+            }
+
+            match self.claim_store.try_claim(&change_id, rule_id).await {
+                Ok(ClaimResult::Claimed) => {}
+                Ok(ClaimResult::AlreadyClaimed { owner }) => {
+                    debug!(rule = rule_id, change = %change_id, owner = %owner, "reaction lease held");
+                    any_retryable = true;
+                    continue;
+                }
+                Err(error) => {
+                    error!(rule = rule_id, change = %change_id, error = ?error, "reaction lease error");
+                    any_retryable = true;
+                    continue;
+                }
+            }
+
+            let running = ReactionExecutionStatus::Running {
+                owner: self.config.owner_id.clone(),
+                started_at: now,
+            };
+            if let Err(error) = self.execution_store.set(&change_id, rule_id, running).await {
+                error!(rule = rule_id, change = %change_id, error = ?error, "failed to persist running reaction");
+                let _ = self.claim_store.release(&change_id, rule_id).await;
+                any_retryable = true;
+                continue;
+            }
+
             let reaction_ctx = ReactionContext {
                 collection: collection.clone(),
                 key: key.clone(),
                 value: json_value.clone(),
                 change_id: change_id.clone(),
             };
-
-            match self.claim_store.try_claim(&change_id, rule.id()).await {
-                Ok(ClaimResult::Claimed) => {
-                }
-                Ok(ClaimResult::AlreadyClaimed { owner }) => {
-                    debug!(rule = rule.id(), change = %change_id, owner = %owner, "already claimed, skipping");
-                    // If the claim is live, the previous attempt may still be
-                    // in-flight or waiting for TTL expiry. Don't advance cursor
-                    // — let it retry after TTL.
-                    any_retryable = true;
-                    continue;
-                }
-                Err(e) => {
-                    error!(rule = rule.id(), change = %change_id, error = ?e, "claim error, skipping");
-                    any_retryable = true;
-                    continue;
-                }
-            }
-
-            // Execute reaction
             let outcome = rule.execute(reaction_ctx).await;
-            match &outcome {
-                ReactionOutcome::Ok => {
-                    debug!(rule = rule.id(), change = %change_id, "reaction succeeded");
-                    if let Err(e) = self.claim_store.mark_succeeded(&change_id, rule.id()).await {
-                        warn!(rule = rule.id(), error = ?e, "failed to mark claim succeeded");
-                    }
-                    self.publish_outcome(
-                        rule.id(), &change_id, &collection, &key, "ok", None,
-                    ).await;
-                }
+            let finished_at = chrono::Utc::now().timestamp_millis();
+            let execution = match outcome {
+                ReactionOutcome::Ok => ReactionExecutionStatus::Succeeded { finished_at },
                 ReactionOutcome::Retryable(reason) => {
-                    warn!(rule = rule.id(), change = %change_id, reason = %reason, "reaction retryable");
                     any_retryable = true;
-                    if let Err(e) = self
-                        .claim_store
-                        .mark_failed(&change_id, rule.id(), Some(std::time::Duration::from_secs(300)))
-                        .await
-                    {
-                        warn!(rule = rule.id(), error = ?e, "failed to mark claim failed");
+                    ReactionExecutionStatus::RetryWaiting {
+                        retry_at: finished_at + 300_000,
+                        reason,
                     }
-                    self.publish_outcome(
-                        rule.id(), &change_id, &collection, &key, "retryable", Some(reason),
-                    ).await;
                 }
-                ReactionOutcome::Failed(reason) => {
-                    error!(rule = rule.id(), change = %change_id, reason = %reason, "reaction failed permanently");
-                    if let Err(e) = self
-                        .claim_store
-                        .mark_failed(&change_id, rule.id(), Some(std::time::Duration::from_secs(3600)))
-                        .await
-                    {
-                        warn!(rule = rule.id(), error = ?e, "failed to mark claim failed");
-                    }
-                    self.publish_outcome(
-                        rule.id(), &change_id, &collection, &key, "failed", Some(reason),
-                    ).await;
-                }
+                ReactionOutcome::Failed(reason) => ReactionExecutionStatus::Failed {
+                    finished_at,
+                    reason,
+                },
+            };
+
+            if let Err(error) = self
+                .execution_store
+                .set(&change_id, rule_id, execution.clone())
+                .await
+            {
+                error!(rule = rule_id, change = %change_id, error = ?error, "failed to persist reaction result");
+                any_retryable = true;
+            } else {
+                self.publish_outcome(rule_id, &change_id, &collection, &key, &execution)
+                    .await;
+            }
+            if let Err(error) = self.claim_store.release(&change_id, rule_id).await {
+                warn!(rule = rule_id, change = %change_id, error = ?error, "failed to release reaction lease");
             }
         }
 
         // ── Advance cursor (ack point) ──
-        // Cursor advances only when all matched rules reached a terminal state
-        // (Ok or Failed). If any rule returned Retryable (or a live claim was
-        // held by another instance), we skip the cursor advance. The ChangeFeed
-        // re-delivers the same change; the expired claim then allows re-execution.
+        // Cursor advances only when every matched reaction has a persisted
+        // terminal execution state.
         if any_retryable {
             debug!(change = %change_id, "cursor held back due to retryable outcome");
             return;
@@ -486,21 +508,21 @@ where
         change_id: &str,
         collection: &str,
         key: &str,
-        outcome: &str,
-        reason: Option<&str>,
+        execution: &ReactionExecutionStatus,
     ) {
         let Some(bus) = &self.event_bus else { return };
-        let payload = serde_json::json!({
-            "ruleId": rule_id,
-            "changeId": change_id,
-            "collection": collection,
-            "key": key,
-            "outcome": outcome,
-            "reason": reason,
-            "ownerId": self.config.owner_id,
-        });
         bus.publish(
-            Event::new("REACTION_COMPLETED", payload),
+            Event::new(
+                "REACTION_STATE_CHANGED",
+                serde_json::json!({
+                    "ruleId": rule_id,
+                    "changeId": change_id,
+                    "collection": collection,
+                    "key": key,
+                    "execution": execution,
+                    "ownerId": self.config.owner_id,
+                }),
+            ),
             false,
         )
         .await;

@@ -1,20 +1,14 @@
-use crate::control::request;
+use crate::control::request::{self, ControlRequest};
 use crate::store::prelude::*;
 
 impl MCPStore {
     pub(in crate::control) async fn apply_control_request(
         &self,
-        event: &serde_json::Value,
+        request: &ControlRequest,
     ) -> Result<()> {
-        let request_type = event
-            .get("type")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| StoreError::Other("Control request missing type".to_string()))?;
-        let payload = event
-            .get("payload")
-            .ok_or_else(|| StoreError::Other("Control request missing payload".to_string()))?;
+        let payload = &request.payload;
 
-        match request_type {
+        match request.request_type.as_str() {
             "ServiceAddRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
                 let config = request::required_config(payload)?;
