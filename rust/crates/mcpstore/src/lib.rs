@@ -19,6 +19,7 @@ pub mod perspective;
 pub mod registry;
 pub(crate) mod service;
 pub mod session;
+pub mod state;
 pub mod store;
 pub mod tool_transform;
 pub mod transport;
@@ -84,6 +85,13 @@ pub use transport::{
 
 // Facade re-exports: execution service
 pub use service::{McpStoreExecutionUpdate, McpStoreToolExecutionHandle};
+
+// Facade re-exports: service state
+pub use state::{
+    AuthState, DesiredState, FailureInfo, FailurePhase, HealthState, Readiness, ReadinessReason,
+    ReadinessStatus, RecoveryState, RuntimePhase, ServiceState, ServiceStateError,
+    ServiceStateEvent, ToolsState,
+};
 
 // Facade re-exports: core store
 pub use core::{Result, StoreError};
