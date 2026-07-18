@@ -1,7 +1,7 @@
 //! Integration tests for EventReactor using Memory backend.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use openkeyv::store::memory::MemoryStore;
@@ -19,7 +19,10 @@ async fn run_reactor_basic() {
     let collection = "mcpstore:event:test.event";
     let payload = serde_json::json!({"hello": "world"});
     let value = crate::cache::codec::json_to_value(payload.clone()).unwrap();
-    store.put("evt-1", value, Some(collection), None).await.unwrap();
+    store
+        .put("evt-1", value, Some(collection), None)
+        .await
+        .unwrap();
 
     let counter = Arc::new(AtomicU32::new(0));
     let counter_clone = counter.clone();
@@ -36,24 +39,26 @@ async fn run_reactor_basic() {
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
 
-    reactor.register(Rule::new(
-        "test.rule.v1",
-        // when: match any put on this collection
-        |_ctx| Box::pin(async { true }),
-        // then: increment counter and notify
-        move |ctx| {
-            let c = counter_clone.clone();
-            let n = notify_clone.clone();
-            Box::pin(async move {
-                assert_eq!(ctx.collection, "mcpstore:event:test.event");
-                assert_eq!(ctx.key, "evt-1");
-                assert_eq!(ctx.value, Some(serde_json::json!({"hello": "world"})));
-                c.fetch_add(1, Ordering::SeqCst);
-                n.notify_one();
-                ReactionOutcome::Ok
-            })
-        },
-    )).await;
+    reactor
+        .register(Rule::new(
+            "test.rule.v1",
+            // when: match any put on this collection
+            |_ctx| Box::pin(async { true }),
+            // then: increment counter and notify
+            move |ctx| {
+                let c = counter_clone.clone();
+                let n = notify_clone.clone();
+                Box::pin(async move {
+                    assert_eq!(ctx.collection, "mcpstore:event:test.event");
+                    assert_eq!(ctx.key, "evt-1");
+                    assert_eq!(ctx.value, Some(serde_json::json!({"hello": "world"})));
+                    c.fetch_add(1, Ordering::SeqCst);
+                    n.notify_one();
+                    ReactionOutcome::Ok
+                })
+            },
+        ))
+        .await;
 
     reactor.start().await.unwrap();
 
@@ -62,7 +67,11 @@ async fn run_reactor_basic() {
         .await
         .expect("reaction did not fire within 5s");
 
-    assert_eq!(counter.load(Ordering::SeqCst), 1, "reaction should have fired exactly once");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "reaction should have fired exactly once"
+    );
 
     reactor.shutdown().await;
 }
@@ -91,19 +100,21 @@ async fn run_reactor_cursor_resume() {
 
     let fc = first_count.clone();
     let fn_ = first_notify.clone();
-    reactor.register(Rule::new(
-        "resume.rule.v1",
-        |_ctx| Box::pin(async { true }),
-        move |_ctx| {
-            let fc = fc.clone();
-            let fn_ = fn_.clone();
-            Box::pin(async move {
-                fc.fetch_add(1, Ordering::SeqCst);
-                fn_.notify_one();
-                ReactionOutcome::Ok
-            })
-        },
-    )).await;
+    reactor
+        .register(Rule::new(
+            "resume.rule.v1",
+            |_ctx| Box::pin(async { true }),
+            move |_ctx| {
+                let fc = fc.clone();
+                let fn_ = fn_.clone();
+                Box::pin(async move {
+                    fc.fetch_add(1, Ordering::SeqCst);
+                    fn_.notify_one();
+                    ReactionOutcome::Ok
+                })
+            },
+        ))
+        .await;
 
     reactor.start().await.unwrap();
 
@@ -135,19 +146,21 @@ async fn run_reactor_cursor_resume() {
         max_causation_depth: 16,
     };
     let reactor2 = Arc::new(EventReactor::new(store.clone(), config2));
-    reactor2.register(Rule::new(
-        "resume.rule.v1",
-        |_ctx| Box::pin(async { true }),
-        move |_ctx| {
-            let sc = sc.clone();
-            let sn = sn.clone();
-            Box::pin(async move {
-                sc.fetch_add(1, Ordering::SeqCst);
-                sn.notify_one();
-                ReactionOutcome::Ok
-            })
-        },
-    )).await;
+    reactor2
+        .register(Rule::new(
+            "resume.rule.v1",
+            |_ctx| Box::pin(async { true }),
+            move |_ctx| {
+                let sc = sc.clone();
+                let sn = sn.clone();
+                Box::pin(async move {
+                    sc.fetch_add(1, Ordering::SeqCst);
+                    sn.notify_one();
+                    ReactionOutcome::Ok
+                })
+            },
+        ))
+        .await;
 
     reactor2.start().await.unwrap();
 
@@ -195,19 +208,21 @@ async fn run_reactor_distributed_claim() {
     for reactor in [&reactor_a, &reactor_b] {
         let tc = total_executions.clone();
         let n = notify.clone();
-        reactor.register(Rule::new(
-            "claim.rule.v1",
-            |_ctx| Box::pin(async { true }),
-            move |_ctx| {
-                let tc = tc.clone();
-                let n = n.clone();
-                Box::pin(async move {
-                    tc.fetch_add(1, Ordering::SeqCst);
-                    n.notify_one();
-                    ReactionOutcome::Ok
-                })
-            },
-        )).await;
+        reactor
+            .register(Rule::new(
+                "claim.rule.v1",
+                |_ctx| Box::pin(async { true }),
+                move |_ctx| {
+                    let tc = tc.clone();
+                    let n = n.clone();
+                    Box::pin(async move {
+                        tc.fetch_add(1, Ordering::SeqCst);
+                        n.notify_one();
+                        ReactionOutcome::Ok
+                    })
+                },
+            ))
+            .await;
     }
 
     reactor_a.start().await.unwrap();
@@ -215,7 +230,10 @@ async fn run_reactor_distributed_claim() {
 
     // Now write an event — both should see it, but only one should execute
     let v = crate::cache::codec::json_to_value(serde_json::json!({"claim": "test"})).unwrap();
-    store.put("claim-1", v, Some(collection), None).await.unwrap();
+    store
+        .put("claim-1", v, Some(collection), None)
+        .await
+        .unwrap();
 
     tokio::time::timeout(Duration::from_secs(5), notify.notified())
         .await
@@ -254,8 +272,7 @@ mod tests {
     }
 
     /// Retryable outcome must NOT advance the cursor. The ChangeFeed
-    /// re-delivers the same change; once the claim TTL (300s in production,
-    /// shortened here) expires, the reaction re-executes.
+    /// re-delivers the same change; until the typed retry schedule becomes due, then the reaction re-executes.
     #[tokio::test]
     async fn reactor_retryable_holds_cursor() {
         let store = MemoryStore::new();
@@ -305,7 +322,7 @@ mod tests {
         reactor.start().await.unwrap();
 
         // First attempt fires immediately (Retryable). Cursor is NOT advanced,
-        // so the ChangeFeed re-delivers. But claim TTL is 300s — too long for
+        // so the ChangeFeed re-delivers. But the retry delay is 300s — too long for
         // a test. Instead, verify the cursor was not advanced by checking the
         // cursor collection directly.
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -334,7 +351,7 @@ mod tests {
     }
 
     /// Verify the EventBus bridge: reaction outcomes are published as
-    /// REACTION_COMPLETED events, visible via /events/history.
+    /// REACTION_STATE_CHANGED events, visible via /events/history.
     #[tokio::test]
     async fn reactor_publishes_outcome_to_event_bus() {
         use crate::events::EventBus;
@@ -359,9 +376,8 @@ mod tests {
             watch_collections: vec![collection.into()],
             max_causation_depth: 16,
         };
-        let reactor = Arc::new(
-            EventReactor::new(store.clone(), config).with_event_bus(event_bus.clone()),
-        );
+        let reactor =
+            Arc::new(EventReactor::new(store.clone(), config).with_event_bus(event_bus.clone()));
 
         reactor
             .register(Rule::new(
@@ -387,12 +403,16 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let history = event_bus.get_history(100).await;
-        let found = history
-            .iter()
-            .any(|e| e.event_type == "REACTION_COMPLETED"
+        let found = history.iter().any(|e| {
+            e.event_type == "REACTION_STATE_CHANGED"
                 && e.payload.get("ruleId").and_then(|v| v.as_str()) == Some("bus.rule.v1")
-                && e.payload.get("outcome").and_then(|v| v.as_str()) == Some("ok"));
-        assert!(found, "REACTION_COMPLETED event should be in history");
+                && e.payload
+                    .get("execution")
+                    .and_then(|value| value.get("status"))
+                    .and_then(|value| value.as_str())
+                    == Some("succeeded")
+        });
+        assert!(found, "REACTION_STATE_CHANGED event should be in history");
 
         reactor.shutdown().await;
     }
@@ -501,24 +521,32 @@ async fn run_reactor_depth_limit() {
     reactor.start().await.unwrap();
 
     // Write an event with depth = max (should be skipped)
-    let v_deep = crate::cache::codec::json_to_value(serde_json::json!({"_depth": 3, "msg": "too deep"}))
+    let v_deep =
+        crate::cache::codec::json_to_value(serde_json::json!({"_depth": 3, "msg": "too deep"}))
+            .unwrap();
+    store
+        .put("deep", v_deep, Some(collection), None)
+        .await
         .unwrap();
-    store.put("deep", v_deep, Some(collection), None).await.unwrap();
 
     // Should NOT fire
     let result = tokio::time::timeout(Duration::from_millis(500), notify.notified()).await;
     assert!(result.is_err(), "event at max depth should be skipped");
 
     // Write an event with depth below max (should fire)
-    let v_ok = crate::cache::codec::json_to_value(serde_json::json!({"_depth": 2, "msg": "ok"}))
-        .unwrap();
+    let v_ok =
+        crate::cache::codec::json_to_value(serde_json::json!({"_depth": 2, "msg": "ok"})).unwrap();
     store.put("ok", v_ok, Some(collection), None).await.unwrap();
 
     tokio::time::timeout(Duration::from_secs(5), notify.notified())
         .await
         .expect("event below max depth should fire");
 
-    assert_eq!(call_count.load(Ordering::SeqCst), 1, "only the depth-2 event should have fired");
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        1,
+        "only the depth-2 event should have fired"
+    );
 
     reactor.shutdown().await;
 }
@@ -602,7 +630,10 @@ mod m5_tests {
             .await;
 
         // start() should detect CursorExpired and fall back to Beginning.
-        reactor.start().await.expect("start should succeed with cursor recovery");
+        reactor
+            .start()
+            .await
+            .expect("start should succeed with cursor recovery");
 
         // The reactor should process all 5 events from the beginning.
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -677,10 +708,7 @@ mod redis_tests {
                     let nc = nc.clone();
                     Box::pin(async move {
                         assert_eq!(ctx.key, "evt-from-a");
-                        assert_eq!(
-                            ctx.value,
-                            Some(serde_json::json!({"source": "instance-a"}))
-                        );
+                        assert_eq!(ctx.value, Some(serde_json::json!({"source": "instance-a"})));
                         fc.fetch_add(1, Ordering::SeqCst);
                         nc.notify_one();
                         ReactionOutcome::Ok

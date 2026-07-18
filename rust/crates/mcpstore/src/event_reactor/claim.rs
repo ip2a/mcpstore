@@ -1,32 +1,23 @@
-//! Distributed claim: ensures exactly one instance executes a given (change_id, rule_id).
-//!
-//! Lease semantics: each claim carries a TTL. When the claim holder finishes
-//! successfully, it calls `mark_succeeded` (removes TTL). On failure, it calls
-//! `mark_failed` with a cleanup TTL. If the holder crashes, the TTL expires
-//! naturally and another instance can re-claim via the create-if-absent CAS path.
+//! Distributed lease for one `(change_id, rule_id)` execution.
 
-use std::time::Duration;
-
-use openkeyv::{AsyncCompareAndSwap, AsyncKeyValue, Revision};
-use serde_json::json;
+use openkeyv::{AsyncCompareAndSwap, AsyncKeyValue};
+use serde::{Deserialize, Serialize};
 
 use crate::cache::codec;
 
-/// Default lease time in seconds. If the claim holder crashes, the TTL
-/// expires and another instance can re-claim via create-if-absent CAS.
 const DEFAULT_LEASE_TTL: f64 = 60.0;
-
-/// Threshold below which a remaining TTL is considered "about to expire"
-/// and we attempt to steal. In seconds.
 const STEAL_THRESHOLD: f64 = 1.0;
-
 const CLAIM_COLLECTION_SUFFIX: &str = "reactor:claims";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct Lease {
+    owner: String,
+    expires_at: i64,
+}
 
 #[derive(Debug)]
 pub(crate) enum ClaimResult {
-    /// This instance won the claim; proceed with execution.
     Claimed,
-    /// Another instance already claimed this work and the lease is still live.
     AlreadyClaimed { owner: String },
 }
 
@@ -48,179 +39,143 @@ where
         }
     }
 
-    /// Attempt to claim `(change_id, rule_id)` for this instance.
-    ///
-    /// Strategy:
-    /// 1. Create-if-absent CAS (`expected = None`). If the key doesn't exist
-    ///    (or has expired), we win immediately.
-    /// 2. If the key exists with remaining TTL < STEAL_THRESHOLD, we attempt
-    ///    to steal it via CAS on the observed revision.
-    /// 3. Otherwise, another instance holds a live claim.
     pub(crate) async fn try_claim(
         &self,
         change_id: &str,
         rule_id: &str,
     ) -> Result<ClaimResult, ClaimError> {
         let key = format!("{change_id}:{rule_id}");
-        let payload = json!({ "owner": self.owner_id, "status": "claimed" });
-        let value = codec::json_to_value(payload).map_err(ClaimError::Codec)?;
-
-        // Fast path: create-if-absent
-        match self
-            .store
-            .compare_and_swap(
-                &key,
-                None,
-                value.clone(),
-                Some(&self.collection),
-                Some(DEFAULT_LEASE_TTL),
-            )
-            .await
-            .map_err(ClaimError::Store)?
-        {
-            openkeyv::CompareAndSwapResult::Applied { .. } => {
-            return Ok(ClaimResult::Claimed);
-        }
-            openkeyv::CompareAndSwapResult::Conflict { current } => {
-                let entry = match current {
-                    Some(e) => e,
-                    None => {
-                        // Entry expired between CAS and conflict response.
-                        // Retry create-if-absent once.
-                        return match self
-                            .store
-                            .compare_and_swap(
-                                &key,
-                                None,
-                                value,
-                                Some(&self.collection),
-                                Some(DEFAULT_LEASE_TTL),
-                            )
-                            .await
-                            .map_err(ClaimError::Store)?
-                        {
-                            openkeyv::CompareAndSwapResult::Applied { .. } => Ok(ClaimResult::Claimed),
-                            openkeyv::CompareAndSwapResult::Conflict { .. } => Ok(
-                                ClaimResult::AlreadyClaimed { owner: "race".into() },
-                            ),
-                        };
-                    }
-                };
-
-                // Check if the lease is about to expire — attempt steal.
-                // None TTL means permanent (never expires) → cannot steal.
-                let remaining_ttl = match entry.ttl {
-                    None => return Ok(ClaimResult::AlreadyClaimed {
-                        owner: extract_owner(&entry.value),
-                    }),
-                    Some(t) => t,
-                };
-                if remaining_ttl > STEAL_THRESHOLD {
-                    let owner = extract_owner(&entry.value);
-                    return Ok(ClaimResult::AlreadyClaimed { owner });
-                }
-
-                // TTL is below threshold: try to steal via CAS on the observed revision
-                let stale_revision: &Revision = &entry.revision;
-                match self
-                    .store
-                    .compare_and_swap(
-                        &key,
-                        Some(stale_revision),
-                        value,
-                        Some(&self.collection),
-                        Some(DEFAULT_LEASE_TTL),
-                    )
-                    .await
-                    .map_err(ClaimError::Store)?
-                {
-                    openkeyv::CompareAndSwapResult::Applied { .. } => {
-                        debug_assert!(true, "stole expired lease");
-                        Ok(ClaimResult::Claimed)
-                    }
-                    openkeyv::CompareAndSwapResult::Conflict { current: _ } => {
-                        Ok(ClaimResult::AlreadyClaimed { owner: "stolen-by-other".into() })
-                    }
-                }
-            }
-        }
-    }
-
-    /// Mark a claim as succeeded (write final state, no TTL).
-    pub(crate) async fn mark_succeeded(
-        &self,
-        change_id: &str,
-        rule_id: &str,
-    ) -> Result<(), ClaimError> {
-        self.write_status(change_id, rule_id, "succeeded", None).await
-    }
-
-    /// Mark a claim as failed (write final state with cleanup TTL).
-    pub(crate) async fn mark_failed(
-        &self,
-        change_id: &str,
-        rule_id: &str,
-        ttl: Option<Duration>,
-    ) -> Result<(), ClaimError> {
-        self.write_status(change_id, rule_id, "failed", ttl).await
-    }
-
-    async fn write_status(
-        &self,
-        change_id: &str,
-        rule_id: &str,
-        status: &str,
-        ttl: Option<Duration>,
-    ) -> Result<(), ClaimError> {
-        let key = format!("{change_id}:{rule_id}");
-        let payload = json!({ "owner": self.owner_id, "status": status });
-        let value = codec::json_to_value(payload).map_err(ClaimError::Codec)?;
-        let ttl_secs = ttl.map(|d| d.as_secs_f64());
+        let lease = Lease {
+            owner: self.owner_id.clone(),
+            expires_at: chrono::Utc::now().timestamp_millis() + (DEFAULT_LEASE_TTL * 1000.0) as i64,
+        };
+        let value = codec::json_to_value(serde_json::to_value(lease)?)?;
 
         loop {
-            let revisioned = self
-                .store
-                .get_with_revision(&key, Some(&self.collection))
-                .await
-                .map_err(ClaimError::Store)?;
-            let expected = revisioned.as_ref().map(|r| &r.revision);
             match self
                 .store
                 .compare_and_swap(
                     &key,
-                    expected,
+                    None,
                     value.clone(),
                     Some(&self.collection),
-                    ttl_secs,
+                    Some(DEFAULT_LEASE_TTL),
                 )
-                .await
-                .map_err(ClaimError::Store)?
+                .await?
             {
-                openkeyv::CompareAndSwapResult::Applied { .. } => return Ok(()),
-                openkeyv::CompareAndSwapResult::Conflict { .. } => continue,
+                openkeyv::CompareAndSwapResult::Applied { .. } => {
+                    return Ok(ClaimResult::Claimed);
+                }
+                openkeyv::CompareAndSwapResult::Conflict { current } => {
+                    let Some(entry) = current else { continue };
+                    let current_lease = decode_lease(entry.value)?;
+                    let remaining_ttl = entry.ttl.ok_or(ClaimError::LeaseWithoutExpiry)?;
+                    if remaining_ttl > STEAL_THRESHOLD {
+                        return Ok(ClaimResult::AlreadyClaimed {
+                            owner: current_lease.owner,
+                        });
+                    }
+                    match self
+                        .store
+                        .compare_and_swap(
+                            &key,
+                            Some(&entry.revision),
+                            value.clone(),
+                            Some(&self.collection),
+                            Some(DEFAULT_LEASE_TTL),
+                        )
+                        .await?
+                    {
+                        openkeyv::CompareAndSwapResult::Applied { .. } => {
+                            return Ok(ClaimResult::Claimed);
+                        }
+                        openkeyv::CompareAndSwapResult::Conflict { .. } => continue,
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) async fn release(&self, change_id: &str, rule_id: &str) -> Result<(), ClaimError> {
+        let key = format!("{change_id}:{rule_id}");
+        loop {
+            let Some(entry) = self
+                .store
+                .get_with_revision(&key, Some(&self.collection))
+                .await?
+            else {
+                return Ok(());
+            };
+            if decode_lease(entry.value)?.owner != self.owner_id {
+                return Ok(());
+            }
+            match self
+                .store
+                .compare_and_delete(&key, &entry.revision, Some(&self.collection))
+                .await?
+            {
+                openkeyv::CompareAndDeleteResult::Deleted => return Ok(()),
+                openkeyv::CompareAndDeleteResult::Conflict { .. } => continue,
             }
         }
     }
 }
 
-fn extract_owner(value: &openkeyv::Value) -> String {
-    codec::value_to_json(value.clone())
-        .ok()
-        .and_then(|v| v.get("owner").and_then(|o| o.as_str()).map(String::from))
-        .unwrap_or_else(|| "unknown".into())
+fn decode_lease(value: openkeyv::Value) -> Result<Lease, ClaimError> {
+    Ok(serde_json::from_value(codec::value_to_json(value)?)?)
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaimError {
-    Store(openkeyv::Error),
-    Codec(crate::cache::CacheError),
+    #[error(transparent)]
+    Store(#[from] openkeyv::Error),
+    #[error(transparent)]
+    Codec(#[from] crate::cache::CacheError),
+    #[error(transparent)]
+    Serialization(#[from] serde_json::Error),
+    #[error("reactor lease is missing its expiry")]
+    LeaseWithoutExpiry,
 }
 
-impl std::fmt::Display for ClaimError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Store(e) => write!(f, "store: {e}"),
-            Self::Codec(e) => write!(f, "codec: {e}"),
-        }
+#[cfg(test)]
+mod tests {
+    use openkeyv::{store::memory::MemoryStore, AsyncKeyValue};
+
+    use crate::cache::codec;
+
+    use super::{ClaimResult, ClaimStore};
+
+    #[tokio::test]
+    async fn claim_record_is_only_a_lease_and_release_deletes_it() {
+        let backend = MemoryStore::new();
+        let claims = ClaimStore::new(backend.clone(), "test", "worker-1");
+
+        assert!(matches!(
+            claims.try_claim("change", "rule").await.unwrap(),
+            ClaimResult::Claimed
+        ));
+
+        let value = backend
+            .get("change:rule", Some("test:reactor:claims"))
+            .await
+            .unwrap()
+            .expect("lease exists");
+        let lease = codec::value_to_json(value).unwrap();
+        assert_eq!(
+            lease.get("owner").and_then(serde_json::Value::as_str),
+            Some("worker-1")
+        );
+        assert!(lease
+            .get("expires_at")
+            .and_then(serde_json::Value::as_i64)
+            .is_some());
+        assert!(lease.get("status").is_none());
+
+        claims.release("change", "rule").await.unwrap();
+        assert!(backend
+            .get("change:rule", Some("test:reactor:claims"))
+            .await
+            .unwrap()
+            .is_none());
     }
 }

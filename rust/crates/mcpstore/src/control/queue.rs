@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use crate::control::request;
+use crate::control::request::{self, ControlRequest, ControlRequestStatus};
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -9,51 +9,66 @@ impl MCPStore {
             return Ok(0);
         }
 
-        let mut events = self
+        let mut requests = self
             .cache
             .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
             .await?
             .into_iter()
-            .collect::<Vec<_>>();
-        events.sort_by(|left, right| {
-            let left_created = left
-                .1
-                .get("created_at")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or_default();
-            let right_created = right
-                .1
-                .get("created_at")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or_default();
-            left_created.cmp(&right_created).then(left.0.cmp(&right.0))
+            .map(|(key, value)| {
+                let request = serde_json::from_value::<ControlRequest>(value).map_err(|error| {
+                    StoreError::Other(format!(
+                        "Control request '{key}' deserialization failed: {error}"
+                    ))
+                })?;
+                Ok((key, request))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        requests.sort_by(|left, right| {
+            left.1
+                .created_at
+                .cmp(&right.1.created_at)
+                .then(left.0.cmp(&right.0))
         });
 
         let mut processed = 0;
-        for (key, mut event) in events {
-            if event.get("status").and_then(serde_json::Value::as_str) != Some("pending") {
+        for (key, mut request) in requests {
+            if request.status != ControlRequestStatus::Queued {
                 continue;
             }
 
-            let result = self.apply_control_request(&event).await;
-            if let Some(object) = event.as_object_mut() {
-                object.insert(
-                    "processed_at".to_string(),
-                    serde_json::json!(chrono::Utc::now().timestamp_millis()),
-                );
-                match result {
-                    Ok(()) => {
-                        object.insert("status".to_string(), serde_json::json!("completed"));
-                        processed += 1;
-                    }
-                    Err(error) => {
-                        object.insert("status".to_string(), serde_json::json!("failed"));
-                        object.insert("error".to_string(), serde_json::json!(error.to_string()));
-                    }
+            request.status = ControlRequestStatus::Executing {
+                started_at: chrono::Utc::now().timestamp_millis(),
+            };
+            self.cache
+                .put_event(
+                    CONTROL_REQUEST_EVENT_TYPE,
+                    &key,
+                    serde_json::to_value(&request)
+                        .map_err(|error| StoreError::Other(error.to_string()))?,
+                )
+                .await?;
+
+            match self.apply_control_request(&request).await {
+                Ok(()) => {
+                    request.status = ControlRequestStatus::Applied {
+                        applied_at: chrono::Utc::now().timestamp_millis(),
+                    };
+                    processed += 1;
+                }
+                Err(error) => {
+                    request.status = ControlRequestStatus::Rejected {
+                        rejected_at: chrono::Utc::now().timestamp_millis(),
+                        reason: error.to_string(),
+                    };
                 }
             }
             self.cache
-                .put_event(CONTROL_REQUEST_EVENT_TYPE, &key, event)
+                .put_event(
+                    CONTROL_REQUEST_EVENT_TYPE,
+                    &key,
+                    serde_json::to_value(request)
+                        .map_err(|error| StoreError::Other(error.to_string()))?,
+                )
                 .await?;
         }
 
@@ -68,26 +83,30 @@ impl MCPStore {
         let created_at = chrono::Utc::now().timestamp_millis();
         let sequence = CONTROL_EVENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let event_id = format!("{request_type}:{created_at}:{sequence}");
-        let dedup_key = request::dedup_key(request_type, &payload);
-        let record = serde_json::json!({
-            "id": event_id.clone(),
-            "type": request_type,
-            "payload": payload,
-            "source": "onlydb",
-            "created_at": created_at,
-            "dedup_key": dedup_key,
-            "trace_id": event_id.clone(),
-            "status": "pending",
-        });
+        let request = ControlRequest {
+            id: event_id.clone(),
+            request_type: request_type.to_string(),
+            dedup_key: request::dedup_key(request_type, &payload),
+            payload,
+            source: "onlydb".to_string(),
+            created_at,
+            trace_id: event_id.clone(),
+            status: ControlRequestStatus::Queued,
+        };
         self.cache
-            .put_event(CONTROL_REQUEST_EVENT_TYPE, &event_id, record)
+            .put_event(
+                CONTROL_REQUEST_EVENT_TYPE,
+                &event_id,
+                serde_json::to_value(request)
+                    .map_err(|error| StoreError::Other(error.to_string()))?,
+            )
             .await?;
         self.event_bus
             .publish(
                 Event::new(
                     request_type,
                     serde_json::json!({
-                        "id": event_id.clone(),
+                        "id": event_id,
                         "source": "onlydb",
                         "queued": true,
                     }),

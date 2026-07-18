@@ -1018,7 +1018,7 @@ async fn db_source_does_not_write_config_file_and_queues_add() {
         .unwrap();
     let event = events.values().next().unwrap();
     assert_eq!(event["type"], "ServiceAddRequested");
-    assert_eq!(event["status"], "pending");
+    assert_eq!(event["status"], "queued");
     assert_eq!(event["payload"]["service_name"], "svc");
 }
 
@@ -4169,7 +4169,7 @@ async fn local_source_processes_control_requests() {
                 "created_at": 111,
                 "dedup_key": "ServiceAddRequested:queued",
                 "trace_id": "evt-add",
-                "status": "pending",
+                "status": "queued",
             }),
         )
         .await
@@ -4189,7 +4189,7 @@ async fn local_source_processes_control_requests() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(event["status"], serde_json::json!("completed"));
+    assert_eq!(event["status"], serde_json::json!("applied"));
 
     std::fs::remove_file(path).ok();
 }
@@ -7307,7 +7307,7 @@ mod control_reactor_tests {
                     "created_at": 222,
                     "dedup_key": "ServiceAddRequested:reactor-svc",
                     "trace_id": "reactor-add",
-                    "status": "pending",
+                    "status": "queued",
                 }),
             )
             .await
@@ -7323,7 +7323,7 @@ mod control_reactor_tests {
                 .await
                 .unwrap()
             {
-                if evt["status"] == serde_json::json!("completed") {
+                if evt["status"] == serde_json::json!("applied") {
                     completed = true;
                     break;
                 }
@@ -7378,7 +7378,8 @@ mod control_reactor_tests {
                     "created_at": 333,
                     "dedup_key": "ServiceAddRequested:should-not-run",
                     "trace_id": "already-done",
-                    "status": "completed",
+                    "status": "applied",
+                    "applied_at": 333,
                 }),
             )
             .await
