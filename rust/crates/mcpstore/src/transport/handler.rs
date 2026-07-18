@@ -454,7 +454,7 @@ mod tests {
 
     use super::*;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
-    use crate::registry::{ConfigRevision, ConnectionStatus, ServiceInstance};
+    use crate::registry::{ConfigRevision, ServiceInstance};
 
     #[derive(Clone)]
     struct NotificationServer {
@@ -542,7 +542,6 @@ mod tests {
             transport: "stdio".to_string(),
             url: None,
             command: Some("test".to_string()),
-            status: ConnectionStatus::Connected,
             tools: Vec::new(),
             effective_config: Map::new(),
             config_revision: ConfigRevision {

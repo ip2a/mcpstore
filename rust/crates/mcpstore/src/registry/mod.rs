@@ -16,7 +16,7 @@ mod tests;
 pub mod tool;
 
 pub use models::{
-    ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance, ServiceRegistry, ToolInfo,
+    ConfigRevision, ServiceDefinition, ServiceInstance, ServiceRegistry, ToolInfo,
 };
 
 impl ServiceRegistry {

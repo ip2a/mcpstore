@@ -85,10 +85,6 @@ impl MCPStore {
             transport,
             url,
             command,
-            status: previous
-                .as_ref()
-                .map(|instance| instance.status)
-                .unwrap_or(ConnectionStatus::Disconnected),
             tools: previous
                 .as_ref()
                 .map(|instance| instance.tools.clone())

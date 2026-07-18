@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use crate::cache::models::{
-    ContextToolVisibilityState, InstanceStatus, InstanceToolRelation, ServiceDefinitionEntity,
+    ContextToolVisibilityState, InstanceToolRelation, ServiceDefinitionEntity,
     ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
     ToolPreferenceState, ToolTransformRule,
 };
@@ -188,9 +188,6 @@ impl MCPStore {
             .delete_relation("instance_tools", &instance_id.to_string())
             .await?;
         self.state_manager.delete(instance_id).await?;
-        self.cache
-            .delete_state("instance_status", &instance_id.to_string())
-            .await?;
         self.remove_instance_from_session_relations(instance_id)
             .await?;
         self.remove_instance_owned_states(instance_id).await?;
@@ -232,36 +229,6 @@ impl MCPStore {
     pub(crate) async fn cache_definition_removed(&self, service_name: &str) -> Result<()> {
         self.cache
             .delete_entity("service_definitions", service_name)
-            .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn cached_instance_status(
-        &self,
-        instance_id: InstanceId,
-    ) -> Result<Option<InstanceStatus>> {
-        let value = self
-            .cache
-            .get_state("instance_status", &instance_id.to_string())
-            .await?;
-        match value {
-            Some(value) => Ok(Some(serde_json::from_value(value).map_err(|error| {
-                StoreError::Other(format!("Instance status deserialization failed: {error}"))
-            })?)),
-            None => Ok(None),
-        }
-    }
-
-    pub(crate) async fn put_instance_status(&self, status: &InstanceStatus) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
-            return Ok(());
-        }
-        self.cache
-            .put_state(
-                "instance_status",
-                &status.instance_id.to_string(),
-                serde_json::to_value(status).unwrap_or_default(),
-            )
             .await?;
         Ok(())
     }

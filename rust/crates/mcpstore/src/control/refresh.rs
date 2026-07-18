@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
 use crate::cache::models::{
-    HealthStatus, InstanceStatus, InstanceToolRelation, ServiceDefinitionEntity,
-    ServiceInstanceEntity, ToolEntity,
+    InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
 };
 use crate::config::ServerConfig;
-use crate::registry::{ConnectionStatus, ServiceDefinition, ServiceInstance, ToolInfo};
+use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::store::{MCPStore, SourceMode};
 use crate::{Result, ServiceInstanceKey, StoreError};
 
@@ -21,7 +20,6 @@ impl MCPStore {
             .await?;
         let tool_values = self.cache.get_all_entities_async("tools").await?;
         let tool_relation_values = self.cache.get_all_relations_async("instance_tools").await?;
-        let status_values = self.cache.get_all_states_async("instance_status").await?;
 
         let mut definitions = HashMap::with_capacity(definition_values.len());
         for (key, value) in definition_values {
@@ -69,20 +67,6 @@ impl MCPStore {
                 )));
             }
             tool_relations.insert(relation.instance_id, relation);
-        }
-
-        let mut statuses = HashMap::with_capacity(status_values.len());
-        for (key, value) in status_values {
-            let status: InstanceStatus = serde_json::from_value(value).map_err(|error| {
-                StoreError::Other(format!("Instance status deserialization failed: {error}"))
-            })?;
-            if key != status.instance_id.to_string() {
-                return Err(StoreError::Other(format!(
-                    "Instance status key '{key}' does not match instance_id '{}'",
-                    status.instance_id
-                )));
-            }
-            statuses.insert(status.instance_id, status);
         }
 
         let mut instances = Vec::with_capacity(instance_values.len());
@@ -162,30 +146,6 @@ impl MCPStore {
                 None => Vec::new(),
             };
 
-            let status = statuses
-                .get(&entity.instance_id)
-                .map(|status| {
-                    if status.service_name != entity.service_name || status.scope != entity.scope {
-                        return Err(StoreError::Other(format!(
-                            "Instance status '{}' identity does not match its instance",
-                            entity.instance_id
-                        )));
-                    }
-                    Ok(match status.health_status {
-                        HealthStatus::Healthy => ConnectionStatus::Connected,
-                        HealthStatus::Startup | HealthStatus::HalfOpen => {
-                            ConnectionStatus::Connecting
-                        }
-                        HealthStatus::Init | HealthStatus::Disconnected => {
-                            ConnectionStatus::Disconnected
-                        }
-                        HealthStatus::Degraded | HealthStatus::CircuitOpen => {
-                            ConnectionStatus::Error
-                        }
-                    })
-                })
-                .transpose()?
-                .unwrap_or(ConnectionStatus::Disconnected);
             let transport_config: ServerConfig =
                 serde_json::from_value(serde_json::Value::Object(entity.effective_config.clone()))
                     .map_err(|error| {
@@ -202,7 +162,6 @@ impl MCPStore {
                     transport: entity.transport,
                     url: entity.url,
                     command: entity.command,
-                    status,
                     tools,
                     effective_config: entity.effective_config,
                     config_revision: entity.config_revision,
