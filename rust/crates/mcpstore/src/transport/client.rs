@@ -1,9 +1,9 @@
 use crate::auth::{AuthCoordinator, AuthStatus};
 use crate::config::ServerConfig;
 use crate::events::EventBus;
+use crate::health::supervisor::InstanceSupervisor;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
-use crate::health::supervisor::InstanceSupervisor;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::stdio::StdioProcess;
 use crate::transport::{http as http_transport, stdio as stdio_transport};
@@ -99,10 +99,7 @@ impl McpConnection {
         }
     }
 
-    async fn connect_stdio(
-        &mut self,
-        supervisor: Option<Arc<InstanceSupervisor>>,
-    ) -> Result<()> {
+    async fn connect_stdio(&mut self, supervisor: Option<Arc<InstanceSupervisor>>) -> Result<()> {
         let (client, process) = stdio_transport::connect(
             &self.name,
             &self.config,

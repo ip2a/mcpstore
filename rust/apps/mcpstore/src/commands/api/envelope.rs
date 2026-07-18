@@ -218,6 +218,15 @@ impl ApiError {
                     "capability": capability,
                 })),
             ),
+            StoreError::Transport(mcpstore::transport::TransportError::InvalidInput(message)) => {
+                Self::new(
+                    StatusCode::BAD_REQUEST,
+                    "MCP_INVALID_INPUT",
+                    message,
+                    None,
+                    None,
+                )
+            }
             StoreError::Transport(error) => Self::new(
                 StatusCode::BAD_GATEWAY,
                 "SERVICE_OPERATION_FAILED",

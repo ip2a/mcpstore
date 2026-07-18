@@ -35,12 +35,13 @@ impl McpConnection {
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        let serde_json::Value::Object(args_map) = arguments else {
+            return Err(TransportError::InvalidInput(
+                "prompt arguments must be a JSON object".to_string(),
+            ));
+        };
         self.require_prompts()?;
         let client = self.get_client()?;
-        let args_map = match arguments {
-            serde_json::Value::Object(map) => map,
-            _ => serde_json::Map::new(),
-        };
         let request = GetPromptRequestParams::new(prompt_name).with_arguments(args_map);
         let result = match client.get_prompt(request).await {
             Ok(result) => result,

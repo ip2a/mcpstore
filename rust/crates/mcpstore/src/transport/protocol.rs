@@ -867,6 +867,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn prompt_arguments_must_be_an_object_before_request_is_sent() {
+        let capabilities = ServerCapabilities::builder().enable_prompts().build();
+        let (mut connection, server, calls) = connect_fixture(capabilities).await;
+
+        let error = connection
+            .get_prompt("review", serde_json::json!(["invalid"]))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, TransportError::InvalidInput(_)));
+        assert!(calls.lock().await.is_empty());
+
+        connection.disconnect().await.unwrap();
+        server.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn list_tools_fetches_all_pages() {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
         let (mut connection, server, calls) = connect_fixture(capabilities).await;
