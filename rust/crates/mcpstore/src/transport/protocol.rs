@@ -357,7 +357,7 @@ mod tests {
         GetTaskPayloadParams, GetTaskPayloadResult, GetTaskResult, Implementation,
         ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListTasksResult,
         ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
-        ServerCapabilities, ServerInfo, Task, TaskStatus, TasksCapability,
+        ServerCapabilities, ServerInfo, Task, TaskStatus, TasksCapability, Tool,
     };
     use rmcp::service::{RequestContext, RoleServer, RunningService};
     use rmcp::{ServerHandler, ServiceExt};
@@ -381,7 +381,7 @@ mod tests {
         Subscribe(String),
         Unsubscribe(String),
         SetLevel(String),
-        ListTools,
+        ListTools(Option<String>),
         CallTool,
         ListResources,
         ListResourceTemplates,
@@ -486,11 +486,22 @@ mod tests {
 
         async fn list_tools(
             &self,
-            _request: Option<PaginatedRequestParams>,
+            request: Option<PaginatedRequestParams>,
             _context: RequestContext<RoleServer>,
         ) -> std::result::Result<ListToolsResult, rmcp::ErrorData> {
-            self.record(ProtocolCall::ListTools).await;
-            Ok(ListToolsResult::default())
+            let cursor = request.and_then(|request| request.cursor);
+            self.record(ProtocolCall::ListTools(cursor.clone())).await;
+            let mut tool = Tool::default();
+            tool.name = if cursor.is_some() {
+                "second".into()
+            } else {
+                "first".into()
+            };
+            Ok(ListToolsResult {
+                tools: vec![tool],
+                next_cursor: cursor.is_none().then(|| "page-2".to_string()),
+                ..Default::default()
+            })
         }
 
         async fn call_tool(
@@ -848,6 +859,31 @@ mod tests {
                 ProtocolCall::Subscribe("repo://mcp/store".to_string()),
                 ProtocolCall::Unsubscribe("repo://mcp/store".to_string()),
                 ProtocolCall::SetLevel("info".to_string()),
+            ]
+        );
+
+        connection.disconnect().await.unwrap();
+        server.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_tools_fetches_all_pages() {
+        let capabilities = ServerCapabilities::builder().enable_tools().build();
+        let (mut connection, server, calls) = connect_fixture(capabilities).await;
+
+        let tools = connection.list_tools().await.unwrap();
+        assert_eq!(
+            tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert_eq!(
+            calls.lock().await.as_slice(),
+            [
+                ProtocolCall::ListTools(None),
+                ProtocolCall::ListTools(Some("page-2".to_string())),
             ]
         );
 
