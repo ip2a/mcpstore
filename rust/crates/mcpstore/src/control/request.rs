@@ -1,5 +1,31 @@
+use serde::{Deserialize, Serialize};
+
 use crate::config::ServerConfig;
 use crate::{Result, StoreError};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(in crate::control) enum ControlRequestStatus {
+    Queued,
+    Executing { started_at: i64 },
+    Applied { applied_at: i64 },
+    RetryScheduled { retry_at: i64, reason: String },
+    Rejected { rejected_at: i64, reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(in crate::control) struct ControlRequest {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub request_type: String,
+    pub payload: serde_json::Value,
+    pub source: String,
+    pub created_at: i64,
+    pub dedup_key: String,
+    pub trace_id: String,
+    #[serde(flatten)]
+    pub status: ControlRequestStatus,
+}
 
 pub(in crate::control) fn dedup_key(request_type: &str, payload: &serde_json::Value) -> String {
     let identity = payload
@@ -32,4 +58,33 @@ pub(in crate::control) fn required_config(payload: &serde_json::Value) -> Result
             "Control request config deserialization failed: {error}"
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ControlRequestStatus;
+
+    #[test]
+    fn control_request_status_round_trips() {
+        let statuses = [
+            ControlRequestStatus::Queued,
+            ControlRequestStatus::Executing { started_at: 10 },
+            ControlRequestStatus::Applied { applied_at: 20 },
+            ControlRequestStatus::RetryScheduled {
+                retry_at: 30,
+                reason: "store unavailable".to_string(),
+            },
+            ControlRequestStatus::Rejected {
+                rejected_at: 40,
+                reason: "invalid request".to_string(),
+            },
+        ];
+
+        for status in statuses {
+            let value = serde_json::to_value(&status).expect("serialize control request status");
+            let decoded: ControlRequestStatus =
+                serde_json::from_value(value).expect("deserialize control request status");
+            assert_eq!(decoded, status);
+        }
+    }
 }
