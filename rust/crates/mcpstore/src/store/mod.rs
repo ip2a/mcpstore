@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
+use std::sync::{RwLock as SyncRwLock, atomic::AtomicU64};
 
+pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::cache::models::{
     HealthStatus, OpenApiImportContextState, ServiceLifecycleState, ToolAvailability,
 };
-pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
 use crate::event_reactor::{EventBackend, EventReactor, ReactorConfig, Rule};
 pub(crate) use crate::events::{Event, EventBus};
@@ -18,9 +18,6 @@ pub(crate) use crate::transport::{
 
 pub(crate) use crate::{Result, StoreError};
 
-pub(crate) use crate::health::actions::SupervisorActions;
-use crate::identity::InstanceId;
-
 mod openapi;
 mod options;
 pub(crate) mod payload;
@@ -28,7 +25,7 @@ mod runtime;
 mod tool_changes;
 use runtime::StoreRuntimeConfig;
 
-pub use crate::agent::models::{ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry};
+pub use crate::agent::models::{ScopedServiceEntry, ScopedToolEntry};
 pub use crate::agent::tool_visibility::ToolVisibilityFilter;
 pub use crate::cache::models::CacheHealthReport;
 pub use crate::events::EventCapabilityReport;
@@ -44,16 +41,16 @@ pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
 pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) mod prelude {
-    pub(crate) use crate::config_formats::{project_config, ConfigFormat};
+    pub(crate) use crate::config_formats::{ConfigFormat, project_config};
     pub(crate) use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
-        BackendKind, CacheHealthReport, CacheStorage, ConfigRevision, ConnectionStatus,
-        DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, Event, HealthStatus,
-        MCPStore, OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry,
-        ServerConfig, ServiceDefinition, ServiceInstance, ServiceLifecycleState, SourceMode,
-        StartupPolicy, StoreError, ToolAvailability, ToolChangeServiceResult, ToolChangeSummary,
-        CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
+        BackendKind, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE, CacheHealthReport,
+        CacheStorage, ConfigRevision, ConnectionStatus, DiscoveredPrompt, DiscoveredResource,
+        DiscoveredResourceTemplate, Event, HealthStatus, MCPStore, OpenApiImportContextState,
+        Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition,
+        ServiceInstance, ServiceLifecycleState, SourceMode, StartupPolicy, StoreError,
+        ToolAvailability, ToolChangeServiceResult, ToolChangeSummary,
     };
 }
 
@@ -144,8 +141,7 @@ impl MCPStore {
         let supervisor = (options.source_mode == SourceMode::Local).then(|| {
             std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
                 runtime_config.supervisor_policy,
-                cache.clone(),
-                event_bus.clone(),
+                state_manager.clone(),
             ))
         });
         if let Some(supervisor) = &supervisor {
@@ -171,8 +167,7 @@ impl MCPStore {
             event_backend: tokio::sync::RwLock::new(event_backend),
         });
         if let Some(supervisor) = &store.supervisor {
-            let weak = std::sync::Arc::downgrade(&store);
-            supervisor.attach_actions(std::sync::Arc::new(StoreSupervisorActions(weak)));
+            supervisor.attach_store(std::sync::Arc::downgrade(&store));
         }
         Ok(store)
     }
@@ -278,84 +273,6 @@ impl MCPStore {
     /// Check whether the EventReactor is initialized.
     pub async fn has_reactor(&self) -> bool {
         self.event_reactor.read().await.is_some()
-    }
-}
-
-struct StoreSupervisorActions(std::sync::Weak<MCPStore>);
-
-#[async_trait::async_trait]
-impl SupervisorActions for StoreSupervisorActions {
-    async fn apply_transition(
-        &self,
-        instance_id: InstanceId,
-        _from: HealthStatus,
-        to: HealthStatus,
-        reason: &'static str,
-    ) -> std::result::Result<(), String> {
-        let Some(store) = self.0.upgrade() else {
-            return Ok(());
-        };
-        if store.source_mode == SourceMode::Db {
-            return Ok(());
-        }
-        if store.registry.find_instance(instance_id).await.is_none() {
-            return Ok(());
-        }
-
-        match to {
-            HealthStatus::CircuitOpen => {
-                store.pool.disconnect(instance_id).await.ok();
-                store
-                    .registry
-                    .update_status(instance_id, ConnectionStatus::Error)
-                    .await;
-                let _ = store
-                    .mark_instance_retryable_failure(
-                        instance_id,
-                        format!("Circuit open: {reason}"),
-                    )
-                    .await;
-            }
-            HealthStatus::HalfOpen => {
-                let _ = store.connect_service_internal(instance_id, true).await;
-            }
-            HealthStatus::Healthy => {
-                store
-                    .registry
-                    .update_status(instance_id, ConnectionStatus::Connected)
-                    .await;
-                let tools = store.registry.list_instance_tools(instance_id).await;
-                let _ = store.cache_instance_connected(instance_id, &tools).await;
-                if let Ok(mut status) = store.load_or_default_status(instance_id).await {
-                    if status.health_status != HealthStatus::Healthy {
-                        status.connection_attempts = 0;
-                        status.current_error = None;
-                        status.next_retry_time = None;
-                        status.hard_deadline = None;
-                        status.lifecycle_state.restart_attempts = 0;
-                        let _ = store.put_instance_status(&status).await;
-                    }
-                }
-            }
-            HealthStatus::Disconnected => {
-                store.pool.disconnect(instance_id).await.ok();
-                store
-                    .registry
-                    .update_status(instance_id, ConnectionStatus::Disconnected)
-                    .await;
-                if let Ok(mut status) = store.load_or_default_status(instance_id).await {
-                    status.connection_attempts = 0;
-                    status.current_error = None;
-                    status.next_retry_time = None;
-                    status.hard_deadline = None;
-                    status.lease_deadline = None;
-                    status.lifecycle_state.restart_attempts = 0;
-                    let _ = store.put_instance_status(&status).await;
-                }
-            }
-            _ => {}
-        }
-        Ok(())
     }
 }
 

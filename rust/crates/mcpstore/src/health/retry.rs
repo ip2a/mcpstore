@@ -1,5 +1,4 @@
-use crate::cache::models::InstanceStatus;
-use crate::health::state_machine::{HealthObservation, ObservationKind};
+use crate::state::{FailureInfo, FailurePhase, RecoveryState, ServiceState, ServiceStateEvent};
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -7,33 +6,15 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
         error: String,
-    ) -> Result<InstanceStatus> {
-        if let Some(supervisor) = &self.supervisor {
-            if !self.is_openapi_virtual_instance(instance_id).await? {
-                supervisor.register(instance_id, HealthStatus::Healthy).await;
-                supervisor
-                    .observe_and_commit(
-                        instance_id,
-                        HealthObservation {
-                            observed_at: Self::now_timestamp_f64(),
-                            kind: ObservationKind::TransportFailure,
-                            succeeded: false,
-                            latency_ms: None,
-                        },
-                    )
-                    .await;
-                return self
-                    .cached_instance_status(instance_id)
-                    .await?
-                    .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
-            }
-        }
-        self.mark_instance_retryable_failure(instance_id, error).await
+    ) -> Result<ServiceState> {
+        self.mark_instance_retryable_failure(instance_id, error)
+            .await
     }
 
-    fn jitter_for_instance(&self, instance_id: InstanceId, attempts: i32) -> f64 {
+    fn jitter_for_instance(&self, instance_id: InstanceId, attempts: u32) -> f64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
+
         let mut hasher = DefaultHasher::new();
         instance_id.hash(&mut hasher);
         attempts.hash(&mut hasher);
@@ -41,49 +22,42 @@ impl MCPStore {
         (hash as f64 / u64::MAX as f64) * 2.0 - 1.0
     }
 
-    fn retry_delay_secs(&self, attempts: i32, instance_id: InstanceId) -> i64 {
-        let exponent = attempts.saturating_sub(1).clamp(0, 6) as u32;
+    fn retry_delay_secs(&self, attempts: u32, instance_id: InstanceId) -> i64 {
+        let exponent = attempts.saturating_sub(1).min(6);
         let delay = self
             .runtime_config
             .retry_backoff_base_secs
             .saturating_mul(2_i64.pow(exponent));
         let capped = delay.min(self.runtime_config.retry_backoff_max_secs);
         let jitter_ratio = self.runtime_config.backoff_jitter_ratio.clamp(0.0, 1.0);
-        if jitter_ratio > 0.0 {
-            let jitter = self.jitter_for_instance(instance_id, attempts) * jitter_ratio;
-            (capped as f64 * (1.0 + jitter)).max(0.0) as i64
-        } else {
-            capped
+        if jitter_ratio == 0.0 {
+            return capped;
         }
+        let jitter = self.jitter_for_instance(instance_id, attempts) * jitter_ratio;
+        (capped as f64 * (1.0 + jitter)).max(0.0) as i64
     }
 
-    pub(crate) fn retry_wait_seconds(status: &InstanceStatus, now: f64) -> Option<i64> {
-        if status.health_status != HealthStatus::CircuitOpen {
+    pub(crate) fn retry_wait_seconds(state: &ServiceState, now: f64) -> Option<i64> {
+        let RecoveryState::Waiting { retry_at, .. } = state.recovery else {
             return None;
-        }
-        let retry_at = status.next_retry_time?;
-        if retry_at <= now {
-            return None;
-        }
-        Some((retry_at - now).ceil() as i64)
+        };
+        (retry_at > now).then(|| (retry_at - now).ceil() as i64)
     }
 
-    pub(crate) fn retry_exhausted(status: &InstanceStatus, now: f64) -> bool {
-        status.health_status == HealthStatus::Disconnected
-            && status.current_error.is_some()
-            && (status.connection_attempts >= status.max_connection_attempts
-                || status
-                    .hard_deadline
-                    .map(|deadline| now >= deadline)
-                    .unwrap_or(true))
+    pub(crate) fn retry_exhausted(state: &ServiceState, now: f64) -> bool {
+        match state.recovery {
+            RecoveryState::Exhausted { .. } => true,
+            RecoveryState::Waiting { hard_deadline, .. }
+            | RecoveryState::Probing { hard_deadline, .. } => now >= hard_deadline,
+            RecoveryState::Idle => false,
+        }
     }
 
-    pub(crate) fn retry_poll_interval(status: &InstanceStatus) -> std::time::Duration {
+    pub(crate) fn retry_poll_interval(state: &ServiceState) -> std::time::Duration {
         let now = Self::now_timestamp_f64();
-        if let Some(retry_at) = status.next_retry_time {
+        if let RecoveryState::Waiting { retry_at, .. } = state.recovery {
             if retry_at > now {
-                let wait_secs = (retry_at - now).clamp(0.1, 1.0);
-                return std::time::Duration::from_secs_f64(wait_secs);
+                return std::time::Duration::from_secs_f64((retry_at - now).clamp(0.1, 1.0));
             }
         }
         std::time::Duration::from_millis(300)
@@ -93,42 +67,72 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
         error: String,
-    ) -> Result<InstanceStatus> {
-        let mut payload = self.load_or_default_status(instance_id).await?;
-        let now = Self::now_timestamp_f64();
-        let attempts = payload.connection_attempts.saturating_add(1);
+    ) -> Result<ServiceState> {
+        let now = Self::now_timestamp();
+        let now_f64 = now as f64;
+        let current = self
+            .state_manager
+            .get(instance_id)
+            .await?
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        let attempts = match current.recovery {
+            RecoveryState::Waiting { attempt, .. }
+            | RecoveryState::Probing { attempt, .. }
+            | RecoveryState::Exhausted { attempts: attempt } => attempt.saturating_add(1),
+            RecoveryState::Idle => 1,
+        };
+        let hard_deadline = match current.recovery {
+            RecoveryState::Waiting { hard_deadline, .. }
+            | RecoveryState::Probing { hard_deadline, .. } => hard_deadline,
+            RecoveryState::Idle | RecoveryState::Exhausted { .. } => {
+                now_f64 + self.runtime_config.reconnect_hard_timeout_secs as f64
+            }
+        };
         let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
-        let restart_attempts = payload.lifecycle_state.restart_attempts.saturating_add(1);
-        payload.lifecycle_state.restart_attempts = restart_attempts;
-        let hard_deadline = payload
-            .hard_deadline
-            .unwrap_or(now + self.runtime_config.reconnect_hard_timeout_secs as f64);
-        let should_restart = !payload.lifecycle_state.manually_stopped
-            && lifecycle
-                .restart_policy
-                .should_restart_after_failure(restart_attempts);
+        let should_restart = lifecycle
+            .restart_policy
+            .should_restart_after_failure(attempts as i32)
+            && now_f64 < hard_deadline;
+        let failure = FailureInfo {
+            phase: FailurePhase::Recovery,
+            code: "service_unavailable".to_string(),
+            retryable: should_restart,
+            message: error,
+            since: now,
+        };
 
-        payload.last_health_check = now as i64;
-        payload.connection_attempts = attempts;
-        payload.current_error = Some(error);
-        payload.tools = self
-            .tool_statuses_with_availability(instance_id, ToolAvailability::Unavailable)
+        let failed = self
+            .state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportFailed(failure.clone()),
+                now,
+            )
             .await?;
-        payload.window_error_rate = Some(1.0);
-        payload.hard_deadline = Some(hard_deadline);
-
-        if !should_restart {
-            payload.health_status = HealthStatus::Disconnected;
-            payload.next_retry_time = None;
-            self.registry
-                .update_status(instance_id, ConnectionStatus::Disconnected)
-                .await;
+        if should_restart {
+            let retry_at = now_f64 + self.retry_delay_secs(attempts, instance_id) as f64;
+            Ok(self
+                .state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::RecoveryScheduled {
+                        attempt: attempts,
+                        retry_at,
+                        hard_deadline,
+                    },
+                    now,
+                )
+                .await?)
         } else {
-            payload.health_status = HealthStatus::CircuitOpen;
-            payload.next_retry_time = Some(now + self.retry_delay_secs(attempts, instance_id) as f64);
+            let _ = failed;
+            Ok(self
+                .state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::RecoveryExhausted { attempts, failure },
+                    now,
+                )
+                .await?)
         }
-
-        self.put_instance_status(&payload).await?;
-        Ok(payload)
     }
 }

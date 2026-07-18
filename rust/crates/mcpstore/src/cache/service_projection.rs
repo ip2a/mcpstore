@@ -1,10 +1,9 @@
 use std::hash::{Hash, Hasher};
 
 use crate::cache::models::{
-    ContextToolVisibilityState, HealthStatus, InstanceStatus, InstanceToolRelation,
-    ServiceDefinitionEntity, ServiceInstanceEntity, ServiceLifecycleState, SessionServiceRelation,
-    SessionToolVisibility, ToolAvailability, ToolEntity, ToolPreferenceState, ToolStatusItem,
-    ToolTransformRule,
+    ContextToolVisibilityState, InstanceStatus, InstanceToolRelation, ServiceDefinitionEntity,
+    ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
+    ToolPreferenceState, ToolTransformRule,
 };
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
@@ -52,12 +51,22 @@ impl MCPStore {
                 crate::auth::AuthConfig::OAuthAuthorizationCode(_)
                 | crate::auth::AuthConfig::OAuthClientCredentials(_) => AuthState::Unauthenticated,
             };
+            let lifecycle = config.resolved_lifecycle_for_scope(
+                &instance.scope,
+                &self.runtime_config.service_lifecycle_defaults,
+            );
+            let desired = if lifecycle.startup_policy == crate::config::StartupPolicy::OnStoreStart
+            {
+                DesiredState::Running
+            } else {
+                DesiredState::Stopped
+            };
             self.state_manager
                 .create(ServiceState::new(
                     instance_id,
                     instance.service_name.clone(),
                     instance.scope.clone(),
-                    DesiredState::Stopped,
+                    desired,
                     auth,
                     instance.added_time,
                 ))
@@ -95,7 +104,6 @@ impl MCPStore {
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
         let now = chrono::Utc::now().timestamp();
         let mut relation_tools = Vec::with_capacity(tools.len());
-        let mut status_tools = Vec::with_capacity(tools.len());
         for tool in tools {
             let entity = ToolEntity {
                 instance_id,
@@ -119,10 +127,6 @@ impl MCPStore {
                 )
                 .await?;
             relation_tools.push(tool.name.clone());
-            status_tools.push(ToolStatusItem {
-                tool_name: tool.name.clone(),
-                status: ToolAvailability::Available,
-            });
         }
 
         let relation = InstanceToolRelation {
@@ -138,9 +142,6 @@ impl MCPStore {
                 serde_json::to_value(relation).unwrap_or_default(),
             )
             .await?;
-        let status =
-            self.instance_status_payload(&instance, HealthStatus::Healthy, None, status_tools);
-        self.put_instance_status(&status).await?;
         self.cache
             .put_event(
                 "instance",
@@ -400,34 +401,6 @@ impl MCPStore {
             config_revision: instance.config_revision,
             applied_config_revision: instance.applied_config_revision,
             added_time: instance.added_time,
-        }
-    }
-
-    fn instance_status_payload(
-        &self,
-        instance: &ServiceInstance,
-        health_status: HealthStatus,
-        error: Option<String>,
-        tools: Vec<ToolStatusItem>,
-    ) -> InstanceStatus {
-        InstanceStatus {
-            instance_id: instance.instance_id,
-            service_name: instance.service_name.clone(),
-            scope: instance.scope.clone(),
-            health_status,
-            last_health_check: chrono::Utc::now().timestamp(),
-            connection_attempts: 0,
-            max_connection_attempts: self.runtime_config.max_connection_attempts,
-            current_error: error,
-            tools,
-            window_error_rate: None,
-            latency_p95: None,
-            latency_p99: None,
-            sample_size: None,
-            next_retry_time: None,
-            hard_deadline: None,
-            lease_deadline: None,
-            lifecycle_state: ServiceLifecycleState::default(),
         }
     }
 

@@ -1,3 +1,4 @@
+use crate::state::{RecoveryState, RuntimePhase};
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -6,24 +7,25 @@ impl MCPStore {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        if self.is_openapi_virtual_instance(instance_id).await? {
-            let instance = self
-                .registry
-                .find_instance(instance_id)
-                .await
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
-            if instance.status == ConnectionStatus::Connected {
-                return Ok(());
-            }
-            self.ensure_service_auto_start_allowed(instance_id).await?;
-            self.connect_service_internal(instance_id, true).await?;
+        let state = self
+            .state_manager
+            .get(instance_id)
+            .await?
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        let transport_connected = if self.is_openapi_virtual_instance(instance_id).await? {
+            state.phase == RuntimePhase::Running
+        } else {
+            self.pool.is_connected(instance_id).await && state.phase == RuntimePhase::Running
+        };
+        if transport_connected {
             return Ok(());
         }
-        if !self.pool.is_connected(instance_id).await {
-            self.ensure_service_auto_start_allowed(instance_id).await?;
-            self.connect_service_internal(instance_id, true).await?;
-        }
-        Ok(())
+        self.ensure_service_auto_start_allowed(instance_id).await?;
+        self.connect_service_internal(
+            instance_id,
+            matches!(state.recovery, RecoveryState::Waiting { .. }),
+        )
+        .await
     }
 
     pub(crate) async fn is_openapi_virtual_instance(
@@ -38,24 +40,12 @@ impl MCPStore {
 
     pub async fn list_instances(&self) -> Vec<ServiceInstance> {
         self.refresh_from_db_if_needed().await.ok();
-        let mut instances = self.registry.list_instances().await;
-        if self.source_mode == SourceMode::Db {
-            for instance in &mut instances {
-                self.hydrate_instance_status_from_cache(instance).await.ok();
-            }
-        }
-        instances
+        self.registry.list_instances().await
     }
 
     pub async fn find_instance(&self, instance_id: InstanceId) -> Option<ServiceInstance> {
         self.refresh_from_db_if_needed().await.ok();
-        let mut instance = self.registry.find_instance(instance_id).await?;
-        if self.source_mode == SourceMode::Db {
-            self.hydrate_instance_status_from_cache(&mut instance)
-                .await
-                .ok();
-        }
-        Some(instance)
+        self.registry.find_instance(instance_id).await
     }
 
     pub async fn list_tools(
