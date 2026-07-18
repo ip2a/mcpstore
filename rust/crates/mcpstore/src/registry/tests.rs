@@ -23,7 +23,6 @@ async fn test_registry_lifecycle() {
         transport: "stdio".to_string(),
         url: None,
         command: Some("python tool.py".to_string()),
-        status: ConnectionStatus::Connected,
         tools: vec![ToolInfo {
             name: "tool1".to_string(),
             title: None,
@@ -96,7 +95,6 @@ async fn same_service_name_has_isolated_scope_instances() {
             transport: "stdio".to_string(),
             url: None,
             command: Some("demo".to_string()),
-            status: ConnectionStatus::Disconnected,
             tools: Vec::new(),
             effective_config: Map::new(),
             config_revision: ConfigRevision {
@@ -121,13 +119,14 @@ async fn same_service_name_has_isolated_scope_instances() {
         .unwrap();
     assert_ne!(store_id, agent_id);
 
-    reg.update_status(agent_id, ConnectionStatus::Error).await;
     assert_eq!(
-        reg.find_instance(store_id).await.unwrap().status,
-        ConnectionStatus::Disconnected
+        reg.find_instance(store_id).await.unwrap().scope,
+        ScopeRef::Store
     );
     assert_eq!(
-        reg.find_instance(agent_id).await.unwrap().status,
-        ConnectionStatus::Error
+        reg.find_instance(agent_id).await.unwrap().scope,
+        ScopeRef::Agent {
+            agent_id: "agent1".to_string(),
+        }
     );
 }

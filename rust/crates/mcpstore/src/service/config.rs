@@ -326,8 +326,7 @@ impl MCPStore {
                 transport,
                 url,
                 command,
-                status: ConnectionStatus::Disconnected,
-                tools: Vec::new(),
+                    tools: Vec::new(),
                 effective_config,
                 config_revision: ConfigRevision {
                     base_revision: config.definition_revision(),
@@ -337,7 +336,6 @@ impl MCPStore {
                 added_time: now,
             };
             if let Some(existing) = existing_instances.get(&instance_id) {
-                instance.status = existing.status;
                 instance.tools = existing.tools.clone();
                 instance.applied_config_revision = existing.applied_config_revision;
                 instance.added_time = existing.added_time;

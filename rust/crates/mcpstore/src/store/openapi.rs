@@ -354,7 +354,6 @@ impl MCPStore {
             transport: "openapi".to_string(),
             url: config.url.clone(),
             command: None,
-            status: ConnectionStatus::Disconnected,
             tools: Vec::new(),
             effective_config: base_config.clone(),
             config_revision: revision,

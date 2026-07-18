@@ -8,15 +8,6 @@ use tokio::sync::RwLock;
 use crate::config::{ScopeDeclarations, ServiceLifecycleConfig};
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectionStatus {
-    Connecting,
-    Connected,
-    Disconnected,
-    Error,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolInfo {
     pub name: String,
@@ -53,7 +44,6 @@ pub struct ServiceInstance {
     pub transport: String,
     pub url: Option<String>,
     pub command: Option<String>,
-    pub status: ConnectionStatus,
     pub tools: Vec<ToolInfo>,
     pub effective_config: Map<String, Value>,
     pub config_revision: ConfigRevision,
