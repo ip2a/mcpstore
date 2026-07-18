@@ -45,11 +45,11 @@ impl Scope {
 pub struct AddArgs {
     #[arg(help = "Service name")]
     pub name: String,
-    #[arg(help = "HTTP/SSE URL or stdio command; stdio recommended after --")]
+    #[arg(help = "Streamable HTTP URL or stdio command; stdio recommended after --")]
     pub command_or_url: Option<String>,
     #[arg(trailing_var_arg = true, help = "stdio command arguments")]
     pub args: Vec<String>,
-    #[arg(long, help = "Transport type: stdio, http, streamable-http, or sse")]
+    #[arg(long, help = "Transport type: stdio, http, or streamable-http")]
     pub transport: Option<String>,
     #[command(flatten)]
     pub store: StoreSourceArgs,
@@ -60,11 +60,7 @@ pub struct AddArgs {
         help = "Process env vars, format KEY=VAL, repeatable"
     )]
     pub env: Vec<String>,
-    #[arg(
-        long,
-        num_args = 1,
-        help = "HTTP/SSE headers, format KEY=VAL, repeatable"
-    )]
+    #[arg(long, num_args = 1, help = "HTTP headers, format KEY=VAL, repeatable")]
     pub header: Vec<String>,
     #[arg(long, value_enum, default_value_t = Scope::Store, help = "Operation scope")]
     pub scope: Scope,

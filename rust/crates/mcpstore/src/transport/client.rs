@@ -92,7 +92,6 @@ impl McpConnection {
         match transport_type {
             "stdio" => self.connect_stdio(supervisor).await,
             "streamable-http" | "http" => self.connect_http().await,
-            "sse" => self.connect_http().await,
             other => Err(TransportError::ConnectionFailed(format!(
                 "Unsupported transport type: {other}"
             ))),
@@ -218,5 +217,40 @@ impl McpConnection {
             },
             _ => fallback,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::EventBus;
+    use crate::identity::{ScopeRef, ServiceInstanceKey};
+    use crate::registry::ServiceRegistry;
+
+    #[tokio::test]
+    async fn sse_transport_is_rejected_before_connecting() {
+        let instance_id = ServiceInstanceKey::new("sse-service", ScopeRef::Store).instance_id();
+        let config = ServerConfig {
+            url: Some("http://127.0.0.1:9/sse".to_string()),
+            transport: Some("sse".to_string()),
+            ..ServerConfig::default()
+        };
+        let mut connection = McpConnection::new(
+            instance_id,
+            "sse-service".to_string(),
+            config,
+            AuthCoordinator::new().expect("test auth coordinator"),
+            ServiceRegistry::new(),
+            EventBus::new(),
+        );
+
+        let error = connection.connect(None).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            TransportError::ConnectionFailed(message)
+                if message == "Unsupported transport type: sse"
+        ));
+        assert!(!connection.is_connected());
     }
 }
