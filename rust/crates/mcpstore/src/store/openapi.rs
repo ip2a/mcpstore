@@ -364,8 +364,6 @@ impl MCPStore {
         self.registry.register_definition(definition).await;
         self.registry.register_instance(instance).await;
         self.cache_instance_added(instance_id).await?;
-        self.set_instance_status(instance_id, HealthStatus::Disconnected, None, Vec::new())
-            .await?;
         Ok(())
     }
 

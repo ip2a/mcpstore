@@ -1,8 +1,7 @@
-use crate::cache::models::{HealthStatus, ToolAvailability};
 use crate::config::ServerConfig;
 use crate::core::{Result, StoreError};
 use crate::identity::InstanceId;
-use crate::registry::ConnectionStatus;
+use crate::state::ServiceStateEvent;
 use crate::store::MCPStore;
 use crate::transport::TransportError;
 
@@ -152,10 +151,12 @@ impl MCPStore {
         self.auth_coordinator
             .logout(instance_id, base_url, &config.auth)
             .await?;
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Disconnected)
-            .await;
-        self.set_instance_status(instance_id, HealthStatus::Disconnected, None, Vec::new())
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportStopped,
+                Self::now_timestamp(),
+            )
             .await?;
         Ok(())
     }
@@ -210,9 +211,6 @@ impl MCPStore {
             _ => {}
         }
 
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Error)
-            .await;
         self.record_instance_failure(instance_id, format!("{context}: {error}"))
             .await?;
         Ok(())
@@ -238,24 +236,14 @@ impl MCPStore {
         self.auth_coordinator
             .mark_scope_upgrade_required(instance_id, required_scope)
             .await;
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Disconnected)
-            .await;
-
-        let mut status = self.load_or_default_status(instance_id).await?;
-        status.health_status = HealthStatus::Disconnected;
-        status.last_health_check = Self::now_timestamp();
-        status.connection_attempts = 0;
-        status.current_error = None;
-        status.window_error_rate = None;
-        status.next_retry_time = None;
-        status.hard_deadline = None;
-        status.lease_deadline = None;
-        status.lifecycle_state.restart_attempts = 0;
-        status.tools = self
-            .tool_statuses_with_availability(instance_id, ToolAvailability::Unavailable)
+        self.pool.disconnect(instance_id).await.ok();
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportStopped,
+                Self::now_timestamp(),
+            )
             .await?;
-        self.put_instance_status(&status).await?;
 
         self.event_bus
             .publish(
@@ -294,24 +282,14 @@ impl MCPStore {
         self.auth_coordinator
             .set_status(instance_id, AuthStatus::Unauthenticated)
             .await;
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Disconnected)
-            .await;
-
-        let mut status = self.load_or_default_status(instance_id).await?;
-        status.health_status = HealthStatus::Disconnected;
-        status.last_health_check = Self::now_timestamp();
-        status.connection_attempts = 0;
-        status.current_error = None;
-        status.window_error_rate = None;
-        status.next_retry_time = None;
-        status.hard_deadline = None;
-        status.lease_deadline = None;
-        status.lifecycle_state.restart_attempts = 0;
-        status.tools = self
-            .tool_statuses_with_availability(instance_id, ToolAvailability::Unavailable)
+        self.pool.disconnect(instance_id).await.ok();
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportStopped,
+                Self::now_timestamp(),
+            )
             .await?;
-        self.put_instance_status(&status).await?;
 
         self.event_bus
             .publish(

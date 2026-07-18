@@ -188,7 +188,8 @@ mod tests {
             ..ServerConfig::default()
         };
         assert!(config.auth.is_none());
-        let coordinator = AuthCoordinator::new().unwrap();
+        let coordinator =
+            AuthCoordinator::for_tests(crate::auth::SystemKeyring::new().unwrap()).unwrap();
         let client = connect(
             "00000000-0000-0000-0000-000000000001".parse().unwrap(),
             "static-header-service",
