@@ -485,11 +485,11 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
 pub struct UpdateArgs {
     #[arg(help = "Service name")]
     pub name: String,
-    #[arg(help = "HTTP/SSE URL or stdio command; stdio recommended after --")]
+    #[arg(help = "Streamable HTTP URL or stdio command; stdio recommended after --")]
     pub command_or_url: Option<String>,
     #[arg(trailing_var_arg = true, help = "stdio command arguments")]
     pub args: Vec<String>,
-    #[arg(long, help = "Transport type: stdio, http, streamable-http, or sse")]
+    #[arg(long, help = "Transport type: stdio, http, or streamable-http")]
     pub transport: Option<String>,
     #[command(flatten)]
     pub store: StoreSourceArgs,
@@ -500,11 +500,7 @@ pub struct UpdateArgs {
         help = "Process env vars, format KEY=VAL, repeatable"
     )]
     pub env: Vec<String>,
-    #[arg(
-        long,
-        num_args = 1,
-        help = "HTTP/SSE headers, format KEY=VAL, repeatable"
-    )]
+    #[arg(long, num_args = 1, help = "HTTP headers, format KEY=VAL, repeatable")]
     pub header: Vec<String>,
     #[arg(long, value_enum, default_value_t = Scope::Store, help = "Operation scope")]
     pub scope: Scope,
@@ -1280,7 +1276,7 @@ fn build_server_config(
     header_map: &HashMap<String, String>,
 ) -> std::result::Result<ServerConfig, BoxErr> {
     let command_or_url = command_or_url.ok_or_else(|| {
-        "Missing service entry: HTTP/SSE requires URL, stdio requires command".to_string()
+        "Missing service entry: Streamable HTTP requires URL, stdio requires command".to_string()
     })?;
     let is_url = command_or_url.starts_with("http://") || command_or_url.starts_with("https://");
 
@@ -1292,7 +1288,11 @@ fn build_server_config(
         .unwrap_or(if is_url { "streamable-http" } else { "stdio" })
         .to_string();
 
-    if matches!(resolved_transport.as_str(), "streamable-http" | "sse") && !is_url {
+    if resolved_transport == "sse" {
+        return Err("Unsupported transport type: sse".into());
+    }
+
+    if resolved_transport == "streamable-http" && !is_url {
         return Err(format!(
             "{} service http:// or https:// URL required: {}",
             resolved_transport, command_or_url
@@ -1473,6 +1473,21 @@ mod tests {
         .to_string();
 
         assert!(err.contains("http:// or https:// URL required"));
+    }
+
+    #[test]
+    fn sse_transport_is_rejected_during_config_building() {
+        let err = build_server_config(
+            Some("https://api.example.com/sse"),
+            &[],
+            Some("sse"),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(err, "Unsupported transport type: sse");
     }
 
     #[test]
