@@ -4,9 +4,9 @@
 //! - mcpServers is present and is a map
 //! - Each server has url or command
 //! - args is a list, env is a dict, headers is a dict
-//! - transport is in [streamable-http, sse, stdio]
+//! - transport is in [streamable-http, stdio]
 
-use crate::config::models::ServerConfigFull;
+use crate::config::models::{ServerConfigFull, TransportType};
 use std::collections::HashMap;
 
 /// Validation errors.
@@ -27,6 +27,12 @@ pub fn validate(servers: &HashMap<String, ServerConfigFull>) -> Result<(), Vec<V
     for (name, cfg) in servers {
         if cfg.url.is_none() && cfg.command.is_none() {
             errors.push(ValidationError::MissingUrlOrCommand(name.clone()));
+        }
+        if matches!(cfg.transport.as_ref(), Some(TransportType::Sse)) {
+            errors.push(ValidationError::InvalidTransport(
+                "sse".to_string(),
+                name.clone(),
+            ));
         }
     }
 
