@@ -714,6 +714,7 @@ impl CallCommandError {
             StoreError::ServiceNotFound(_) => CallErrorCode::ServiceNotFound,
             StoreError::Auth(_) => CallErrorCode::AuthenticationRequired,
             StoreError::Transport(error) => match error {
+                TransportError::InvalidInput(_) => CallErrorCode::InvalidInput,
                 TransportError::AuthRequired(_) | TransportError::InsufficientScope { .. } => {
                     CallErrorCode::AuthenticationRequired
                 }
@@ -1334,7 +1335,7 @@ fn build_server_config(
     }
 }
 
-fn parse_instance_id(value: &str) -> std::result::Result<InstanceId, BoxErr> {
+pub(crate) fn parse_instance_id(value: &str) -> std::result::Result<InstanceId, BoxErr> {
     Ok(InstanceId::from_str(value)?)
 }
 

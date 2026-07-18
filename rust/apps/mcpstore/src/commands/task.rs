@@ -152,6 +152,7 @@ impl TaskCommandError {
             StoreError::ServiceNotFound(_) => TaskErrorCode::ServiceNotFound,
             StoreError::Auth(_) => TaskErrorCode::AuthenticationRequired,
             StoreError::Transport(error) => match error {
+                TransportError::InvalidInput(_) => TaskErrorCode::InvalidInput,
                 TransportError::AuthRequired(_) | TransportError::InsufficientScope { .. } => {
                     TaskErrorCode::AuthenticationRequired
                 }

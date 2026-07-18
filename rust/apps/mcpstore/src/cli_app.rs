@@ -40,6 +40,9 @@ pub enum Commands {
     Tools(commands::mcp::ToolsArgs),
     Call(commands::mcp::CallToolArgs),
     Task(commands::task::TaskArgs),
+    Resource(commands::protocol::ResourceArgs),
+    Prompt(commands::protocol::PromptArgs),
+    Complete(commands::protocol::CompleteArgs),
     MigrateBackend(commands::mcp::MigrateBackendArgs),
     #[command(name = "mcp-server", visible_alias = "serve-mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
@@ -92,6 +95,9 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Tools(args) => commands::mcp::tools(args).await,
             Commands::Call(args) => commands::mcp::call_tool(args).await,
             Commands::Task(args) => commands::task::run(args).await,
+            Commands::Resource(args) => commands::protocol::run_resource(args).await,
+            Commands::Prompt(args) => commands::protocol::run_prompt(args).await,
+            Commands::Complete(args) => commands::protocol::complete(args).await,
             Commands::MigrateBackend(args) => commands::mcp::migrate_backend(args).await,
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
             Commands::Web(args) => commands::web::run(args).await,
@@ -112,6 +118,28 @@ fn uses_machine_output(command: &Commands) -> bool {
                 | commands::task::TaskAction::Cancel(args) => args.runtime.output,
             };
             output != commands::task::TaskOutputFormat::Human
+        }
+        Commands::Resource(args) => match &args.action {
+            commands::protocol::ResourceAction::List(args) => {
+                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+            }
+            commands::protocol::ResourceAction::Templates(args) => {
+                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+            }
+            commands::protocol::ResourceAction::Read(args) => {
+                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+            }
+        },
+        Commands::Prompt(args) => match &args.action {
+            commands::protocol::PromptAction::List(args) => {
+                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+            }
+            commands::protocol::PromptAction::Get(args) => {
+                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+            }
+        },
+        Commands::Complete(args) => {
+            args.output.output != commands::protocol::ProtocolOutputFormat::Human
         }
         _ => false,
     }
@@ -621,6 +649,94 @@ mod tests {
                 assert_eq!(args.url_prefix, "/mcp");
             }
             _ => panic!("Expected to parse as api command"),
+        }
+    }
+    #[test]
+    fn parses_resource_read_json_output() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "resource",
+            "read",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "repo://mcp/store",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Resource(commands::protocol::ResourceArgs {
+                action: commands::protocol::ResourceAction::Read(args),
+            }) => {
+                assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
+                assert_eq!(args.uri, "repo://mcp/store");
+                assert_eq!(
+                    args.output.output,
+                    commands::protocol::ProtocolOutputFormat::Json
+                );
+            }
+            _ => panic!("Expected resource read command"),
+        }
+    }
+
+    #[test]
+    fn parses_prompt_get_with_arguments() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "prompt",
+            "get",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "review",
+            "--arguments",
+            r#"{"style":"brief"}"#,
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Prompt(commands::protocol::PromptArgs {
+                action: commands::protocol::PromptAction::Get(args),
+            }) => {
+                assert_eq!(args.prompt_name, "review");
+                assert_eq!(args.arguments, r#"{"style":"brief"}"#);
+            }
+            _ => panic!("Expected prompt get command"),
+        }
+    }
+
+    #[test]
+    fn parses_complete_command() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "complete",
+            "c81af510-755b-55c7-8487-5668ab36e06e",
+            "--reference-kind",
+            "resource",
+            "--reference",
+            "repo://mcp/{name}",
+            "--argument-name",
+            "name",
+            "--value",
+            "re",
+            "--context",
+            r#"{"other":"x"}"#,
+            "--output",
+            "jsonl",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Complete(args) => {
+                assert_eq!(
+                    args.reference_kind,
+                    commands::protocol::CompletionReferenceKind::Resource
+                );
+                assert_eq!(args.reference, "repo://mcp/{name}");
+                assert_eq!(
+                    args.output.output,
+                    commands::protocol::ProtocolOutputFormat::Jsonl
+                );
+            }
+            _ => panic!("Expected complete command"),
         }
     }
 }

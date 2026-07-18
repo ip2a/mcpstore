@@ -48,6 +48,8 @@ pub enum TransportError {
         instance_id: crate::identity::InstanceId,
         capability: &'static str,
     },
+    #[error("Invalid MCP input: {0}")]
+    InvalidInput(String),
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
     #[error("Not connected: {0}")]
