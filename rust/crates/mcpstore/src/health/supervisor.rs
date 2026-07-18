@@ -45,10 +45,7 @@ impl InstanceSupervisor {
         }
     }
 
-    pub(crate) fn attach_actions(
-        &self,
-        actions: Arc<dyn SupervisorActions>,
-    ) {
+    pub(crate) fn attach_actions(&self, actions: Arc<dyn SupervisorActions>) {
         let _ = self.actions.set(actions);
     }
 
@@ -60,8 +57,7 @@ impl InstanceSupervisor {
         let started_at = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
         let interval =
             std::time::Duration::from_secs_f64(self.policy.startup_interval_secs.max(0.1));
-        let timeout =
-            std::time::Duration::from_secs_f64(self.policy.startup_timeout_secs.max(0.1));
+        let timeout = std::time::Duration::from_secs_f64(self.policy.startup_timeout_secs.max(0.1));
         let hard_deadline = started_at + self.policy.startup_hard_timeout_secs.max(1.0);
 
         loop {
@@ -143,9 +139,7 @@ impl InstanceSupervisor {
                 }
 
                 let (probe_kind, observation_kind) = match supervisor.status(instance_id).await {
-                    Some(HealthStatus::Startup) => {
-                        (ProbeKind::Startup, ObservationKind::Startup)
-                    }
+                    Some(HealthStatus::Startup) => (ProbeKind::Startup, ObservationKind::Startup),
                     Some(HealthStatus::HalfOpen)
                     | Some(HealthStatus::Healthy)
                     | Some(HealthStatus::Degraded) => {
@@ -161,10 +155,9 @@ impl InstanceSupervisor {
                     succeeded: result.is_ok(),
                     latency_ms: None,
                 };
-                let transition = supervisor.observe(instance_id, observation).await;
-                if let Some(transition) = transition {
-                    let _ = supervisor.commit_transition(instance_id, &transition).await;
-                }
+                supervisor
+                    .observe_and_commit(instance_id, observation)
+                    .await;
             }
         })
     }
@@ -273,11 +266,7 @@ impl InstanceSupervisor {
         transition
     }
 
-    pub(crate) async fn reset_machine(
-        &self,
-        instance_id: InstanceId,
-        status: HealthStatus,
-    ) {
+    pub(crate) async fn reset_machine(&self, instance_id: InstanceId, status: HealthStatus) {
         self.machines
             .lock()
             .await
