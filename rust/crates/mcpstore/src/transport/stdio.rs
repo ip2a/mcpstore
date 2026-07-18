@@ -28,8 +28,7 @@ impl StdioProcess {
     }
 
     pub(super) async fn shutdown(mut self) {
-        self.shutdown_requested
-            .store(true, Ordering::Release);
+        self.shutdown_requested.store(true, Ordering::Release);
         if let Some(sender) = self.shutdown.take() {
             let _ = sender.send(());
         }
@@ -98,9 +97,11 @@ pub(super) async fn connect(
                     succeeded: false,
                     latency_ms: None,
                 };
-                let _ = supervisor.observe(instance_id, observation).await;
+                let _ = supervisor
+                    .observe_and_commit(instance_id, observation)
+                    .await;
                 // Transition persistence and recovery actions are handled by the
-                // health worker during its next tick.
+                // supervisor's single observation path.
             }
         }
     });

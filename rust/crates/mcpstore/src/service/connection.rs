@@ -67,7 +67,7 @@ impl MCPStore {
                     true,
                 )
                 .await;
-            self.record_health_check_result(instance_id, true, None, None)
+            self.record_openapi_availability(instance_id, true, None, None)
                 .await?;
             return Ok(());
         }
@@ -215,25 +215,20 @@ impl MCPStore {
         if !self.is_openapi_virtual_instance(instance_id).await? {
             if let Some(supervisor) = &self.supervisor {
                 match supervisor
-                    .run_startup_probe(
-                        probe_runner,
-                        instance_id,
-                    )
+                    .run_startup_probe(probe_runner, instance_id)
                     .await
                 {
                     super::super::health::supervisor::StartupOutcome::Healthy => {}
                     super::super::health::supervisor::StartupOutcome::Failed(transition) => {
                         let error = format!("Startup probe failed: {}", transition.reason);
-                        self.record_instance_failure(instance_id, error)
-                            .await?;
+                        self.record_instance_failure(instance_id, error).await?;
                         return Err(StoreError::Other(format!(
                             "Service instance startup probe failed: {instance_id}"
                         )));
                     }
                     super::super::health::supervisor::StartupOutcome::TimedOut => {
                         let error = "Startup probe timed out".to_string();
-                        self.record_instance_failure(instance_id, error)
-                            .await?;
+                        self.record_instance_failure(instance_id, error).await?;
                         return Err(StoreError::Other(format!(
                             "Service instance startup probe timed out: {instance_id}"
                         )));

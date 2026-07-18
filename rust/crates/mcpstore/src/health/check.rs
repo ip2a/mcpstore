@@ -78,6 +78,56 @@ impl MCPStore {
         Ok(state)
     }
 
+    pub(crate) async fn record_openapi_availability(
+        &self,
+        instance_id: InstanceId,
+        available: bool,
+        latency_ms: Option<f64>,
+        error: Option<String>,
+    ) -> Result<InstanceStatus> {
+        if self.is_db_source() {
+            return self
+                .cached_instance_status(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+        }
+        let mut payload = self.load_or_default_status(instance_id).await?;
+        payload.last_health_check = Self::now_timestamp();
+        payload.health_status = if available {
+            HealthStatus::Healthy
+        } else {
+            HealthStatus::Degraded
+        };
+        payload.current_error = error;
+        payload.window_error_rate = Some(if available { 0.0 } else { 1.0 });
+        payload.tools = self
+            .tool_statuses_with_availability(
+                instance_id,
+                if available {
+                    ToolAvailability::Available
+                } else {
+                    ToolAvailability::Unavailable
+                },
+            )
+            .await?;
+        if available {
+            payload.connection_attempts = 0;
+            payload.next_retry_time = None;
+            payload.hard_deadline = None;
+            payload.lease_deadline = None;
+            payload.lifecycle_state.restart_attempts = 0;
+            self.registry
+                .update_status(instance_id, ConnectionStatus::Connected)
+                .await;
+        }
+        if let Some(latency_ms) = latency_ms {
+            payload.latency_p95 = Some(latency_ms);
+            payload.latency_p99 = Some(latency_ms);
+        }
+        self.put_instance_status(&payload).await?;
+        Ok(payload)
+    }
+
     pub async fn record_health_check_result(
         &self,
         instance_id: InstanceId,
@@ -120,6 +170,12 @@ impl MCPStore {
         latency_ms: Option<f64>,
         error: Option<String>,
     ) -> Result<InstanceStatus> {
+        if self.is_db_source() {
+            return self
+                .cached_instance_status(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+        }
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
