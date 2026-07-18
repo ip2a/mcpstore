@@ -13,6 +13,11 @@ use tokio::sync::{Mutex, RwLock};
 use rmcp::transport::auth::OAuthHttpClient;
 
 use crate::identity::InstanceId;
+#[cfg(test)]
+use crate::identity::ScopeRef;
+use crate::state::{AuthState, FailureInfo, FailurePhase, ServiceStateEvent, ServiceStateManager};
+#[cfg(test)]
+use crate::state::{DesiredState, ServiceState};
 
 use super::{
     AuthConfig, AuthCredentialKey, AuthError, AuthFlow, AuthStatus, AuthStatusView,
@@ -27,7 +32,7 @@ const DYNAMIC_CLIENT_IDENTITY: &str = "dynamic-client-registration";
 #[derive(Clone)]
 pub struct AuthCoordinator {
     keyring: SystemKeyring,
-    statuses: Arc<RwLock<HashMap<InstanceId, AuthStatus>>>,
+    state_manager: Arc<ServiceStateManager>,
     required_scopes: Arc<RwLock<HashMap<InstanceId, String>>>,
     refresh_locks: Arc<Mutex<HashMap<InstanceId, Arc<Mutex<()>>>>>,
     sessions: Arc<Mutex<HashMap<InstanceId, AuthorizationSession>>>,
@@ -42,14 +47,17 @@ impl std::fmt::Debug for AuthCoordinator {
 }
 
 impl AuthCoordinator {
-    pub fn new() -> Result<Self, AuthError> {
-        Self::with_keyring(SystemKeyring::new()?)
+    pub fn new(state_manager: Arc<ServiceStateManager>) -> Result<Self, AuthError> {
+        Self::with_keyring(SystemKeyring::new()?, state_manager)
     }
 
-    fn with_keyring(keyring: SystemKeyring) -> Result<Self, AuthError> {
+    fn with_keyring(
+        keyring: SystemKeyring,
+        state_manager: Arc<ServiceStateManager>,
+    ) -> Result<Self, AuthError> {
         Ok(Self {
             keyring,
-            statuses: Arc::new(RwLock::new(HashMap::new())),
+            state_manager,
             required_scopes: Arc::new(RwLock::new(HashMap::new())),
             refresh_locks: Arc::new(Mutex::new(HashMap::new())),
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -60,7 +68,7 @@ impl AuthCoordinator {
 
     #[cfg(test)]
     pub(crate) fn for_tests(keyring: SystemKeyring) -> Result<Self, AuthError> {
-        Self::with_keyring(keyring)
+        Self::with_keyring(keyring, test_state_manager())
     }
 
     #[cfg(test)]
@@ -68,18 +76,20 @@ impl AuthCoordinator {
         keyring: SystemKeyring,
         oauth_http_client: Arc<dyn OAuthHttpClient>,
     ) -> Result<Self, AuthError> {
-        let mut coordinator = Self::with_keyring(keyring)?;
+        let mut coordinator = Self::with_keyring(keyring, test_state_manager())?;
         coordinator.oauth_http_client = Some(oauth_http_client);
         Ok(coordinator)
     }
 
     pub async fn status(&self, instance_id: InstanceId) -> AuthStatus {
-        self.statuses
-            .read()
-            .await
-            .get(&instance_id)
-            .cloned()
-            .unwrap_or(AuthStatus::NotRequired)
+        match self.state_manager.get(instance_id).await {
+            Ok(Some(state)) => auth_status(state.auth),
+            #[cfg(test)]
+            Ok(None) => AuthStatus::NotRequired,
+            #[cfg(not(test))]
+            Ok(None) => panic!("canonical service state missing for {instance_id}"),
+            Err(error) => panic!("canonical service state read failed for {instance_id}: {error}"),
+        }
     }
 
     pub async fn status_view(&self, instance_id: InstanceId, auth: &AuthConfig) -> AuthStatusView {
@@ -96,7 +106,24 @@ impl AuthCoordinator {
         if status != AuthStatus::ScopeUpgradeRequired {
             self.required_scopes.write().await.remove(&instance_id);
         }
-        self.statuses.write().await.insert(instance_id, status);
+        self.ensure_test_state(instance_id).await;
+        let failure = (status == AuthStatus::Error).then(|| FailureInfo {
+            phase: FailurePhase::Auth,
+            code: "authentication_failed".to_string(),
+            retryable: true,
+            message: "authentication failed".to_string(),
+            since: chrono::Utc::now().timestamp(),
+        });
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::AuthChanged(auth_state(status), failure),
+                chrono::Utc::now().timestamp(),
+            )
+            .await
+            .unwrap_or_else(|error| {
+                panic!("canonical auth transition failed for {instance_id}: {error}")
+            });
     }
 
     pub(crate) async fn mark_scope_upgrade_required(
@@ -115,10 +142,8 @@ impl AuthCoordinator {
         } else {
             self.required_scopes.write().await.remove(&instance_id);
         }
-        self.statuses
-            .write()
-            .await
-            .insert(instance_id, AuthStatus::ScopeUpgradeRequired);
+        self.set_status(instance_id, AuthStatus::ScopeUpgradeRequired)
+            .await;
     }
 
     pub(crate) async fn required_scope(&self, instance_id: InstanceId) -> Option<String> {
@@ -134,38 +159,40 @@ impl AuthCoordinator {
     }
 
     pub async fn initialize_status(&self, instance_id: InstanceId, auth: &AuthConfig) {
-        let mut statuses = self.statuses.write().await;
-        if auth.is_none() {
-            statuses.insert(instance_id, AuthStatus::NotRequired);
+        if self
+            .state_manager
+            .get(instance_id)
+            .await
+            .ok()
+            .flatten()
+            .is_none()
+        {
             return;
         }
-        match statuses.get(&instance_id) {
-            None | Some(AuthStatus::NotRequired) => {
-                statuses.insert(instance_id, AuthStatus::Unauthenticated);
-            }
-            Some(_) => {}
-        }
+        let current = self.status(instance_id).await;
+        let target = if auth.is_none() {
+            AuthStatus::NotRequired
+        } else if current == AuthStatus::NotRequired {
+            AuthStatus::Unauthenticated
+        } else {
+            return;
+        };
+        self.set_status(instance_id, target).await;
     }
 
     pub async fn remove_status(&self, instance_id: InstanceId) {
-        self.statuses.write().await.remove(&instance_id);
         self.required_scopes.write().await.remove(&instance_id);
         self.refresh_locks.lock().await.remove(&instance_id);
         self.sessions.lock().await.remove(&instance_id);
     }
 
     pub async fn clear_statuses(&self) {
-        self.statuses.write().await.clear();
         self.required_scopes.write().await.clear();
         self.refresh_locks.lock().await.clear();
         self.sessions.lock().await.clear();
     }
 
     pub async fn retain_statuses(&self, instance_ids: &HashSet<InstanceId>) {
-        self.statuses
-            .write()
-            .await
-            .retain(|instance_id, _| instance_ids.contains(instance_id));
         self.required_scopes
             .write()
             .await
@@ -179,6 +206,27 @@ impl AuthCoordinator {
             .await
             .retain(|instance_id, _| instance_ids.contains(instance_id));
     }
+
+    #[cfg(test)]
+    async fn ensure_test_state(&self, instance_id: InstanceId) {
+        if self.state_manager.get(instance_id).await.unwrap().is_some() {
+            return;
+        }
+        let _ = self
+            .state_manager
+            .create(ServiceState::new(
+                instance_id,
+                "test".to_string(),
+                ScopeRef::Store,
+                DesiredState::Stopped,
+                AuthState::NotRequired,
+                chrono::Utc::now().timestamp(),
+            ))
+            .await;
+    }
+
+    #[cfg(not(test))]
+    async fn ensure_test_state(&self, _instance_id: InstanceId) {}
 
     pub fn credential_store(&self, key: &AuthCredentialKey) -> KeyringCredentialStore {
         KeyringCredentialStore::with_keyring(key, self.keyring.clone())
@@ -770,6 +818,44 @@ fn credential_key(
         client_id,
         auth.scopes().iter().cloned(),
         auth.credential_profile().map(ToString::to_string),
+    ))
+}
+
+fn auth_status(state: AuthState) -> AuthStatus {
+    match state {
+        AuthState::NotRequired => AuthStatus::NotRequired,
+        AuthState::Unauthenticated => AuthStatus::Unauthenticated,
+        AuthState::Authorizing => AuthStatus::Authorizing,
+        AuthState::Authenticated => AuthStatus::Authenticated,
+        AuthState::Refreshing => AuthStatus::Refreshing,
+        AuthState::ScopeUpgradeRequired => AuthStatus::ScopeUpgradeRequired,
+        AuthState::Failed => AuthStatus::Error,
+    }
+}
+
+fn auth_state(status: AuthStatus) -> AuthState {
+    match status {
+        AuthStatus::NotRequired => AuthState::NotRequired,
+        AuthStatus::Unauthenticated => AuthState::Unauthenticated,
+        AuthStatus::Authorizing => AuthState::Authorizing,
+        AuthStatus::Authenticated => AuthState::Authenticated,
+        AuthStatus::Refreshing => AuthState::Refreshing,
+        AuthStatus::ScopeUpgradeRequired => AuthState::ScopeUpgradeRequired,
+        AuthStatus::Error => AuthState::Failed,
+    }
+}
+
+#[cfg(test)]
+fn test_state_manager() -> Arc<ServiceStateManager> {
+    use crate::cache::{CacheLayerManager, memory_cache_store};
+    use crate::events::EventBus;
+
+    Arc::new(ServiceStateManager::new(
+        Arc::new(CacheLayerManager::new(
+            memory_cache_store(),
+            "auth-test-state",
+        )),
+        EventBus::with_history(10),
     ))
 }
 

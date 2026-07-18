@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::state::ServiceStateEvent;
+use crate::state::{FailureInfo, FailurePhase, ServiceStateEvent};
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -110,77 +110,108 @@ impl MCPStore {
         let Some(instance) = self.registry.find_instance(instance_id).await else {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         };
-        let old_tools = instance.tools;
-        let is_openapi = self.is_openapi_virtual_instance(instance_id).await?;
-
-        if force_refresh {
-            self.pool.disconnect(instance_id).await.ok();
-            self.connect_service_internal(instance_id, false).await?;
-        } else if is_openapi || !self.pool.is_connected(instance_id).await {
-            self.ensure_instance_connected(instance_id).await?;
-        }
-
-        let tool_infos = if is_openapi {
-            self.registry.list_instance_tools(instance_id).await
-        } else {
-            self.pool
-                .list_tools(instance_id)
-                .await?
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-        };
-
-        let diff = Self::diff_tool_infos(&old_tools, &tool_infos);
-        let mut updated = self
-            .registry
-            .find_instance(instance_id)
-            .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
         self.state_manager
             .dispatch(
                 instance_id,
-                ServiceStateEvent::ToolSyncSucceeded {
-                    tools: tool_infos.iter().map(|tool| tool.name.clone()).collect(),
-                },
+                ServiceStateEvent::ToolSyncStarted,
                 Self::now_timestamp(),
             )
             .await?;
-        updated.tools = tool_infos;
-        let service_name = updated.service_name.clone();
-        self.registry.register_instance(updated).await;
 
-        let tools = self.registry.list_instance_tools(instance_id).await;
-        self.cache_instance_connected(instance_id, &tools).await?;
+        let result: Result<ToolChangeServiceResult> = async {
+            let old_tools = instance.tools;
+            let is_openapi = self.is_openapi_virtual_instance(instance_id).await?;
 
-        let timestamp = chrono::Utc::now().timestamp();
-        self.cache
-            .put_event(
-                "service_instance",
-                &format!("{instance_id}:tools_refreshed:{timestamp}"),
-                serde_json::json!({
-                    "event": "instance_tools_refreshed",
-                    "instance_id": instance_id,
-                    "service_name": service_name,
-                    "timestamp": timestamp,
-                    "changes_count": diff.changes_count,
-                    "added_tools": diff.added_tools,
-                    "removed_tools": diff.removed_tools,
-                    "updated_tools": diff.updated_tools,
-                }),
-            )
-            .await?;
+            if force_refresh {
+                self.pool.disconnect(instance_id).await.ok();
+                self.connect_service_internal(instance_id, false).await?;
+            } else if is_openapi || !self.pool.is_connected(instance_id).await {
+                self.ensure_instance_connected(instance_id).await?;
+            }
 
-        Ok(ToolChangeServiceResult {
-            changed: diff.changes_count > 0,
-            changes_count: diff.changes_count,
-            added_tools: diff.added_tools,
-            removed_tools: diff.removed_tools,
-            updated_tools: diff.updated_tools,
-            service_name,
-            client_id: instance_id.to_string(),
-            timestamp,
-        })
+            let tool_infos = if is_openapi {
+                self.registry.list_instance_tools(instance_id).await
+            } else {
+                self.pool
+                    .list_tools(instance_id)
+                    .await?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<_>>()
+            };
+
+            let diff = Self::diff_tool_infos(&old_tools, &tool_infos);
+            let mut updated = self
+                .registry
+                .find_instance(instance_id)
+                .await
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            updated.tools = tool_infos;
+            let service_name = updated.service_name.clone();
+            self.registry.register_instance(updated).await;
+
+            let tools = self.registry.list_instance_tools(instance_id).await;
+            self.cache_instance_connected(instance_id, &tools).await?;
+            self.state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::ToolSyncSucceeded {
+                        tools: tools.into_iter().map(|tool| tool.name).collect(),
+                    },
+                    Self::now_timestamp(),
+                )
+                .await?;
+
+            let timestamp = chrono::Utc::now().timestamp();
+            self.cache
+                .put_event(
+                    "service_instance",
+                    &format!("{instance_id}:tools_refreshed:{timestamp}"),
+                    serde_json::json!({
+                        "event": "instance_tools_refreshed",
+                        "instance_id": instance_id,
+                        "service_name": service_name,
+                        "timestamp": timestamp,
+                        "changes_count": diff.changes_count,
+                        "added_tools": diff.added_tools,
+                        "removed_tools": diff.removed_tools,
+                        "updated_tools": diff.updated_tools,
+                    }),
+                )
+                .await?;
+
+            Ok(ToolChangeServiceResult {
+                changed: diff.changes_count > 0,
+                changes_count: diff.changes_count,
+                added_tools: diff.added_tools,
+                removed_tools: diff.removed_tools,
+                updated_tools: diff.updated_tools,
+                service_name,
+                client_id: instance_id.to_string(),
+                timestamp,
+            })
+        }
+        .await;
+
+        match result {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                self.state_manager
+                    .dispatch(
+                        instance_id,
+                        ServiceStateEvent::ToolSyncFailed(FailureInfo {
+                            phase: FailurePhase::Tools,
+                            code: "tool_sync_failed".to_string(),
+                            retryable: true,
+                            message: error.to_string(),
+                            since: Self::now_timestamp(),
+                        }),
+                        Self::now_timestamp(),
+                    )
+                    .await?;
+                Err(error)
+            }
+        }
     }
 
     fn diff_tool_infos(

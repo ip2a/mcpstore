@@ -123,8 +123,6 @@ impl MCPStore {
                 (store, None) // Redis EventBackend created lazily in setup_event_reactor
             }
         };
-        let auth_coordinator = crate::auth::AuthCoordinator::new()?;
-
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(1000);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
@@ -132,6 +130,7 @@ impl MCPStore {
             cache.clone(),
             event_bus.clone(),
         ));
+        let auth_coordinator = crate::auth::AuthCoordinator::new(state_manager.clone())?;
         let pool = ConnectionPool::new(
             auth_coordinator.clone(),
             registry.clone(),

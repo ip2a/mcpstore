@@ -73,7 +73,10 @@ impl McpConnection {
             config: ServerConfig::default(),
             client: Some(ActiveClient::Stdio(client)),
             stdio_process: None,
-            auth_coordinator: AuthCoordinator::new().expect("test auth coordinator"),
+            auth_coordinator: AuthCoordinator::for_tests(
+                crate::auth::SystemKeyring::new().expect("test keyring"),
+            )
+            .expect("test auth coordinator"),
             handler,
         }
     }
@@ -239,7 +242,10 @@ mod tests {
             instance_id,
             "sse-service".to_string(),
             config,
-            AuthCoordinator::new().expect("test auth coordinator"),
+            AuthCoordinator::for_tests(
+                crate::auth::SystemKeyring::new().expect("test keyring"),
+            )
+            .expect("test auth coordinator"),
             ServiceRegistry::new(),
             EventBus::new(),
         );
