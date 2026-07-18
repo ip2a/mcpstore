@@ -177,21 +177,14 @@ impl MCPStore {
         }
 
         for instance in self.registry.list_instances().await {
-            let status = self
-                .rebuild_observed_status_for_startup(instance.instance_id)
-                .await?;
-            let lifecycle = self
-                .resolved_instance_lifecycle(instance.instance_id)
-                .await?;
-            if lifecycle.startup_policy != StartupPolicy::OnStoreStart {
+            let state = self
+                .state_manager
+                .get(instance.instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance.instance_id.to_string()))?;
+            if state.desired != crate::state::DesiredState::Running {
                 continue;
             }
-            let manually_stopped = status.lifecycle_state.manual_stop_persistent;
-            if lifecycle.restart_policy.is_unless_stopped() && manually_stopped {
-                continue;
-            }
-            self.clear_lifecycle_manual_stop(instance.instance_id)
-                .await?;
             if let Err(error) = self
                 .connect_service_internal(instance.instance_id, false)
                 .await
@@ -259,12 +252,12 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
     ) -> Result<()> {
-        let instance = self
-            .registry
-            .find_instance(instance_id)
-            .await
+        let state = self
+            .state_manager
+            .get(instance_id)
+            .await?
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
-        if instance.status == ConnectionStatus::Connected {
+        if state.phase == crate::state::RuntimePhase::Running {
             return Ok(());
         }
         let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;

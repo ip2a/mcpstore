@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::state::ServiceStateEvent;
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -136,8 +137,16 @@ impl MCPStore {
             .find_instance(instance_id)
             .await
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::ToolSyncSucceeded {
+                    tools: tool_infos.iter().map(|tool| tool.name.clone()).collect(),
+                },
+                Self::now_timestamp(),
+            )
+            .await?;
         updated.tools = tool_infos;
-        updated.status = ConnectionStatus::Connected;
         let service_name = updated.service_name.clone();
         self.registry.register_instance(updated).await;
 

@@ -1,81 +1,47 @@
-use crate::cache::models::InstanceStatus;
 use crate::health::state_machine::{HealthObservation, ObservationKind};
+use crate::state::{
+    FailureInfo, FailurePhase, HealthMetrics, HealthState, RecoveryState, ServiceState,
+    ServiceStateEvent,
+};
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn health_check(&self, instance_id: InstanceId) -> Result<InstanceStatus> {
-        self.refresh_from_db_if_needed().await?;
-        if self.is_db_source() {
-            return self
-                .cached_instance_status(instance_id)
-                .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
-        }
-        let instance = self
-            .registry
-            .find_instance(instance_id)
-            .await
+    pub async fn health_check(&self, instance_id: InstanceId) -> Result<ServiceState> {
+        let current = self
+            .state_manager
+            .get(instance_id)
+            .await?
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        if self.is_db_source() || self.is_openapi_virtual_instance(instance_id).await? {
+            return Ok(current);
+        }
 
-        let cached = self.cached_instance_status(instance_id).await?;
-        if self.pool.is_connected(instance_id).await {
-            if let Some(status) = cached {
-                if matches!(
-                    status.health_status,
-                    HealthStatus::Healthy | HealthStatus::Startup
-                ) {
-                    return Ok(status);
-                }
+        if !self.pool.is_connected(instance_id).await {
+            if current.desired == crate::state::DesiredState::Running
+                && matches!(current.recovery, RecoveryState::Idle)
+            {
+                return self
+                    .mark_instance_retryable_failure(
+                        instance_id,
+                        "Transport is not connected".to_string(),
+                    )
+                    .await;
             }
-            return self
-                .record_health_check_result(instance_id, true, None, None)
-                .await;
+            return Ok(current);
         }
 
-        if let Some(status) = cached {
-            if matches!(
-                status.health_status,
-                HealthStatus::Init
-                    | HealthStatus::Startup
-                    | HealthStatus::Degraded
-                    | HealthStatus::CircuitOpen
-                    | HealthStatus::HalfOpen
-                    | HealthStatus::Disconnected
-            ) {
-                return Ok(status);
-            }
-        }
-
-        let health_status = match instance.status {
-            ConnectionStatus::Connected => HealthStatus::Healthy,
-            ConnectionStatus::Connecting => HealthStatus::Startup,
-            ConnectionStatus::Disconnected => HealthStatus::Disconnected,
-            ConnectionStatus::Error => HealthStatus::Degraded,
-        };
-
-        let availability = if matches!(health_status, HealthStatus::Healthy) {
-            ToolAvailability::Available
-        } else {
-            ToolAvailability::Unavailable
-        };
-        let tools = self
-            .tool_statuses_with_availability(instance_id, availability)
-            .await?;
-        let mut state = self.load_or_default_status(instance_id).await?;
-        state.health_status = health_status.clone();
-        state.last_health_check = Self::now_timestamp();
-        state.tools = tools;
-        if matches!(health_status, HealthStatus::Healthy) {
-            state.connection_attempts = 0;
-            state.current_error = None;
-            state.window_error_rate = Some(0.0);
-            state.next_retry_time = None;
-            state.hard_deadline = None;
-            state.lease_deadline = None;
-            state.lifecycle_state.restart_attempts = 0;
-        }
-        self.put_instance_status(&state).await?;
-        Ok(state)
+        let started_at = std::time::Instant::now();
+        let timeout =
+            std::time::Duration::from_secs_f64(self.runtime_config.ping_timeout_http_secs.max(0.1));
+        let ok = self.pool.ping(instance_id, timeout).await.is_ok();
+        let latency_ms = Some(started_at.elapsed().as_secs_f64() * 1000.0);
+        self.record_health_check_result(
+            instance_id,
+            ok,
+            latency_ms,
+            (!ok).then(|| "Health probe failed".to_string()),
+        )
+        .await
     }
 
     pub(crate) async fn record_openapi_availability(
@@ -84,48 +50,15 @@ impl MCPStore {
         available: bool,
         latency_ms: Option<f64>,
         error: Option<String>,
-    ) -> Result<InstanceStatus> {
-        if self.is_db_source() {
-            return self
-                .cached_instance_status(instance_id)
-                .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
-        }
-        let mut payload = self.load_or_default_status(instance_id).await?;
-        payload.last_health_check = Self::now_timestamp();
-        payload.health_status = if available {
-            HealthStatus::Healthy
-        } else {
-            HealthStatus::Degraded
-        };
-        payload.current_error = error;
-        payload.window_error_rate = Some(if available { 0.0 } else { 1.0 });
-        payload.tools = self
-            .tool_statuses_with_availability(
-                instance_id,
-                if available {
-                    ToolAvailability::Available
-                } else {
-                    ToolAvailability::Unavailable
-                },
-            )
-            .await?;
-        if available {
-            payload.connection_attempts = 0;
-            payload.next_retry_time = None;
-            payload.hard_deadline = None;
-            payload.lease_deadline = None;
-            payload.lifecycle_state.restart_attempts = 0;
-            self.registry
-                .update_status(instance_id, ConnectionStatus::Connected)
-                .await;
-        }
-        if let Some(latency_ms) = latency_ms {
-            payload.latency_p95 = Some(latency_ms);
-            payload.latency_p99 = Some(latency_ms);
-        }
-        self.put_instance_status(&payload).await?;
-        Ok(payload)
+    ) -> Result<ServiceState> {
+        self.record_observation(
+            instance_id,
+            ObservationKind::Liveness,
+            available,
+            latency_ms,
+            error,
+        )
+        .await
     }
 
     pub async fn record_health_check_result(
@@ -134,7 +67,7 @@ impl MCPStore {
         ok: bool,
         latency_ms: Option<f64>,
         error: Option<String>,
-    ) -> Result<InstanceStatus> {
+    ) -> Result<ServiceState> {
         self.record_observation(
             instance_id,
             ObservationKind::Liveness,
@@ -151,7 +84,7 @@ impl MCPStore {
         ok: bool,
         latency_ms: Option<f64>,
         error: Option<String>,
-    ) -> Result<InstanceStatus> {
+    ) -> Result<ServiceState> {
         self.record_observation(
             instance_id,
             ObservationKind::ToolCall,
@@ -169,27 +102,24 @@ impl MCPStore {
         ok: bool,
         latency_ms: Option<f64>,
         error: Option<String>,
-    ) -> Result<InstanceStatus> {
-        if self.is_db_source() {
-            return self
-                .cached_instance_status(instance_id)
-                .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
-        }
+    ) -> Result<ServiceState> {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+        }
+        if self.is_db_source() {
+            return self
+                .state_manager
+                .get(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
         }
 
         if let Some(supervisor) = &self.supervisor {
             supervisor
-                .register(instance_id, HealthStatus::Healthy)
-                .await;
-            let observed_at = Self::now_timestamp_f64();
-            supervisor
                 .observe_and_commit(
                     instance_id,
                     HealthObservation {
-                        observed_at,
+                        observed_at: Self::now_timestamp_f64(),
                         kind: observation_kind,
                         succeeded: ok,
                         latency_ms,
@@ -197,43 +127,46 @@ impl MCPStore {
                 )
                 .await;
             return self
-                .cached_instance_status(instance_id)
+                .state_manager
+                .get(instance_id)
                 .await?
                 .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
         }
 
-        let mut payload = self.load_or_default_status(instance_id).await?;
-        payload.last_health_check = Self::now_timestamp();
-
-        if ok {
-            payload.health_status = if latency_ms
-                .map(|value| value >= self.runtime_config.supervisor_policy.latency_p95_warn_ms)
-                .unwrap_or(false)
-            {
-                HealthStatus::Degraded
+        let health = if ok {
+            if latency_ms.is_some_and(|value| {
+                value >= self.runtime_config.supervisor_policy.latency_p95_warn_ms
+            }) {
+                HealthState::Degraded
             } else {
-                HealthStatus::Healthy
-            };
-            payload.connection_attempts = 0;
-            payload.current_error = None;
-            payload.tools = self
-                .tool_statuses_with_availability(instance_id, ToolAvailability::Available)
-                .await?;
-            payload.next_retry_time = None;
-            payload.hard_deadline = None;
-            payload.lease_deadline = None;
-            payload.lifecycle_state.restart_attempts = 0;
-            if self.pool.is_connected(instance_id).await {
-                self.registry
-                    .update_status(instance_id, ConnectionStatus::Connected)
-                    .await;
+                HealthState::Healthy
             }
-            self.put_instance_status(&payload).await?;
-            return Ok(payload);
-        }
-
-        payload.current_error = error;
-        self.put_instance_status(&payload).await?;
-        Ok(payload)
+        } else {
+            HealthState::Unhealthy
+        };
+        let now = Self::now_timestamp();
+        Ok(self
+            .state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::HealthObserved {
+                    health,
+                    metrics: HealthMetrics {
+                        error_rate: Some(if ok { 0.0 } else { 1.0 }),
+                        latency_p95_ms: latency_ms,
+                        latency_p99_ms: latency_ms,
+                        sample_size: 1,
+                    },
+                    failure: error.map(|message| FailureInfo {
+                        phase: FailurePhase::Health,
+                        code: "health_observation_failed".to_string(),
+                        retryable: true,
+                        message,
+                        since: now,
+                    }),
+                },
+                now,
+            )
+            .await?)
     }
 }

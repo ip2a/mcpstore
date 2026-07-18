@@ -173,6 +173,7 @@ pub struct ServiceState {
 pub enum ServiceStateEvent {
     StartRequested,
     StopRequested,
+    StopFailed(FailureInfo),
     TransportConnected,
     TransportStopped,
     TransportFailed(FailureInfo),
@@ -274,6 +275,13 @@ impl ServiceState {
                 self.recovery = RecoveryState::Idle;
                 self.failure = None;
             }
+            ServiceStateEvent::StopFailed(failure) => {
+                if self.desired != DesiredState::Stopped || self.phase != RuntimePhase::Stopping {
+                    return Err(self.invalid("stop_failed"));
+                }
+                self.phase = RuntimePhase::Running;
+                self.failure = Some(failure);
+            }
             ServiceStateEvent::TransportConnected => {
                 self.require_running("transport_connected")?;
                 self.phase = RuntimePhase::Running;
@@ -290,6 +298,7 @@ impl ServiceState {
                 } else {
                     HealthState::Unknown
                 };
+                self.tools.status = ToolsStatus::Stale;
                 if self.desired == DesiredState::Stopped {
                     self.recovery = RecoveryState::Idle;
                 }
@@ -509,6 +518,26 @@ mod tests {
         assert_eq!(state.desired, DesiredState::Stopped);
         assert_eq!(state.recovery, RecoveryState::Idle);
         assert_eq!(state.readiness.reason, ReadinessReason::Stopped);
+    }
+
+    #[test]
+    fn failed_stop_preserves_desired_stop_and_running_transport() {
+        let mut state = state(DesiredState::Running);
+        state.apply(ServiceStateEvent::StartRequested, 2).unwrap();
+        state
+            .apply(ServiceStateEvent::TransportConnected, 3)
+            .unwrap();
+        state.apply(ServiceStateEvent::StopRequested, 4).unwrap();
+        state
+            .apply(
+                ServiceStateEvent::StopFailed(failure(FailurePhase::Transport, false)),
+                5,
+            )
+            .unwrap();
+        assert_eq!(state.desired, DesiredState::Stopped);
+        assert_eq!(state.phase, RuntimePhase::Running);
+        assert_eq!(state.readiness.status, ReadinessStatus::NotReady);
+        assert!(state.failure.is_some());
     }
 
     #[test]
