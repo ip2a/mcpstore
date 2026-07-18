@@ -100,9 +100,10 @@ impl ProtocolCommandError {
                 TransportError::Protocol(_) => ProtocolErrorCode::ProtocolFailed,
                 _ => ProtocolErrorCode::CommandFailed,
             },
-            StoreError::Cache(_) | StoreError::Config(_) | StoreError::Other(_) => {
-                ProtocolErrorCode::CommandFailed
-            }
+            StoreError::Cache(_)
+            | StoreError::Config(_)
+            | StoreError::State(_)
+            | StoreError::Other(_) => ProtocolErrorCode::CommandFailed,
         };
         Self::new(format, code, error.to_string(), Some(instance_id))
     }

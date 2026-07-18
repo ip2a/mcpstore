@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import {
   getInstanceAuthStatus,
-  getInstanceStatus,
+  getServiceState,
   getServiceInstance,
   listInstancePrompts,
   listInstanceResourceTemplates,
@@ -26,7 +26,7 @@ export function useServiceStatusQuery(instanceId: string) {
   return useQuery({
     enabled: false,
     queryKey: queryKeys.instanceStatus(instanceId),
-    queryFn: () => getInstanceStatus(instanceId).catch(() => null),
+    queryFn: () => getServiceState(instanceId).catch(() => null),
   })
 }
 

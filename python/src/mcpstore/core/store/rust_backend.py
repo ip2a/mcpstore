@@ -395,8 +395,8 @@ class RustStoreBackend:
     def check_instances(self, instance_ids: List[str]) -> Dict[str, Any]:
         return _record_value(self._inner.check_instances(instance_ids))
 
-    def instance_status(self, instance_id: str) -> Dict[str, Any]:
-        return _record_value(self._inner.instance_status(instance_id))
+    def service_state(self, instance_id: str) -> Dict[str, Any]:
+        return _record_value(self._inner.service_state(instance_id))
 
     def list_tools(self, instance_id: str) -> List[Dict[str, Any]]:
         tools = _record_value(self._inner.list_tools(instance_id))

@@ -255,6 +255,13 @@ impl ApiError {
                 Some("session_key"),
                 None,
             ),
+            StoreError::State(error) => Self::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "STATE_ERROR",
+                error.to_string(),
+                None,
+                None,
+            ),
             StoreError::Other(message) => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",

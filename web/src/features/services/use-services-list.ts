@@ -1,16 +1,15 @@
 import { useMemo, useState } from "react"
 
-import type { ConnectionStatus, ServiceInstance } from "@/lib/api"
+import type { ReadinessStatus, ServiceInstance } from "@/lib/api"
 
 export type ServiceScopeFilter = "all" | "store" | "agent"
-export type ServiceStatusFilter = "all" | ConnectionStatus
+export type ServiceStatusFilter = "all" | ReadinessStatus
 export type ServiceSortBy = "name" | "status" | "tools"
 
-const STATUS_SORT_ORDER: Record<ConnectionStatus, number> = {
-  connected: 0,
-  connecting: 1,
-  error: 2,
-  disconnected: 3,
+const STATUS_SORT_ORDER: Record<ReadinessStatus, number> = {
+  ready: 0,
+  not_ready: 1,
+  unknown: 2,
 }
 
 export function countActiveServiceFilters(filters: {
@@ -48,13 +47,13 @@ export function useServicesList(services: ServiceInstance[]) {
         if (agentFilter && service.scope.agent_id !== agentFilter) return false
       }
 
-      if (statusFilter !== "all" && service.status !== statusFilter) return false
+      if (statusFilter !== "all" && service.state.readiness.status !== statusFilter) return false
       return true
     })
 
     return filtered.sort((a, b) => {
       if (sortBy === "status") {
-        const statusDiff = STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]
+        const statusDiff = STATUS_SORT_ORDER[a.state.readiness.status] - STATUS_SORT_ORDER[b.state.readiness.status]
         return statusDiff || a.service_name.localeCompare(b.service_name)
       }
       if (sortBy === "tools") {
@@ -68,7 +67,7 @@ export function useServicesList(services: ServiceInstance[]) {
   const totals = useMemo(() => {
     return {
       services: filteredServices.length,
-      connecting: filteredServices.filter((service) => service.status === "connecting").length,
+      starting: filteredServices.filter((service) => service.state.phase === "starting").length,
     }
   }, [filteredServices])
 

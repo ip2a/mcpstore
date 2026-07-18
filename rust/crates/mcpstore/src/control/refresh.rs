@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
+use crate::auth::AuthConfig;
 use crate::cache::models::{
     InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity, ToolEntity,
 };
-use crate::config::ServerConfig;
+use crate::config::{ServerConfig, StartupPolicy};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
+use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::{MCPStore, SourceMode};
 use crate::{Result, ServiceInstanceKey, StoreError};
 
@@ -187,6 +189,32 @@ impl MCPStore {
         }
         for (instance, transport_config) in instances {
             let instance_id = instance.instance_id;
+            if self.state_manager.get(instance_id).await?.is_none() {
+                let auth = match transport_config.auth {
+                    AuthConfig::None => AuthState::NotRequired,
+                    AuthConfig::OAuthAuthorizationCode(_)
+                    | AuthConfig::OAuthClientCredentials(_) => AuthState::Unauthenticated,
+                };
+                let lifecycle = transport_config.resolved_lifecycle_for_scope(
+                    &instance.scope,
+                    &self.runtime_config.service_lifecycle_defaults,
+                );
+                let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart {
+                    DesiredState::Running
+                } else {
+                    DesiredState::Stopped
+                };
+                self.state_manager
+                    .create(ServiceState::new(
+                        instance_id,
+                        instance.service_name.clone(),
+                        instance.scope.clone(),
+                        desired,
+                        auth,
+                        instance.added_time,
+                    ))
+                    .await?;
+            }
             self.auth_coordinator
                 .initialize_status(instance_id, &transport_config.auth)
                 .await;

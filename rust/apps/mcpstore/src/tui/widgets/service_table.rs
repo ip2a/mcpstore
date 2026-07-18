@@ -1,4 +1,5 @@
-use mcpstore::{registry::ConnectionStatus, InstanceId, ScopeRef};
+use mcpstore::state::{HealthState, ReadinessStatus, RecoveryState, RuntimePhase, ServiceState};
+use mcpstore::{InstanceId, ScopeRef};
 use ratatui::{
     style::Style,
     widgets::{Row, Table, TableState},
@@ -18,13 +19,16 @@ pub struct ServiceSummary {
     pub scope: ScopeRef,
     pub transport: String,
     pub endpoint: String,
-    pub status: ConnectionStatus,
+    pub readiness: ReadinessStatus,
+    pub phase: RuntimePhase,
+    pub health: HealthState,
+    pub recovery: RecoveryState,
     pub tools: usize,
     pub added_time: i64,
 }
 
-impl From<mcpstore::registry::ServiceInstance> for ServiceSummary {
-    fn from(value: mcpstore::registry::ServiceInstance) -> Self {
+impl ServiceSummary {
+    pub fn new(value: mcpstore::registry::ServiceInstance, state: ServiceState) -> Self {
         let endpoint = value
             .url
             .clone()
@@ -37,7 +41,10 @@ impl From<mcpstore::registry::ServiceInstance> for ServiceSummary {
             scope: value.scope,
             transport: value.transport,
             endpoint,
-            status: value.status,
+            readiness: state.readiness.status,
+            phase: state.phase,
+            health: state.health,
+            recovery: state.recovery,
             tools: value.tools.len(),
             added_time: value.added_time,
         }
@@ -50,7 +57,7 @@ pub fn filter_and_sort(
 ) -> Vec<ServiceSummary> {
     let mut result: Vec<ServiceSummary> = services
         .iter()
-        .filter(|s| filter.active_status.matches(s.status))
+        .filter(|s| filter.active_status.matches(s.readiness))
         .filter(|s| {
             if filter.search_text.is_empty() {
                 return true;
@@ -67,7 +74,7 @@ pub fn filter_and_sort(
     result.sort_by(|a, b| {
         let ord = match filter.sort_by {
             SortBy::Name => a.name.cmp(&b.name),
-            SortBy::Status => status_order(a.status).cmp(&status_order(b.status)),
+            SortBy::Status => status_order(a.readiness).cmp(&status_order(b.readiness)),
             SortBy::Tools => a.tools.cmp(&b.tools),
         };
         if filter.sort_asc {
@@ -80,12 +87,11 @@ pub fn filter_and_sort(
     result
 }
 
-fn status_order(status: ConnectionStatus) -> u8 {
+fn status_order(status: ReadinessStatus) -> u8 {
     match status {
-        ConnectionStatus::Connected => 0,
-        ConnectionStatus::Connecting => 1,
-        ConnectionStatus::Error => 2,
-        ConnectionStatus::Disconnected => 3,
+        ReadinessStatus::Ready => 0,
+        ReadinessStatus::NotReady => 1,
+        ReadinessStatus::Unknown => 2,
     }
 }
 
@@ -115,11 +121,11 @@ pub fn render(
             truncate_text(&service.name, 22),
             scope,
             service.transport.clone(),
-            format_connection_status(service.status).to_string(),
+            format_readiness(service.readiness).to_string(),
             service.tools.to_string(),
             i18n::text(locale, TextKey::ServiceRowActions).to_string(),
         ])
-        .style(status_style(service.status))
+        .style(status_style(service.readiness))
     });
 
     let row_highlight_style = if focused {
@@ -151,21 +157,19 @@ fn scope_label(scope: &ScopeRef) -> String {
     }
 }
 
-fn status_style(status: ConnectionStatus) -> Style {
+fn status_style(status: ReadinessStatus) -> Style {
     match status {
-        ConnectionStatus::Connected => theme::success(),
-        ConnectionStatus::Connecting => theme::warning(),
-        ConnectionStatus::Disconnected => theme::muted(),
-        ConnectionStatus::Error => theme::error(),
+        ReadinessStatus::Ready => theme::success(),
+        ReadinessStatus::NotReady => theme::error(),
+        ReadinessStatus::Unknown => theme::muted(),
     }
 }
 
-fn format_connection_status(status: ConnectionStatus) -> &'static str {
+fn format_readiness(status: ReadinessStatus) -> &'static str {
     match status {
-        ConnectionStatus::Connected => "connected",
-        ConnectionStatus::Connecting => "connecting",
-        ConnectionStatus::Disconnected => "disconnected",
-        ConnectionStatus::Error => "error",
+        ReadinessStatus::Ready => "ready",
+        ReadinessStatus::NotReady => "not_ready",
+        ReadinessStatus::Unknown => "unknown",
     }
 }
 

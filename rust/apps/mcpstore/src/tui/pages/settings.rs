@@ -131,8 +131,8 @@ fn status_lines(app: &TuiApp) -> Vec<Line<'static>> {
             app.locale,
             TextKey::SettingsServiceCount,
             format!(
-                "total={} connected={} error={} connecting={} disconnected={}",
-                stats.total, stats.connected, stats.error, stats.connecting, stats.disconnected
+                "total={} ready={} not_ready={} unknown={}",
+                stats.total, stats.ready, stats.not_ready, stats.unknown
             ),
         ),
     ]

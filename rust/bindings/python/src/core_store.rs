@@ -14,8 +14,8 @@ use mcpstore::{
         SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
         ToolTransformRule,
     },
-    ConnectionStatus, ContentItem, Event, InstanceId, ScopeRef, ServiceInstance, StoreError,
-    ToolCallResult, ToolInfo,
+    ContentItem, Event, InstanceId, ScopeRef, ServiceInstance, StoreError, ToolCallResult,
+    ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
@@ -174,15 +174,6 @@ fn serializable_to_py<T: serde::Serialize>(
     serde_value_to_py(py, value)
 }
 
-fn connection_status_as_str(status: ConnectionStatus) -> &'static str {
-    match status {
-        ConnectionStatus::Connecting => "connecting",
-        ConnectionStatus::Connected => "connected",
-        ConnectionStatus::Disconnected => "disconnected",
-        ConnectionStatus::Error => "error",
-    }
-}
-
 fn tool_info_to_py(py: Python<'_>, tool: &ToolInfo) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("name", &tool.name)?;
@@ -235,7 +226,6 @@ fn service_entry_dict<'py>(
     dict.set_item("transport", &service.transport)?;
     dict.set_item("url", service.url.as_deref())?;
     dict.set_item("command", service.command.as_deref())?;
-    dict.set_item("status", connection_status_as_str(service.status))?;
     dict.set_item("tools", tools)?;
     dict.set_item(
         "effective_config",
@@ -2016,12 +2006,12 @@ impl PyMCPStore {
         serializable_to_py(py, &status, "Instance health")
     }
 
-    fn instance_status(&self, py: Python<'_>, instance_id: &str) -> PyResult<Py<PyAny>> {
+    fn service_state(&self, py: Python<'_>, instance_id: &str) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
         let status = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.instance_status_entry(instance_id))
+            .block_on(self.inner.service_state_entry(instance_id))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &status, "Instance status")
+        serializable_to_py(py, &status, "Service state")
     }
 
     fn list_resources(&self, py: Python<'_>, instance_id: &str) -> PyResult<Vec<Py<PyAny>>> {
@@ -2216,7 +2206,7 @@ impl PyMCPStore {
         let status = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.wait_instance_ready(instance_id, timeout_secs))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &status, "Instance status")
+        serializable_to_py(py, &status, "Service state")
     }
 
     fn __repr__(&self) -> String {

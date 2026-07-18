@@ -2,7 +2,7 @@ import { MetaLine } from "@/components/shared/meta-line"
 import { useI18n } from "@/lib/i18n-context"
 import { formatDateTime } from "@/lib/format"
 import { findToolStatus, getToolOutputSchema, getToolSchema } from "@/lib/tool-info"
-import type { ServiceInstance, InstanceStatus, ToolInfo } from "@/lib/api"
+import type { ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
 
 export function ToolServiceDetailGrid({
   tool,
@@ -12,7 +12,7 @@ export function ToolServiceDetailGrid({
 }: {
   tool: ToolInfo
   service: ServiceInstance
-  statusReport?: InstanceStatus | null
+  statusReport?: ServiceState | null
   sourceLabel: string
 }) {
   const { t } = useI18n()
@@ -34,15 +34,15 @@ export function ToolServiceDetailGrid({
         <MetaLine label={t("source")} value={`${sourceLabel} · ${t("service")}`} valueClassName="font-mono" />
         {statusReport ? (
           <>
-            <MetaLine label={t("health")} value={t("healthServiceRuntime", { status: statusReport.health_status || "-" })} valueClassName="font-mono capitalize" />
-            <MetaLine label={t("toolStatusLabel")} value={t("toolStatusAvailability", { status: toolStatus?.status || t("unknown") })} valueClassName="font-mono capitalize" />
-            <MetaLine label={t("tool")} value={toolStatus?.tool_name || tool.name} valueClassName="font-mono" />
+            <MetaLine label={t("health")} value={t("healthServiceRuntime", { status: statusReport.health || "-" })} valueClassName="font-mono capitalize" />
+            <MetaLine label={t("toolStatusLabel")} value={t("toolStatusAvailability", { status: toolStatus?.availability || t("unknown") })} valueClassName="font-mono capitalize" />
+            <MetaLine label={t("tool")} value={toolStatus?.name || tool.name} valueClassName="font-mono" />
           </>
         ) : null}
         <MetaLine label="Instance ID" value={service.instance_id} valueClassName="font-mono" />
         <MetaLine label={t("service")} value={service.service_name} valueClassName="font-mono" />
         <MetaLine label={t("scope")} value={scopeLabel} valueClassName="font-mono" />
-        <MetaLine label={t("status")} value={service.status} valueClassName="font-mono" />
+        <MetaLine label={t("status")} value={service.state.readiness.status} valueClassName="font-mono" />
         <MetaLine label={t("transport")} value={service.transport} valueClassName="font-mono" />
         <MetaLine label={t("command")} value={service.command || "-"} valueClassName="font-mono" />
         {configArgs ? <MetaLine label={t("args")} value={configArgs} valueClassName="font-mono" /> : null}
@@ -55,19 +55,15 @@ export function ToolServiceDetailGrid({
         <div className="border-t pt-4">
           <p className="mb-3 text-sm font-medium">{t("runtimeStatus")}</p>
           <div className="grid gap-2 text-sm @min-[32rem]:grid-cols-2">
-            <MetaLine label={t("health")} value={statusReport.health_status || "-"} valueClassName="font-mono capitalize" />
-            <MetaLine label={t("lastCheck")} value={formatDateTime(statusReport.last_health_check)} valueClassName="font-mono" />
-            <MetaLine
-              label={t("connections")}
-              value={`${statusReport.connection_attempts ?? 0} / ${statusReport.max_connection_attempts ?? "-"}`}
-              valueClassName="font-mono"
-            />
-            <MetaLine label={t("errorRate")} value={statusReport.window_error_rate ?? "-"} valueClassName="font-mono" />
-            <MetaLine label={t("latencyP95")} value={statusReport.latency_p95 ?? "-"} valueClassName="font-mono" />
-            <MetaLine label={t("latencyP99")} value={statusReport.latency_p99 ?? "-"} valueClassName="font-mono" />
-            {toolStatus ? <MetaLine label={t("tool")} value={toolStatus.tool_name} valueClassName="font-mono" /> : null}
-            {statusReport.current_error ? (
-              <MetaLine label={t("currentError")} value={statusReport.current_error} destructive valueClassName="font-mono" />
+            <MetaLine label={t("health")} value={statusReport.health} valueClassName="font-mono capitalize" />
+            <MetaLine label={t("lastCheck")} value={formatDateTime(statusReport.last_observed_at)} valueClassName="font-mono" />
+            <MetaLine label={t("status")} value={statusReport.recovery.status} valueClassName="font-mono capitalize" />
+            <MetaLine label={t("errorRate")} value={statusReport.health_metrics.error_rate ?? "-"} valueClassName="font-mono" />
+            <MetaLine label={t("latencyP95")} value={statusReport.health_metrics.latency_p95_ms ?? "-"} valueClassName="font-mono" />
+            <MetaLine label={t("latencyP99")} value={statusReport.health_metrics.latency_p99_ms ?? "-"} valueClassName="font-mono" />
+            {toolStatus ? <MetaLine label={t("tool")} value={toolStatus.name} valueClassName="font-mono" /> : null}
+            {statusReport.failure ? (
+              <MetaLine label={t("currentError")} value={statusReport.failure.message} destructive valueClassName="font-mono" />
             ) : null}
           </div>
         </div>
