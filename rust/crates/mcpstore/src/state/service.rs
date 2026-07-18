@@ -126,11 +126,12 @@ pub struct ServiceState {
     pub tools: ToolsState,
     pub readiness: Readiness,
     pub failure: Option<FailureInfo>,
-    pub revision: u64,
+    pub version: u64,
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ServiceStateEvent {
     StartRequested,
     StopRequested,
@@ -189,7 +190,7 @@ impl ServiceState {
                 last_transition_at: now,
             },
             failure: None,
-            revision: 0,
+            version: 0,
             updated_at: now,
         }
     }
@@ -274,7 +275,7 @@ impl ServiceState {
                 self.failure = Some(failure);
             }
         }
-        self.revision = self.revision.saturating_add(1);
+        self.version = self.version.saturating_add(1);
         self.updated_at = now;
         self.refresh_readiness(now);
         Ok(())
@@ -367,7 +368,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(state.readiness.status, ReadinessStatus::Ready);
-        assert_eq!(state.revision, 4);
+        assert_eq!(state.version, 4);
     }
 
     #[test]

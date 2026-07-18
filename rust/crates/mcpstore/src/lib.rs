@@ -90,7 +90,7 @@ pub use service::{McpStoreExecutionUpdate, McpStoreToolExecutionHandle};
 pub use state::{
     AuthState, DesiredState, FailureInfo, FailurePhase, HealthState, Readiness, ReadinessReason,
     ReadinessStatus, RecoveryState, RuntimePhase, ServiceState, ServiceStateError,
-    ServiceStateEvent, ToolsState,
+    ServiceStateEvent, ServiceStateManager, ServiceStateManagerError, ToolsState,
 };
 
 // Facade re-exports: core store
