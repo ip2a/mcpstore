@@ -11,6 +11,8 @@ pub use config::{
     AuthConfig, AuthorizationCodeClientAuthMethod, ClientCredentialsAuthMethod,
     JwtSigningAlgorithm, OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
+#[cfg(test)]
+pub(crate) use coordinator::test_state_manager;
 pub use coordinator::AuthCoordinator;
 pub use credentials::{
     ClientSecret, KeyringClientSecretStore, KeyringCredentialStore, KeyringPrivateKeyStore,

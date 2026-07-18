@@ -17,6 +17,9 @@ use rmcp::transport::auth::{
 
 use super::*;
 use crate::identity::{ScopeRef, ServiceInstanceKey};
+use crate::state::{AuthState, DesiredState, ServiceState};
+
+use super::coordinator::test_state_manager;
 
 use super::test_support::test_keyring;
 
@@ -182,7 +185,7 @@ fn auth_config_rejects_incomplete_or_empty_declarations() {
 }
 
 #[test]
-fn auth_status_serialization_is_independent_from_connection_status() {
+fn auth_status_serializes_as_snake_case() {
     let statuses = [
         (AuthStatus::NotRequired, "not_required"),
         (AuthStatus::Unauthenticated, "unauthenticated"),
@@ -391,8 +394,20 @@ async fn private_key_is_persistent_isolated_and_redacted_from_debug() {
 
 #[tokio::test]
 async fn insufficient_scope_status_preserves_required_scope_until_lifecycle_changes() {
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("scope-upgrade");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth = authorization_code_config();
 
     coordinator
@@ -417,8 +432,20 @@ async fn insufficient_scope_status_preserves_required_scope_until_lifecycle_chan
 
 #[tokio::test]
 async fn insufficient_scope_without_scope_still_requires_reauthorization() {
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("scope-upgrade-without-hint");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
 
     coordinator
         .mark_scope_upgrade_required(instance_id, None)
@@ -433,8 +460,20 @@ async fn insufficient_scope_without_scope_still_requires_reauthorization() {
 
 #[tokio::test]
 async fn authorization_code_without_credentials_returns_structured_auth_required() {
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("protected");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth = authorization_code_config();
 
     let error = match coordinator
@@ -459,8 +498,20 @@ async fn authorization_code_without_credentials_returns_structured_auth_required
 #[tokio::test]
 async fn omitted_resource_uses_service_url_for_secure_credential_isolation() {
     let keyring = test_keyring();
-    let coordinator = AuthCoordinator::for_tests(keyring.clone()).unwrap();
     let instance_id = instance_id("machine");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(keyring.clone(), state_manager.clone()).unwrap();
     let auth = client_credentials_config();
     let base_url = "https://mcp.example/mcp";
 
@@ -604,10 +655,25 @@ async fn private_key_jwt_uses_rmcp_official_client_credentials_flow() {
     use base64::Engine;
 
     let oauth_client = Arc::new(PrivateKeyJwtOAuthClient::default());
-    let coordinator =
-        AuthCoordinator::for_tests_with_oauth_http_client(test_keyring(), oauth_client.clone())
-            .unwrap();
     let instance_id = instance_id("private-key-jwt");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests_with_oauth_http_client(
+        test_keyring(),
+        oauth_client.clone(),
+        state_manager.clone(),
+    )
+    .unwrap();
     let mcp_url = "https://mcp.example/mcp";
     let auth: AuthConfig = serde_json::from_value(serde_json::json!({
         "type": "oauth_client_credentials",
@@ -828,8 +894,20 @@ fn authorization_state_from_url(authorization_url: &str) -> String {
 async fn authorization_code_validates_state_pkce_and_restores_tokens_after_restart() {
     let fixture = OAuthFixture::spawn().await;
     let keyring = test_keyring();
-    let coordinator = AuthCoordinator::for_tests(keyring.clone()).unwrap();
     let instance_id = instance_id("oauth-lifecycle");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(keyring.clone(), state_manager.clone()).unwrap();
     let auth = authorization_code_config();
     let mcp_url = fixture.mcp_url();
 
@@ -902,7 +980,7 @@ async fn authorization_code_validates_state_pkce_and_restores_tokens_after_resta
         .is_some_and(|value| !value.is_empty()));
 
     drop(coordinator);
-    let restarted = AuthCoordinator::for_tests(keyring).unwrap();
+    let restarted = AuthCoordinator::for_tests(keyring, state_manager.clone()).unwrap();
     let manager = restarted
         .prepare_http_authorization(instance_id, &mcp_url, &auth)
         .await
@@ -919,8 +997,20 @@ async fn authorization_code_validates_state_pkce_and_restores_tokens_after_resta
 
 #[tokio::test]
 async fn authorization_code_rejects_resource_not_supported_by_rmcp_public_api() {
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("authorization-resource");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth: AuthConfig = serde_json::from_value(serde_json::json!({
         "type": "oauth_authorization_code",
         "client_id": "client-1",
@@ -941,8 +1031,20 @@ async fn authorization_code_rejects_resource_not_supported_by_rmcp_public_api() 
 #[tokio::test]
 async fn authorization_code_rejects_client_auth_method_rmcp_would_not_use() {
     let fixture = OAuthFixture::spawn().await;
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("authorization-client-auth");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth: AuthConfig = serde_json::from_value(serde_json::json!({
         "type": "oauth_authorization_code",
         "client_id": "client-1",
@@ -974,8 +1076,20 @@ fn dynamic_authorization_code_config() -> AuthConfig {
 async fn dynamic_client_registration_uses_rmcp_session_and_persists_assigned_client() {
     let fixture = OAuthFixture::spawn().await;
     let keyring = test_keyring();
-    let coordinator = AuthCoordinator::for_tests(keyring.clone()).unwrap();
     let instance_id = instance_id("dynamic-oauth");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(keyring.clone(), state_manager.clone()).unwrap();
     let auth = dynamic_authorization_code_config();
     let mcp_url = fixture.mcp_url();
 
@@ -996,7 +1110,7 @@ async fn dynamic_client_registration_uses_rmcp_session_and_persists_assigned_cli
         .unwrap();
     drop(coordinator);
 
-    let restarted = AuthCoordinator::for_tests(keyring).unwrap();
+    let restarted = AuthCoordinator::for_tests(keyring, state_manager.clone()).unwrap();
     let manager = restarted
         .prepare_http_authorization(instance_id, &mcp_url, &auth)
         .await
@@ -1010,8 +1124,20 @@ async fn dynamic_client_registration_uses_rmcp_session_and_persists_assigned_cli
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn client_credentials_defaults_resource_to_mcp_url_and_authenticates_with_rmcp() {
     let fixture = OAuthFixture::spawn().await;
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("client-credentials");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth = client_credentials_config();
     let mcp_url = fixture.mcp_url();
 
@@ -1066,8 +1192,20 @@ async fn complete_fixture_authorization(
 async fn concurrent_refreshes_are_serialized_per_instance() {
     let fixture = OAuthFixture::spawn().await;
     let keyring = test_keyring();
-    let coordinator = AuthCoordinator::for_tests(keyring).unwrap();
     let instance_id = instance_id("concurrent-refresh");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(keyring, state_manager.clone()).unwrap();
     let auth = authorization_code_config();
     let mcp_url = fixture.mcp_url();
 
@@ -1097,8 +1235,20 @@ async fn concurrent_refreshes_are_serialized_per_instance() {
 #[tokio::test]
 async fn refresh_failure_clears_tokens_and_requires_authorization_again() {
     let fixture = OAuthFixture::spawn().await;
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("refresh-lifecycle");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth = authorization_code_config();
     let mcp_url = fixture.mcp_url();
     complete_fixture_authorization(&coordinator, &fixture, instance_id, &auth).await;
@@ -1148,9 +1298,23 @@ async fn refresh_failure_clears_tokens_and_requires_authorization_again() {
 #[tokio::test]
 async fn concurrent_authorizations_keep_state_and_tokens_isolated_by_instance() {
     let fixture = OAuthFixture::spawn().await;
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let first_id = instance_id("oauth-first");
     let second_id = instance_id("oauth-second");
+    let state_manager = test_state_manager();
+    for (instance_id, service_name) in [(first_id, "oauth-first"), (second_id, "oauth-second")] {
+        state_manager
+            .create(ServiceState::new(
+                instance_id,
+                service_name.to_string(),
+                ScopeRef::Store,
+                DesiredState::Stopped,
+                AuthState::NotRequired,
+                0,
+            ))
+            .await
+            .unwrap();
+    }
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth = authorization_code_config();
     let mcp_url = fixture.mcp_url();
 
@@ -1217,8 +1381,20 @@ async fn concurrent_authorizations_keep_state_and_tokens_isolated_by_instance() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn client_credentials_logout_clears_tokens_but_preserves_machine_credentials() {
     let fixture = OAuthFixture::spawn().await;
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("client-credentials-logout");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth = client_credentials_config();
     let mcp_url = fixture.mcp_url();
 
@@ -1297,8 +1473,20 @@ async fn client_credentials_logout_clears_tokens_but_preserves_machine_credentia
 #[tokio::test]
 async fn scope_upgrade_and_logout_have_predictable_lifecycle() {
     let fixture = OAuthFixture::spawn().await;
-    let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
     let instance_id = instance_id("scope-upgrade");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager.clone()).unwrap();
     let auth = authorization_code_config();
     let mcp_url = fixture.mcp_url();
     complete_fixture_authorization(&coordinator, &fixture, instance_id, &auth).await;
