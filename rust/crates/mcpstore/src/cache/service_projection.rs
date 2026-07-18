@@ -8,6 +8,7 @@ use crate::cache::models::{
 };
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
+use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -37,10 +38,30 @@ impl MCPStore {
                 .await?;
         }
 
-        if self.cached_instance_status(instance_id).await?.is_none() {
-            let status =
-                self.instance_status_payload(&instance, HealthStatus::Init, None, Vec::new());
-            self.put_instance_status(&status).await?;
+        if self.state_manager.get(instance_id).await?.is_none() {
+            let config: crate::config::ServerConfig = serde_json::from_value(
+                serde_json::Value::Object(instance.effective_config.clone()),
+            )
+            .map_err(|error| {
+                StoreError::Other(format!(
+                    "Effective config for instance {instance_id} is invalid: {error}"
+                ))
+            })?;
+            let auth = match config.auth {
+                crate::auth::AuthConfig::None => AuthState::NotRequired,
+                crate::auth::AuthConfig::OAuthAuthorizationCode(_)
+                | crate::auth::AuthConfig::OAuthClientCredentials(_) => AuthState::Unauthenticated,
+            };
+            self.state_manager
+                .create(ServiceState::new(
+                    instance_id,
+                    instance.service_name.clone(),
+                    instance.scope.clone(),
+                    DesiredState::Stopped,
+                    auth,
+                    instance.added_time,
+                ))
+                .await?;
         }
         self.cache
             .put_event(
@@ -165,6 +186,7 @@ impl MCPStore {
         self.cache
             .delete_relation("instance_tools", &instance_id.to_string())
             .await?;
+        self.state_manager.delete(instance_id).await?;
         self.cache
             .delete_state("instance_status", &instance_id.to_string())
             .await?;
