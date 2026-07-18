@@ -5155,7 +5155,7 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
 }
 
 #[tokio::test]
-async fn oauth_service_status_and_api_projection_do_not_expose_secrets() {
+async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
@@ -5192,10 +5192,12 @@ async fn oauth_service_status_and_api_projection_do_not_expose_secrets() {
         .set_status(instance_id, crate::auth::AuthStatus::Authenticated)
         .await;
     store.remove_service("protected").await.unwrap();
-    assert_eq!(
-        store.auth_status(instance_id).await,
-        crate::auth::AuthStatus::NotRequired
-    );
+    assert!(store
+        .state_manager
+        .get(instance_id)
+        .await
+        .unwrap()
+        .is_none());
 
     std::fs::remove_file(path).ok();
 }

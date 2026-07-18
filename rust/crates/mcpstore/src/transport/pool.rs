@@ -517,7 +517,11 @@ mod tests {
     async fn task_worker_expires_due_records() {
         let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), "task-worker"));
         let pool = ConnectionPool::new(
-            AuthCoordinator::for_tests(crate::auth::SystemKeyring::new().unwrap()).unwrap(),
+            AuthCoordinator::for_tests(
+                crate::auth::SystemKeyring::new().unwrap(),
+                crate::auth::test_state_manager(),
+            )
+            .unwrap(),
             ServiceRegistry::new(),
             EventBus::with_history(1),
             cache,

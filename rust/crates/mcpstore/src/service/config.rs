@@ -326,7 +326,7 @@ impl MCPStore {
                 transport,
                 url,
                 command,
-                    tools: Vec::new(),
+                tools: Vec::new(),
                 effective_config,
                 config_revision: ConfigRevision {
                     base_revision: config.definition_revision(),
@@ -341,10 +341,10 @@ impl MCPStore {
                 instance.added_time = existing.added_time;
             }
             self.registry.register_instance(instance).await;
+            self.cache_instance_added(instance_id).await?;
             self.auth_coordinator
                 .initialize_status(instance_id, &effective_auth)
                 .await;
-            self.cache_instance_added(instance_id).await?;
         }
 
         for instance_id in existing_instances.keys().copied() {

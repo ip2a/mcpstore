@@ -13,11 +13,7 @@ use tokio::sync::Mutex;
 use rmcp::transport::auth::OAuthHttpClient;
 
 use crate::identity::InstanceId;
-#[cfg(test)]
-use crate::identity::ScopeRef;
 use crate::state::{AuthState, FailureInfo, FailurePhase, ServiceStateEvent, ServiceStateManager};
-#[cfg(test)]
-use crate::state::{DesiredState, ServiceState};
 
 use super::{
     AuthConfig, AuthCredentialKey, AuthError, AuthFlow, AuthStatus, AuthStatusView,
@@ -65,16 +61,20 @@ impl AuthCoordinator {
     }
 
     #[cfg(test)]
-    pub(crate) fn for_tests(keyring: SystemKeyring) -> Result<Self, AuthError> {
-        Self::with_keyring(keyring, test_state_manager())
+    pub(crate) fn for_tests(
+        keyring: SystemKeyring,
+        state_manager: Arc<ServiceStateManager>,
+    ) -> Result<Self, AuthError> {
+        Self::with_keyring(keyring, state_manager)
     }
 
     #[cfg(test)]
     pub(crate) fn for_tests_with_oauth_http_client(
         keyring: SystemKeyring,
         oauth_http_client: Arc<dyn OAuthHttpClient>,
+        state_manager: Arc<ServiceStateManager>,
     ) -> Result<Self, AuthError> {
-        let mut coordinator = Self::with_keyring(keyring, test_state_manager())?;
+        let mut coordinator = Self::with_keyring(keyring, state_manager)?;
         coordinator.oauth_http_client = Some(oauth_http_client);
         Ok(coordinator)
     }
@@ -82,9 +82,6 @@ impl AuthCoordinator {
     pub async fn status(&self, instance_id: InstanceId) -> AuthStatus {
         match self.state_manager.get(instance_id).await {
             Ok(Some(state)) => auth_status(&state.auth),
-            #[cfg(test)]
-            Ok(None) => AuthStatus::NotRequired,
-            #[cfg(not(test))]
             Ok(None) => panic!("canonical service state missing for {instance_id}"),
             Err(error) => panic!("canonical service state read failed for {instance_id}: {error}"),
         }
@@ -101,7 +98,6 @@ impl AuthCoordinator {
     }
 
     pub async fn set_status(&self, instance_id: InstanceId, status: AuthStatus) {
-        self.ensure_test_state(instance_id).await;
         let failure = (status == AuthStatus::Error).then(|| FailureInfo {
             phase: FailurePhase::Auth,
             code: "authentication_failed".to_string(),
@@ -126,7 +122,6 @@ impl AuthCoordinator {
         instance_id: InstanceId,
         required_scope: Option<&str>,
     ) {
-        self.ensure_test_state(instance_id).await;
         self.state_manager
             .dispatch(
                 instance_id,
@@ -148,7 +143,13 @@ impl AuthCoordinator {
     }
 
     pub(crate) async fn required_scope(&self, instance_id: InstanceId) -> Option<String> {
-        let state = self.state_manager.get(instance_id).await.ok().flatten()?;
+        let state = match self.state_manager.get(instance_id).await {
+            Ok(Some(state)) => state,
+            Ok(None) => panic!("canonical service state missing for {instance_id}"),
+            Err(error) => {
+                panic!("canonical service state read failed for {instance_id}: {error}")
+            }
+        };
         match state.auth {
             AuthState::ScopeUpgradeRequired { required_scope } => required_scope,
             _ => None,
@@ -164,16 +165,6 @@ impl AuthCoordinator {
     }
 
     pub async fn initialize_status(&self, instance_id: InstanceId, auth: &AuthConfig) {
-        if self
-            .state_manager
-            .get(instance_id)
-            .await
-            .ok()
-            .flatten()
-            .is_none()
-        {
-            return;
-        }
         let current = self.status(instance_id).await;
         let target = if auth.is_none() {
             AuthStatus::NotRequired
@@ -205,27 +196,6 @@ impl AuthCoordinator {
             .await
             .retain(|instance_id, _| instance_ids.contains(instance_id));
     }
-
-    #[cfg(test)]
-    async fn ensure_test_state(&self, instance_id: InstanceId) {
-        if self.state_manager.get(instance_id).await.unwrap().is_some() {
-            return;
-        }
-        let _ = self
-            .state_manager
-            .create(ServiceState::new(
-                instance_id,
-                "test".to_string(),
-                ScopeRef::Store,
-                DesiredState::Stopped,
-                AuthState::NotRequired,
-                chrono::Utc::now().timestamp(),
-            ))
-            .await;
-    }
-
-    #[cfg(not(test))]
-    async fn ensure_test_state(&self, _instance_id: InstanceId) {}
 
     pub fn credential_store(&self, key: &AuthCredentialKey) -> KeyringCredentialStore {
         KeyringCredentialStore::with_keyring(key, self.keyring.clone())
@@ -847,7 +817,7 @@ fn auth_state(status: AuthStatus) -> AuthState {
 }
 
 #[cfg(test)]
-fn test_state_manager() -> Arc<ServiceStateManager> {
+pub(crate) fn test_state_manager() -> Arc<ServiceStateManager> {
     use crate::cache::{memory_cache_store, CacheLayerManager};
     use crate::events::EventBus;
 
