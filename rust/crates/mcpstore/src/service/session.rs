@@ -1,3 +1,4 @@
+use crate::state::{FailureInfo, FailurePhase, ServiceStateEvent};
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -16,26 +17,49 @@ impl MCPStore {
             .find_instance(instance_id)
             .await
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
-        if self.is_openapi_virtual_instance(instance_id).await? {
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::StopRequested,
+                Self::now_timestamp(),
+            )
+            .await?;
+
+        let stop_result = if self.is_openapi_virtual_instance(instance_id).await? {
             self.applied_openapi_configs
                 .write()
                 .await
                 .remove(&instance_id);
+            Ok(())
         } else {
-            self.pool.disconnect(instance_id).await?;
+            self.pool
+                .disconnect(instance_id)
+                .await
+                .map_err(StoreError::from)
+        };
+        if let Err(error) = stop_result {
+            self.state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::StopFailed(FailureInfo {
+                        phase: FailurePhase::Transport,
+                        code: "transport_stop_failed".to_string(),
+                        retryable: true,
+                        message: error.to_string(),
+                        since: Self::now_timestamp(),
+                    }),
+                    Self::now_timestamp(),
+                )
+                .await?;
+            return Err(error);
         }
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Disconnected)
-            .await;
-        self.set_instance_status(instance_id, HealthStatus::Disconnected, None, Vec::new())
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportStopped,
+                Self::now_timestamp(),
+            )
             .await?;
-        let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
-        self.update_lifecycle_state(instance_id, |state| {
-            state.manually_stopped = true;
-            state.manually_stopped_at = Some(Self::now_timestamp());
-            state.manual_stop_persistent = lifecycle.restart_policy.is_unless_stopped();
-        })
-        .await?;
         self.event_bus
             .publish(
                 Event::new(
@@ -70,20 +94,7 @@ impl MCPStore {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        if self.is_openapi_virtual_instance(instance_id).await? {
-            self.applied_openapi_configs
-                .write()
-                .await
-                .remove(&instance_id);
-        } else {
-            self.pool.disconnect(instance_id).await.ok();
-        }
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Disconnected)
-            .await;
-        self.set_instance_status(instance_id, HealthStatus::Disconnected, None, Vec::new())
-            .await?;
-        self.clear_lifecycle_manual_stop(instance_id).await?;
-        self.connect_service(instance_id).await
+        self.disconnect_service(instance_id).await?;
+        self.connect_service_internal(instance_id, false).await
     }
 }

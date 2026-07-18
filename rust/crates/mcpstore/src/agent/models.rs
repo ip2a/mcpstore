@@ -1,6 +1,5 @@
 use serde::Serialize;
 
-use crate::cache::models::HealthStatus;
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::ServiceInstance;
 
@@ -24,12 +23,4 @@ pub struct ScopedToolEntry {
     pub instance_id: InstanceId,
     pub service_name: String,
     pub scope: ScopeRef,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ScopedServiceHealth {
-    pub instance_id: InstanceId,
-    pub service_name: String,
-    pub scope: ScopeRef,
-    pub health_status: HealthStatus,
 }

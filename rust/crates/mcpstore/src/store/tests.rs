@@ -4975,23 +4975,29 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
         .to_string();
     assert!(blocked.contains("backoff active"));
 
-    let mut due = store
-        .cached_instance_status(store_instance_id("broken"))
+    let state = store
+        .state_manager
+        .get(store_instance_id("broken"))
         .await
         .unwrap()
         .unwrap();
-    due.health_status = HealthStatus::CircuitOpen;
-    due.next_retry_time = Some(MCPStore::now_timestamp_f64() - 1.0);
-    store.put_instance_status(&due).await.unwrap();
-
+    let attempt = match state.recovery {
+        crate::state::RecoveryState::Waiting { attempt, .. } => attempt,
+        other => panic!("expected waiting recovery, got {other:?}"),
+    };
     let transitioned = store
-        .supervisor
-        .as_ref()
-        .unwrap()
-        .enter_half_open(store_instance_id("broken"), MCPStore::now_timestamp_f64())
+        .state_manager
+        .dispatch(
+            store_instance_id("broken"),
+            crate::state::ServiceStateEvent::RecoveryProbeStarted { attempt },
+            MCPStore::now_timestamp(),
+        )
         .await
-        .expect("supervisor should transition to half open");
-    assert_eq!(transitioned.to, HealthStatus::HalfOpen);
+        .unwrap();
+    assert!(matches!(
+        transitioned.recovery,
+        crate::state::RecoveryState::Probing { .. }
+    ));
 
     std::fs::remove_file(path).ok();
 }
@@ -5273,52 +5279,47 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
 }
 
 #[tokio::test]
-async fn successful_health_check_clears_retry_state() {
+async fn successful_health_check_records_canonical_health() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         backend: Some(CacheStorage::OpenKeyvMemory),
         redis_url: None,
-        namespace: Some("test-retry-reset".to_string()),
+        namespace: Some("test-health-observation".to_string()),
     })
     .unwrap();
+    store.add_service("svc", stdio_config()).await.unwrap();
+    let instance_id = store_instance_id("svc");
     store
-        .add_service(
-            "broken",
-            broken_stdio_config_with_restart_policy(crate::config::RestartPolicy {
-                kind: crate::config::RestartPolicyKind::OnFailure,
-                max_retries: None,
-            }),
+        .state_manager
+        .dispatch(
+            instance_id,
+            crate::state::ServiceStateEvent::StartRequested,
+            MCPStore::now_timestamp(),
+        )
+        .await
+        .unwrap();
+    store
+        .state_manager
+        .dispatch(
+            instance_id,
+            crate::state::ServiceStateEvent::TransportConnected,
+            MCPStore::now_timestamp(),
         )
         .await
         .unwrap();
 
-    // Place the supervisor in Startup without actually connecting, then
-    // observe a successful liveness probe. The transition to Healthy must
-    // clear retry counters and errors.
-    store
-        .supervisor
-        .as_ref()
-        .unwrap()
-        .reset_machine(store_instance_id("broken"), HealthStatus::Startup)
-        .await;
-
-    let recovered = store
-        .record_health_check_result(store_instance_id("broken"), true, Some(12.0), None)
+    let observed = store
+        .record_health_check_result(instance_id, true, Some(12.0), None)
         .await
         .unwrap();
 
-    assert_eq!(recovered.health_status, HealthStatus::Healthy);
-    assert_eq!(recovered.connection_attempts, 0);
-    assert_eq!(recovered.lifecycle_state.restart_attempts, 0);
-    assert_eq!(recovered.current_error, None);
-    assert_eq!(recovered.next_retry_time, None);
-    assert_eq!(recovered.hard_deadline, None);
-    // Latency percentiles are computed from the supervisor's rolling window,
-    // which is cleared when the state machine is reset in this test setup.
-    assert!(recovered.latency_p95.is_none() || recovered.latency_p95 == Some(12.0));
-    assert!(recovered.latency_p99.is_none() || recovered.latency_p99 == Some(12.0));
+    assert_eq!(observed.health, crate::state::HealthState::Healthy);
+    assert_eq!(observed.recovery, crate::state::RecoveryState::Idle);
+    assert_eq!(observed.failure, None);
+    assert_eq!(observed.health_metrics.latency_p95_ms, Some(12.0));
+    assert_eq!(observed.health_metrics.latency_p99_ms, Some(12.0));
 
     std::fs::remove_file(path).ok();
 }

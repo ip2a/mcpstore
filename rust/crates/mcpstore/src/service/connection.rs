@@ -1,3 +1,4 @@
+use crate::state::{HealthMetrics, HealthState, RecoveryState, RuntimePhase, ServiceStateEvent};
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -13,7 +14,6 @@ impl MCPStore {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        self.clear_lifecycle_manual_stop(instance_id).await?;
         self.connect_service_internal(instance_id, false).await
     }
 
@@ -28,8 +28,39 @@ impl MCPStore {
             .await
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
         if self.is_openapi_virtual_instance(instance_id).await? {
-            if automatic_retry && instance.status == ConnectionStatus::Connected {
+            let state = self
+                .state_manager
+                .get(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            if automatic_retry && state.phase == RuntimePhase::Running {
                 return Ok(());
+            }
+            if automatic_retry {
+                self.state_manager
+                    .dispatch(
+                        instance_id,
+                        ServiceStateEvent::RecoveryProbeStarted {
+                            attempt: match state.recovery {
+                                RecoveryState::Waiting { attempt, .. } => attempt,
+                                _ => {
+                                    return Err(StoreError::Other(format!(
+                                        "Service instance has no scheduled recovery: {instance_id}"
+                                    )));
+                                }
+                            },
+                        },
+                        Self::now_timestamp(),
+                    )
+                    .await?;
+            } else {
+                self.state_manager
+                    .dispatch(
+                        instance_id,
+                        ServiceStateEvent::StartRequested,
+                        Self::now_timestamp(),
+                    )
+                    .await?;
             }
             let import = self
                 .get_openapi_import(&instance.service_name)
@@ -41,9 +72,31 @@ impl MCPStore {
                 })?;
             let tools = crate::openapi_runtime::openapi_tool_infos(&import);
             let tool_count = tools.len();
+            self.state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::TransportConnected,
+                    Self::now_timestamp(),
+                )
+                .await?;
+            self.state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::ToolSyncStarted,
+                    Self::now_timestamp(),
+                )
+                .await?;
+            self.state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::ToolSyncSucceeded {
+                        tools: tools.iter().map(|tool| tool.name.clone()).collect(),
+                    },
+                    Self::now_timestamp(),
+                )
+                .await?;
             let mut updated = instance.clone();
             updated.tools = tools;
-            updated.status = ConnectionStatus::Connected;
             self.applied_openapi_configs
                 .write()
                 .await
@@ -52,6 +105,8 @@ impl MCPStore {
             self.mark_instance_applied(instance_id).await?;
             let tools = self.registry.list_instance_tools(instance_id).await;
             self.cache_instance_connected(instance_id, &tools).await?;
+            self.record_openapi_availability(instance_id, true, None, None)
+                .await?;
             self.event_bus
                 .publish(
                     Event::new(
@@ -67,69 +122,83 @@ impl MCPStore {
                     true,
                 )
                 .await;
-            self.record_openapi_availability(instance_id, true, None, None)
-                .await?;
             return Ok(());
         }
-        if automatic_retry && self.pool.is_connected(instance_id).await {
-            self.registry
-                .update_status(instance_id, ConnectionStatus::Connected)
-                .await;
-            return Ok(());
-        }
-
-        let retry_state = self.cached_instance_status(instance_id).await?;
+        let service_state = self
+            .state_manager
+            .get(instance_id)
+            .await?
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
         let now = Self::now_timestamp_f64();
-        if automatic_retry {
-            if let Some(status) = retry_state.as_ref() {
-                let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
-                if status.current_error.is_some()
-                    && !lifecycle.restart_policy.should_restart_after_failure(
-                        status.lifecycle_state.restart_attempts.max(1),
+        if automatic_retry && self.pool.is_connected(instance_id).await {
+            if service_state.phase != RuntimePhase::Running {
+                self.state_manager
+                    .dispatch(
+                        instance_id,
+                        ServiceStateEvent::TransportConnected,
+                        Self::now_timestamp(),
                     )
-                {
-                    return Err(StoreError::Other(format!(
-                        "Service instance automatic restart disabled by restart_policy: {instance_id}"
-                    )));
-                }
-                if Self::retry_exhausted(status, now) {
-                    return Err(StoreError::Other(format!(
-                        "Service instance automatic retry exhausted: {instance_id}"
-                    )));
-                }
-                if let Some(retry_in_secs) = Self::retry_wait_seconds(status, now) {
-                    return Err(StoreError::Other(format!(
-                        "Service instance reconnect backoff active: {instance_id}, retry_in={retry_in_secs}s"
-                    )));
-                }
+                    .await?;
+            }
+            return Ok(());
+        }
+        if automatic_retry {
+            if Self::retry_exhausted(&service_state, now) {
+                return Err(StoreError::Other(format!(
+                    "Service instance automatic retry exhausted: {instance_id}"
+                )));
+            }
+            if let Some(retry_in_secs) = Self::retry_wait_seconds(&service_state, now) {
+                return Err(StoreError::Other(format!(
+                    "Service instance reconnect backoff active: {instance_id}, retry_in={retry_in_secs}s"
+                )));
             }
         }
-
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Connecting)
-            .await;
-        let _previous_status = retry_state
-            .as_ref()
-            .map(|status| status.health_status.clone());
-        let mut startup = match retry_state {
-            Some(status) => status,
-            None => {
-                self.new_instance_status(instance_id, HealthStatus::Startup, None, Vec::new())
-                    .await?
+        if automatic_retry {
+            match service_state.recovery {
+                RecoveryState::Waiting { attempt, .. } => {
+                    self.state_manager
+                        .dispatch(
+                            instance_id,
+                            ServiceStateEvent::RecoveryProbeStarted { attempt },
+                            Self::now_timestamp(),
+                        )
+                        .await?;
+                }
+                RecoveryState::Idle
+                    if service_state.desired == crate::state::DesiredState::Stopped =>
+                {
+                    self.state_manager
+                        .dispatch(
+                            instance_id,
+                            ServiceStateEvent::StartRequested,
+                            Self::now_timestamp(),
+                        )
+                        .await?;
+                }
+                RecoveryState::Idle | RecoveryState::Probing { .. } => {}
+                RecoveryState::Exhausted { .. } => {
+                    unreachable!("exhausted recovery rejected above")
+                }
             }
-        };
+        } else {
+            self.state_manager
+                .dispatch(
+                    instance_id,
+                    ServiceStateEvent::StartRequested,
+                    Self::now_timestamp(),
+                )
+                .await?;
+        }
+
         let probe_runner = std::sync::Arc::new(self.pool.clone());
         let ping_timeout_secs = match instance.transport.as_str() {
             "stdio" => self.runtime_config.ping_timeout_stdio_secs,
             _ => self.runtime_config.ping_timeout_http_secs,
         };
         if let Some(supervisor) = &self.supervisor {
-            supervisor
-                .reset_machine(instance_id, startup.health_status.clone())
-                .await;
-            supervisor
-                .register(instance_id, startup.health_status.clone())
-                .await;
+            supervisor.reset(instance_id).await;
+            supervisor.register(instance_id).await;
             supervisor
                 .start_health_worker(
                     probe_runner.clone(),
@@ -139,11 +208,6 @@ impl MCPStore {
                 )
                 .await;
         }
-        startup.health_status = HealthStatus::Startup;
-        startup.last_health_check = Self::now_timestamp();
-        startup.next_retry_time = None;
-        startup.lease_deadline = None;
-        self.put_instance_status(&startup).await?;
         self.event_bus
             .publish(
                 Event::new(
@@ -193,9 +257,6 @@ impl MCPStore {
                     .await?;
                 }
                 _ => {
-                    self.registry
-                        .update_status(instance_id, ConnectionStatus::Error)
-                        .await;
                     self.record_instance_failure(
                         instance_id,
                         format!("Connection failed: {error}"),
@@ -205,9 +266,13 @@ impl MCPStore {
             }
             return Err(error);
         }
-        self.registry
-            .update_status(instance_id, ConnectionStatus::Connected)
-            .await;
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::TransportConnected,
+                Self::now_timestamp(),
+            )
+            .await?;
 
         // Run startup probe before declaring the service connected. For OpenAPI virtual
         // instances this is skipped; availability is determined by HTTP requests.
@@ -218,13 +283,6 @@ impl MCPStore {
                     .await
                 {
                     super::super::health::supervisor::StartupOutcome::Healthy => {}
-                    super::super::health::supervisor::StartupOutcome::Failed(transition) => {
-                        let error = format!("Startup probe failed: {}", transition.reason);
-                        self.record_instance_failure(instance_id, error).await?;
-                        return Err(StoreError::Other(format!(
-                            "Service instance startup probe failed: {instance_id}"
-                        )));
-                    }
                     super::super::health::supervisor::StartupOutcome::TimedOut => {
                         let error = "Startup probe timed out".to_string();
                         self.record_instance_failure(instance_id, error).await?;
@@ -235,6 +293,25 @@ impl MCPStore {
                 }
             }
         }
+
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::HealthObserved {
+                    health: HealthState::Healthy,
+                    metrics: HealthMetrics::default(),
+                    failure: None,
+                },
+                Self::now_timestamp(),
+            )
+            .await?;
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::ToolSyncStarted,
+                Self::now_timestamp(),
+            )
+            .await?;
 
         let tool_discovery = match self.pool.server_metadata(instance_id).await {
             Ok(Some(metadata)) if metadata.capabilities.tools => {
@@ -258,10 +335,18 @@ impl MCPStore {
         let tool_infos: Vec<crate::registry::ToolInfo> =
             tools.into_iter().map(Into::into).collect();
         let tool_count = tool_infos.len();
+        self.state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::ToolSyncSucceeded {
+                    tools: tool_infos.iter().map(|tool| tool.name.clone()).collect(),
+                },
+                Self::now_timestamp(),
+            )
+            .await?;
 
         let mut updated = instance.clone();
         updated.tools = tool_infos;
-        updated.status = ConnectionStatus::Connected;
         self.registry.register_instance(updated).await;
         self.mark_instance_applied(instance_id).await?;
 
