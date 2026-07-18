@@ -1,3 +1,4 @@
+mod manager;
 mod service;
 
 pub use service::{
@@ -5,3 +6,5 @@ pub use service::{
     ReadinessStatus, RecoveryState, RuntimePhase, ServiceState, ServiceStateError,
     ServiceStateEvent, ToolsState,
 };
+
+pub use manager::{ServiceStateManager, ServiceStateManagerError};
