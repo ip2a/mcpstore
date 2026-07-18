@@ -1,16 +1,17 @@
 use super::layer::*;
 use crate::cache::memory_cache_store;
 use crate::cache::models::{
-    ContextToolVisibilityState, HealthStatus, InstanceStatus, OpenApiImportContextState,
-    ServiceLifecycleState, SessionContextState, SessionEntity, SessionEvent, SessionEventType,
-    SessionScope, SessionServiceItem, SessionServiceRelation, SessionStatus, SessionStatusState,
-    SessionToolItem, SessionToolVisibility, ToolAvailability, ToolPreferenceState, ToolStatusItem,
+    ContextToolVisibilityState, OpenApiImportContextState, SessionContextState, SessionEntity,
+    SessionEvent, SessionEventType, SessionScope, SessionServiceItem, SessionServiceRelation,
+    SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
     ToolVisibilityMode,
 };
 use crate::config::ScopeDeclarations;
 use crate::identity::{ScopeRef, ServiceInstanceKey};
-use crate::registry::{ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance};
-use crate::state::{AuthState, DesiredState, RuntimePhase};
+use crate::registry::{ConfigRevision, ServiceDefinition, ServiceInstance};
+use crate::state::{
+    AuthState, DesiredState, HealthMetrics, HealthState, RuntimePhase, ServiceStateEvent,
+};
 use crate::store::{CacheStorage, MCPStore, StoreOptions};
 
 fn store_instance_id() -> crate::identity::InstanceId {
@@ -196,7 +197,6 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
             transport: "stdio".to_string(),
             url: None,
             command: Some("first-command".to_string()),
-            status: ConnectionStatus::Connected,
             tools: Vec::new(),
             effective_config: serde_json::Map::new(),
             config_revision: ConfigRevision {
@@ -217,34 +217,46 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     assert_eq!(canonical.phase, RuntimePhase::Stopped);
     assert_eq!(canonical.auth, AuthState::NotRequired);
 
-    let observed = InstanceStatus {
-        instance_id,
-        service_name: "svc".to_string(),
-        scope: ScopeRef::Store,
-        health_status: HealthStatus::Degraded,
-        last_health_check: 200,
-        connection_attempts: 3,
-        max_connection_attempts: 9,
-        current_error: Some("temporary failure".to_string()),
-        tools: vec![ToolStatusItem {
-            tool_name: "echo".to_string(),
-            status: ToolAvailability::Unavailable,
-        }],
-        window_error_rate: Some(0.25),
-        latency_p95: Some(120.0),
-        latency_p99: Some(180.0),
-        sample_size: Some(20),
-        next_retry_time: Some(300.0),
-        hard_deadline: Some(400.0),
-        lease_deadline: Some(500.0),
-        lifecycle_state: ServiceLifecycleState {
-            restart_attempts: 2,
-            manually_stopped: true,
-            manually_stopped_at: Some(190),
-            manual_stop_persistent: true,
-        },
-    };
-    store.put_instance_status(&observed).await.unwrap();
+    store
+        .state_manager
+        .dispatch(instance_id, ServiceStateEvent::StartRequested, 201)
+        .await
+        .unwrap();
+    store
+        .state_manager
+        .dispatch(instance_id, ServiceStateEvent::TransportConnected, 202)
+        .await
+        .unwrap();
+    store
+        .state_manager
+        .dispatch(
+            instance_id,
+            ServiceStateEvent::HealthObserved {
+                health: HealthState::Degraded,
+                metrics: HealthMetrics {
+                    error_rate: Some(0.25),
+                    latency_p95_ms: Some(120.0),
+                    latency_p99_ms: Some(180.0),
+                    sample_size: 20,
+                },
+                failure: None,
+            },
+            203,
+        )
+        .await
+        .unwrap();
+    store
+        .state_manager
+        .dispatch(
+            instance_id,
+            ServiceStateEvent::ToolSyncSucceeded {
+                tools: vec!["echo".to_string()],
+            },
+            204,
+        )
+        .await
+        .unwrap();
+    let observed = store.state_manager.get(instance_id).await.unwrap().unwrap();
 
     let mut updated = store.registry.find_instance(instance_id).await.unwrap();
     updated.command = Some("updated-command".to_string());
@@ -256,12 +268,8 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     store.cache_instance_added(instance_id).await.unwrap();
 
     assert_eq!(
-        store.cached_instance_status(instance_id).await.unwrap(),
-        Some(observed)
-    );
-    assert_eq!(
         store.state_manager.get(instance_id).await.unwrap(),
-        Some(canonical)
+        Some(observed)
     );
 
     store.cache_instance_removed(instance_id).await.unwrap();
@@ -307,7 +315,7 @@ async fn test_replace_store_with_snapshot_migrates_all_layers() {
     .await
     .unwrap();
     mgr.put_state(
-        "instance_status",
+        "service_state",
         &instance_id,
         serde_json::json!({"instance_id": instance_id}),
     )
@@ -328,7 +336,7 @@ async fn test_replace_store_with_snapshot_migrates_all_layers() {
     assert_eq!(snapshot.schema_version, CACHE_SCHEMA_VERSION);
     assert_eq!(snapshot.entities["service_instances"].len(), 1);
     assert_eq!(snapshot.relations["agent_instances"].len(), 1);
-    assert_eq!(snapshot.states["instance_status"].len(), 1);
+    assert_eq!(snapshot.states["service_state"].len(), 1);
     assert_eq!(snapshot.events["service"].len(), 1);
 
     assert!(mgr
@@ -342,7 +350,7 @@ async fn test_replace_store_with_snapshot_migrates_all_layers() {
         .unwrap()
         .is_some());
     assert!(mgr
-        .get_state("instance_status", &instance_id)
+        .get_state("service_state", &instance_id)
         .await
         .unwrap()
         .is_some());

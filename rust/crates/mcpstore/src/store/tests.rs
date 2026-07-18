@@ -897,7 +897,7 @@ async fn add_service_writes_definition_and_instance_cache_layers() {
         .is_some());
     assert!(store
         .cache()
-        .get_state("instance_status", &instance_id.to_string())
+        .get_state("service_state", &instance_id.to_string())
         .await
         .unwrap()
         .is_some());
@@ -972,7 +972,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
             .is_none());
         assert!(store
             .cache()
-            .get_state("instance_status", &instance_id.to_string())
+            .get_state("service_state", &instance_id.to_string())
             .await
             .unwrap()
             .is_none());
@@ -1050,6 +1050,48 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .cache_instance_connected(instance_id, &source.list_tools(instance_id).await.unwrap())
         .await
         .unwrap();
+    source
+        .state_manager
+        .dispatch(
+            instance_id,
+            crate::state::ServiceStateEvent::StartRequested,
+            1,
+        )
+        .await
+        .unwrap();
+    source
+        .state_manager
+        .dispatch(
+            instance_id,
+            crate::state::ServiceStateEvent::TransportConnected,
+            2,
+        )
+        .await
+        .unwrap();
+    source
+        .state_manager
+        .dispatch(
+            instance_id,
+            crate::state::ServiceStateEvent::HealthObserved {
+                health: crate::state::HealthState::Healthy,
+                metrics: crate::state::HealthMetrics::default(),
+                failure: None,
+            },
+            3,
+        )
+        .await
+        .unwrap();
+    source
+        .state_manager
+        .dispatch(
+            instance_id,
+            crate::state::ServiceStateEvent::ToolSyncSucceeded {
+                tools: vec!["echo".to_string()],
+            },
+            4,
+        )
+        .await
+        .unwrap();
 
     let db = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
@@ -1065,14 +1107,8 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     assert_eq!(instances.len(), 1);
     assert_eq!(instances[0].instance_id, instance_id);
     assert_eq!(db.list_tools(instance_id).await.unwrap()[0].name, "echo");
-    assert_eq!(
-        db.cached_instance_status(instance_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .health_status,
-        HealthStatus::Healthy
-    );
+    let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(state.health, crate::state::HealthState::Healthy);
     assert_eq!(
         db.show_config().await.unwrap()["mcpServers"]["svc"]["command"],
         "echo"
@@ -1145,7 +1181,7 @@ async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity()
 }
 
 #[tokio::test]
-async fn db_source_runtime_projection_methods_do_not_overwrite_shared_cache() {
+async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(source_path.clone()),
@@ -1157,9 +1193,9 @@ async fn db_source_runtime_projection_methods_do_not_overwrite_shared_cache() {
     .unwrap();
     source.add_service("svc", stdio_config()).await.unwrap();
     let instance_id = store_instance_id("svc");
-    let original_status = source
-        .cache()
-        .get_state("instance_status", &instance_id.to_string())
+    let original_state = source
+        .state_manager
+        .get(instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1189,14 +1225,14 @@ async fn db_source_runtime_projection_methods_do_not_overwrite_shared_cache() {
     .await
     .unwrap();
 
-    assert_eq!(
-        db.cache()
-            .get_state("instance_status", &instance_id.to_string())
-            .await
-            .unwrap()
-            .unwrap(),
-        original_status
-    );
+    let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(state.desired, original_state.desired);
+    assert_eq!(state.phase, original_state.phase);
+    assert_eq!(state.health, original_state.health);
+    assert_eq!(state.recovery, original_state.recovery);
+    assert_eq!(state.auth, original_state.auth);
+    assert_eq!(state.tools, original_state.tools);
+    assert_eq!(state.failure, original_state.failure);
     assert!(db
         .cache()
         .get_entity("tools", &format!("{instance_id}:echo"))
@@ -1301,7 +1337,6 @@ async fn openapi_import_persists_shared_analysis_result() {
         .unwrap();
     let instance_id = store_instance_id("inventory");
     let pending = store.find_instance(instance_id).await.unwrap();
-    assert_eq!(pending.status, ConnectionStatus::Disconnected);
     assert_eq!(pending.applied_config_revision, None);
     assert!(pending.tools.is_empty());
     assert!(store
@@ -1317,15 +1352,8 @@ async fn openapi_import_persists_shared_analysis_result() {
         .unwrap()
         .unwrap();
     assert!(pending_entity["applied_config_revision"].is_null());
-    assert_eq!(
-        store
-            .cached_instance_status(instance_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .health_status,
-        HealthStatus::Disconnected
-    );
+    let pending_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(pending_state.phase, crate::state::RuntimePhase::Stopped);
     assert!(store
         .cache()
         .get_relation("instance_tools", &instance_id.to_string())
@@ -1344,7 +1372,16 @@ async fn openapi_import_persists_shared_analysis_result() {
 
     let service = store.find_instance(instance_id).await.unwrap();
     assert_eq!(service.transport, "openapi");
-    assert_eq!(service.status, ConnectionStatus::Connected);
+    assert_eq!(
+        store
+            .state_manager
+            .get(instance_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .phase,
+        crate::state::RuntimePhase::Running
+    );
     assert_eq!(
         service.applied_config_revision,
         Some(service.config_revision)
@@ -2557,7 +2594,14 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
         .find_instance(store_instance_id("inventory"))
         .await
         .unwrap();
-    assert_ne!(service.status, ConnectionStatus::Error);
+    let state = store
+        .state_manager
+        .get(service.instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.phase, crate::state::RuntimePhase::Running);
+    assert_eq!(state.failure, None);
 }
 
 #[tokio::test]
@@ -4167,7 +4211,7 @@ async fn switch_cache_storage_migrates_runtime_cache() {
     assert!(snapshot.entities["service_definitions"].contains_key("svc"));
     assert!(snapshot.entities["service_instances"].contains_key(&instance_id.to_string()));
     assert!(snapshot.relations["agent_instances"].contains_key("agent-a"));
-    assert!(snapshot.states["instance_status"].contains_key(&instance_id.to_string()));
+    assert!(snapshot.states["service_state"].contains_key(&instance_id.to_string()));
 
     assert!(store
         .cache()
@@ -4374,7 +4418,7 @@ async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
         .is_some());
     assert!(store
         .cache()
-        .get_state("instance_status", &store_instance_id("svc").to_string())
+        .get_state("service_state", &store_instance_id("svc").to_string())
         .await
         .unwrap()
         .is_some());
@@ -4518,7 +4562,6 @@ async fn install_registry_tools(
     tools: Vec<crate::registry::ToolInfo>,
 ) {
     let mut instance = store.registry.find_instance(instance_id).await.unwrap();
-    instance.status = ConnectionStatus::Connected;
     instance.tools = tools;
     store.registry.register_instance(instance).await;
 }
@@ -4796,8 +4839,9 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
         .await
         .unwrap_err()
         .to_string();
-    let status = store
-        .cached_instance_status(store_instance_id("broken"))
+    let state = store
+        .state_manager
+        .get(store_instance_id("broken"))
         .await
         .unwrap()
         .unwrap();
@@ -4807,12 +4851,13 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
         .unwrap();
 
     assert!(err.contains("Connection failed"));
-    assert_eq!(status.health_status, HealthStatus::Disconnected);
-    assert_eq!(status.connection_attempts, 1);
-    assert_eq!(status.lifecycle_state.restart_attempts, 1);
-    assert!(status.current_error.is_some());
-    assert_eq!(status.next_retry_time, None);
-    assert_eq!(service.status, ConnectionStatus::Disconnected);
+    assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(state.health, crate::state::HealthState::Unhealthy);
+    assert!(matches!(
+        state.recovery,
+        crate::state::RecoveryState::Exhausted { attempts: 1 }
+    ));
+    assert!(state.failure.is_some());
     assert_eq!(service.applied_config_revision, None);
     assert!(store
         .cache()
@@ -4845,9 +4890,7 @@ async fn connect_service_accepts_server_without_tools_capability() {
             Default::default(),
             StreamableHttpServerConfig::default().with_sse_keep_alive(None),
         );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         axum::serve(listener, Router::new().nest_service("/mcp", service))
@@ -4875,9 +4918,22 @@ async fn connect_service_accepts_server_without_tools_capability() {
     store.connect_service(instance_id).await.unwrap();
 
     let instance = store.find_instance(instance_id).await.unwrap();
-    assert_eq!(instance.status, ConnectionStatus::Connected);
+    assert_eq!(
+        store
+            .state_manager
+            .get(instance_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .phase,
+        crate::state::RuntimePhase::Running
+    );
     assert!(instance.tools.is_empty());
-    let metadata = store.mcp_server_metadata(instance_id).await.unwrap().unwrap();
+    let metadata = store
+        .mcp_server_metadata(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(metadata.capabilities.resources);
     assert!(!metadata.capabilities.tools);
 
@@ -4922,22 +4978,23 @@ async fn connect_service_times_out_hanging_stdio_startup() {
         .await
         .unwrap_err()
         .to_string();
-    let status = store
-        .cached_instance_status(store_instance_id("hanging"))
+    let state = store
+        .state_manager
+        .get(store_instance_id("hanging"))
         .await
         .unwrap()
-        .unwrap();
-    let service = store
-        .find_instance(store_instance_id("hanging"))
-        .await
         .unwrap();
 
     assert!(
         err.contains("Service instance connection timed out"),
         "{err}"
     );
-    assert_eq!(status.health_status, HealthStatus::CircuitOpen);
-    assert_eq!(service.status, ConnectionStatus::Error);
+    assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(state.health, crate::state::HealthState::Unhealthy);
+    assert!(matches!(
+        state.recovery,
+        crate::state::RecoveryState::Waiting { attempt: 1, .. }
+    ));
 
     std::fs::remove_dir_all(fixture_dir).ok();
 }
@@ -5060,30 +5117,39 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
         .await
         .unwrap_err();
     let first = store
-        .cached_instance_status(store_instance_id("broken"))
+        .state_manager
+        .get(store_instance_id("broken"))
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(first.health_status, HealthStatus::CircuitOpen);
-    assert_eq!(first.lifecycle_state.restart_attempts, 1);
+    assert!(matches!(
+        first.recovery,
+        crate::state::RecoveryState::Waiting { attempt: 1, .. }
+    ));
 
-    let mut due = first;
-    due.health_status = HealthStatus::HalfOpen;
-    due.next_retry_time = None;
-    store.put_instance_status(&due).await.unwrap();
-
+    store
+        .state_manager
+        .dispatch(
+            store_instance_id("broken"),
+            crate::state::ServiceStateEvent::RecoveryProbeStarted { attempt: 1 },
+            MCPStore::now_timestamp(),
+        )
+        .await
+        .unwrap();
     store
         .connect_service_internal(store_instance_id("broken"), true)
         .await
         .unwrap_err();
     let second = store
-        .cached_instance_status(store_instance_id("broken"))
+        .state_manager
+        .get(store_instance_id("broken"))
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(second.health_status, HealthStatus::Disconnected);
-    assert_eq!(second.lifecycle_state.restart_attempts, 2);
-    assert_eq!(second.next_retry_time, None);
+    assert!(matches!(
+        second.recovery,
+        crate::state::RecoveryState::Exhausted { attempts: 2 }
+    ));
 
     std::fs::remove_file(path).ok();
 }
@@ -5197,24 +5263,13 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
         .await
         .unwrap();
 
-    let status = store
-        .cached_instance_status(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(status.health_status, HealthStatus::Disconnected);
-    assert_eq!(status.connection_attempts, 0);
-    assert_eq!(status.lifecycle_state.restart_attempts, 0);
-    assert_eq!(status.current_error, None);
-    assert_eq!(status.next_retry_time, None);
-    assert_eq!(status.hard_deadline, None);
+    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
+    assert_eq!(state.failure, None);
     assert_eq!(
         store.auth_status(instance_id).await,
         crate::auth::AuthStatus::Unauthenticated
-    );
-    assert_eq!(
-        store.find_instance(instance_id).await.unwrap().status,
-        ConnectionStatus::Disconnected
     );
 
     std::fs::remove_file(path).ok();
@@ -5232,7 +5287,7 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
     })
     .unwrap();
     store
-        .add_service("protected", stdio_config())
+        .add_service("protected", oauth_http_config())
         .await
         .unwrap();
     let instance_id = store_instance_id("protected");
@@ -5246,17 +5301,10 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
         .await
         .unwrap();
 
-    let status = store
-        .cached_instance_status(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(status.health_status, HealthStatus::Disconnected);
-    assert_eq!(status.connection_attempts, 0);
-    assert_eq!(status.lifecycle_state.restart_attempts, 0);
-    assert_eq!(status.current_error, None);
-    assert_eq!(status.next_retry_time, None);
-    assert_eq!(status.hard_deadline, None);
+    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
+    assert_eq!(state.failure, None);
     assert_eq!(
         store.auth_status(instance_id).await,
         crate::auth::AuthStatus::ScopeUpgradeRequired
@@ -5269,10 +5317,6 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
             .required_scope
             .as_deref(),
         Some("resources.read tools.call")
-    );
-    assert_eq!(
-        store.find_instance(instance_id).await.unwrap().status,
-        ConnectionStatus::Disconnected
     );
 
     std::fs::remove_file(path).ok();
@@ -5474,13 +5518,10 @@ mod scoped_contract {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    use crate::cache::models::{
-        HealthStatus, ServiceDefinitionEntity, ServiceLifecycleState, ToolAvailability,
-        ToolStatusItem,
-    };
+    use crate::cache::models::ServiceDefinitionEntity;
     use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
     use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
-    use crate::registry::{ConfigRevision, ConnectionStatus, ToolInfo};
+    use crate::registry::{ConfigRevision, ToolInfo};
     use crate::{CreateSessionRequest, SessionToolSelection, ToolTransformPatch};
 
     fn temp_config_path() -> String {
@@ -5801,25 +5842,20 @@ mod scoped_contract {
         let agent_id = instance_id("svc", agent_scope("agent-1"));
         store.connect_service(store_id).await.unwrap_err();
 
-        let failed = store
-            .cached_instance_status(store_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(failed.connection_attempts > 0);
-        assert!(failed.lifecycle_state.restart_attempts > 0);
-        assert!(failed.next_retry_time.is_some());
+        let failed = store.state_manager.get(store_id).await.unwrap().unwrap();
+        assert_eq!(failed.health, crate::state::HealthState::Unhealthy);
+        assert!(matches!(
+            failed.recovery,
+            crate::state::RecoveryState::Waiting { attempt: 1, .. }
+        ));
+        assert!(failed.failure.is_some());
 
-        let sibling = store
-            .cached_instance_status(agent_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(sibling.health_status, HealthStatus::Init);
-        assert_eq!(sibling.connection_attempts, 0);
-        assert_eq!(sibling.lifecycle_state.restart_attempts, 0);
-        assert!(sibling.next_retry_time.is_none());
-        assert!(sibling.current_error.is_none());
+        let sibling = store.state_manager.get(agent_id).await.unwrap().unwrap();
+        assert_eq!(sibling.desired, crate::state::DesiredState::Stopped);
+        assert_eq!(sibling.phase, crate::state::RuntimePhase::Stopped);
+        assert_eq!(sibling.health, crate::state::HealthState::Unknown);
+        assert_eq!(sibling.recovery, crate::state::RecoveryState::Idle);
+        assert_eq!(sibling.failure, None);
 
         std::fs::remove_file(path).ok();
     }
@@ -5897,7 +5933,6 @@ mod scoped_contract {
         let store_instance_id = instance_id("svc", store_scope());
         let mut connected = store.find_instance(store_instance_id).await.unwrap();
         let applied_revision = connected.config_revision;
-        connected.status = ConnectionStatus::Connected;
         connected.tools = vec![tool("echo")];
         connected.applied_config_revision = Some(applied_revision);
         store.registry.register_instance(connected).await;
@@ -5909,7 +5944,6 @@ mod scoped_contract {
         store.update_service("svc", updated.clone()).await.unwrap();
 
         let instance = store.find_instance(store_instance_id).await.unwrap();
-        assert_eq!(instance.status, ConnectionStatus::Connected);
         assert_eq!(instance.tools, vec![tool("echo")]);
         assert_eq!(
             instance.applied_config_revision,
@@ -6037,7 +6071,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn startup_rebuilds_observed_state_and_preserves_persistent_manual_stop() {
+    async fn startup_preserves_canonical_stopped_state() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
         store
@@ -6046,70 +6080,59 @@ mod scoped_contract {
             .unwrap();
         let instance_id = instance_id("svc", store_scope());
 
-        let mut observed = store
-            .new_instance_status(
+        store
+            .state_manager
+            .dispatch(
                 instance_id,
-                HealthStatus::Healthy,
-                Some("stale error".to_string()),
-                vec![ToolStatusItem {
-                    tool_name: "echo".to_string(),
-                    status: ToolAvailability::Unavailable,
-                }],
+                crate::state::ServiceStateEvent::StartRequested,
+                40,
             )
             .await
             .unwrap();
-        observed.connection_attempts = 4;
-        observed.window_error_rate = Some(0.75);
-        observed.latency_p95 = Some(20.0);
-        observed.latency_p99 = Some(40.0);
-        observed.sample_size = Some(8);
-        observed.next_retry_time = Some(100.0);
-        observed.hard_deadline = Some(200.0);
-        observed.lease_deadline = Some(300.0);
-        observed.lifecycle_state = ServiceLifecycleState {
-            restart_attempts: 3,
-            manually_stopped: true,
-            manually_stopped_at: Some(42),
-            manual_stop_persistent: true,
-        };
-        store.put_instance_status(&observed).await.unwrap();
+        store
+            .state_manager
+            .dispatch(
+                instance_id,
+                crate::state::ServiceStateEvent::TransportConnected,
+                41,
+            )
+            .await
+            .unwrap();
+        store
+            .state_manager
+            .dispatch(
+                instance_id,
+                crate::state::ServiceStateEvent::StopRequested,
+                42,
+            )
+            .await
+            .unwrap();
+        let observed = store
+            .state_manager
+            .dispatch(
+                instance_id,
+                crate::state::ServiceStateEvent::TransportStopped,
+                43,
+            )
+            .await
+            .unwrap();
 
         let mut runtime_instance = store.find_instance(instance_id).await.unwrap();
-        runtime_instance.status = ConnectionStatus::Connected;
         runtime_instance.tools = vec![tool("echo")];
         runtime_instance.applied_config_revision = Some(runtime_instance.config_revision);
         store.registry.register_instance(runtime_instance).await;
 
         store.load_from_config().await.unwrap();
 
-        let rebuilt = store
-            .cached_instance_status(instance_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(rebuilt.health_status, HealthStatus::Init);
-        assert_eq!(rebuilt.current_error, None);
-        assert_eq!(rebuilt.connection_attempts, 0);
-        assert!(rebuilt.tools.is_empty());
-        assert_eq!(rebuilt.window_error_rate, None);
-        assert_eq!(rebuilt.latency_p95, None);
-        assert_eq!(rebuilt.latency_p99, None);
-        assert_eq!(rebuilt.sample_size, None);
-        assert_eq!(rebuilt.next_retry_time, None);
-        assert_eq!(rebuilt.hard_deadline, None);
-        assert_eq!(rebuilt.lease_deadline, None);
-        assert_eq!(
-            rebuilt.lifecycle_state,
-            ServiceLifecycleState {
-                restart_attempts: 0,
-                manually_stopped: true,
-                manually_stopped_at: Some(42),
-                manual_stop_persistent: true,
-            }
-        );
-
+        let rebuilt = store.state_manager.get(instance_id).await.unwrap().unwrap();
+        assert_eq!(rebuilt.desired, observed.desired);
+        assert_eq!(rebuilt.phase, observed.phase);
+        assert_eq!(rebuilt.health, observed.health);
+        assert_eq!(rebuilt.recovery, observed.recovery);
+        assert_eq!(rebuilt.auth, observed.auth);
+        assert_eq!(rebuilt.tools, observed.tools);
+        assert_eq!(rebuilt.failure, observed.failure);
         let instance = store.find_instance(instance_id).await.unwrap();
-        assert_eq!(instance.status, ConnectionStatus::Disconnected);
         assert!(instance.tools.is_empty());
         assert_eq!(instance.applied_config_revision, None);
 
@@ -6305,7 +6328,16 @@ mod scoped_contract {
             .unwrap();
 
         let pending = store.find_instance(instance_id).await.unwrap();
-        assert_eq!(pending.status, ConnectionStatus::Connected);
+        assert_eq!(
+            store
+                .state_manager
+                .get(instance_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .phase,
+            crate::state::RuntimePhase::Running
+        );
         assert!(pending.restart_required());
         assert_eq!(
             store
@@ -6477,21 +6509,13 @@ mod scoped_contract {
         assert!(!untouched.is_error);
 
         store.disconnect_service(agent_1_id).await.unwrap();
-        assert_eq!(
-            store.find_instance(agent_1_id).await.unwrap().status,
-            ConnectionStatus::Disconnected
-        );
-        assert_eq!(
-            store.find_instance(agent_2_id).await.unwrap().status,
-            ConnectionStatus::Connected
-        );
-        let sibling_status = store
-            .cached_instance_status(agent_2_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(sibling_status.health_status, HealthStatus::Healthy);
-        assert!(!sibling_status.lifecycle_state.manually_stopped);
+        let stopped = store.state_manager.get(agent_1_id).await.unwrap().unwrap();
+        assert_eq!(stopped.desired, crate::state::DesiredState::Stopped);
+        assert_eq!(stopped.phase, crate::state::RuntimePhase::Stopped);
+        let sibling = store.state_manager.get(agent_2_id).await.unwrap().unwrap();
+        assert_eq!(sibling.desired, crate::state::DesiredState::Running);
+        assert_eq!(sibling.phase, crate::state::RuntimePhase::Running);
+        assert_eq!(sibling.health, crate::state::HealthState::Healthy);
 
         let sibling_call = store
             .call_tool(agent_2_id, "echo", json!({"body": {"text": "hello"}}))
@@ -7126,15 +7150,10 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     tokio::time::sleep(Duration::from_millis(25)).await;
     assert_eq!(requests.load(Ordering::SeqCst), 0);
 
-    let status = store
-        .cached_instance_status(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(status.health_status, HealthStatus::Disconnected);
-    assert_eq!(status.connection_attempts, 0);
-    assert_eq!(status.lifecycle_state.restart_attempts, 0);
-    assert_eq!(status.current_error, None);
+    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
+    assert_eq!(state.failure, None);
     assert_eq!(
         store.auth_status(instance_id).await,
         crate::auth::AuthStatus::Unauthenticated

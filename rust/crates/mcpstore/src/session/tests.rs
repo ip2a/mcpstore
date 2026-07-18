@@ -60,7 +60,6 @@ async fn register_tool_service(
         .unwrap();
     let instance_id = ServiceInstanceKey::new(service_name, scope).instance_id();
     let mut instance = store.registry.find_instance(instance_id).await.unwrap();
-    instance.status = ConnectionStatus::Connected;
     instance.tools = tools
         .iter()
         .map(|tool| crate::registry::ToolInfo {

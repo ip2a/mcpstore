@@ -17,7 +17,7 @@ const RELATION_TYPES: &[&str] = &[
 ];
 const STATE_TYPES: &[&str] = &[
     "cache_schema",
-    "instance_status",
+    "service_state",
     "instance_metadata",
     "session_status",
     "session_state",

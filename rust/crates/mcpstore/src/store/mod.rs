@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::sync::{RwLock as SyncRwLock, atomic::AtomicU64};
 
 pub(crate) use crate::cache::CacheLayerManager;
-pub(crate) use crate::cache::models::{
-    HealthStatus, OpenApiImportContextState, ServiceLifecycleState, ToolAvailability,
-};
+pub(crate) use crate::cache::models::OpenApiImportContextState;
 pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
 use crate::event_reactor::{EventBackend, EventReactor, ReactorConfig, Rule};
 pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{
-    ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance, ServiceRegistry,
+    ConfigRevision, ServiceDefinition, ServiceInstance, ServiceRegistry,
 };
 pub(crate) use crate::transport::client::ConnectionPool;
 pub(crate) use crate::transport::{
@@ -46,11 +44,10 @@ pub(crate) mod prelude {
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
         BackendKind, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE, CacheHealthReport,
-        CacheStorage, ConfigRevision, ConnectionStatus, DiscoveredPrompt, DiscoveredResource,
-        DiscoveredResourceTemplate, Event, HealthStatus, MCPStore, OpenApiImportContextState,
-        Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition,
-        ServiceInstance, ServiceLifecycleState, SourceMode, StartupPolicy, StoreError,
-        ToolAvailability, ToolChangeServiceResult, ToolChangeSummary,
+        CacheStorage, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
+        DiscoveredResourceTemplate, Event, MCPStore, OpenApiImportContextState, Result,
+        ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition, ServiceInstance,
+        SourceMode, StartupPolicy, StoreError, ToolChangeServiceResult, ToolChangeSummary,
     };
 }
 

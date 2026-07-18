@@ -45,20 +45,20 @@ pub enum RecoveryState {
     },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "snake_case")]
 pub enum AuthState {
     NotRequired,
     Unauthenticated,
     Authorizing,
     Authenticated,
     Refreshing,
-    ScopeUpgradeRequired,
+    ScopeUpgradeRequired { required_scope: Option<String> },
     Failed,
 }
 
 impl AuthState {
-    fn satisfied(self) -> bool {
+    fn satisfied(&self) -> bool {
         matches!(self, Self::NotRequired | Self::Authenticated)
     }
 }

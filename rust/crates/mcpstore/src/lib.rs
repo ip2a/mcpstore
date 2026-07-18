@@ -58,9 +58,7 @@ pub use event_reactor::{
 pub use identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
 // Facade re-exports: registry
-pub use registry::{
-    ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance, ToolInfo,
-};
+pub use registry::{ConfigRevision, ServiceDefinition, ServiceInstance, ToolInfo};
 
 // Facade re-exports: business sessions
 pub use cache::models::{

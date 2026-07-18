@@ -1,5 +1,5 @@
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
-use crate::registry::{ConnectionStatus, ServiceDefinition, ServiceInstance, ServiceRegistry};
+use crate::registry::{ServiceDefinition, ServiceInstance, ServiceRegistry};
 
 impl ServiceRegistry {
     pub async fn register_definition(&self, definition: ServiceDefinition) {
@@ -87,12 +87,6 @@ impl ServiceRegistry {
 
     pub async fn list_instances(&self) -> Vec<ServiceInstance> {
         self.instances.read().await.values().cloned().collect()
-    }
-
-    pub async fn update_status(&self, instance_id: InstanceId, status: ConnectionStatus) {
-        if let Some(instance) = self.instances.write().await.get_mut(&instance_id) {
-            instance.status = status;
-        }
     }
 
     pub async fn mark_applied(&self, instance_id: InstanceId) {
