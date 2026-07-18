@@ -299,7 +299,6 @@ pub(super) async fn page_add() -> impl IntoResponse {
                     select id="field-transport" name="transport" {
                         option value="stdio" { "stdio" }
                         option value="streamable-http" { "streamable-http" }
-                        option value="sse" { "sse" }
                     }
                 }
                 div.field.field-wide {

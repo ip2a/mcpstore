@@ -121,7 +121,6 @@ impl MCPStore {
         let probe_runner = std::sync::Arc::new(self.pool.clone());
         let ping_timeout_secs = match instance.transport.as_str() {
             "stdio" => self.runtime_config.ping_timeout_stdio_secs,
-            "sse" => self.runtime_config.ping_timeout_sse_secs,
             _ => self.runtime_config.ping_timeout_http_secs,
         };
         if let Some(supervisor) = &self.supervisor {

@@ -276,8 +276,7 @@ pub(super) async fn action_add_exec(
     let resolved_transport = match transport {
         "stdio" => "stdio",
         "http" | "streamable-http" => "streamable-http",
-        "sse" => "sse",
-        _ => return form_error("Transport must be stdio, streamable-http, or sse"),
+        _ => return form_error("Transport must be stdio or streamable-http"),
     };
     let scope = params.get("scope").map(String::as_str).unwrap_or("store");
     let agent = trim_optional(params.get("agent"));
