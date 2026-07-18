@@ -75,6 +75,7 @@ impl McpConnection {
             stdio_process: None,
             auth_coordinator: AuthCoordinator::for_tests(
                 crate::auth::SystemKeyring::new().expect("test keyring"),
+                crate::auth::test_state_manager(),
             )
             .expect("test auth coordinator"),
             handler,
@@ -244,6 +245,7 @@ mod tests {
             config,
             AuthCoordinator::for_tests(
                 crate::auth::SystemKeyring::new().expect("test keyring"),
+                crate::auth::test_state_manager(),
             )
             .expect("test auth coordinator"),
             ServiceRegistry::new(),

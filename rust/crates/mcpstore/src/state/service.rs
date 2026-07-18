@@ -329,6 +329,9 @@ impl ServiceState {
                 hard_deadline,
             } => {
                 self.require_running("recovery_scheduled")?;
+                if matches!(self.recovery, RecoveryState::Exhausted { .. }) {
+                    return Err(self.invalid("recovery_scheduled"));
+                }
                 self.recovery = RecoveryState::Waiting {
                     attempt,
                     retry_at,
@@ -641,7 +644,17 @@ mod tests {
             state.recovery,
             RecoveryState::Exhausted { attempts: 3 }
         ));
-        state.apply(ServiceStateEvent::StartRequested, 4).unwrap();
+        assert!(state
+            .apply(
+                ServiceStateEvent::RecoveryScheduled {
+                    attempt: 4,
+                    retry_at: 10.0,
+                    hard_deadline: 20.0,
+                },
+                4,
+            )
+            .is_err());
+        state.apply(ServiceStateEvent::StartRequested, 5).unwrap();
         assert_eq!(state.recovery, RecoveryState::Idle);
         assert_eq!(state.phase, RuntimePhase::Starting);
     }

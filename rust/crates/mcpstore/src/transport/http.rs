@@ -188,8 +188,11 @@ mod tests {
             ..ServerConfig::default()
         };
         assert!(config.auth.is_none());
-        let coordinator =
-            AuthCoordinator::for_tests(crate::auth::SystemKeyring::new().unwrap()).unwrap();
+        let coordinator = AuthCoordinator::for_tests(
+            crate::auth::SystemKeyring::new().unwrap(),
+            crate::auth::test_state_manager(),
+        )
+        .unwrap();
         let client = connect(
             "00000000-0000-0000-0000-000000000001".parse().unwrap(),
             "static-header-service",
@@ -424,7 +427,19 @@ mod tests {
         instance_id: InstanceId,
     ) -> (AuthCoordinator, ServerConfig) {
         let auth = client_credentials_config();
-        let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
+        let state_manager = crate::auth::test_state_manager();
+        state_manager
+            .create(crate::state::ServiceState::new(
+                instance_id,
+                "test".to_string(),
+                crate::identity::ScopeRef::Store,
+                crate::state::DesiredState::Stopped,
+                crate::state::AuthState::NotRequired,
+                0,
+            ))
+            .await
+            .unwrap();
+        let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager).unwrap();
         coordinator
             .save_client_secret(
                 instance_id,
@@ -446,7 +461,19 @@ mod tests {
     async fn authorization_code_callback_connects_to_protected_mcp_and_refreshes_once() {
         let fixture = ProtectedFixture::spawn(ProtectedResponse::AuthorizationCodeRefresh).await;
         let instance_id = "00000000-0000-0000-0000-000000000010".parse().unwrap();
-        let coordinator = AuthCoordinator::for_tests(test_keyring()).unwrap();
+        let state_manager = crate::auth::test_state_manager();
+        state_manager
+            .create(crate::state::ServiceState::new(
+                instance_id,
+                "test".to_string(),
+                crate::identity::ScopeRef::Store,
+                crate::state::DesiredState::Stopped,
+                crate::state::AuthState::NotRequired,
+                0,
+            ))
+            .await
+            .unwrap();
+        let coordinator = AuthCoordinator::for_tests(test_keyring(), state_manager).unwrap();
         let auth: AuthConfig = serde_json::from_value(serde_json::json!({
             "type": "oauth_authorization_code",
             "client_id": "browser-client",
