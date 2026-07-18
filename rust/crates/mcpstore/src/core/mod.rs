@@ -11,6 +11,8 @@ pub enum StoreError {
     Transport(#[from] crate::transport::TransportError),
     #[error("Cache error: {0}")]
     Cache(#[from] crate::cache::CacheError),
+    #[error("Service state error: {0}")]
+    State(#[from] crate::state::ServiceStateManagerError),
     #[error("Service not found: {0}")]
     ServiceNotFound(String),
     #[error("{0}")]

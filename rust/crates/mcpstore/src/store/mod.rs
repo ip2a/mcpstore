@@ -73,6 +73,7 @@ pub struct MCPStore {
     >,
     pub(crate) event_bus: EventBus,
     pub(crate) cache: std::sync::Arc<CacheLayerManager>,
+    pub(crate) state_manager: std::sync::Arc<crate::state::ServiceStateManager>,
     pub(crate) event_reactor:
         tokio::sync::RwLock<Option<std::sync::Arc<EventReactor<EventBackend>>>>,
     /// Shared backend for EventReactor. For Memory, this shares the same
@@ -130,6 +131,10 @@ impl MCPStore {
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(1000);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
+        let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
+            cache.clone(),
+            event_bus.clone(),
+        ));
         let pool = ConnectionPool::new(
             auth_coordinator.clone(),
             registry.clone(),
@@ -161,6 +166,7 @@ impl MCPStore {
             applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
             event_bus,
             cache,
+            state_manager,
             event_reactor: tokio::sync::RwLock::new(None),
             event_backend: tokio::sync::RwLock::new(event_backend),
         });

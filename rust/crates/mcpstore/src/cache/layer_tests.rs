@@ -10,6 +10,7 @@ use crate::cache::models::{
 use crate::config::ScopeDeclarations;
 use crate::identity::{ScopeRef, ServiceInstanceKey};
 use crate::registry::{ConfigRevision, ConnectionStatus, ServiceDefinition, ServiceInstance};
+use crate::state::{AuthState, DesiredState, RuntimePhase};
 use crate::store::{CacheStorage, MCPStore, StoreOptions};
 
 fn store_instance_id() -> crate::identity::InstanceId {
@@ -211,6 +212,11 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
         .await;
     store.cache_instance_added(instance_id).await.unwrap();
 
+    let canonical = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(canonical.desired, DesiredState::Stopped);
+    assert_eq!(canonical.phase, RuntimePhase::Stopped);
+    assert_eq!(canonical.auth, AuthState::NotRequired);
+
     let observed = InstanceStatus {
         instance_id,
         service_name: "svc".to_string(),
@@ -253,6 +259,18 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
         store.cached_instance_status(instance_id).await.unwrap(),
         Some(observed)
     );
+    assert_eq!(
+        store.state_manager.get(instance_id).await.unwrap(),
+        Some(canonical)
+    );
+
+    store.cache_instance_removed(instance_id).await.unwrap();
+    assert!(store
+        .state_manager
+        .get(instance_id)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[test]
