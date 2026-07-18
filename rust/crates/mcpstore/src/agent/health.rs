@@ -2,14 +2,14 @@ use crate::state::{ReadinessStatus, ServiceState};
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn instance_status(&self, instance_id: InstanceId) -> Result<serde_json::Value> {
-        let state = self.instance_status_entry(instance_id).await?;
+    pub async fn service_state(&self, instance_id: InstanceId) -> Result<serde_json::Value> {
+        let state = self.service_state_entry(instance_id).await?;
         serde_json::to_value(state).map_err(|error| {
-            StoreError::Other(format!("Instance status serialization failed: {error}"))
+            StoreError::Other(format!("Service state serialization failed: {error}"))
         })
     }
 
-    pub async fn instance_status_entry(&self, instance_id: InstanceId) -> Result<ServiceState> {
+    pub async fn service_state_entry(&self, instance_id: InstanceId) -> Result<ServiceState> {
         self.state_manager
             .get(instance_id)
             .await?

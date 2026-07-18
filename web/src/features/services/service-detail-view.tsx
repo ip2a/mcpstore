@@ -44,7 +44,7 @@ import {
   type ResourceInfo,
   type ResourceTemplateInfo,
   type ServiceInstance,
-  type InstanceStatus,
+  type ServiceState,
   type ToolInfo,
 } from "@/lib/api"
 import { formatServiceLaunchLine } from "@/lib/service-info"
@@ -84,7 +84,7 @@ export function ServiceDetailView(props: {
   onBack: () => void
   onRunTool: (tool: ToolInfo, args: Record<string, unknown>) => void
   isToolRunning?: (tool: ToolInfo) => boolean
-  onToolDetail: (tool: ToolInfo, service: ServiceInstance, statusReport?: InstanceStatus | null) => void
+  onToolDetail: (tool: ToolInfo, service: ServiceInstance, statusReport?: ServiceState | null) => void
   onConnect: () => void
   onDisconnect: () => void
   onRestart: () => void
@@ -132,7 +132,7 @@ export function ServiceDetailView(props: {
   const launchLine = formatServiceLaunchLine(service)
   const description = String(serviceConfig?.description || "").trim()
   const configArgs = Array.isArray(serviceConfig?.args) ? serviceConfig.args.map(String).join(" ") : null
-  const availableToolCount = statusReport?.tools?.filter((item) => item.status === "available").length
+  const availableToolCount = statusReport?.tools.items.filter((item) => item.availability === "available").length
   const selectedTool = useMemo(() => {
     if (!tools.length) return null
     return tools.find((tool) => toolKey(service.instance_id, tool) === selectedToolKey) || tools[0]
@@ -448,9 +448,9 @@ export function ServiceDetailView(props: {
               <MetricTile
                 variant="compact"
                 label={t("status")}
-                value={String(service.status || t("unknown"))}
-                title={String(service.status || t("unknown"))}
-                hint={statusReport?.health_status || t("clickToManage")}
+                value={String(service.state.readiness.status || t("unknown"))}
+                title={String(service.state.readiness.status || t("unknown"))}
+                hint={statusReport?.health || t("clickToManage")}
                 active={statusDialogOpen}
                 onClick={() => setStatusDialogOpen(true)}
               />
@@ -529,7 +529,7 @@ export function ServiceDetailView(props: {
         busy={props.busy}
         open={statusDialogOpen}
         service={service}
-        serviceStatus={service.status}
+        serviceState={service.state}
         onConnect={props.onConnect}
         onDelete={props.onDelete}
         onDisconnect={props.onDisconnect}
@@ -695,7 +695,7 @@ function ServiceOverviewPane({
   configArgs: string | null
   endpoint: string
   availableToolCount: number | undefined
-  statusReport: InstanceStatus | null | undefined
+  statusReport: ServiceState | null | undefined
 }) {
   const { t } = useI18n()
   const capabilities = service.mcp?.capabilities
@@ -755,10 +755,10 @@ function ServiceOverviewPane({
               <dd>{availableToolCount}</dd>
             </div>
           ) : null}
-          {statusReport?.health_status ? (
+          {statusReport?.health ? (
             <div className="grid gap-1">
               <dt className="text-muted-foreground">{t("health")}</dt>
-              <dd>{statusReport.health_status}</dd>
+              <dd>{statusReport.health}</dd>
             </div>
           ) : null}
         </dl>

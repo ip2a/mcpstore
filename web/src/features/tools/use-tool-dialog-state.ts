@@ -2,7 +2,7 @@ import { useCallback, useState } from "react"
 import { toast } from "sonner"
 
 import { type ToolDetailState, type ToolDialogState, type ToolResultState } from "@/features/tools/tool-dialogs"
-import { callInstanceTool, type ServiceInstance, type InstanceStatus, type ToolInfo } from "@/lib/api"
+import { callInstanceTool, type ServiceInstance, type ServiceState, type ToolInfo } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 
 function buildSourceLabel(service: ServiceInstance) {
@@ -47,7 +47,7 @@ export function useToolDialogState() {
     void runServiceTool(service, tool, initialArgs || {})
   }
 
-  function openServiceToolDetail(service: ServiceInstance, tool: ToolInfo, statusReport?: InstanceStatus | null) {
+  function openServiceToolDetail(service: ServiceInstance, tool: ToolInfo, statusReport?: ServiceState | null) {
     setToolDetail({
       tool,
       sourceLabel: buildSourceLabel(service),

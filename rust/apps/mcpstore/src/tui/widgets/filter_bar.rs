@@ -1,4 +1,4 @@
-use mcpstore::registry::ConnectionStatus;
+use mcpstore::state::ReadinessStatus;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -14,54 +14,45 @@ use crate::tui::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterStatus {
     All,
-    Connected,
-    Error,
-    Disconnected,
-    Connecting,
+    Ready,
+    NotReady,
+    Unknown,
 }
 
 impl FilterStatus {
-    pub fn label_key(&self) -> TextKey {
+    pub fn label(&self, _locale: Locale) -> &'static str {
         match self {
-            FilterStatus::All => TextKey::FilterAll,
-            FilterStatus::Connected => TextKey::FilterConnected,
-            FilterStatus::Error => TextKey::FilterError,
-            FilterStatus::Disconnected => TextKey::FilterDisconnected,
-            FilterStatus::Connecting => TextKey::FilterConnecting,
+            FilterStatus::All => "All",
+            FilterStatus::Ready => "Ready",
+            FilterStatus::NotReady => "Not ready",
+            FilterStatus::Unknown => "Unknown",
         }
     }
 
-    pub fn label(&self, locale: Locale) -> &'static str {
-        i18n::text(locale, self.label_key())
-    }
-
-    pub fn matches(&self, status: ConnectionStatus) -> bool {
+    pub fn matches(&self, status: ReadinessStatus) -> bool {
         match self {
             FilterStatus::All => true,
-            FilterStatus::Connected => status == ConnectionStatus::Connected,
-            FilterStatus::Error => status == ConnectionStatus::Error,
-            FilterStatus::Disconnected => status == ConnectionStatus::Disconnected,
-            FilterStatus::Connecting => status == ConnectionStatus::Connecting,
+            FilterStatus::Ready => status == ReadinessStatus::Ready,
+            FilterStatus::NotReady => status == ReadinessStatus::NotReady,
+            FilterStatus::Unknown => status == ReadinessStatus::Unknown,
         }
     }
 
     pub fn next(&self) -> Self {
         match self {
-            FilterStatus::All => FilterStatus::Connected,
-            FilterStatus::Connected => FilterStatus::Error,
-            FilterStatus::Error => FilterStatus::Disconnected,
-            FilterStatus::Disconnected => FilterStatus::Connecting,
-            FilterStatus::Connecting => FilterStatus::All,
+            FilterStatus::All => FilterStatus::Ready,
+            FilterStatus::Ready => FilterStatus::NotReady,
+            FilterStatus::NotReady => FilterStatus::Unknown,
+            FilterStatus::Unknown => FilterStatus::All,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            FilterStatus::All => FilterStatus::Connecting,
-            FilterStatus::Connected => FilterStatus::All,
-            FilterStatus::Error => FilterStatus::Connected,
-            FilterStatus::Disconnected => FilterStatus::Error,
-            FilterStatus::Connecting => FilterStatus::Disconnected,
+            FilterStatus::All => FilterStatus::Unknown,
+            FilterStatus::Ready => FilterStatus::All,
+            FilterStatus::NotReady => FilterStatus::Ready,
+            FilterStatus::Unknown => FilterStatus::NotReady,
         }
     }
 }
@@ -143,10 +134,9 @@ fn render_status_tabs(
 ) {
     let tabs = [
         FilterStatus::All,
-        FilterStatus::Connected,
-        FilterStatus::Error,
-        FilterStatus::Disconnected,
-        FilterStatus::Connecting,
+        FilterStatus::Ready,
+        FilterStatus::NotReady,
+        FilterStatus::Unknown,
     ];
 
     let mut spans = vec![Span::styled(

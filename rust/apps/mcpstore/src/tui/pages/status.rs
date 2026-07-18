@@ -108,10 +108,9 @@ fn overview_lines(app: &TuiApp) -> Vec<Line<'static>> {
         kv("命名空间", app.namespace.clone()),
         kv("MCP配置", app.config_path.clone()),
         kv("服务总数", stats.total.to_string()),
-        kv("已连接", stats.connected.to_string()),
-        kv("连接中", stats.connecting.to_string()),
-        kv("错误", stats.error.to_string()),
-        kv("已断开", stats.disconnected.to_string()),
+        kv("Ready", stats.ready.to_string()),
+        kv("Not Ready", stats.not_ready.to_string()),
+        kv("Unknown", stats.unknown.to_string()),
         kv("Agent数量", app.agents.len().to_string()),
         kv("当前焦点", app.focus_area.label(app.locale).to_string()),
     ]

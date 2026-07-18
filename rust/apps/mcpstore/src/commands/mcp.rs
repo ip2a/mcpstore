@@ -255,11 +255,14 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
             let transport = svc.get("transport").and_then(|v| v.as_str()).unwrap_or("?");
-            let status = svc.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+            let readiness = svc
+                .pointer("/state/readiness/status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             let tools_count = svc.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
             println!(
-                "- {}  instance={}  transport={}  status={}  tools={}",
-                name, instance_id, transport, status, tools_count
+                "- {}  instance={}  transport={}  readiness={}  tools={}",
+                name, instance_id, transport, readiness, tools_count
             );
         }
         return Ok(());
@@ -277,12 +280,15 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
     }
 
     for svc in &services {
+        let state = store.service_state_entry(svc.instance_id).await?;
         println!(
-            "- {}  instance={}  transport={}  status={:?}  tools={}",
+            "- {}  instance={}  transport={}  readiness={:?}  phase={:?}  health={:?}  tools={}",
             svc.service_name,
             svc.instance_id,
             svc.transport,
-            svc.status,
+            state.readiness.status,
+            state.phase,
+            state.health,
             svc.tools.len()
         );
     }
@@ -443,8 +449,11 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     store.load_from_source().await?;
 
     let instance_id = parse_instance_id(&a.instance_id)?;
-    let status = store.instance_status_entry(instance_id).await?;
-    println!("[Check] {} => {:?}", instance_id, status.health_status);
+    let status = store.service_state_entry(instance_id).await?;
+    println!(
+        "[Check] {} => readiness={:?} phase={:?} health={:?}",
+        instance_id, status.readiness.status, status.phase, status.health
+    );
     Ok(())
 }
 
@@ -462,11 +471,11 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": a.instance_id, "timeout": a.timeout});
         let result = crate::daemon::client::call_daemon("wait_service", params).await?;
-        let status = result
-            .get("health_status")
+        let readiness = result
+            .pointer("/state/readiness/status")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
-        println!("[Success] Service ready: {} ({})", a.instance_id, status);
+        println!("[Success] Service ready: {} ({})", a.instance_id, readiness);
         return Ok(());
     }
     let store = build_store(&a.store)?;
@@ -475,8 +484,8 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     store.connect_service(instance_id).await?;
     let status = store.wait_instance_ready(instance_id, a.timeout).await?;
     println!(
-        "[Success] Service ready: {} ({:?})",
-        instance_id, status.health_status
+        "[Success] Service ready: {} (readiness={:?}, health={:?})",
+        instance_id, status.readiness.status, status.health
     );
     Ok(())
 }
@@ -728,9 +737,10 @@ impl CallCommandError {
                     CallErrorCode::CommandFailed
                 }
             },
-            StoreError::Cache(_) | StoreError::Config(_) | StoreError::Other(_) => {
-                CallErrorCode::CommandFailed
-            }
+            StoreError::Cache(_)
+            | StoreError::Config(_)
+            | StoreError::State(_)
+            | StoreError::Other(_) => CallErrorCode::CommandFailed,
         };
         Self::for_call(format, code, error.to_string(), instance_id, tool_name)
     }

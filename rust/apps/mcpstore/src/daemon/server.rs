@@ -312,19 +312,21 @@ async fn handle_list_services(store: &MCPStore, params: Value) -> DaemonResponse
         Ok(services) => services,
         Err(e) => return DaemonResponse::err(e.to_string()),
     };
-    let data: Vec<Value> = services
-        .iter()
-        .map(|s| {
-            json!({
-                "instance_id": s.instance_id,
-                "service_name": s.service_name,
-                "scope": s.scope,
-                "transport": s.transport,
-                "status": format!("{:?}", s.status),
-                "tools_count": s.tools.len(),
-            })
-        })
-        .collect();
+    let mut data = Vec::with_capacity(services.len());
+    for service in services {
+        let state = match store.service_state_entry(service.instance_id).await {
+            Ok(state) => state,
+            Err(error) => return DaemonResponse::err(error.to_string()),
+        };
+        data.push(json!({
+            "instance_id": service.instance_id,
+            "service_name": service.service_name,
+            "scope": service.scope,
+            "transport": service.transport,
+            "state": state,
+            "tools_count": service.tools.len(),
+        }));
+    }
     DaemonResponse::ok(Some(json!({"services": data, "total": data.len()})))
 }
 
@@ -339,7 +341,10 @@ async fn handle_get_service(store: &MCPStore, params: Value) -> DaemonResponse {
             "service_name": s.service_name,
             "scope": s.scope,
             "transport": s.transport,
-            "status": format!("{:?}", s.status),
+            "state": match store.service_state_entry(instance_id).await {
+                Ok(state) => state,
+                Err(error) => return DaemonResponse::err(error.to_string()),
+            },
             "tools": s.tools.iter().map(|t| json!({"name": t.name, "description": t.description})).collect::<Vec<_>>(),
         }))),
         None => DaemonResponse::err(format!("Service instance not found: {}", instance_id)),
@@ -386,10 +391,11 @@ async fn handle_check_service(store: &MCPStore, params: Value) -> DaemonResponse
         Ok(instance_id) => instance_id,
         Err(response) => return response,
     };
-    match store.instance_status_entry(instance_id).await {
-        Ok(status) => DaemonResponse::ok(Some(
-            json!({"instance_id": instance_id, "health_status": format!("{:?}", status.health_status)}),
-        )),
+    match store.service_state_entry(instance_id).await {
+        Ok(state) => DaemonResponse::ok(Some(json!({
+            "instance_id": instance_id,
+            "state": state,
+        }))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
@@ -401,9 +407,9 @@ async fn handle_wait_service(store: &MCPStore, params: Value) -> DaemonResponse 
     };
     let timeout = params.get("timeout").and_then(Value::as_u64).unwrap_or(30);
     match store.wait_instance_ready(instance_id, timeout).await {
-        Ok(status) => DaemonResponse::ok(Some(json!({
+        Ok(state) => DaemonResponse::ok(Some(json!({
             "instance_id": instance_id,
-            "health_status": format!("{:?}", status.health_status),
+            "state": state,
         }))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }

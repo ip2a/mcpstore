@@ -215,11 +215,11 @@ async def get_instance(instance_id: str):
     )
 
 
-@api_instance_router.get("/{instance_id}/status")
+@api_instance_router.get("/{instance_id}/state")
 @timed_response
-async def get_instance_status(instance_id: str):
-    status = get_store().instance_status(instance_id)
-    return ResponseBuilder.success(message="Instance status returned", data=status)
+async def get_service_state(instance_id: str):
+    status = get_store().service_state(instance_id)
+    return ResponseBuilder.success(message="Service state returned", data=status)
 
 
 @api_instance_router.post("/{instance_id}/connect")

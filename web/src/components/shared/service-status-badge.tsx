@@ -1,7 +1,6 @@
 import { Badge } from "@/components/ui/badge"
-import type { ConnectionStatus } from "@/lib/api"
+import type { ReadinessStatus } from "@/lib/api"
 
-export function ServiceStatusBadge({ status }: { status?: ConnectionStatus }) {
-  const label = status || "unknown"
-  return <Badge variant={label === "connected" ? "default" : label === "error" ? "destructive" : "secondary"}>{label}</Badge>
+export function ServiceStatusBadge({ status }: { status: ReadinessStatus }) {
+  return <Badge variant={status === "ready" ? "default" : status === "not_ready" ? "destructive" : "secondary"}>{status}</Badge>
 }

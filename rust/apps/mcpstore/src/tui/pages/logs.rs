@@ -1,4 +1,4 @@
-use mcpstore::registry::ConnectionStatus;
+use mcpstore::state::ReadinessStatus;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -154,32 +154,42 @@ fn runtime_items(app: &TuiApp) -> Vec<ListItem<'static>> {
 fn service_items(app: &TuiApp) -> Vec<ListItem<'static>> {
     let mut items = Vec::new();
     let total = app.all_services.len();
-    let connected = app
+    let ready = app
         .all_services
         .iter()
-        .filter(|service| service.status == ConnectionStatus::Connected)
+        .filter(|service| service.readiness == ReadinessStatus::Ready)
         .count();
-    let errors = app
+    let not_ready = app
         .all_services
         .iter()
-        .filter(|service| service.status == ConnectionStatus::Error)
+        .filter(|service| service.readiness == ReadinessStatus::NotReady)
         .count();
     items.push(ListItem::new(Line::from(format!(
-        "summary  total={total} connected={connected} error={errors}"
+        "summary  total={total} ready={ready} not_ready={not_ready}"
     ))));
 
     for service in &app.all_services {
         items.push(ListItem::new(Line::from(format!(
-            "{}  transport={}  status={:?}  endpoint={}",
-            service.name, service.transport, service.status, service.endpoint
+            "{}  transport={}  readiness={:?} phase={:?} health={:?} endpoint={}",
+            service.name,
+            service.transport,
+            service.readiness,
+            service.phase,
+            service.health,
+            service.endpoint
         ))));
     }
 
     if let Some(detail) = app.selected_detail.as_ref() {
         items.push(ListItem::new(Line::from("")));
         items.push(ListItem::new(Line::from(format!(
-            "selected  {}  health={}  attempts={}  latency={}",
-            detail.title, detail.health_status, detail.attempts, detail.latency
+            "selected  {}  readiness={} phase={} health={} recovery={} latency={}",
+            detail.title,
+            detail.readiness,
+            detail.phase,
+            detail.health,
+            detail.recovery,
+            detail.latency
         ))));
         if detail.error_message != "-" {
             items.push(ListItem::new(Line::from(format!(

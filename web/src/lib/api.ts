@@ -1,6 +1,71 @@
 export type CacheBackend = "memory" | "redis" | "openkeyv_memory" | "openkeyv_redis"
 
-export type ConnectionStatus = "connected" | "disconnected" | "connecting" | "error"
+export type DesiredState = "running" | "stopped"
+export type RuntimePhase = "stopped" | "starting" | "running" | "stopping"
+export type HealthState = "unknown" | "healthy" | "degraded" | "unhealthy"
+export type RecoveryState =
+  | { status: "idle" }
+  | { status: "waiting"; attempt: number; retry_at: number; hard_deadline: number }
+  | { status: "probing"; attempt: number; hard_deadline: number }
+  | { status: "exhausted"; attempts: number }
+export type ServiceAuthState =
+  | { status: "not_required" }
+  | { status: "unauthenticated" }
+  | { status: "authorizing" }
+  | { status: "authenticated" }
+  | { status: "refreshing" }
+  | { status: "scope_upgrade_required"; required_scope: string | null }
+  | { status: "failed" }
+export type ToolsStatus = "unknown" | "syncing" | "ready" | "stale" | "failed"
+export type ToolAvailability = "available" | "unavailable"
+export type ReadinessStatus = "unknown" | "ready" | "not_ready"
+export type ReadinessReason =
+  | "unknown"
+  | "stopped"
+  | "starting"
+  | "recovering"
+  | "unhealthy"
+  | "auth_required"
+  | "tools_not_ready"
+  | "ready"
+export type FailurePhase = "start" | "transport" | "health" | "recovery" | "auth" | "tools"
+export type FailureInfo = {
+  phase: FailurePhase
+  code: string
+  retryable: boolean
+  message: string
+  since: number
+}
+export type ServiceState = {
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  desired: DesiredState
+  phase: RuntimePhase
+  health: HealthState
+  health_metrics: {
+    error_rate: number | null
+    latency_p95_ms: number | null
+    latency_p99_ms: number | null
+    sample_size: number
+  }
+  last_observed_at: number | null
+  recovery: RecoveryState
+  auth: ServiceAuthState
+  tools: {
+    status: ToolsStatus
+    items: Array<{ name: string; availability: ToolAvailability }>
+  }
+  readiness: {
+    status: ReadinessStatus
+    reason: ReadinessReason
+    message: string | null
+    last_transition_at: number
+  }
+  failure: FailureInfo | null
+  version: number
+  updated_at: number
+}
 
 export type AuthStatus =
   | "not_required"
@@ -116,37 +181,13 @@ export type ServiceInstance = {
   transport: string
   url: string | null
   command: string | null
-  status: ConnectionStatus
+  state: ServiceState
   tools: ToolInfo[]
   effective_config: Record<string, unknown>
   config_revision: ConfigRevision
   applied_config_revision: ConfigRevision | null
   added_time: number
   mcp?: McpServerMetadata | null
-}
-
-export type ToolStatusItem = {
-  tool_name: string
-  status: string
-}
-
-export type InstanceStatus = {
-  instance_id: string
-  service_name: string
-  scope: ScopeRef
-  health_status: string
-  last_health_check: number
-  connection_attempts: number
-  max_connection_attempts: number
-  current_error: string | null
-  tools: ToolStatusItem[]
-  window_error_rate: number | null
-  latency_p95: number | null
-  latency_p99: number | null
-  sample_size: number | null
-  next_retry_time: number | null
-  hard_deadline: number | null
-  lease_deadline: number | null
 }
 
 export type AgentItem = {
@@ -348,8 +389,8 @@ export async function getServiceInstance(instanceId: string): Promise<ServiceIns
   return request(`/instances/${encodeURIComponent(instanceId)}`)
 }
 
-export async function getInstanceStatus(instanceId: string): Promise<InstanceStatus> {
-  return request(`/instances/${encodeURIComponent(instanceId)}/status`)
+export async function getServiceState(instanceId: string): Promise<ServiceState> {
+  return request(`/instances/${encodeURIComponent(instanceId)}/state`)
 }
 
 export async function getInstanceAuthStatus(instanceId: string): Promise<AuthStatusView> {

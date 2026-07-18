@@ -1,5 +1,6 @@
 use maud::{html, Markup};
-use mcpstore::registry::{ConnectionStatus, ServiceInstance, ToolInfo};
+use mcpstore::registry::{ServiceInstance, ToolInfo};
+use mcpstore::state::{ReadinessStatus, ServiceState};
 use mcpstore::ScopeRef;
 use std::collections::BTreeSet;
 
@@ -12,7 +13,7 @@ struct ParamSummary {
     required: bool,
 }
 
-pub(super) fn status_badge(status: ConnectionStatus) -> Markup {
+pub(super) fn status_badge(status: ReadinessStatus) -> Markup {
     let meta = status_meta(status);
     html! {
         span class=(format!("status-badge {}", meta.class_name)) { (meta.label) }
@@ -32,7 +33,7 @@ pub(super) fn render_service_table_header() -> Markup {
     }
 }
 
-pub(super) fn render_service_row(svc: &ServiceInstance) -> Markup {
+pub(super) fn render_service_row(svc: &ServiceInstance, state: &ServiceState) -> Markup {
     let description = svc
         .effective_config
         .get("description")
@@ -57,11 +58,11 @@ pub(super) fn render_service_row(svc: &ServiceInstance) -> Markup {
             }
             span.service-group { (scope) }
             span.transport-pill { (svc.transport) }
-            (status_badge(svc.status))
+            (status_badge(state.readiness.status))
             span.service-tools { (svc.tools.len()) }
             div.row-actions {
                 a.button.button-ghost href=(format!("/service/{instance_segment}")) { "View" }
-                @if svc.status == ConnectionStatus::Connected {
+                @if state.desired == mcpstore::state::DesiredState::Running {
                     a.button href=(format!("/action/disconnect/{instance_segment}")) { "Disconnect" }
                 } @else {
                     a.button.button-primary href=(format!("/action/connect/{instance_segment}")) { "Connect" }
