@@ -1,5 +1,13 @@
 use super::*;
+use axum::Router;
 use base64::Engine;
+use rmcp::{
+    model::{ServerCapabilities, ServerInfo},
+    transport::streamable_http_server::{
+        session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+    },
+    ServerHandler,
+};
 use serde_json::Map;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -4817,6 +4825,64 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
         .unwrap()["applied_config_revision"]
         .is_null());
 
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn connect_service_accepts_server_without_tools_capability() {
+    #[derive(Clone)]
+    struct ResourceOnlyServer;
+
+    impl ServerHandler for ResourceOnlyServer {
+        fn get_info(&self) -> ServerInfo {
+            ServerInfo::new(ServerCapabilities::builder().enable_resources().build())
+        }
+    }
+
+    let service: StreamableHttpService<ResourceOnlyServer, LocalSessionManager> =
+        StreamableHttpService::new(
+            || Ok(ResourceOnlyServer),
+            Default::default(),
+            StreamableHttpServerConfig::default().with_sse_keep_alive(None),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, Router::new().nest_service("/mcp", service))
+            .await
+            .unwrap();
+    });
+
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-connect-without-tools".to_string()),
+    })
+    .unwrap();
+    let config = ServerConfig {
+        url: Some(format!("http://{address}/mcp")),
+        transport: Some("streamable-http".to_string()),
+        ..ServerConfig::default()
+    };
+    store.add_service("resource-only", config).await.unwrap();
+
+    let instance_id = store_instance_id("resource-only");
+    store.connect_service(instance_id).await.unwrap();
+
+    let instance = store.find_instance(instance_id).await.unwrap();
+    assert_eq!(instance.status, ConnectionStatus::Connected);
+    assert!(instance.tools.is_empty());
+    let metadata = store.mcp_server_metadata(instance_id).await.unwrap().unwrap();
+    assert!(metadata.capabilities.resources);
+    assert!(!metadata.capabilities.tools);
+
+    store.disconnect_service(instance_id).await.unwrap();
+    server.abort();
     std::fs::remove_file(path).ok();
 }
 
