@@ -9,7 +9,7 @@ use crossterm::{
 };
 use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
-    registry::ConnectionStatus,
+    state::{ReadinessStatus, RecoveryState},
     transport::ContentItem,
     InstanceId, ScopeRef, ServiceInstanceKey,
 };
@@ -29,9 +29,10 @@ pub struct SelectedDetail {
     pub endpoint: String,
     pub scope: String,
     pub added_time: String,
-    pub connection_status: String,
-    pub health_status: String,
-    pub attempts: String,
+    pub readiness: String,
+    pub phase: String,
+    pub health: String,
+    pub recovery: String,
     pub latency: String,
     pub retry_time: String,
     pub error_message: String,
@@ -1968,33 +1969,27 @@ impl TuiApp {
 
     pub fn header_stats(&self) -> HeaderStats {
         let total = self.all_services.len();
-        let connected = self
+        let ready = self
             .all_services
             .iter()
-            .filter(|s| s.status == ConnectionStatus::Connected)
+            .filter(|s| s.readiness == ReadinessStatus::Ready)
             .count();
-        let error = self
+        let not_ready = self
             .all_services
             .iter()
-            .filter(|s| s.status == ConnectionStatus::Error)
+            .filter(|s| s.readiness == ReadinessStatus::NotReady)
             .count();
-        let connecting = self
+        let unknown = self
             .all_services
             .iter()
-            .filter(|s| s.status == ConnectionStatus::Connecting)
-            .count();
-        let disconnected = self
-            .all_services
-            .iter()
-            .filter(|s| s.status == ConnectionStatus::Disconnected)
+            .filter(|s| s.readiness == ReadinessStatus::Unknown)
             .count();
 
         HeaderStats {
             total,
-            connected,
-            error,
-            connecting,
-            disconnected,
+            ready,
+            not_ready,
+            unknown,
             cache_storage: self.cache_storage_label.clone(),
             namespace: self.namespace.clone(),
             config_path: self.config_path.clone(),
@@ -2011,8 +2006,15 @@ impl TuiApp {
             rt.block_on(async { self.store.load_from_source().await })?;
         }
 
-        let services = rt.block_on(async { self.store.list_instances().await });
-        self.all_services = services.into_iter().map(ServiceSummary::from).collect();
+        self.all_services = rt.block_on(async {
+            let services = self.store.list_instances().await;
+            let mut summaries = Vec::with_capacity(services.len());
+            for service in services {
+                let state = self.store.service_state_entry(service.instance_id).await?;
+                summaries.push(ServiceSummary::new(service, state));
+            }
+            Ok::<_, mcpstore::StoreError>(summaries)
+        })?;
         self.apply_filter();
         self.apply_tool_filter();
 
@@ -2267,22 +2269,27 @@ impl TuiApp {
                 endpoint: service.endpoint.clone(),
                 scope: scope.clone(),
                 added_time: format_timestamp(service.added_time),
-                connection_status: format_connection_status(service.status).to_string(),
-                health_status: format!("{:?}", status.health_status),
-                attempts: format!(
-                    "{}/{}",
-                    status.connection_attempts, status.max_connection_attempts
+                readiness: format!("{:?}", status.readiness.status),
+                phase: format!("{:?}", status.phase),
+                health: format!("{:?}", status.health),
+                recovery: format!("{:?}", status.recovery),
+                latency: format_latency(
+                    status.health_metrics.latency_p95_ms,
+                    status.health_metrics.latency_p99_ms,
                 ),
-                latency: format_latency(status.latency_p95, status.latency_p99),
-                retry_time: status
-                    .next_retry_time
-                    .map(format_retry_time)
+                retry_time: match status.recovery {
+                    RecoveryState::Waiting { retry_at, .. } => format_retry_time(retry_at),
+                    _ => "-".to_string(),
+                },
+                error_message: status
+                    .failure
+                    .map(|failure| failure.message)
                     .unwrap_or_else(|| "-".to_string()),
-                error_message: status.current_error.unwrap_or_else(|| "-".to_string()),
                 tools: status
                     .tools
+                    .items
                     .into_iter()
-                    .map(|tool| format!("{} [{:?}]", tool.tool_name, tool.status))
+                    .map(|tool| format!("{} [{:?}]", tool.name, tool.availability))
                     .collect(),
             }
         } else {
@@ -2292,9 +2299,10 @@ impl TuiApp {
                 endpoint: service.endpoint.clone(),
                 scope,
                 added_time: format_timestamp(service.added_time),
-                connection_status: format_connection_status(service.status).to_string(),
-                health_status: "-".to_string(),
-                attempts: "-".to_string(),
+                readiness: format!("{:?}", service.readiness),
+                phase: format!("{:?}", service.phase),
+                health: format!("{:?}", service.health),
+                recovery: format!("{:?}", service.recovery),
                 latency: "-".to_string(),
                 retry_time: "-".to_string(),
                 error_message: "-".to_string(),
@@ -2555,15 +2563,6 @@ pub fn run(
 
     terminal.show_cursor()?;
     Ok(())
-}
-
-fn format_connection_status(status: ConnectionStatus) -> &'static str {
-    match status {
-        ConnectionStatus::Connected => "connected",
-        ConnectionStatus::Connecting => "connecting",
-        ConnectionStatus::Disconnected => "disconnected",
-        ConnectionStatus::Error => "error",
-    }
 }
 
 fn format_latency(p95: Option<f64>, p99: Option<f64>) -> String {

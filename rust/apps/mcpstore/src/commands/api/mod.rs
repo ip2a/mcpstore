@@ -440,7 +440,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         )
         .route("/instances/:instance_id/check", get(store_check_service))
         .route("/instances/:instance_id", get(store_service_info))
-        .route("/instances/:instance_id/status", get(store_service_status))
+        .route("/instances/:instance_id/state", get(store_service_state))
         .route("/config", get(store_show_config))
         .route("/config/reset", post(store_reset_config))
         .route("/scopes/agents/:agent_id/config", get(agent_show_config))
@@ -1980,16 +1980,16 @@ async fn store_service_info(
     Ok(success("服务信息获取成功", service))
 }
 
-async fn store_service_status(
+async fn store_service_state(
     State(state): State<Arc<ApiState>>,
     Path(instance_id): Path<InstanceId>,
 ) -> ApiResult {
-    let status = state
+    let service_state = state
         .store
-        .instance_status(instance_id)
+        .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务状态获取成功", status))
+    Ok(success("服务状态获取成功", service_state))
 }
 
 async fn store_show_config(

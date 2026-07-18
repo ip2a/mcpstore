@@ -201,7 +201,7 @@ export function AgentsView(props: {
                       onClick={() => setSelectedInstanceId(service.instance_id)}
                       selected={service.instance_id === selectedService?.instance_id}
                       title={service.service_name}
-                      trailing={<ServiceStatusBadge status={service.status} />}
+                      trailing={<ServiceStatusBadge status={service.state.readiness.status} />}
                     />
                   ))}
                 </ScrollPane>
@@ -527,7 +527,7 @@ function AgentServiceDetailPane({ service }: { service: ServiceInstance }) {
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("status")}</dt>
             <dd>
-              <ServiceStatusBadge status={service.status} />
+              <ServiceStatusBadge status={service.state.readiness.status} />
             </dd>
           </div>
           <div className="grid gap-1">

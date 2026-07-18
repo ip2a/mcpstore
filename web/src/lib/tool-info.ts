@@ -1,4 +1,4 @@
-import type { ToolInfo } from "@/lib/api"
+import type { ServiceState, ToolInfo } from "@/lib/api"
 
 export function getToolSchema(tool: ToolInfo) {
   return tool.input_schema || {}
@@ -113,8 +113,8 @@ export function toolKey(instanceId: string, tool: ToolInfo) {
   return `${instanceId}:${tool.name}`
 }
 
-export function findToolStatus(toolName: string, statusReport?: { tools?: Array<{ tool_name: string; status: string }> } | null) {
-  return statusReport?.tools?.find((item) => item.tool_name === toolName)
+export function findToolStatus(toolName: string, state?: ServiceState | null) {
+  return state?.tools.items.find((item) => item.name === toolName)
 }
 
 type SchemaField = Record<string, unknown>

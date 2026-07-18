@@ -21,7 +21,7 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field"
 import { InputGroup, InputGroupTextarea } from "@/components/ui/input-group"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceInstance, InstanceStatus, ToolInfo } from "@/lib/api"
+import type { ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
 import { getToolSchema } from "@/lib/tool-info"
 
 export type ToolDialogState = {
@@ -37,7 +37,7 @@ export type ToolDetailState = {
   service: ServiceInstance
   sourceLabel: string
   onRun?: (args: Record<string, unknown>) => Promise<unknown>
-  statusReport?: InstanceStatus | null
+  statusReport?: ServiceState | null
 } | null
 
 export type ToolResultState = {

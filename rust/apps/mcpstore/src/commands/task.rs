@@ -174,7 +174,9 @@ impl TaskCommandError {
                 TransportError::ToolCallFailed(_) => TaskErrorCode::CommandFailed,
             },
             StoreError::Cache(_) => TaskErrorCode::TaskStateFailed,
-            StoreError::Config(_) | StoreError::Other(_) => TaskErrorCode::CommandFailed,
+            StoreError::Config(_) | StoreError::State(_) | StoreError::Other(_) => {
+                TaskErrorCode::CommandFailed
+            }
         };
         Self::new(format, code, error.to_string())
     }

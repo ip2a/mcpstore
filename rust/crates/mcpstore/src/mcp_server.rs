@@ -122,7 +122,7 @@ const OPENAPI_BUNDLE_TOOL: &str = "mcpstore_openapi_bundle";
 const OPENAPI_BUNDLE_ARTIFACT_TOOL: &str = "mcpstore_openapi_bundle_artifact";
 const SERVICE_LIST_TOOL: &str = "mcpstore_scope_instance_list";
 const SERVICE_INFO_TOOL: &str = "mcpstore_service_scope_info";
-const SERVICE_STATUS_TOOL: &str = "mcpstore_instance_status";
+const SERVICE_STATE_TOOL: &str = "mcpstore_service_state";
 const SERVICE_CHECK_TOOL: &str = "mcpstore_instance_check";
 const SERVICE_ADD_TOOL: &str = "mcpstore_service_definition_add";
 const SERVICE_PATCH_TOOL: &str = "mcpstore_service_scope_set";
@@ -1193,7 +1193,7 @@ fn build_service_tools() -> HashMap<String, Tool> {
             true,
         ),
         service_tool(
-            SERVICE_STATUS_TOOL,
+            SERVICE_STATE_TOOL,
             "Read one MCPStore service instance status from Rust core.",
             instance_id_schema(),
             true,
@@ -1546,10 +1546,10 @@ async fn call_service_tool(
                 .map_err(map_store_error)?;
             serde_json::json!({"service": service})
         }
-        SERVICE_STATUS_TOOL => {
+        SERVICE_STATE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             let status = store
-                .instance_status(instance_id)
+                .service_state(instance_id)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"status": status})

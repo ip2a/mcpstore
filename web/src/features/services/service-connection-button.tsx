@@ -3,17 +3,17 @@ import { LinkIcon, UnlinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { useI18n } from "@/lib/i18n-context"
-import type { ConnectionStatus, ServiceInstance } from "@/lib/api"
+import type { ServiceInstance, ServiceState } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const CONNECTION_BUTTON_WIDTH_CLASS = "w-[7.75rem] justify-center"
 
-export function isServiceConnected(status?: ConnectionStatus) {
-  return status?.toLowerCase() === "connected"
+export function isServiceRunning(state?: ServiceState) {
+  return state?.desired === "running"
 }
 
-export function isServiceConnecting(status?: ConnectionStatus, busy?: string | null, instanceId?: string) {
-  return status === "connecting" || Boolean(instanceId && busy === `connect:${instanceId}`)
+export function isServiceStarting(state?: ServiceState, busy?: string | null, instanceId?: string) {
+  return state?.phase === "starting" || Boolean(instanceId && busy === `connect:${instanceId}`)
 }
 
 export function isServiceDisconnecting(busy?: string | null, instanceId?: string) {
@@ -24,7 +24,7 @@ export function ServiceConnectionButton({
   busy,
   className,
   instanceId,
-  status,
+  state,
   onConnect,
   onDisconnect,
   size = "sm",
@@ -33,19 +33,19 @@ export function ServiceConnectionButton({
   busy: string | null
   className?: string
   instanceId: string
-  status?: ConnectionStatus
+  state?: ServiceState
   onConnect: () => void
   onDisconnect: () => void
   size?: "default" | "sm" | "lg" | "icon"
   variant?: "default" | "outline" | "destructive" | "secondary" | "ghost" | "link"
 }) {
   const { t } = useI18n()
-  const connected = isServiceConnected(status)
-  const connecting = isServiceConnecting(status, busy, instanceId)
+  const running = isServiceRunning(state)
+  const starting = isServiceStarting(state, busy, instanceId)
   const disconnecting = isServiceDisconnecting(busy, instanceId)
   const buttonClassName = cn(size === "sm" && CONNECTION_BUTTON_WIDTH_CLASS, className)
 
-  if (connected) {
+  if (running) {
     return (
       <Button variant={variant} size={size} className={buttonClassName} onClick={onDisconnect} disabled={Boolean(busy)}>
         {disconnecting ? <Spinner data-icon="inline-start" /> : <UnlinkIcon data-icon="inline-start" />}
@@ -54,7 +54,7 @@ export function ServiceConnectionButton({
     )
   }
 
-  if (connecting) {
+  if (starting) {
     return (
       <Button variant={variant} size={size} className={buttonClassName} disabled>
         <Spinner data-icon="inline-start" />
@@ -90,7 +90,7 @@ export function ServiceConnectionButtonForEntry({
     <ServiceConnectionButton
       busy={busy}
       instanceId={service.instance_id}
-      status={service.status}
+      state={service.state}
       onConnect={() => onConnect(service)}
       onDisconnect={() => onDisconnect(service)}
       size={size}

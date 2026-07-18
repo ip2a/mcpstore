@@ -18,10 +18,9 @@ pub const BANNER_HEIGHT: u16 = 5;
 
 pub struct HeaderStats {
     pub total: usize,
-    pub connected: usize,
-    pub error: usize,
-    pub connecting: usize,
-    pub disconnected: usize,
+    pub ready: usize,
+    pub not_ready: usize,
+    pub unknown: usize,
     pub cache_storage: String,
     pub namespace: String,
     pub config_path: String,
@@ -101,8 +100,8 @@ fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
     let text = vec![
         Line::from(vec![Span::styled("MCPStore", theme::accent_bold())]),
         Line::from(format!(
-            "total={}  connected={}  error={}  connecting={}  disconnected={}",
-            stats.total, stats.connected, stats.error, stats.connecting, stats.disconnected
+            "total={}  ready={}  not_ready={}  unknown={}",
+            stats.total, stats.ready, stats.not_ready, stats.unknown
         )),
         Line::from(format!(
             "cache_storage={}  namespace={}",

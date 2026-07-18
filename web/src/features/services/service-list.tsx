@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
 import {
-  isServiceConnected,
-  isServiceConnecting,
+  isServiceRunning,
+  isServiceStarting,
   isServiceDisconnecting,
   ServiceConnectionButtonForEntry,
 } from "@/features/services/service-connection-button"
@@ -35,8 +35,8 @@ function ServiceMoreActionsDialog({
   service: ServiceInstance | null
 }) {
   const { t } = useI18n()
-  const connected = service ? isServiceConnected(service.status) : false
-  const connecting = service ? isServiceConnecting(service.status, busy, service.instance_id) : false
+  const connected = service ? isServiceRunning(service.state) : false
+  const connecting = service ? isServiceStarting(service.state, busy, service.instance_id) : false
   const disconnecting = service ? isServiceDisconnecting(busy, service.instance_id) : false
 
   return (
@@ -187,7 +187,7 @@ function ServiceRow({
             <span className="truncate">{scope}</span>
           </Badge>
           <span className="shrink-0">{transport}</span>
-          <ServiceStatusBadge status={service.status} />
+          <ServiceStatusBadge status={service.state.readiness.status} />
           <span className="shrink-0">{t("serviceRowToolCount", { count: toolCount })}</span>
         </div>
       </div>

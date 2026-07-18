@@ -53,7 +53,7 @@ export function ServicesView(props: {
         stats={{
           loading: props.loading,
           services: totals.services,
-          connecting: totals.connecting,
+          connecting: totals.starting,
           agents: agentIds.length,
         }}
       />

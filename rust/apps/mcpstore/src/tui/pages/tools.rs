@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use mcpstore::registry::ConnectionStatus;
+use mcpstore::state::ReadinessStatus;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
@@ -155,7 +155,7 @@ fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
             return;
         }
         let service = app.current_tool_service().expect("checked above");
-        let status = format_connection_status(service.status);
+        let status = format_readiness(service.readiness);
         let body = Paragraph::new(vec![
             Line::from(vec![
                 Span::styled("Service: ", theme::muted()),
@@ -269,12 +269,11 @@ fn schema_summary(schema: &serde_json::Value) -> Vec<String> {
     out
 }
 
-fn format_connection_status(status: ConnectionStatus) -> &'static str {
+fn format_readiness(status: ReadinessStatus) -> &'static str {
     match status {
-        ConnectionStatus::Connected => "connected",
-        ConnectionStatus::Connecting => "connecting",
-        ConnectionStatus::Disconnected => "disconnected",
-        ConnectionStatus::Error => "error",
+        ReadinessStatus::Ready => "ready",
+        ReadinessStatus::NotReady => "not_ready",
+        ReadinessStatus::Unknown => "unknown",
     }
 }
 

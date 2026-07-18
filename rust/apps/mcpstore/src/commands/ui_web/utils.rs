@@ -1,4 +1,4 @@
-use mcpstore::registry::ConnectionStatus;
+use mcpstore::state::ReadinessStatus;
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -7,23 +7,19 @@ pub(super) struct StatusMeta {
     pub label: &'static str,
 }
 
-pub(super) fn status_meta(status: ConnectionStatus) -> StatusMeta {
+pub(super) fn status_meta(status: ReadinessStatus) -> StatusMeta {
     match status {
-        ConnectionStatus::Connected => StatusMeta {
+        ReadinessStatus::Ready => StatusMeta {
             class_name: "status-connected",
-            label: "Connected",
+            label: "Ready",
         },
-        ConnectionStatus::Disconnected => StatusMeta {
+        ReadinessStatus::NotReady => StatusMeta {
             class_name: "status-disconnected",
-            label: "Disconnected",
+            label: "Not ready",
         },
-        ConnectionStatus::Connecting => StatusMeta {
+        ReadinessStatus::Unknown => StatusMeta {
             class_name: "status-connecting",
-            label: "Connecting",
-        },
-        ConnectionStatus::Error => StatusMeta {
-            class_name: "status-error",
-            label: "Error",
+            label: "Unknown",
         },
     }
 }

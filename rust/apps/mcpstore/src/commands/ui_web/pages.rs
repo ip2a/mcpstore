@@ -3,7 +3,7 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use maud::html;
-use mcpstore::registry::ConnectionStatus;
+use mcpstore::state::{DesiredState, ReadinessStatus};
 use mcpstore::{CacheStorage, InstanceId, MCPStore, ScopeRef};
 use std::{collections::BTreeSet, collections::HashMap, sync::Arc};
 
@@ -50,23 +50,31 @@ pub(super) async fn page_home(
             .cmp(&b.service_name)
             .then_with(|| a.instance_id.cmp(&b.instance_id))
     });
+    let mut service_states = Vec::with_capacity(services.len());
+    for service in &services {
+        match store.service_state_entry(service.instance_id).await {
+            Ok(state) => service_states.push(state),
+            Err(error) => {
+                return Html(
+                    layout("mcpstore - Error", error_markup(&error.to_string())).into_string(),
+                )
+                .into_response();
+            }
+        }
+    }
 
     let total = services.len();
-    let connected = services
+    let ready = service_states
         .iter()
-        .filter(|s| s.status == ConnectionStatus::Connected)
+        .filter(|state| state.readiness.status == ReadinessStatus::Ready)
         .count();
-    let disconnected = services
+    let not_ready = service_states
         .iter()
-        .filter(|s| s.status == ConnectionStatus::Disconnected)
+        .filter(|state| state.readiness.status == ReadinessStatus::NotReady)
         .count();
-    let connecting = services
+    let unknown = service_states
         .iter()
-        .filter(|s| s.status == ConnectionStatus::Connecting)
-        .count();
-    let error = services
-        .iter()
-        .filter(|s| s.status == ConnectionStatus::Error)
+        .filter(|state| state.readiness.status == ReadinessStatus::Unknown)
         .count();
     let total_tools: usize = services.iter().map(|s| s.tools.len()).sum();
 
@@ -102,23 +110,17 @@ pub(super) async fn page_home(
                 span.metric-label { "Tools" }
             }
             div.metric-card {
-                span.metric-value { (connected) }
-                span.metric-label { "Connected" }
+                span.metric-value { (ready) }
+                span.metric-label { "Ready" }
             }
             div.metric-card {
-                span.metric-value { (disconnected) }
-                span.metric-label { "Disconnected" }
+                span.metric-value { (not_ready) }
+                span.metric-label { "Not ready" }
             }
-            @if connecting > 0 {
+            @if unknown > 0 {
                 div.metric-card.metric-warning {
-                    span.metric-value { (connecting) }
-                    span.metric-label { "Connecting" }
-                }
-            }
-            @if error > 0 {
-                div.metric-card.metric-danger {
-                    span.metric-value { (error) }
-                    span.metric-label { "Error" }
+                    span.metric-value { (unknown) }
+                    span.metric-label { "Unknown" }
                 }
             }
         }
@@ -165,8 +167,8 @@ pub(super) async fn page_home(
             } @else {
                 div.service-table {
                     (render_service_table_header())
-                    @for svc in &services {
-                        (render_service_row(svc))
+                    @for (svc, state) in services.iter().zip(&service_states) {
+                        (render_service_row(svc, state))
                     }
                 }
             }
@@ -189,6 +191,13 @@ pub(super) async fn page_service(
             .into_response();
         }
     };
+    let state = match store.service_state_entry(instance_id).await {
+        Ok(state) => state,
+        Err(error) => {
+            return Html(layout("mcpstore - Error", error_markup(&error.to_string())).into_string())
+                .into_response()
+        }
+    };
     let instance_segment = svc.instance_id.to_string();
     let added = format_added_time(svc.added_time);
     let endpoint = svc.url.as_deref().or(svc.command.as_deref()).unwrap_or("-");
@@ -199,14 +208,14 @@ pub(super) async fn page_service(
                 p.eyebrow { (svc.transport) }
                 h1 { (svc.service_name) }
                 div.service-meta {
-                    (status_badge(svc.status))
+                    (status_badge(state.readiness.status))
                     span.meta-pill { "tools · " (svc.tools.len()) }
                     span.meta-pill { "added · " (added) }
                 }
             }
             div.heading-actions {
                 a.button.button-ghost href="/" { "Back" }
-                @if svc.status == ConnectionStatus::Connected {
+                @if state.desired == DesiredState::Running {
                     a.button href=(format!("/action/disconnect/{instance_segment}")) { "Disconnect" }
                 } @else {
                     a.button.button-primary href=(format!("/action/connect/{instance_segment}")) { "Connect" }
