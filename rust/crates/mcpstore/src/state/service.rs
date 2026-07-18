@@ -31,9 +31,18 @@ pub enum HealthState {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RecoveryState {
     Idle,
-    Waiting { attempt: u32, retry_at: f64 },
-    Probing { attempt: u32 },
-    Exhausted { attempts: u32 },
+    Waiting {
+        attempt: u32,
+        retry_at: f64,
+        hard_deadline: f64,
+    },
+    Probing {
+        attempt: u32,
+        hard_deadline: f64,
+    },
+    Exhausted {
+        attempts: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -56,12 +65,39 @@ impl AuthState {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ToolsState {
+pub enum ToolsStatus {
     Unknown,
     Syncing,
     Ready,
     Stale,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolAvailability {
+    Available,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolStateItem {
+    pub name: String,
+    pub availability: ToolAvailability,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolsState {
+    pub status: ToolsStatus,
+    pub items: Vec<ToolStateItem>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+pub struct HealthMetrics {
+    pub error_rate: Option<f64>,
+    pub latency_p95_ms: Option<f64>,
+    pub latency_p99_ms: Option<f64>,
+    pub sample_size: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -121,6 +157,8 @@ pub struct ServiceState {
     pub desired: DesiredState,
     pub phase: RuntimePhase,
     pub health: HealthState,
+    pub health_metrics: HealthMetrics,
+    pub last_observed_at: Option<i64>,
     pub recovery: RecoveryState,
     pub auth: AuthState,
     pub tools: ToolsState,
@@ -138,13 +176,28 @@ pub enum ServiceStateEvent {
     TransportConnected,
     TransportStopped,
     TransportFailed(FailureInfo),
-    HealthObserved(HealthState, Option<FailureInfo>),
-    RecoveryScheduled { attempt: u32, retry_at: f64 },
-    RecoveryProbeStarted { attempt: u32 },
-    RecoveryExhausted { attempts: u32, failure: FailureInfo },
+    HealthObserved {
+        health: HealthState,
+        metrics: HealthMetrics,
+        failure: Option<FailureInfo>,
+    },
+    RecoveryScheduled {
+        attempt: u32,
+        retry_at: f64,
+        hard_deadline: f64,
+    },
+    RecoveryProbeStarted {
+        attempt: u32,
+    },
+    RecoveryExhausted {
+        attempts: u32,
+        failure: FailureInfo,
+    },
     AuthChanged(AuthState, Option<FailureInfo>),
     ToolSyncStarted,
-    ToolSyncSucceeded,
+    ToolSyncSucceeded {
+        tools: Vec<String>,
+    },
     ToolSyncFailed(FailureInfo),
 }
 
@@ -180,9 +233,14 @@ impl ServiceState {
             desired,
             phase,
             health: HealthState::Unknown,
+            health_metrics: HealthMetrics::default(),
+            last_observed_at: None,
             recovery: RecoveryState::Idle,
             auth,
-            tools: ToolsState::Unknown,
+            tools: ToolsState {
+                status: ToolsStatus::Unknown,
+                items: Vec::new(),
+            },
             readiness: Readiness {
                 status: ReadinessStatus::NotReady,
                 reason,
@@ -201,6 +259,8 @@ impl ServiceState {
                 self.desired = DesiredState::Running;
                 self.phase = RuntimePhase::Starting;
                 self.health = HealthState::Unknown;
+                self.health_metrics = HealthMetrics::default();
+                self.last_observed_at = None;
                 self.recovery = RecoveryState::Idle;
                 self.failure = None;
             }
@@ -218,6 +278,8 @@ impl ServiceState {
                 self.require_running("transport_connected")?;
                 self.phase = RuntimePhase::Running;
                 self.health = HealthState::Unknown;
+                self.health_metrics = HealthMetrics::default();
+                self.last_observed_at = None;
                 self.recovery = RecoveryState::Idle;
                 self.failure = None;
             }
@@ -236,26 +298,48 @@ impl ServiceState {
                 self.require_running("transport_failed")?;
                 self.phase = RuntimePhase::Stopped;
                 self.health = HealthState::Unhealthy;
+                self.tools.status = ToolsStatus::Stale;
                 self.failure = Some(failure);
             }
-            ServiceStateEvent::HealthObserved(health, failure) => {
+            ServiceStateEvent::HealthObserved {
+                health,
+                metrics,
+                failure,
+            } => {
                 if self.phase != RuntimePhase::Running {
                     return Err(self.invalid("health_observed"));
                 }
                 self.health = health;
+                self.health_metrics = metrics;
+                self.last_observed_at = Some(now);
                 self.failure = failure;
             }
-            ServiceStateEvent::RecoveryScheduled { attempt, retry_at } => {
+            ServiceStateEvent::RecoveryScheduled {
+                attempt,
+                retry_at,
+                hard_deadline,
+            } => {
                 self.require_running("recovery_scheduled")?;
-                self.recovery = RecoveryState::Waiting { attempt, retry_at };
+                self.recovery = RecoveryState::Waiting {
+                    attempt,
+                    retry_at,
+                    hard_deadline,
+                };
             }
             ServiceStateEvent::RecoveryProbeStarted { attempt } => {
                 self.require_running("recovery_probe_started")?;
                 if !matches!(self.recovery, RecoveryState::Waiting { .. }) {
                     return Err(self.invalid("recovery_probe_started"));
                 }
+                let hard_deadline = match self.recovery {
+                    RecoveryState::Waiting { hard_deadline, .. } => hard_deadline,
+                    _ => return Err(self.invalid("recovery_probe_started")),
+                };
                 self.phase = RuntimePhase::Starting;
-                self.recovery = RecoveryState::Probing { attempt };
+                self.recovery = RecoveryState::Probing {
+                    attempt,
+                    hard_deadline,
+                };
             }
             ServiceStateEvent::RecoveryExhausted { attempts, failure } => {
                 self.require_running("recovery_exhausted")?;
@@ -268,10 +352,19 @@ impl ServiceState {
                 self.auth = auth;
                 self.failure = failure;
             }
-            ServiceStateEvent::ToolSyncStarted => self.tools = ToolsState::Syncing,
-            ServiceStateEvent::ToolSyncSucceeded => self.tools = ToolsState::Ready,
+            ServiceStateEvent::ToolSyncStarted => self.tools.status = ToolsStatus::Syncing,
+            ServiceStateEvent::ToolSyncSucceeded { tools } => {
+                self.tools.status = ToolsStatus::Ready;
+                self.tools.items = tools
+                    .into_iter()
+                    .map(|name| ToolStateItem {
+                        name,
+                        availability: ToolAvailability::Available,
+                    })
+                    .collect();
+            }
             ServiceStateEvent::ToolSyncFailed(failure) => {
-                self.tools = ToolsState::Failed;
+                self.tools.status = ToolsStatus::Failed;
                 self.failure = Some(failure);
             }
         }
@@ -308,7 +401,7 @@ impl ServiceState {
             (ReadinessStatus::NotReady, ReadinessReason::Unhealthy)
         } else if !self.auth.satisfied() {
             (ReadinessStatus::NotReady, ReadinessReason::AuthRequired)
-        } else if self.tools != ToolsState::Ready {
+        } else if self.tools.status != ToolsStatus::Ready {
             (ReadinessStatus::NotReady, ReadinessReason::ToolsNotReady)
         } else if matches!(self.health, HealthState::Healthy | HealthState::Degraded) {
             (ReadinessStatus::Ready, ReadinessReason::Ready)
@@ -359,11 +452,15 @@ mod tests {
             .apply(ServiceStateEvent::TransportConnected, 3)
             .unwrap();
         state
-            .apply(ServiceStateEvent::ToolSyncSucceeded, 4)
+            .apply(ServiceStateEvent::ToolSyncSucceeded { tools: vec![] }, 4)
             .unwrap();
         state
             .apply(
-                ServiceStateEvent::HealthObserved(HealthState::Healthy, None),
+                ServiceStateEvent::HealthObserved {
+                    health: HealthState::Healthy,
+                    metrics: HealthMetrics::default(),
+                    failure: None,
+                },
                 5,
             )
             .unwrap();
@@ -379,11 +476,15 @@ mod tests {
             .apply(ServiceStateEvent::TransportConnected, 3)
             .unwrap();
         state
-            .apply(ServiceStateEvent::ToolSyncSucceeded, 4)
+            .apply(ServiceStateEvent::ToolSyncSucceeded { tools: vec![] }, 4)
             .unwrap();
         state
             .apply(
-                ServiceStateEvent::HealthObserved(HealthState::Degraded, None),
+                ServiceStateEvent::HealthObserved {
+                    health: HealthState::Degraded,
+                    metrics: HealthMetrics::default(),
+                    failure: None,
+                },
                 5,
             )
             .unwrap();
@@ -399,6 +500,7 @@ mod tests {
                 ServiceStateEvent::RecoveryScheduled {
                     attempt: 1,
                     retry_at: 10.0,
+                    hard_deadline: 30.0,
                 },
                 3,
             )
@@ -445,6 +547,7 @@ mod tests {
                 ServiceStateEvent::RecoveryScheduled {
                     attempt: 1,
                     retry_at: 10.0,
+                    hard_deadline: 30.0,
                 },
                 2,
             )
@@ -470,11 +573,15 @@ mod tests {
             .apply(ServiceStateEvent::TransportConnected, 3)
             .unwrap();
         state
-            .apply(ServiceStateEvent::ToolSyncSucceeded, 4)
+            .apply(ServiceStateEvent::ToolSyncSucceeded { tools: vec![] }, 4)
             .unwrap();
         state
             .apply(
-                ServiceStateEvent::HealthObserved(HealthState::Healthy, None),
+                ServiceStateEvent::HealthObserved {
+                    health: HealthState::Healthy,
+                    metrics: HealthMetrics::default(),
+                    failure: None,
+                },
                 5,
             )
             .unwrap();
