@@ -7,7 +7,7 @@ impl McpConnection {
     pub async fn list_tools(&self) -> Result<Vec<DiscoveredTool>> {
         self.require_tools()?;
         let client = self.get_client()?;
-        let resp = match client.list_tools(None).await {
+        let tools = match client.list_all_tools().await {
             Ok(response) => response,
             Err(error) => {
                 return Err(self
@@ -18,8 +18,7 @@ impl McpConnection {
             }
         };
 
-        let tools = resp.tools.into_iter().map(DiscoveredTool::from).collect();
-        Ok(tools)
+        Ok(tools.into_iter().map(DiscoveredTool::from).collect())
     }
 
     pub async fn call_tool(

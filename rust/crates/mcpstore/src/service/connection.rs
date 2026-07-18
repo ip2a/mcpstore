@@ -237,7 +237,17 @@ impl MCPStore {
             }
         }
 
-        let tools = match self.pool.list_tools(instance_id).await {
+        let tool_discovery = match self.pool.server_metadata(instance_id).await {
+            Ok(Some(metadata)) if metadata.capabilities.tools => {
+                self.pool.list_tools(instance_id).await
+            }
+            Ok(Some(_)) => Ok(Vec::new()),
+            Ok(None) => Err(crate::transport::TransportError::NotConnected(
+                instance_id.to_string(),
+            )),
+            Err(error) => Err(error),
+        };
+        let tools = match tool_discovery {
             Ok(tools) => tools,
             Err(error) => {
                 self.pool.disconnect(instance_id).await.ok();
