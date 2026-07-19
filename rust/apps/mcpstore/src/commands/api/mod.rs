@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::Path as FsPath, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::Path as FsPath,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     extract::{Path, Query, State},
@@ -7,6 +11,11 @@ use axum::{
 };
 use clap::Args;
 use mcpstore::{
+    client_config::{
+        apply_config_change, inspect_client_config, plan_add_entries, ClientConfigInspection,
+        ClientEntryKind, ClientEntryPlan, ClientEntrySpec, ClientEntryStatus, ClientKind,
+        ConfigChangeReceipt,
+    },
     config::{ConfigError, ScopeDescriptor},
     config_formats::ConfigFormat,
     AppConfig, AuthFlow, CreateSessionRequest, InstanceId, MCPStore, McpCompletionRequest,
@@ -26,6 +35,8 @@ mod envelope;
 mod parse;
 
 use envelope::{success, ApiError, ApiResult};
+static CLIENT_CHANGE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 use parse::{
     cache_storage_label, extract_prompt_args, extract_prompt_name, extract_resource_uri,
     extract_tool_args, extract_tool_name, normalize_prefix, parse_cache_storage,
@@ -47,6 +58,7 @@ pub struct ApiArgs {
 #[derive(Clone)]
 pub struct ApiState {
     store: Arc<MCPStore>,
+    client_changes: Arc<Mutex<HashMap<String, ConfigChangeReceipt>>>,
 }
 
 #[derive(Deserialize)]
@@ -91,6 +103,39 @@ struct SessionFindQuery {
 struct ShowConfigQuery {
     format: Option<String>,
     instance_id: Option<InstanceId>,
+}
+
+#[derive(Deserialize)]
+struct ClientConfigRequest {
+    client: String,
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct ClientEntryRequest {
+    name: String,
+    kind: String,
+    config: Value,
+}
+
+#[derive(Deserialize)]
+struct ClientConfigPlanRequest {
+    client: String,
+    path: String,
+    entries: Vec<ClientEntryRequest>,
+}
+
+#[derive(Deserialize)]
+struct ClientConfigApplyRequest {
+    client: String,
+    path: String,
+    expected_hash: String,
+    entries: Vec<ClientEntryRequest>,
+}
+
+#[derive(Deserialize)]
+struct ClientConfigUndoRequest {
+    change_id: String,
 }
 
 #[derive(Deserialize)]
@@ -228,7 +273,10 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
 }
 
 pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
-    let state = Arc::new(ApiState { store });
+    let state = Arc::new(ApiState {
+        store,
+        client_changes: Arc::new(Mutex::new(HashMap::new())),
+    });
     if !state.store.is_db_source() {
         spawn_control_reactor(state.store.clone());
     }
@@ -458,6 +506,10 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/instances/:instance_id", get(store_service_info))
         .route("/instances/:instance_id/state", get(store_service_state))
         .route("/config", get(store_show_config))
+        .route("/client-config/inspect", post(client_config_inspect))
+        .route("/client-config/plan", post(client_config_plan))
+        .route("/client-config/apply", post(client_config_apply))
+        .route("/client-config/undo", post(client_config_undo))
         .route("/config/reset", post(store_reset_config))
         .route("/scopes/agents/:agent_id/config", get(agent_show_config))
         .route("/scopes/agents/:agent_id/reset", post(agent_reset_config))
@@ -472,6 +524,162 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         Router::new()
             .nest(prefix, base)
             .layer(CorsLayer::permissive())
+    }
+}
+
+async fn client_config_inspect(Json(request): Json<ClientConfigRequest>) -> ApiResult {
+    let client = parse_client_kind(&request.client)?;
+    let inspection = inspect_client_config(client, &request.path).map_err(ApiError::from_store)?;
+    Ok(success(
+        "编程助手配置检查成功",
+        inspection_summary(&inspection),
+    ))
+}
+
+async fn client_config_plan(Json(request): Json<ClientConfigPlanRequest>) -> ApiResult {
+    let client = parse_client_kind(&request.client)?;
+    let inspection = inspect_client_config(client, &request.path).map_err(ApiError::from_store)?;
+    let plans = plan_add_entries(
+        &inspection,
+        request
+            .entries
+            .into_iter()
+            .map(parse_entry)
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    Ok(success(
+        "编程助手配置差异计划生成成功",
+        plans_summary(&inspection, &plans),
+    ))
+}
+
+async fn client_config_apply(
+    State(state): State<Arc<ApiState>>,
+    Json(request): Json<ClientConfigApplyRequest>,
+) -> ApiResult {
+    let client = parse_client_kind(&request.client)?;
+    let inspection = inspect_client_config(client, &request.path).map_err(ApiError::from_store)?;
+    if inspection.content_hash != request.expected_hash {
+        return Err(ApiError::invalid_request(
+            "配置 hash 已变化，请重新检查并生成计划",
+        ));
+    }
+    let plans = plan_add_entries(
+        &inspection,
+        request
+            .entries
+            .into_iter()
+            .map(parse_entry)
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    let receipt = apply_config_change(&inspection, &plans).map_err(ApiError::from_store)?;
+    let Some(receipt) = receipt else {
+        return Ok(success(
+            "配置无需修改",
+            json!({"changed": false, "plans": plans_summary(&inspection, &plans)}),
+        ));
+    };
+    let change_id = format!(
+        "{}-{}",
+        std::process::id(),
+        CLIENT_CHANGE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    state
+        .client_changes
+        .lock()
+        .map_err(|_| ApiError::invalid_request("配置撤销状态不可用"))?
+        .insert(change_id.clone(), receipt);
+    Ok(success(
+        "编程助手配置写入成功",
+        json!({"changed": true, "change_id": change_id, "plans": plans_summary(&inspection, &plans)}),
+    ))
+}
+
+async fn client_config_undo(
+    State(state): State<Arc<ApiState>>,
+    Json(request): Json<ClientConfigUndoRequest>,
+) -> ApiResult {
+    let receipt = state
+        .client_changes
+        .lock()
+        .map_err(|_| ApiError::invalid_request("配置撤销状态不可用"))?
+        .remove(&request.change_id)
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "CHANGE_NOT_FOUND",
+                "找不到可撤销的配置变更",
+                Some("change_id"),
+                None,
+            )
+        })?;
+    mcpstore::client_config::undo_last_change(&receipt).map_err(ApiError::from_store)?;
+    Ok(success("编程助手配置撤销成功", json!({"changed": true})))
+}
+
+fn parse_client_kind(value: &str) -> std::result::Result<ClientKind, ApiError> {
+    match value {
+        "codex" => Ok(ClientKind::Codex),
+        "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
+        "opencode" | "open-code" => Ok(ClientKind::OpenCode),
+        _ => Err(ApiError::invalid_parameter(
+            "client 必须是 codex、claude_code 或 opencode",
+            Some("client"),
+        )),
+    }
+}
+
+fn parse_entry(request: ClientEntryRequest) -> std::result::Result<ClientEntrySpec, ApiError> {
+    let kind = match request.kind.as_str() {
+        "original" => ClientEntryKind::Original,
+        "aggregate_stdio" => ClientEntryKind::AggregateStdio,
+        "aggregate_http" => ClientEntryKind::AggregateHttp,
+        _ => {
+            return Err(ApiError::invalid_parameter(
+                "kind 必须是 original、aggregate_stdio 或 aggregate_http",
+                Some("kind"),
+            ))
+        }
+    };
+    Ok(ClientEntrySpec {
+        name: request.name,
+        kind,
+        config: request.config,
+    })
+}
+
+fn inspection_summary(inspection: &ClientConfigInspection) -> Value {
+    json!({"client": format_client(inspection.client), "path": inspection.path, "format": format_format(&inspection.format), "content_hash": inspection.content_hash, "services": inspection.services.iter().map(|service| json!({"name": service.name, "fields": service.config.as_object().map(|object| object.keys().collect::<Vec<_>>()).unwrap_or_default()})).collect::<Vec<_>>(), "unsupported_fields": inspection.unsupported_fields})
+}
+
+fn plans_summary(inspection: &ClientConfigInspection, plans: &[ClientEntryPlan]) -> Value {
+    json!({"client": format_client(inspection.client), "path": inspection.path, "content_hash": inspection.content_hash, "plans": plans.iter().map(|plan| json!({"name": plan.name, "kind": format_entry_kind(plan.kind), "status": format_status(plan.status), "fields": plan.proposed.as_object().map(|object| object.keys().collect::<Vec<_>>()).unwrap_or_default(), "unsupported_fields": plan.unsupported_fields})).collect::<Vec<_>>()})
+}
+fn format_client(client: ClientKind) -> &'static str {
+    match client {
+        ClientKind::Codex => "codex",
+        ClientKind::ClaudeCode => "claude_code",
+        ClientKind::OpenCode => "opencode",
+    }
+}
+fn format_format(format: &mcpstore::client_config::ConfigFormat) -> &'static str {
+    match format {
+        mcpstore::client_config::ConfigFormat::Json => "json",
+        mcpstore::client_config::ConfigFormat::Toml => "toml",
+    }
+}
+fn format_entry_kind(kind: ClientEntryKind) -> &'static str {
+    match kind {
+        ClientEntryKind::Original => "original",
+        ClientEntryKind::AggregateStdio => "aggregate_stdio",
+        ClientEntryKind::AggregateHttp => "aggregate_http",
+    }
+}
+fn format_status(status: ClientEntryStatus) -> &'static str {
+    match status {
+        ClientEntryStatus::New => "new",
+        ClientEntryStatus::Same => "same",
+        ClientEntryStatus::Conflict => "conflict",
+        ClientEntryStatus::Unsupported => "unsupported",
     }
 }
 
@@ -2383,7 +2591,10 @@ mod tests {
     ) -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<ApiState>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let state = Arc::new(ApiState { store });
+        let state = Arc::new(ApiState {
+            store,
+            client_changes: Arc::new(Mutex::new(HashMap::new())),
+        });
         let app = router(Arc::clone(&state), "");
         let handle = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
