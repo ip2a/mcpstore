@@ -80,11 +80,7 @@ pub fn plan_add_entries(
 ) -> Vec<ClientEntryPlan> {
     let current = inspection
         .document
-        .get(match inspection.client {
-            ClientKind::Codex => "mcp_servers",
-            ClientKind::ClaudeCode => "mcpServers",
-            ClientKind::OpenCode => "mcp",
-        })
+        .get(service_key(inspection.client))
         .and_then(Value::as_object);
     entries
         .into_iter()
@@ -124,6 +120,164 @@ pub fn plan_add_entries(
             }
         })
         .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigChangeReceipt {
+    pub client: ClientKind,
+    pub path: PathBuf,
+    pub backup_path: PathBuf,
+    pub before_hash: String,
+    pub after_hash: String,
+}
+
+pub fn apply_config_change(
+    inspection: &ClientConfigInspection,
+    plans: &[ClientEntryPlan],
+) -> Result<Option<ConfigChangeReceipt>> {
+    let current_bytes = fs::read(&inspection.path).map_err(|error| {
+        StoreError::Other(format!(
+            "无法重新读取 {}: {error}",
+            inspection.path.display()
+        ))
+    })?;
+    if content_hash(&current_bytes) != inspection.content_hash {
+        return Err(StoreError::Other(
+            "配置文件已被外部修改，请重新检查后再写入".into(),
+        ));
+    }
+    if let Some(plan) = plans.iter().find(|plan| {
+        matches!(
+            plan.status,
+            ClientEntryStatus::Conflict | ClientEntryStatus::Unsupported
+        )
+    }) {
+        return Err(StoreError::Other(format!(
+            "配置计划 {} 为 {:?}，拒绝写入",
+            plan.name, plan.status
+        )));
+    }
+    let additions: Vec<_> = plans
+        .iter()
+        .filter(|plan| plan.status == ClientEntryStatus::New)
+        .collect();
+    if additions.is_empty() {
+        return Ok(None);
+    }
+
+    let mut document = inspection.document.clone();
+    let key = service_key(inspection.client);
+    let root = document
+        .as_object_mut()
+        .ok_or_else(|| StoreError::Other("配置根节点必须是对象".into()))?;
+    let services = root
+        .entry(key)
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| StoreError::Other(format!("配置字段 {key} 必须是对象")))?;
+    for plan in additions {
+        services.insert(plan.name.clone(), plan.proposed.clone());
+    }
+
+    let output = serialize_document(inspection.format.clone(), &document)?;
+    let backup_path = inspection
+        .path
+        .with_extension(format!("mcpstore.{}.bak", inspection.content_hash));
+    fs::write(&backup_path, &current_bytes).map_err(|error| {
+        StoreError::Other(format!("无法备份 {}: {error}", backup_path.display()))
+    })?;
+    atomic_write(&inspection.path, &output)?;
+    let after = inspect_client_config(inspection.client, &inspection.path)?;
+    for plan in plans
+        .iter()
+        .filter(|plan| plan.status != ClientEntryStatus::Same)
+    {
+        if after
+            .services
+            .iter()
+            .find(|service| service.name == plan.name)
+            .map(|service| &service.config)
+            != Some(&plan.proposed)
+        {
+            return Err(StoreError::Other(format!("写入后验证失败: {}", plan.name)));
+        }
+    }
+    Ok(Some(ConfigChangeReceipt {
+        client: inspection.client,
+        path: inspection.path.clone(),
+        backup_path,
+        before_hash: inspection.content_hash.clone(),
+        after_hash: after.content_hash,
+    }))
+}
+
+pub fn undo_last_change(receipt: &ConfigChangeReceipt) -> Result<()> {
+    let current = fs::read(&receipt.path).map_err(|error| {
+        StoreError::Other(format!("无法读取 {}: {error}", receipt.path.display()))
+    })?;
+    if content_hash(&current) != receipt.after_hash {
+        return Err(StoreError::Other("配置文件已被外部修改，拒绝撤销".into()));
+    }
+    let backup = fs::read(&receipt.backup_path).map_err(|error| {
+        StoreError::Other(format!(
+            "无法读取备份 {}: {error}",
+            receipt.backup_path.display()
+        ))
+    })?;
+    if content_hash(&backup) != receipt.before_hash {
+        return Err(StoreError::Other("备份内容校验失败，拒绝撤销".into()));
+    }
+    atomic_write(&receipt.path, &backup)?;
+    let restored = fs::read(&receipt.path).map_err(|error| StoreError::Other(error.to_string()))?;
+    if content_hash(&restored) != receipt.before_hash {
+        return Err(StoreError::Other("撤销后验证失败".into()));
+    }
+    Ok(())
+}
+
+fn service_key(client: ClientKind) -> &'static str {
+    match client {
+        ClientKind::Codex => "mcp_servers",
+        ClientKind::ClaudeCode => "mcpServers",
+        ClientKind::OpenCode => "mcp",
+    }
+}
+
+fn serialize_document(format: ConfigFormat, document: &Value) -> Result<Vec<u8>> {
+    match format {
+        ConfigFormat::Json => serde_json::to_vec_pretty(document)
+            .map_err(|error| StoreError::Other(error.to_string())),
+        ConfigFormat::Toml => toml::Value::try_from(document.clone())
+            .map_err(|error| StoreError::Other(format!("Codex 配置序列化失败: {error}")))
+            .and_then(|value| {
+                toml::to_string_pretty(&value)
+                    .map(String::into_bytes)
+                    .map_err(|error| StoreError::Other(error.to_string()))
+            }),
+    }
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config");
+    let temporary =
+        path.with_file_name(format!(".{file_name}.mcpstore.tmp.{}", std::process::id()));
+    fs::write(&temporary, bytes).map_err(|error| {
+        StoreError::Other(format!("无法写入临时文件 {}: {error}", temporary.display()))
+    })?;
+    if let Ok(metadata) = fs::metadata(path) {
+        let _ = fs::set_permissions(&temporary, metadata.permissions());
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(StoreError::Other(format!(
+            "无法原子替换 {}: {error}",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 fn supported_fields(client: ClientKind) -> &'static [&'static str] {
@@ -332,6 +486,53 @@ mod tests {
         assert_eq!(plans[4].status, ClientEntryStatus::Unsupported);
         assert_eq!(inspection.document["other"], 1);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn applies_atomically_and_refuses_undo_after_external_change() {
+        let path = sample("apply");
+        let inspection = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let plans = plan_add_entries(
+            &inspection,
+            [ClientEntrySpec {
+                name: "new".into(),
+                kind: ClientEntryKind::AggregateHttp,
+                config: serde_json::json!({"url":"http://127.0.0.1:9000/mcp"}),
+            }],
+        );
+        let receipt = apply_config_change(&inspection, &plans).unwrap().unwrap();
+        let written = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        assert_eq!(
+            written
+                .services
+                .iter()
+                .find(|service| service.name == "new")
+                .unwrap()
+                .config["url"],
+            "http://127.0.0.1:9000/mcp"
+        );
+        assert_eq!(written.document["other"], 1);
+        undo_last_change(&receipt).unwrap();
+        assert!(inspect_client_config(ClientKind::ClaudeCode, &path)
+            .unwrap()
+            .services
+            .iter()
+            .all(|service| service.name != "new"));
+
+        let inspection = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let plans = plan_add_entries(
+            &inspection,
+            [ClientEntrySpec {
+                name: "new".into(),
+                kind: ClientEntryKind::Original,
+                config: serde_json::json!({"command":"python"}),
+            }],
+        );
+        let receipt = apply_config_change(&inspection, &plans).unwrap().unwrap();
+        fs::write(&path, r#"{"mcpServers":{},"other":2}"#).unwrap();
+        assert!(undo_last_change(&receipt).is_err());
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(receipt.backup_path);
     }
 
     #[test]
