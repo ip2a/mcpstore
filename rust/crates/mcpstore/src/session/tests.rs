@@ -1,5 +1,5 @@
 use super::*;
-use crate::StoreOptions;
+use crate::{StoreOptions, ToolVisibilityFilter};
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -305,6 +305,63 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
     .unwrap();
     let alpha = register_tool_service(&first, "alpha", ScopeRef::Store, &["echo", "search"]).await;
     register_tool_service(&second, "alpha", ScopeRef::Store, &["echo", "search"]).await;
+
+    first
+        .set_context_tool_visibility(alpha, vec!["search".to_string(), "stale".to_string()])
+        .await
+        .unwrap();
+    let shared_policy = second
+        .get_context_tool_visibility(alpha)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        shared_policy
+            .tools
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["search", "stale"]
+    );
+    assert_eq!(
+        second
+            .list_tool_entries_for_instance_with_filter(alpha, ToolVisibilityFilter::Available)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|tool| tool.tool_name)
+            .collect::<Vec<_>>(),
+        vec!["search"]
+    );
+    assert_eq!(
+        second
+            .list_tool_entries_for_instance_with_filter(alpha, ToolVisibilityFilter::Removed)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|tool| tool.tool_name)
+            .collect::<Vec<_>>(),
+        vec!["echo"]
+    );
+
+    first
+        .set_context_tool_visibility(alpha, Vec::new())
+        .await
+        .unwrap();
+    assert!(second
+        .list_tool_entries_for_instance_with_filter(alpha, ToolVisibilityFilter::Available)
+        .await
+        .unwrap()
+        .is_empty());
+    first.clear_context_tool_visibility(alpha).await.unwrap();
+    assert_eq!(
+        second
+            .list_tool_entries_for_instance_with_filter(alpha, ToolVisibilityFilter::Available)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
 
     let created = first.session("shared-tools").create().await.unwrap();
     first
