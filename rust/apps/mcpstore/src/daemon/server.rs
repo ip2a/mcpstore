@@ -270,7 +270,13 @@ async fn handle_connect_service(store: &MCPStore, params: Value) -> DaemonRespon
     };
     match store.connect_service(instance_id).await {
         Ok(()) => {
-            let tools = store.list_tools(instance_id).await.unwrap_or_default();
+            let tools = store
+                .list_tool_entries_for_instance_with_filter(
+                    instance_id,
+                    mcpstore::ToolVisibilityFilter::Available,
+                )
+                .await
+                .unwrap_or_default();
             DaemonResponse::ok(Some(json!({
                 "instance_id": instance_id,
                 "tools_count": tools.len(),

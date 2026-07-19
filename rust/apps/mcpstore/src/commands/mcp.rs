@@ -368,7 +368,13 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
     let instance_id = parse_instance_id(&a.instance_id)?;
     store.connect_service(instance_id).await?;
 
-    let tools = store.list_tools(instance_id).await.unwrap_or_default();
+    let tools = store
+        .list_tool_entries_for_instance_with_filter(
+            instance_id,
+            mcpstore::ToolVisibilityFilter::Available,
+        )
+        .await
+        .unwrap_or_default();
     println!(
         "[Success] Connected: {} (tools={})",
         instance_id,
