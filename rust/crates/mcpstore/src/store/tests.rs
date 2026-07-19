@@ -4729,6 +4729,46 @@ async fn context_tool_visibility_filters_tools_per_instance() {
         .unwrap();
     assert_eq!(available.len(), 1);
     assert_eq!(available[0].tool_name, "alpha");
+    assert_eq!(
+        store
+            .list_tools_scoped(&store_scope())
+            .await
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool.get("tool_name").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>(),
+        vec!["alpha"]
+    );
+    store
+        .ensure_context_tool_allowed(instance_id, "alpha")
+        .await
+        .unwrap();
+    assert!(matches!(
+        store.ensure_context_tool_allowed(instance_id, "beta").await,
+        Err(StoreError::ToolNotAvailable { .. })
+    ));
+    assert!(matches!(
+        store
+            .call_tool(instance_id, "beta", serde_json::json!({}))
+            .await,
+        Err(StoreError::ToolNotAvailable { .. })
+    ));
+
+    let stale_state = store
+        .set_context_tool_visibility(
+            instance_id,
+            vec!["alpha".to_string(), "removed".to_string()],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        stale_state
+            .tools
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["alpha", "removed"]
+    );
 
     let removed = store
         .list_tool_entries_for_instance_with_filter(instance_id, ToolVisibilityFilter::Removed)

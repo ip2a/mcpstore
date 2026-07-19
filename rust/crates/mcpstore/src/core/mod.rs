@@ -15,6 +15,11 @@ pub enum StoreError {
     State(#[from] crate::state::ServiceStateManagerError),
     #[error("Service not found: {0}")]
     ServiceNotFound(String),
+    #[error("Tool is not available: instance_id={instance_id}, tool_name={tool_name}")]
+    ToolNotAvailable {
+        instance_id: crate::identity::InstanceId,
+        tool_name: String,
+    },
     #[error("{0}")]
     Other(String),
 }
