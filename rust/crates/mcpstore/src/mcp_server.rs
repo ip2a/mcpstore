@@ -499,6 +499,7 @@ impl ServerHandler for McpStoreServer {
                 store.list_prompts_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let prompts = project_prompt_names(prompts)?;
             let prompts = deserialize_items::<Prompt>(prompts, "prompt")?;
             Ok(ListPromptsResult::with_all_items(prompts))
         }
@@ -515,23 +516,17 @@ impl ServerHandler for McpStoreServer {
         let session_key = self.session_key.clone();
         async move {
             let arguments = Value::Object(request.arguments.unwrap_or_default());
-            let instance_id = if let Some(instance_id) = target_instance_id {
-                instance_id
-            } else if let Some(session_key) = session_key.as_deref() {
-                let prompts = store
-                    .list_prompts_in_session(session_key)
-                    .await
-                    .map_err(map_store_error)?;
-                resolve_instance_for_catalog_item(&prompts, "name", &request.name)?
+            let prompts = if let Some(session_key) = session_key.as_deref() {
+                store.list_prompts_in_session(session_key).await
+            } else if let Some(instance_id) = target_instance_id {
+                store.list_prompts_for_instance(instance_id).await
             } else {
-                let prompts = store
-                    .list_prompts_scoped(&scope)
-                    .await
-                    .map_err(map_store_error)?;
-                resolve_instance_for_catalog_item(&prompts, "name", &request.name)?
-            };
+                store.list_prompts_scoped(&scope).await
+            }
+            .map_err(map_store_error)?;
+            let (instance_id, original_name) = resolve_projected_prompt(&prompts, &request.name)?;
             let result = store
-                .get_prompt_scoped(instance_id, &request.name, arguments)
+                .get_prompt_scoped(instance_id, &original_name, arguments)
                 .await
                 .map_err(map_store_error)?;
             deserialize_item::<GetPromptResult>(result, "prompt result")
@@ -728,11 +723,7 @@ async fn build_tool_bindings(
         store.list_tools_scoped(scope).await?
     };
 
-    let mut names = HashMap::<String, usize>::new();
-    for payload in &tool_payloads {
-        let name = read_required_string(payload, "name")?;
-        *names.entry(name).or_default() += 1;
-    }
+    let names = catalog_name_counts(&tool_payloads, "name")?;
 
     let mut bindings = HashMap::with_capacity(tool_payloads.len());
     for payload in tool_payloads {
@@ -779,6 +770,76 @@ async fn build_tool_bindings(
     }
 
     Ok(bindings)
+}
+
+fn project_prompt_names(mut payloads: Vec<Value>) -> Result<Vec<Value>, ErrorData> {
+    let names = catalog_name_counts(&payloads, "name")
+        .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+    for payload in &mut payloads {
+        let original = read_required_string(payload, "name")
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        if names.get(&original).copied().unwrap_or_default() < 2 {
+            continue;
+        }
+        let service_name = read_required_string(payload, "service_name")
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        let instance_id = read_required_instance_id(payload, "instance_id")
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        payload
+            .as_object_mut()
+            .ok_or_else(|| ErrorData::internal_error("prompt must be an object", None))?
+            .insert(
+                "name".to_string(),
+                Value::String(format!(
+                    "{}__{}",
+                    stable_namespace(&service_name, instance_id),
+                    original
+                )),
+            );
+    }
+    Ok(payloads)
+}
+
+fn resolve_projected_prompt(
+    payloads: &[Value],
+    projected_name: &str,
+) -> Result<(InstanceId, String), ErrorData> {
+    let names = catalog_name_counts(payloads, "name")
+        .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+    for payload in payloads {
+        let original = read_required_string(payload, "name")
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        let instance_id = read_required_instance_id(payload, "instance_id")
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        let candidate = if names.get(&original).copied().unwrap_or_default() > 1 {
+            let service_name = read_required_string(payload, "service_name")
+                .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+            format!(
+                "{}__{}",
+                stable_namespace(&service_name, instance_id),
+                original
+            )
+        } else {
+            original.clone()
+        };
+        if candidate == projected_name {
+            return Ok((instance_id, original));
+        }
+    }
+    Err(ErrorData::invalid_params(
+        format!("Unknown aggregate prompt: {projected_name}"),
+        None,
+    ))
+}
+
+fn catalog_name_counts(payloads: &[Value], field: &str) -> Result<HashMap<String, usize>, BoxErr> {
+    let mut names = HashMap::new();
+    for payload in payloads {
+        *names
+            .entry(read_required_string(payload, field)?)
+            .or_default() += 1;
+    }
+    Ok(names)
 }
 
 fn project_catalog_uris(
@@ -2372,50 +2433,6 @@ fn read_required_object(payload: &Value, field: &str) -> Result<Map<String, Valu
         .ok_or_else(|| format!("工具元数据缺少对象字段: {field}").into())
 }
 
-fn resolve_instance_for_catalog_item(
-    items: &[Value],
-    identity_field: &str,
-    identity_value: &str,
-) -> Result<InstanceId, ErrorData> {
-    let mut matches = items
-        .iter()
-        .filter(|item| {
-            item.get(identity_field)
-                .and_then(Value::as_str)
-                .is_some_and(|value| value == identity_value)
-        })
-        .map(|item| {
-            let value = item.get("instance_id").ok_or_else(|| {
-                ErrorData::internal_error(
-                    format!("目录项缺少 instance_id: {identity_field}={identity_value}"),
-                    None,
-                )
-            })?;
-            serde_json::from_value::<InstanceId>(value.clone()).map_err(|error| {
-                ErrorData::internal_error(
-                    format!("目录项 instance_id 无效: {identity_field}={identity_value}: {error}"),
-                    None,
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    matches.sort();
-    matches.dedup();
-    match matches.as_slice() {
-        [instance_id] => Ok(*instance_id),
-        [] => Err(ErrorData::invalid_params(
-            format!("未找到目录项: {identity_field}={identity_value}"),
-            None,
-        )),
-        _ => Err(ErrorData::invalid_params(
-            format!(
-                "目录项存在跨实例歧义，必须将 MCP server 绑定到明确 instance_id: {identity_field}={identity_value}"
-            ),
-            None,
-        )),
-    }
-}
-
 fn map_store_error(error: StoreError) -> ErrorData {
     ErrorData::internal_error(error.to_string(), None)
 }
@@ -2574,6 +2591,32 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_prompt_names_are_stably_projected_and_routed() {
+        let first = ServiceInstanceKey::new("first service", ScopeRef::Store).instance_id();
+        let second = ServiceInstanceKey::new("second", ScopeRef::Store).instance_id();
+        let prompts = vec![
+            serde_json::json!({
+                "name": "review",
+                "service_name": "first service",
+                "instance_id": first,
+            }),
+            serde_json::json!({
+                "name": "review",
+                "service_name": "second",
+                "instance_id": second,
+            }),
+        ];
+
+        let projected = project_prompt_names(prompts.clone()).unwrap();
+        let first_name = projected[0]["name"].as_str().unwrap();
+        assert_eq!(first_name, format!("first_service__{first}__review"));
+        assert_eq!(
+            resolve_projected_prompt(&prompts, first_name).unwrap(),
+            (first, "review".to_string())
+        );
+    }
+
+    #[test]
     fn structured_scope_argument_has_no_name_fallback() {
         let store = Map::from_iter([("scope".to_string(), serde_json::json!({"type": "store"}))]);
         assert_eq!(
@@ -2631,40 +2674,6 @@ mod tests {
             assert!(required.contains(&Value::String("scope".to_string())));
             assert!(schema["properties"].get("instance_id").is_none());
         }
-    }
-
-    #[test]
-    fn catalog_resolution_requires_one_exact_instance() {
-        let store_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
-        let agent_id = ServiceInstanceKey::new(
-            "demo",
-            ScopeRef::Agent {
-                agent_id: "agent-a".to_string(),
-            },
-        )
-        .instance_id();
-
-        let one = vec![serde_json::json!({
-            "uri": "file:///same",
-            "instance_id": store_id
-        })];
-        assert_eq!(
-            resolve_instance_for_catalog_item(&one, "uri", "file:///same")
-                .expect("one exact instance"),
-            store_id
-        );
-
-        let ambiguous = vec![
-            serde_json::json!({
-                "uri": "file:///same",
-                "instance_id": store_id
-            }),
-            serde_json::json!({
-                "uri": "file:///same",
-                "instance_id": agent_id
-            }),
-        ];
-        assert!(resolve_instance_for_catalog_item(&ambiguous, "uri", "file:///same").is_err());
     }
 
     #[test]
