@@ -994,9 +994,15 @@ impl PyMCPStore {
     fn list_tools(&self, py: Python<'_>, instance_id: &str) -> PyResult<Vec<Py<PyAny>>> {
         let instance_id = parse_instance_id(instance_id)?;
         let tools = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_tools(instance_id))
+            .block_on(self.inner.list_tool_entries_for_instance_with_filter(
+                instance_id,
+                ToolVisibilityFilter::Available,
+            ))
             .map_err(map_store_err)?;
-        tools.iter().map(|tool| tool_info_to_py(py, tool)).collect()
+        tools
+            .iter()
+            .map(|tool| scoped_tool_entry_to_py(py, tool))
+            .collect()
     }
 
     fn call_tool(
