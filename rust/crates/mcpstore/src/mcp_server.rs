@@ -420,6 +420,7 @@ impl ServerHandler for McpStoreServer {
                 store.list_resources_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let resources = project_catalog_uris(resources, "uri", false)?;
             let resources = deserialize_items::<Resource>(resources, "resource")?;
             Ok(ListResourcesResult::with_all_items(resources))
         }
@@ -446,6 +447,7 @@ impl ServerHandler for McpStoreServer {
                 store.list_resource_templates_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let templates = project_catalog_uris(templates, "uriTemplate", true)?;
             let templates = deserialize_items::<ResourceTemplate>(templates, "resource template")?;
             Ok(ListResourceTemplatesResult::with_all_items(templates))
         }
@@ -461,23 +463,18 @@ impl ServerHandler for McpStoreServer {
         let target_instance_id = self.instance_id;
         let session_key = self.session_key.clone();
         async move {
-            let instance_id = if let Some(instance_id) = target_instance_id {
-                instance_id
-            } else if let Some(session_key) = session_key.as_deref() {
-                let resources = store
-                    .list_resources_in_session(session_key)
-                    .await
-                    .map_err(map_store_error)?;
-                resolve_instance_for_catalog_item(&resources, "uri", &request.uri)?
+            let resources = if let Some(session_key) = session_key.as_deref() {
+                store.list_resources_in_session(session_key).await
+            } else if let Some(instance_id) = target_instance_id {
+                store.list_resources_for_instance(instance_id).await
             } else {
-                let resources = store
-                    .list_resources_scoped(&scope)
-                    .await
-                    .map_err(map_store_error)?;
-                resolve_instance_for_catalog_item(&resources, "uri", &request.uri)?
-            };
+                store.list_resources_scoped(&scope).await
+            }
+            .map_err(map_store_error)?;
+            let (instance_id, original_uri) =
+                resolve_projected_catalog_uri(&resources, "uri", false, &request.uri)?;
             let result = store
-                .read_resource_scoped(instance_id, &request.uri)
+                .read_resource_scoped(instance_id, &original_uri)
                 .await
                 .map_err(map_store_error)?;
             deserialize_item::<ReadResourceResult>(result, "read resource result")
@@ -782,6 +779,65 @@ async fn build_tool_bindings(
     }
 
     Ok(bindings)
+}
+
+fn project_catalog_uris(
+    mut payloads: Vec<Value>,
+    field: &str,
+    template: bool,
+) -> Result<Vec<Value>, ErrorData> {
+    for payload in &mut payloads {
+        let projected = projected_catalog_uri(payload, field, template)
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        let object = payload
+            .as_object_mut()
+            .ok_or_else(|| ErrorData::internal_error("catalog item must be an object", None))?;
+        object.insert(field.to_string(), Value::String(projected));
+    }
+    Ok(payloads)
+}
+
+fn resolve_projected_catalog_uri(
+    payloads: &[Value],
+    field: &str,
+    template: bool,
+    projected_uri: &str,
+) -> Result<(InstanceId, String), ErrorData> {
+    for payload in payloads {
+        let candidate = projected_catalog_uri(payload, field, template)
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        if candidate == projected_uri {
+            return Ok((
+                read_required_instance_id(payload, "instance_id")
+                    .map_err(|error| ErrorData::internal_error(error.to_string(), None))?,
+                read_required_string(payload, field)
+                    .map_err(|error| ErrorData::internal_error(error.to_string(), None))?,
+            ));
+        }
+    }
+    Err(ErrorData::invalid_params(
+        format!("Unknown aggregate resource URI: {projected_uri}"),
+        None,
+    ))
+}
+
+fn projected_catalog_uri(payload: &Value, field: &str, template: bool) -> Result<String, BoxErr> {
+    let original = read_required_string(payload, field)?;
+    let service_name = read_required_string(payload, "service_name")?;
+    let instance_id = read_required_instance_id(payload, "instance_id")?;
+    let namespace = stable_namespace(&service_name, instance_id);
+    let mut uri = reqwest::Url::parse("mcpstore://aggregate/")?;
+    {
+        let mut segments = uri
+            .path_segments_mut()
+            .map_err(|_| "aggregate URI cannot contain path segments")?;
+        segments.push(&namespace);
+        if template {
+            segments.push("template");
+        }
+        segments.push(&original);
+    }
+    Ok(uri.into())
 }
 
 fn stable_namespace(service_name: &str, instance_id: InstanceId) -> String {

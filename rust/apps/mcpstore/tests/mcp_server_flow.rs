@@ -159,13 +159,18 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
-    assert_eq!(resources[0].uri, "fixture://docs/readme");
+    let resource_uri = resources[0].uri.clone();
+    assert!(resource_uri.starts_with("mcpstore://aggregate/"));
+    assert!(
+        resource_uri.ends_with("fixture:%2F%2Fdocs%2Freadme"),
+        "unexpected aggregate URI: {resource_uri}"
+    );
 
     let resource_templates = client.list_all_resource_templates().await?;
     assert!(resource_templates.is_empty());
 
     let resource = client
-        .read_resource(ReadResourceRequestParams::new("fixture://docs/readme"))
+        .read_resource(ReadResourceRequestParams::new(resource_uri))
         .await?;
     assert_eq!(resource.contents.len(), 1);
     match &resource.contents[0] {
@@ -300,7 +305,8 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
-    assert_eq!(resources[0].uri, "fixture://docs/readme");
+    assert!(resources[0].uri.starts_with("mcpstore://aggregate/"));
+    assert!(resources[0].uri.ends_with("fixture:%2F%2Fdocs%2Freadme"));
 
     let prompts = client.list_all_prompts().await?;
     assert_eq!(prompts.len(), 1);
@@ -414,13 +420,18 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
-    assert_eq!(resources[0].uri, "fixture://docs/readme");
+    let resource_uri = resources[0].uri.clone();
+    assert!(resource_uri.starts_with("mcpstore://aggregate/"));
+    assert!(
+        resource_uri.ends_with("fixture:%2F%2Fdocs%2Freadme"),
+        "unexpected aggregate URI: {resource_uri}"
+    );
 
     let resource_templates = client.list_all_resource_templates().await?;
     assert!(resource_templates.is_empty());
 
     let resource = client
-        .read_resource(ReadResourceRequestParams::new("fixture://docs/readme"))
+        .read_resource(ReadResourceRequestParams::new(resource_uri))
         .await?;
     assert_eq!(resource.contents.len(), 1);
     match &resource.contents[0] {
