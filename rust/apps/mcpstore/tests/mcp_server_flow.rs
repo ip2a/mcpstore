@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rmcp::{
@@ -46,11 +47,16 @@ fn cli_bin() -> PathBuf {
 }
 
 fn unique_temp_dir() -> PathBuf {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("mcpstore-mcp-server-flow-{nanos}"));
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "mcpstore-mcp-server-flow-{}-{nanos}-{id}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("failed to create temp dir");
     dir
 }
@@ -128,6 +134,10 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
             format!("MCPSTORE_FIXTURE_LABEL={label}"),
             "--env".to_string(),
             "MCPSTORE_FIXTURE_TEMPLATE=1".to_string(),
+            "--env".to_string(),
+            format!("MCPSTORE_PRIVATE_TOKEN={label}_ENV_SECRET"),
+            "--header".to_string(),
+            format!("Authorization=Bearer-{label}_HEADER_SECRET"),
             "--".to_string(),
             "uv".to_string(),
             "run".to_string(),
@@ -241,6 +251,22 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
         .any(|resource| resource.uri.contains(&second_namespace)));
 
     let prompts = client.list_all_prompts().await?;
+    let public_catalog = serde_json::to_string(&(&tools, &resources, &prompts))?;
+    for secret in [
+        "FIRST_ENV_SECRET",
+        "SECOND_ENV_SECRET",
+        "FIRST_HEADER_SECRET",
+        "SECOND_HEADER_SECRET",
+        "MCPSTORE_PRIVATE_TOKEN",
+        "Authorization",
+        "PYTHONPATH",
+        fixture.to_string_lossy().as_ref(),
+    ] {
+        assert!(
+            !public_catalog.contains(secret),
+            "aggregate catalog leaked sensitive configuration marker: {secret}"
+        );
+    }
     let prompt_names = prompts
         .iter()
         .map(|prompt| prompt.name.clone())
