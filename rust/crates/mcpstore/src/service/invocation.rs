@@ -209,10 +209,14 @@ impl MCPStore {
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
         self.refresh_from_db_if_needed().await?;
         let requested_instance_id = instance_id;
+        self.ensure_context_tool_allowed(requested_instance_id, tool_name)
+            .await?;
         self.ensure_instance_connected(requested_instance_id)
             .await?;
         let (instance_id, tool_name, args) = self
             .resolve_transformed_tool_call(requested_instance_id, tool_name, args)
+            .await?;
+        self.ensure_context_tool_allowed(instance_id, &tool_name)
             .await?;
         if instance_id != requested_instance_id {
             self.ensure_instance_connected(instance_id).await?;
@@ -321,17 +325,12 @@ impl MCPStore {
                         )
                         .await?;
                 }
-                let openapi_available = !matches!(
-                    &execution,
-                    McpToolExecution::Immediate { result } if result.is_error
-                );
                 if context.is_openapi_virtual {
                     self.record_openapi_availability(
                         context.instance_id,
-                        openapi_available,
+                        true,
                         Some(latency_ms),
-                        (!openapi_available)
-                            .then(|| "OpenAPI request returned an error".to_string()),
+                        None,
                     )
                     .await?;
                 } else {

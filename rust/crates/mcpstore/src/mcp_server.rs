@@ -674,7 +674,12 @@ async fn build_tool_bindings(
             .and_then(serde_json::from_value::<Vec<Value>>)
             .map_err(|error| format!("session tool metadata serialization failed: {error}"))?
     } else if let Some(instance_id) = target_instance_id {
-        store.list_tools_for_instance(instance_id).await?
+        store
+            .list_tools_for_instance_with_filter(
+                instance_id,
+                crate::agent::tool_visibility::ToolVisibilityFilter::Available,
+            )
+            .await?
     } else {
         store.list_tools_scoped(scope).await?
     };
