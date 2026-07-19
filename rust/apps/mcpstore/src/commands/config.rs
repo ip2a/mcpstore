@@ -1,5 +1,11 @@
 use clap::Subcommand;
-use mcpstore::config::ConfigManager;
+use mcpstore::{
+    client_config::{
+        apply_config_change, inspect_client_config, plan_add_entries, ClientConfigInspection,
+        ClientEntryPlan, ClientEntrySpec, ClientEntryStatus, ClientKind, ConfigChangeReceipt,
+    },
+    config::ConfigManager,
+};
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -29,6 +35,36 @@ pub enum ConfigAction {
         #[arg(long)]
         path: Option<String>,
     },
+    InspectClient {
+        #[arg(long)]
+        client: String,
+        #[arg(long)]
+        path: String,
+    },
+    PlanClient {
+        #[arg(long)]
+        client: String,
+        #[arg(long)]
+        path: String,
+        #[arg(long)]
+        entries_file: String,
+    },
+    ApplyClient {
+        #[arg(long)]
+        client: String,
+        #[arg(long)]
+        path: String,
+        #[arg(long)]
+        entries_file: String,
+        #[arg(long)]
+        receipt_file: String,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+    UndoClient {
+        #[arg(long)]
+        receipt_file: String,
+    },
 }
 
 pub async fn run(action: ConfigAction) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +79,105 @@ pub async fn run(action: ConfigAction) -> std::result::Result<(), Box<dyn std::e
         } => init(path, force, with_examples, redis_url),
         ConfigAction::Path { path } => show_path(path),
         ConfigAction::AddExamples { path } => add_examples(path),
+        ConfigAction::InspectClient { client, path } => inspect_client(client, path),
+        ConfigAction::PlanClient {
+            client,
+            path,
+            entries_file,
+        } => plan_client(client, path, entries_file),
+        ConfigAction::ApplyClient {
+            client,
+            path,
+            entries_file,
+            receipt_file,
+            yes,
+        } => apply_client(client, path, entries_file, receipt_file, yes),
+        ConfigAction::UndoClient { receipt_file } => undo_client(receipt_file),
     }
+}
+
+fn parse_client(value: &str) -> Result<ClientKind, Box<dyn std::error::Error>> {
+    match value {
+        "codex" => Ok(ClientKind::Codex),
+        "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
+        "opencode" | "open-code" => Ok(ClientKind::OpenCode),
+        _ => Err(format!("unsupported client: {value}").into()),
+    }
+}
+fn read_entries(path: &str) -> Result<Vec<ClientEntrySpec>, Box<dyn std::error::Error>> {
+    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+}
+fn safe_plan_json(
+    inspection: &ClientConfigInspection,
+    plans: &[ClientEntryPlan],
+) -> serde_json::Value {
+    serde_json::json!({"client": format!("{:?}", inspection.client), "path": inspection.path, "content_hash": inspection.content_hash, "plans": plans.iter().map(|plan| serde_json::json!({"name": plan.name, "kind": format!("{:?}", plan.kind), "status": format!("{:?}", plan.status), "fields": plan.proposed.as_object().map(|v| v.keys().collect::<Vec<_>>()).unwrap_or_default(), "unsupported_fields": plan.unsupported_fields})).collect::<Vec<_>>()})
+}
+fn inspect_client(client: String, path: String) -> Result<(), Box<dyn std::error::Error>> {
+    let inspection = inspect_client_config(parse_client(&client)?, &path)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(
+            &serde_json::json!({"client": client, "path": inspection.path, "format": format!("{:?}", inspection.format), "content_hash": inspection.content_hash, "services": inspection.services.iter().map(|s| serde_json::json!({"name": s.name, "fields": s.config.as_object().map(|v| v.keys().collect::<Vec<_>>()).unwrap_or_default()})).collect::<Vec<_>>(), "unsupported_fields": inspection.unsupported_fields})
+        )?
+    );
+    Ok(())
+}
+fn plan_client(
+    client: String,
+    path: String,
+    entries_file: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let inspection = inspect_client_config(parse_client(&client)?, &path)?;
+    let plans = plan_add_entries(&inspection, read_entries(&entries_file)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&safe_plan_json(&inspection, &plans))?
+    );
+    Ok(())
+}
+fn apply_client(
+    client: String,
+    path: String,
+    entries_file: String,
+    receipt_file: String,
+    yes: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let inspection = inspect_client_config(parse_client(&client)?, &path)?;
+    let plans = plan_add_entries(&inspection, read_entries(&entries_file)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&safe_plan_json(&inspection, &plans))?
+    );
+    if plans.iter().any(|plan| {
+        matches!(
+            plan.status,
+            ClientEntryStatus::Conflict | ClientEntryStatus::Unsupported
+        )
+    }) {
+        return Err("plan contains conflict or unsupported entries; nothing was written".into());
+    }
+    if !yes {
+        eprintln!("Apply this plan? [y/N]");
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("y") {
+            return Ok(());
+        }
+    }
+    if let Some(receipt) = apply_config_change(&inspection, &plans)? {
+        std::fs::write(receipt_file, serde_json::to_vec_pretty(&receipt)?)?;
+        println!("configuration applied");
+    } else {
+        println!("configuration already matches plan");
+    }
+    Ok(())
+}
+fn undo_client(receipt_file: String) -> Result<(), Box<dyn std::error::Error>> {
+    let receipt: ConfigChangeReceipt = serde_json::from_slice(&std::fs::read(&receipt_file)?)?;
+    mcpstore::client_config::undo_last_change(&receipt)?;
+    println!("configuration undone");
+    Ok(())
 }
 
 fn mgr(path: Option<String>) -> ConfigManager {

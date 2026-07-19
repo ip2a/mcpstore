@@ -12,14 +12,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ClientKind {
     Codex,
     ClaudeCode,
     OpenCode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ConfigFormat {
     Json,
     Toml,
@@ -42,14 +43,15 @@ pub struct ClientMcpService {
     pub config: Value,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ClientEntryKind {
     Original,
     AggregateStdio,
     AggregateHttp,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClientEntrySpec {
     pub name: String,
     pub kind: ClientEntryKind,
@@ -122,7 +124,7 @@ pub fn plan_add_entries(
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ConfigChangeReceipt {
     pub client: ClientKind,
     pub path: PathBuf,
