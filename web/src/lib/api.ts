@@ -526,6 +526,12 @@ export async function undoClientConfig(changeId: string) {
   return request<{ changed: boolean }>("/client-config/undo", { method: "POST", body: JSON.stringify({ change_id: changeId }) })
 }
 
+export async function importClientServices(client: string, path: string, names: string[]) {
+  return request<{ imported: Array<{ name: string; transport: string }> }>("/client-config/import", {
+    method: "POST", body: JSON.stringify({ client, path, names }),
+  })
+}
+
 export async function showConfig(options: { format?: string; instanceId?: string } = {}): Promise<ConfigReport> {
   const format = options.format ?? "native"
   return request(`/config${buildQuery({ format: format === "native" ? undefined : format, instance_id: options.instanceId })}`)
