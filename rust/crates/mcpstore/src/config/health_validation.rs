@@ -92,13 +92,6 @@ pub(super) fn validate_health_check_config(health: &HealthCheckConfig, errors: &
         60.0,
         errors,
     );
-    validate_range_i32(
-        "health_check.max_reconnect_attempts",
-        health.max_reconnect_attempts,
-        1,
-        100,
-        errors,
-    );
     validate_range_f64(
         "health_check.backoff_base",
         health.backoff_base,
@@ -139,13 +132,6 @@ pub(super) fn validate_health_check_config(health: &HealthCheckConfig, errors: &
         health.reconnect_hard_timeout,
         1.0,
         7200.0,
-        errors,
-    );
-    validate_range_f64(
-        "health_check.lease_ttl",
-        health.lease_ttl,
-        1.0,
-        3600.0,
         errors,
     );
 }
