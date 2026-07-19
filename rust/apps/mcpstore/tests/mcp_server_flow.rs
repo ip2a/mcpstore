@@ -93,6 +93,193 @@ where
 }
 
 #[tokio::test]
+async fn mcp_server_projects_and_routes_conflicting_capabilities() -> TestResult {
+    run_test_with_timeout(
+        "mcp_server_projects_and_routes_conflicting_capabilities",
+        mcp_server_projects_and_routes_conflicting_capabilities_inner(),
+    )
+    .await
+}
+
+async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> TestResult {
+    let repo_root = repo_root();
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    let pythonpath = format!(
+        "{}:{}",
+        repo_root.join("python/src").display(),
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
+    );
+    let fixture = fixture_script();
+
+    for (service_name, label) in [("first", "FIRST"), ("second", "SECOND")] {
+        let add_args = vec![
+            "add".to_string(),
+            service_name.to_string(),
+            "--config-path".to_string(),
+            config_path.display().to_string(),
+            "--transport".to_string(),
+            "stdio".to_string(),
+            "--env".to_string(),
+            format!("PYTHONPATH={pythonpath}"),
+            "--env".to_string(),
+            format!("MCPSTORE_FIXTURE_LABEL={label}"),
+            "--env".to_string(),
+            "MCPSTORE_FIXTURE_TEMPLATE=1".to_string(),
+            "--".to_string(),
+            "uv".to_string(),
+            "run".to_string(),
+            "--project".to_string(),
+            repo_root.join("python").display().to_string(),
+            "python".to_string(),
+            fixture.display().to_string(),
+        ];
+        assert_success(&run_cli(&add_args), &format!("add {service_name}"));
+    }
+
+    let first_id = ServiceInstanceKey::new("first", ScopeRef::Store).instance_id();
+    let second_id = ServiceInstanceKey::new("second", ScopeRef::Store).instance_id();
+    let first_namespace = format!("first__{first_id}");
+    let second_namespace = format!("second__{second_id}");
+
+    let (transport, stderr) =
+        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
+            cmd.arg("mcp-server")
+                .arg("--config-path")
+                .arg(config_path.display().to_string())
+                .current_dir(rust_root());
+        }))
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut stderr = stderr.expect("stderr must be piped");
+    let stderr_task = tokio::spawn(async move {
+        let mut buffer = String::new();
+        stderr.read_to_string(&mut buffer).await?;
+        Ok::<_, std::io::Error>(buffer)
+    });
+    let client = match ().serve(transport).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = stderr_task.await??;
+            return Err(format!(
+                "conflict mcp-server handshake failed: {error}; stderr:\
+{stderr_output}"
+            )
+            .into());
+        }
+    };
+
+    let tools = client.list_all_tools().await?;
+    let tool_names = tools
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect::<Vec<_>>();
+    let first_tool = format!("{first_namespace}__greet");
+    let second_tool = format!("{second_namespace}__greet");
+    assert_eq!(tool_names, vec![first_tool.clone(), second_tool.clone()]);
+    for (tool_name, expected) in [
+        (first_tool, "FIRST: Hello, Conflict!"),
+        (second_tool, "SECOND: Hello, Conflict!"),
+    ] {
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new(tool_name).with_arguments(
+                    serde_json::json!({"name": "Conflict"})
+                        .as_object()
+                        .cloned()
+                        .unwrap(),
+                ),
+            )
+            .await?;
+        assert_eq!(
+            result
+                .content
+                .first()
+                .and_then(ContentBlock::as_text)
+                .map(|text| text.text.as_str()),
+            Some(expected)
+        );
+    }
+
+    let resources = client.list_all_resources().await?;
+    assert_eq!(resources.len(), 4);
+    for (namespace, expected) in [
+        (
+            &first_namespace,
+            "FIRST: This is the MCPStore fixture resource.",
+        ),
+        (
+            &second_namespace,
+            "SECOND: This is the MCPStore fixture resource.",
+        ),
+    ] {
+        let resource = resources
+            .iter()
+            .find(|resource| resource.uri.contains(namespace) && resource.uri.ends_with("readme"))
+            .expect("projected resource must include its stable namespace");
+        let result = client
+            .read_resource(ReadResourceRequestParams::new(resource.uri.clone()))
+            .await?;
+        match &result.contents[0] {
+            ResourceContents::TextResourceContents { text, .. } => assert_eq!(text, expected),
+            other => panic!("unexpected resource content: {other:?}"),
+        }
+    }
+
+    let projected_templates = resources
+        .iter()
+        .filter(|resource| resource.uri.contains("%7Bname%7D"))
+        .collect::<Vec<_>>();
+    assert_eq!(projected_templates.len(), 2);
+    assert!(projected_templates
+        .iter()
+        .any(|resource| resource.uri.contains(&first_namespace)));
+    assert!(projected_templates
+        .iter()
+        .any(|resource| resource.uri.contains(&second_namespace)));
+
+    let prompts = client.list_all_prompts().await?;
+    let prompt_names = prompts
+        .iter()
+        .map(|prompt| prompt.name.clone())
+        .collect::<Vec<_>>();
+    let first_prompt = format!("{first_namespace}__explain");
+    let second_prompt = format!("{second_namespace}__explain");
+    assert_eq!(
+        prompt_names,
+        vec![first_prompt.clone(), second_prompt.clone()]
+    );
+    for (prompt_name, expected) in [
+        (first_prompt, "FIRST: Explain conflict via fixture prompt."),
+        (
+            second_prompt,
+            "SECOND: Explain conflict via fixture prompt.",
+        ),
+    ] {
+        let prompt = client
+            .get_prompt(
+                GetPromptRequestParams::new(prompt_name).with_arguments(
+                    serde_json::json!({"topic": "conflict"})
+                        .as_object()
+                        .cloned()
+                        .unwrap(),
+                ),
+            )
+            .await?;
+        match &prompt.messages[0].content {
+            ContentBlock::Text(text) => assert_eq!(text.text, expected),
+            other => panic!("unexpected prompt content: {other:?}"),
+        }
+    }
+
+    client.cancel().await?;
+    let _ = stderr_task.await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn mcp_server_command_exposes_only_selected_instance_over_stdio() -> TestResult {
     run_test_with_timeout(
         "mcp_server_command_exposes_only_selected_instance_over_stdio",
