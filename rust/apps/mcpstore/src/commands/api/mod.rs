@@ -18,6 +18,7 @@ use mcpstore::{
     },
     config::{ConfigError, ScopeDescriptor},
     config_formats::ConfigFormat,
+    mcp_server::{McpServerOptions, McpServerTransport},
     AppConfig, AuthFlow, CreateSessionRequest, InstanceId, MCPStore, McpCompletionRequest,
     McpLoggingLevel, OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy,
     ReactorConfig, ScopeRef, ServerConfig, SessionScope, ToolTransformPatch,
@@ -136,6 +137,18 @@ struct ClientConfigApplyRequest {
 #[derive(Deserialize)]
 struct ClientConfigUndoRequest {
     change_id: String,
+}
+
+#[derive(Deserialize)]
+struct AggregateLaunchQuery {
+    scope: Option<String>,
+    agent_id: Option<String>,
+    instance_id: Option<InstanceId>,
+    session_key: Option<String>,
+    transport: Option<String>,
+    host: Option<String>,
+    port: Option<u16>,
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -510,6 +523,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/client-config/plan", post(client_config_plan))
         .route("/client-config/apply", post(client_config_apply))
         .route("/client-config/undo", post(client_config_undo))
+        .route("/aggregate/launch", get(aggregate_launch))
         .route("/config/reset", post(store_reset_config))
         .route("/scopes/agents/:agent_id/config", get(agent_show_config))
         .route("/scopes/agents/:agent_id/reset", post(agent_reset_config))
@@ -525,6 +539,48 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             .nest(prefix, base)
             .layer(CorsLayer::permissive())
     }
+}
+
+async fn aggregate_launch(Query(query): Query<AggregateLaunchQuery>) -> ApiResult {
+    let scope = match query.scope.as_deref().unwrap_or("store") {
+        "store" => ScopeRef::Store,
+        "agent" => ScopeRef::Agent {
+            agent_id: query
+                .agent_id
+                .ok_or_else(|| ApiError::missing_parameter("agent_id"))?,
+        },
+        value => {
+            return Err(ApiError::invalid_parameter(
+                format!("不支持的 scope: {value}"),
+                Some("scope"),
+            ))
+        }
+    };
+    let transport = match query.transport.as_deref().unwrap_or("stdio") {
+        "stdio" => McpServerTransport::Stdio,
+        "streamable-http" | "http" => McpServerTransport::StreamableHttp,
+        value => {
+            return Err(ApiError::invalid_parameter(
+                format!("不支持的 transport: {value}"),
+                Some("transport"),
+            ))
+        }
+    };
+    let options = McpServerOptions {
+        scope,
+        instance_id: query.instance_id,
+        session_key: query.session_key,
+        transport,
+        host: query.host.unwrap_or_else(|| "127.0.0.1".into()),
+        port: query.port.unwrap_or(18300),
+        path: query.path.unwrap_or_else(|| "/mcp".into()),
+        ..Default::default()
+    };
+    Ok(success(
+        "聚合服务启动信息生成成功",
+        serde_json::to_value(options.launch_descriptor("mcpstore"))
+            .map_err(|error| ApiError::invalid_request(error.to_string()))?,
+    ))
 }
 
 async fn client_config_inspect(Json(request): Json<ClientConfigRequest>) -> ApiResult {
