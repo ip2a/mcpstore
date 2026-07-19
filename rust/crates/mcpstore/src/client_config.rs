@@ -18,6 +18,8 @@ pub enum ClientKind {
     Codex,
     ClaudeCode,
     OpenCode,
+    Cursor,
+    ClaudeDesktop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -240,7 +242,7 @@ pub fn undo_last_change(receipt: &ConfigChangeReceipt) -> Result<()> {
 fn service_key(client: ClientKind) -> &'static str {
     match client {
         ClientKind::Codex => "mcp_servers",
-        ClientKind::ClaudeCode => "mcpServers",
+        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
         ClientKind::OpenCode => "mcp",
     }
 }
@@ -284,7 +286,10 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn supported_fields(client: ClientKind) -> &'static [&'static str] {
     match client {
-        ClientKind::Codex | ClientKind::ClaudeCode => &["command", "args", "env", "url", "headers"],
+        ClientKind::Codex
+        | ClientKind::ClaudeCode
+        | ClientKind::Cursor
+        | ClientKind::ClaudeDesktop => &["command", "args", "env", "url", "headers"],
         ClientKind::OpenCode => &[
             "type",
             "command",
@@ -314,7 +319,7 @@ pub fn inspect_client_config(
                         .map_err(|error| StoreError::Other(error.to_string()))
                 })?,
         ),
-        ClientKind::ClaudeCode => (
+        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => (
             ConfigFormat::Json,
             serde_json::from_slice(&bytes)
                 .map_err(|error| StoreError::Other(format!("Claude Code 配置格式错误: {error}")))?,
@@ -347,7 +352,7 @@ pub fn inspect_client_config(
 fn service_map(client: ClientKind, document: &Value) -> Result<&Map<String, Value>> {
     let key = match client {
         ClientKind::Codex => "mcp_servers",
-        ClientKind::ClaudeCode => "mcpServers",
+        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
         ClientKind::OpenCode => "mcp",
     };
     match document.get(key) {
@@ -364,7 +369,7 @@ fn unsupported_fields(client: ClientKind, document: &Value) -> Vec<String> {
     let Some(servers) = document
         .get(match client {
             ClientKind::Codex => "mcp_servers",
-            ClientKind::ClaudeCode => "mcpServers",
+            ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
             ClientKind::OpenCode => "mcp",
         })
         .and_then(Value::as_object)
@@ -535,6 +540,19 @@ mod tests {
         assert!(undo_last_change(&receipt).is_err());
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(receipt.backup_path);
+    }
+
+    #[test]
+    fn inspects_cursor_and_claude_desktop_json() {
+        for client in [ClientKind::Cursor, ClientKind::ClaudeDesktop] {
+            let path = sample(match client {
+                ClientKind::Cursor => "cursor",
+                _ => "desktop",
+            });
+            let result = inspect_client_config(client, &path).unwrap();
+            assert!(result.services.iter().any(|service| service.name == "demo"));
+            let _ = fs::remove_file(path);
+        }
     }
 
     #[test]
