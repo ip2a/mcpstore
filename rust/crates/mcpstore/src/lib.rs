@@ -5,6 +5,7 @@ pub mod auth;
 pub mod cache;
 pub mod config;
 pub mod config_formats;
+pub mod client_config;
 pub(crate) mod control;
 pub mod event_reactor;
 pub mod core;
