@@ -21,6 +21,7 @@ import { getAgentId } from "@/features/agents/model"
 import { type AgentItem } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
+import { ClientConfigPanel } from "@/features/config/client-config-panel"
 import { cn } from "@/lib/utils"
 
 export type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
@@ -205,7 +206,10 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
           ) : activeLoading && !activeConfig ? (
             <PageSkeleton />
           ) : (
-            <ConfigDetailPane scope={selectedScope} value={activeConfig || {}} loading={activeLoading && !activeConfig} />
+            <div className="flex min-w-0 flex-col">
+              <ConfigDetailPane scope={selectedScope} value={activeConfig || {}} loading={activeLoading && !activeConfig} />
+              <ClientConfigPanel />
+            </div>
           )}
         </ScrollPane>
       </PanelCard>
