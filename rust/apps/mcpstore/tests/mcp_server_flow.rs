@@ -16,6 +16,10 @@ use rmcp::{
 };
 use tokio::io::AsyncReadExt;
 
+use mcpstore::{
+    CacheStorage, CreateSessionRequest, MCPStore, ScopeRef, SessionToolSelection, StoreOptions,
+};
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn repo_root() -> PathBuf {
@@ -85,6 +89,173 @@ where
     tokio::time::timeout(Duration::from_secs(20), future)
         .await
         .map_err(|_| format!("{name} timed out after 20s"))?
+}
+
+#[tokio::test]
+async fn mcp_server_command_exposes_session_scope_over_stdio() -> TestResult {
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        eprintln!("skipping session aggregate test: MCPSTORE_TEST_REDIS_URL is not set");
+        return Ok(());
+    };
+
+    run_test_with_timeout(
+        "mcp_server_command_exposes_session_scope_over_stdio",
+        mcp_server_command_exposes_session_scope_over_stdio_inner(redis_url),
+    )
+    .await
+}
+
+async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
+    redis_url: String,
+) -> TestResult {
+    let repo_root = repo_root();
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    let namespace = format!(
+        "mcpstore-mcp-session-flow-{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    );
+    let pythonpath = format!(
+        "{}:{}",
+        repo_root.join("python/src").display(),
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
+    );
+    let fixture = fixture_script();
+    let config_path_arg = config_path.display().to_string();
+    let store_args = [
+        "--config-path",
+        config_path_arg.as_str(),
+        "--redis-url",
+        redis_url.as_str(),
+        "--namespace",
+        namespace.as_str(),
+    ];
+
+    let mut add_args = vec!["add".to_string(), "demo".to_string()];
+    add_args.extend(store_args.iter().map(|arg| (*arg).to_string()));
+    add_args.extend([
+        "--transport".to_string(),
+        "stdio".to_string(),
+        "--env".to_string(),
+        format!("PYTHONPATH={pythonpath}"),
+        "--".to_string(),
+        "uv".to_string(),
+        "run".to_string(),
+        "--project".to_string(),
+        repo_root.join("python").display().to_string(),
+        "python".to_string(),
+        fixture.display().to_string(),
+    ]);
+    let add_stdout = assert_success(&run_cli(&add_args), "add session fixture");
+    assert!(add_stdout.contains("[Success] Service added: demo"));
+
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(config_path_arg.clone()),
+        backend: Some(CacheStorage::Redis),
+        redis_url: Some(redis_url.clone()),
+        namespace: Some(namespace.clone()),
+        ..StoreOptions::default()
+    })?;
+    store.load_from_source().await?;
+    let instance_id = store
+        .instance_id_for_scope("demo", &ScopeRef::Store)
+        .await?;
+    let session = store
+        .create_session(CreateSessionRequest::store("aggregate-e2e"))
+        .await?;
+    let session = store.session_by_key(session.session_key.clone());
+    session.bind_service(instance_id).await?;
+    session
+        .set_tool_visibility(vec![SessionToolSelection {
+            instance_id,
+            tool_name: "greet".to_string(),
+        }])
+        .await?;
+
+    let (transport, stderr) =
+        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
+            cmd.arg("mcp-server")
+                .args(store_args)
+                .arg("--session-key")
+                .arg("store:aggregate-e2e")
+                .current_dir(rust_root());
+        }))
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    let mut stderr = stderr.expect("stderr must be piped");
+    let stderr_task = tokio::spawn(async move {
+        let mut buffer = String::new();
+        stderr.read_to_string(&mut buffer).await?;
+        Ok::<_, std::io::Error>(buffer)
+    });
+    let client = match ().serve(transport).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = stderr_task.await??;
+            return Err(format!(
+                "session mcp-server handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
+        }
+    };
+
+    let tools = client.list_all_tools().await?;
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name.as_ref(), "greet");
+
+    let args = serde_json::json!({"name": "Session"})
+        .as_object()
+        .cloned()
+        .unwrap();
+    let result = client
+        .call_tool(CallToolRequestParams::new("greet").with_arguments(args))
+        .await?;
+    assert_eq!(
+        result
+            .content
+            .first()
+            .and_then(ContentBlock::as_text)
+            .map(|text| text.text.as_str()),
+        Some("Hello, Session!")
+    );
+
+    let resources = client.list_all_resources().await?;
+    assert_eq!(resources.len(), 1);
+    let resource = client
+        .read_resource(ReadResourceRequestParams::new(resources[0].uri.clone()))
+        .await?;
+    match &resource.contents[0] {
+        ResourceContents::TextResourceContents { text, .. } => {
+            assert_eq!(text, "This is the MCPStore fixture resource.");
+        }
+        other => panic!("unexpected resource content: {other:?}"),
+    }
+
+    let prompts = client.list_all_prompts().await?;
+    assert_eq!(prompts.len(), 1);
+    let prompt = client
+        .get_prompt(
+            GetPromptRequestParams::new(prompts[0].name.clone()).with_arguments(
+                serde_json::json!({"topic": "session"})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ),
+        )
+        .await?;
+    match &prompt.messages[0].content {
+        ContentBlock::Text(text) => {
+            assert_eq!(text.text, "Explain session via fixture prompt.");
+        }
+        other => panic!("unexpected prompt content: {other:?}"),
+    }
+
+    client.cancel().await?;
+    let _ = stderr_task.await?;
+    Ok(())
 }
 
 #[tokio::test]
