@@ -50,10 +50,6 @@ pub(in crate::config) fn default_latency_p99_critical() -> f64 {
     5.0
 }
 
-pub(in crate::config) fn default_max_reconnect_attempts() -> i32 {
-    10
-}
-
 pub(in crate::config) fn default_backoff_base() -> f64 {
     1.0
 }
@@ -76,8 +72,4 @@ pub(in crate::config) fn default_half_open_success_rate_threshold() -> f64 {
 
 pub(in crate::config) fn default_reconnect_hard_timeout() -> f64 {
     900.0
-}
-
-pub(in crate::config) fn default_lease_ttl() -> f64 {
-    60.0
 }
