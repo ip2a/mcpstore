@@ -84,6 +84,7 @@ impl ProtocolCommandError {
         instance_id: InstanceId,
     ) -> Self {
         let code = match &error {
+            StoreError::ToolNotAvailable { .. } => ProtocolErrorCode::InvalidInput,
             StoreError::ServiceNotFound(_) => ProtocolErrorCode::ServiceNotFound,
             StoreError::Auth(_) => ProtocolErrorCode::AuthenticationRequired,
             StoreError::Transport(error) => match error {

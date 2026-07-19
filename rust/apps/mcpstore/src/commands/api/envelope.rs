@@ -169,6 +169,16 @@ impl ApiError {
                 None,
                 Some(json!({ "error_type": "AuthError" })),
             ),
+            StoreError::ToolNotAvailable {
+                instance_id,
+                tool_name,
+            } => Self::new(
+                StatusCode::FORBIDDEN,
+                "TOOL_NOT_AVAILABLE",
+                format!("工具不可用: {tool_name}"),
+                Some("tool_name"),
+                Some(json!({ "instance_id": instance_id, "tool_name": tool_name })),
+            ),
             StoreError::ServiceNotFound(name) => Self::new(
                 StatusCode::NOT_FOUND,
                 "SERVICE_NOT_FOUND",
