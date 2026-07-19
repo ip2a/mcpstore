@@ -71,6 +71,16 @@ struct SessionKeyQuery {
 }
 
 #[derive(Deserialize)]
+struct ToolListQuery {
+    filter: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ToolVisibilityRequest {
+    available_tools: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct SessionFindQuery {
     session_id: String,
     scope: Option<String>,
@@ -386,6 +396,12 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         )
         .route("/instances/:instance_id/wait", get(store_wait_service))
         .route("/instances/:instance_id/tools", get(store_list_tools))
+        .route(
+            "/instances/:instance_id/tool-policy",
+            get(store_get_tool_policy)
+                .put(store_set_tool_policy)
+                .delete(store_clear_tool_policy),
+        )
         .route("/instances/:instance_id/call", post(store_call_tool))
         .route("/tool_transforms", get(store_list_tool_transforms))
         .route(
@@ -1523,16 +1539,70 @@ async fn store_wait_service(
 async fn store_list_tools(
     State(state): State<Arc<ApiState>>,
     Path(instance_id): Path<InstanceId>,
+    Query(query): Query<ToolListQuery>,
 ) -> ApiResult {
+    let filter = match query.filter.as_deref().unwrap_or("available") {
+        "all" => mcpstore::ToolVisibilityFilter::All,
+        "available" => mcpstore::ToolVisibilityFilter::Available,
+        "removed" => mcpstore::ToolVisibilityFilter::Removed,
+        value => {
+            return Err(ApiError::invalid_parameter(
+                format!("不支持的工具过滤器: {value}"),
+                Some("filter"),
+            ));
+        }
+    };
+    let filter_name = match filter {
+        mcpstore::ToolVisibilityFilter::All => "all",
+        mcpstore::ToolVisibilityFilter::Available => "available",
+        mcpstore::ToolVisibilityFilter::Removed => "removed",
+    };
     let tools = state
         .store
-        .list_tools_for_instance_with_filter(instance_id, mcpstore::ToolVisibilityFilter::Available)
+        .list_tools_for_instance_with_filter(instance_id, filter)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
         "工具列表获取成功",
-        json!({ "tools": tools, "total": tools.len() }),
+        json!({ "filter": filter_name, "tools": tools, "total": tools.len() }),
     ))
+}
+
+async fn store_get_tool_policy(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+) -> ApiResult {
+    let policy = state
+        .store
+        .get_context_tool_visibility(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("工具策略获取成功", json!({ "policy": policy })))
+}
+
+async fn store_set_tool_policy(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+    Json(payload): Json<ToolVisibilityRequest>,
+) -> ApiResult {
+    let policy = state
+        .store
+        .set_context_tool_visibility(instance_id, payload.available_tools)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("工具策略更新成功", json!({ "policy": policy })))
+}
+
+async fn store_clear_tool_policy(
+    State(state): State<Arc<ApiState>>,
+    Path(instance_id): Path<InstanceId>,
+) -> ApiResult {
+    state
+        .store
+        .clear_context_tool_visibility(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("工具策略已清除", json!({ "policy": null })))
 }
 
 async fn store_call_tool(
@@ -2995,6 +3065,98 @@ mod tests {
 
         source_handle.abort();
         target_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn store_routes_filter_tools_and_manage_tool_policy() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(unique_namespace()),
+        })
+        .unwrap();
+        seed_db_service(&store).await;
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
+
+        let default_list = client
+            .get(format!("{base_url}/instances/{instance_id}/tools"))
+            .send()
+            .await
+            .unwrap();
+        assert!(default_list.status().is_success());
+        let default_payload = default_list.json::<Value>().await.unwrap();
+        assert_eq!(default_payload["data"]["filter"], "available");
+        assert_eq!(default_payload["data"]["total"], 1);
+
+        let set_policy = client
+            .put(format!("{base_url}/instances/{instance_id}/tool-policy"))
+            .json(&json!({"available_tools": []}))
+            .send()
+            .await
+            .unwrap();
+        assert!(set_policy.status().is_success());
+        assert_eq!(
+            set_policy.json::<Value>().await.unwrap()["data"]["policy"]["tools"],
+            json!([])
+        );
+
+        let available = client
+            .get(format!(
+                "{base_url}/instances/{instance_id}/tools?filter=available"
+            ))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        assert_eq!(available["data"]["total"], 0);
+
+        let removed = client
+            .get(format!(
+                "{base_url}/instances/{instance_id}/tools?filter=removed"
+            ))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        assert_eq!(removed["data"]["filter"], "removed");
+        assert_eq!(removed["data"]["total"], 1);
+
+        let invalid = client
+            .get(format!(
+                "{base_url}/instances/{instance_id}/tools?filter=hidden"
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
+
+        let clear = client
+            .delete(format!("{base_url}/instances/{instance_id}/tool-policy"))
+            .send()
+            .await
+            .unwrap();
+        assert!(clear.status().is_success());
+
+        let restored = client
+            .get(format!("{base_url}/instances/{instance_id}/tools"))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        assert_eq!(restored["data"]["total"], 1);
+
+        handle.abort();
     }
 
     #[tokio::test]
