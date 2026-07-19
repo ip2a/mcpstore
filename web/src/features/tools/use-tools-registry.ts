@@ -5,7 +5,15 @@ import { getAgentId } from "@/features/agents/model"
 import { useAgentServicesQuery } from "@/features/agents/queries"
 import { type InstanceTool, useInstanceToolsQueries } from "@/features/tools/queries"
 import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
-import { callInstanceTool, type AgentItem, type ServiceInstance } from "@/lib/api"
+import {
+  callInstanceTool,
+  clearInstanceToolPolicy,
+  listInstanceTools,
+  setInstanceToolPolicy,
+  type AgentItem,
+  type ServiceInstance,
+  type ToolVisibilityFilter,
+} from "@/lib/api"
 import { toolKey } from "@/lib/tool-info"
 
 export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; services: ServiceInstance[] }) {
@@ -14,13 +22,14 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
   const [agentId, setAgentId] = useState(agentIds[0] || "")
   const [instanceId, setInstanceId] = useState("all")
   const [query, setQuery] = useState("")
+  const [visibilityFilter, setVisibilityFilter] = useState<ToolVisibilityFilter>("available")
   const [selectedToolKey, setSelectedToolKey] = useState<string | null>(null)
   const agentServicesQuery = useAgentServicesQuery(scope === "agent" ? agentId : "")
   const scopeInstances = scope === "agent" ? agentServicesQuery.data || [] : services
   const selectedInstances = instanceId === "all"
     ? scopeInstances
     : scopeInstances.filter((instance) => instance.instance_id === instanceId)
-  const toolQueries = useInstanceToolsQueries(selectedInstances)
+  const toolQueries = useInstanceToolsQueries(selectedInstances, visibilityFilter)
   const tools = useMemo(
     () => toolQueries.flatMap((result, index) =>
       (result.data || []).map((tool) => ({ instance: selectedInstances[index], tool })),
@@ -40,6 +49,21 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
       setInstanceId("all")
     }
   }, [instanceId, scopeInstances])
+
+  async function setToolAvailability(instance: ServiceInstance, tool: { name: string }, available: boolean) {
+    const current = await listInstanceTools(instance.instance_id, "available")
+    const names = current
+      .map((candidate) => candidate.name)
+      .filter((name) => name !== tool.name)
+    if (available) names.push(tool.name)
+    await setInstanceToolPolicy(instance.instance_id, names)
+    await loadTools()
+  }
+
+  async function clearToolPolicy(instance: ServiceInstance) {
+    await clearInstanceToolPolicy(instance.instance_id)
+    await loadTools()
+  }
 
   async function loadTools() {
     try {
@@ -94,6 +118,10 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
     selectedToolKey,
     setAgentId,
     setInstanceId,
+    setToolAvailability,
+    clearToolPolicy,
+    setVisibilityFilter,
+    visibilityFilter,
     setQuery,
     setScope,
     setSelectedToolKey,

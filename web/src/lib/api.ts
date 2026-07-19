@@ -104,6 +104,8 @@ export type ConfigRevision = {
   scope_revision: number
 }
 
+export type ToolVisibilityFilter = "all" | "available" | "removed"
+
 export type ToolInfo = {
   name: string
   title?: string | null
@@ -420,9 +422,25 @@ export async function upgradeInstanceAuthorizationScope(
   })
 }
 
-export async function listInstanceTools(instanceId: string): Promise<ToolInfo[]> {
-  const data = await request<{ tools: ToolInfo[] }>(`/instances/${encodeURIComponent(instanceId)}/tools`)
+export async function listInstanceTools(
+  instanceId: string,
+  filter: ToolVisibilityFilter = "available",
+): Promise<ToolInfo[]> {
+  const data = await request<{ tools: ToolInfo[] }>(
+    `/instances/${encodeURIComponent(instanceId)}/tools?filter=${filter}`,
+  )
   return data.tools
+}
+
+export async function setInstanceToolPolicy(instanceId: string, availableTools: string[]) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/tool-policy`, {
+    method: "PUT",
+    body: JSON.stringify({ available_tools: availableTools }),
+  })
+}
+
+export async function clearInstanceToolPolicy(instanceId: string) {
+  return request(`/instances/${encodeURIComponent(instanceId)}/tool-policy`, { method: "DELETE" })
 }
 
 export async function listInstanceResources(instanceId: string): Promise<ResourceInfo[]> {
