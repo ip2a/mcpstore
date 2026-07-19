@@ -60,6 +60,10 @@ export function ToolsView(props: {
     setScope,
     setSelectedToolKey,
     setInstanceId,
+    setToolAvailability,
+    clearToolPolicy,
+    setVisibilityFilter,
+    visibilityFilter,
     visibleTools,
   } = useToolsRegistry({ agents: props.agents, services: props.services })
 
@@ -104,6 +108,30 @@ export function ToolsView(props: {
             descriptionPlacement="inline"
             className="border-b-0 pb-0"
           />
+          <div className="flex flex-wrap gap-2">
+            {(["available", "removed", "all"] as const).map((filter) => (
+              <Button
+                key={filter}
+                size="sm"
+                variant={visibilityFilter === filter ? "default" : "outline"}
+                onClick={() => setVisibilityFilter(filter)}
+              >
+                {filter[0].toUpperCase() + filter.slice(1)}
+              </Button>
+            ))}
+            {instanceId !== "all" ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const instance = scopeInstances.find((item) => item.instance_id === instanceId)
+                  if (instance) void clearToolPolicy(instance)
+                }}
+              >
+                Clear policy
+              </Button>
+            ) : null}
+          </div>
           {error ? (
             <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
           ) : loading && !visibleTools.length ? (
@@ -122,7 +150,23 @@ export function ToolsView(props: {
                     onClick={() => setSelectedToolKey(key)}
                     selected={key === selectedToolKey}
                     title={tool.name}
-                    trailing={itemSchema.required?.length ? <Badge variant="outline">{itemSchema.required.length}</Badge> : null}
+                    trailing={
+                      <div className="flex items-center gap-2">
+                        {itemSchema.required?.length ? <Badge variant="outline">{itemSchema.required.length}</Badge> : null}
+                        {visibilityFilter !== "all" ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void setToolAvailability(instance, tool, visibilityFilter === "removed")
+                            }}
+                          >
+                            {visibilityFilter === "removed" ? "Restore" : "Disable"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    }
                   />
                 )
               })}

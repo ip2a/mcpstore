@@ -17,7 +17,7 @@ export function useAgentScope({ agents, busy, services }: { agents: AgentItem[];
   const activeAgentId = (typedAgentId.trim() || selectedAgentId || "").trim()
   const agentServicesQuery = useAgentServicesQuery(activeAgentId)
   const agentServices = activeAgentId ? agentServicesQuery.data || [] : []
-  const agentToolQueries = useInstanceToolsQueries(agentServices)
+  const agentToolQueries = useInstanceToolsQueries(agentServices, "available")
   const agentTools = useMemo(
     () => agentToolQueries.flatMap((result, index) =>
       (result.data || []).map((tool) => ({ instance: agentServices[index], tool })),
