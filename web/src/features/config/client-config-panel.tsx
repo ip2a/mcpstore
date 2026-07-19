@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { applyClientConfig, inspectClientConfig, planClientConfig, undoClientConfig } from "@/lib/api"
+import { applyClientConfig, getAggregateLaunch, inspectClientConfig, planClientConfig, undoClientConfig } from "@/lib/api"
 
 const initialEntries = JSON.stringify([
   { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:18200/mcp" } },
@@ -21,6 +21,8 @@ export function ClientConfigPanel() {
   const [changeId, setChangeId] = useState("")
   const [result, setResult] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  const [transport, setTransport] = useState<"stdio" | "streamable-http">("streamable-http")
+  const [launch, setLaunch] = useState<unknown>(null)
 
   function entries() {
     const value = JSON.parse(entriesText)
@@ -45,7 +47,7 @@ export function ClientConfigPanel() {
         const value = await applyClientConfig(client, path, contentHash, entries())
         setChangeId(value.change_id ?? "")
         setResult(value)
-      } else {
+      } else if (action === "undo") {
         const value = await undoClientConfig(changeId)
         setChangeId("")
         setContentHash("")
@@ -56,6 +58,13 @@ export function ClientConfigPanel() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function loadLaunch() {
+    setBusy(true)
+    try { setLaunch(await getAggregateLaunch({ transport })) }
+    catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
+    finally { setBusy(false) }
   }
 
   return (
@@ -75,6 +84,11 @@ export function ClientConfigPanel() {
           <Input value={path} onChange={(event) => { setPath(event.target.value); setContentHash("") }} placeholder="/Users/you/.codex/config.toml" />
         </label>
       </div>
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="grid gap-2"><Label>Aggregate transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
+        <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
+      </div>
+      {launch ? <div className="mt-3"><JsonBlock value={launch} /></div> : null}
       <label className="mt-4 grid gap-2">
         <Label>Entries</Label>
         <Textarea className="min-h-40 font-mono text-xs" value={entriesText} onChange={(event) => { setEntriesText(event.target.value); setContentHash("") }} />

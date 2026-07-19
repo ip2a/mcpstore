@@ -503,6 +503,11 @@ export type ClientConfigPlanPayload = {
   plans: Array<{ name: string; kind: string; status: string; fields: string[]; unsupported_fields: string[] }>
 }
 
+export async function getAggregateLaunch(options: { transport: "stdio" | "streamable-http"; instanceId?: string; sessionKey?: string } ) {
+  const query = buildQuery({ transport: options.transport, instance_id: options.instanceId, session_key: options.sessionKey })
+  return request<{ transport: string; command: string | null; args: string[]; url: string | null }>(`/aggregate/launch${query}`)
+}
+
 export async function inspectClientConfig(client: string, path: string): Promise<ClientConfigInspectPayload> {
   return request("/client-config/inspect", { method: "POST", body: JSON.stringify({ client, path }) })
 }
