@@ -77,6 +77,8 @@ export function ClientConfigPanel() {
             <option value="codex">Codex</option>
             <option value="claude_code">Claude Code</option>
             <option value="opencode">OpenCode</option>
+            <option value="cursor">Cursor</option>
+            <option value="claude_desktop">Claude Desktop</option>
           </select>
         </label>
         <label className="grid gap-2">

@@ -101,6 +101,8 @@ fn parse_client(value: &str) -> Result<ClientKind, Box<dyn std::error::Error>> {
         "codex" => Ok(ClientKind::Codex),
         "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
         "opencode" | "open-code" => Ok(ClientKind::OpenCode),
+        "cursor" => Ok(ClientKind::Cursor),
+        "claude_desktop" | "claude-desktop" => Ok(ClientKind::ClaudeDesktop),
         _ => Err(format!("unsupported client: {value}").into()),
     }
 }
