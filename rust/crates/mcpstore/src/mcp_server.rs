@@ -93,7 +93,45 @@ impl Default for McpServerOptions {
     }
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct McpServerLaunchDescriptor {
+    pub transport: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+}
+
 impl McpServerOptions {
+    pub fn launch_descriptor(&self, binary: &str) -> McpServerLaunchDescriptor {
+        let mut args = vec![
+            "mcp-server".to_string(),
+            "--transport".to_string(),
+            self.transport.as_str().to_string(),
+        ];
+        match &self.scope {
+            ScopeRef::Store => args.extend(["--scope".into(), "store".into()]),
+            ScopeRef::Agent { agent_id } => args.extend([
+                "--scope".into(),
+                "agent".into(),
+                "--agent".into(),
+                agent_id.clone(),
+            ]),
+        }
+        if let Some(instance_id) = self.instance_id {
+            args.extend(["--instance-id".into(), instance_id.to_string()]);
+        }
+        if let Some(session_key) = &self.session_key {
+            args.extend(["--session-key".into(), session_key.clone()]);
+        }
+        McpServerLaunchDescriptor {
+            transport: self.transport.as_str().to_string(),
+            command: (self.transport == McpServerTransport::Stdio).then(|| binary.to_string()),
+            args,
+            url: (self.transport == McpServerTransport::StreamableHttp)
+                .then(|| format!("http://{}:{}{}", self.host, self.port, self.path)),
+        }
+    }
+
     pub fn to_store_options(&self) -> StoreOptions {
         StoreOptions {
             config_path: self.config_path.clone(),
@@ -2505,6 +2543,38 @@ mod tests {
         async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) {
             self.tool_list_changes.fetch_add(1, Ordering::SeqCst);
         }
+    }
+
+    #[test]
+    fn launch_descriptor_matches_the_runtime_cli_contract() {
+        let descriptor = McpServerOptions {
+            scope: ScopeRef::Agent {
+                agent_id: "coding".into(),
+            },
+            transport: McpServerTransport::StreamableHttp,
+            host: "127.0.0.1".into(),
+            port: 19000,
+            path: "/mcp".into(),
+            ..Default::default()
+        }
+        .launch_descriptor("mcpstore");
+        assert_eq!(descriptor.command, None);
+        assert_eq!(
+            descriptor.url.as_deref(),
+            Some("http://127.0.0.1:19000/mcp")
+        );
+        assert_eq!(
+            descriptor.args,
+            [
+                "mcp-server",
+                "--transport",
+                "streamable-http",
+                "--scope",
+                "agent",
+                "--agent",
+                "coding"
+            ]
+        );
     }
 
     #[tokio::test]
