@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     path::Path as FsPath,
+    net::IpAddr,
     sync::{Arc, Mutex},
 };
 
@@ -52,6 +53,8 @@ pub struct ApiArgs {
     pub host: String,
     #[arg(long, default_value = "", help = "URL 前缀，例如 /mcp")]
     pub url_prefix: String,
+    #[arg(long, help = "显式允许非 loopback API 绑定")]
+    pub allow_remote: bool,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
@@ -273,6 +276,12 @@ struct UpdateLoggingRequest {
 }
 
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
+    let loopback = args.host == "localhost"
+        || args.host.parse::<IpAddr>().is_ok_and(|address| address.is_loopback());
+    if !loopback && !args.allow_remote {
+        return Err("API 默认只允许 loopback 绑定；使用 --allow-remote 明确开启远程暴露".into());
+    }
+
     let store = build_store(&args.store)?;
     store.load_from_source().await?;
 
