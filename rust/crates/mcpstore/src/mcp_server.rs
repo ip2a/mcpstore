@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
+    events::{bus::EventHandler, Event},
     CacheStorage, ContentItem, InstanceId, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
     OpenApiRefCachePolicy, ScopeRef, SourceMode, StoreError, StoreOptions, ToolTransformPatch,
 };
@@ -20,7 +21,7 @@ use rmcp::{
         stdio, streamable_http_server::session::local::LocalSessionManager,
         StreamableHttpServerConfig, StreamableHttpService,
     },
-    ErrorData, ServerHandler,
+    ErrorData, RoleServer, ServerHandler,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -142,6 +143,37 @@ struct ToolBinding {
     tool: Tool,
     instance_id: InstanceId,
     tool_name: String,
+}
+
+struct AggregateToolsChangedNotification {
+    peer: rmcp::service::Peer<RoleServer>,
+    instance_id: Option<InstanceId>,
+}
+
+#[async_trait::async_trait]
+impl EventHandler for AggregateToolsChangedNotification {
+    async fn handle(&self, event: &Event) {
+        if event.event_type != crate::events::types::EventKind::McpToolsChanged.as_str() {
+            return;
+        }
+        if let Some(instance_id) = self.instance_id {
+            let changed_instance = event
+                .payload
+                .get("instanceId")
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<InstanceId>().ok());
+            if changed_instance != Some(instance_id) {
+                return;
+            }
+        }
+        if let Err(error) = self.peer.notify_tool_list_changed().await {
+            tracing::debug!(%error, "aggregate MCP client disconnected before tools/list_changed");
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        !self.peer.is_transport_closed()
+    }
 }
 
 #[derive(Clone)]
@@ -323,10 +355,25 @@ impl McpStoreServer {
 }
 
 impl ServerHandler for McpStoreServer {
+    async fn on_initialized(&self, context: rmcp::service::NotificationContext<RoleServer>) {
+        self.store
+            .event_bus
+            .subscribe(
+                crate::events::types::EventKind::McpToolsChanged.as_str(),
+                0,
+                Arc::new(AggregateToolsChangedNotification {
+                    peer: context.peer,
+                    instance_id: self.instance_id,
+                }),
+            )
+            .await;
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(
             ServerCapabilities::builder()
                 .enable_tools()
+                .enable_tool_list_changed()
                 .enable_resources()
                 .enable_prompts()
                 .build(),
@@ -2337,7 +2384,106 @@ fn normalize_http_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ServiceInstanceKey;
+    use crate::{events::types::EventKind, CacheStorage, ServiceInstanceKey};
+    use rmcp::{
+        service::{NotificationContext, RoleClient},
+        ClientHandler, ServiceExt,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone, Default)]
+    struct NotificationClient {
+        tool_list_changes: Arc<AtomicUsize>,
+    }
+
+    impl ClientHandler for NotificationClient {
+        async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) {
+            self.tool_list_changes.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn aggregate_server_forwards_scoped_tool_list_changes() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            backend: Some(CacheStorage::Memory),
+            ..StoreOptions::default()
+        })
+        .unwrap();
+        let instance_id = ServiceInstanceKey::new("aggregate", ScopeRef::Store).instance_id();
+        let other_instance_id = ServiceInstanceKey::new("other", ScopeRef::Store).instance_id();
+        let server = McpStoreServer {
+            store: Arc::clone(&store),
+            scope: ScopeRef::Store,
+            instance_id: Some(instance_id),
+            session_key: None,
+            scope_label: "store".to_string(),
+            bindings: Arc::new(HashMap::new()),
+            session_state_tools: Arc::new(HashMap::new()),
+            tool_transform_tools: Arc::new(HashMap::new()),
+            openapi_tools: Arc::new(HashMap::new()),
+            service_tools: Arc::new(HashMap::new()),
+            cache_tools: Arc::new(HashMap::new()),
+            event_tools: Arc::new(HashMap::new()),
+            tools: Arc::new(Vec::new()),
+        };
+        let client_handler = NotificationClient::default();
+        let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
+        let server_start =
+            tokio::spawn(async move { server.serve(server_transport).await.unwrap() });
+        let client = client_handler
+            .clone()
+            .serve(client_transport)
+            .await
+            .unwrap();
+        let server = server_start.await.unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                store
+                    .event_bus
+                    .publish(
+                        Event::new(
+                            EventKind::McpToolsChanged.as_str(),
+                            serde_json::json!({"instanceId": instance_id}),
+                        ),
+                        true,
+                    )
+                    .await;
+                if client_handler.tool_list_changes.load(Ordering::SeqCst) == 1 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        store
+            .event_bus
+            .publish(
+                Event::new(
+                    EventKind::McpToolsChanged.as_str(),
+                    serde_json::json!({"instanceId": other_instance_id}),
+                ),
+                true,
+            )
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        assert_eq!(client_handler.tool_list_changes.load(Ordering::SeqCst), 1);
+
+        client.cancel().await.unwrap();
+        server.cancel().await.unwrap();
+        store
+            .event_bus
+            .publish(
+                Event::new(
+                    EventKind::McpToolsChanged.as_str(),
+                    serde_json::json!({"instanceId": instance_id}),
+                ),
+                true,
+            )
+            .await;
+    }
 
     #[test]
     fn structured_scope_argument_has_no_name_fallback() {

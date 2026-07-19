@@ -62,8 +62,12 @@ impl EventBus {
         }
 
         let subs = {
-            let subs = self.subscribers.read().await;
-            subs.get(&event.event_type).cloned().unwrap_or_default()
+            let mut subscribers = self.subscribers.write().await;
+            subscribers.retain_alive(&event.event_type);
+            subscribers
+                .get(&event.event_type)
+                .cloned()
+                .unwrap_or_default()
         };
 
         if subs.is_empty() {
