@@ -6,9 +6,7 @@
 use crate::{Result, StoreError};
 use serde_json::{Map, Value};
 use std::{
-    collections::hash_map::DefaultHasher,
     fs,
-    hash::{Hash, Hasher},
     path::{Path, PathBuf},
 };
 
@@ -432,9 +430,7 @@ fn unsupported_fields(client: ClientKind, document: &Value) -> Vec<String> {
 }
 
 fn content_hash(bytes: &[u8]) -> String {
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    format!("blake3:{}", blake3::hash(bytes).to_hex())
 }
 
 #[cfg(test)]
@@ -553,6 +549,54 @@ mod tests {
         assert!(apply_config_change(&inspection, &plans).is_err());
         let _ = fs::remove_file(lock_path);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn concurrent_writers_never_silently_overwrite_each_other() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let path = sample("concurrent");
+        let inspection = Arc::new(inspect_client_config(ClientKind::ClaudeCode, &path).unwrap());
+        let plans = Arc::new(plan_add_entries(
+            &inspection,
+            [ClientEntrySpec {
+                name: "new".into(),
+                kind: ClientEntryKind::Original,
+                config: serde_json::json!({"command":"node"}),
+            }],
+        ));
+        let barrier = Arc::new(Barrier::new(2));
+        let mut threads = Vec::new();
+        for _ in 0..2 {
+            let inspection = Arc::clone(&inspection);
+            let plans = Arc::clone(&plans);
+            let barrier = Arc::clone(&barrier);
+            threads.push(thread::spawn(move || {
+                barrier.wait();
+                apply_config_change(&inspection, &plans)
+            }));
+        }
+        let results: Vec<_> = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            inspect_client_config(ClientKind::ClaudeCode, &path)
+                .unwrap()
+                .services
+                .iter()
+                .filter(|service| service.name == "new")
+                .count(),
+            1
+        );
+        for result in results {
+            if let Ok(Some(receipt)) = result {
+                let _ = fs::remove_file(receipt.backup_path);
+            }
+        }
+        let _ = fs::remove_file(&path);
     }
 
     #[test]
