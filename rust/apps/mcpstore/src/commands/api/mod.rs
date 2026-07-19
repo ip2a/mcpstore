@@ -2663,6 +2663,139 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn client_config_routes_preserve_secrets_and_require_expected_hash_for_undo() {
+        let path = unique_temp_dir_path("client-config-api").with_extension("json");
+        let secret = "api-secret-do-not-return";
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&json!({
+                "mcpServers": {
+                    "existing": {
+                        "command": "node",
+                        "args": ["server.js"],
+                        "env": {"TOKEN": secret},
+                        "headers": {"Authorization": "Bearer header-secret"}
+                    },
+                    "unrelated": {"enabled": true}
+                },
+                "otherSettings": {"keep": true}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(unique_namespace()),
+        })
+        .unwrap();
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+        let entry = json!({
+            "name": "aggregate",
+            "kind": "aggregate_stdio",
+            "config": {"command": "mcpstore", "args": ["mcp-server"]}
+        });
+
+        let inspect = client
+            .post(format!("{base_url}/client-config/inspect"))
+            .json(&json!({"client": "claude_code", "path": path}))
+            .send()
+            .await
+            .unwrap();
+        assert!(inspect.status().is_success());
+        let inspect_body = inspect.text().await.unwrap();
+        assert!(inspect_body.contains("existing"));
+        assert!(!inspect_body.contains(secret));
+        assert!(!inspect_body.contains("Bearer header-secret"));
+
+        let inspection: Value = serde_json::from_str(&inspect_body).unwrap();
+        let hash = inspection["data"]["content_hash"].as_str().unwrap();
+
+        let plan = client
+            .post(format!("{base_url}/client-config/plan"))
+            .json(&json!({
+                "client": "claude_code",
+                "path": path,
+                "entries": [entry]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(plan.status().is_success());
+        let plan_body = plan.text().await.unwrap();
+        assert!(plan_body.contains("new"));
+        assert!(!plan_body.contains(secret));
+        assert!(!plan_body.contains("Bearer header-secret"));
+
+        let stale_apply = client
+            .post(format!("{base_url}/client-config/apply"))
+            .json(&json!({
+                "client": "claude_code",
+                "path": path,
+                "expected_hash": "stale-hash",
+                "entries": [entry]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(stale_apply.status(), axum::http::StatusCode::BAD_REQUEST);
+
+        let apply = client
+            .post(format!("{base_url}/client-config/apply"))
+            .json(&json!({
+                "client": "claude_code",
+                "path": path,
+                "expected_hash": hash,
+                "entries": [entry]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(apply.status().is_success());
+        let apply_payload: Value = apply.json().await.unwrap();
+        let change_id = apply_payload["data"]["change_id"].as_str().unwrap();
+
+        let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(written["mcpServers"]["aggregate"]["command"], "mcpstore");
+        assert_eq!(written["mcpServers"]["unrelated"]["enabled"], true);
+        assert_eq!(written["otherSettings"]["keep"], true);
+        assert_eq!(written["mcpServers"]["existing"]["env"]["TOKEN"], secret);
+
+        let undo = client
+            .post(format!("{base_url}/client-config/undo"))
+            .json(&json!({"change_id": change_id}))
+            .send()
+            .await
+            .unwrap();
+        assert!(undo.status().is_success());
+        let restored: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(restored["mcpServers"].get("aggregate").is_none());
+        assert_eq!(restored["mcpServers"]["existing"]["env"]["TOKEN"], secret);
+
+        let unknown = client
+            .post(format!("{base_url}/client-config/undo"))
+            .json(&json!({"change_id": "missing-change"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unknown.status(), axum::http::StatusCode::NOT_FOUND);
+        let unknown_body = unknown.text().await.unwrap();
+        assert!(unknown_body.contains("CHANGE_NOT_FOUND"));
+
+        handle.abort();
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_file_name(format!(
+            ".{}.mcpstore.lock",
+            path.file_name().unwrap().to_string_lossy()
+        )));
+    }
+
+    #[tokio::test]
     async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials() {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
