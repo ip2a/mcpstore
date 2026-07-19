@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::cache::models::{
     ContextToolVisibilityState, SessionScope, SessionToolItem, ToolVisibilityMode,
 };
@@ -33,16 +31,21 @@ impl MCPStore {
     ) -> Result<ContextToolVisibilityState> {
         let instance = self.require_instance(instance_id).await?;
         let context_key = Self::build_tool_visibility_context_key(&instance.scope)?;
-        let all_tools = self.list_tool_entries_for_instance(instance_id).await?;
-        let allowlist: HashSet<String> = tool_names.into_iter().collect();
-        let mut selected = all_tools
+        let current_tools = self.list_tool_entries_for_instance(instance_id).await?;
+        let mut selected = tool_names
             .into_iter()
-            .filter(|tool| allowlist.contains(&tool.tool_name) || allowlist.contains(&tool.name))
-            .map(|tool| SessionToolItem {
-                instance_id,
-                service_name: instance.service_name.clone(),
-                scope: instance.scope.clone(),
-                tool_name: tool.tool_name,
+            .map(|requested_name| {
+                let tool_name = current_tools
+                    .iter()
+                    .find(|tool| tool.tool_name == requested_name || tool.name == requested_name)
+                    .map(|tool| tool.tool_name.clone())
+                    .unwrap_or(requested_name);
+                SessionToolItem {
+                    instance_id,
+                    service_name: instance.service_name.clone(),
+                    scope: instance.scope.clone(),
+                    tool_name,
+                }
             })
             .collect::<Vec<_>>();
         selected.sort_by(|left, right| left.tool_name.cmp(&right.tool_name));
@@ -72,6 +75,33 @@ impl MCPStore {
         let tools = self.list_tool_entries_for_instance(instance_id).await?;
         self.apply_context_tool_visibility(&instance.scope, tools, filter)
             .await
+    }
+
+    pub(crate) async fn ensure_context_tool_allowed(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+    ) -> Result<()> {
+        let instance = self.require_instance(instance_id).await?;
+        let context_key = Self::build_tool_visibility_context_key(&instance.scope)?;
+        let Some(visibility) = self
+            .load_context_tool_visibility(&context_key, instance_id)
+            .await?
+        else {
+            return Ok(());
+        };
+        if visibility
+            .tools
+            .iter()
+            .any(|item| item.instance_id == instance_id && item.tool_name == tool_name)
+        {
+            Ok(())
+        } else {
+            Err(StoreError::ToolNotAvailable {
+                instance_id,
+                tool_name: tool_name.to_string(),
+            })
+        }
     }
 
     async fn apply_context_tool_visibility(

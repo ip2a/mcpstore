@@ -43,7 +43,42 @@ impl MCPStore {
     }
 
     pub async fn list_tool_entries_scoped(&self, scope: &ScopeRef) -> Result<Vec<ScopedToolEntry>> {
-        self.collect_scope_tool_entries_scoped(scope).await
+        let instances = self.list_scope_instances(scope).await?;
+        let mut tools = Vec::new();
+        for instance in instances {
+            tools.extend(
+                self.list_tool_entries_for_instance_with_filter(
+                    instance.instance_id,
+                    crate::agent::tool_visibility::ToolVisibilityFilter::Available,
+                )
+                .await?,
+            );
+        }
+        tools.sort_by(|left, right| {
+            left.service_name
+                .cmp(&right.service_name)
+                .then_with(|| left.tool_name.cmp(&right.tool_name))
+                .then_with(|| left.instance_id.cmp(&right.instance_id))
+        });
+        Ok(tools)
+    }
+
+    pub async fn list_tools_for_instance_with_filter(
+        &self,
+        instance_id: InstanceId,
+        filter: crate::agent::tool_visibility::ToolVisibilityFilter,
+    ) -> Result<Vec<serde_json::Value>> {
+        self.list_tool_entries_for_instance_with_filter(instance_id, filter)
+            .await
+            .and_then(|entries| {
+                entries
+                    .into_iter()
+                    .map(|entry| {
+                        serde_json::to_value(entry)
+                            .map_err(|error| StoreError::Other(error.to_string()))
+                    })
+                    .collect()
+            })
     }
 
     pub async fn list_tool_entries_for_instance(
