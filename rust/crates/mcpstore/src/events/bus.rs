@@ -8,6 +8,10 @@ use tokio::sync::Mutex;
 #[async_trait::async_trait]
 pub trait EventHandler: Send + Sync {
     async fn handle(&self, event: &Event);
+
+    fn is_alive(&self) -> bool {
+        true
+    }
 }
 
 /// Subscription with metadata.
@@ -43,6 +47,16 @@ impl SubscriberMap {
 
     pub fn unsubscribe(&mut self, event_type: &str) {
         self.inner.remove(event_type);
+    }
+
+    pub fn retain_alive(&mut self, event_type: &str) {
+        let Some(subscriptions) = self.inner.get_mut(event_type) else {
+            return;
+        };
+        subscriptions.retain(|subscription| subscription.handler.is_alive());
+        if subscriptions.is_empty() {
+            self.inner.remove(event_type);
+        }
     }
 
     pub fn get(&self, event_type: &str) -> Option<&Vec<Subscription>> {
