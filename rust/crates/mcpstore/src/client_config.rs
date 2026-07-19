@@ -317,6 +317,7 @@ struct ConfigWriteLock {
 }
 
 impl ConfigWriteLock {
+    // ponytail: reject stale locks; manual recovery is safer than guessing whether a writer is alive.
     fn acquire(config_path: &Path) -> Result<Self> {
         let path = config_path.with_file_name(format!(
             ".{}.mcpstore.lock",
