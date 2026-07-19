@@ -3,9 +3,10 @@
 //! This module deliberately stops before mutation: the parsed document remains the
 //! source of truth for the later diff/apply milestones, so unknown fields survive.
 
-use crate::{Result, StoreError};
+use crate::{config::ServerConfig, Result, StoreError};
 use serde_json::{Map, Value};
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -74,6 +75,184 @@ pub struct ClientEntryPlan {
     pub current: Option<Value>,
     pub proposed: Value,
     pub unsupported_fields: Vec<String>,
+}
+
+pub fn import_selected_services(
+    inspection: &ClientConfigInspection,
+    selected_names: &[String],
+) -> Result<Vec<(String, ServerConfig)>> {
+    if selected_names.is_empty() {
+        return Err(StoreError::Other("至少选择一个要导入的服务".into()));
+    }
+    let mut seen = HashSet::new();
+    selected_names
+        .iter()
+        .map(|name| {
+            if !seen.insert(name.as_str()) {
+                return Err(StoreError::Other(format!("重复选择服务: {name}")));
+            }
+            let service = inspection
+                .services
+                .iter()
+                .find(|service| service.name == *name)
+                .ok_or_else(|| StoreError::Other(format!("助手配置中不存在服务: {name}")))?;
+            Ok((
+                name.clone(),
+                imported_server_config(inspection.client, name, &service.config)?,
+            ))
+        })
+        .collect()
+}
+
+fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Result<ServerConfig> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| StoreError::Other(format!("服务 {name} 配置必须是对象")))?;
+    let unsupported = object
+        .keys()
+        .filter(|field| !supported_fields(client).contains(&field.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        return Err(StoreError::Other(format!(
+            "服务 {name} 包含不可导入字段: {}",
+            unsupported.join(", ")
+        )));
+    }
+
+    let (command, args, env) = if client == ClientKind::OpenCode {
+        let command = match object.get("command") {
+            Some(Value::Array(parts)) => {
+                let mut parts = parts
+                    .iter()
+                    .map(|part| {
+                        part.as_str().map(str::to_owned).ok_or_else(|| {
+                            StoreError::Other(format!("服务 {name} 的 command 必须是字符串数组"))
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                if parts.is_empty() {
+                    return Err(StoreError::Other(format!(
+                        "服务 {name} 的 command 不能为空"
+                    )));
+                }
+                let executable = parts.remove(0);
+                (Some(executable), parts)
+            }
+            None => (None, Vec::new()),
+            _ => {
+                return Err(StoreError::Other(format!(
+                    "服务 {name} 的 command 必须是字符串数组"
+                )))
+            }
+        };
+        (
+            command.0,
+            command.1,
+            string_map(object.get("environment"), name, "environment")?,
+        )
+    } else {
+        (
+            optional_string(object.get("command"), name, "command")?,
+            string_array(object.get("args"), name, "args")?,
+            string_map(object.get("env"), name, "env")?,
+        )
+    };
+    let url = optional_string(object.get("url"), name, "url")?;
+    if command.is_some() == url.is_some() {
+        return Err(StoreError::Other(format!(
+            "服务 {name} 必须且只能设置 command 或 url"
+        )));
+    }
+    if client == ClientKind::OpenCode {
+        match object.get("type").and_then(Value::as_str) {
+            Some("local") if command.is_none() => {
+                return Err(StoreError::Other(format!(
+                    "服务 {name} 的 local 类型缺少 command"
+                )))
+            }
+            Some("remote") if url.is_none() => {
+                return Err(StoreError::Other(format!(
+                    "服务 {name} 的 remote 类型缺少 url"
+                )))
+            }
+            Some("local" | "remote") | None => {}
+            Some(kind) => {
+                return Err(StoreError::Other(format!(
+                    "服务 {name} 使用不支持的 OpenCode 类型: {kind}"
+                )))
+            }
+        }
+        if object.get("enabled") == Some(&Value::Bool(false)) {
+            return Err(StoreError::Other(format!(
+                "服务 {name} 已在 OpenCode 中禁用"
+            )));
+        }
+        if object.contains_key("timeout") {
+            return Err(StoreError::Other(format!(
+                "服务 {name} 的 timeout 没有安全的 MCPStore 映射"
+            )));
+        }
+    }
+    Ok(ServerConfig {
+        url,
+        command,
+        args,
+        env,
+        headers: string_map(object.get("headers"), name, "headers")?,
+        transport: Some(if object.contains_key("url") {
+            "streamable-http".into()
+        } else {
+            "stdio".into()
+        }),
+        ..ServerConfig::default()
+    })
+}
+
+fn optional_string(value: Option<&Value>, name: &str, field: &str) -> Result<Option<String>> {
+    value
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串")))
+        })
+        .transpose()
+}
+
+fn string_array(value: Option<&Value>, name: &str, field: &str) -> Result<Vec<String>> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    value
+        .as_array()
+        .ok_or_else(|| StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串数组")))?
+        .iter()
+        .map(|value| {
+            value.as_str().map(str::to_owned).ok_or_else(|| {
+                StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串数组"))
+            })
+        })
+        .collect()
+}
+
+fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<String, String>> {
+    let Some(value) = value else {
+        return Ok(HashMap::new());
+    };
+    value
+        .as_object()
+        .ok_or_else(|| StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串对象")))?
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|value| (key.clone(), value.to_owned()))
+                .ok_or_else(|| {
+                    StoreError::Other(format!("服务 {name} 的 {field}.{key} 必须是字符串"))
+                })
+        })
+        .collect()
 }
 
 pub fn plan_add_entries(
@@ -657,6 +836,44 @@ mod tests {
             assert!(result.services.iter().any(|service| service.name == "demo"));
             let _ = fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn imports_only_explicitly_selected_services_into_server_configs() {
+        let path = sample("import");
+        fs::write(
+            &path,
+            r#"{"mcpServers":{"stdio":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"}},"remote":{"url":"http://127.0.0.1/mcp","headers":{"Authorization":"Bearer secret"}}}}"#,
+        )
+        .unwrap();
+        let inspection = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let imported = import_selected_services(&inspection, &["stdio".into()]).unwrap();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].0, "stdio");
+        assert_eq!(imported[0].1.command.as_deref(), Some("node"));
+        assert_eq!(imported[0].1.args, ["server.js"]);
+        assert_eq!(imported[0].1.env["TOKEN"], "secret");
+        assert_eq!(imported[0].1.infer_transport(), "stdio");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn imports_opencode_command_array_and_rejects_lossy_fields() {
+        let path =
+            std::env::temp_dir().join(format!("mcpstore-import-opencode-{}", std::process::id()));
+        fs::write(
+            &path,
+            r#"{"mcp":{"local":{"type":"local","command":["node","server.js"],"environment":{"TOKEN":"secret"}},"lossy":{"type":"remote","url":"http://127.0.0.1/mcp","timeout":1000}}}"#,
+        )
+        .unwrap();
+        let inspection = inspect_client_config(ClientKind::OpenCode, &path).unwrap();
+        let imported = import_selected_services(&inspection, &["local".into()]).unwrap();
+        assert_eq!(imported[0].1.command.as_deref(), Some("node"));
+        assert_eq!(imported[0].1.args, ["server.js"]);
+        assert_eq!(imported[0].1.env["TOKEN"], "secret");
+        assert!(import_selected_services(&inspection, &["lossy".into()]).is_err());
+        assert!(import_selected_services(&inspection, &["missing".into()]).is_err());
+        let _ = fs::remove_file(path);
     }
 
     #[test]
