@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::cache::models::{
     ContextToolVisibilityState, SessionScope, SessionToolItem, ToolVisibilityMode,
 };
@@ -71,10 +73,12 @@ impl MCPStore {
         instance_id: InstanceId,
         filter: ToolVisibilityFilter,
     ) -> Result<Vec<ScopedToolEntry>> {
-        let instance = self.require_instance(instance_id).await?;
-        let tools = self.list_tool_entries_for_instance(instance_id).await?;
-        self.apply_context_tool_visibility(&instance.scope, tools, filter)
-            .await
+        let policy = EffectiveToolPolicy::resolve(self, instance_id).await?;
+        Ok(match filter {
+            ToolVisibilityFilter::All => policy.all,
+            ToolVisibilityFilter::Available => policy.available,
+            ToolVisibilityFilter::Removed => policy.removed,
+        })
     }
 
     pub(crate) async fn ensure_context_tool_allowed(
@@ -82,18 +86,11 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<()> {
-        let instance = self.require_instance(instance_id).await?;
-        let context_key = Self::build_tool_visibility_context_key(&instance.scope)?;
-        let Some(visibility) = self
-            .load_context_tool_visibility(&context_key, instance_id)
-            .await?
-        else {
-            return Ok(());
-        };
-        if visibility
-            .tools
+        let policy = EffectiveToolPolicy::resolve(self, instance_id).await?;
+        if policy
+            .available
             .iter()
-            .any(|item| item.instance_id == instance_id && item.tool_name == tool_name)
+            .any(|tool| tool.tool_name == tool_name)
         {
             Ok(())
         } else {
@@ -102,35 +99,6 @@ impl MCPStore {
                 tool_name: tool_name.to_string(),
             })
         }
-    }
-
-    async fn apply_context_tool_visibility(
-        &self,
-        scope: &ScopeRef,
-        tools: Vec<ScopedToolEntry>,
-        filter: ToolVisibilityFilter,
-    ) -> Result<Vec<ScopedToolEntry>> {
-        if filter == ToolVisibilityFilter::All {
-            return Ok(tools);
-        }
-        let context_key = Self::build_tool_visibility_context_key(scope)?;
-        let mut selected = Vec::new();
-        for tool in tools {
-            let visibility = self
-                .load_context_tool_visibility(&context_key, tool.instance_id)
-                .await?;
-            let is_visible = visibility.as_ref().map_or(true, |state| {
-                state.tools.iter().any(|item| {
-                    item.instance_id == tool.instance_id && item.tool_name == tool.tool_name
-                })
-            });
-            if (filter == ToolVisibilityFilter::Available && is_visible)
-                || (filter == ToolVisibilityFilter::Removed && !is_visible)
-            {
-                selected.push(tool);
-            }
-        }
-        Ok(selected)
     }
 
     fn build_tool_visibility_context_key(scope: &ScopeRef) -> Result<String> {
@@ -214,5 +182,66 @@ impl MCPStore {
         Err(StoreError::Cache(CacheError::Conflict(format!(
             "context tool visibility conflict after retries: state_key={state_key}"
         ))))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EffectiveToolPolicy {
+    pub all: Vec<ScopedToolEntry>,
+    pub available: Vec<ScopedToolEntry>,
+    pub removed: Vec<ScopedToolEntry>,
+    pub stale: Vec<String>,
+}
+
+impl EffectiveToolPolicy {
+    pub async fn resolve(store: &MCPStore, instance_id: InstanceId) -> Result<Self> {
+        let instance = store.require_instance(instance_id).await?;
+        let all = store.list_tool_entries_for_instance(instance_id).await?;
+        let visibility = store
+            .load_context_tool_visibility(
+                &MCPStore::build_tool_visibility_context_key(&instance.scope)?,
+                instance_id,
+            )
+            .await?;
+        let Some(visibility) = visibility else {
+            return Ok(Self {
+                available: all.clone(),
+                all,
+                removed: Vec::new(),
+                stale: Vec::new(),
+            });
+        };
+        let allowlist = visibility
+            .tools
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<HashSet<_>>();
+        let known = all
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<HashSet<_>>();
+        let mut available = Vec::new();
+        let mut removed = Vec::new();
+        for tool in &all {
+            if allowlist.contains(tool.tool_name.as_str()) {
+                available.push(tool.clone());
+            } else {
+                removed.push(tool.clone());
+            }
+        }
+        let mut stale = visibility
+            .tools
+            .iter()
+            .filter(|tool| !known.contains(tool.tool_name.as_str()))
+            .map(|tool| tool.tool_name.clone())
+            .collect::<Vec<_>>();
+        stale.sort();
+        stale.dedup();
+        Ok(Self {
+            all,
+            available,
+            removed,
+            stale,
+        })
     }
 }

@@ -4769,6 +4769,12 @@ async fn context_tool_visibility_filters_tools_per_instance() {
             .collect::<Vec<_>>(),
         vec!["alpha", "removed"]
     );
+    let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
+        .await
+        .unwrap();
+    assert_eq!(policy.available.len(), 1);
+    assert_eq!(policy.removed.len(), 1);
+    assert_eq!(policy.stale, vec!["removed"]);
 
     let removed = store
         .list_tool_entries_for_instance_with_filter(instance_id, ToolVisibilityFilter::Removed)
