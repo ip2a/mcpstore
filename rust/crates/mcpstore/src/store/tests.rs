@@ -4701,6 +4701,91 @@ async fn rust_tool_transform_builders_create_instance_owned_rules() {
 }
 
 #[tokio::test]
+async fn context_tool_visibility_reapplies_after_tool_refresh() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    store.add_service("svc", stdio_config()).await.unwrap();
+    let instance_id = store_instance_id("svc");
+    install_registry_tools(
+        &store,
+        instance_id,
+        vec![registry_tool("alpha"), registry_tool("beta")],
+    )
+    .await;
+
+    store
+        .set_context_tool_visibility(instance_id, vec!["alpha".to_string()])
+        .await
+        .unwrap();
+    store
+        .registry
+        .replace_instance_tools(
+            instance_id,
+            vec![registry_tool("alpha"), registry_tool("gamma")],
+        )
+        .await;
+
+    let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        policy
+            .available
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["alpha"]
+    );
+    assert_eq!(
+        policy
+            .removed
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gamma"]
+    );
+    assert!(policy.stale.is_empty());
+
+    store
+        .registry
+        .replace_instance_tools(instance_id, vec![registry_tool("gamma")])
+        .await;
+    let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
+        .await
+        .unwrap();
+    assert!(policy.available.is_empty());
+    assert_eq!(
+        policy
+            .removed
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gamma"]
+    );
+    assert_eq!(policy.stale, vec!["alpha"]);
+
+    store
+        .clear_context_tool_visibility(instance_id)
+        .await
+        .unwrap();
+    let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        policy
+            .available
+            .iter()
+            .map(|tool| tool.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gamma"]
+    );
+    assert!(policy.removed.is_empty());
+    assert!(policy.stale.is_empty());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn context_tool_visibility_filters_tools_per_instance() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
