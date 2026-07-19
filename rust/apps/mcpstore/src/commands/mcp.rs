@@ -712,6 +712,7 @@ impl CallCommandError {
         tool_name: &str,
     ) -> Self {
         let code = match &error {
+            StoreError::ToolNotAvailable { .. } => CallErrorCode::InvalidInput,
             StoreError::ServiceNotFound(_) => CallErrorCode::ServiceNotFound,
             StoreError::Auth(_) => CallErrorCode::AuthenticationRequired,
             StoreError::Transport(error) => match error {
