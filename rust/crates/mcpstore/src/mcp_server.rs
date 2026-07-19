@@ -2617,6 +2617,45 @@ mod tests {
     }
 
     #[test]
+    fn resource_and_template_uris_are_stably_projected_and_routed() {
+        let instance_id = ServiceInstanceKey::new("docs service", ScopeRef::Store).instance_id();
+        let resource = serde_json::json!({
+            "uri": "fixture://docs/readme",
+            "service_name": "docs service",
+            "instance_id": instance_id,
+        });
+        let template = serde_json::json!({
+            "uri_template": "fixture://docs/{name}",
+            "service_name": "docs service",
+            "instance_id": instance_id,
+        });
+
+        let projected_resource =
+            project_catalog_uris(vec![resource.clone()], "uri", false).unwrap();
+        let projected_resource_uri = projected_resource[0]["uri"].as_str().unwrap();
+        assert_eq!(
+            resolve_projected_catalog_uri(&[resource], "uri", false, projected_resource_uri)
+                .unwrap(),
+            (instance_id, "fixture://docs/readme".to_string())
+        );
+
+        let projected_template =
+            project_catalog_uris(vec![template.clone()], "uri_template", true).unwrap();
+        let projected_template_uri = projected_template[0]["uri_template"].as_str().unwrap();
+        assert!(projected_template_uri.contains("/template/"));
+        assert_eq!(
+            resolve_projected_catalog_uri(
+                &[template],
+                "uri_template",
+                true,
+                projected_template_uri,
+            )
+            .unwrap(),
+            (instance_id, "fixture://docs/{name}".to_string())
+        );
+    }
+
+    #[test]
     fn structured_scope_argument_has_no_name_fallback() {
         let store = Map::from_iter([("scope".to_string(), serde_json::json!({"type": "store"}))]);
         assert_eq!(
