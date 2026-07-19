@@ -1024,21 +1024,20 @@ impl MCPStore {
             let instance = self
                 .require_session_instance(&session, selection.instance_id)
                 .await?;
-            instance
-                .tools
-                .iter()
-                .find(|tool| tool.name == selection.tool_name)
-                .ok_or_else(|| {
-                    StoreError::Other(format!(
-                        "Tool not found in instance: instance_id={}, tool_name={}",
-                        selection.instance_id, selection.tool_name
-                    ))
-                })?;
+            let tool_name = self
+                .list_tool_entries_for_instance(selection.instance_id)
+                .await?
+                .into_iter()
+                .find(|tool| {
+                    tool.tool_name == selection.tool_name || tool.name == selection.tool_name
+                })
+                .map(|tool| tool.tool_name)
+                .unwrap_or(selection.tool_name);
             tools.push(SessionToolItem {
                 instance_id: selection.instance_id,
                 service_name: instance.service_name,
                 scope: instance.scope,
-                tool_name: selection.tool_name,
+                tool_name,
             });
         }
         let loaded_visibility = self.load_session_tool_visibility(session_key).await?;
@@ -1630,34 +1629,16 @@ impl MCPStore {
             .await?;
         let mut entries = Vec::new();
         for instance in self.session_service_instances(session).await? {
-            let mut service_tools = instance.tools.clone();
-            service_tools.sort_by(|left, right| left.name.cmp(&right.name));
-            for tool in service_tools {
-                if !Self::session_tool_allowed(&visibility, instance.instance_id, &tool.name) {
-                    continue;
-                }
-                let transformed = self
-                    .apply_tool_transform(
-                        instance.instance_id,
-                        &tool.name,
-                        tool.name.clone(),
-                        tool.description,
-                        tool.input_schema,
-                    )
-                    .await?;
-                entries.push(Self::scoped_tool_entry(
-                    transformed.display_name,
-                    tool.name,
+            let service_tools = self
+                .list_tool_entries_for_instance_with_filter(
                     instance.instance_id,
-                    instance.service_name.clone(),
-                    instance.scope.clone(),
-                    tool.title,
-                    transformed.description,
-                    transformed.input_schema,
-                    tool.output_schema,
-                    tool.annotations,
-                    tool.meta,
-                ));
+                    crate::agent::tool_visibility::ToolVisibilityFilter::Available,
+                )
+                .await?;
+            for tool in service_tools {
+                if Self::session_tool_allowed(&visibility, instance.instance_id, &tool.tool_name) {
+                    entries.push(tool);
+                }
             }
         }
         Ok(entries)
