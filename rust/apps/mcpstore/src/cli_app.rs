@@ -647,6 +647,7 @@ mod tests {
             Commands::Api(args) => {
                 assert_eq!(args.port, 9091);
                 assert_eq!(args.url_prefix, "/mcp");
+                assert!(!args.allow_remote);
             }
             _ => panic!("Expected to parse as api command"),
         }
