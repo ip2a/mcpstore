@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { applyClientConfig, getAggregateLaunch, inspectClientConfig, planClientConfig, undoClientConfig } from "@/lib/api"
+import { applyClientConfig, getAggregateLaunch, importClientServices, inspectClientConfig, planClientConfig, undoClientConfig } from "@/lib/api"
 
 const initialEntries = JSON.stringify([
   { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:18200/mcp" } },
@@ -17,6 +17,7 @@ export function ClientConfigPanel() {
   const [client, setClient] = useState("codex")
   const [path, setPath] = useState("")
   const [entriesText, setEntriesText] = useState(initialEntries)
+  const [importNamesText, setImportNamesText] = useState("[]")
   const [contentHash, setContentHash] = useState("")
   const [changeId, setChangeId] = useState("")
   const [result, setResult] = useState<unknown>(null)
@@ -27,6 +28,12 @@ export function ClientConfigPanel() {
   function entries() {
     const value = JSON.parse(entriesText)
     if (!Array.isArray(value)) throw new Error("Entries must be a JSON array")
+    return value
+  }
+
+  function importNames() {
+    const value = JSON.parse(importNamesText)
+    if (!Array.isArray(value) || value.some((name) => typeof name !== "string")) throw new Error("Import names must be a JSON string array")
     return value
   }
 
@@ -60,6 +67,15 @@ export function ClientConfigPanel() {
     }
   }
 
+  async function importSelected() {
+    setBusy(true)
+    try {
+      if (!window.confirm("Import the selected assistant services into MCPStore? Existing services will not be overwritten.")) return
+      setResult(await importClientServices(client, path, importNames()))
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
+    finally { setBusy(false) }
+  }
+
   async function loadLaunch() {
     setBusy(true)
     try { setLaunch(await getAggregateLaunch({ transport })) }
@@ -91,6 +107,13 @@ export function ClientConfigPanel() {
         <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
       </div>
       {launch ? <div className="mt-3"><JsonBlock value={launch} /></div> : null}
+      <label className="mt-4 grid gap-2">
+        <Label>Services to import from assistant (JSON string array)</Label>
+        <Textarea className="min-h-16 font-mono text-xs" value={importNamesText} onChange={(event) => setImportNamesText(event.target.value)} placeholder='["my-server"]' />
+      </label>
+      <div className="mt-2">
+        <Button variant="outline" disabled={busy || !path} onClick={() => void importSelected()}>Import selected services</Button>
+      </div>
       <label className="mt-4 grid gap-2">
         <Label>Entries</Label>
         <Textarea className="min-h-40 font-mono text-xs" value={entriesText} onChange={(event) => { setEntriesText(event.target.value); setContentHash("") }} />

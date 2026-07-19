@@ -1,11 +1,14 @@
 use clap::Subcommand;
 use mcpstore::{
     client_config::{
-        apply_config_change, inspect_client_config, plan_add_entries, ClientConfigInspection,
-        ClientEntryPlan, ClientEntrySpec, ClientEntryStatus, ClientKind, ConfigChangeReceipt,
+        apply_config_change, import_selected_services, inspect_client_config, plan_add_entries,
+        ClientConfigInspection, ClientEntryPlan, ClientEntrySpec, ClientEntryStatus, ClientKind,
+        ConfigChangeReceipt,
     },
     config::ConfigManager,
 };
+
+use crate::store_args::{build_store, StoreSourceArgs};
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -65,6 +68,16 @@ pub enum ConfigAction {
         #[arg(long)]
         receipt_file: String,
     },
+    ImportClient {
+        #[arg(long)]
+        client: String,
+        #[arg(long)]
+        path: String,
+        #[arg(long)]
+        names_file: String,
+        #[command(flatten)]
+        store: StoreSourceArgs,
+    },
 }
 
 pub async fn run(action: ConfigAction) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -93,7 +106,37 @@ pub async fn run(action: ConfigAction) -> std::result::Result<(), Box<dyn std::e
             yes,
         } => apply_client(client, path, entries_file, receipt_file, yes),
         ConfigAction::UndoClient { receipt_file } => undo_client(receipt_file),
+        ConfigAction::ImportClient {
+            client,
+            path,
+            names_file,
+            store,
+        } => import_client(client, path, names_file, store).await,
     }
+}
+
+async fn import_client(
+    client: String,
+    path: String,
+    names_file: String,
+    source: StoreSourceArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let inspection = inspect_client_config(parse_client(&client)?, &path)?;
+    let names: Vec<String> = serde_json::from_str(&std::fs::read_to_string(names_file)?)?;
+    let services = import_selected_services(&inspection, &names)?;
+    let store = build_store(&source)?;
+    store.load_from_source().await?;
+    for (name, _) in &services {
+        if store.get_definition_config(name).await?.is_some() {
+            return Err(format!("MCPStore service already exists: {name}").into());
+        }
+    }
+    for (name, config) in services {
+        let transport = config.infer_transport().to_string();
+        store.add_service(&name, config).await?;
+        println!("imported {name} (transport={transport})");
+    }
+    Ok(())
 }
 
 fn parse_client(value: &str) -> Result<ClientKind, Box<dyn std::error::Error>> {
