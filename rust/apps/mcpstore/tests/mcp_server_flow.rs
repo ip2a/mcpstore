@@ -274,6 +274,58 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
         }
     }
 
+    let resource_uris = resources
+        .iter()
+        .map(|resource| resource.uri.clone())
+        .collect::<Vec<_>>();
+    client.cancel().await?;
+    let _ = stderr_task.await?;
+
+    let (transport, stderr) =
+        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
+            cmd.arg("mcp-server")
+                .arg("--config-path")
+                .arg(config_path.display().to_string())
+                .current_dir(rust_root());
+        }))
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut stderr = stderr.expect("stderr must be piped");
+    let stderr_task = tokio::spawn(async move {
+        let mut buffer = String::new();
+        stderr.read_to_string(&mut buffer).await?;
+        Ok::<_, std::io::Error>(buffer)
+    });
+    let client = ().serve(transport).await?;
+
+    assert_eq!(
+        client
+            .list_all_tools()
+            .await?
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect::<Vec<_>>(),
+        tool_names
+    );
+    assert_eq!(
+        client
+            .list_all_resources()
+            .await?
+            .into_iter()
+            .map(|resource| resource.uri)
+            .collect::<Vec<_>>(),
+        resource_uris
+    );
+    assert_eq!(
+        client
+            .list_all_prompts()
+            .await?
+            .into_iter()
+            .map(|prompt| prompt.name)
+            .collect::<Vec<_>>(),
+        prompt_names
+    );
+
     client.cancel().await?;
     let _ = stderr_task.await?;
     Ok(())
