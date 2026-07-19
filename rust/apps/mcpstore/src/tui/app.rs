@@ -2173,7 +2173,14 @@ impl TuiApp {
             rt.block_on(async { self.store.connect_service(service.instance_id).await })?;
         }
 
-        let tools = rt.block_on(async { self.store.list_tools(service.instance_id).await })?;
+        let tools = rt.block_on(async {
+            self.store
+                .list_tool_entries_for_instance_with_filter(
+                    service.instance_id,
+                    mcpstore::ToolVisibilityFilter::Available,
+                )
+                .await
+        })?;
         self.service_tools = tools
             .into_iter()
             .map(|tool| ToolSummary {
