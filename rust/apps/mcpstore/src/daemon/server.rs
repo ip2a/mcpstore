@@ -362,7 +362,13 @@ async fn handle_list_tools(store: &MCPStore, params: Value) -> DaemonResponse {
         Ok(instance_id) => instance_id,
         Err(response) => return response,
     };
-    match store.list_tools(instance_id).await {
+    match store
+        .list_tool_entries_for_instance_with_filter(
+            instance_id,
+            mcpstore::ToolVisibilityFilter::Available,
+        )
+        .await
+    {
         Ok(tools) => {
             let data: Vec<Value> = tools
                 .iter()
