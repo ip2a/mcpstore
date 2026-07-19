@@ -677,8 +677,10 @@ fn parse_client_kind(value: &str) -> std::result::Result<ClientKind, ApiError> {
         "codex" => Ok(ClientKind::Codex),
         "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
         "opencode" | "open-code" => Ok(ClientKind::OpenCode),
+        "cursor" => Ok(ClientKind::Cursor),
+        "claude_desktop" | "claude-desktop" => Ok(ClientKind::ClaudeDesktop),
         _ => Err(ApiError::invalid_parameter(
-            "client 必须是 codex、claude_code 或 opencode",
+            "client 必须是 codex、claude_code、opencode、cursor 或 claude_desktop",
             Some("client"),
         )),
     }
@@ -715,6 +717,8 @@ fn format_client(client: ClientKind) -> &'static str {
         ClientKind::Codex => "codex",
         ClientKind::ClaudeCode => "claude_code",
         ClientKind::OpenCode => "opencode",
+        ClientKind::Cursor => "cursor",
+        ClientKind::ClaudeDesktop => "claude_desktop",
     }
 }
 fn format_format(format: &mcpstore::client_config::ConfigFormat) -> &'static str {
