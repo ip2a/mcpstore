@@ -1,6 +1,6 @@
 import { useQueries } from "@tanstack/react-query"
 
-import { listInstanceTools, type ServiceInstance, type ToolInfo } from "@/lib/api"
+import { listInstanceTools, type ServiceInstance, type ToolInfo, type ToolVisibilityFilter } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 export type InstanceTool = {
@@ -8,11 +8,11 @@ export type InstanceTool = {
   tool: ToolInfo
 }
 
-export function useInstanceToolsQueries(instances: ServiceInstance[]) {
+export function useInstanceToolsQueries(instances: ServiceInstance[], filter: ToolVisibilityFilter) {
   return useQueries({
     queries: instances.map((instance) => ({
-      queryKey: queryKeys.instanceTools(instance.instance_id),
-      queryFn: () => listInstanceTools(instance.instance_id),
+      queryKey: [...queryKeys.instanceTools(instance.instance_id), filter],
+      queryFn: () => listInstanceTools(instance.instance_id, filter),
     })),
   })
 }
