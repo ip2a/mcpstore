@@ -12,9 +12,9 @@ use axum::{
 use clap::Args;
 use mcpstore::{
     client_config::{
-        apply_config_change, inspect_client_config, plan_add_entries, ClientConfigInspection,
-        ClientEntryKind, ClientEntryPlan, ClientEntrySpec, ClientEntryStatus, ClientKind,
-        ConfigChangeReceipt,
+        apply_config_change, import_selected_services, inspect_client_config, plan_add_entries,
+        ClientConfigInspection, ClientEntryKind, ClientEntryPlan, ClientEntrySpec,
+        ClientEntryStatus, ClientKind, ConfigChangeReceipt,
     },
     config::{ConfigError, ScopeDescriptor},
     config_formats::ConfigFormat,
@@ -137,6 +137,13 @@ struct ClientConfigApplyRequest {
 #[derive(Deserialize)]
 struct ClientConfigUndoRequest {
     change_id: String,
+}
+
+#[derive(Deserialize)]
+struct ClientConfigImportRequest {
+    client: String,
+    path: String,
+    names: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -523,6 +530,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/client-config/plan", post(client_config_plan))
         .route("/client-config/apply", post(client_config_apply))
         .route("/client-config/undo", post(client_config_undo))
+        .route("/client-config/import", post(client_config_import))
         .route("/aggregate/launch", get(aggregate_launch))
         .route("/config/reset", post(store_reset_config))
         .route("/scopes/agents/:agent_id/config", get(agent_show_config))
@@ -648,6 +656,44 @@ async fn client_config_apply(
     Ok(success(
         "编程助手配置写入成功",
         json!({"changed": true, "change_id": change_id, "plans": plans_summary(&inspection, &plans)}),
+    ))
+}
+
+async fn client_config_import(
+    State(state): State<Arc<ApiState>>,
+    Json(request): Json<ClientConfigImportRequest>,
+) -> ApiResult {
+    let client = parse_client_kind(&request.client)?;
+    let inspection = inspect_client_config(client, &request.path).map_err(ApiError::from_store)?;
+    let services =
+        import_selected_services(&inspection, &request.names).map_err(ApiError::from_store)?;
+    for (name, _) in &services {
+        if state
+            .store
+            .get_definition_config(name)
+            .await
+            .map_err(ApiError::from_store)?
+            .is_some()
+        {
+            return Err(ApiError::invalid_request(format!(
+                "MCPStore 中已存在服务 {name}，拒绝覆盖"
+            )));
+        }
+    }
+    let summaries = services
+        .iter()
+        .map(|(name, config)| json!({"name": name, "transport": config.infer_transport()}))
+        .collect::<Vec<_>>();
+    for (name, config) in services {
+        state
+            .store
+            .add_service(&name, config)
+            .await
+            .map_err(ApiError::from_store)?;
+    }
+    Ok(success(
+        "编程助手服务导入成功",
+        json!({"imported": summaries}),
     ))
 }
 
@@ -2684,15 +2730,17 @@ mod tests {
         )
         .unwrap();
 
+        let store_path = unique_temp_dir_path("client-config-api-store").with_extension("json");
+        std::fs::write(&store_path, b"{}").unwrap();
         let store = MCPStore::setup_with_options(StoreOptions {
-            config_path: None,
-            source_mode: SourceMode::Db,
+            config_path: Some(store_path.to_string_lossy().into_owned()),
+            source_mode: SourceMode::Local,
             backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some(unique_namespace()),
         })
         .unwrap();
-        let (addr, handle) = spawn_test_api(store).await;
+        let (addr, handle, state) = spawn_test_api_with_state(store).await;
         let client = reqwest::Client::new();
         let base_url = format!("http://{addr}");
         let entry = json!({
@@ -2777,6 +2825,30 @@ mod tests {
         assert!(restored["mcpServers"].get("aggregate").is_none());
         assert_eq!(restored["mcpServers"]["existing"]["env"]["TOKEN"], secret);
 
+        let import = client
+            .post(format!("{base_url}/client-config/import"))
+            .json(&json!({
+                "client": "claude_code",
+                "path": path,
+                "names": ["existing"]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(import.status().is_success());
+        let import_body = import.text().await.unwrap();
+        assert!(import_body.contains("existing"));
+        assert!(!import_body.contains(secret));
+        assert!(!import_body.contains("Bearer header-secret"));
+        let imported = state
+            .store
+            .get_definition_config("existing")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(imported["command"], "node");
+        assert_eq!(imported["env"]["TOKEN"], secret);
+
         let unknown = client
             .post(format!("{base_url}/client-config/undo"))
             .json(&json!({"change_id": "missing-change"}))
@@ -2789,6 +2861,7 @@ mod tests {
 
         handle.abort();
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(path.with_file_name(format!(
             ".{}.mcpstore.lock",
             path.file_name().unwrap().to_string_lossy()
