@@ -135,10 +135,44 @@ pub struct ConfigChangeReceipt {
     pub after_hash: String,
 }
 
+struct ConfigWriteLock {
+    path: PathBuf,
+}
+
+impl ConfigWriteLock {
+    fn acquire(config_path: &Path) -> Result<Self> {
+        let path = config_path.with_file_name(format!(
+            ".{}.mcpstore.lock",
+            config_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("config")
+        ));
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|error| {
+                StoreError::Other(format!(
+                    "配置文件正在被其他 MCPStore 进程修改，或存在未清理锁 {}: {error}",
+                    path.display()
+                ))
+            })?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for ConfigWriteLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 pub fn apply_config_change(
     inspection: &ClientConfigInspection,
     plans: &[ClientEntryPlan],
 ) -> Result<Option<ConfigChangeReceipt>> {
+    let _lock = ConfigWriteLock::acquire(&inspection.path)?;
     let current_bytes = fs::read(&inspection.path).map_err(|error| {
         StoreError::Other(format!(
             "无法重新读取 {}: {error}",
@@ -190,6 +224,9 @@ pub fn apply_config_change(
     fs::write(&backup_path, &current_bytes).map_err(|error| {
         StoreError::Other(format!("无法备份 {}: {error}", backup_path.display()))
     })?;
+    if let Ok(metadata) = fs::metadata(&inspection.path) {
+        let _ = fs::set_permissions(&backup_path, metadata.permissions());
+    }
     atomic_write(&inspection.path, &output)?;
     let after = inspect_client_config(inspection.client, &inspection.path)?;
     for plan in plans
@@ -216,6 +253,7 @@ pub fn apply_config_change(
 }
 
 pub fn undo_last_change(receipt: &ConfigChangeReceipt) -> Result<()> {
+    let _lock = ConfigWriteLock::acquire(&receipt.path)?;
     let current = fs::read(&receipt.path).map_err(|error| {
         StoreError::Other(format!("无法读取 {}: {error}", receipt.path.display()))
     })?;
@@ -492,6 +530,28 @@ mod tests {
         assert_eq!(plans[3].status, ClientEntryStatus::Conflict);
         assert_eq!(plans[4].status, ClientEntryStatus::Unsupported);
         assert_eq!(inspection.document["other"], 1);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn refuses_a_second_writer_while_the_config_lock_exists() {
+        let path = sample("lock");
+        let lock_path = path.with_file_name(format!(
+            ".{}.mcpstore.lock",
+            path.file_name().unwrap().to_string_lossy()
+        ));
+        fs::write(&lock_path, b"test").unwrap();
+        let inspection = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let plans = plan_add_entries(
+            &inspection,
+            [ClientEntrySpec {
+                name: "new".into(),
+                kind: ClientEntryKind::Original,
+                config: serde_json::json!({"command":"node"}),
+            }],
+        );
+        assert!(apply_config_change(&inspection, &plans).is_err());
+        let _ = fs::remove_file(lock_path);
         let _ = fs::remove_file(path);
     }
 
