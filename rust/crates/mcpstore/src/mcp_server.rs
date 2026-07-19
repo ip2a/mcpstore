@@ -730,12 +730,28 @@ async fn build_tool_bindings(
     } else {
         store.list_tools_scoped(scope).await?
     };
-    let mut bindings = HashMap::with_capacity(tool_payloads.len());
 
+    let mut names = HashMap::<String, usize>::new();
+    for payload in &tool_payloads {
+        let name = read_required_string(payload, "name")?;
+        *names.entry(name).or_default() += 1;
+    }
+
+    let mut bindings = HashMap::with_capacity(tool_payloads.len());
     for payload in tool_payloads {
-        let tool_name = read_required_string(&payload, "name")?;
+        let original_name = read_required_string(&payload, "name")?;
         let canonical_tool_name = read_required_string(&payload, "tool_name")?;
         let instance_id = read_required_instance_id(&payload, "instance_id")?;
+        let service_name = read_required_string(&payload, "service_name")?;
+        let exposed_name = if names.get(&original_name).copied().unwrap_or_default() > 1 {
+            format!(
+                "{}__{}",
+                stable_namespace(&service_name, instance_id),
+                original_name
+            )
+        } else {
+            original_name
+        };
         let description = payload
             .get("description")
             .and_then(Value::as_str)
@@ -743,27 +759,43 @@ async fn build_tool_bindings(
         let schema = read_required_object(&payload, "input_schema")?;
 
         let tool = Tool::new_with_raw(
-            tool_name.clone(),
+            exposed_name.clone(),
             description.clone().map(Into::into),
             Arc::new(schema),
         );
-        let existing = bindings.insert(
-            tool_name.clone(),
-            ToolBinding {
-                tool,
-                instance_id,
-                tool_name: canonical_tool_name,
-            },
-        );
-        if existing.is_some() {
+        if bindings
+            .insert(
+                exposed_name.clone(),
+                ToolBinding {
+                    tool,
+                    instance_id,
+                    tool_name: canonical_tool_name,
+                },
+            )
+            .is_some()
+        {
             return Err(format!(
-                "重复工具名，无法构建 Rust MCP server: scope={scope:?} tool={tool_name}"
+                "工具名称投影冲突，无法构建 Rust MCP server: scope={scope:?} tool={exposed_name}"
             )
             .into());
         }
     }
 
     Ok(bindings)
+}
+
+fn stable_namespace(service_name: &str, instance_id: InstanceId) -> String {
+    let service_name = service_name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    format!("{service_name}__{instance_id}")
 }
 
 fn build_session_state_tools() -> HashMap<String, Tool> {
