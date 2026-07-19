@@ -1526,7 +1526,7 @@ async fn store_list_tools(
 ) -> ApiResult {
     let tools = state
         .store
-        .list_tools_for_instance(instance_id)
+        .list_tools_for_instance_with_filter(instance_id, mcpstore::ToolVisibilityFilter::Available)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(

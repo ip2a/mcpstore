@@ -149,6 +149,7 @@ impl TaskCommandError {
 
     fn from_store(error: StoreError, format: TaskOutputFormat) -> Self {
         let code = match &error {
+            StoreError::ToolNotAvailable { .. } => TaskErrorCode::InvalidInput,
             StoreError::ServiceNotFound(_) => TaskErrorCode::ServiceNotFound,
             StoreError::Auth(_) => TaskErrorCode::AuthenticationRequired,
             StoreError::Transport(error) => match error {
