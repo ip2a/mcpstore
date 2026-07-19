@@ -279,7 +279,7 @@ export type ScopeDescriptor = {
 export type AddServiceInput = {
   name: string
   scope: ScopeRef
-  transport: "stdio" | "streamable-http" | "sse"
+  transport: "stdio" | "streamable-http"
   commandOrUrl: string
   description?: string
   workingDir?: string
@@ -291,7 +291,7 @@ export type AddServiceInput = {
 export type UpdateServiceScopeInput = {
   serviceName: string
   scope: ScopeRef
-  transport: "stdio" | "streamable-http" | "sse"
+  transport: "stdio" | "streamable-http"
   commandOrUrl: string
   description?: string
   workingDir?: string
@@ -485,6 +485,40 @@ export async function callInstanceTool(instanceId: string, toolName: string, arg
     method: "POST",
     body: JSON.stringify({ tool_name: toolName, args }),
   })
+}
+
+export type ClientConfigInspectPayload = {
+  client: string
+  path: string
+  format: string
+  content_hash: string
+  services: Array<{ name: string; fields: string[] }>
+  unsupported_fields: string[]
+}
+
+export type ClientConfigPlanPayload = {
+  client: string
+  path: string
+  content_hash: string
+  plans: Array<{ name: string; kind: string; status: string; fields: string[]; unsupported_fields: string[] }>
+}
+
+export async function inspectClientConfig(client: string, path: string): Promise<ClientConfigInspectPayload> {
+  return request("/client-config/inspect", { method: "POST", body: JSON.stringify({ client, path }) })
+}
+
+export async function planClientConfig(client: string, path: string, entries: unknown[]): Promise<ClientConfigPlanPayload> {
+  return request("/client-config/plan", { method: "POST", body: JSON.stringify({ client, path, entries }) })
+}
+
+export async function applyClientConfig(client: string, path: string, expectedHash: string, entries: unknown[]) {
+  return request<{ changed: boolean; change_id?: string; plans: ClientConfigPlanPayload["plans"] }>("/client-config/apply", {
+    method: "POST", body: JSON.stringify({ client, path, expected_hash: expectedHash, entries }),
+  })
+}
+
+export async function undoClientConfig(changeId: string) {
+  return request<{ changed: boolean }>("/client-config/undo", { method: "POST", body: JSON.stringify({ change_id: changeId }) })
 }
 
 export async function showConfig(options: { format?: string; instanceId?: string } = {}): Promise<ConfigReport> {
