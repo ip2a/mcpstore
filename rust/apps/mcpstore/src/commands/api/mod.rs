@@ -2731,6 +2731,8 @@ mod tests {
                         "env": {"TOKEN": secret},
                         "headers": {"Authorization": "Bearer header-secret"}
                     },
+                    "new": {"command": "python"},
+                    "conflict": {"command": "node"},
                     "unrelated": {"enabled": true}
                 },
                 "otherSettings": {"keep": true}
@@ -2752,6 +2754,14 @@ mod tests {
         let (addr, handle, state) = spawn_test_api_with_state(store).await;
         let client = reqwest::Client::new();
         let base_url = format!("http://{addr}");
+        state
+            .store
+            .add_service("conflict", ServerConfig {
+                command: Some("already-owned".to_string()),
+                ..ServerConfig::default()
+            })
+            .await
+            .unwrap();
         let entry = json!({
             "name": "aggregate",
             "kind": "aggregate_stdio",
@@ -2833,6 +2843,24 @@ mod tests {
         let restored: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert!(restored["mcpServers"].get("aggregate").is_none());
         assert_eq!(restored["mcpServers"]["existing"]["env"]["TOKEN"], secret);
+
+        let partial_import = client
+            .post(format!("{base_url}/client-config/import"))
+            .json(&json!({
+                "client": "claude_code",
+                "path": path,
+                "names": ["new", "conflict"]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(partial_import.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(state
+            .store
+            .get_definition_config("new")
+            .await
+            .unwrap()
+            .is_none());
 
         let import = client
             .post(format!("{base_url}/client-config/import"))
