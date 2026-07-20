@@ -13,6 +13,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import { logSizeMb, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
@@ -45,6 +46,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   function patchLogging(patch: Partial<SettingsDraft["logging"]>) {
     setDraft((current) => (current ? { ...current, logging: { ...current.logging, ...patch } } : current))
+  }
+
+  function patchDiagnostics(patch: Partial<SettingsDraft["diagnostics"]>) {
+    setDraft((current) => (current ? { ...current, diagnostics: { ...current.diagnostics, ...patch } } : current))
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -192,6 +197,42 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     </section>
                   ) : null}
 
+                  {section === "diagnostics" ? (
+                    <section className="flex flex-col gap-5">
+                      <SectionHead title={t("diagnostics")} description={t("diagnosticsDescription")} />
+                      <FieldGroup>
+                        <ToggleField title={t("diagnosticsEnabled")} description={t("diagnosticsEnabledDescription")} checked={draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ enabled })} />
+                        <ToggleField title={t("historyEnabled")} description={t("historyEnabledDescription")} checked={draft.diagnostics.history_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ history_enabled: enabled })} />
+                        <ToggleField title={t("runtimeLogEnabled")} description={t("runtimeLogEnabledDescription")} checked={draft.diagnostics.runtime_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ runtime_enabled: enabled })} />
+                        <Field orientation="responsive">
+                          <FieldContent><FieldTitle>{t("runtimeLogMaxSize")}</FieldTitle><FieldDescription>{t("runtimeLogMaxSizeDescription")}</FieldDescription></FieldContent>
+                          <InputGroup className="w-32"><InputGroupInput inputMode="decimal" value={String(draft.diagnostics.runtime_max_size_bytes / 1024 / 1024).replace(/\.0$/, "")} onChange={(event) => patchDiagnostics({ runtime_max_size_bytes: Math.max(1, Number(event.target.value || 1) * 1024 * 1024) })} /><InputGroupAddon align="inline-end">MB</InputGroupAddon></InputGroup>
+                        </Field>
+                        <Field orientation="responsive">
+                          <FieldContent>
+                            <FieldTitle>{t("historyStorage")}</FieldTitle>
+                            <FieldDescription>{t("historyStorageDescription")}</FieldDescription>
+                          </FieldContent>
+                          <Select value={draft.diagnostics.storage} onValueChange={(storage) => patchDiagnostics({ storage: storage as "memory" | "disk" })}>
+                            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectGroup><SelectItem value="memory">{t("memory")}</SelectItem><SelectItem value="disk">{t("disk")}</SelectItem></SelectGroup></SelectContent>
+                          </Select>
+                        </Field>
+                        <Field orientation="responsive">
+                          <FieldContent><FieldTitle>{t("historyMaxRecords")}</FieldTitle><FieldDescription>{t("historyMaxRecordsDescription")}</FieldDescription></FieldContent>
+                          <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.diagnostics.max_records} onChange={(event) => patchDiagnostics({ max_records: Math.max(1, Number(event.target.value || 1)) })} /></InputGroup>
+                        </Field>
+                        <Field orientation="responsive">
+                          <FieldContent><FieldTitle>{t("historyPayload")}</FieldTitle><FieldDescription>{t("historyPayloadDescription")}</FieldDescription></FieldContent>
+                          <Select value={draft.diagnostics.payload} onValueChange={(payload) => patchDiagnostics({ payload: payload as SettingsDraft["diagnostics"]["payload"] })}>
+                            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectGroup><SelectItem value="none">{t("payloadNone")}</SelectItem><SelectItem value="metadata">{t("payloadMetadata")}</SelectItem><SelectItem value="full">{t("payloadFull")}</SelectItem></SelectGroup></SelectContent>
+                          </Select>
+                        </Field>
+                      </FieldGroup>
+                    </section>
+                  ) : null}
+
                   {section === "about" ? (
                     <section className="flex flex-col">
                       <SectionHead title={t("about")} description={t("settingsDescription")} />
@@ -231,6 +272,15 @@ function SectionHead({ title, description }: { title: string; description?: stri
       <h3 className="text-base font-semibold">{title}</h3>
       {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
     </div>
+  )
+}
+
+function ToggleField({ title, description, checked, disabled, onCheckedChange }: { title: string; description: string; checked: boolean; disabled?: boolean; onCheckedChange: (checked: boolean) => void }) {
+  return (
+    <Field orientation="responsive">
+      <FieldContent><FieldTitle>{title}</FieldTitle><FieldDescription>{description}</FieldDescription></FieldContent>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} aria-label={title} />
+    </Field>
   )
 }
 

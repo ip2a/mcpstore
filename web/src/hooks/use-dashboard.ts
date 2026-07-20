@@ -32,6 +32,7 @@ export function useDashboard() {
   const storeServicesQuery = useQuery({
     queryKey: queryKeys.instances,
     queryFn: () => listServices(),
+    refetchInterval: 5_000,
   })
   const agentIds = (agentsQuery.data || []).map(getAgentId).filter(Boolean)
   const agentServicesQueries = useQueries({
@@ -39,6 +40,7 @@ export function useDashboard() {
       queryKey: queryKeys.agentServices(agentId),
       queryFn: () => listAgentServices(agentId),
       enabled: agentsQuery.isSuccess,
+      refetchInterval: 5_000,
     })),
   })
   const services = mergeScopedServices(
