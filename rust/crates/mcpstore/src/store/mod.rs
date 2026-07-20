@@ -124,12 +124,9 @@ impl MCPStore {
             }
         };
         let registry = ServiceRegistry::new();
-        let event_bus = if app_config.diagnostics.enabled && app_config.diagnostics.history.enabled
-        {
-            EventBus::with_history(app_config.diagnostics.history.max_records)
-        } else {
-            EventBus::new()
-        };
+        // Event history backs the existing event API; diagnostics history separately controls
+        // tool-call retention, so disabling diagnostics must not remove domain events.
+        let event_bus = EventBus::with_history(app_config.diagnostics.history.max_records);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
         let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
             cache.clone(),
