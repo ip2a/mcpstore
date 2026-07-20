@@ -44,13 +44,6 @@ pub(super) fn validate_health_check_config(health: &HealthCheckConfig, errors: &
         errors,
     );
     validate_range_f64(
-        "health_check.ping_timeout_sse",
-        health.ping_timeout_sse,
-        0.1,
-        600.0,
-        errors,
-    );
-    validate_range_f64(
         "health_check.ping_timeout_stdio",
         health.ping_timeout_stdio,
         0.1,

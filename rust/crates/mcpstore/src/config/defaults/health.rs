@@ -22,10 +22,6 @@ pub(in crate::config) fn default_ping_timeout_http() -> f64 {
     20.0
 }
 
-pub(in crate::config) fn default_ping_timeout_sse() -> f64 {
-    20.0
-}
-
 pub(in crate::config) fn default_ping_timeout_stdio() -> f64 {
     40.0
 }

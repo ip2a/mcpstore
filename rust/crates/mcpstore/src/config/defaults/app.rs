@@ -28,6 +28,14 @@ pub(in crate::config) fn default_log_max_size_bytes() -> u64 {
     5 * 1024 * 1024
 }
 
+pub(in crate::config) fn default_history_max_records() -> usize {
+    10_000
+}
+
+pub(in crate::config) fn default_history_max_size_bytes() -> u64 {
+    50 * 1024 * 1024
+}
+
 pub(in crate::config) fn default_true() -> bool {
     true
 }
