@@ -211,7 +211,24 @@ export type SettingsPayload = {
   language?: UiLanguage
   default_backup_dir?: string
   logging?: LogSettingsPayload
+  diagnostics?: DiagnosticsSettingsPayload
   [key: string]: unknown
+}
+
+export type DiagnosticsSettingsPayload = {
+  enabled?: boolean
+  runtime_log?: {
+    enabled?: boolean
+    max_size_bytes?: number
+  }
+  history?: {
+    enabled?: boolean
+    storage?: "memory" | "disk"
+    max_records?: number
+    max_size_bytes?: number
+    retention_days?: number | null
+    payload?: "none" | "metadata" | "full"
+  }
 }
 
 export type SettingsPathsPayload = {
@@ -241,6 +258,7 @@ export type UpdateSettingsPayload = {
   language?: UiLanguage
   default_backup_dir?: string
   logging?: LogSettingsPayload
+  diagnostics?: DiagnosticsSettingsPayload
   [key: string]: unknown
 }
 

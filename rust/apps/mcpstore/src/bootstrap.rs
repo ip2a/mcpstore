@@ -1,4 +1,7 @@
-use std::sync::Once;
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, Once};
 
 use tracing_subscriber::EnvFilter;
 
@@ -44,6 +47,123 @@ pub fn init_tracing_silent(default_directive: &str) {
             .with_target(false)
             .init();
     });
+}
+
+pub fn init_tracing_with_file(
+    default_directive: &str,
+    path: impl AsRef<Path>,
+    max_size_bytes: u64,
+    retention_days: Option<u64>,
+) -> io::Result<()> {
+    let path = path.as_ref().to_path_buf();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+        cleanup_old_logs(parent, &path, retention_days)?;
+    }
+    let writer = RotatingWriter::new(path, max_size_bytes)?;
+    TRACING_INIT.call_once(|| {
+        tracing_subscriber::fmt()
+            .with_writer(writer)
+            .with_env_filter(env_filter(default_directive))
+            .with_target(false)
+            .init();
+    });
+    Ok(())
+}
+
+fn cleanup_old_logs(dir: &Path, current: &Path, retention_days: Option<u64>) -> io::Result<()> {
+    let Some(days) = retention_days else {
+        return Ok(());
+    };
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(days.saturating_mul(86_400)))
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+    let prefix = current
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path == current
+            || !path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(prefix))
+        {
+            continue;
+        }
+        if entry
+            .metadata()?
+            .modified()
+            .is_ok_and(|modified| modified < cutoff)
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone)]
+struct RotatingWriter {
+    path: PathBuf,
+    max_size_bytes: u64,
+    file: Arc<Mutex<File>>,
+}
+
+struct RotatingGuard {
+    writer: RotatingWriter,
+}
+
+impl RotatingWriter {
+    fn new(path: PathBuf, max_size_bytes: u64) -> io::Result<Self> {
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        Ok(Self {
+            path,
+            max_size_bytes: max_size_bytes.max(1),
+            file: Arc::new(Mutex::new(file)),
+        })
+    }
+
+    fn rotate_if_needed(&self, file: &mut File) -> io::Result<()> {
+        if file.metadata()?.len() < self.max_size_bytes {
+            return Ok(());
+        }
+        let rotated = self.path.with_extension("log.1");
+        let _ = std::fs::remove_file(&rotated);
+        std::fs::rename(&self.path, rotated)?;
+        *file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for RotatingWriter {
+    type Writer = RotatingGuard;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        RotatingGuard {
+            writer: self.clone(),
+        }
+    }
+}
+
+impl Write for RotatingGuard {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let mut file = self
+            .writer
+            .file
+            .lock()
+            .map_err(|_| io::Error::other("log file lock poisoned"))?;
+        self.writer.rotate_if_needed(&mut file)?;
+        file.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub fn build_runtime() -> std::io::Result<tokio::runtime::Runtime> {
