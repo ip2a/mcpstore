@@ -7,8 +7,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use mcpstore::{
-    InstanceId, McpExecutionOptions, McpStoreExecutionUpdate, McpToolExecution, ScopeRef,
-    StoreError, ToolCallResult,
+    InstanceId, McpExecutionOptions, McpServerCapabilities, McpServerMetadata,
+    McpStoreExecutionUpdate, McpToolExecution, ScopeRef, StoreError, ToolCallResult,
 };
 
 use crate::{
@@ -260,9 +260,19 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
             let tools_count = svc.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            let capabilities = svc
+                .get("mcp")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<Option<McpServerMetadata>>(value).ok())
+                .flatten();
             println!(
-                "- {}  instance={}  transport={}  readiness={}  tools={}",
-                name, instance_id, transport, readiness, tools_count
+                "- {}  instance={}  transport={}  readiness={}  tools={}  capabilities={}",
+                name,
+                instance_id,
+                transport,
+                readiness,
+                tools_count,
+                format_capabilities(capabilities.as_ref())
             );
         }
         return Ok(());
@@ -281,15 +291,17 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
 
     for svc in &services {
         let state = store.service_state_entry(svc.instance_id).await?;
+        let metadata = store.mcp_server_metadata(svc.instance_id).await?;
         println!(
-            "- {}  instance={}  transport={}  readiness={:?}  phase={:?}  health={:?}  tools={}",
+            "- {}  instance={}  transport={}  readiness={:?}  phase={:?}  health={:?}  tools={}  capabilities={}",
             svc.service_name,
             svc.instance_id,
             svc.transport,
             state.readiness.status,
             state.phase,
             state.health,
-            svc.tools.len()
+            svc.tools.len(),
+            format_capabilities(metadata.as_ref())
         );
     }
     Ok(())
@@ -357,9 +369,16 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
             .get("tools_count")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
+        let capabilities = result
+            .get("mcp")
+            .cloned()
+            .and_then(|value| serde_json::from_value::<Option<McpServerMetadata>>(value).ok())
+            .flatten();
         println!(
-            "[Success] Connected: {} (tools={})",
-            a.instance_id, tools_count
+            "[Success] Connected: {} (tools={}, capabilities={})",
+            a.instance_id,
+            tools_count,
+            format_capabilities(capabilities.as_ref())
         );
         return Ok(());
     }
@@ -375,10 +394,12 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
         )
         .await
         .unwrap_or_default();
+    let metadata = store.mcp_server_metadata(instance_id).await?;
     println!(
-        "[Success] Connected: {} (tools={})",
+        "[Success] Connected: {} (tools={}, capabilities={})",
         instance_id,
-        tools.len()
+        tools.len(),
+        format_capabilities(metadata.as_ref())
     );
     for t in &tools {
         println!("  - {}: {}", t.name, t.description);
@@ -1357,6 +1378,57 @@ pub(crate) fn parse_instance_id(value: &str) -> std::result::Result<InstanceId, 
     Ok(InstanceId::from_str(value)?)
 }
 
+fn format_capabilities(metadata: Option<&McpServerMetadata>) -> String {
+    let Some(metadata) = metadata else {
+        return "unknown".to_string();
+    };
+    let McpServerCapabilities {
+        tools,
+        tools_list_changed,
+        resources,
+        resources_subscribe,
+        resources_list_changed,
+        prompts,
+        prompts_list_changed,
+        completions,
+        logging,
+        tasks,
+        task_list,
+        task_cancel,
+        task_tool_calls,
+        extensions,
+        experimental,
+        ..
+    } = &metadata.capabilities;
+    let mut enabled = Vec::new();
+    for (name, present) in [
+        ("tools", *tools),
+        ("tools.list_changed", *tools_list_changed),
+        ("resources", *resources),
+        ("resources.subscribe", *resources_subscribe),
+        ("resources.list_changed", *resources_list_changed),
+        ("prompts", *prompts),
+        ("prompts.list_changed", *prompts_list_changed),
+        ("completions", *completions),
+        ("logging", *logging),
+        ("tasks", *tasks),
+        ("tasks.list", *task_list),
+        ("tasks.cancel", *task_cancel),
+        ("tasks.tool_calls", *task_tool_calls),
+        ("extensions", !extensions.is_empty()),
+        ("experimental", !experimental.is_empty()),
+    ] {
+        if present {
+            enabled.push(name);
+        }
+    }
+    if enabled.is_empty() {
+        "none".to_string()
+    } else {
+        enabled.join(",")
+    }
+}
+
 fn require_agent(agent: Option<&str>) -> std::result::Result<&str, BoxErr> {
     agent
         .filter(|value| !value.trim().is_empty())
@@ -1381,6 +1453,43 @@ fn validate_scope_target(scope: &Scope, agent: Option<&str>) -> std::result::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capability_summary_reports_protocol_features() {
+        let metadata = McpServerMetadata {
+            protocol_version: "2025-06-18".to_string(),
+            server_info: mcpstore::McpServerImplementation {
+                name: "fixture".to_string(),
+                title: None,
+                version: "1.0.0".to_string(),
+                description: None,
+                website_url: None,
+            },
+            instructions: None,
+            capabilities: McpServerCapabilities {
+                tools: true,
+                tools_list_changed: false,
+                resources: true,
+                resources_subscribe: true,
+                resources_list_changed: false,
+                prompts: true,
+                prompts_list_changed: false,
+                completions: true,
+                logging: false,
+                tasks: false,
+                task_list: false,
+                task_cancel: false,
+                task_tool_calls: false,
+                extensions: Default::default(),
+                experimental: Default::default(),
+            },
+        };
+        assert_eq!(
+            format_capabilities(Some(&metadata)),
+            "tools,resources,resources.subscribe,prompts,completions"
+        );
+        assert_eq!(format_capabilities(None), "unknown");
+    }
 
     #[test]
     fn call_arguments_require_a_json_object() {
