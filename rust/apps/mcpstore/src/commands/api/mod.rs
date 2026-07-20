@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    path::Path as FsPath,
     net::IpAddr,
     sync::{Arc, Mutex},
 };
@@ -17,12 +16,12 @@ use mcpstore::{
         ClientConfigInspection, ClientEntryKind, ClientEntryPlan, ClientEntrySpec,
         ClientEntryStatus, ClientKind, ConfigChangeReceipt,
     },
-    config::{ConfigError, HistoryPayload, HistoryStorage, ScopeDescriptor},
+    config::ScopeDescriptor,
     config_formats::ConfigFormat,
     mcp_server::{McpServerOptions, McpServerTransport},
-    AppConfig, AuthFlow, CreateSessionRequest, InstanceId, MCPStore, McpCompletionRequest,
-    McpLoggingLevel, OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef,
-    ServerConfig, SessionScope, ToolTransformPatch,
+    AuthFlow, CreateSessionRequest, InstanceId, MCPStore, McpCompletionRequest, McpLoggingLevel,
+    OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig,
+    SessionScope, ToolTransformPatch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -33,6 +32,8 @@ use crate::{
     BoxErr,
 };
 
+mod app;
+mod cache;
 mod envelope;
 mod parse;
 
@@ -40,9 +41,8 @@ use envelope::{success, ApiError, ApiResult};
 static CLIENT_CHANGE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 use parse::{
-    cache_storage_label, extract_prompt_args, extract_prompt_name, extract_resource_uri,
-    extract_tool_args, extract_tool_name, normalize_prefix, parse_cache_storage,
-    parse_positive_u64, parse_positive_usize,
+    extract_prompt_args, extract_prompt_name, extract_resource_uri, extract_tool_args,
+    extract_tool_name, normalize_prefix, parse_positive_u64, parse_positive_usize,
 };
 
 #[derive(Args)]
@@ -63,13 +63,6 @@ pub struct ApiArgs {
 pub struct ApiState {
     store: Arc<MCPStore>,
     client_changes: Arc<Mutex<HashMap<String, ConfigChangeReceipt>>>,
-}
-
-#[derive(Deserialize)]
-struct CacheSwitchRequest {
-    backend: String,
-    redis_url: Option<String>,
-    namespace: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -262,46 +255,12 @@ struct OpenApiImportRequest {
     ref_cache: OpenApiRefCachePolicy,
 }
 
-#[derive(Deserialize)]
-struct UpdateSettingsRequest {
-    language: Option<String>,
-    default_backup_dir: Option<String>,
-    logging: Option<UpdateLoggingRequest>,
-    diagnostics: Option<UpdateDiagnosticsRequest>,
-}
-
-#[derive(Deserialize)]
-struct UpdateLoggingRequest {
-    max_size_bytes: Option<u64>,
-    retention_days: Option<Option<u64>>,
-}
-
-#[derive(Deserialize)]
-struct UpdateDiagnosticsRequest {
-    enabled: Option<bool>,
-    runtime_log: Option<UpdateRuntimeLogRequest>,
-    history: Option<UpdateHistoryRequest>,
-}
-
-#[derive(Deserialize)]
-struct UpdateRuntimeLogRequest {
-    enabled: Option<bool>,
-    max_size_bytes: Option<u64>,
-}
-
-#[derive(Deserialize)]
-struct UpdateHistoryRequest {
-    enabled: Option<bool>,
-    storage: Option<HistoryStorage>,
-    max_records: Option<usize>,
-    max_size_bytes: Option<u64>,
-    retention_days: Option<Option<u64>>,
-    payload: Option<HistoryPayload>,
-}
-
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     let loopback = args.host == "localhost"
-        || args.host.parse::<IpAddr>().is_ok_and(|address| address.is_loopback());
+        || args
+            .host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
     if !loopback && !args.allow_remote {
         return Err("API 默认只允许 loopback 绑定；使用 --allow-remote 明确开启远程暴露".into());
     }
@@ -343,25 +302,11 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     router(state, prefix)
 }
 
-/// Start an EventReactor that processes control_requests via push-based
-/// ChangeFeed events (replaces the old 1-second polling scanner).
-///
-/// Before starting the reactor, one catch-up scan processes any backlog left
-/// from a previous shutdown. After that, all new requests are handled by the
-/// reactor's ChangeFeed subscription — no polling.
-fn spawn_control_reactor(store: Arc<MCPStore>) {
-    tokio::spawn(async move {
-        if let Err(error) = store.restart_control_reactor().await {
-            tracing::error!("[API] Failed to start event reactor: {error}");
-        }
-    });
-}
-
 fn router(state: Arc<ApiState>, prefix: &str) -> Router {
     let base = Router::new()
-        .route("/health", get(health))
-        .route("/v1/meta", get(app_meta))
-        .route("/v1/settings", put(app_update_settings))
+        .route("/health", get(app::health))
+        .route("/v1/meta", get(app::meta))
+        .route("/v1/settings", put(app::update_settings))
         .route("/agents/list", get(list_agents))
         .route("/events/history", get(event_history))
         .route("/history/tool-calls", get(tool_call_history))
@@ -550,9 +495,9 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/config/reset", post(store_reset_config))
         .route("/scopes/agents/:agent_id/config", get(agent_show_config))
         .route("/scopes/agents/:agent_id/reset", post(agent_reset_config))
-        .route("/cache/health", get(cache_health))
-        .route("/cache/inspect", get(cache_inspect))
-        .route("/cache/switch", post(cache_switch))
+        .route("/cache/health", get(cache::health))
+        .route("/cache/inspect", get(cache::inspect))
+        .route("/cache/switch", post(cache::switch))
         .with_state(state);
 
     if prefix.is_empty() {
@@ -802,223 +747,6 @@ fn format_status(status: ClientEntryStatus) -> &'static str {
         ClientEntryStatus::Conflict => "conflict",
         ClientEntryStatus::Unsupported => "unsupported",
     }
-}
-
-async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
-    Json(json!({
-        "status": "ok",
-        "backend": cache_storage_label(state.store.current_cache_storage().await),
-    }))
-}
-
-async fn app_meta(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let payload = app_meta_payload(&state)?;
-    Ok(success("应用元信息获取成功", payload))
-}
-
-async fn app_update_settings(
-    State(state): State<Arc<ApiState>>,
-    Json(payload): Json<UpdateSettingsRequest>,
-) -> ApiResult {
-    let config_manager = state.store.config_manager();
-    let mut config = config_manager
-        .load_app_config_or_default()
-        .map_err(config_api_error)?;
-
-    if let Some(language) = payload.language {
-        config.ui.language = normalize_ui_language(&language)?;
-    }
-
-    if let Some(default_backup_dir) = payload.default_backup_dir {
-        let value = default_backup_dir.trim();
-        if value.is_empty() {
-            return Err(ApiError::invalid_parameter(
-                "默认备份目录不能为空",
-                Some("default_backup_dir"),
-            ));
-        }
-        config.ui.default_backup_dir = value.to_string();
-    }
-
-    if let Some(logging) = payload.logging {
-        if let Some(max_size_bytes) = logging.max_size_bytes {
-            if max_size_bytes == 0 {
-                return Err(ApiError::invalid_parameter(
-                    "日志大小上限必须大于 0",
-                    Some("logging.max_size_bytes"),
-                ));
-            }
-            config.ui.logging.max_size_bytes = max_size_bytes;
-        }
-        if let Some(retention_days) = logging.retention_days {
-            config.ui.logging.retention_days = retention_days;
-        }
-    }
-
-    if let Some(diagnostics) = payload.diagnostics {
-        if let Some(enabled) = diagnostics.enabled {
-            config.diagnostics.enabled = enabled;
-        }
-        if let Some(runtime_log) = diagnostics.runtime_log {
-            if let Some(enabled) = runtime_log.enabled {
-                config.diagnostics.runtime_log.enabled = enabled;
-            }
-            if let Some(max_size_bytes) = runtime_log.max_size_bytes {
-                if max_size_bytes == 0 {
-                    return Err(ApiError::invalid_parameter(
-                        "运行日志大小上限必须大于 0",
-                        Some("diagnostics.runtime_log.max_size_bytes"),
-                    ));
-                }
-                config.diagnostics.runtime_log.max_size_bytes = max_size_bytes;
-            }
-        }
-        if let Some(history) = diagnostics.history {
-            if let Some(enabled) = history.enabled {
-                config.diagnostics.history.enabled = enabled && config.diagnostics.enabled;
-            }
-            if let Some(storage) = history.storage {
-                config.diagnostics.history.storage = storage;
-            }
-            if let Some(max_records) = history.max_records {
-                if max_records == 0 {
-                    return Err(ApiError::invalid_parameter(
-                        "调用历史条数上限必须大于 0",
-                        Some("diagnostics.history.max_records"),
-                    ));
-                }
-                config.diagnostics.history.max_records = max_records;
-            }
-            if let Some(max_size_bytes) = history.max_size_bytes {
-                if max_size_bytes == 0 {
-                    return Err(ApiError::invalid_parameter(
-                        "调用历史大小上限必须大于 0",
-                        Some("diagnostics.history.max_size_bytes"),
-                    ));
-                }
-                config.diagnostics.history.max_size_bytes = max_size_bytes;
-            }
-            if let Some(retention_days) = history.retention_days {
-                config.diagnostics.history.retention_days = retention_days;
-            }
-            if let Some(payload) = history.payload {
-                config.diagnostics.history.payload = payload;
-            }
-        }
-    }
-
-    config_manager
-        .save_app_config(&config)
-        .map_err(config_api_error)?;
-    state
-        .store
-        .update_history_config(mcpstore::config::HistoryConfig {
-            enabled: config.diagnostics.enabled && config.diagnostics.history.enabled,
-            ..config.diagnostics.history.clone()
-        })
-        .await;
-
-    Ok(success("设置保存成功", settings_payload(&config)))
-}
-
-fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
-    let config_manager = state.store.config_manager();
-    let config = config_manager
-        .load_app_config_or_default()
-        .map_err(config_api_error)?;
-    let config_path = config_manager.app_config_path();
-    let config_content = if config_path.exists() {
-        std::fs::read_to_string(config_path).map_err(config_io_api_error)?
-    } else {
-        config_manager
-            .default_app_config_toml()
-            .map_err(config_api_error)?
-    };
-
-    Ok(json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "settings": settings_payload(&config),
-        "settings_paths": settings_paths_payload(config_manager.mcp_path(), &config),
-        "config_file": {
-            "path": config_path.display().to_string(),
-            "format": "toml",
-            "content": config_content,
-        },
-    }))
-}
-
-fn settings_payload(config: &AppConfig) -> Value {
-    json!({
-        "language": api_ui_language(&config.ui.language),
-        "default_backup_dir": config.ui.default_backup_dir,
-        "logging": {
-            "max_size_bytes": config.ui.logging.max_size_bytes,
-            "retention_days": config.ui.logging.retention_days,
-        },
-        "diagnostics": {
-            "enabled": config.diagnostics.enabled,
-            "runtime_log": {
-                "enabled": config.diagnostics.runtime_log.enabled,
-                "max_size_bytes": config.diagnostics.runtime_log.max_size_bytes,
-            },
-            "history": {
-                "enabled": config.diagnostics.history.enabled,
-                "storage": config.diagnostics.history.storage,
-                "max_records": config.diagnostics.history.max_records,
-                "max_size_bytes": config.diagnostics.history.max_size_bytes,
-                "retention_days": config.diagnostics.history.retention_days,
-                "payload": config.diagnostics.history.payload,
-            }
-        },
-    })
-}
-
-fn settings_paths_payload(mcp_path: &FsPath, config: &AppConfig) -> Value {
-    let base = mcp_path.parent().unwrap_or_else(|| FsPath::new("."));
-    let backup_dir = FsPath::new(&config.ui.default_backup_dir);
-    let backup_dir_resolved = if backup_dir.is_absolute() {
-        backup_dir.to_path_buf()
-    } else {
-        base.join(backup_dir)
-    };
-    let log_dir = base.join("logs");
-    let log_file_name = "mcpstore.log";
-
-    json!({
-        "backup_dir_base": base.display().to_string(),
-        "backup_dir_input": config.ui.default_backup_dir,
-        "backup_dir_resolved": backup_dir_resolved.display().to_string(),
-        "log_dir": log_dir.display().to_string(),
-        "log_file_name": log_file_name,
-        "log_file_path": log_dir.join(log_file_name).display().to_string(),
-    })
-}
-
-fn normalize_ui_language(language: &str) -> Result<String, ApiError> {
-    match language.trim() {
-        "auto" => Ok("auto".to_string()),
-        "zh" | "zh-cn" => Ok("zh".to_string()),
-        "en" => Ok("en".to_string()),
-        _ => Err(ApiError::invalid_parameter(
-            "语言必须是 auto、zh 或 en",
-            Some("language"),
-        )),
-    }
-}
-
-fn api_ui_language(language: &str) -> &str {
-    match language {
-        "zh-cn" => "zh",
-        value => value,
-    }
-}
-
-fn config_api_error(error: ConfigError) -> ApiError {
-    ApiError::invalid_request(error.to_string())
-}
-
-fn config_io_api_error(error: std::io::Error) -> ApiError {
-    ApiError::invalid_request(error.to_string())
 }
 
 async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -1596,7 +1324,7 @@ async fn clear_tool_call_history(State(state): State<Arc<ApiState>>) -> ApiResul
         .store
         .clear_tool_call_history()
         .await
-        .map_err(config_io_api_error)?;
+        .map_err(app::config_io_api_error)?;
     Ok(success("工具调用历史已清空", json!({})))
 }
 
@@ -2596,42 +2324,6 @@ async fn agent_reset_config(
     Ok(success("Agent 配置重置成功", json!({ "status": "ok" })))
 }
 
-async fn cache_inspect(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let report = state
-        .store
-        .cache_inspect()
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("缓存视图获取成功", report))
-}
-
-async fn cache_health(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let report = state
-        .store
-        .cache_health_check()
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success("缓存健康检查成功", report))
-}
-
-async fn cache_switch(
-    State(state): State<Arc<ApiState>>,
-    Json(payload): Json<CacheSwitchRequest>,
-) -> ApiResult {
-    let cache_storage = parse_cache_storage(&payload.backend)?;
-    let snapshot = state
-        .store
-        .switch_cache_storage(cache_storage, payload.redis_url, payload.namespace)
-        .await
-        .map_err(ApiError::from_store)?;
-    if !state.store.is_db_source() {
-        spawn_control_reactor(state.store.clone());
-    }
-    let snapshot = serde_json::to_value(snapshot)
-        .map_err(|error| ApiError::invalid_request(format!("缓存切换结果序列化失败: {error}")))?;
-    Ok(success("缓存后端切换成功", snapshot))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2865,10 +2557,13 @@ mod tests {
         let base_url = format!("http://{addr}");
         state
             .store
-            .add_service("conflict", ServerConfig {
-                command: Some("already-owned".to_string()),
-                ..ServerConfig::default()
-            })
+            .add_service(
+                "conflict",
+                ServerConfig {
+                    command: Some("already-owned".to_string()),
+                    ..ServerConfig::default()
+                },
+            )
             .await
             .unwrap();
         let entry = json!({
