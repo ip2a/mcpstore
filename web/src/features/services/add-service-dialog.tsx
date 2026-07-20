@@ -56,10 +56,10 @@ export function AddServiceDialog(props: {
       <DialogContent
         className={cn(
           "@container flex max-h-none max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none",
-          "h-[85dvh] w-[90vw]",
+          "h-[78dvh] w-[min(84vw,68rem)]",
         )}
       >
-        <DialogHeader className="shrink-0 border-b px-4 py-3 @min-[640px]:px-6 @min-[640px]:py-4">
+        <DialogHeader className="shrink-0 border-b px-4 py-3 @min-[640px]:px-5 @min-[640px]:py-3.5">
           <DialogTitle>{t("navAddService")}</DialogTitle>
           <DialogDescription>{t("addServiceDescription")}</DialogDescription>
         </DialogHeader>

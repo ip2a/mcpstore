@@ -173,9 +173,7 @@ impl ServiceListMenu {
         match self {
             Self::All => true,
             Self::Stdio => transport == "stdio",
-            Self::Http => {
-                transport == "streamable-http" || transport == "http" || transport == "sse"
-            }
+            Self::Http => transport == "streamable-http" || transport == "http",
         }
     }
 }
@@ -318,11 +316,7 @@ impl ToolFilterTab {
         match self {
             Self::All => true,
             Self::Stdio => service.transport == "stdio",
-            Self::Http => {
-                service.transport == "streamable-http"
-                    || service.transport == "http"
-                    || service.transport == "sse"
-            }
+            Self::Http => service.transport == "streamable-http" || service.transport == "http",
             Self::StoreScope => service.scope == ScopeRef::Store,
             Self::AgentScope => matches!(service.scope, ScopeRef::Agent { .. }),
         }

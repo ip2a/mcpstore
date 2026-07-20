@@ -27,7 +27,7 @@ export function formatServiceLaunchLine(service: ServiceInstance) {
 
 export function getServiceEditValues(service: ServiceInstance) {
   const config = service.effective_config
-  const transport = getServiceTransport(service) as "stdio" | "streamable-http" | "sse"
+  const transport = getServiceTransport(service) as "stdio" | "streamable-http"
   const commandOrUrl =
     transport === "stdio"
       ? getServiceLaunchCommand(service)
