@@ -23,9 +23,7 @@ impl RedisCacheStore {
 
     async fn store(&self) -> Result<&OpenKeyvRedisInner> {
         self.inner
-            .get_or_try_init(|| async {
-                OpenKeyvRedisInner::new(&self.redis_url).await
-            })
+            .get_or_try_init(|| async { OpenKeyvRedisInner::new(&self.redis_url).await })
             .await
             .map_err(map_openkeyv_err)
     }
@@ -88,9 +86,9 @@ impl CacheStore for RedisCacheStore {
 
         match outcome {
             openkeyv::CompareAndSwapResult::Applied { .. } => Ok(()),
-            openkeyv::CompareAndSwapResult::Conflict { .. } => Err(CacheError::Conflict(
-                format!("concurrent modification: collection={collection}, key={key}"),
-            )),
+            openkeyv::CompareAndSwapResult::Conflict { .. } => Err(CacheError::Conflict(format!(
+                "concurrent modification: collection={collection}, key={key}"
+            ))),
         }
     }
 
@@ -129,11 +127,7 @@ impl CacheStore for RedisCacheStore {
             .map_err(map_openkeyv_err)
     }
 
-    async fn get_many(
-        &self,
-        keys: &[String],
-        collection: &str,
-    ) -> Result<Vec<Option<JsonValue>>> {
+    async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<JsonValue>>> {
         self.store()
             .await?
             .get_many(keys, Some(collection))

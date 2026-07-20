@@ -10,6 +10,7 @@ impl CacheLayerManager {
         key: &str,
         value: serde_json::Value,
     ) -> Result<()> {
+        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
@@ -39,6 +40,7 @@ impl CacheLayerManager {
         expected_version: Option<u64>,
         value: serde_json::Value,
     ) -> Result<()> {
+        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
@@ -62,6 +64,7 @@ impl CacheLayerManager {
         state_type: &str,
         key: &str,
     ) -> Result<Option<serde_json::Value>> {
+        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         let collection = self.state_collection(state_type);
         let started_at = Instant::now();
@@ -80,6 +83,7 @@ impl CacheLayerManager {
     }
 
     pub async fn delete_state(&self, state_type: &str, key: &str) -> Result<()> {
+        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         let collection = self.state_collection(state_type);
         let started_at = Instant::now();
@@ -92,6 +96,7 @@ impl CacheLayerManager {
         &self,
         state_type: &str,
     ) -> Result<HashMap<String, serde_json::Value>> {
+        let _route = self.route.read().await;
         let collection = self.state_collection(state_type);
         self.get_all_from_collection(&collection).await
     }

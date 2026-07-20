@@ -17,6 +17,13 @@ pub(crate) struct StoreRuntimeConfig {
 }
 
 impl StoreRuntimeConfig {
+    pub(crate) fn ping_timeout_for_transport(&self, transport: &str) -> f64 {
+        match transport {
+            "stdio" => self.ping_timeout_stdio_secs,
+            _ => self.ping_timeout_http_secs,
+        }
+    }
+
     pub(crate) fn from_app_config(config: &AppConfig) -> Self {
         let health = &config.health_check;
         let supervisor_policy = SupervisorPolicy {

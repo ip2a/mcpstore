@@ -12,6 +12,7 @@ use crate::events::Event;
 pub struct EventBus {
     subscribers: Arc<RwLock<SubscriberMap>>,
     history: Option<Arc<RwLock<EventHistory>>>,
+    history_capacity: Option<usize>,
     critical_events: HashSet<String>,
     handler_timeout: Option<Duration>,
 }
@@ -21,6 +22,7 @@ impl EventBus {
         Self {
             subscribers: Arc::new(RwLock::new(SubscriberMap::new())),
             history: None,
+            history_capacity: None,
             critical_events: HashSet::new(),
             handler_timeout: None,
         }
@@ -30,6 +32,7 @@ impl EventBus {
         Self {
             subscribers: Arc::new(RwLock::new(SubscriberMap::new())),
             history: Some(Arc::new(RwLock::new(EventHistory::new(capacity)))),
+            history_capacity: Some(capacity),
             critical_events: HashSet::new(),
             handler_timeout: None,
         }
@@ -120,6 +123,10 @@ impl EventBus {
             }
             None => Vec::new(),
         }
+    }
+
+    pub fn history_capacity(&self) -> Option<usize> {
+        self.history_capacity
     }
 }
 

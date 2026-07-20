@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+#[cfg(test)]
 use std::sync::Arc;
 
 use crate::cache::layer::CACHE_SCHEMA_VERSION;
-use crate::cache::{CacheError, CacheLayerManager, CacheStore, Result};
+#[cfg(test)]
+use crate::cache::CacheError;
+use crate::cache::{CacheLayerManager, CacheStore, Result};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CacheSnapshot {
@@ -14,11 +17,13 @@ pub struct CacheSnapshot {
 }
 
 impl CacheLayerManager {
+    #[cfg(test)]
     pub(crate) async fn replace_store_with_snapshot_and_namespace(
         &self,
         store: Arc<dyn CacheStore>,
         namespace: impl Into<String>,
     ) -> Result<CacheSnapshot> {
+        let _route = self.route.write().await;
         self.ensure_current_schema().await?;
         let current_namespace = self.namespace();
         let next_namespace = namespace.into();
@@ -69,6 +74,7 @@ impl CacheLayerManager {
         })
     }
 
+    #[cfg(test)]
     async fn restore_to_store_with_namespace(
         &self,
         store: &dyn CacheStore,
@@ -119,6 +125,7 @@ impl CacheLayerManager {
         Ok(output)
     }
 
+    #[cfg(test)]
     async fn restore_layer_to_store(
         &self,
         store: &dyn CacheStore,
