@@ -187,7 +187,7 @@ function ServiceRow({
             <span className="truncate">{scope}</span>
           </Badge>
           <span className="shrink-0">{transport}</span>
-          <ServiceStatusBadge status={service.state.readiness.status} />
+          <ServiceStatusBadge state={service.state} />
           <span className="shrink-0">{t("serviceRowToolCount", { count: toolCount })}</span>
         </div>
       </div>

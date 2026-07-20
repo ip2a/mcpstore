@@ -38,7 +38,6 @@ export function buildAddServiceCliCommand(input: {
     ].join("\n")
   }
 
-  const transport = input.fields.transport === "sse" ? "sse" : "http"
   const headers = parseKvLines(input.fields.headersText)
   const headerFlags = Object.entries(headers)
     .map(([key, value]) => ` \\\n  -e ${key}=${shellQuote(value)}`)
@@ -47,7 +46,7 @@ export function buildAddServiceCliCommand(input: {
 
   return [
     "mcpstore add \\",
-    `  --transport ${transport} \\`,
+    "  --transport http \\",
     `  ${name} \\`,
     `  ${url}${scopeFlag}${headerFlags}`,
   ].join("\n")

@@ -1,15 +1,20 @@
 import { useMemo, useState } from "react"
 
-import type { ReadinessStatus, ServiceInstance } from "@/lib/api"
+import type { ServiceInstance } from "@/lib/api"
+import {
+  deriveServiceDisplayStatus,
+  type ServiceDisplayStatus,
+} from "@/features/services/service-display-status"
 
 export type ServiceScopeFilter = "all" | "store" | "agent"
-export type ServiceStatusFilter = "all" | ReadinessStatus
+export type ServiceStatusFilter = "all" | ServiceDisplayStatus
 export type ServiceSortBy = "name" | "status" | "tools"
 
-const STATUS_SORT_ORDER: Record<ReadinessStatus, number> = {
-  ready: 0,
-  not_ready: 1,
-  unknown: 2,
+const STATUS_SORT_ORDER: Record<ServiceDisplayStatus, number> = {
+  connected: 0,
+  connecting: 1,
+  disconnected: 2,
+  error: 3,
 }
 
 export function countActiveServiceFilters(filters: {
@@ -47,13 +52,13 @@ export function useServicesList(services: ServiceInstance[]) {
         if (agentFilter && service.scope.agent_id !== agentFilter) return false
       }
 
-      if (statusFilter !== "all" && service.state.readiness.status !== statusFilter) return false
+      if (statusFilter !== "all" && deriveServiceDisplayStatus(service.state) !== statusFilter) return false
       return true
     })
 
     return filtered.sort((a, b) => {
       if (sortBy === "status") {
-        const statusDiff = STATUS_SORT_ORDER[a.state.readiness.status] - STATUS_SORT_ORDER[b.state.readiness.status]
+        const statusDiff = STATUS_SORT_ORDER[deriveServiceDisplayStatus(a.state)] - STATUS_SORT_ORDER[deriveServiceDisplayStatus(b.state)]
         return statusDiff || a.service_name.localeCompare(b.service_name)
       }
       if (sortBy === "tools") {

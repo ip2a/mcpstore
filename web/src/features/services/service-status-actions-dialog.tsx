@@ -32,7 +32,8 @@ export function ServiceStatusActionsDialog({
   onRestart: () => void
 }) {
   const { t } = useI18n()
-  const running = isServiceRunning(serviceState)
+  const currentState = serviceState || service.state
+  const running = isServiceRunning(currentState)
   const scopeLabel = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
 
   return (
@@ -44,14 +45,14 @@ export function ServiceStatusActionsDialog({
         </DialogHeader>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">{t("current")}</span>
-          <ServiceStatusBadge status={serviceState?.readiness.status || "unknown"} />
+          <ServiceStatusBadge state={currentState} />
         </div>
         <div className="flex flex-col gap-2">
           <ServiceConnectionButton
             busy={busy}
             className="w-full"
             instanceId={service.instance_id}
-            state={serviceState}
+            state={currentState}
             onConnect={onConnect}
             onDisconnect={onDisconnect}
             size="default"

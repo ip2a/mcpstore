@@ -2,6 +2,7 @@ import { LinkIcon, UnlinkIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { isServiceConnected, isServiceConnecting } from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance, ServiceState } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -9,11 +10,11 @@ import { cn } from "@/lib/utils"
 const CONNECTION_BUTTON_WIDTH_CLASS = "w-[7.75rem] justify-center"
 
 export function isServiceRunning(state?: ServiceState) {
-  return state?.desired === "running"
+  return isServiceConnected(state)
 }
 
 export function isServiceStarting(state?: ServiceState, busy?: string | null, instanceId?: string) {
-  return state?.phase === "starting" || Boolean(instanceId && busy === `connect:${instanceId}`)
+  return isServiceConnecting(state) || Boolean(instanceId && busy === `connect:${instanceId}`)
 }
 
 export function isServiceDisconnecting(busy?: string | null, instanceId?: string) {

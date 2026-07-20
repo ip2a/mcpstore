@@ -1,6 +1,23 @@
 import { Badge } from "@/components/ui/badge"
-import type { ReadinessStatus } from "@/lib/api"
+import { deriveServiceDisplayStatus } from "@/features/services/service-display-status"
+import type { ServiceState } from "@/lib/api"
+import { useI18n } from "@/lib/i18n-context"
 
-export function ServiceStatusBadge({ status }: { status: ReadinessStatus }) {
-  return <Badge variant={status === "ready" ? "default" : status === "not_ready" ? "destructive" : "secondary"}>{status}</Badge>
+const STATUS_LABELS = {
+  connected: "statusConnected",
+  connecting: "statusConnecting",
+  disconnected: "statusDisconnected",
+  error: "statusError",
+} as const
+
+export function ServiceStatusBadge({ state }: { state: ServiceState }) {
+  const { t } = useI18n()
+  const status = deriveServiceDisplayStatus(state)
+  const variant = status === "connected" ? "default" : status === "error" ? "destructive" : "secondary"
+
+  return (
+    <Badge variant={variant} title={`${state.readiness.reason} · ${state.health}`}>
+      {t(STATUS_LABELS[status])}
+    </Badge>
+  )
 }
