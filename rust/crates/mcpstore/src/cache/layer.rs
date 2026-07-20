@@ -46,6 +46,7 @@ const CACHE_SCHEMA_KEY: &str = "current";
 
 /// Central cache manager with four logical layers over a single openkeyv store.
 pub struct CacheLayerManager {
+    pub(in crate::cache) route: AsyncRwLock<()>,
     pub(in crate::cache) store: AsyncRwLock<Arc<dyn CacheStore>>,
     pub(in crate::cache) namespace: SyncRwLock<String>,
     pub(in crate::cache) last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
@@ -58,6 +59,7 @@ pub struct CacheLayerManager {
 impl CacheLayerManager {
     pub(crate) fn new(store: Arc<dyn CacheStore>, namespace: impl Into<String>) -> Self {
         Self {
+            route: AsyncRwLock::new(()),
             store: AsyncRwLock::new(store),
             namespace: SyncRwLock::new(namespace.into()),
             last_empty_log: AsyncRwLock::new(HashMap::new()),

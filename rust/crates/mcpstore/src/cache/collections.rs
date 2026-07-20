@@ -65,10 +65,7 @@ impl CacheLayerManager {
         Self::event_collection_with_namespace(&self.namespace(), event_type)
     }
 
-    pub(crate) fn event_collection_with_namespace(
-        namespace: &str,
-        event_type: &str,
-    ) -> String {
+    pub(crate) fn event_collection_with_namespace(namespace: &str, event_type: &str) -> String {
         format!("{namespace}:event:{event_type}")
     }
 }
