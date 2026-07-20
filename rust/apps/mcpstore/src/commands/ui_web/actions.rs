@@ -93,8 +93,19 @@ pub(super) async fn action_switch_cache_storage(
             .into_response();
         }
     };
+    let had_reactor = store.has_reactor().await;
     match store.switch_cache_storage(cache_storage, None, None).await {
-        Ok(_) => Redirect::to("/").into_response(),
+        Ok(_) => {
+            if had_reactor {
+                if let Err(error) = store.restart_control_reactor().await {
+                    return Html(
+                        layout("mcpstore - Error", error_markup(&error.to_string())).into_string(),
+                    )
+                    .into_response();
+                }
+            }
+            Redirect::to("/").into_response()
+        }
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
     }
