@@ -28,7 +28,10 @@ pub use crate::auth::{
     AuthConfig, AuthorizationCodeClientAuthMethod, ClientCredentialsAuthMethod,
     OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
-pub use app_schema::{AppConfig, ServerSettings, ServiceDefaultsConfig, UiConfig};
+pub use app_schema::{
+    AppConfig, DiagnosticsConfig, HistoryConfig, HistoryPayload, HistoryStorage, RuntimeLogConfig,
+    ServerSettings, ServiceDefaultsConfig, SourceLogConfig, UiConfig,
+};
 pub use cache_schema::{CacheBackend, CacheConfig};
 pub use health_schema::HealthCheckConfig;
 pub use manager::ConfigManager;

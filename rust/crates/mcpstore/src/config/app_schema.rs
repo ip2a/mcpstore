@@ -31,6 +31,8 @@ pub struct AppConfig {
     pub standalone: StandaloneConfig,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub diagnostics: DiagnosticsConfig,
 }
 
 impl Default for AppConfig {
@@ -47,8 +49,115 @@ impl Default for AppConfig {
             service_defaults: ServiceDefaultsConfig::default(),
             standalone: StandaloneConfig::default(),
             ui: UiConfig::default(),
+            diagnostics: DiagnosticsConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticsConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub source_log: SourceLogConfig,
+    #[serde(default)]
+    pub runtime_log: RuntimeLogConfig,
+    #[serde(default)]
+    pub history: HistoryConfig,
+}
+
+impl Default for DiagnosticsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            source_log: SourceLogConfig::default(),
+            runtime_log: RuntimeLogConfig::default(),
+            history: HistoryConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceLogConfig {
+    #[serde(default = "default_server_log_level_value")]
+    pub level: String,
+}
+
+impl Default for SourceLogConfig {
+    fn default() -> Self {
+        Self {
+            level: default_server_log_level_value(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeLogConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_server_log_level_value")]
+    pub level: String,
+    #[serde(default = "default_log_max_size_bytes")]
+    pub max_size_bytes: u64,
+    #[serde(default)]
+    pub retention_days: Option<u64>,
+}
+
+impl Default for RuntimeLogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            level: default_server_log_level_value(),
+            max_size_bytes: default_log_max_size_bytes(),
+            retention_days: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub storage: HistoryStorage,
+    #[serde(default = "default_history_max_records")]
+    pub max_records: usize,
+    #[serde(default = "default_history_max_size_bytes")]
+    pub max_size_bytes: u64,
+    #[serde(default)]
+    pub retention_days: Option<u64>,
+    #[serde(default)]
+    pub payload: HistoryPayload,
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            storage: HistoryStorage::Memory,
+            max_records: default_history_max_records(),
+            max_size_bytes: default_history_max_size_bytes(),
+            retention_days: None,
+            payload: HistoryPayload::Metadata,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HistoryStorage {
+    #[default]
+    Memory,
+    Disk,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HistoryPayload {
+    None,
+    #[default]
+    Metadata,
+    Full,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,11 +12,24 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
     validate_health_check_config(&config.health_check, &mut errors);
     validate_monitoring_config(&config.monitoring, &mut errors);
     validate_standalone_config(&config.standalone, &mut errors);
+    validate_diagnostics_config(config, &mut errors);
 
     if !errors.is_empty() {
         return Err(ConfigError::Invalid(errors.join("; ")));
     }
     Ok(())
+}
+
+fn validate_diagnostics_config(config: &AppConfig, errors: &mut Vec<String>) {
+    if config.diagnostics.runtime_log.max_size_bytes == 0 {
+        errors.push("diagnostics.runtime_log.max_size_bytes must be greater than 0".to_string());
+    }
+    if config.diagnostics.history.max_records == 0 {
+        errors.push("diagnostics.history.max_records must be greater than 0".to_string());
+    }
+    if config.diagnostics.history.max_size_bytes == 0 {
+        errors.push("diagnostics.history.max_size_bytes must be greater than 0".to_string());
+    }
 }
 
 fn validate_ui_config(config: &AppConfig, errors: &mut Vec<String>) {
