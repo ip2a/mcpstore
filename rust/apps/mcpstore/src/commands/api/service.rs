@@ -606,3 +606,24 @@ pub(super) async fn agent_reset_config(
         .map_err(ApiError::from_store)?;
     Ok(success("Agent 配置重置成功", json!({ "status": "ok" })))
 }
+
+pub(super) async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let agents = state
+        .store
+        .list_agents()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Agent 列表获取成功",
+        json!({ "agents": agents, "total": agents.len() }),
+    ))
+}
+
+pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> ApiResult {
+    state
+        .store
+        .reset_config()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("配置重置成功", json!({ "status": "ok" })))
+}

@@ -1,6 +1,9 @@
-use std::{path::Path as FsPath, sync::Arc};
+use std::{collections::HashMap, path::Path as FsPath, sync::Arc};
 
-use axum::{extract::State, Json};
+use axum::{
+    extract::{Query, State},
+    Json,
+};
 use mcpstore::{
     config::{ConfigError, HistoryPayload, HistoryStorage},
     AppConfig,
@@ -10,7 +13,7 @@ use serde_json::{json, Value};
 
 use super::{
     envelope::{success, ApiError, ApiResult},
-    parse::cache_storage_label,
+    parse::{cache_storage_label, parse_positive_usize},
     ApiState,
 };
 
@@ -266,4 +269,52 @@ fn config_api_error(error: ConfigError) -> ApiError {
 
 pub(super) fn config_io_api_error(error: std::io::Error) -> ApiError {
     ApiError::invalid_request(error.to_string())
+}
+
+pub(super) async fn event_history(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let count = params
+        .get("count")
+        .map(String::as_str)
+        .map(parse_positive_usize)
+        .transpose()?
+        .unwrap_or(100);
+    let events = state.store.event_history(count).await;
+    Ok(success(
+        "事件历史获取成功",
+        json!({ "events": events, "total": events.len() }),
+    ))
+}
+
+pub(super) async fn tool_call_history(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult {
+    let count = params
+        .get("count")
+        .map(String::as_str)
+        .map(parse_positive_usize)
+        .transpose()?
+        .unwrap_or(100);
+    let records = state.store.tool_call_history(count).await;
+    Ok(success(
+        "工具调用历史获取成功",
+        json!({ "records": records, "total": records.len() }),
+    ))
+}
+
+pub(super) async fn clear_tool_call_history(State(state): State<Arc<ApiState>>) -> ApiResult {
+    state
+        .store
+        .clear_tool_call_history()
+        .await
+        .map_err(config_io_api_error)?;
+    Ok(success("工具调用历史已清空", json!({})))
+}
+
+pub(super) async fn event_capability_report(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let report = state.store.event_capability_report().await;
+    Ok(success("事件能力报告获取成功", report))
 }
