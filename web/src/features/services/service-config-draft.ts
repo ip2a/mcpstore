@@ -2,7 +2,7 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml"
 
 import { parseKvLines } from "@/lib/api"
 
-export type ServiceConfigTransport = "stdio" | "streamable-http" | "sse"
+export type ServiceConfigTransport = "stdio" | "streamable-http"
 export type ServiceConfigFormat = "json" | "toml"
 
 export type ServiceConfigFields = {
@@ -27,7 +27,7 @@ export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
   headersText: "",
 }
 
-const TRANSPORTS = new Set<ServiceConfigTransport>(["stdio", "streamable-http", "sse"])
+const TRANSPORTS = new Set<ServiceConfigTransport>(["stdio", "streamable-http"])
 
 export function getUiTransportMode(transport: ServiceConfigTransport): "stdio" | "http" {
   return transport === "stdio" ? "stdio" : "http"
@@ -35,10 +35,10 @@ export function getUiTransportMode(transport: ServiceConfigTransport): "stdio" |
 
 export function resolveHttpTransport(
   mode: "stdio" | "http",
-  current: ServiceConfigTransport,
+  _current: ServiceConfigTransport,
 ): ServiceConfigTransport {
   if (mode === "stdio") return "stdio"
-  return current === "sse" ? "sse" : "streamable-http"
+  return "streamable-http"
 }
 
 function normalizeTransport(value: unknown): ServiceConfigTransport {

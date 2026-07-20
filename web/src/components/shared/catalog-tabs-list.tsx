@@ -4,7 +4,7 @@ import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
 export function CatalogTabsList({ className, ...props }: ComponentProps<typeof TabsList>) {
-  return <TabsList className={cn("@container w-fit max-w-full", className)} {...props} />
+  return <TabsList className={cn("@container w-full min-w-0", className)} {...props} />
 }
 
 export function CatalogTabTrigger({
@@ -23,14 +23,14 @@ export function CatalogTabTrigger({
       title={label}
       aria-label={label}
       className={cn(
-        "flex-none shrink-0",
-        variant === "text" ? "px-3" : "px-1 @min-[360px]:gap-1.5 @min-[360px]:px-2",
+        "min-w-0 flex-1",
+        variant === "text" ? "px-2" : "px-1 @min-[360px]:gap-1.5 @min-[360px]:px-2",
         className,
       )}
       {...props}
     >
       {variant === "icon" ? children : null}
-      <span className={cn(variant === "text" ? "inline" : "hidden truncate @min-[360px]:inline")}>{label}</span>
+      <span className={cn(variant === "text" ? "truncate" : "hidden truncate @min-[360px]:inline")}>{label}</span>
     </TabsTrigger>
   )
 }

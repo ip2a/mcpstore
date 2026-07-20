@@ -64,7 +64,6 @@ export function EditServiceForm({
               <SelectGroup>
                 <SelectItem value="stdio">stdio</SelectItem>
                 <SelectItem value="streamable-http">streamable-http</SelectItem>
-                <SelectItem value="sse">sse</SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
