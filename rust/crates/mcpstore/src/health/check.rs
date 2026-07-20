@@ -31,8 +31,16 @@ impl MCPStore {
         }
 
         let started_at = std::time::Instant::now();
-        let timeout =
-            std::time::Duration::from_secs_f64(self.runtime_config.ping_timeout_http_secs.max(0.1));
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+        let timeout = std::time::Duration::from_secs_f64(
+            self.runtime_config
+                .ping_timeout_for_transport(instance.transport.as_str())
+                .max(0.1),
+        );
         let ok = self.pool.ping(instance_id, timeout).await.is_ok();
         let latency_ms = Some(started_at.elapsed().as_secs_f64() * 1000.0);
         self.record_health_check_result(
@@ -48,17 +56,43 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
         available: bool,
-        latency_ms: Option<f64>,
+        _latency_ms: Option<f64>,
         error: Option<String>,
     ) -> Result<ServiceState> {
-        self.record_observation(
-            instance_id,
-            ObservationKind::Liveness,
-            available,
-            latency_ms,
-            error,
-        )
-        .await
+        if self.registry.find_instance(instance_id).await.is_none() {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+        }
+        if self.is_db_source() {
+            return self
+                .state_manager
+                .get(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+        }
+
+        let now = Self::now_timestamp();
+        Ok(self
+            .state_manager
+            .dispatch(
+                instance_id,
+                ServiceStateEvent::HealthObserved {
+                    health: if available {
+                        HealthState::Healthy
+                    } else {
+                        HealthState::Unhealthy
+                    },
+                    metrics: HealthMetrics::default(),
+                    failure: error.map(|message| FailureInfo {
+                        phase: FailurePhase::Health,
+                        code: "openapi_request_failed".to_string(),
+                        retryable: true,
+                        message,
+                        since: now,
+                    }),
+                },
+                now,
+            )
+            .await?)
     }
 
     pub async fn record_health_check_result(

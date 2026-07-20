@@ -105,8 +105,6 @@ impl MCPStore {
             self.mark_instance_applied(instance_id).await?;
             let tools = self.registry.list_instance_tools(instance_id).await;
             self.cache_instance_connected(instance_id, &tools).await?;
-            self.record_openapi_availability(instance_id, true, None, None)
-                .await?;
             self.event_bus
                 .publish(
                     Event::new(
@@ -192,10 +190,9 @@ impl MCPStore {
         }
 
         let probe_runner = std::sync::Arc::new(self.pool.clone());
-        let ping_timeout_secs = match instance.transport.as_str() {
-            "stdio" => self.runtime_config.ping_timeout_stdio_secs,
-            _ => self.runtime_config.ping_timeout_http_secs,
-        };
+        let ping_timeout_secs = self
+            .runtime_config
+            .ping_timeout_for_transport(instance.transport.as_str());
         if let Some(supervisor) = &self.supervisor {
             supervisor.reset(instance_id).await;
             supervisor.register(instance_id).await;

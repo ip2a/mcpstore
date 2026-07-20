@@ -2204,7 +2204,7 @@ async fn call_openapi_tool(
 }
 
 async fn call_cache_tool(
-    store: &MCPStore,
+    store: &Arc<MCPStore>,
     tool_name: &str,
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
@@ -2223,10 +2223,17 @@ async fn call_cache_tool(
             let backend_label = storage.as_str();
             let redis_url = optional_string_argument(&arguments, "redis_url");
             let namespace = optional_string_argument(&arguments, "namespace");
+            let had_reactor = store.has_reactor().await;
             let snapshot = store
                 .switch_cache_storage(storage, redis_url, namespace)
                 .await
                 .map_err(map_store_error)?;
+            if had_reactor {
+                store
+                    .restart_control_reactor()
+                    .await
+                    .map_err(map_store_error)?;
+            }
             serde_json::json!({
                 "backend": backend_label,
                 "namespace": store.namespace(),

@@ -7,6 +7,13 @@ impl MCPStore {
         instance_id: InstanceId,
         error: String,
     ) -> Result<ServiceState> {
+        if self.is_db_source() {
+            return self
+                .state_manager
+                .get(instance_id)
+                .await?
+                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+        }
         self.mark_instance_retryable_failure(instance_id, error)
             .await
     }
