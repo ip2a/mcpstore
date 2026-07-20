@@ -277,10 +277,15 @@ async fn handle_connect_service(store: &MCPStore, params: Value) -> DaemonRespon
                 )
                 .await
                 .unwrap_or_default();
+            let metadata = match store.mcp_server_metadata(instance_id).await {
+                Ok(metadata) => metadata,
+                Err(error) => return DaemonResponse::err(error.to_string()),
+            };
             DaemonResponse::ok(Some(json!({
                 "instance_id": instance_id,
                 "tools_count": tools.len(),
-                "tools": tools.iter().map(|t| json!({"name": t.name, "description": t.description})).collect::<Vec<_>>()
+                "tools": tools.iter().map(|t| json!({"name": t.name, "description": t.description})).collect::<Vec<_>>(),
+                "mcp": metadata,
             })))
         }
         Err(e) => DaemonResponse::err(e.to_string()),
@@ -324,6 +329,10 @@ async fn handle_list_services(store: &MCPStore, params: Value) -> DaemonResponse
             Ok(state) => state,
             Err(error) => return DaemonResponse::err(error.to_string()),
         };
+        let metadata = match store.mcp_server_metadata(service.instance_id).await {
+            Ok(metadata) => metadata,
+            Err(error) => return DaemonResponse::err(error.to_string()),
+        };
         data.push(json!({
             "instance_id": service.instance_id,
             "service_name": service.service_name,
@@ -331,6 +340,7 @@ async fn handle_list_services(store: &MCPStore, params: Value) -> DaemonResponse
             "transport": service.transport,
             "state": state,
             "tools_count": service.tools.len(),
+            "mcp": metadata,
         }));
     }
     DaemonResponse::ok(Some(json!({"services": data, "total": data.len()})))
