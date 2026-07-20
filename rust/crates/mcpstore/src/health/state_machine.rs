@@ -45,6 +45,8 @@ pub(crate) struct HealthMonitor {
     policy: SupervisorPolicy,
     window: HealthWindow,
     consecutive_liveness_failures: usize,
+    half_open_calls: usize,
+    half_open_successes: usize,
 }
 
 impl HealthMonitor {
@@ -55,7 +57,29 @@ impl HealthMonitor {
             window: HealthWindow::new(policy.window_secs, policy.window_max_samples),
             policy,
             consecutive_liveness_failures: 0,
+            half_open_calls: 0,
+            half_open_successes: 0,
         }
+    }
+
+    pub(crate) fn begin_half_open(&mut self) {
+        self.half_open_calls = 0;
+        self.half_open_successes = 0;
+    }
+
+    pub(crate) fn record_half_open_probe(&mut self, succeeded: bool) -> bool {
+        self.half_open_calls = self.half_open_calls.saturating_add(1);
+        if succeeded {
+            self.half_open_successes = self.half_open_successes.saturating_add(1);
+        }
+        let calls = self.half_open_calls;
+        let success_rate = self.half_open_successes as f64 / calls as f64;
+        calls >= self.policy.half_open_max_calls
+            && success_rate >= self.policy.half_open_success_rate_threshold
+    }
+
+    pub(crate) fn half_open_calls_exhausted(&self) -> bool {
+        self.half_open_calls >= self.policy.half_open_max_calls
     }
 
     pub(crate) fn observe(&mut self, observation: HealthObservation) -> HealthAssessment {
@@ -95,10 +119,14 @@ impl HealthMonitor {
         if matches!(observation.kind, ObservationKind::ProcessExit) {
             return (HealthState::Unhealthy, Some("transport_unavailable"));
         }
-        if self.consecutive_liveness_failures >= self.policy.liveness_failure_threshold {
+        if observation.kind != ObservationKind::Startup
+            && self.consecutive_liveness_failures >= self.policy.liveness_failure_threshold
+        {
             return (HealthState::Unhealthy, Some("liveness_failure_threshold"));
         }
-        if stats.sample_size >= self.policy.window_min_calls {
+        if observation.kind != ObservationKind::Startup
+            && stats.sample_size >= self.policy.window_min_calls
+        {
             if stats
                 .error_rate
                 .is_some_and(|rate| rate >= self.policy.error_rate_threshold)
@@ -190,6 +218,31 @@ mod tests {
         let mut sample = observation(1.0, ObservationKind::Liveness, true);
         sample.latency_ms = Some(250.0);
         assert_eq!(monitor.observe(sample).health, HealthState::Degraded);
+    }
+
+    #[test]
+    fn startup_failures_are_observed_without_opening_liveness_circuit() {
+        let mut monitor = HealthMonitor::new(policy());
+        for at in 1..=4 {
+            let assessment =
+                monitor.observe(observation(at as f64, ObservationKind::Startup, false));
+            assert_eq!(assessment.health, HealthState::Degraded);
+            assert_eq!(assessment.failure_reason, None);
+        }
+    }
+
+    #[test]
+    fn half_open_requires_configured_sample_count_and_success_rate() {
+        let mut monitor = HealthMonitor::new(policy());
+        monitor.begin_half_open();
+        assert!(!monitor.record_half_open_probe(true));
+        assert!(monitor.record_half_open_probe(false));
+        assert!(monitor.half_open_calls_exhausted());
+
+        monitor.begin_half_open();
+        assert!(!monitor.record_half_open_probe(false));
+        assert!(!monitor.record_half_open_probe(false));
+        assert!(monitor.half_open_calls_exhausted());
     }
 
     #[test]

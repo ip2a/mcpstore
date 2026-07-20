@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::RwLock;
@@ -21,6 +21,7 @@ use crate::transport::{
 
 pub struct ConnectionPool {
     connections: Arc<RwLock<HashMap<InstanceId, McpConnection>>>,
+    resource_subscriptions: Arc<RwLock<HashMap<InstanceId, HashSet<String>>>>,
     auth_coordinator: AuthCoordinator,
     registry: ServiceRegistry,
     event_bus: EventBus,
@@ -33,6 +34,7 @@ impl Clone for ConnectionPool {
     fn clone(&self) -> Self {
         Self {
             connections: Arc::clone(&self.connections),
+            resource_subscriptions: Arc::clone(&self.resource_subscriptions),
             auth_coordinator: self.auth_coordinator.clone(),
             registry: self.registry.clone(),
             event_bus: self.event_bus.clone(),
@@ -52,6 +54,7 @@ impl ConnectionPool {
     ) -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
+            resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
             auth_coordinator,
             registry,
             event_bus,
@@ -80,6 +83,13 @@ impl ConnectionPool {
 
     pub async fn connect(&self, instance_id: InstanceId) -> Result<()> {
         let supervisor = self.supervisor.lock().unwrap().clone();
+        let subscriptions = self
+            .resource_subscriptions
+            .read()
+            .await
+            .get(&instance_id)
+            .cloned()
+            .unwrap_or_default();
         let connected = {
             let mut conns = self.connections.write().await;
             let conn = conns.get_mut(&instance_id).ok_or_else(|| {
@@ -89,6 +99,9 @@ impl ConnectionPool {
                 true
             } else {
                 conn.connect(supervisor).await?;
+                for uri in subscriptions {
+                    conn.subscribe_resource(&uri).await?;
+                }
                 false
             }
         };
@@ -123,6 +136,7 @@ impl ConnectionPool {
         for instance_id in instance_ids {
             self.remove(instance_id).await.ok();
         }
+        self.resource_subscriptions.write().await.clear();
     }
 
     pub async fn start_task_tool_execution(
@@ -375,7 +389,15 @@ impl ConnectionPool {
         let conn = conns.get(&instance_id).ok_or_else(|| {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
-        conn.subscribe_resource(uri).await
+        conn.subscribe_resource(uri).await?;
+        drop(conns);
+        self.resource_subscriptions
+            .write()
+            .await
+            .entry(instance_id)
+            .or_default()
+            .insert(uri.to_string());
+        Ok(())
     }
 
     pub async fn unsubscribe_resource(&self, instance_id: InstanceId, uri: &str) -> Result<()> {
@@ -383,7 +405,16 @@ impl ConnectionPool {
         let conn = conns.get(&instance_id).ok_or_else(|| {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
-        conn.unsubscribe_resource(uri).await
+        conn.unsubscribe_resource(uri).await?;
+        drop(conns);
+        let mut subscriptions = self.resource_subscriptions.write().await;
+        if let Some(uris) = subscriptions.get_mut(&instance_id) {
+            uris.remove(uri);
+            if uris.is_empty() {
+                subscriptions.remove(&instance_id);
+            }
+        }
+        Ok(())
     }
 
     pub async fn set_logging_level(

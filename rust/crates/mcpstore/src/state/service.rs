@@ -190,6 +190,7 @@ pub enum ServiceStateEvent {
     RecoveryProbeStarted {
         attempt: u32,
     },
+    RecoveryProbeSucceeded,
     RecoveryExhausted {
         attempts: u32,
         failure: FailureInfo,
@@ -288,7 +289,9 @@ impl ServiceState {
                 self.health = HealthState::Unknown;
                 self.health_metrics = HealthMetrics::default();
                 self.last_observed_at = None;
-                self.recovery = RecoveryState::Idle;
+                if !matches!(self.recovery, RecoveryState::Probing { .. }) {
+                    self.recovery = RecoveryState::Idle;
+                }
                 self.failure = None;
             }
             ServiceStateEvent::TransportStopped => {
@@ -352,6 +355,16 @@ impl ServiceState {
                     attempt,
                     hard_deadline,
                 };
+            }
+            ServiceStateEvent::RecoveryProbeSucceeded => {
+                self.require_running("recovery_probe_succeeded")?;
+                if self.phase != RuntimePhase::Running
+                    || !matches!(self.recovery, RecoveryState::Probing { .. })
+                {
+                    return Err(self.invalid("recovery_probe_succeeded"));
+                }
+                self.recovery = RecoveryState::Idle;
+                self.failure = None;
             }
             ServiceStateEvent::RecoveryExhausted { attempts, failure } => {
                 self.require_running("recovery_exhausted")?;
@@ -569,6 +582,55 @@ mod tests {
             .apply(ServiceStateEvent::RecoveryProbeStarted { attempt: 1 }, 3)
             .unwrap_err();
         assert!(matches!(error, ServiceStateError::InvalidTransition { .. }));
+    }
+
+    #[test]
+    fn recovery_probe_preserves_probing_until_explicit_success() {
+        let mut state = state(DesiredState::Running);
+        state.apply(ServiceStateEvent::StartRequested, 2).unwrap();
+        state
+            .apply(
+                ServiceStateEvent::RecoveryScheduled {
+                    attempt: 1,
+                    retry_at: 10.0,
+                    hard_deadline: 30.0,
+                },
+                3,
+            )
+            .unwrap();
+        state
+            .apply(ServiceStateEvent::RecoveryProbeStarted { attempt: 1 }, 4)
+            .unwrap();
+        state
+            .apply(ServiceStateEvent::TransportConnected, 5)
+            .unwrap();
+        assert!(matches!(state.recovery, RecoveryState::Probing { .. }));
+        state
+            .apply(ServiceStateEvent::RecoveryProbeSucceeded, 6)
+            .unwrap();
+        assert_eq!(state.recovery, RecoveryState::Idle);
+    }
+
+    #[test]
+    fn failed_recovery_probe_cannot_be_marked_successful_before_running() {
+        let mut state = state(DesiredState::Running);
+        state.apply(ServiceStateEvent::StartRequested, 2).unwrap();
+        state
+            .apply(
+                ServiceStateEvent::RecoveryScheduled {
+                    attempt: 1,
+                    retry_at: 10.0,
+                    hard_deadline: 30.0,
+                },
+                3,
+            )
+            .unwrap();
+        state
+            .apply(ServiceStateEvent::RecoveryProbeStarted { attempt: 1 }, 4)
+            .unwrap();
+        assert!(state
+            .apply(ServiceStateEvent::RecoveryProbeSucceeded, 5)
+            .is_err());
     }
 
     #[test]

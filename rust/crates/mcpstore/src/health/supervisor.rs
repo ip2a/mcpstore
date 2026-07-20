@@ -54,27 +54,73 @@ impl InstanceSupervisor {
             std::time::Duration::from_secs_f64(self.policy.startup_interval_secs.max(0.1));
         let timeout = std::time::Duration::from_secs_f64(self.policy.startup_timeout_secs.max(0.1));
         let hard_deadline = started_at + self.policy.startup_hard_timeout_secs.max(1.0);
+        let half_open = self
+            .state_manager
+            .get(instance_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|state| matches!(state.recovery, RecoveryState::Probing { .. }));
+        if half_open {
+            if let Some(monitor) = self.monitors.lock().await.get_mut(&instance_id) {
+                monitor.begin_half_open();
+            }
+        }
 
         loop {
             if now_f64() >= hard_deadline {
                 return StartupOutcome::TimedOut;
             }
-            if runner
+            let started_at = std::time::Instant::now();
+            let succeeded = runner
                 .run_probe(instance_id, ProbeKind::Startup, timeout)
                 .await
-                .is_ok()
-            {
-                self.observe_and_commit(
+                .is_ok();
+            let committed = self
+                .observe_and_commit(
                     instance_id,
                     HealthObservation {
                         observed_at: now_f64(),
                         kind: ObservationKind::Startup,
-                        succeeded: true,
-                        latency_ms: None,
+                        succeeded,
+                        latency_ms: Some(started_at.elapsed().as_secs_f64() * 1000.0),
                     },
                 )
-                .await;
+                .await
+                .is_some();
+            if !half_open && succeeded && committed {
                 return StartupOutcome::Healthy;
+            }
+            if half_open {
+                let mut monitors = self.monitors.lock().await;
+                let Some(monitor) = monitors.get_mut(&instance_id) else {
+                    return StartupOutcome::TimedOut;
+                };
+                let recovered = monitor.record_half_open_probe(succeeded && committed);
+                let exhausted = monitor.half_open_calls_exhausted();
+                drop(monitors);
+                if recovered {
+                    if self
+                        .state_manager
+                        .dispatch(
+                            instance_id,
+                            ServiceStateEvent::RecoveryProbeSucceeded,
+                            now_f64() as i64,
+                        )
+                        .await
+                        .is_ok()
+                    {
+                        return StartupOutcome::Healthy;
+                    }
+                    tracing::error!(%instance_id, "failed to commit successful recovery probe");
+                    return StartupOutcome::TimedOut;
+                }
+                if exhausted {
+                    return StartupOutcome::TimedOut;
+                }
+            }
+            if now_f64() >= hard_deadline {
+                return StartupOutcome::TimedOut;
             }
             tokio::time::sleep(interval).await;
         }
@@ -95,13 +141,17 @@ impl InstanceSupervisor {
                 let Ok(Some(state)) = supervisor.state_manager.get(instance_id).await else {
                     continue;
                 };
-                if let RecoveryState::Waiting { retry_at, .. } = state.recovery {
-                    if retry_at <= now_f64() {
-                        if let Some(store) = supervisor.store.get().and_then(Weak::upgrade) {
-                            let _ = store.connect_service_internal(instance_id, true).await;
+                match state.recovery {
+                    RecoveryState::Waiting { retry_at, .. } => {
+                        if retry_at <= now_f64() {
+                            if let Some(store) = supervisor.store.get().and_then(Weak::upgrade) {
+                                let _ = store.connect_service_internal(instance_id, true).await;
+                            }
                         }
+                        continue;
                     }
-                    continue;
+                    RecoveryState::Probing { .. } | RecoveryState::Exhausted { .. } => continue,
+                    RecoveryState::Idle => {}
                 }
                 if state.phase != RuntimePhase::Running {
                     continue;
@@ -187,52 +237,43 @@ impl InstanceSupervisor {
             .map(|monitor| monitor.observe(observation))?;
         let now = observation.observed_at as i64;
 
+        let failure_reason = assessment.failure_reason.unwrap_or("health_check_failed");
+        let event = ServiceStateEvent::HealthObserved {
+            health: assessment.health,
+            metrics: assessment.metrics,
+            failure: (assessment.health == HealthState::Unhealthy).then(|| FailureInfo {
+                phase: FailurePhase::Health,
+                code: failure_reason.to_string(),
+                retryable: true,
+                message: failure_reason.replace('_', " "),
+                since: now,
+            }),
+        };
+        if let Err(error) = self.state_manager.dispatch(instance_id, event, now).await {
+            tracing::error!(%instance_id, %error, "failed to persist health observation");
+            return None;
+        }
+
         if assessment.health == HealthState::Unhealthy {
-            let reason = assessment.failure_reason.unwrap_or("health_check_failed");
-            let _ = self
-                .state_manager
-                .dispatch(
-                    instance_id,
-                    ServiceStateEvent::HealthObserved {
-                        health: assessment.health,
-                        metrics: assessment.metrics,
-                        failure: Some(FailureInfo {
-                            phase: FailurePhase::Health,
-                            code: reason.to_string(),
-                            retryable: true,
-                            message: reason.replace('_', " "),
-                            since: now,
-                        }),
-                    },
-                    now,
-                )
-                .await;
             if let Some(store) = self.store.get().and_then(Weak::upgrade) {
                 if !store.is_db_source()
                     && store.registry.find_instance(instance_id).await.is_some()
                 {
-                    store.pool.disconnect(instance_id).await.ok();
-                    let _ = store
+                    if let Err(error) = store.pool.disconnect(instance_id).await {
+                        tracing::warn!(%instance_id, %error, "failed to disconnect unhealthy service");
+                    }
+                    if let Err(error) = store
                         .mark_instance_retryable_failure(
                             instance_id,
-                            format!("Health check failed: {reason}"),
+                            format!("Health check failed: {failure_reason}"),
                         )
-                        .await;
+                        .await
+                    {
+                        tracing::error!(%instance_id, %error, "failed to schedule service recovery");
+                        return None;
+                    }
                 }
             }
-        } else {
-            let _ = self
-                .state_manager
-                .dispatch(
-                    instance_id,
-                    ServiceStateEvent::HealthObserved {
-                        health: assessment.health,
-                        metrics: assessment.metrics,
-                        failure: None,
-                    },
-                    now,
-                )
-                .await;
         }
         Some(assessment)
     }
@@ -245,7 +286,7 @@ fn now_f64() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::{CacheLayerManager, memory_cache_store};
+    use crate::cache::{memory_cache_store, CacheLayerManager};
     use crate::events::EventBus;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
     use crate::state::{AuthState, DesiredState, ServiceState};
