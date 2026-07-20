@@ -37,7 +37,7 @@ pub(super) fn validate_standalone_config(standalone: &StandaloneConfig, errors: 
     validate_allowed(
         "standalone.default_transport",
         &standalone.default_transport,
-        &["stdio", "sse", "websocket"],
+        &["stdio", "streamable-http"],
         errors,
     );
     validate_allowed(

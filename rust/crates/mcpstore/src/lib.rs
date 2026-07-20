@@ -3,12 +3,13 @@
 pub(crate) mod agent;
 pub mod auth;
 pub mod cache;
+pub mod client_config;
 pub mod config;
 pub mod config_formats;
-pub mod client_config;
 pub(crate) mod control;
-pub mod event_reactor;
 pub mod core;
+pub mod diagnostics;
+pub mod event_reactor;
 pub mod events;
 pub(crate) mod health;
 pub mod identity;
@@ -87,9 +88,10 @@ pub use service::{McpStoreExecutionUpdate, McpStoreToolExecutionHandle};
 
 // Facade re-exports: service state
 pub use state::{
-    AuthState, DesiredState, FailureInfo, FailurePhase, HealthMetrics, HealthState, Readiness, ReadinessReason,
-    ReadinessStatus, RecoveryState, RuntimePhase, ServiceState, ServiceStateError,
-    ServiceStateEvent, ServiceStateManager, ServiceStateManagerError, ToolAvailability, ToolStateItem, ToolsState, ToolsStatus,
+    AuthState, DesiredState, FailureInfo, FailurePhase, HealthMetrics, HealthState, Readiness,
+    ReadinessReason, ReadinessStatus, RecoveryState, RuntimePhase, ServiceState, ServiceStateError,
+    ServiceStateEvent, ServiceStateManager, ServiceStateManagerError, ToolAvailability,
+    ToolStateItem, ToolsState, ToolsStatus,
 };
 
 // Facade re-exports: core store
