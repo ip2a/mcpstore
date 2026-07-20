@@ -1109,6 +1109,15 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     assert_eq!(db.list_tools(instance_id).await.unwrap()[0].name, "echo");
     let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
     assert_eq!(state.health, crate::state::HealthState::Healthy);
+    let unchanged = db
+        .record_instance_failure(instance_id, "must stay read-only".to_string())
+        .await
+        .unwrap();
+    assert_eq!(unchanged, state);
+    assert_eq!(
+        db.state_manager.get(instance_id).await.unwrap().unwrap(),
+        state
+    );
     assert_eq!(
         db.show_config().await.unwrap()["mcpServers"]["svc"]["command"],
         "echo"
@@ -1372,15 +1381,12 @@ async fn openapi_import_persists_shared_analysis_result() {
 
     let service = store.find_instance(instance_id).await.unwrap();
     assert_eq!(service.transport, "openapi");
+    let connected_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(connected_state.phase, crate::state::RuntimePhase::Running);
+    assert_eq!(connected_state.health, crate::state::HealthState::Unknown);
     assert_eq!(
-        store
-            .state_manager
-            .get(instance_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .phase,
-        crate::state::RuntimePhase::Running
+        connected_state.health_metrics,
+        crate::state::HealthMetrics::default()
     );
     assert_eq!(
         service.applied_config_revision,
@@ -1416,6 +1422,12 @@ async fn openapi_import_persists_shared_analysis_result() {
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(text).unwrap()["created"],
         serde_json::json!(true)
+    );
+    let observed_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    assert_eq!(observed_state.health, crate::state::HealthState::Healthy);
+    assert_eq!(
+        observed_state.health_metrics,
+        crate::state::HealthMetrics::default()
     );
 
     let resources = store
@@ -4264,6 +4276,64 @@ async fn switch_cache_storage_updates_namespace() {
 }
 
 #[tokio::test]
+async fn switch_cache_storage_preserves_concurrent_writes() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some("concurrent-before".to_string()),
+    })
+    .unwrap();
+    for index in 0..500 {
+        store
+            .cache()
+            .put_entity(
+                "clients",
+                &format!("seed-{index}"),
+                serde_json::json!({"index": index}),
+            )
+            .await
+            .unwrap();
+    }
+
+    let writer_store = store.clone();
+    let writer = async move {
+        for index in 0..100 {
+            writer_store
+                .cache()
+                .put_entity(
+                    "clients",
+                    &format!("live-{index}"),
+                    serde_json::json!({"index": index}),
+                )
+                .await
+                .unwrap();
+            tokio::task::yield_now().await;
+        }
+    };
+    let migration = store.switch_cache_storage(
+        CacheStorage::Memory,
+        None,
+        Some("concurrent-after".to_string()),
+    );
+    let ((), result) = tokio::join!(writer, migration);
+    result.unwrap();
+
+    for index in 0..100 {
+        assert!(store
+            .cache()
+            .get_entity("clients", &format!("live-{index}"))
+            .await
+            .unwrap()
+            .is_some(), "missing live-{index}");
+    }
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn cache_inspect_includes_session_collections() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -5067,6 +5137,85 @@ async fn connect_service_accepts_server_without_tools_capability() {
         .unwrap();
     assert!(metadata.capabilities.resources);
     assert!(!metadata.capabilities.tools);
+
+    store.disconnect_service(instance_id).await.unwrap();
+    server.abort();
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn resource_subscriptions_are_restored_after_reconnect() {
+    #[derive(Clone)]
+    struct SubscriptionServer(Arc<AtomicUsize>);
+
+    impl ServerHandler for SubscriptionServer {
+        fn get_info(&self) -> ServerInfo {
+            ServerInfo::new(
+                ServerCapabilities::builder()
+                    .enable_resources()
+                    .enable_resources_subscribe()
+                    .build(),
+            )
+        }
+
+        async fn subscribe(
+            &self,
+            _request: rmcp::model::SubscribeRequestParams,
+            _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
+        ) -> std::result::Result<(), rmcp::ErrorData> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    let subscribe_count = Arc::new(AtomicUsize::new(0));
+    let server_count = subscribe_count.clone();
+    let service: StreamableHttpService<SubscriptionServer, LocalSessionManager> =
+        StreamableHttpService::new(
+            move || Ok(SubscriptionServer(server_count.clone())),
+            Default::default(),
+            StreamableHttpServerConfig::default().with_sse_keep_alive(None),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, Router::new().nest_service("/mcp", service))
+            .await
+            .unwrap();
+    });
+
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-resource-subscription-reconnect".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service(
+            "subscriptions",
+            ServerConfig {
+                url: Some(format!("http://{address}/mcp")),
+                transport: Some("streamable-http".to_string()),
+                ..ServerConfig::default()
+            },
+        )
+        .await
+        .unwrap();
+    let instance_id = store_instance_id("subscriptions");
+
+    store.connect_service(instance_id).await.unwrap();
+    store
+        .subscribe_resource_updates(instance_id, "fixture://watched")
+        .await
+        .unwrap();
+    assert_eq!(subscribe_count.load(Ordering::SeqCst), 1);
+
+    store.disconnect_service(instance_id).await.unwrap();
+    store.connect_service(instance_id).await.unwrap();
+    assert_eq!(subscribe_count.load(Ordering::SeqCst), 2);
 
     store.disconnect_service(instance_id).await.unwrap();
     server.abort();

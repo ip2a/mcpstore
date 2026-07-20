@@ -3,10 +3,23 @@
 use std::sync::Arc;
 
 use crate::control::request::{ControlRequest, ControlRequestStatus};
-use crate::event_reactor::{ChangeContext, ReactionContext, ReactionOutcome, Rule};
+use crate::event_reactor::{ChangeContext, ReactionContext, ReactionOutcome, ReactorConfig, Rule};
 use crate::store::prelude::*;
 
 impl MCPStore {
+    pub async fn restart_control_reactor(self: &Arc<Self>) -> Result<()> {
+        self.process_control_requests().await?;
+        let config = ReactorConfig {
+            subscriber_id: format!("api-control-{}", std::process::id()),
+            owner_id: format!("api-control-{}", std::process::id()),
+            namespace: self.namespace(),
+            ..Default::default()
+        };
+        self.setup_event_reactor(config).await?;
+        self.register_rule(self.control_request_rule()).await?;
+        self.start_reactor().await
+    }
+
     pub fn control_request_rule(self: &Arc<Self>) -> Rule {
         let collection = self.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
 

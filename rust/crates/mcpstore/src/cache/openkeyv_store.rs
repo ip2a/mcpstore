@@ -7,12 +7,7 @@ use crate::cache::storage::CacheStore;
 use crate::cache::{codec, CacheError, Result};
 
 pub(in crate::cache) trait OpenKeyvStoreApi:
-    AsyncKeyValue
-    + AsyncEnumerateKeys
-    + AsyncEnumerateCollections
-    + AsyncCompareAndSwap
-    + Send
-    + Sync
+    AsyncKeyValue + AsyncEnumerateKeys + AsyncEnumerateCollections + AsyncCompareAndSwap + Send + Sync
 {
 }
 
@@ -22,7 +17,7 @@ impl<T> OpenKeyvStoreApi for T where
         + AsyncEnumerateCollections
         + AsyncCompareAndSwap
         + Send
-        + Sync,
+        + Sync
 {
 }
 
@@ -40,7 +35,6 @@ where
     pub(in crate::cache) fn new(inner: T) -> Self {
         Self { inner }
     }
-
 }
 
 fn value_version(value: &JsonValue) -> Option<u64> {
@@ -107,9 +101,9 @@ where
 
         match outcome {
             openkeyv::CompareAndSwapResult::Applied { .. } => Ok(()),
-            openkeyv::CompareAndSwapResult::Conflict { .. } => Err(CacheError::Conflict(
-                format!("concurrent modification: collection={collection}, key={key}"),
-            )),
+            openkeyv::CompareAndSwapResult::Conflict { .. } => Err(CacheError::Conflict(format!(
+                "concurrent modification: collection={collection}, key={key}"
+            ))),
         }
     }
 
@@ -141,11 +135,7 @@ where
             .map_err(map_openkeyv_err)
     }
 
-    async fn get_many(
-        &self,
-        keys: &[String],
-        collection: &str,
-    ) -> Result<Vec<Option<JsonValue>>> {
+    async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<JsonValue>>> {
         self.inner
             .get_many(keys, Some(collection))
             .await

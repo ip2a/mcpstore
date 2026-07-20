@@ -144,8 +144,14 @@ impl AsyncCompareAndSwap for EventBackend {
         ttl: Option<f64>,
     ) -> Result<CompareAndSwapResult> {
         match self {
-            Self::Memory(s) => s.compare_and_swap(key, expected, value, collection, ttl).await,
-            Self::Redis(s) => s.compare_and_swap(key, expected, value, collection, ttl).await,
+            Self::Memory(s) => {
+                s.compare_and_swap(key, expected, value, collection, ttl)
+                    .await
+            }
+            Self::Redis(s) => {
+                s.compare_and_swap(key, expected, value, collection, ttl)
+                    .await
+            }
         }
     }
 

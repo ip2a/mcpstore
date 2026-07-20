@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::sync::{RwLock as SyncRwLock, atomic::AtomicU64};
+use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
 
-pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::cache::models::OpenApiImportContextState;
+pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
+use crate::diagnostics::Diagnostics;
 use crate::event_reactor::{EventBackend, EventReactor, ReactorConfig, Rule};
 pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{
@@ -39,15 +40,15 @@ pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
 pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) mod prelude {
-    pub(crate) use crate::config_formats::{ConfigFormat, project_config};
+    pub(crate) use crate::config_formats::{project_config, ConfigFormat};
     pub(crate) use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
-        BackendKind, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE, CacheHealthReport,
-        CacheStorage, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
-        DiscoveredResourceTemplate, Event, MCPStore, OpenApiImportContextState, Result,
-        ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition, ServiceInstance,
-        SourceMode, StartupPolicy, StoreError, ToolChangeServiceResult, ToolChangeSummary,
+        BackendKind, CacheHealthReport, CacheStorage, ConfigRevision, DiscoveredPrompt,
+        DiscoveredResource, DiscoveredResourceTemplate, Event, MCPStore, OpenApiImportContextState,
+        Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition,
+        ServiceInstance, SourceMode, StartupPolicy, StoreError, ToolChangeServiceResult,
+        ToolChangeSummary, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
     };
 }
 
@@ -74,6 +75,7 @@ pub struct MCPStore {
     /// `Arc<MemoryClient>` as the cache layer. For Redis, a separate connection
     /// to the same Redis server (data shared naturally).
     pub(crate) event_backend: tokio::sync::RwLock<Option<EventBackend>>,
+    pub(crate) diagnostics: Diagnostics,
 }
 
 impl MCPStore {
@@ -91,6 +93,7 @@ impl MCPStore {
         };
 
         let app_config = config_manager.load_app_config_or_default()?;
+        let app_config_path = config_manager.app_config_path().to_path_buf();
         let runtime_config = StoreRuntimeConfig::from_app_config(&app_config);
         let namespace = options
             .namespace
@@ -121,7 +124,12 @@ impl MCPStore {
             }
         };
         let registry = ServiceRegistry::new();
-        let event_bus = EventBus::with_history(1000);
+        let event_bus = if app_config.diagnostics.enabled && app_config.diagnostics.history.enabled
+        {
+            EventBus::with_history(app_config.diagnostics.history.max_records)
+        } else {
+            EventBus::new()
+        };
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
         let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
             cache.clone(),
@@ -161,6 +169,14 @@ impl MCPStore {
             state_manager,
             event_reactor: tokio::sync::RwLock::new(None),
             event_backend: tokio::sync::RwLock::new(event_backend),
+            diagnostics: Diagnostics::new(
+                crate::config::HistoryConfig {
+                    enabled: app_config.diagnostics.enabled
+                        && app_config.diagnostics.history.enabled,
+                    ..app_config.diagnostics.history.clone()
+                },
+                &app_config_path,
+            ),
         });
         if let Some(supervisor) = &store.supervisor {
             supervisor.attach_store(std::sync::Arc::downgrade(&store));
@@ -269,6 +285,21 @@ impl MCPStore {
     /// Check whether the EventReactor is initialized.
     pub async fn has_reactor(&self) -> bool {
         self.event_reactor.read().await.is_some()
+    }
+
+    pub async fn tool_call_history(
+        &self,
+        count: usize,
+    ) -> Vec<crate::diagnostics::ToolCallHistoryRecord> {
+        self.diagnostics.recent_tool_calls(count).await
+    }
+
+    pub async fn clear_tool_call_history(&self) -> std::io::Result<()> {
+        self.diagnostics.clear_tool_calls().await
+    }
+
+    pub async fn update_history_config(&self, config: crate::config::HistoryConfig) {
+        self.diagnostics.update_config(config).await;
     }
 }
 

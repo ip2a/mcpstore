@@ -31,8 +31,8 @@ impl MCPStore {
     pub async fn event_capability_report_entry(&self) -> EventCapabilityReport {
         EventCapabilityReport {
             event_bus: true,
-            history: true,
-            history_capacity: 1000,
+            history: self.event_bus.history_capacity().is_some(),
+            history_capacity: self.event_bus.history_capacity().unwrap_or(0),
             cache_event_layer: true,
         }
     }
