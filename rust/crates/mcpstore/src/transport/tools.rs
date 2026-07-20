@@ -1,4 +1,7 @@
+use rmcp::model::{ClientRequest, ListToolsRequest, PaginatedRequestParams, ServerResult};
+
 use crate::transport::client::McpConnection;
+use crate::transport::protocol::send_protocol_request;
 use crate::transport::{
     DiscoveredTool, McpExecutionOptions, McpToolExecution, Result, ToolCallResult, TransportError,
 };
@@ -6,18 +9,33 @@ use crate::transport::{
 impl McpConnection {
     pub async fn list_tools(&self) -> Result<Vec<DiscoveredTool>> {
         self.require_tools()?;
-        let client = self.get_client()?;
-        let tools = match client.list_all_tools().await {
-            Ok(response) => response,
-            Err(error) => {
-                return Err(self
-                    .classify_client_failure(TransportError::Protocol(format!(
-                        "list_tools failed: {error}"
-                    )))
-                    .await);
+        let mut tools = Vec::new();
+        let mut cursor = None;
+        loop {
+            let request =
+                ListToolsRequest::with_param(PaginatedRequestParams::default().with_cursor(cursor));
+            let result = send_protocol_request(
+                self.get_client()?,
+                self.instance_id(),
+                ClientRequest::ListToolsRequest(request),
+                "list tools",
+            )
+            .await;
+            let page = match result {
+                Ok(ServerResult::ListToolsResult(page)) => page,
+                Ok(_) => {
+                    return Err(TransportError::Protocol(
+                        "list tools returned an unexpected response".to_string(),
+                    ))
+                }
+                Err(error) => return Err(self.classify_client_failure(error).await),
+            };
+            tools.extend(page.tools);
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
             }
-        };
-
+        }
         Ok(tools.into_iter().map(DiscoveredTool::from).collect())
     }
 

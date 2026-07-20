@@ -5,10 +5,12 @@ use std::sync::Arc;
 #[allow(deprecated)]
 use rmcp::model::LoggingMessageNotificationParam;
 use rmcp::model::{
-    CancelledNotificationParam, ClientCapabilities, ClientInfo, CustomNotification,
+    CancelledNotificationParam, ClientCapabilities, ClientInfo, ClientRequest, CustomNotification,
     ElicitRequestParams, ElicitResult, ElicitationCapability, FormElicitationCapability,
-    Implementation, ProgressNotificationParam, ReadResourceRequestParams,
-    ResourceUpdatedNotificationParam, UrlElicitationCapability,
+    Implementation, ListPromptsRequest, ListResourceTemplatesRequest, ListResourcesRequest,
+    ListToolsRequest, PaginatedRequestParams, ProgressNotificationParam, ReadResourceRequest,
+    ReadResourceRequestParams, ResourceUpdatedNotificationParam, ServerResult,
+    UrlElicitationCapability,
 };
 use rmcp::service::{NotificationContext, Peer, RequestContext, RoleClient};
 use rmcp::ClientHandler;
@@ -20,6 +22,7 @@ use crate::events::types::EventKind;
 use crate::events::{Event, EventBus};
 use crate::identity::InstanceId;
 use crate::registry::{ServiceRegistry, ToolInfo};
+use crate::transport::protocol::send_protocol_request;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, McpElicitationController,
     McpElicitationSession, McpElicitationSessionOptions,
@@ -133,14 +136,40 @@ impl McpStoreClientHandler {
     }
 
     async fn refresh_tools(&self, peer: &Peer<RoleClient>) {
-        let tools = match peer.list_all_tools().await {
-            Ok(tools) => tools,
-            Err(error) => {
-                self.publish_refresh_failure("notifications/tools/list_changed", error)
+        let mut tools = Vec::new();
+        let mut cursor = None;
+        loop {
+            let result = send_protocol_request(
+                peer,
+                self.instance_id,
+                ClientRequest::ListToolsRequest(ListToolsRequest::with_param(
+                    PaginatedRequestParams::default().with_cursor(cursor),
+                )),
+                "refresh tools",
+            )
+            .await;
+            let page = match result {
+                Ok(ServerResult::ListToolsResult(page)) => page,
+                Ok(_) => {
+                    self.publish_refresh_failure(
+                        "notifications/tools/list_changed",
+                        "unexpected tools response",
+                    )
                     .await;
-                return;
+                    return;
+                }
+                Err(error) => {
+                    self.publish_refresh_failure("notifications/tools/list_changed", error)
+                        .await;
+                    return;
+                }
+            };
+            tools.extend(page.tools);
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
             }
-        };
+        }
         let discovered = tools
             .into_iter()
             .map(crate::transport::DiscoveredTool::from)
@@ -173,26 +202,76 @@ impl McpStoreClientHandler {
     }
 
     async fn refresh_resources(&self, peer: &Peer<RoleClient>) {
-        let (resources, templates) = tokio::join!(
-            peer.list_all_resources(),
-            peer.list_all_resource_templates()
-        );
-        let resources = match resources {
-            Ok(resources) => resources,
-            Err(error) => {
-                self.publish_refresh_failure("notifications/resources/list_changed", error)
+        let mut resources = Vec::new();
+        let mut cursor = None;
+        loop {
+            let result = send_protocol_request(
+                peer,
+                self.instance_id,
+                ClientRequest::ListResourcesRequest(ListResourcesRequest::with_param(
+                    PaginatedRequestParams::default().with_cursor(cursor),
+                )),
+                "refresh resources",
+            )
+            .await;
+            let page = match result {
+                Ok(ServerResult::ListResourcesResult(page)) => page,
+                Ok(_) => {
+                    self.publish_refresh_failure(
+                        "notifications/resources/list_changed",
+                        "unexpected resources response",
+                    )
                     .await;
-                return;
+                    return;
+                }
+                Err(error) => {
+                    self.publish_refresh_failure("notifications/resources/list_changed", error)
+                        .await;
+                    return;
+                }
+            };
+            resources.extend(page.resources);
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
             }
-        };
-        let templates = match templates {
-            Ok(templates) => templates,
-            Err(error) => {
-                self.publish_refresh_failure("notifications/resources/list_changed", error)
+        }
+        let mut templates = Vec::new();
+        let mut cursor = None;
+        loop {
+            let result = send_protocol_request(
+                peer,
+                self.instance_id,
+                ClientRequest::ListResourceTemplatesRequest(
+                    ListResourceTemplatesRequest::with_param(
+                        PaginatedRequestParams::default().with_cursor(cursor),
+                    ),
+                ),
+                "refresh resource templates",
+            )
+            .await;
+            let page = match result {
+                Ok(ServerResult::ListResourceTemplatesResult(page)) => page,
+                Ok(_) => {
+                    self.publish_refresh_failure(
+                        "notifications/resources/list_changed",
+                        "unexpected resource templates response",
+                    )
                     .await;
-                return;
+                    return;
+                }
+                Err(error) => {
+                    self.publish_refresh_failure("notifications/resources/list_changed", error)
+                        .await;
+                    return;
+                }
+            };
+            templates.extend(page.resource_templates);
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
             }
-        };
+        }
         let resources = match resources
             .into_iter()
             .map(|resource| {
@@ -240,11 +319,25 @@ impl McpStoreClientHandler {
     }
 
     async fn refresh_resource(&self, uri: String, peer: &Peer<RoleClient>) {
-        let result = match peer
-            .read_resource(ReadResourceRequestParams::new(uri.clone()))
-            .await
+        let result = match send_protocol_request(
+            peer,
+            self.instance_id,
+            ClientRequest::ReadResourceRequest(ReadResourceRequest::new(
+                ReadResourceRequestParams::new(uri.clone()),
+            )),
+            "refresh resource",
+        )
+        .await
         {
-            Ok(result) => result,
+            Ok(ServerResult::ReadResourceResult(result)) => result,
+            Ok(_) => {
+                self.publish_refresh_failure(
+                    "notifications/resources/updated",
+                    "unexpected resource response",
+                )
+                .await;
+                return;
+            }
             Err(error) => {
                 self.publish_refresh_failure("notifications/resources/updated", error)
                     .await;
@@ -276,14 +369,40 @@ impl McpStoreClientHandler {
     }
 
     async fn refresh_prompts(&self, peer: &Peer<RoleClient>) {
-        let prompts = match peer.list_all_prompts().await {
-            Ok(prompts) => prompts,
-            Err(error) => {
-                self.publish_refresh_failure("notifications/prompts/list_changed", error)
+        let mut prompts = Vec::new();
+        let mut cursor = None;
+        loop {
+            let result = send_protocol_request(
+                peer,
+                self.instance_id,
+                ClientRequest::ListPromptsRequest(ListPromptsRequest::with_param(
+                    PaginatedRequestParams::default().with_cursor(cursor),
+                )),
+                "refresh prompts",
+            )
+            .await;
+            let page = match result {
+                Ok(ServerResult::ListPromptsResult(page)) => page,
+                Ok(_) => {
+                    self.publish_refresh_failure(
+                        "notifications/prompts/list_changed",
+                        "unexpected prompts response",
+                    )
                     .await;
-                return;
+                    return;
+                }
+                Err(error) => {
+                    self.publish_refresh_failure("notifications/prompts/list_changed", error)
+                        .await;
+                    return;
+                }
+            };
+            prompts.extend(page.prompts);
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
             }
-        };
+        }
         let prompts = match prompts
             .into_iter()
             .map(|prompt| {

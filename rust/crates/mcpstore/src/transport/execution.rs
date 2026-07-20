@@ -306,7 +306,7 @@ fn execution_from_response(
     }
 }
 
-fn map_service_error(
+pub(crate) fn map_service_error(
     instance_id: InstanceId,
     operation: &str,
     error: rmcp::ServiceError,

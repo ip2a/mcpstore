@@ -1,16 +1,45 @@
 use std::collections::{BTreeMap, HashMap};
+use std::time::Duration;
 
 use rmcp::model::{
-    CompletionContext, CompletionInfo, InitializeResult, SubscribeRequestParams,
-    UnsubscribeRequestParams,
+    ArgumentInfo, ClientRequest, CompleteRequest, CompleteRequestParams, CompletionContext,
+    CompletionInfo, InitializeResult, Reference, ServerResult, SubscribeRequest,
+    SubscribeRequestParams, UnsubscribeRequest, UnsubscribeRequestParams,
 };
 #[allow(deprecated)]
-use rmcp::model::{LoggingLevel, SetLevelRequestParams};
+use rmcp::model::{LoggingLevel, SetLevelRequest, SetLevelRequestParams};
+use rmcp::service::{Peer, PeerRequestOptions, RoleClient};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
+use crate::transport::execution::map_service_error;
 use crate::transport::{Result, TransportError};
+
+#[cfg(not(test))]
+const PROTOCOL_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const PROTOCOL_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
+
+pub(crate) async fn send_protocol_request(
+    peer: &Peer<RoleClient>,
+    instance_id: InstanceId,
+    request: ClientRequest,
+    operation: &str,
+) -> Result<ServerResult> {
+    let handle = peer
+        .send_cancellable_request(
+            request,
+            PeerRequestOptions::with_timeout(PROTOCOL_REQUEST_TIMEOUT),
+        )
+        .await
+        .map_err(|error| map_service_error(instance_id, operation, error))?;
+    handle
+        .await_response()
+        .await
+        .map_err(|error| map_service_error(instance_id, operation, error))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -188,33 +217,34 @@ impl McpConnection {
         self.require_capability("completions", |info| {
             info.capabilities.completions.is_some()
         })?;
-        let client = self.get_client()?;
         let context = (!request.context.is_empty())
             .then(|| CompletionContext::with_arguments(request.context));
-        let result = match request.reference {
-            McpCompletionReference::Prompt { name } => {
-                client
-                    .complete_prompt_argument(name, request.argument_name, request.value, context)
-                    .await
-            }
+        let reference = match request.reference {
+            McpCompletionReference::Prompt { name } => Reference::for_prompt(name),
             McpCompletionReference::Resource { uri_template } => {
-                client
-                    .complete_resource_argument(
-                        uri_template,
-                        request.argument_name,
-                        request.value,
-                        context,
-                    )
-                    .await
+                Reference::for_resource(uri_template)
             }
         };
-        match result {
-            Ok(completion) => Ok(completion.into()),
-            Err(error) => Err(self
-                .classify_client_failure(TransportError::Protocol(format!(
-                    "completion failed: {error}"
-                )))
-                .await),
+        let mut params = CompleteRequestParams::new(
+            reference,
+            ArgumentInfo::new(request.argument_name, request.value),
+        );
+        if let Some(context) = context {
+            params = params.with_context(context);
+        }
+        match send_protocol_request(
+            self.get_client()?,
+            self.instance_id(),
+            ClientRequest::CompleteRequest(CompleteRequest::new(params)),
+            "completion",
+        )
+        .await
+        {
+            Ok(ServerResult::CompleteResult(result)) => Ok(result.completion.into()),
+            Ok(_) => Err(TransportError::Protocol(
+                "completion returned an unexpected response".to_string(),
+            )),
+            Err(error) => Err(self.classify_client_failure(error).await),
         }
     }
 
@@ -262,14 +292,21 @@ impl McpConnection {
                 .and_then(|value| value.subscribe)
                 == Some(true)
         })?;
-        let client = self.get_client()?;
-        match client.subscribe(SubscribeRequestParams::new(uri)).await {
-            Ok(()) => Ok(()),
-            Err(error) => Err(self
-                .classify_client_failure(TransportError::Protocol(format!(
-                    "resource subscribe failed: {error}"
-                )))
-                .await),
+        match send_protocol_request(
+            self.get_client()?,
+            self.instance_id(),
+            ClientRequest::SubscribeRequest(SubscribeRequest::new(SubscribeRequestParams::new(
+                uri,
+            ))),
+            "resource subscribe",
+        )
+        .await
+        {
+            Ok(ServerResult::EmptyResult(_)) => Ok(()),
+            Ok(_) => Err(TransportError::Protocol(
+                "resource subscribe returned an unexpected response".to_string(),
+            )),
+            Err(error) => Err(self.classify_client_failure(error).await),
         }
     }
 
@@ -281,14 +318,21 @@ impl McpConnection {
                 .and_then(|value| value.subscribe)
                 == Some(true)
         })?;
-        let client = self.get_client()?;
-        match client.unsubscribe(UnsubscribeRequestParams::new(uri)).await {
-            Ok(()) => Ok(()),
-            Err(error) => Err(self
-                .classify_client_failure(TransportError::Protocol(format!(
-                    "resource unsubscribe failed: {error}"
-                )))
-                .await),
+        match send_protocol_request(
+            self.get_client()?,
+            self.instance_id(),
+            ClientRequest::UnsubscribeRequest(UnsubscribeRequest::new(
+                UnsubscribeRequestParams::new(uri),
+            )),
+            "resource unsubscribe",
+        )
+        .await
+        {
+            Ok(ServerResult::EmptyResult(_)) => Ok(()),
+            Ok(_) => Err(TransportError::Protocol(
+                "resource unsubscribe returned an unexpected response".to_string(),
+            )),
+            Err(error) => Err(self.classify_client_failure(error).await),
         }
     }
 
@@ -305,14 +349,19 @@ impl McpConnection {
             McpLoggingLevel::Alert => LoggingLevel::Alert,
             McpLoggingLevel::Emergency => LoggingLevel::Emergency,
         };
-        let client = self.get_client()?;
-        match client.set_level(SetLevelRequestParams::new(level)).await {
-            Ok(()) => Ok(()),
-            Err(error) => Err(self
-                .classify_client_failure(TransportError::Protocol(format!(
-                    "set logging level failed: {error}"
-                )))
-                .await),
+        match send_protocol_request(
+            self.get_client()?,
+            self.instance_id(),
+            ClientRequest::SetLevelRequest(SetLevelRequest::new(SetLevelRequestParams::new(level))),
+            "set logging level",
+        )
+        .await
+        {
+            Ok(ServerResult::EmptyResult(_)) => Ok(()),
+            Ok(_) => Err(TransportError::Protocol(
+                "set logging level returned an unexpected response".to_string(),
+            )),
+            Err(error) => Err(self.classify_client_failure(error).await),
         }
     }
 
@@ -403,6 +452,7 @@ mod tests {
     struct ProtocolServer {
         calls: Arc<Mutex<Vec<ProtocolCall>>>,
         capabilities: ServerCapabilities,
+        complete_delay: Option<Duration>,
     }
 
     impl ProtocolServer {
@@ -423,6 +473,9 @@ mod tests {
             request: CompleteRequestParams,
             _context: RequestContext<RoleServer>,
         ) -> std::result::Result<CompleteResult, rmcp::ErrorData> {
+            if let Some(delay) = self.complete_delay {
+                tokio::time::sleep(delay).await;
+            }
             let reference = request
                 .r#ref
                 .as_prompt_name()
@@ -703,6 +756,7 @@ mod tests {
         let server_handler = ProtocolServer {
             calls: calls.clone(),
             capabilities,
+            complete_delay: None,
         };
         let handler =
             McpStoreClientHandler::new(instance_id, ServiceRegistry::new(), EventBus::new());
@@ -716,6 +770,44 @@ mod tests {
             server,
             calls,
         )
+    }
+
+    async fn connect_slow_completion_fixture(
+    ) -> (McpConnection, RunningService<RoleServer, ProtocolServer>) {
+        let instance_id =
+            ServiceInstanceKey::new("slow-protocol-fixture", ScopeRef::Store).instance_id();
+        let server_handler = ProtocolServer {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            capabilities: ServerCapabilities::builder().enable_completions().build(),
+            complete_delay: Some(Duration::from_secs(1)),
+        };
+        let handler =
+            McpStoreClientHandler::new(instance_id, ServiceRegistry::new(), EventBus::new());
+        let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
+        let server_start =
+            tokio::spawn(async move { server_handler.serve(server_transport).await.unwrap() });
+        let client = handler.clone().serve(client_transport).await.unwrap();
+        let server = server_start.await.unwrap();
+        (
+            McpConnection::from_test_client(instance_id, client, handler),
+            server,
+        )
+    }
+
+    #[tokio::test]
+    async fn ordinary_protocol_requests_timeout_through_rmcp_request_handle() {
+        let (mut connection, server) = connect_slow_completion_fixture().await;
+        let error = connection
+            .complete_prompt_argument("review", "language", "r", HashMap::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            TransportError::RequestTimedOut { timeout }
+                if timeout == PROTOCOL_REQUEST_TIMEOUT
+        ));
+        connection.disconnect().await.unwrap();
+        server.cancel().await.unwrap();
     }
 
     fn assert_unsupported<T>(result: Result<T>, expected: &'static str) {
