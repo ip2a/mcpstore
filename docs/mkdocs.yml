@@ -159,63 +159,22 @@ markdown_extensions:
 # Navigation
 nav:
   - 首页: index.md
-
-  - 快速开始:
-      - 快速开始: quickstart.md
-      - 构建Store: store/overview.md
-      - Store 代理对象: services/service-proxy.md
-      - 缓存空间: architecture/cache-architecture.md
-
-  - 服务管理:
-      - 服务概览: services/overview.md
-      - 添加服务: services/add-service.md
-      - 聚合服务: hub/services.md
-      - 服务列表: services/list-services.md
-      - 健康检查: services/check-health.md
-      - 配置显示: services/show-config.md
-      - 更新服务: services/update-service.md
-      - 增量更新: services/patch-service.md
-      - 重启服务: services/restart-service.md
-      - 删除服务: services/delete-service.md
-
-  - 三大原语:
-      - Prompt:
-          - 列出 Prompt: prompts/list-prompts.md
-          - 获取 Prompt: prompts/get-prompt.md
-      - Resource:
-          - 列出资源: resources/list-resources.md
-          - 读取资源: resources/read-resource.md
-      - Tool:
-          - 工具概览: tools/overview.md
-          - 列出工具: tools/list-tools.md
-          - 查找工具: tools/find-tool.md
-          - 调用工具: tools/call-tool.md
-          - 工具信息: tools/tool-info.md
-          - 路由策略: tools/tool-tags.md
-          - 代理与重定向: tools/tool-proxy.md
-
-  - Agent 管理:
-      - 构建 Agent: integrations/overview.md
-      - 状态信息: store/get-info.md
-      - Agent 代理对象: services/service-proxy.md
-
-  - API 参考:
-      - 响应结构: api/response.md
-      - API 文档: api/apis.md
-      - 项目结合: api/integration.md
-      - 缓存配置: api/cache-config.md
-      - 缓存配置参考: api/cache-config-reference.md
-
-  - CLI 使用:
-      - CLI 命令: cli/commands.md
-
-  - 会话管理:
-      - Sessions: session/sessions.md
-
-  - 开发与维护:
-      - 开发指南: development.md
-      - 测试指南: testing.md
-      - 故障排查: troubleshooting.md
-
-  - SDK示例:
-      - 标准链路: examples/cache-config-examples.md
+  - 认识 MCPStore:
+      - MCPStore 是什么: concepts/overview.md
+      - 使用关系: concepts/connections.md
+  - 管理 MCP 服务:
+      - 管理概览: management/overview.md
+  - 本地使用:
+      - CLI 与 TUI: clients/local.md
+      - 桌面端与 Web: clients/desktop.md
+  - 集成到代码:
+      - 集成概览: integration/overview.md
+      - Rust: integration/rust.md
+      - Python: integration/python.md
+  - 远程使用:
+      - 连接远程 MCPStore: remote/overview.md
+  - 参考:
+      - 参考概览: reference/overview.md
+      - CLI: reference/cli.md
+      - 配置: reference/config.md
+  - 故障排查: troubleshooting/overview.md
