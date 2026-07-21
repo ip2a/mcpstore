@@ -25,5 +25,5 @@ uv run mkdocs build --strict -f mkdocs.yml
 - [x] 中文使用者文档骨架
 - [x] 以“管理 MCP 服务”为主线
 - [x] 预留本地、远程、CLI、TUI、桌面端、Web、Rust、Python 使用路径
-- [ ] 补充各入口的真实安装和操作步骤
+- [x] 补充 CLI、TUI、Web、远程 API、Python 的真实基础流程
 - [ ] 补充英文目录

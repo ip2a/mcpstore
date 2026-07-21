@@ -159,11 +159,13 @@ markdown_extensions:
 # Navigation
 nav:
   - 首页: index.md
+  - 快速开始: start/quickstart.md
   - 认识 MCPStore:
       - MCPStore 是什么: concepts/overview.md
       - 使用关系: concepts/connections.md
   - 管理 MCP 服务:
       - 管理概览: management/overview.md
+      - 服务管理任务: management/tasks.md
   - 本地使用:
       - CLI 与 TUI: clients/local.md
       - 桌面端与 Web: clients/desktop.md

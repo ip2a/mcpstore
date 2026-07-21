@@ -1,15 +1,33 @@
 # Python 集成
 
-Python 是 MCPStore 的用户门面，底层能力通过 Rust 提供。
+Python 是 MCPStore 的用户门面，底层能力由 Rust 提供。适合把 MCP 服务管理和工具发现嵌入 Python 项目。
 
-## 最小流程
+## 初始化
 
 ```python
-# 具体 API 以当前 Python 包版本为准
-# 1. 创建或连接 MCPStore
-# 2. 添加或读取 MCP 服务
-# 3. 查询服务状态
-# 4. 发现或调用服务能力
+from mcpstore import MCPStore
+
+store = MCPStore.setup_store(mcpjson_path="./mcp.json")
 ```
 
-Python 文档与 Rust 文档按功能对应，避免维护两套不同的概念说明。
+## 添加并等待服务
+
+```python
+store.for_store().add_service(
+    {
+        "mcpServers": {
+            "mcpstore-wiki": {"url": "https://example.com/mcp"}
+        }
+    }
+)
+store.for_store().wait_service("mcpstore-wiki")
+```
+
+## 查看和调用能力
+
+```python
+services = store.for_store().list_services()
+tools = store.for_store().list_tools()
+```
+
+Python 页面按功能与 Rust 能力对应；Python 特有的是门面调用方式，不是另一套运行时。
