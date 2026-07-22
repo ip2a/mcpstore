@@ -196,6 +196,8 @@ async fn write_browser_response(stream: &mut TcpStream, success: bool) -> Result
 #[cfg(test)]
 mod tests {
     use super::{parse_callback_request, LocalCallbackListener};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
     use url::Url;
 
     #[test]
@@ -220,6 +222,34 @@ mod tests {
             "GET /oauth/callback?code=abc HTTP/1.1\r\n\r\n",
         )
         .is_err());
+    }
+
+    #[tokio::test]
+    async fn callback_listener_receives_browser_redirect() {
+        let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+
+        let listener =
+            LocalCallbackListener::bind(&format!("http://127.0.0.1:{port}/oauth/callback"))
+                .await
+                .unwrap();
+        let callback_task = tokio::spawn(listener.wait(2));
+
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        stream
+            .write_all(
+                b"GET /oauth/callback?code=abc&state=xyz HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+
+        let callback = callback_task.await.unwrap().unwrap();
+        assert_eq!(callback.code, "abc");
+        assert_eq!(callback.state, "xyz");
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
     }
 
     #[tokio::test]
