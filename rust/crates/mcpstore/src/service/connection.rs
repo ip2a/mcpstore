@@ -219,6 +219,13 @@ impl MCPStore {
             )
             .await;
 
+        self.ensure_http_oauth_config(instance_id).await?;
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+
         let connect_timeout = std::time::Duration::from_secs(
             self.runtime_config
                 .connect_timeout_secs

@@ -147,16 +147,6 @@ fn auth_config_rejects_incomplete_or_empty_declarations() {
     let invalid = [
         serde_json::json!({
             "type": "oauth_authorization_code",
-            "client_id": "client-1",
-            "redirect_uri": " "
-        }),
-        serde_json::json!({
-            "type": "oauth_authorization_code",
-            "redirect_uri": "http://127.0.0.1:8787/oauth/callback"
-        }),
-        serde_json::json!({
-            "type": "oauth_authorization_code",
-            "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
             "dynamic_client_registration": true,
             "scopes": [""]
         }),
@@ -174,14 +164,21 @@ fn auth_config_rejects_incomplete_or_empty_declarations() {
     for value in invalid {
         assert!(serde_json::from_value::<AuthConfig>(value).is_err());
     }
+}
 
-    let dynamic: AuthConfig = serde_json::from_value(serde_json::json!({
+#[test]
+fn authorization_code_defaults_to_local_callback_and_dynamic_registration() {
+    let config: AuthConfig = serde_json::from_value(serde_json::json!({
         "type": "oauth_authorization_code",
-        "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
-        "dynamic_client_registration": true
+        "redirect_uri": " "
     }))
     .unwrap();
-    assert!(matches!(dynamic, AuthConfig::OAuthAuthorizationCode(_)));
+
+    let AuthConfig::OAuthAuthorizationCode(config) = config else {
+        panic!("expected authorization code config");
+    };
+    assert_eq!(config.redirect_uri, DEFAULT_OAUTH_REDIRECT_URI);
+    assert!(config.dynamic_client_registration);
 }
 
 #[test]
