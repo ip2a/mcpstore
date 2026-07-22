@@ -28,11 +28,13 @@ pub mod transport;
 
 // Facade re-exports: configuration
 pub use auth::{
-    AuthConfig, AuthCredentialKey, AuthError, AuthFlow, AuthRequired, AuthStatus, AuthStatusView,
+    default_oauth_redirect_uri, http_endpoint_requires_oauth,
+    inferred_oauth_authorization_code_config, minimal_oauth_authorization_code_config, AuthConfig,
+    AuthCredentialKey, AuthError, AuthFlow, AuthRequired, AuthStatus, AuthStatusView,
     AuthorizationCodeClientAuthMethod, AuthorizationStart, ClientCredentialsAuthMethod,
     ClientSecret, JwtSigningAlgorithm, KeyringClientSecretStore, KeyringCredentialStore,
-    KeyringPrivateKeyStore, KeyringStateStore, OAuthAuthorizationCodeConfig,
-    OAuthClientCredentialsConfig, PrivateKey,
+    KeyringPrivateKeyStore, KeyringStateStore, LocalCallbackListener, OAuthAuthorizationCodeConfig,
+    OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{AppConfig, CacheBackend, CacheConfig, ConfigManager, McpConfig, ServerConfig};
 
