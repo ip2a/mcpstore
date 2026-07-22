@@ -47,8 +47,10 @@ pub fn inferred_oauth_authorization_code_config() -> AuthConfig {
 #[cfg(test)]
 mod tests {
     use http::HeaderMap;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
-    use super::has_bearer_challenge;
+    use super::{has_bearer_challenge, http_endpoint_requires_oauth};
 
     #[test]
     fn bearer_challenge_is_required_for_oauth_detection() {
@@ -68,5 +70,24 @@ mod tests {
                 .unwrap(),
         );
         assert!(has_bearer_challenge(&headers));
+    }
+
+    #[tokio::test]
+    async fn protected_http_endpoint_is_detected_from_its_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer realm=\"mcp\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+        });
+
+        assert!(http_endpoint_requires_oauth(&format!("http://{address}/mcp")).await);
     }
 }
