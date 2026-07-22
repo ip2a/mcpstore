@@ -250,10 +250,14 @@ impl AuthCoordinator {
         let result = async {
             let key = credential_key(instance_id, base_url, auth)?;
             let mut manager = self.new_manager(base_url, &key).await?;
-            let metadata = manager
-                .discover_metadata()
-                .await
-                .map_err(|_| AuthError::AuthorizationStartFailed)?;
+            let metadata = manager.discover_metadata().await.map_err(|error| {
+                tracing::warn!(
+                    instance_id = %instance_id,
+                    error = %error,
+                    "OAuth metadata discovery failed"
+                );
+                AuthError::AuthorizationStartFailed
+            })?;
             validate_authorization_code_client_auth_method(
                 config.client_auth_method.clone(),
                 &metadata,
@@ -296,7 +300,14 @@ impl AuthCoordinator {
                     None,
                 )
                 .await
-                .map_err(|_| AuthError::AuthorizationStartFailed)?
+                .map_err(|error| {
+                    tracing::warn!(
+                        instance_id = %instance_id,
+                        error = %error,
+                        "OAuth dynamic client registration failed"
+                    );
+                    AuthError::AuthorizationStartFailed
+                })?
             };
 
             let authorization_url = session.get_authorization_url().to_string();
