@@ -27,7 +27,7 @@ export async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const message =
       body?.message || body?.errors?.[0]?.message || response.statusText;
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, body?.errors?.[0]?.code);
   }
   return body as T;
 }
@@ -60,6 +60,7 @@ export async function api<T>(
       throw new ApiError(
         envelope.errors?.[0]?.message || envelope.message,
         200,
+        envelope.errors?.[0]?.code,
       );
     return envelope.data as T;
   }
@@ -92,6 +93,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(
       payload.errors?.[0]?.message || payload.message,
       response.status,
+      payload.errors?.[0]?.code,
     );
   }
   return payload.data as T;

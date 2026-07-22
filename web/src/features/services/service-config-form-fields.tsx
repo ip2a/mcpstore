@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 import { FieldCollapsible } from "@/components/shared/field-collapsible"
 import { KeyValuePairsEditor } from "@/components/shared/key-value-pairs-editor"
 import { StringListEditor } from "@/components/shared/string-list-editor"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { useI18n } from "@/lib/i18n-context"
@@ -105,6 +105,24 @@ export function ServiceConfigFormFields({
               onChange={(headersText) => updateFields({ headersText })}
             />
           </FieldCollapsible>
+
+          <Field className="gap-2">
+            <div className="flex items-start gap-3">
+              <input
+                id="config-oauth-enabled"
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0 rounded border border-input accent-primary"
+                checked={fields.oauthEnabled}
+                onChange={(event) => updateFields({ oauthEnabled: event.target.checked })}
+              />
+              <div className="grid gap-1">
+                <FieldLabel htmlFor="config-oauth-enabled" className="font-normal">
+                  {t("oauthEnabled")}
+                </FieldLabel>
+                <FieldDescription>{t("oauthEnabledHint")}</FieldDescription>
+              </div>
+            </div>
+          </Field>
         </>
       )}
 

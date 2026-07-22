@@ -1,11 +1,15 @@
+import { toast } from "sonner"
+
 import {
   checkInstance,
   connectInstance,
   disconnectInstance,
   removeServiceScope,
   restartInstance,
+  ApiError,
   type ServiceInstance,
 } from "@/lib/api"
+import { useI18n } from "@/lib/i18n-context"
 
 type RunAction = (
   label: string,
@@ -22,6 +26,8 @@ export function useServiceActions({
   runAction: RunAction
   services: ServiceInstance[]
 }) {
+  const { t } = useI18n()
+
   function checkAllServices() {
     return runAction("check:instances", () => Promise.all(services.map((service) => checkInstance(service.instance_id))))
   }
@@ -29,7 +35,16 @@ export function useServiceActions({
   function connectServiceEntry(service: ServiceInstance) {
     return runAction(
       `connect:${service.instance_id}`,
-      () => connectInstance(service.instance_id),
+      async () => {
+        try {
+          await connectInstance(service.instance_id)
+        } catch (error) {
+          if (error instanceof ApiError && error.code === "AUTH_REQUIRED") {
+            toast.info(t("oauthConnectLoginRequired"))
+          }
+          throw error
+        }
+      },
       () => refreshInstanceQueries(service.instance_id, service.scope),
     )
   }

@@ -14,6 +14,7 @@ export type ServiceConfigFields = {
   workingDir: string
   envText: string
   headersText: string
+  oauthEnabled: boolean
 }
 
 export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
@@ -25,6 +26,7 @@ export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
   workingDir: "",
   envText: "",
   headersText: "",
+  oauthEnabled: false,
 }
 
 const TRANSPORTS = new Set<ServiceConfigTransport>(["stdio", "streamable-http"])
@@ -82,10 +84,23 @@ export function fieldsToConfig(fields: ServiceConfigFields): Record<string, unkn
   const headers = parseKvLines(fields.headersText)
   if (fields.url.trim()) config.url = fields.url.trim()
   if (Object.keys(headers).length) config.headers = headers
+  if (fields.oauthEnabled) {
+    config.auth = {
+      type: "oauth_authorization_code",
+      dynamic_client_registration: true,
+    }
+  }
   return config
 }
 
 export function configToFields(config: Record<string, unknown>): ServiceConfigFields {
+  const auth = config.auth
+  const oauthEnabled =
+    typeof auth === "object" &&
+    auth !== null &&
+    !Array.isArray(auth) &&
+    (auth as Record<string, unknown>).type === "oauth_authorization_code"
+
   return {
     transport: normalizeTransport(config.transport),
     command: String(config.command || ""),
@@ -95,6 +110,7 @@ export function configToFields(config: Record<string, unknown>): ServiceConfigFi
     workingDir: String(config.workingDir || ""),
     envText: formatKvText(config.env as Record<string, unknown> | undefined),
     headersText: formatKvText(config.headers as Record<string, unknown> | undefined),
+    oauthEnabled,
   }
 }
 
