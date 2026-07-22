@@ -1,5 +1,26 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
+/// Default OAuth redirect URI for browser login flows (CLI and API listener).
+pub const DEFAULT_OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:8787/oauth/callback";
+
+pub fn default_oauth_redirect_uri() -> String {
+    DEFAULT_OAUTH_REDIRECT_URI.to_string()
+}
+
+/// Minimal Authorization Code config: DCR + default redirect, no scopes pre-filled.
+pub fn minimal_oauth_authorization_code_config() -> AuthConfig {
+    AuthConfig::OAuthAuthorizationCode(OAuthAuthorizationCodeConfig {
+        client_id: None,
+        redirect_uri: default_oauth_redirect_uri(),
+        scopes: Vec::new(),
+        resource: None,
+        audience: None,
+        credential_profile: None,
+        dynamic_client_registration: true,
+        client_auth_method: AuthorizationCodeClientAuthMethod::None,
+    })
+}
+
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthConfig {
@@ -28,7 +49,10 @@ impl<'de> Deserialize<'de> for AuthConfig {
     {
         let config = match AuthConfigInput::deserialize(deserializer)? {
             AuthConfigInput::None => Self::None,
-            AuthConfigInput::OAuthAuthorizationCode(config) => Self::OAuthAuthorizationCode(config),
+            AuthConfigInput::OAuthAuthorizationCode(mut config) => {
+                config.normalize();
+                Self::OAuthAuthorizationCode(config)
+            }
             AuthConfigInput::OAuthClientCredentials(config) => Self::OAuthClientCredentials(config),
         };
         config.validate().map_err(serde::de::Error::custom)?;
@@ -77,6 +101,8 @@ impl AuthConfig {
         match self {
             Self::None => Ok(()),
             Self::OAuthAuthorizationCode(config) => {
+                let mut config = config.clone();
+                config.normalize();
                 require_non_empty("auth.redirect_uri", &config.redirect_uri)?;
                 if let Some(client_id) = &config.client_id {
                     require_non_empty("auth.client_id", client_id)?;
@@ -147,6 +173,7 @@ fn require_non_empty(field: &str, value: &str) -> Result<(), String> {
 pub struct OAuthAuthorizationCodeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
+    #[serde(default = "default_oauth_redirect_uri")]
     pub redirect_uri: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes: Vec<String>,
@@ -160,6 +187,17 @@ pub struct OAuthAuthorizationCodeConfig {
     pub dynamic_client_registration: bool,
     #[serde(default)]
     pub client_auth_method: AuthorizationCodeClientAuthMethod,
+}
+
+impl OAuthAuthorizationCodeConfig {
+    pub fn normalize(&mut self) {
+        if self.redirect_uri.trim().is_empty() {
+            self.redirect_uri = default_oauth_redirect_uri();
+        }
+        if self.client_id.is_none() && !self.dynamic_client_registration {
+            self.dynamic_client_registration = true;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

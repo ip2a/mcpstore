@@ -34,6 +34,7 @@ axum = { version = "0.7", optional = true }
 http = "1"
 iri-string = "0.7.12"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }
+url = "2.5"
 futures = "0.3"
 sse-stream = "0.2.4"
 base64 = "0.22"

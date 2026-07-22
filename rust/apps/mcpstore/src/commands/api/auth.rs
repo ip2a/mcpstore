@@ -3,7 +3,10 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use mcpstore::{InstanceId, LocalCallbackListener, MCPStore};
 use serde::Deserialize;
+
+const OAUTH_CALLBACK_TIMEOUT_SECS: u64 = 300;
 
 #[derive(Deserialize)]
 pub(super) struct AuthCallbackQuery {
@@ -56,11 +59,23 @@ pub(super) async fn store_auth_start(
         .map_err(ApiError::from_store)?;
     match auth.flow {
         Some(AuthFlow::AuthorizationCode) => {
+            let callback_uri = state
+                .store
+                .authorization_callback_uri(instance_id)
+                .await
+                .map_err(ApiError::from_store)?
+                .ok_or_else(|| {
+                    ApiError::invalid_request("Authorization Code flow has no callback URI")
+                })?;
+            let listener = LocalCallbackListener::bind(&callback_uri)
+                .await
+                .map_err(ApiError::invalid_request)?;
             let authorization = state
                 .store
                 .begin_authorization(instance_id)
                 .await
                 .map_err(ApiError::from_store)?;
+            spawn_oauth_callback_task(state.store.clone(), instance_id, listener);
             let auth = state
                 .store
                 .auth_status_view(instance_id)
@@ -214,11 +229,23 @@ pub(super) async fn store_auth_scope_upgrade(
     Path(instance_id): Path<InstanceId>,
     Json(payload): Json<AuthScopeUpgradeRequest>,
 ) -> ApiResult {
+    let callback_uri = state
+        .store
+        .authorization_callback_uri(instance_id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::invalid_request("Scope upgrade requires Authorization Code authentication")
+        })?;
+    let listener = LocalCallbackListener::bind(&callback_uri)
+        .await
+        .map_err(ApiError::invalid_request)?;
     let authorization = state
         .store
         .begin_scope_upgrade(instance_id, &payload.required_scope)
         .await
         .map_err(ApiError::from_store)?;
+    spawn_oauth_callback_task(state.store.clone(), instance_id, listener);
     let auth = state
         .store
         .auth_status_view(instance_id)
@@ -228,6 +255,42 @@ pub(super) async fn store_auth_scope_upgrade(
         "权限范围升级授权已开始",
         json!({ "auth": auth, "authorization": authorization }),
     ))
+}
+
+fn spawn_oauth_callback_task(
+    store: Arc<MCPStore>,
+    instance_id: InstanceId,
+    listener: LocalCallbackListener,
+) {
+    tokio::spawn(async move {
+        let callback = match listener.wait(OAUTH_CALLBACK_TIMEOUT_SECS).await {
+            Ok(callback) => callback,
+            Err(error) => {
+                tracing::warn!(
+                    "OAuth callback listener failed for instance {instance_id}: {error}"
+                );
+                return;
+            }
+        };
+        if store
+            .complete_authorization_callback(
+                instance_id,
+                &callback.code,
+                &callback.state,
+                callback.issuer.as_deref(),
+            )
+            .await
+            .is_err()
+        {
+            return;
+        }
+        store.disconnect_service(instance_id).await.ok();
+        if let Err(error) = store.connect_service(instance_id).await {
+            tracing::warn!(
+                "Reconnect after OAuth callback failed for instance {instance_id}: {error}"
+            );
+        }
+    });
 }
 
 pub(super) async fn reconnect_authorized_service(

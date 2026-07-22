@@ -317,3 +317,70 @@ fn required_auth_base_url(instance_id: InstanceId, config: &ServerConfig) -> Res
         )))
     })
 }
+
+impl MCPStore {
+    pub(crate) async fn ensure_http_oauth_config(&self, instance_id: InstanceId) -> Result<()> {
+        let instance = self
+            .registry
+            .find_instance(instance_id)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+
+        let server_config: ServerConfig =
+            serde_json::from_value(serde_json::Value::Object(instance.effective_config.clone()))
+                .map_err(|error| {
+                    StoreError::Other(format!(
+                        "Effective config for instance {instance_id} cannot be decoded: {error}"
+                    ))
+                })?;
+
+        if !server_config.auth.is_none() {
+            return Ok(());
+        }
+
+        let transport = server_config.infer_transport();
+        if transport != "streamable-http" && transport != "http" {
+            return Ok(());
+        }
+
+        let Some(url) = server_config
+            .url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(());
+        };
+
+        if !super::discovery::http_endpoint_requires_oauth(url).await {
+            return Ok(());
+        }
+
+        let auth = super::discovery::inferred_oauth_authorization_code_config();
+        let auth_value = serde_json::to_value(&auth).map_err(|error| {
+            StoreError::Other(format!(
+                "Discovered OAuth config cannot be encoded: {error}"
+            ))
+        })?;
+        self.patch_service(
+            &instance.service_name,
+            serde_json::json!({ "auth": auth_value }),
+        )
+        .await?;
+
+        self.event_bus
+            .publish(
+                crate::events::Event::new(
+                    "OAUTH_CONFIG_DISCOVERED",
+                    serde_json::json!({
+                        "instance_id": instance_id,
+                        "service_name": instance.service_name,
+                        "scope": instance.scope,
+                    }),
+                ),
+                true,
+            )
+            .await;
+        Ok(())
+    }
+}
