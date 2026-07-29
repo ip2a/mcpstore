@@ -2,11 +2,13 @@ use serde::Serialize;
 
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::ServiceInstance;
+use crate::state::ServiceState;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ScopedServiceEntry {
     pub instance: ServiceInstance,
     pub tool_count: usize,
+    pub state: ServiceState,
 }
 
 #[derive(Debug, Clone, Serialize)]

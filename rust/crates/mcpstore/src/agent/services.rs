@@ -26,15 +26,17 @@ impl MCPStore {
         &self,
         scope: &ScopeRef,
     ) -> Result<Vec<ScopedServiceEntry>> {
-        Ok(self
-            .list_scope_instances(scope)
-            .await?
-            .into_iter()
-            .map(|instance| ScopedServiceEntry {
+        let instances = self.list_scope_instances(scope).await?;
+        let mut services = Vec::with_capacity(instances.len());
+        for instance in instances {
+            let state = self.service_state_entry(instance.instance_id).await?;
+            services.push(ScopedServiceEntry {
                 tool_count: instance.tools.len(),
                 instance,
-            })
-            .collect())
+                state,
+            });
+        }
+        Ok(services)
     }
 
     pub async fn service_info_scoped(&self, instance_id: InstanceId) -> Result<serde_json::Value> {
