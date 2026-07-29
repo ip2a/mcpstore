@@ -1,5 +1,5 @@
 """Session entry points."""
 
-from .session import RustSession, Session, SessionContext
+from .session import RustSession, Session
 
-__all__ = ["RustSession", "Session", "SessionContext"]
+__all__ = ["RustSession", "Session"]

@@ -89,6 +89,5 @@ class RustSession:
 
 
 Session = RustSession
-SessionContext = RustSession
 
-__all__ = ["RustSession", "Session", "SessionContext"]
+__all__ = ["RustSession", "Session"]
