@@ -44,6 +44,19 @@ class StoreContext:
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._native.list_services())
 
+    def find_service(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._native.find_service(
+                service_name=service_name,
+                instance_id=instance_id,
+            )
+        )
+
     def remove_service(
         self,
         *,
@@ -96,6 +109,9 @@ class StoreContext:
 
     def list_tools(self) -> List[Dict[str, Any]]:
         return _record_value(self._native.list_tools())
+
+    def find_tool(self, tool_name: str) -> Dict[str, Any]:
+        return _record_value(self._native.find_tool(tool_name))
 
     def call_tool(
         self, tool_name: str, args: Optional[Dict[str, Any]] = None

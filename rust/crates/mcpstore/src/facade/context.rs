@@ -108,6 +108,16 @@ impl ScopeContext {
         self.store.list_service_entries_scoped(&self.scope).await
     }
 
+    pub async fn find_service(&self, target: ServiceTarget<'_>) -> Result<ScopedServiceEntry> {
+        let (_, instance_id) = self.resolve_service(target).await?;
+        self.store
+            .list_service_entries_scoped(&self.scope)
+            .await?
+            .into_iter()
+            .find(|entry| entry.instance.instance_id == instance_id)
+            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))
+    }
+
     pub async fn remove_service(&self, target: ServiceTarget<'_>) -> Result<()> {
         let (service_name, _) = self.resolve_service(target).await?;
         self.store
@@ -168,22 +178,36 @@ impl ScopeContext {
         self.store.list_tool_entries_scoped(&self.scope).await
     }
 
+    pub async fn find_tool(&self, tool_name: &str) -> Result<ScopedToolEntry> {
+        self.resolve_tool_entry(tool_name).await
+    }
+
     pub async fn call_tool(&self, tool_name: &str, args: Value) -> Result<ToolCallResult> {
+        let tool = self.resolve_tool_entry(tool_name).await?;
+        self.store
+            .call_tool(tool.instance_id, &tool.tool_name, args)
+            .await
+    }
+
+    async fn resolve_tool_entry(&self, tool_name: &str) -> Result<ScopedToolEntry> {
         let tools = self.store.list_tool_entries_scoped(&self.scope).await?;
         let available_tools = tools
-            .into_iter()
+            .iter()
             .map(|tool| AvailableTool {
                 instance_id: tool.instance_id,
-                service_name: tool.service_name,
-                scope: tool.scope,
-                tool_name: tool.tool_name,
-                name: tool.name,
+                service_name: tool.service_name.clone(),
+                scope: tool.scope.clone(),
+                tool_name: tool.tool_name.clone(),
+                name: tool.name.clone(),
             })
             .collect::<Vec<_>>();
         let resolution = resolve_tool(tool_name, &available_tools)?;
-        self.store
-            .call_tool(resolution.instance_id, &resolution.tool_name, args)
-            .await
+        tools
+            .into_iter()
+            .find(|tool| {
+                tool.instance_id == resolution.instance_id && tool.tool_name == resolution.tool_name
+            })
+            .ok_or_else(|| StoreError::ServiceNotFound(resolution.tool_name))
     }
 }
 
