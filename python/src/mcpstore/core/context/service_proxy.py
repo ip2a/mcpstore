@@ -1,5 +1,5 @@
-"""Compatibility alias for the Rust-backed service proxy."""
+"""Compatibility alias for the historical service proxy module."""
 
-from mcpstore.core.store.rust_backend import RustServiceProxy as ServiceProxy
+from mcpstore.service import ServiceProxy
 
 __all__ = ["ServiceProxy"]
