@@ -202,7 +202,7 @@ class ToolTransformer:
     def _require_context(self) -> Any:
         if self._context is None:
             raise RuntimeError(
-                "ToolTransformer must be bound to a Rust-backed MCPStoreContext before use."
+                "ToolTransformer must be bound to a Rust-backed StoreContext before use."
             )
         return self._context
 
