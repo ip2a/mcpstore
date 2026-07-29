@@ -137,7 +137,7 @@ async fn session_context_create_or_get_wraps_rust_agent_session_flow() {
 
     let same_session = store.session("task-1").create_or_get().await.unwrap();
     assert_eq!(same_session.session_key(), session.session_key());
-    assert_eq!(same_session.list_services().await.unwrap().len(), 1);
+    assert_eq!(same_session.list_services().await.unwrap().len(), 2);
 
     let status = session.close_with_reason("done").await.unwrap();
     assert_eq!(status.status, SessionStatus::Closed);
@@ -986,32 +986,37 @@ async fn expired_session_rejects_extend_and_marks_status_expired() {
 async fn bind_and_unbind_service_updates_session_relation() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    let instance_id = register_tool_service(&store, "svc", ScopeRef::Store, &["echo"]).await;
+    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &["echo"]).await;
+    let beta = register_tool_service(&store, "beta", ScopeRef::Store, &["search"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
 
-    let relation = store
-        .bind_service_to_session(&session.session_key, instance_id)
+    let services = store
+        .list_session_services(&session.session_key)
         .await
         .unwrap();
-    assert_eq!(relation.services.len(), 1);
-    assert_eq!(relation.services[0].instance_id, instance_id);
-    assert_eq!(relation.services[0].service_name, "svc");
-    assert_eq!(relation.services[0].scope, ScopeRef::Store);
+    assert_eq!(services.len(), 2);
+
+    let relation = store
+        .bind_service_to_session(&session.session_key, alpha)
+        .await
+        .unwrap();
+    assert_eq!(relation.services.len(), 2);
 
     let services = store
         .list_session_services(&session.session_key)
         .await
         .unwrap();
-    assert_eq!(services.len(), 1);
+    assert_eq!(services.len(), 2);
 
     let relation = store
-        .unbind_service_from_session(&session.session_key, instance_id)
+        .unbind_service_from_session(&session.session_key, alpha)
         .await
         .unwrap();
-    assert!(relation.services.is_empty());
+    assert_eq!(relation.services.len(), 1);
+    assert_eq!(relation.services[0].instance_id, beta);
 
     std::fs::remove_file(path).ok();
 }
@@ -1173,14 +1178,14 @@ async fn list_tools_in_store_session_uses_store_instances_only() {
 async fn list_tools_in_bound_session_only_returns_bound_services() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    register_tool_service(&store, "alpha", ScopeRef::Store, &["echo"]).await;
+    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &["echo"]).await;
     let beta = register_tool_service(&store, "beta", ScopeRef::Store, &["search"]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
     store
-        .bind_service_to_session(&session.session_key, beta)
+        .unbind_service_from_session(&session.session_key, alpha)
         .await
         .unwrap();
 
@@ -1351,14 +1356,14 @@ async fn call_tool_in_session_rejects_tools_outside_allowlist() {
 async fn read_resource_in_session_rejects_unbound_service_before_transport() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &[]).await;
+    register_tool_service(&store, "alpha", ScopeRef::Store, &[]).await;
     let beta = register_tool_service(&store, "beta", ScopeRef::Store, &[]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
     store
-        .bind_service_to_session(&session.session_key, alpha)
+        .unbind_service_from_session(&session.session_key, beta)
         .await
         .unwrap();
 
@@ -1377,14 +1382,14 @@ async fn read_resource_in_session_rejects_unbound_service_before_transport() {
 async fn get_prompt_in_session_rejects_unbound_service_before_transport() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
-    let alpha = register_tool_service(&store, "alpha", ScopeRef::Store, &[]).await;
+    register_tool_service(&store, "alpha", ScopeRef::Store, &[]).await;
     let beta = register_tool_service(&store, "beta", ScopeRef::Store, &[]).await;
     let session = store
         .create_session(CreateSessionRequest::store("s1"))
         .await
         .unwrap();
     store
-        .bind_service_to_session(&session.session_key, alpha)
+        .unbind_service_from_session(&session.session_key, beta)
         .await
         .unwrap();
 

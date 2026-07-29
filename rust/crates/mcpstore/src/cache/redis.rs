@@ -64,7 +64,8 @@ impl CacheStore for RedisCacheStore {
 
         let current_version = revisioned
             .as_ref()
-            .and_then(|r| value_version(&codec::value_to_json(r.value.clone()).ok()?));
+            .and_then(|r| codec::value_to_json(r.value.clone()).ok())
+            .map(|value| value_version(&value).unwrap_or(0));
 
         let matches = match expected_version {
             Some(expected) => current_version == Some(expected),

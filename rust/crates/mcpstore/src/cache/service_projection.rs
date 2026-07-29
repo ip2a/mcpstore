@@ -5,6 +5,7 @@ use crate::cache::models::{
     ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
     ToolPreferenceState, ToolTransformRule,
 };
+use crate::cache::CacheError;
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
@@ -247,58 +248,106 @@ impl MCPStore {
 
     async fn remove_instance_from_session_relations(&self, instance_id: InstanceId) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
-        for (key, value) in self
+        for (key, _) in self
             .cache
             .get_all_relations_async("session_services")
             .await?
         {
-            let mut relation: SessionServiceRelation =
-                serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!(
-                        "Session service relation deserialization failed for {key}: {error}"
-                    ))
-                })?;
-            let previous_len = relation.services.len();
-            relation
-                .services
-                .retain(|item| item.instance_id != instance_id);
-            if relation.services.len() == previous_len {
-                continue;
+            let mut complete = false;
+            for _ in 0..3 {
+                let Some(value) = self.cache.get_relation("session_services", &key).await? else {
+                    complete = true;
+                    break;
+                };
+                let mut relation: SessionServiceRelation =
+                    serde_json::from_value(value).map_err(|error| {
+                        StoreError::Other(format!(
+                            "Session service relation deserialization failed for {key}: {error}"
+                        ))
+                    })?;
+                let expected_version = relation.version;
+                let previous_len = relation.services.len();
+                relation
+                    .services
+                    .retain(|item| item.instance_id != instance_id);
+                if relation.services.len() == previous_len {
+                    complete = true;
+                    break;
+                }
+                relation.updated_at = now;
+                relation.version += 1;
+                match self
+                    .cache
+                    .compare_and_put_relation(
+                        "session_services",
+                        &key,
+                        Some(expected_version),
+                        serde_json::to_value(relation).unwrap_or_default(),
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        complete = true;
+                        break;
+                    }
+                    Err(CacheError::Conflict(_)) => continue,
+                    Err(error) => return Err(StoreError::Cache(error)),
+                }
             }
-            relation.updated_at = now;
-            relation.version += 1;
-            self.cache
-                .put_relation(
-                    "session_services",
-                    &key,
-                    serde_json::to_value(relation).unwrap_or_default(),
-                )
-                .await?;
+            if !complete {
+                return Err(StoreError::Cache(CacheError::Conflict(format!(
+                    "session service relation conflict after retries: session_key={key}"
+                ))));
+            }
         }
 
-        for (key, value) in self.cache.get_all_relations_async("session_tools").await? {
-            let mut relation: SessionToolVisibility =
-                serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!(
-                        "Session tool relation deserialization failed for {key}: {error}"
-                    ))
-                })?;
-            let previous_len = relation.tools.len();
-            relation
-                .tools
-                .retain(|item| item.instance_id != instance_id);
-            if relation.tools.len() == previous_len {
-                continue;
+        for (key, _) in self.cache.get_all_relations_async("session_tools").await? {
+            let mut complete = false;
+            for _ in 0..3 {
+                let Some(value) = self.cache.get_relation("session_tools", &key).await? else {
+                    complete = true;
+                    break;
+                };
+                let mut relation: SessionToolVisibility =
+                    serde_json::from_value(value).map_err(|error| {
+                        StoreError::Other(format!(
+                            "Session tool relation deserialization failed for {key}: {error}"
+                        ))
+                    })?;
+                let expected_version = relation.version;
+                let previous_len = relation.tools.len();
+                relation
+                    .tools
+                    .retain(|item| item.instance_id != instance_id);
+                if relation.tools.len() == previous_len {
+                    complete = true;
+                    break;
+                }
+                relation.updated_at = now;
+                relation.version += 1;
+                match self
+                    .cache
+                    .compare_and_put_relation(
+                        "session_tools",
+                        &key,
+                        Some(expected_version),
+                        serde_json::to_value(relation).unwrap_or_default(),
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        complete = true;
+                        break;
+                    }
+                    Err(CacheError::Conflict(_)) => continue,
+                    Err(error) => return Err(StoreError::Cache(error)),
+                }
             }
-            relation.updated_at = now;
-            relation.version += 1;
-            self.cache
-                .put_relation(
-                    "session_tools",
-                    &key,
-                    serde_json::to_value(relation).unwrap_or_default(),
-                )
-                .await?;
+            if !complete {
+                return Err(StoreError::Cache(CacheError::Conflict(format!(
+                    "session tool relation conflict after retries: session_key={key}"
+                ))));
+            }
         }
         Ok(())
     }

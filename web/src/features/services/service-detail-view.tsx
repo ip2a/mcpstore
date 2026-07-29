@@ -272,9 +272,6 @@ export function ServiceDetailView(props: {
       const [nextDetail] = await Promise.all([
         detailQuery.refetch(),
         statusQuery.refetch(),
-        resourcesQuery.refetch(),
-        resourceTemplatesQuery.refetch(),
-        promptsQuery.refetch(),
       ]);
       if (nextDetail.error) throw nextDetail.error;
     } catch (err) {
@@ -283,6 +280,21 @@ export function ServiceDetailView(props: {
       if (!detailQuery.error) setDetailError(message);
       toast.error(message);
     }
+  }
+
+  async function loadCatalog() {
+    if (activeTab === "resources") {
+      await Promise.all([
+        resourcesQuery.refetch(),
+        resourceTemplatesQuery.refetch(),
+      ]);
+      return;
+    }
+    if (activeTab === "prompts") await promptsQuery.refetch();
+  }
+
+  function refreshCurrentView() {
+    return activeTab === "tools" ? loadDetail() : loadCatalog();
   }
 
   useEffect(() => {
@@ -294,6 +306,10 @@ export function ServiceDetailView(props: {
   useEffect(() => {
     void loadDetail();
   }, [props.refreshToken, props.service.instance_id]);
+
+  useEffect(() => {
+    if (activeTab !== "tools") void loadCatalog();
+  }, [activeTab, props.service.instance_id]);
 
   return (
     <>
@@ -413,14 +429,14 @@ export function ServiceDetailView(props: {
                   <PageEmpty
                     title={t("noMatchingTools")}
                     description={t("noMatchingToolsDescription")}
-                    onRefresh={loadDetail}
+                    onRefresh={refreshCurrentView}
                   />
                 )
               ) : (
                 <PageEmpty
                   title={t("noToolsFound")}
                   description={t("noToolsFoundDescription")}
-                  onRefresh={loadDetail}
+                  onRefresh={refreshCurrentView}
                 />
               )}
             </TabsContent>
@@ -491,7 +507,7 @@ export function ServiceDetailView(props: {
                     <PageEmpty
                       title={t("noResourcesFound")}
                       description={t("noResourcesFoundDescription")}
-                      onRefresh={loadDetail}
+                      onRefresh={refreshCurrentView}
                     />
                   )}
                 </TabsContent>
@@ -545,7 +561,7 @@ export function ServiceDetailView(props: {
                     <PageEmpty
                       title={t("noTemplatesFound")}
                       description={t("noTemplatesFoundDescription")}
-                      onRefresh={loadDetail}
+                      onRefresh={refreshCurrentView}
                     />
                   )}
                 </TabsContent>
@@ -597,7 +613,7 @@ export function ServiceDetailView(props: {
                 <PageEmpty
                   title={t("noPromptsFound")}
                   description={t("noPromptsFoundDescription")}
-                  onRefresh={loadDetail}
+                  onRefresh={refreshCurrentView}
                 />
               )}
             </TabsContent>
@@ -623,7 +639,7 @@ export function ServiceDetailView(props: {
             templateCount={resourceTemplates.length}
             promptCount={prompts.length}
             instanceId={service.instance_id}
-            onRefresh={loadDetail}
+            onRefresh={refreshCurrentView}
             onRun={
               rightPaneView === "catalog" &&
               activeTab === "tools" &&
@@ -702,7 +718,7 @@ export function ServiceDetailView(props: {
               <PageError
                 title={t("serviceDetailLoadFailed")}
                 message={errorMessage}
-                onRefresh={loadDetail}
+                onRefresh={refreshCurrentView}
               />
             </ScrollPane>
           ) : rightPaneView === "catalog" &&
@@ -750,7 +766,7 @@ export function ServiceDetailView(props: {
                 <PageEmpty
                   title={t("noToolSelected")}
                   description={t("serviceToolDetailsWillAppear")}
-                  onRefresh={loadDetail}
+                  onRefresh={refreshCurrentView}
                 />
               ) : activeTab === "resources" ? (
                 resourceSubTab === "templates" ? (
@@ -762,7 +778,7 @@ export function ServiceDetailView(props: {
                     <PageEmpty
                       title={t("noTemplateSelected")}
                       description={t("noTemplateSelectedDescription")}
-                      onRefresh={loadDetail}
+                      onRefresh={refreshCurrentView}
                     />
                   )
                 ) : selectedResource ? (
@@ -774,7 +790,7 @@ export function ServiceDetailView(props: {
                   <PageEmpty
                     title={t("noResourceSelected")}
                     description={t("noResourceSelectedDescription")}
-                    onRefresh={loadDetail}
+                    onRefresh={refreshCurrentView}
                   />
                 )
               ) : selectedPrompt ? (
@@ -783,7 +799,7 @@ export function ServiceDetailView(props: {
                 <PageEmpty
                   title={t("noPromptSelected")}
                   description={t("noPromptSelectedDescription")}
-                  onRefresh={loadDetail}
+                  onRefresh={refreshCurrentView}
                 />
               )}
             </ScrollPane>
