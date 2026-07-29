@@ -21,6 +21,7 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     tracing_subscriber::fmt::init();
 
     m.add_class::<core_store::PyMCPStore>()?;
+    m.add_class::<core_store::PyStoreContextFacade>()?;
     m.add_class::<perspective::PyPerspectiveResolver>()?;
     mcp_server_runner::register_module(m)?;
 

@@ -14,8 +14,8 @@ use mcpstore::{
         SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
         ToolTransformRule,
     },
-    ContentItem, Event, InstanceId, ScopeRef, ServiceInstance, StoreError, ToolCallResult,
-    ToolInfo,
+    ContentItem, Event, InstanceId, McpConfig, ScopeRef, ServiceInstance, StoreContextFacade,
+    StoreError, ToolCallResult, ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
@@ -31,6 +31,11 @@ use crate::py_value::{py_to_serde_value, serde_value_to_py};
 #[pyclass(name = "MCPStore")]
 pub struct PyMCPStore {
     inner: std::sync::Arc<MCPStore>,
+}
+
+#[pyclass(name = "StoreContextFacade")]
+pub struct PyStoreContextFacade {
+    inner: StoreContextFacade,
 }
 
 fn map_store_err(err: StoreError) -> PyErr {
@@ -141,6 +146,13 @@ fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<Serv
     let value = py_to_serde_value(value, context)?;
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("{context} conversion failed: {err}"))
+    })
+}
+
+fn py_to_mcp_config(value: &Bound<'_, PyAny>) -> PyResult<McpConfig> {
+    let value = py_to_serde_value(value, "MCP config")?;
+    serde_json::from_value(value).map_err(|err| {
+        pyo3::exceptions::PyValueError::new_err(format!("MCP config conversion failed: {err}"))
     })
 }
 
@@ -543,6 +555,69 @@ fn tool_transform_rule_to_py(py: Python<'_>, rule: &ToolTransformRule) -> PyResu
 }
 
 #[pymethods]
+impl PyStoreContextFacade {
+    fn scope(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        serializable_to_py(py, self.inner.scope(), "Scope")
+    }
+
+    fn add_service_config(
+        &self,
+        service_name: &str,
+        config: &Bound<'_, PyAny>,
+    ) -> PyResult<String> {
+        let config = py_to_server_config(config, "Service config")?;
+        let instance_id = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.add_service_config(service_name, config))
+            .map_err(map_store_err)?;
+        Ok(instance_id.to_string())
+    }
+
+    fn add_mcp_config(&self, config: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
+        let config = py_to_mcp_config(config)?;
+        let instance_ids = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.add_mcp_config(config))
+            .map_err(map_store_err)?;
+        Ok(instance_ids
+            .into_iter()
+            .map(|instance_id| instance_id.to_string())
+            .collect())
+    }
+
+    #[pyo3(signature = (service_name, timeout_secs=10))]
+    fn wait_service(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+        timeout_secs: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.wait_service(service_name, timeout_secs))
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &state, "Service state")
+    }
+
+    fn list_services(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let services = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_services())
+            .map_err(map_store_err)?;
+        services
+            .iter()
+            .map(|service| scoped_service_entry_to_py(py, service))
+            .collect()
+    }
+
+    fn list_tools(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let tools = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_tools())
+            .map_err(map_store_err)?;
+        tools
+            .iter()
+            .map(|tool| scoped_tool_entry_to_py(py, tool))
+            .collect()
+    }
+}
+
+#[pymethods]
 impl PyMCPStore {
     #[staticmethod]
     #[pyo3(signature = (config_path=None))]
@@ -579,6 +654,18 @@ impl PyMCPStore {
         let backend =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.current_backend());
         backend_as_str(&backend).to_string()
+    }
+
+    fn for_store(&self) -> PyStoreContextFacade {
+        PyStoreContextFacade {
+            inner: self.inner.for_store(),
+        }
+    }
+
+    fn for_agent(&self, agent_id: &str) -> PyStoreContextFacade {
+        PyStoreContextFacade {
+            inner: self.inner.for_agent(agent_id),
+        }
     }
 
     /// Add a service definition. Native configs declare scopes in `_mcpstore.scopes`.
