@@ -14,8 +14,8 @@ from mcpstore.core.models import (
     ScopeDescriptor,
     UpdateServiceRequest,
 )
-from mcpstore.core.store.rust_backend import RustStoreBackend
-from mcpstore.core.store.setup_manager import StoreSetupManager
+from mcpstore.store import RustStoreBackend
+from mcpstore.store.setup import StoreSetupManager
 
 
 class RecordingCore:

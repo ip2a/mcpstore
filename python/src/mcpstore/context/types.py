@@ -1,4 +1,4 @@
-"""Context type compatibility enum."""
+"""Context scope type enum."""
 
 from enum import Enum
 
