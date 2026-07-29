@@ -7,7 +7,7 @@ from pathlib import Path
 
 from mcpstore import _rust
 
-from mcpstore.core.store.rust_backend import RustStoreBackend
+from mcpstore.store import RustStoreBackend
 
 
 STORE_INSTANCE_ID = "c81af510-755b-55c7-8487-5668ab36e06e"

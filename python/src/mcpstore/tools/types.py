@@ -1,4 +1,4 @@
-"""Historical tool proxy typing helpers."""
+"""Tool proxy typing helpers."""
 
 from typing import Any, Dict, List, Optional, Protocol
 

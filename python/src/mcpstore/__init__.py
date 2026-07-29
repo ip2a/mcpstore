@@ -13,7 +13,7 @@ def __getattr__(name: str):
     # Core classes
     if name in ("LoggingConfig", "MCPStore"):
         from mcpstore.config.config import LoggingConfig
-        from mcpstore.core.store import MCPStore
+        from mcpstore.store import MCPStore
 
         globals().update({
             "LoggingConfig": LoggingConfig,
@@ -22,7 +22,8 @@ def __getattr__(name: str):
         return globals()[name]
 
     if name in ("MCPStoreContext", "Session", "SessionContext"):
-        from mcpstore.core.context import MCPStoreContext, Session, SessionContext
+        from mcpstore.context import MCPStoreContext
+        from mcpstore.sessions import Session, SessionContext
 
         globals().update({
             "MCPStoreContext": MCPStoreContext,
@@ -78,7 +79,7 @@ def __getattr__(name: str):
         "TransformationType",
         "get_transformation_manager",
     }:
-        from mcpstore.core.context import tool_transformation as transformation_module
+        from mcpstore.tools import transformation as transformation_module
 
         value = getattr(transformation_module, name)
         globals()[name] = value

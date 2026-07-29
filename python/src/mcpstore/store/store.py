@@ -27,14 +27,14 @@ class RustStoreBackend:
     def setup_store(mcpjson_path: str | None = None, debug: bool | str = False,
                     cache: Any = None, static_config: Optional[Dict[str, Any]] = None,
                     cache_mode: str = "auto", only_db: bool = False, **kwargs: Any):
-        from mcpstore.core.store.setup_manager import StoreSetupManager
+        from mcpstore.store.setup import StoreSetupManager
         return StoreSetupManager.setup_store(mcpjson_path, debug, cache, static_config, cache_mode, only_db, **kwargs)
 
     @staticmethod
     async def setup_store_async(mcpjson_path: str | None = None, debug: bool | str = False,
                                 cache: Any = None, static_config: Optional[Dict[str, Any]] = None,
                                 cache_mode: str = "auto", only_db: bool = False, **kwargs: Any):
-        from mcpstore.core.store.setup_manager import StoreSetupManager
+        from mcpstore.store.setup import StoreSetupManager
         return await StoreSetupManager.setup_store_async(mcpjson_path, debug, cache, static_config, cache_mode, only_db, **kwargs)
 
     _normalize_cache_config = staticmethod(setup_module.normalize_cache_config)
