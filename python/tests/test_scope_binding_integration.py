@@ -266,6 +266,32 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             )
 
 
+    def test_scope_facade_find_service_uses_current_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store_context = store.for_store()
+            agent_context = store.for_agent("agent-a")
+            store_id = store_context.add_service_config(
+                "svc", {"command": "command-that-must-not-run", "args": []}
+            )
+            agent_id = agent_context.add_service_config(
+                "svc", {"command": "command-that-must-not-run", "args": []}
+            )
+
+            self.assertEqual(
+                store_context.find_service(service_name="svc")["instance_id"], store_id
+            )
+            self.assertEqual(
+                agent_context.find_service(instance_id=agent_id)["instance_id"], agent_id
+            )
+            with self.assertRaisesRegex(RuntimeError, "does not belong to scope"):
+                agent_context.find_service(instance_id=store_id)
+            with self.assertRaisesRegex(TypeError, "exactly one"):
+                store_context.find_service()
+
+
     def test_scope_facade_add_service_accepts_all_supported_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"

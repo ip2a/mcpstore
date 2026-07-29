@@ -285,3 +285,50 @@ async fn facade_service_lifecycle_stays_in_current_scope() {
 
     std::fs::remove_file(path).ok();
 }
+
+#[tokio::test]
+async fn facade_find_service_uses_current_scope() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let store_instance = store
+        .for_store()
+        .add_service_config("svc", stdio_config())
+        .await
+        .unwrap();
+    let agent_instance = store
+        .for_agent("agent-a")
+        .add_service_config("svc", stdio_config())
+        .await
+        .unwrap();
+
+    let store_service = store
+        .for_store()
+        .find_service(ServiceTarget::ServiceName("svc"))
+        .await
+        .unwrap();
+    assert_eq!(store_service.instance.instance_id, store_instance);
+    assert_eq!(store_service.instance.scope, ScopeRef::Store);
+
+    let agent_service = store
+        .for_agent("agent-a")
+        .find_service(ServiceTarget::InstanceId(agent_instance))
+        .await
+        .unwrap();
+    assert_eq!(agent_service.instance.service_name, "svc");
+    assert_eq!(
+        agent_service.instance.scope,
+        ScopeRef::Agent {
+            agent_id: "agent-a".to_string(),
+        }
+    );
+
+    let error = store
+        .for_agent("agent-a")
+        .find_service(ServiceTarget::InstanceId(store_instance))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("does not belong to scope"));
+
+    std::fs::remove_file(path).ok();
+}
