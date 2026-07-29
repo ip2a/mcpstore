@@ -14,8 +14,8 @@ use mcpstore::{
         SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
         ToolTransformRule,
     },
-    ContentItem, Event, InstanceId, McpConfig, ScopeRef, ServiceInstance, StoreContextFacade,
-    StoreError, ToolCallResult, ToolInfo,
+    ContentItem, Event, InstanceId, McpConfig, ScopeRef, ServiceInstance, ServiceTarget,
+    StoreContextFacade, StoreError, ToolCallResult, ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
@@ -25,6 +25,7 @@ use mcpstore::{
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::str::FromStr;
+use std::time::Duration;
 
 use crate::py_value::{py_to_serde_value, serde_value_to_py};
 
@@ -186,6 +187,31 @@ fn parse_instance_id(value: &str) -> PyResult<InstanceId> {
     InstanceId::from_str(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("Invalid instance_id '{value}': {err}"))
     })
+}
+
+fn facade_service_target<'a>(
+    service_name: Option<&'a str>,
+    instance_id: Option<&str>,
+) -> PyResult<ServiceTarget<'a>> {
+    match (service_name, instance_id) {
+        (Some(service_name), None) => Ok(ServiceTarget::ServiceName(service_name)),
+        (None, Some(instance_id)) => Ok(ServiceTarget::InstanceId(parse_instance_id(instance_id)?)),
+        (None, None) => Err(pyo3::exceptions::PyTypeError::new_err(
+            "Specify exactly one of service_name or instance_id",
+        )),
+        (Some(_), Some(_)) => Err(pyo3::exceptions::PyTypeError::new_err(
+            "Specify exactly one of service_name or instance_id",
+        )),
+    }
+}
+
+fn duration_from_seconds(timeout: f64) -> PyResult<Duration> {
+    if !timeout.is_finite() || timeout < 0.0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "timeout must be a finite non-negative number of seconds",
+        ));
+    }
+    Ok(Duration::from_secs_f64(timeout))
 }
 
 fn serializable_to_py<T: serde::Serialize>(
@@ -606,15 +632,19 @@ impl PyStoreContextFacade {
             .collect())
     }
 
-    #[pyo3(signature = (service_name, timeout_secs=10))]
+    #[pyo3(signature = (*, service_name=None, instance_id=None, timeout=10.0))]
     fn wait_service(
         &self,
         py: Python<'_>,
-        service_name: &str,
-        timeout_secs: u64,
+        service_name: Option<&str>,
+        instance_id: Option<&str>,
+        timeout: f64,
     ) -> PyResult<Py<PyAny>> {
         let state = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.wait_service(service_name, timeout_secs))
+            .block_on(self.inner.wait_service(
+                facade_service_target(service_name, instance_id)?,
+                duration_from_seconds(timeout)?,
+            ))
             .map_err(map_store_err)?;
         serializable_to_py(py, &state, "Service state")
     }
@@ -629,10 +659,77 @@ impl PyStoreContextFacade {
             .collect()
     }
 
-    fn patch_service(&self, service_name: &str, updates: &Bound<'_, PyAny>) -> PyResult<()> {
+    #[pyo3(signature = (*, service_name=None, instance_id=None, updates))]
+    fn patch_service(
+        &self,
+        service_name: Option<&str>,
+        instance_id: Option<&str>,
+        updates: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
         let updates = py_to_serde_value(updates, "Service base config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.patch_service(service_name, updates))
+            .block_on(
+                self.inner
+                    .patch_service(facade_service_target(service_name, instance_id)?, updates),
+            )
+            .map_err(map_store_err)
+    }
+
+    #[pyo3(signature = (*, service_name=None, instance_id=None, config))]
+    fn update_service(
+        &self,
+        service_name: Option<&str>,
+        instance_id: Option<&str>,
+        config: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let config = py_to_server_config(config, "Service base config update")?;
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .update_service(facade_service_target(service_name, instance_id)?, config),
+            )
+            .map_err(map_store_err)
+    }
+
+    #[pyo3(signature = (*, service_name=None, instance_id=None))]
+    fn remove_service(
+        &self,
+        service_name: Option<&str>,
+        instance_id: Option<&str>,
+    ) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .remove_service(facade_service_target(service_name, instance_id)?),
+            )
+            .map_err(map_store_err)
+    }
+
+    #[pyo3(signature = (*, service_name=None, instance_id=None))]
+    fn disconnect_service(
+        &self,
+        service_name: Option<&str>,
+        instance_id: Option<&str>,
+    ) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .disconnect_service(facade_service_target(service_name, instance_id)?),
+            )
+            .map_err(map_store_err)
+    }
+
+    #[pyo3(signature = (*, service_name=None, instance_id=None))]
+    fn restart_service(
+        &self,
+        service_name: Option<&str>,
+        instance_id: Option<&str>,
+    ) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .restart_service(facade_service_target(service_name, instance_id)?),
+            )
             .map_err(map_store_err)
     }
 
@@ -2347,7 +2444,10 @@ impl PyMCPStore {
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
         let status = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.wait_instance_ready(instance_id, timeout_secs))
+            .block_on(
+                self.inner
+                    .wait_instance_ready(instance_id, Duration::from_secs(timeout_secs)),
+            )
             .map_err(map_store_err)?;
         serializable_to_py(py, &status, "Service state")
     }

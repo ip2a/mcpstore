@@ -114,13 +114,17 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertEqual(service["state"]["instance_id"], instance_id)
             self.assertIn("phase", service["state"])
 
-            agent_context.patch_service("svc", {"headers": {"X-Demo": "agent-a"}})
+            agent_context.patch_service(
+                service_name="svc", updates={"headers": {"X-Demo": "agent-a"}}
+            )
             self.assertEqual(
                 store.show_config()["mcpServers"]["svc"]["headers"]["X-Demo"],
                 "agent-a",
             )
             with self.assertRaisesRegex(RuntimeError, "Scope Store is not declared"):
-                store_context.patch_service("svc", {"headers": {"X-Demo": "store"}})
+                store_context.patch_service(
+                    service_name="svc", updates={"headers": {"X-Demo": "store"}}
+                )
 
             instance_ids = store_context.add_service(
                 {
@@ -147,6 +151,41 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
                     for service in agent_context.list_services()
                 ],
                 ["svc"],
+            )
+
+
+    def test_scope_facade_lifecycle_uses_current_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = _rust.MCPStore.setup_with_options(str(config_path), backend="memory")
+            store_context = store.for_store()
+            agent_context = store.for_agent("agent-a")
+            store_id = store_context.add_service_config(
+                "svc", {"command": "command-that-must-not-run", "args": []}
+            )
+            agent_id = agent_context.add_service_config(
+                "svc", {"command": "command-that-must-not-run", "args": []}
+            )
+
+            agent_context.patch_service(
+                instance_id=agent_id, updates={"headers": {"X-Demo": "agent-a"}}
+            )
+            agent_context.update_service(
+                service_name="svc", config={"command": "updated", "args": []}
+            )
+            store_context.disconnect_service(service_name="svc")
+            with self.assertRaisesRegex(RuntimeError, "does not belong to scope"):
+                agent_context.restart_service(instance_id=store_id)
+            with self.assertRaisesRegex(TypeError, "exactly one"):
+                agent_context.remove_service()
+            with self.assertRaisesRegex(RuntimeError, "Scope Agent"):
+                agent_context.wait_service(service_name="missing", timeout=0.5)
+
+            agent_context.remove_service(instance_id=agent_id)
+            self.assertEqual(agent_context.list_services(), [])
+            self.assertEqual(
+                [item["instance_id"] for item in store_context.list_services()], [store_id]
             )
 
 

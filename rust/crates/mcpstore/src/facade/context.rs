@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::{Map, Value};
 
@@ -10,6 +11,13 @@ use crate::perspective::{resolve_tool, AvailableTool};
 use crate::state::ServiceState;
 use crate::store::{MCPStore, Result, ScopedServiceEntry, ScopedToolEntry};
 use crate::transport::ToolCallResult;
+use crate::StoreError;
+
+#[derive(Clone, Copy)]
+pub enum ServiceTarget<'a> {
+    ServiceName(&'a str),
+    InstanceId(InstanceId),
+}
 
 #[derive(Clone)]
 pub struct StoreContextFacade {
@@ -41,13 +49,31 @@ impl StoreContextFacade {
         if config.mcpstore.is_none() {
             config.mcpstore = Some(extension_for_scope(&self.scope));
         }
-        let declares_current_scope = declares_scope(&config, &self.scope);
+        let existing = self
+            .store
+            .get_definition_config(service_name)
+            .await?
+            .map(serde_json::from_value::<ServerConfig>)
+            .transpose()
+            .map_err(|error| StoreError::Other(error.to_string()))?;
 
-        self.store.add_service(service_name, config).await?;
-        if !declares_current_scope {
+        if let Some(existing) = existing {
+            if existing.base_config() != config.base_config() {
+                return Err(StoreError::Other(format!(
+                    "Service definition already exists with a different base config: {service_name}"
+                )));
+            }
+            if declares_scope(&existing, &self.scope) {
+                return Err(StoreError::Other(format!(
+                    "Scope {:?} is already declared for service '{service_name}'",
+                    self.scope
+                )));
+            }
             self.store
                 .declare_service_scope(service_name, &self.scope, ScopeDescriptor::default())
                 .await?;
+        } else {
+            self.store.add_service(service_name, config).await?;
         }
         self.store
             .instance_id_for_scope(service_name, &self.scope)
@@ -67,27 +93,71 @@ impl StoreContextFacade {
 
     pub async fn wait_service(
         &self,
-        service_name: &str,
-        timeout_secs: u64,
+        target: ServiceTarget<'_>,
+        timeout: Duration,
     ) -> Result<ServiceState> {
-        let instance_id = self
-            .store
-            .instance_id_for_scope(service_name, &self.scope)
-            .await?;
-        self.store
-            .wait_instance_ready(instance_id, timeout_secs)
-            .await
+        let (_, instance_id) = self.resolve_service(target).await?;
+        self.store.wait_instance_ready(instance_id, timeout).await
     }
 
     pub async fn list_services(&self) -> Result<Vec<ScopedServiceEntry>> {
         self.store.list_service_entries_scoped(&self.scope).await
     }
 
-    pub async fn patch_service(&self, service_name: &str, updates: Value) -> Result<()> {
+    pub async fn remove_service(&self, target: ServiceTarget<'_>) -> Result<()> {
+        let (service_name, _) = self.resolve_service(target).await?;
         self.store
-            .instance_id_for_scope(service_name, &self.scope)
-            .await?;
-        self.store.patch_service(service_name, updates).await
+            .remove_service_scope(&service_name, &self.scope)
+            .await
+    }
+
+    pub async fn disconnect_service(&self, target: ServiceTarget<'_>) -> Result<()> {
+        let (_, instance_id) = self.resolve_service(target).await?;
+        self.store.disconnect_service(instance_id).await
+    }
+
+    pub async fn restart_service(&self, target: ServiceTarget<'_>) -> Result<()> {
+        let (_, instance_id) = self.resolve_service(target).await?;
+        self.store.restart_service(instance_id).await
+    }
+
+    pub async fn patch_service(&self, target: ServiceTarget<'_>, updates: Value) -> Result<()> {
+        let (service_name, _) = self.resolve_service(target).await?;
+        self.store.patch_service(&service_name, updates).await
+    }
+
+    pub async fn update_service(
+        &self,
+        target: ServiceTarget<'_>,
+        config: ServerConfig,
+    ) -> Result<()> {
+        let (service_name, _) = self.resolve_service(target).await?;
+        self.store.update_service(&service_name, config).await
+    }
+
+    async fn resolve_service(&self, target: ServiceTarget<'_>) -> Result<(String, InstanceId)> {
+        match target {
+            ServiceTarget::ServiceName(service_name) => Ok((
+                service_name.to_string(),
+                self.store
+                    .instance_id_for_scope(service_name, &self.scope)
+                    .await?,
+            )),
+            ServiceTarget::InstanceId(instance_id) => {
+                let instance = self
+                    .store
+                    .find_instance(instance_id)
+                    .await
+                    .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+                if instance.scope != self.scope {
+                    return Err(StoreError::Other(format!(
+                        "Instance {instance_id} does not belong to scope {:?}",
+                        self.scope
+                    )));
+                }
+                Ok((instance.service_name, instance_id))
+            }
+        }
     }
 
     pub async fn list_tools(&self) -> Result<Vec<ScopedToolEntry>> {

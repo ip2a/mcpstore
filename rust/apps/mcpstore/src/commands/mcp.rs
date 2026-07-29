@@ -509,7 +509,9 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     store.load_from_source().await?;
     let instance_id = parse_instance_id(&a.instance_id)?;
     store.connect_service(instance_id).await?;
-    let status = store.wait_instance_ready(instance_id, a.timeout).await?;
+    let status = store
+        .wait_instance_ready(instance_id, std::time::Duration::from_secs(a.timeout))
+        .await?;
     println!(
         "[Success] Service ready: {} (readiness={:?}, health={:?})",
         instance_id, status.readiness.status, status.health
