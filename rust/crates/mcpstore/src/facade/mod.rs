@@ -1,3 +1,3 @@
 mod context;
 
-pub use context::StoreContextFacade;
+pub use context::{ServiceTarget, StoreContextFacade};
