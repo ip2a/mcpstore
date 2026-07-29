@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Optional
 
 from mcpstore.native.records import _base_config_payload, _record_value
 
+from .service import Service
+from .tool import Tool
+
 
 class StoreContext:
     """Thin Python view of one Rust-owned Store scope."""
@@ -14,17 +17,22 @@ class StoreContext:
         self._native = native
         self.scope = _record_value(native.scope())
 
+    def _context(self, native: Any) -> "StoreContext":
+        return type(self)(native)
+
     def show_config(self) -> Dict[str, Any]:
         return _record_value(self._native.show_config())
 
-    def reset_config(self) -> None:
-        self._native.reset_config()
+    def reset_config(self) -> bool:
+        return bool(self._native.reset_config())
 
-    def add_service_config(self, service_name: str, config: Dict[str, Any]) -> str:
-        return str(self._native.add_service_config(service_name, config))
+    def add_service_config(
+        self, service_name: str, config: Dict[str, Any]
+    ) -> "StoreContext":
+        return self._context(self._native.add_service_config(service_name, config))
 
-    def add_service(self, config: Any) -> List[str]:
-        return [str(value) for value in self._native.add_service(config)]
+    def add_service(self, config: Any) -> "StoreContext":
+        return self._context(self._native.add_service(config))
 
     def wait_service(
         self,
@@ -32,8 +40,8 @@ class StoreContext:
         service_name: Optional[str] = None,
         instance_id: Optional[str] = None,
         timeout: float = 10.0,
-    ) -> Dict[str, Any]:
-        return _record_value(
+    ) -> "StoreContext":
+        return self._context(
             self._native.wait_service(
                 service_name=service_name,
                 instance_id=instance_id,
@@ -41,16 +49,16 @@ class StoreContext:
             )
         )
 
-    def list_services(self) -> List[Dict[str, Any]]:
-        return _record_value(self._native.list_services())
+    def list_services(self) -> List[Service]:
+        return [Service(native) for native in self._native.list_services()]
 
     def find_service(
         self,
         *,
         service_name: Optional[str] = None,
         instance_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        return _record_value(
+    ) -> Service:
+        return Service(
             self._native.find_service(
                 service_name=service_name,
                 instance_id=instance_id,
@@ -62,24 +70,39 @@ class StoreContext:
         *,
         service_name: Optional[str] = None,
         instance_id: Optional[str] = None,
-    ) -> None:
-        self._native.remove_service(service_name=service_name, instance_id=instance_id)
+    ) -> bool:
+        return bool(
+            self._native.remove_service(
+                service_name=service_name,
+                instance_id=instance_id,
+            )
+        )
 
     def disconnect_service(
         self,
         *,
         service_name: Optional[str] = None,
         instance_id: Optional[str] = None,
-    ) -> None:
-        self._native.disconnect_service(service_name=service_name, instance_id=instance_id)
+    ) -> "StoreContext":
+        return self._context(
+            self._native.disconnect_service(
+                service_name=service_name,
+                instance_id=instance_id,
+            )
+        )
 
     def restart_service(
         self,
         *,
         service_name: Optional[str] = None,
         instance_id: Optional[str] = None,
-    ) -> None:
-        self._native.restart_service(service_name=service_name, instance_id=instance_id)
+    ) -> "StoreContext":
+        return self._context(
+            self._native.restart_service(
+                service_name=service_name,
+                instance_id=instance_id,
+            )
+        )
 
     def patch_service(
         self,
@@ -87,11 +110,13 @@ class StoreContext:
         service_name: Optional[str] = None,
         instance_id: Optional[str] = None,
         updates: Dict[str, Any],
-    ) -> None:
-        self._native.patch_service(
-            service_name=service_name,
-            instance_id=instance_id,
-            updates=_base_config_payload(updates, "Service base config patch"),
+    ) -> "StoreContext":
+        return self._context(
+            self._native.patch_service(
+                service_name=service_name,
+                instance_id=instance_id,
+                updates=_base_config_payload(updates, "Service base config patch"),
+            )
         )
 
     def update_service(
@@ -100,18 +125,20 @@ class StoreContext:
         service_name: Optional[str] = None,
         instance_id: Optional[str] = None,
         config: Dict[str, Any],
-    ) -> None:
-        self._native.update_service(
-            service_name=service_name,
-            instance_id=instance_id,
-            config=_base_config_payload(config, "Service base config update"),
+    ) -> "StoreContext":
+        return self._context(
+            self._native.update_service(
+                service_name=service_name,
+                instance_id=instance_id,
+                config=_base_config_payload(config, "Service base config update"),
+            )
         )
 
-    def list_tools(self) -> List[Dict[str, Any]]:
-        return _record_value(self._native.list_tools())
+    def list_tools(self) -> List[Tool]:
+        return [Tool(native) for native in self._native.list_tools()]
 
-    def find_tool(self, tool_name: str) -> Dict[str, Any]:
-        return _record_value(self._native.find_tool(tool_name))
+    def find_tool(self, tool_name: str) -> Tool:
+        return Tool(self._native.find_tool(tool_name))
 
     def call_tool(
         self, tool_name: str, args: Optional[Dict[str, Any]] = None
