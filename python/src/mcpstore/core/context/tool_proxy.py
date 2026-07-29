@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict
 
-from mcpstore.core.store.rust_backend import RustToolProxy as ToolProxy
+from mcpstore.tools import ToolProxy
 
 
 class ToolCallResult:

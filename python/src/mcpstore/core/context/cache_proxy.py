@@ -1,5 +1,5 @@
-"""Compatibility alias for the Rust-backed cache proxy."""
+"""Compatibility alias for the historical cache proxy module."""
 
-from mcpstore.core.store.rust_backend import RustCacheProxy as CacheProxy
+from mcpstore.cache import CacheProxy
 
 __all__ = ["CacheProxy"]
