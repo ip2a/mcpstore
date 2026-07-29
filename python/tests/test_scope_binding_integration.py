@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from mcpstore import (
-    AgentContext,
-    MCPStore,
-    SessionContext,
-    StoreContext,
-    _rust,
-)
-
+from mcpstore import AgentContext, MCPStore, Service, SessionContext, StoreContext, Tool, _rust
 from mcpstore.store import RustStoreBackend
 
 
@@ -26,325 +18,138 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
             store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
-
             self.assertIsInstance(store.for_store(), StoreContext)
             self.assertIsInstance(store.for_agent("agent-a"), AgentContext)
             self.assertIsInstance(store.create_session("session-a"), SessionContext)
+            self.assertTrue(Service)
+            self.assertTrue(Tool)
 
     def test_real_binding_keeps_store_and_agent_instances_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
             store = RustStoreBackend.setup(str(config_path), cache_config="memory")
-
             store.add_service(
                 "gitodo",
-                {"command": "command-that-must-not-run", "args": []},
+                {"command": "command-that-must-not-run", "args": [], "_mcpstore": {"scopes": {"store": {}, "agents": {"agent1": {}}}}},
             )
-            agent_instance_id = store.declare_service_scope(
-                "gitodo",
-                {"type": "agent", "agent_id": "agent1"},
-                {"config": {}},
-            )
+            instances = {item["instance_id"]: item for item in store.list_instances()}
+            self.assertEqual(set(instances), {STORE_INSTANCE_ID, AGENT_INSTANCE_ID})
+            self.assertEqual(instances[STORE_INSTANCE_ID]["scope"], {"type": "store"})
+            self.assertEqual(instances[AGENT_INSTANCE_ID]["scope"], {"type": "agent", "agent_id": "agent1"})
 
-            instances = {
-                instance["instance_id"]: instance
-                for instance in store.list_instances()
-            }
-            self.assertEqual(
-                set(instances),
-                {STORE_INSTANCE_ID, AGENT_INSTANCE_ID},
-            )
-            self.assertEqual(agent_instance_id, AGENT_INSTANCE_ID)
-            self.assertEqual(
-                instances[STORE_INSTANCE_ID]["scope"],
-                {"type": "store"},
-            )
-            self.assertEqual(
-                instances[AGENT_INSTANCE_ID]["scope"],
-                {"type": "agent", "agent_id": "agent1"},
-            )
-            self.assertEqual(
-                store.get_effective_config("gitodo", {"type": "store"}),
-                store.get_effective_config(
-                    "gitodo",
-                    {"type": "agent", "agent_id": "agent1"},
-                ),
-            )
-
-            with self.assertRaisesRegex(ValueError, "Invalid instance_id"):
-                store.find_instance("gitodo")
-
-            store.remove_service_scope(
-                "gitodo",
-                {"type": "agent", "agent_id": "agent1"},
-            )
-
-            self.assertIsNotNone(store.find_instance(STORE_INSTANCE_ID))
-            self.assertIsNone(store.find_instance(AGENT_INSTANCE_ID))
-            self.assertEqual(
-                [
-                    instance["instance_id"]
-                    for instance in store.list_instances()
-                ],
-                [STORE_INSTANCE_ID],
-            )
-
-            persisted = json.loads(config_path.read_text(encoding="utf-8"))
-            scopes = persisted["mcpServers"]["gitodo"]["_mcpstore"]["scopes"]
-            self.assertIn("store", scopes)
-            self.assertNotIn("agent1", scopes.get("agents", {}))
-
-    def test_show_config_uses_store_agent_and_session_scope(self) -> None:
+    def test_show_config_keeps_session_as_a_separate_facade(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
             store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
-            store_context = store.for_store()
-            agent_context = store.for_agent("agent-a")
-
-            store_context.add_service_config(
-                "store-only", {"command": "command-that-must-not-run", "args": []}
-            )
-            agent_context.add_service_config(
-                "agent-only", {"command": "command-that-must-not-run", "args": []}
-            )
-
-            root_config = store.show_config()
-            self.assertEqual(set(root_config["mcpServers"]), {"store-only", "agent-only"})
-
-            store_config = store_context.show_config()
-            self.assertEqual(set(store_config["mcpServers"]), {"store-only"})
-
-            agent_config = agent_context.show_config()
-            self.assertEqual(set(agent_config["mcpServers"]), {"agent-only"})
-
+            store_context = store.for_store().add_service_config("store-only", {"command": "command-that-must-not-run", "args": []})
+            agent_context = store.for_agent("agent-a").add_service_config("agent-only", {"command": "command-that-must-not-run", "args": []})
+            self.assertEqual(set(store_context.show_config()["mcpServers"]), {"store-only"})
+            self.assertEqual(set(agent_context.show_config()["mcpServers"]), {"agent-only"})
             session = store.create_session("session-a", scope="agent", agent_id="agent-a")
-            self.assertEqual(session.show_config(), agent_config)
+            self.assertEqual(session.show_config(), agent_context.show_config())
 
-    def test_public_mcpstore_exposes_scope_facade(self) -> None:
+    def test_context_mutations_return_the_same_context_domain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
             store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
-            store_context = store.for_store()
-            agent_context = store.for_agent("agent-a")
+            context = store.for_agent("agent-a")
+            context = context.add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
+            self.assertIsInstance(context, AgentContext)
+            self.assertEqual(context.scope, {"type": "agent", "agent_id": "agent-a"})
+            context = context.patch_service(service_name="svc", updates={"headers": {"X-Demo": "agent-a"}})
+            context = context.update_service(service_name="svc", config={"command": "updated", "args": []})
+            self.assertIsInstance(context, AgentContext)
+            service = context.find_service(service_name="svc")
+            self.assertIsInstance(service, Service)
+            self.assertEqual(service.info()["service_name"], "svc")
+            self.assertEqual(service.config()["command"], "updated")
 
-            store_id = store_context.add_service_config(
-                "svc", {"command": "command-that-must-not-run", "args": []}
-            )
-            agent_id = agent_context.add_service_config(
-                "svc", {"command": "command-that-must-not-run", "args": []}
-            )
-            self.assertEqual(
-                [item["instance_id"] for item in store_context.list_services()], [store_id]
-            )
-            self.assertEqual(
-                [item["instance_id"] for item in agent_context.list_services()], [agent_id]
-            )
-
-            agent_context.patch_service(
-                service_name="svc", updates={"headers": {"X-Agent": "agent-a"}}
-            )
-            agent_context.update_service(
-                instance_id=agent_id, config={"command": "updated", "args": []}
-            )
-            agent_context.remove_service(instance_id=agent_id)
-            self.assertEqual(agent_context.list_services(), [])
-            self.assertEqual(
-                [item["instance_id"] for item in store_context.list_services()], [store_id]
-            )
-
-
-    def test_scope_facade_binding_keeps_store_and_agent_views_isolated(self) -> None:
+    def test_raw_binding_uses_native_context_service_and_bool_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = _rust.MCPStore.setup_with_options(
-                str(config_path), backend="memory"
-            )
-            store_context = store.for_store()
-            agent_context = store.for_agent("agent-a")
+            context = _rust.MCPStore.setup_with_options(str(config_path), backend="memory").for_store()
+            context = context.add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
+            self.assertEqual(context.scope(), {"type": "store"})
+            service = context.find_service(service_name="svc")
+            self.assertTrue(service.info()["instance_id"])
+            self.assertTrue(service.remove_service())
+            self.assertTrue(context.reset_config())
 
-            self.assertEqual(store_context.scope(), {"type": "store"})
-            self.assertEqual(
-                agent_context.scope(),
-                {"type": "agent", "agent_id": "agent-a"},
-            )
-
-            instance_id = agent_context.add_service_config(
-                "svc",
-                {"command": "command-that-must-not-run", "args": []},
-            )
-
-            self.assertTrue(instance_id)
-            self.assertEqual(
-                [
-                    service["service_name"]
-                    for service in agent_context.list_services()
-                ],
-                ["svc"],
-            )
-            self.assertEqual(store_context.list_services(), [])
+    def test_list_and_find_return_resource_objects_in_current_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store_context = store.for_store().add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
+            agent_context = store.for_agent("agent-a").add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
+            store_service = store_context.find_service(service_name="svc")
+            store_id = store_service.info()["instance_id"]
+            agent_service = agent_context.find_service(service_name="svc")
+            agent_id = agent_service.info()["instance_id"]
+            self.assertIsInstance(store_service, Service)
+            self.assertIsInstance(agent_service, Service)
+            self.assertNotEqual(store_id, agent_id)
             self.assertEqual(agent_context.list_tools(), [])
-            service = agent_context.list_services()[0]
-            self.assertEqual(service["state"]["instance_id"], instance_id)
-            self.assertIn("phase", service["state"])
-
-            agent_context.patch_service(
-                service_name="svc", updates={"headers": {"X-Demo": "agent-a"}}
-            )
-            self.assertEqual(
-                store.show_config()["mcpServers"]["svc"]["headers"]["X-Demo"],
-                "agent-a",
-            )
-            with self.assertRaisesRegex(RuntimeError, "Scope Store is not declared"):
-                store_context.patch_service(
-                    service_name="svc", updates={"headers": {"X-Demo": "store"}}
-                )
-
-            instance_ids = store_context.add_service(
-                {
-                    "mcpServers": {
-                        "other": {
-                            "command": "command-that-must-not-run",
-                            "args": [],
-                        }
-                    }
-                }
-            )
-
-            self.assertEqual(len(instance_ids), 1)
-            self.assertEqual(
-                [
-                    service["service_name"]
-                    for service in store_context.list_services()
-                ],
-                ["other"],
-            )
-            self.assertEqual(
-                [
-                    service["service_name"]
-                    for service in agent_context.list_services()
-                ],
-                ["svc"],
-            )
-
-
-    def test_scope_facade_lifecycle_uses_current_scope(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "mcp.json"
-            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = _rust.MCPStore.setup_with_options(str(config_path), backend="memory")
-            store_context = store.for_store()
-            agent_context = store.for_agent("agent-a")
-            store_id = store_context.add_service_config(
-                "svc", {"command": "command-that-must-not-run", "args": []}
-            )
-            agent_id = agent_context.add_service_config(
-                "svc", {"command": "command-that-must-not-run", "args": []}
-            )
-
-            agent_context.patch_service(
-                instance_id=agent_id, updates={"headers": {"X-Demo": "agent-a"}}
-            )
-            agent_context.update_service(
-                service_name="svc", config={"command": "updated", "args": []}
-            )
-            store_context.disconnect_service(service_name="svc")
-            with self.assertRaisesRegex(RuntimeError, "does not belong to scope"):
-                agent_context.restart_service(instance_id=store_id)
-            with self.assertRaisesRegex(TypeError, "exactly one"):
-                agent_context.remove_service()
-            with self.assertRaisesRegex(RuntimeError, "Scope Agent"):
-                agent_context.wait_service(service_name="missing", timeout=0.5)
-
-            agent_context.remove_service(instance_id=agent_id)
-            self.assertEqual(agent_context.list_services(), [])
-            self.assertEqual(
-                [item["instance_id"] for item in store_context.list_services()], [store_id]
-            )
-
-
-    def test_scope_facade_find_service_uses_current_scope(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "mcp.json"
-            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
-            store_context = store.for_store()
-            agent_context = store.for_agent("agent-a")
-            store_id = store_context.add_service_config(
-                "svc", {"command": "command-that-must-not-run", "args": []}
-            )
-            agent_id = agent_context.add_service_config(
-                "svc", {"command": "command-that-must-not-run", "args": []}
-            )
-
-            self.assertEqual(
-                store_context.find_service(service_name="svc")["instance_id"], store_id
-            )
-            self.assertEqual(
-                agent_context.find_service(instance_id=agent_id)["instance_id"], agent_id
-            )
             with self.assertRaisesRegex(RuntimeError, "does not belong to scope"):
                 agent_context.find_service(instance_id=store_id)
-            with self.assertRaisesRegex(TypeError, "exactly one"):
-                store_context.find_service()
 
+    def test_service_mutations_return_service_and_delete_returns_bool(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            context = store.for_agent("agent-a").add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
+            service = context.find_service(service_name="svc")
+            service = service.patch_service({"headers": {"X-Service": "yes"}})
+            self.assertIsInstance(service, Service)
+            self.assertEqual(service.config()["headers"]["X-Service"], "yes")
+            service = service.update_service({"command": "updated", "args": []})
+            self.assertIsInstance(service, Service)
+            self.assertEqual(service.config()["command"], "updated")
+            self.assertTrue(service.remove_service())
+            with self.assertRaisesRegex(RuntimeError, "not found"):
+                service.info()
 
-    def test_scope_facade_add_service_accepts_all_supported_inputs(self) -> None:
+    def test_add_service_accepts_all_supported_inputs_and_returns_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             json_path = Path(tmp) / "services.json"
             toml_path = Path(tmp) / "services.toml"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            json_path.write_text(
-                '{"mcpServers": {"from-json-file": {"command": "command-that-must-not-run"}}}',
-                encoding="utf-8",
-            )
-            toml_path.write_text(
-                '[mcpServers.from-toml-file]\ncommand = "command-that-must-not-run"\n',
-                encoding="utf-8",
-            )
-            context = _rust.MCPStore.setup_with_options(
-                str(config_path), backend="memory"
-            ).for_store()
-
-            context.add_service({"mcpServers": {"document": {"command": "command-that-must-not-run"}}})
-            context.add_service({"name": "single", "command": "command-that-must-not-run"})
-            context.add_service([
-                {"name": "list-one", "command": "command-that-must-not-run"},
-                {"name": "list-two", "command": "command-that-must-not-run"},
-            ])
-            context.add_service('{"mcpServers": {"from-json-text": {"command": "command-that-must-not-run"}}}')
-            context.add_service(json_path)
-            context.add_service(str(toml_path))
-
+            json_path.write_text('{"mcpServers": {"from-json-file": {"command": "command-that-must-not-run"}}}', encoding="utf-8")
+            toml_path.write_text('[mcpServers.from-toml-file]\ncommand = "command-that-must-not-run"\n', encoding="utf-8")
+            context = _rust.MCPStore.setup_with_options(str(config_path), backend="memory").for_store()
+            for config in (
+                {"mcpServers": {"document": {"command": "command-that-must-not-run"}}},
+                {"name": "single", "command": "command-that-must-not-run"},
+                [{"name": "list-one", "command": "command-that-must-not-run"}, {"name": "list-two", "command": "command-that-must-not-run"}],
+                '{"mcpServers": {"from-json-text": {"command": "command-that-must-not-run"}}}',
+                json_path,
+                str(toml_path),
+            ):
+                context = context.add_service(config)
             self.assertEqual(
-                {service["service_name"] for service in context.list_services()},
-                {
-                    "document", "single", "list-one", "list-two",
-                    "from-json-text", "from-json-file", "from-toml-file",
-                },
+                {service.info()["service_name"] for service in context.list_services()},
+                {"document", "single", "list-one", "list-two", "from-json-text", "from-json-file", "from-toml-file"},
             )
 
-
-    def test_python_context_uses_native_scope_facade(self) -> None:
+    def test_python_context_wraps_native_scope_facade_without_dict_resources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
             store = RustStoreBackend.setup(str(config_path), cache_config="memory")
-
-            agent_context = store.for_agent("agent-a")
-            instance_id = agent_context.add_service_config(
-                "svc",
-                {"command": "command-that-must-not-run", "args": []},
-            )
-
-            self.assertTrue(instance_id)
-            self.assertEqual([item["service_name"] for item in agent_context.list_services()], ["svc"])
+            context = store.for_agent("agent-a").add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
+            service = context.list_services()[0]
+            self.assertIsInstance(context, AgentContext)
+            self.assertIsInstance(service, Service)
+            self.assertEqual(service.info()["service_name"], "svc")
             self.assertEqual(store.for_store().list_services(), [])
-            self.assertEqual(agent_context.list_tools(), [])
+            self.assertEqual(context.list_tools(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,8 +14,8 @@ use mcpstore::{
         SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
         ToolTransformRule,
     },
-    ContentItem, Event, InstanceId, McpConfig, ScopeContext, ScopeRef, ServiceInstance,
-    ServiceTarget, StoreError, ToolCallResult, ToolInfo,
+    ContentItem, Event, InstanceId, McpConfig, ScopeContext, ScopeRef, Service, ServiceInstance,
+    ServiceTarget, StoreError, Tool, ToolCallResult, ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
@@ -37,6 +37,16 @@ pub struct PyMCPStore {
 #[pyclass(name = "ScopeContext")]
 pub struct PyScopeContext {
     inner: ScopeContext,
+}
+
+#[pyclass(name = "Service")]
+pub struct PyService {
+    inner: Service,
+}
+
+#[pyclass(name = "Tool")]
+pub struct PyTool {
+    inner: Tool,
 }
 
 fn map_store_err(err: StoreError) -> PyErr {
@@ -610,76 +620,67 @@ impl PyScopeContext {
         serde_value_to_py(py, config)
     }
 
-    fn add_service_config(
-        &self,
-        service_name: &str,
-        config: &Bound<'_, PyAny>,
-    ) -> PyResult<String> {
-        let config = py_to_server_config(config, "Service config")?;
-        let instance_id = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.add_service_config(service_name, config))
-            .map_err(map_store_err)?;
-        Ok(instance_id.to_string())
-    }
-
-    fn reset_config(&self) -> PyResult<()> {
+    fn reset_config(&self) -> PyResult<bool> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_config())
             .map_err(map_store_err)
     }
 
-    fn add_service(&self, config: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
+    fn add_service_config(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let config = py_to_server_config(config, "Service config")?;
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.add_service_config(service_name, config))
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
+    }
+
+    fn add_service(&self, config: &Bound<'_, PyAny>) -> PyResult<Self> {
         let config = py_to_add_service_config(config)?;
-        let instance_ids = pyo3_async_runtimes::tokio::get_runtime()
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.add_service(config))
             .map_err(map_store_err)?;
-        Ok(instance_ids
-            .into_iter()
-            .map(|instance_id| instance_id.to_string())
-            .collect())
+        Ok(Self { inner })
     }
 
     #[pyo3(signature = (*, service_name=None, instance_id=None, timeout=10.0))]
     fn wait_service(
         &self,
-        py: Python<'_>,
         service_name: Option<&str>,
         instance_id: Option<&str>,
         timeout: f64,
-    ) -> PyResult<Py<PyAny>> {
-        let state = pyo3_async_runtimes::tokio::get_runtime()
+    ) -> PyResult<Self> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.wait_service(
                 facade_service_target(service_name, instance_id)?,
                 duration_from_seconds(timeout)?,
             ))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &state, "Service state")
+        Ok(Self { inner })
     }
 
-    fn list_services(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+    fn list_services(&self) -> PyResult<Vec<PyService>> {
         let services = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.list_services())
             .map_err(map_store_err)?;
-        services
-            .iter()
-            .map(|service| scoped_service_entry_to_py(py, service))
-            .collect()
+        Ok(services
+            .into_iter()
+            .map(|inner| PyService { inner })
+            .collect())
     }
 
     #[pyo3(signature = (*, service_name=None, instance_id=None))]
     fn find_service(
         &self,
-        py: Python<'_>,
         service_name: Option<&str>,
         instance_id: Option<&str>,
-    ) -> PyResult<Py<PyAny>> {
-        let service = pyo3_async_runtimes::tokio::get_runtime()
+    ) -> PyResult<PyService> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
                     .find_service(facade_service_target(service_name, instance_id)?),
             )
             .map_err(map_store_err)?;
-        scoped_service_entry_to_py(py, &service)
+        Ok(PyService { inner })
     }
 
     #[pyo3(signature = (*, service_name=None, instance_id=None, updates))]
@@ -688,14 +689,15 @@ impl PyScopeContext {
         service_name: Option<&str>,
         instance_id: Option<&str>,
         updates: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Self> {
         let updates = py_to_serde_value(updates, "Service base config patch")?;
-        pyo3_async_runtimes::tokio::get_runtime()
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
                     .patch_service(facade_service_target(service_name, instance_id)?, updates),
             )
-            .map_err(map_store_err)
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
     }
 
     #[pyo3(signature = (*, service_name=None, instance_id=None, config))]
@@ -704,14 +706,15 @@ impl PyScopeContext {
         service_name: Option<&str>,
         instance_id: Option<&str>,
         config: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Self> {
         let config = py_to_server_config(config, "Service base config update")?;
-        pyo3_async_runtimes::tokio::get_runtime()
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
                     .update_service(facade_service_target(service_name, instance_id)?, config),
             )
-            .map_err(map_store_err)
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
     }
 
     #[pyo3(signature = (*, service_name=None, instance_id=None))]
@@ -719,7 +722,7 @@ impl PyScopeContext {
         &self,
         service_name: Option<&str>,
         instance_id: Option<&str>,
-    ) -> PyResult<()> {
+    ) -> PyResult<bool> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
@@ -733,13 +736,14 @@ impl PyScopeContext {
         &self,
         service_name: Option<&str>,
         instance_id: Option<&str>,
-    ) -> PyResult<()> {
-        pyo3_async_runtimes::tokio::get_runtime()
+    ) -> PyResult<Self> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
                     .disconnect_service(facade_service_target(service_name, instance_id)?),
             )
-            .map_err(map_store_err)
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
     }
 
     #[pyo3(signature = (*, service_name=None, instance_id=None))]
@@ -747,30 +751,28 @@ impl PyScopeContext {
         &self,
         service_name: Option<&str>,
         instance_id: Option<&str>,
-    ) -> PyResult<()> {
-        pyo3_async_runtimes::tokio::get_runtime()
+    ) -> PyResult<Self> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
                     .restart_service(facade_service_target(service_name, instance_id)?),
             )
-            .map_err(map_store_err)
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
     }
 
-    fn list_tools(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+    fn list_tools(&self) -> PyResult<Vec<PyTool>> {
         let tools = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.list_tools())
             .map_err(map_store_err)?;
-        tools
-            .iter()
-            .map(|tool| scoped_tool_entry_to_py(py, tool))
-            .collect()
+        Ok(tools.into_iter().map(|inner| PyTool { inner }).collect())
     }
 
-    fn find_tool(&self, py: Python<'_>, tool_name: &str) -> PyResult<Py<PyAny>> {
-        let tool = pyo3_async_runtimes::tokio::get_runtime()
+    fn find_tool(&self, tool_name: &str) -> PyResult<PyTool> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.find_tool(tool_name))
             .map_err(map_store_err)?;
-        scoped_tool_entry_to_py(py, &tool)
+        Ok(PyTool { inner })
     }
 
     #[pyo3(signature = (tool_name, args=None))]
@@ -788,6 +790,112 @@ impl PyScopeContext {
             .allow_threads(|| {
                 pyo3_async_runtimes::tokio::get_runtime()
                     .block_on(self.inner.call_tool(tool_name, args))
+            })
+            .map_err(map_store_err)?;
+        tool_call_result_to_py(py, &result)
+    }
+}
+
+#[pymethods]
+impl PyService {
+    fn info(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let info = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.info())
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, info)
+    }
+
+    fn state(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.state())
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &state, "Service state")
+    }
+
+    fn config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let config = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.config())
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, config)
+    }
+
+    #[pyo3(signature = (timeout=10.0))]
+    fn wait_service(&self, timeout: f64) -> PyResult<Self> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.wait_service(duration_from_seconds(timeout)?))
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
+    }
+
+    fn disconnect_service(&self) -> PyResult<Self> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.disconnect_service())
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
+    }
+
+    fn restart_service(&self) -> PyResult<Self> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.restart_service())
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
+    }
+
+    fn patch_service(&self, updates: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let updates = py_to_serde_value(updates, "Service base config patch")?;
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.patch_service(updates))
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
+    }
+
+    fn update_service(&self, config: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let config = py_to_server_config(config, "Service base config update")?;
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.update_service(config))
+            .map_err(map_store_err)?;
+        Ok(Self { inner })
+    }
+
+    fn remove_service(&self) -> PyResult<bool> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.remove_service())
+            .map_err(map_store_err)
+    }
+
+    fn list_tools(&self) -> PyResult<Vec<PyTool>> {
+        let tools = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_tools())
+            .map_err(map_store_err)?;
+        Ok(tools.into_iter().map(|inner| PyTool { inner }).collect())
+    }
+
+    fn find_tool(&self, tool_name: &str) -> PyResult<PyTool> {
+        let inner = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_tool(tool_name))
+            .map_err(map_store_err)?;
+        Ok(PyTool { inner })
+    }
+}
+
+#[pymethods]
+impl PyTool {
+    fn info(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let info = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.info())
+            .map_err(map_store_err)?;
+        scoped_tool_entry_to_py(py, &info)
+    }
+
+    #[pyo3(signature = (args=None))]
+    fn call(&self, py: Python<'_>, args: Option<&Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
+        let args = args
+            .map(|value| py_to_serde_value(value, "Tool arguments"))
+            .transpose()?
+            .unwrap_or_else(|| serde_json::json!({}));
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.call(args))
             })
             .map_err(map_store_err)?;
         tool_call_result_to_py(py, &result)

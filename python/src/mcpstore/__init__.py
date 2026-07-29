@@ -21,10 +21,15 @@ def __getattr__(name: str):
         })
         return globals()[name]
 
-    if name in ("StoreContext", "AgentContext"):
-        from mcpstore.context import AgentContext, StoreContext
+    if name in ("StoreContext", "AgentContext", "Service", "Tool"):
+        from mcpstore.context import AgentContext, Service, StoreContext, Tool
 
-        globals().update({"StoreContext": StoreContext, "AgentContext": AgentContext})
+        globals().update({
+            "StoreContext": StoreContext,
+            "AgentContext": AgentContext,
+            "Service": Service,
+            "Tool": Tool,
+        })
         return globals()[name]
 
     if name == "SessionContext":

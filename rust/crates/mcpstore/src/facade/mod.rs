@@ -1,3 +1,3 @@
 mod context;
 
-pub use context::{ScopeContext, ServiceTarget};
+pub use context::{ScopeContext, Service, ServiceTarget, Tool};
