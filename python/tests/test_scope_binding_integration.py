@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from mcpstore import _rust
+
 from mcpstore.core.store.rust_backend import RustStoreBackend
 
 
@@ -76,6 +78,65 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             scopes = persisted["mcpServers"]["gitodo"]["_mcpstore"]["scopes"]
             self.assertIn("store", scopes)
             self.assertNotIn("agent1", scopes.get("agents", {}))
+
+    def test_scope_facade_binding_keeps_store_and_agent_views_isolated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = _rust.MCPStore.setup_with_options(
+                str(config_path), backend="memory"
+            )
+            store_context = store.for_store()
+            agent_context = store.for_agent("agent-a")
+
+            self.assertEqual(store_context.scope(), {"type": "store"})
+            self.assertEqual(
+                agent_context.scope(),
+                {"type": "agent", "agent_id": "agent-a"},
+            )
+
+            instance_id = agent_context.add_service_config(
+                "svc",
+                {"command": "command-that-must-not-run", "args": []},
+            )
+
+            self.assertTrue(instance_id)
+            self.assertEqual(
+                [
+                    service["service_name"]
+                    for service in agent_context.list_services()
+                ],
+                ["svc"],
+            )
+            self.assertEqual(store_context.list_services(), [])
+            self.assertEqual(agent_context.list_tools(), [])
+
+            instance_ids = store_context.add_mcp_config(
+                {
+                    "mcpServers": {
+                        "other": {
+                            "command": "command-that-must-not-run",
+                            "args": [],
+                        }
+                    }
+                }
+            )
+
+            self.assertEqual(len(instance_ids), 1)
+            self.assertEqual(
+                [
+                    service["service_name"]
+                    for service in store_context.list_services()
+                ],
+                ["other"],
+            )
+            self.assertEqual(
+                [
+                    service["service_name"]
+                    for service in agent_context.list_services()
+                ],
+                ["svc"],
+            )
 
 
 if __name__ == "__main__":
