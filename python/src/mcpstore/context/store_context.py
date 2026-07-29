@@ -22,19 +22,17 @@ class RustStoreContext:
         else:
             self._native = native_factory() if native_factory else None
 
+    def reset_config(self) -> None:
+        self._native.reset_config()
+
     def add_service_config(self, service_name: str, config: Dict[str, Any]) -> str:
         if self._native is not None:
             return str(self._native.add_service_config(service_name, config))
         self._backend.add_service(service_name, config)
         return self._backend.declare_service_scope(service_name, self.scope, {})
 
-    def add_mcp_config(self, config: Dict[str, Any]) -> List[str]:
-        if self._native is not None:
-            return [str(value) for value in self._native.add_mcp_config(config)]
-        ids = []
-        for name, service_config in config.get("mcpServers", {}).items():
-            ids.append(self.add_service_config(name, service_config))
-        return ids
+    def add_service(self, config: Any) -> List[str]:
+        return [str(value) for value in self._native.add_service(config)]
 
     def wait_service(self, service_name: str, timeout_secs: int = 10) -> Dict[str, Any]:
         if self._native is not None:
