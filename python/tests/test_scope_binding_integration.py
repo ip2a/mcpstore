@@ -111,7 +111,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertEqual(store_context.list_services(), [])
             self.assertEqual(agent_context.list_tools(), [])
 
-            instance_ids = store_context.add_mcp_config(
+            instance_ids = store_context.add_service(
                 {
                     "mcpServers": {
                         "other": {
@@ -136,6 +136,43 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
                     for service in agent_context.list_services()
                 ],
                 ["svc"],
+            )
+
+
+    def test_scope_facade_add_service_accepts_all_supported_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            json_path = Path(tmp) / "services.json"
+            toml_path = Path(tmp) / "services.toml"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            json_path.write_text(
+                '{"mcpServers": {"from-json-file": {"command": "command-that-must-not-run"}}}',
+                encoding="utf-8",
+            )
+            toml_path.write_text(
+                '[mcpServers.from-toml-file]\ncommand = "command-that-must-not-run"\n',
+                encoding="utf-8",
+            )
+            context = _rust.MCPStore.setup_with_options(
+                str(config_path), backend="memory"
+            ).for_store()
+
+            context.add_service({"mcpServers": {"document": {"command": "command-that-must-not-run"}}})
+            context.add_service({"name": "single", "command": "command-that-must-not-run"})
+            context.add_service([
+                {"name": "list-one", "command": "command-that-must-not-run"},
+                {"name": "list-two", "command": "command-that-must-not-run"},
+            ])
+            context.add_service('{"mcpServers": {"from-json-text": {"command": "command-that-must-not-run"}}}')
+            context.add_service(json_path)
+            context.add_service(str(toml_path))
+
+            self.assertEqual(
+                {service["service_name"] for service in context.list_services()},
+                {
+                    "document", "single", "list-one", "list-two",
+                    "from-json-text", "from-json-file", "from-toml-file",
+                },
             )
 
 

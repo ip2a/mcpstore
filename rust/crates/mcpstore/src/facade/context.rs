@@ -24,6 +24,13 @@ impl StoreContextFacade {
         &self.scope
     }
 
+    pub async fn reset_config(&self) -> Result<()> {
+        match self.scope {
+            ScopeRef::Store => self.store.reset_config().await,
+            ScopeRef::Agent { .. } => self.store.reset_scope(&self.scope).await,
+        }
+    }
+
     pub async fn add_service_config(
         &self,
         service_name: &str,
@@ -45,7 +52,7 @@ impl StoreContextFacade {
             .await
     }
 
-    pub async fn add_mcp_config(&self, config: McpConfig) -> Result<Vec<InstanceId>> {
+    pub async fn add_service(&self, config: McpConfig) -> Result<Vec<InstanceId>> {
         let mut instance_ids = Vec::with_capacity(config.mcp_servers.len());
         for (service_name, server_config) in config.mcp_servers {
             instance_ids.push(
