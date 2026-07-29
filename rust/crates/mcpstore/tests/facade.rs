@@ -1,0 +1,89 @@
+use std::collections::HashMap;
+
+use mcpstore::{MCPStore, McpConfig, ScopeRef, ServerConfig, ServiceInstanceKey};
+
+fn temp_config_path() -> String {
+    std::env::temp_dir()
+        .join(format!("mcpstore-facade-{}.json", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string()
+}
+
+fn stdio_config() -> ServerConfig {
+    ServerConfig {
+        url: None,
+        command: Some("echo".to_string()),
+        args: vec!["fixture".to_string()],
+        env: HashMap::new(),
+        headers: HashMap::new(),
+        auth: Default::default(),
+        transport: Some("stdio".to_string()),
+        working_dir: None,
+        description: Some("fixture".to_string()),
+        mcpstore: None,
+        extra: Default::default(),
+    }
+}
+
+#[tokio::test]
+async fn facade_adds_service_to_current_agent_scope() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let agent_scope = ScopeRef::Agent {
+        agent_id: "agent-a".to_string(),
+    };
+
+    let instance_id = store
+        .for_agent("agent-a")
+        .add_service_config("svc", stdio_config())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        instance_id,
+        ServiceInstanceKey::new("svc", agent_scope.clone()).instance_id()
+    );
+    assert_eq!(store.for_store().list_services().await.unwrap().len(), 0);
+
+    let services = store.for_agent("agent-a").list_services().await.unwrap();
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0].instance.service_name, "svc");
+    assert_eq!(services[0].instance.scope, agent_scope);
+    assert!(store
+        .for_agent("agent-a")
+        .list_tools()
+        .await
+        .unwrap()
+        .is_empty());
+
+    let wrong_scope = store
+        .for_store()
+        .wait_service("svc", 0)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(wrong_scope.contains("Scope Store is not declared for service 'svc'"));
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn facade_add_mcp_config_uses_context_scope() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let mut config = McpConfig::default();
+    config.mcp_servers.insert("svc".to_string(), stdio_config());
+
+    let instance_ids = store.for_store().add_mcp_config(config).await.unwrap();
+
+    assert_eq!(
+        instance_ids,
+        vec![ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id()]
+    );
+    let services = store.for_store().list_services().await.unwrap();
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0].instance.service_name, "svc");
+    assert_eq!(services[0].instance.scope, ScopeRef::Store);
+
+    std::fs::remove_file(path).ok();
+}
