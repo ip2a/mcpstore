@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use mcpstore::{MCPStore, McpConfig, ScopeRef, ServerConfig, ServiceInstanceKey, ServiceTarget};
+use mcpstore::{
+    CreateSessionRequest, MCPStore, McpConfig, ScopeRef, ServerConfig, ServiceInstanceKey,
+    ServiceTarget,
+};
 
 fn temp_config_path() -> String {
     std::env::temp_dir()
@@ -185,6 +188,43 @@ async fn agent_facade_reset_config_only_clears_current_agent() {
             .len(),
         1
     );
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn facade_show_config_uses_current_scope_and_session_scope() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+
+    store
+        .for_store()
+        .add_service_config("store-only", stdio_config())
+        .await
+        .unwrap();
+    store
+        .for_agent("agent-a")
+        .add_service_config("agent-only", stdio_config())
+        .await
+        .unwrap();
+
+    let store_config = store.for_store().show_config().await.unwrap();
+    assert!(store_config["mcpServers"].get("store-only").is_some());
+    assert!(store_config["mcpServers"].get("agent-only").is_none());
+
+    let agent_config = store.for_agent("agent-a").show_config().await.unwrap();
+    assert!(agent_config["mcpServers"].get("store-only").is_none());
+    assert!(agent_config["mcpServers"].get("agent-only").is_some());
+
+    let session = store
+        .create_session(CreateSessionRequest::agent("session-a", "agent-a"))
+        .await
+        .unwrap();
+    let session_config = store
+        .show_session_config(&session.session_key)
+        .await
+        .unwrap();
+    assert_eq!(session_config, agent_config);
+
     std::fs::remove_file(path).ok();
 }
 

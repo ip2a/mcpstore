@@ -14,6 +14,9 @@ class StoreContext:
         self._native = native
         self.scope = _record_value(native.scope())
 
+    def show_config(self) -> Dict[str, Any]:
+        return _record_value(self._native.show_config())
+
     def reset_config(self) -> None:
         self._native.reset_config()
 
