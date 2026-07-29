@@ -666,6 +666,22 @@ impl PyScopeContext {
             .collect()
     }
 
+    #[pyo3(signature = (*, service_name=None, instance_id=None))]
+    fn find_service(
+        &self,
+        py: Python<'_>,
+        service_name: Option<&str>,
+        instance_id: Option<&str>,
+    ) -> PyResult<Py<PyAny>> {
+        let service = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .find_service(facade_service_target(service_name, instance_id)?),
+            )
+            .map_err(map_store_err)?;
+        scoped_service_entry_to_py(py, &service)
+    }
+
     #[pyo3(signature = (*, service_name=None, instance_id=None, updates))]
     fn patch_service(
         &self,
@@ -748,6 +764,13 @@ impl PyScopeContext {
             .iter()
             .map(|tool| scoped_tool_entry_to_py(py, tool))
             .collect()
+    }
+
+    fn find_tool(&self, py: Python<'_>, tool_name: &str) -> PyResult<Py<PyAny>> {
+        let tool = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_tool(tool_name))
+            .map_err(map_store_err)?;
+        scoped_tool_entry_to_py(py, &tool)
     }
 
     #[pyo3(signature = (tool_name, args=None))]
