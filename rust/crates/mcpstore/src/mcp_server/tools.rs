@@ -957,7 +957,7 @@ pub(super) async fn call_service_tool(
                 optional_positive_u64_argument_with_label(&arguments, "timeout", "service wait")?
                     .unwrap_or(10);
             let status = store
-                .wait_instance_ready(instance_id, timeout)
+                .wait_instance_ready(instance_id, std::time::Duration::from_secs(timeout))
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({

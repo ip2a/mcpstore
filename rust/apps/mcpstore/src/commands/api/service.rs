@@ -182,7 +182,7 @@ pub(super) async fn store_wait_service(
         .unwrap_or(10);
     let status = state
         .store
-        .wait_instance_ready(instance_id, timeout)
+        .wait_instance_ready(instance_id, std::time::Duration::from_secs(timeout))
         .await
         .map_err(ApiError::from_store)?;
     let status = serde_json::to_value(status)

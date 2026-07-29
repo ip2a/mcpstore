@@ -27,9 +27,9 @@ impl MCPStore {
     pub async fn wait_instance_ready(
         &self,
         instance_id: InstanceId,
-        timeout_secs: u64,
+        timeout: std::time::Duration,
     ) -> Result<ServiceState> {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+        let deadline = tokio::time::Instant::now() + timeout;
         loop {
             let state = self.health_check(instance_id).await?;
             if state.readiness.status == ReadinessStatus::Ready {

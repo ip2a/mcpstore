@@ -34,21 +34,72 @@ class RustStoreContext:
     def add_service(self, config: Any) -> List[str]:
         return [str(value) for value in self._native.add_service(config)]
 
-    def wait_service(self, service_name: str, timeout_secs: int = 10) -> Dict[str, Any]:
-        if self._native is not None:
-            return _record_value(self._native.wait_service(service_name, timeout_secs))
-        instance = next(item for item in self.list_services() if item["service_name"] == service_name)
-        return self._backend.wait_instance_ready(instance["instance_id"], timeout_secs)
+    def wait_service(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._native.wait_service(
+                service_name=service_name,
+                instance_id=instance_id,
+                timeout=timeout,
+            )
+        )
 
     def list_services(self) -> List[Dict[str, Any]]:
-        if self._native is not None:
-            return _record_value(self._native.list_services())
-        return self._backend.list_instances_scoped(self.scope)
+        return _record_value(self._native.list_services())
 
-    def patch_service(self, service_name: str, updates: Dict[str, Any]) -> None:
+    def remove_service(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
+    ) -> None:
+        self._native.remove_service(service_name=service_name, instance_id=instance_id)
+
+    def disconnect_service(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
+    ) -> None:
+        self._native.disconnect_service(service_name=service_name, instance_id=instance_id)
+
+    def restart_service(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
+    ) -> None:
+        self._native.restart_service(service_name=service_name, instance_id=instance_id)
+
+    def patch_service(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        updates: Dict[str, Any],
+    ) -> None:
         self._native.patch_service(
-            service_name,
-            _base_config_payload(updates, "Service base config patch"),
+            service_name=service_name,
+            instance_id=instance_id,
+            updates=_base_config_payload(updates, "Service base config patch"),
+        )
+
+    def update_service(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        config: Dict[str, Any],
+    ) -> None:
+        self._native.update_service(
+            service_name=service_name,
+            instance_id=instance_id,
+            config=_base_config_payload(config, "Service base config update"),
         )
 
     async def list_services_async(self) -> List[Dict[str, Any]]:
@@ -63,8 +114,6 @@ class RustStoreContext:
     def declare_service_scope(self, service_name: str, scope: ScopeRef | Dict[str, Any], descriptor: ScopeDescriptor | Dict[str, Any]) -> str:
         return self._backend.declare_service_scope(service_name, scope, descriptor)
 
-    def remove_service_scope(self, service_name: str, scope: ScopeRef | Dict[str, Any]) -> None:
-        self._backend.remove_service_scope(service_name, scope)
 
     def list_instances(self) -> List[Dict[str, Any]]:
         return self._backend.list_instances()
@@ -83,17 +132,6 @@ class RustStoreContext:
     async def connect_service_async(self, instance_id: str) -> None:
         self.connect_service(instance_id)
 
-    def disconnect_service(self, instance_id: str) -> None:
-        self._backend.disconnect_service(instance_id)
-
-    async def disconnect_service_async(self, instance_id: str) -> None:
-        self.disconnect_service(instance_id)
-
-    def restart_service(self, instance_id: str) -> None:
-        self._backend.restart_service(instance_id)
-
-    async def restart_service_async(self, instance_id: str) -> None:
-        self.restart_service(instance_id)
 
     def list_tools(self, instance_id: Optional[str] = None) -> List[Dict[str, Any]]:
         if instance_id is None and self._native is not None:

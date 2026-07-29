@@ -428,7 +428,10 @@ async fn handle_wait_service(store: &MCPStore, params: Value) -> DaemonResponse 
         Err(response) => return response,
     };
     let timeout = params.get("timeout").and_then(Value::as_u64).unwrap_or(30);
-    match store.wait_instance_ready(instance_id, timeout).await {
+    match store
+        .wait_instance_ready(instance_id, std::time::Duration::from_secs(timeout))
+        .await
+    {
         Ok(state) => DaemonResponse::ok(Some(json!({
             "instance_id": instance_id,
             "state": state,
