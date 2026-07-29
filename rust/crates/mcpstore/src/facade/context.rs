@@ -34,6 +34,10 @@ impl ScopeContext {
         &self.scope
     }
 
+    pub async fn show_config(&self) -> Result<Value> {
+        self.store.show_scope_config(&self.scope).await
+    }
+
     pub async fn reset_config(&self) -> Result<()> {
         match self.scope {
             ScopeRef::Store => self.store.reset_config().await,
