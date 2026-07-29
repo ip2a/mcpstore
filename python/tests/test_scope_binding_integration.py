@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mcpstore import _rust
+from mcpstore import MCPStore, _rust
 
 from mcpstore.store import RustStoreBackend
 
@@ -78,6 +78,40 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             scopes = persisted["mcpServers"]["gitodo"]["_mcpstore"]["scopes"]
             self.assertIn("store", scopes)
             self.assertNotIn("agent1", scopes.get("agents", {}))
+
+    def test_public_mcpstore_exposes_scope_facade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store_context = store.for_store()
+            agent_context = store.for_agent("agent-a")
+
+            store_id = store_context.add_service_config(
+                "svc", {"command": "command-that-must-not-run", "args": []}
+            )
+            agent_id = agent_context.add_service_config(
+                "svc", {"command": "command-that-must-not-run", "args": []}
+            )
+            self.assertEqual(
+                [item["instance_id"] for item in store_context.list_services()], [store_id]
+            )
+            self.assertEqual(
+                [item["instance_id"] for item in agent_context.list_services()], [agent_id]
+            )
+
+            agent_context.patch_service(
+                service_name="svc", updates={"headers": {"X-Agent": "agent-a"}}
+            )
+            agent_context.update_service(
+                instance_id=agent_id, config={"command": "updated", "args": []}
+            )
+            agent_context.remove_service(instance_id=agent_id)
+            self.assertEqual(agent_context.list_services(), [])
+            self.assertEqual(
+                [item["instance_id"] for item in store_context.list_services()], [store_id]
+            )
+
 
     def test_scope_facade_binding_keeps_store_and_agent_views_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
