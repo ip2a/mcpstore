@@ -9,7 +9,7 @@ from mcpstore.native.records import _record_value, _plain_record_value
 if TYPE_CHECKING:
     from mcpstore.store.store import RustStoreBackend
 
-class RustSession:
+class SessionContext:
     """Session facade whose service relationships use instance IDs."""
 
     def __init__(self, backend: RustStoreBackend, entity: Dict[str, Any]):
@@ -27,18 +27,18 @@ class RustSession:
     def to_dict(self) -> Dict[str, Any]:
         return _plain_record_value(self._entity)
 
-    def refresh(self) -> "RustSession":
+    def refresh(self) -> "SessionContext":
         entity = self._backend._inner.get_session(self.session_key)
         if entity is None:
             raise KeyError(f"Session not found: {self.session_key}")
         self._entity = _record_value(entity)
         return self
 
-    def bind_service(self, instance_id: str) -> "RustSession":
+    def bind_service(self, instance_id: str) -> "SessionContext":
         self._backend._inner.bind_service_to_session(self.session_key, instance_id)
         return self
 
-    def unbind_service(self, instance_id: str) -> "RustSession":
+    def unbind_service(self, instance_id: str) -> "SessionContext":
         self._backend._inner.unbind_service_from_session(self.session_key, instance_id)
         return self
 
@@ -88,6 +88,4 @@ class RustSession:
         )
 
 
-Session = RustSession
-
-__all__ = ["RustSession", "Session"]
+__all__ = ["SessionContext"]

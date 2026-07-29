@@ -14,8 +14,8 @@ use mcpstore::{
         SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
         ToolTransformRule,
     },
-    ContentItem, Event, InstanceId, McpConfig, ScopeRef, ServiceInstance, ServiceTarget,
-    StoreContextFacade, StoreError, ToolCallResult, ToolInfo,
+    ContentItem, Event, InstanceId, McpConfig, ScopeContext, ScopeRef, ServiceInstance,
+    ServiceTarget, StoreError, ToolCallResult, ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
@@ -34,9 +34,9 @@ pub struct PyMCPStore {
     inner: std::sync::Arc<MCPStore>,
 }
 
-#[pyclass(name = "StoreContextFacade")]
-pub struct PyStoreContextFacade {
-    inner: StoreContextFacade,
+#[pyclass(name = "ScopeContext")]
+pub struct PyScopeContext {
+    inner: ScopeContext,
 }
 
 fn map_store_err(err: StoreError) -> PyErr {
@@ -598,7 +598,7 @@ fn tool_transform_rule_to_py(py: Python<'_>, rule: &ToolTransformRule) -> PyResu
 }
 
 #[pymethods]
-impl PyStoreContextFacade {
+impl PyScopeContext {
     fn scope(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         serializable_to_py(py, self.inner.scope(), "Scope")
     }
@@ -803,14 +803,14 @@ impl PyMCPStore {
         backend_as_str(&backend).to_string()
     }
 
-    fn for_store(&self) -> PyStoreContextFacade {
-        PyStoreContextFacade {
+    fn for_store(&self) -> PyScopeContext {
+        PyScopeContext {
             inner: self.inner.for_store(),
         }
     }
 
-    fn for_agent(&self, agent_id: &str) -> PyStoreContextFacade {
-        PyStoreContextFacade {
+    fn for_agent(&self, agent_id: &str) -> PyScopeContext {
+        PyScopeContext {
             inner: self.inner.for_agent(agent_id),
         }
     }

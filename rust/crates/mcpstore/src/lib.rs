@@ -60,7 +60,7 @@ pub use event_reactor::{
 };
 
 // Facade re-exports: scope-first SDK facade
-pub use facade::{ServiceTarget, StoreContextFacade};
+pub use facade::{ScopeContext, ServiceTarget};
 
 // Facade re-exports: service instance identity
 pub use identity::{InstanceId, ScopeRef, ServiceInstanceKey};

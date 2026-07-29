@@ -20,12 +20,12 @@ pub enum ServiceTarget<'a> {
 }
 
 #[derive(Clone)]
-pub struct StoreContextFacade {
+pub struct ScopeContext {
     store: Arc<MCPStore>,
     scope: ScopeRef,
 }
 
-impl StoreContextFacade {
+impl ScopeContext {
     pub(crate) fn new(store: Arc<MCPStore>, scope: ScopeRef) -> Self {
         Self { store, scope }
     }
@@ -184,12 +184,12 @@ impl StoreContextFacade {
 }
 
 impl MCPStore {
-    pub fn for_store(self: &Arc<Self>) -> StoreContextFacade {
-        StoreContextFacade::new(Arc::clone(self), ScopeRef::Store)
+    pub fn for_store(self: &Arc<Self>) -> ScopeContext {
+        ScopeContext::new(Arc::clone(self), ScopeRef::Store)
     }
 
-    pub fn for_agent(self: &Arc<Self>, agent_id: impl Into<String>) -> StoreContextFacade {
-        StoreContextFacade::new(
+    pub fn for_agent(self: &Arc<Self>, agent_id: impl Into<String>) -> ScopeContext {
+        ScopeContext::new(
             Arc::clone(self),
             ScopeRef::Agent {
                 agent_id: agent_id.into(),

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from mcpstore.native.records import _record_value
-from mcpstore.sessions.session import RustSession
+from mcpstore.sessions.session import SessionContext
 
 def create_session(
     backend,
@@ -15,7 +15,7 @@ def create_session(
     agent_id: Optional[str] = None,
     lease_seconds: Optional[int] = None,
     metadata: Optional[Dict[str, Any]] = None,
-) -> "RustSession":
+) -> "SessionContext":
     entity = backend._inner.create_session(
         session_id,
         scope,
@@ -23,11 +23,11 @@ def create_session(
         lease_seconds,
         metadata,
     )
-    return RustSession(self, _record_value(entity))
+    return SessionContext(backend, _record_value(entity))
 
-def get_session(backend, session_key: str) -> Optional["RustSession"]:
+def get_session(backend, session_key: str) -> Optional["SessionContext"]:
     entity = backend._inner.get_session(session_key)
-    return RustSession(self, _record_value(entity)) if entity else None
+    return SessionContext(backend, _record_value(entity)) if entity else None
 
 def find_session(
     backend,
@@ -35,18 +35,18 @@ def find_session(
     *,
     scope: Optional[str] = None,
     agent_id: Optional[str] = None,
-) -> Optional["RustSession"]:
+) -> Optional["SessionContext"]:
     entity = backend._inner.find_session(session_id, scope, agent_id)
-    return RustSession(self, _record_value(entity)) if entity else None
+    return SessionContext(backend, _record_value(entity)) if entity else None
 
 def list_sessions(
     backend,
     *,
     scope: Optional[str] = None,
     agent_id: Optional[str] = None,
-) -> List["RustSession"]:
+) -> List["SessionContext"]:
     return [
-        RustSession(self, _record_value(entity))
+        SessionContext(backend, _record_value(entity))
         for entity in backend._inner.list_sessions(scope, agent_id)
     ]
 

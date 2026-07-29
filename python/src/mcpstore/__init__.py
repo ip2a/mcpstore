@@ -21,11 +21,17 @@ def __getattr__(name: str):
         })
         return globals()[name]
 
-    if name == "Session":
-        from mcpstore.sessions import Session
+    if name in ("StoreContext", "AgentContext"):
+        from mcpstore.context import AgentContext, StoreContext
 
-        globals()["Session"] = Session
-        return Session
+        globals().update({"StoreContext": StoreContext, "AgentContext": AgentContext})
+        return globals()[name]
+
+    if name == "SessionContext":
+        from mcpstore.sessions import SessionContext
+
+        globals()["SessionContext"] = SessionContext
+        return SessionContext
 
     # Cache config classes
     if name in ("MemoryConfig", "RedisConfig", "OpenKeyvMemoryConfig", "OpenKeyvRedisConfig"):
@@ -174,7 +180,9 @@ def __getattr__(name: str):
 __all__ = [
     # Core Classes
     "MCPStore",
-    "Session",
+    "StoreContext",
+    "AgentContext",
+    "SessionContext",
     "LoggingConfig",
 
     # Cache Config

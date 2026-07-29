@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from mcpstore.context.store_context import RustStoreContext
+from mcpstore.context.store_context import AgentContext, StoreContext
 from mcpstore.cache import store as cache_ops
 from mcpstore.store import configuration, instances, setup as setup_module, transforms
 from mcpstore.sessions import store as session_ops
@@ -117,11 +117,11 @@ class RustStoreBackend:
     find_cache = cache_ops.find_cache
     switch_cache = cache_ops.switch_cache
 
-    def for_store(self) -> RustStoreContext:
-        return RustStoreContext(self._inner.for_store())
+    def for_store(self) -> StoreContext:
+        return StoreContext(self._inner.for_store())
 
-    def for_agent(self, agent_id: str) -> RustStoreContext:
-        return RustStoreContext(self._inner.for_agent(agent_id))
+    def for_agent(self, agent_id: str) -> AgentContext:
+        return AgentContext(self._inner.for_agent(agent_id))
 
     def for_langchain(self, instance_id: str, response_format: str = "text") -> Any:
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
