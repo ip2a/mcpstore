@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState, type MutableRefObject } from "react"
 
 import type { ServiceInstance } from "@/lib/api"
 import {
@@ -13,8 +13,65 @@ export type ServiceSortBy = "name" | "status" | "tools"
 const STATUS_SORT_ORDER: Record<ServiceDisplayStatus, number> = {
   connected: 0,
   connecting: 1,
-  disconnected: 2,
-  error: 3,
+  error: 2,
+  disconnected: 3,
+}
+
+function compareByStatusThenName(a: ServiceInstance, b: ServiceInstance) {
+  const statusDiff =
+    STATUS_SORT_ORDER[deriveServiceDisplayStatus(a.state)] -
+    STATUS_SORT_ORDER[deriveServiceDisplayStatus(b.state)]
+  if (statusDiff !== 0) return statusDiff
+  return a.service_name.localeCompare(b.service_name)
+}
+
+function buildSessionOrderRank(services: ServiceInstance[]) {
+  return new Map(
+    [...services]
+      .sort(compareByStatusThenName)
+      .map((service, index) => [service.instance_id, index] as const),
+  )
+}
+
+function ensureSessionOrderRank(
+  orderRankRef: MutableRefObject<Map<string, number> | null>,
+  services: ServiceInstance[],
+) {
+  if (orderRankRef.current === null && services.length > 0) {
+    orderRankRef.current = buildSessionOrderRank(services)
+  }
+  if (orderRankRef.current === null) {
+    orderRankRef.current = new Map()
+  }
+
+  let nextRank = orderRankRef.current.size
+  for (const service of services) {
+    if (!orderRankRef.current.has(service.instance_id)) {
+      orderRankRef.current.set(service.instance_id, nextRank++)
+    }
+  }
+
+  return orderRankRef.current
+}
+
+function compareFilteredServices(
+  a: ServiceInstance,
+  b: ServiceInstance,
+  sortBy: ServiceSortBy,
+  orderRank: Map<string, number>,
+) {
+  if (sortBy === "name") {
+    return a.service_name.localeCompare(b.service_name)
+  }
+
+  if (sortBy === "tools") {
+    const toolDiff = (b.tools?.length || 0) - (a.tools?.length || 0)
+    return toolDiff || a.service_name.localeCompare(b.service_name)
+  }
+
+  const rankA = orderRank.get(a.instance_id) ?? Number.MAX_SAFE_INTEGER
+  const rankB = orderRank.get(b.instance_id) ?? Number.MAX_SAFE_INTEGER
+  return rankA - rankB || a.service_name.localeCompare(b.service_name)
 }
 
 export function countActiveServiceFilters(filters: {
@@ -25,7 +82,7 @@ export function countActiveServiceFilters(filters: {
   let count = 0
   if (filters.scopeFilter !== "all") count++
   if (filters.statusFilter !== "all") count++
-  if (filters.sortBy !== "name") count++
+  if (filters.sortBy !== "status") count++
   return count
 }
 
@@ -34,10 +91,12 @@ export function useServicesList(services: ServiceInstance[]) {
   const [scopeFilter, setScopeFilter] = useState<ServiceScopeFilter>("all")
   const [agentFilter, setAgentFilter] = useState("")
   const [statusFilter, setStatusFilter] = useState<ServiceStatusFilter>("all")
-  const [sortBy, setSortBy] = useState<ServiceSortBy>("name")
+  const [sortBy, setSortBy] = useState<ServiceSortBy>("status")
+  const sessionOrderRankRef = useRef<Map<string, number> | null>(null)
 
   const filteredServices = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
+    const orderRank = ensureSessionOrderRank(sessionOrderRankRef, services)
     const filtered = services.filter((service) => {
       const description = String(service.effective_config.description || "")
       const scope = service.scope.type === "store" ? "store" : `agent ${service.scope.agent_id}`
@@ -56,17 +115,7 @@ export function useServicesList(services: ServiceInstance[]) {
       return true
     })
 
-    return filtered.sort((a, b) => {
-      if (sortBy === "status") {
-        const statusDiff = STATUS_SORT_ORDER[deriveServiceDisplayStatus(a.state)] - STATUS_SORT_ORDER[deriveServiceDisplayStatus(b.state)]
-        return statusDiff || a.service_name.localeCompare(b.service_name)
-      }
-      if (sortBy === "tools") {
-        const toolDiff = (b.tools?.length || 0) - (a.tools?.length || 0)
-        return toolDiff || a.service_name.localeCompare(b.service_name)
-      }
-      return a.service_name.localeCompare(b.service_name)
-    })
+    return filtered.sort((a, b) => compareFilteredServices(a, b, sortBy, orderRank))
   }, [agentFilter, query, scopeFilter, services, sortBy, statusFilter])
 
   const totals = useMemo(() => {

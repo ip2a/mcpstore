@@ -892,9 +892,12 @@ impl MCPStore {
         let now = Self::now_timestamp();
         let loaded_relation = self.load_session_services(session_key).await?;
         let expected_version = loaded_relation.as_ref().map(|relation| relation.version);
+        let effective_services = self
+            .effective_session_service_items(&session, loaded_relation.as_ref())
+            .await?;
         let mut relation = loaded_relation.unwrap_or(SessionServiceRelation {
             session_key: session_key.to_string(),
-            services: Vec::new(),
+            services: effective_services,
             updated_at: now,
             version: 0,
         });
@@ -951,9 +954,12 @@ impl MCPStore {
         let now = Self::now_timestamp();
         let loaded_relation = self.load_session_services(session_key).await?;
         let expected_version = loaded_relation.as_ref().map(|relation| relation.version);
+        let effective_services = self
+            .effective_session_service_items(&session, loaded_relation.as_ref())
+            .await?;
         let mut relation = loaded_relation.unwrap_or(SessionServiceRelation {
             session_key: session_key.to_string(),
-            services: Vec::new(),
+            services: effective_services,
             updated_at: now,
             version: 0,
         });
@@ -991,12 +997,10 @@ impl MCPStore {
         &self,
         session_key: &str,
     ) -> Result<Vec<SessionServiceItem>> {
-        self.require_session(session_key).await?;
-        Ok(self
-            .load_session_services(session_key)
-            .await?
-            .map(|relation| relation.services)
-            .unwrap_or_default())
+        let session = self.require_session(session_key).await?;
+        let relation = self.load_session_services(session_key).await?;
+        self.effective_session_service_items(&session, relation.as_ref())
+            .await
     }
 
     pub async fn set_session_tool_visibility(
@@ -1644,30 +1648,51 @@ impl MCPStore {
         Ok(entries)
     }
 
+    async fn effective_session_service_items(
+        &self,
+        session: &SessionEntity,
+        relation: Option<&SessionServiceRelation>,
+    ) -> Result<Vec<SessionServiceItem>> {
+        if let Some(relation) = relation {
+            return Ok(relation.services.clone());
+        }
+
+        let mut items = self
+            .list_scope_instances(&Self::session_scope_ref(session)?)
+            .await?
+            .into_iter()
+            .map(|instance| SessionServiceItem {
+                instance_id: instance.instance_id,
+                service_name: instance.service_name,
+                scope: instance.scope,
+                bound_at: session.created_at.max(instance.added_time),
+            })
+            .collect::<Vec<_>>();
+        items.sort_by_key(|item| item.instance_id);
+        Ok(items)
+    }
+
     async fn session_service_instances(
         &self,
         session: &SessionEntity,
     ) -> Result<Vec<ServiceInstance>> {
-        let bound = self.load_session_services(&session.session_key).await?;
-        let mut instances = if let Some(relation) = bound {
-            let mut instances = Vec::with_capacity(relation.services.len());
-            for item in relation.services {
-                let instance = self
-                    .require_session_instance(session, item.instance_id)
-                    .await?;
-                if instance.service_name != item.service_name || instance.scope != item.scope {
-                    return Err(StoreError::Other(format!(
-                        "session service relation does not match instance: session_key={}, instance_id={}",
-                        session.session_key, item.instance_id
-                    )));
-                }
-                instances.push(instance);
+        let relation = self.load_session_services(&session.session_key).await?;
+        let items = self
+            .effective_session_service_items(session, relation.as_ref())
+            .await?;
+        let mut instances = Vec::with_capacity(items.len());
+        for item in items {
+            let instance = self
+                .require_session_instance(session, item.instance_id)
+                .await?;
+            if instance.service_name != item.service_name || instance.scope != item.scope {
+                return Err(StoreError::Other(format!(
+                    "session service relation does not match instance: session_key={}, instance_id={}",
+                    session.session_key, item.instance_id
+                )));
             }
-            instances
-        } else {
-            self.list_scope_instances(&Self::session_scope_ref(session)?)
-                .await?
-        };
+            instances.push(instance);
+        }
         instances.sort_by_key(|instance| instance.instance_id);
         instances.dedup_by_key(|instance| instance.instance_id);
         Ok(instances)

@@ -87,6 +87,9 @@ impl MCPStore {
             }
         }
         for (state_type, entries) in snapshot.states {
+            if state_type == crate::cache::layer::CACHE_SCHEMA_STATE {
+                continue;
+            }
             for key in entries.keys() {
                 self.cache.delete_state(&state_type, key).await?;
             }

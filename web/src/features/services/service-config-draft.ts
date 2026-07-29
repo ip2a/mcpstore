@@ -1,6 +1,7 @@
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml"
 
-import { parseKvLines } from "@/lib/api"
+import { parseKvLines, type ServiceInstance } from "@/lib/api"
+import { getServiceTransport } from "@/lib/service-info"
 
 export type ServiceConfigTransport = "stdio" | "streamable-http"
 export type ServiceConfigFormat = "json" | "toml"
@@ -171,4 +172,23 @@ export function serializeConfigFields(fields: ServiceConfigFields, format: Servi
     return `${JSON.stringify(config, null, 2)}\n`
   }
   return `${stringifyToml(config)}\n`
+}
+
+export function serviceInstanceToFields(service: ServiceInstance): ServiceConfigFields {
+  const transportRaw = getServiceTransport(service)
+  const transport: ServiceConfigTransport =
+    transportRaw === "streamable-http" ? "streamable-http" : "stdio"
+
+  const fields = configToFields({
+    ...(service.effective_config || {}),
+    transport,
+  })
+
+  if (transport === "stdio") {
+    const command = String(service.command || fields.command || "").trim()
+    return command ? { ...fields, command } : fields
+  }
+
+  const url = String(service.url || fields.url || "").trim()
+  return url ? { ...fields, url } : fields
 }

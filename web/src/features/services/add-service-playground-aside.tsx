@@ -35,16 +35,18 @@ export function AddServicePlaygroundAside({
   previewFormat,
   onPreviewFormatChange,
   scope,
+  showCli = true,
 }: {
   agentId: string
   className?: string
   fields: ServiceConfigFields
   name: string
   onFieldsChange: (fields: ServiceConfigFields) => void
-  onNameChange: (name: string) => void
+  onNameChange?: (name: string) => void
   previewFormat: ServiceConfigFormat
   onPreviewFormatChange: (format: ServiceConfigFormat) => void
   scope: AddServiceScope
+  showCli?: boolean
 }) {
   const { t } = useI18n()
   const cliCommand = useMemo(
@@ -74,7 +76,7 @@ export function AddServicePlaygroundAside({
       const imported = parseImportedServiceConfig(previewFormat, text)
       onFieldsChange(configToFields(imported.config))
       if (imported.name?.trim()) {
-        onNameChange(imported.name.trim())
+        onNameChange?.(imported.name.trim())
       }
       setParseError(null)
       setPreviewDirty(false)
@@ -89,25 +91,27 @@ export function AddServicePlaygroundAside({
 
   return (
     <aside className={cn("flex h-full min-h-0 min-w-0 w-full flex-col gap-3 @min-[640px]:gap-4", className)}>
-      <CodeBlock variant="request" className="flex shrink-0 flex-col">
-        <CodeBlockHeader variant="request">
-          <CodeBlockTitle>
-            <CodeBlockMethod className="bg-sky-500/15 text-sky-300">ADD</CodeBlockMethod>
-            <span className="truncate text-zinc-300">{serviceName}</span>
-          </CodeBlockTitle>
-          <CodeBlockActions>
-            <span className="rounded-md border border-zinc-700 px-2 py-1 font-mono text-[11px] text-zinc-400">
-              {t("cliRequestLabel")}
-            </span>
-            <CodeBlockCopyButton value={cliCommand} className="text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50" />
-          </CodeBlockActions>
-        </CodeBlockHeader>
-        <CodeBlockBody variant="request" maxHeight="9rem">
-          <CodeBlockString lines={cliCommand.split("\n")} />
-        </CodeBlockBody>
-      </CodeBlock>
+      {showCli ? (
+        <CodeBlock variant="request" className="flex shrink-0 flex-col">
+          <CodeBlockHeader variant="request">
+            <CodeBlockTitle>
+              <CodeBlockMethod className="bg-sky-500/15 text-sky-300">ADD</CodeBlockMethod>
+              <span className="truncate text-zinc-300">{serviceName}</span>
+            </CodeBlockTitle>
+            <CodeBlockActions>
+              <span className="rounded-md border border-zinc-700 px-2 py-1 font-mono text-[11px] text-zinc-400">
+                {t("cliRequestLabel")}
+              </span>
+              <CodeBlockCopyButton value={cliCommand} className="text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50" />
+            </CodeBlockActions>
+          </CodeBlockHeader>
+          <CodeBlockBody variant="request" maxHeight="9rem">
+            <CodeBlockString lines={cliCommand.split("\n")} />
+          </CodeBlockBody>
+        </CodeBlock>
+      ) : null}
 
-      <CodeBlock variant="response" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <CodeBlock variant="response" className={cn("flex min-h-0 flex-col overflow-hidden", showCli ? "flex-1" : "h-full flex-1")}>
         <CodeBlockHeader variant="response" className="shrink-0">
           <Tabs
             value={previewFormat}
