@@ -140,7 +140,7 @@ class LangChainAdapter:
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
                 # 调用 mcpstore 核心方法
-                result = adapter_self._context.call_tool(instance_id, tool_name, tool_input)
+                result = adapter_self._context._backend.call_tool(instance_id, tool_name, tool_input)
                 view = call_tool_response_helper(result)
 
                 if view.is_error:

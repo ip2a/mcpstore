@@ -268,7 +268,7 @@ class OpenAIAdapter:
         tool_name = None
         try:
             tool_name, arguments = self._parse_tool_call(tool_call)
-            result = self._context.call_tool(self._instance_id, tool_name, arguments)
+            result = self._context._backend.call_tool(self._instance_id, tool_name, arguments)
             return self._format_tool_result(tool_name, arguments, result)
         except Exception as e:
             return f"Tool '{tool_name}' execution failed: {str(e)}"
