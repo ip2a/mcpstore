@@ -284,6 +284,10 @@ fn service_entry_to_py(py: Python<'_>, service: &ServiceInstance) -> PyResult<Py
 fn scoped_service_entry_to_py(py: Python<'_>, entry: &ScopedServiceEntry) -> PyResult<Py<PyAny>> {
     let dict = service_entry_dict(py, &entry.instance)?;
     dict.set_item("tool_count", entry.tool_count)?;
+    dict.set_item(
+        "state",
+        serializable_to_py(py, &entry.state, "Service state")?,
+    )?;
     Ok(dict.into_any().unbind())
 }
 
@@ -623,6 +627,13 @@ impl PyStoreContextFacade {
             .iter()
             .map(|service| scoped_service_entry_to_py(py, service))
             .collect()
+    }
+
+    fn patch_service(&self, service_name: &str, updates: &Bound<'_, PyAny>) -> PyResult<()> {
+        let updates = py_to_serde_value(updates, "Service base config patch")?;
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.patch_service(service_name, updates))
+            .map_err(map_store_err)
     }
 
     fn list_tools(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {

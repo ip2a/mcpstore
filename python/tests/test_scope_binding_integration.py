@@ -110,6 +110,17 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(store_context.list_services(), [])
             self.assertEqual(agent_context.list_tools(), [])
+            service = agent_context.list_services()[0]
+            self.assertEqual(service["state"]["instance_id"], instance_id)
+            self.assertIn("phase", service["state"])
+
+            agent_context.patch_service("svc", {"headers": {"X-Demo": "agent-a"}})
+            self.assertEqual(
+                store.show_config()["mcpServers"]["svc"]["headers"]["X-Demo"],
+                "agent-a",
+            )
+            with self.assertRaisesRegex(RuntimeError, "Scope Store is not declared"):
+                store_context.patch_service("svc", {"headers": {"X-Demo": "store"}})
 
             instance_ids = store_context.add_service(
                 {

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from mcpstore.core.models import ScopeDescriptor, ScopeRef
-from mcpstore.native.records import _record_value, _scope_payload
+from mcpstore.native.records import _base_config_payload, _record_value, _scope_payload
 from mcpstore.service.proxy import RustServiceProxy
 from mcpstore.tools.proxy import RustToolProxy
 from mcpstore.cache.proxy import RustCacheProxy
@@ -44,6 +44,12 @@ class RustStoreContext:
         if self._native is not None:
             return _record_value(self._native.list_services())
         return self._backend.list_instances_scoped(self.scope)
+
+    def patch_service(self, service_name: str, updates: Dict[str, Any]) -> None:
+        self._native.patch_service(
+            service_name,
+            _base_config_payload(updates, "Service base config patch"),
+        )
 
     async def list_services_async(self) -> List[Dict[str, Any]]:
         return self.list_services()

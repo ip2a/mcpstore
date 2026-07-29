@@ -83,6 +83,13 @@ impl StoreContextFacade {
         self.store.list_service_entries_scoped(&self.scope).await
     }
 
+    pub async fn patch_service(&self, service_name: &str, updates: Value) -> Result<()> {
+        self.store
+            .instance_id_for_scope(service_name, &self.scope)
+            .await?;
+        self.store.patch_service(service_name, updates).await
+    }
+
     pub async fn list_tools(&self) -> Result<Vec<ScopedToolEntry>> {
         self.store.list_tool_entries_scoped(&self.scope).await
     }

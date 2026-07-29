@@ -49,6 +49,7 @@ async fn facade_adds_service_to_current_agent_scope() {
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].instance.service_name, "svc");
     assert_eq!(services[0].instance.scope, agent_scope);
+    assert_eq!(services[0].state.instance_id, instance_id);
     assert!(store
         .for_agent("agent-a")
         .list_tools()
@@ -84,6 +85,41 @@ async fn facade_add_service_uses_context_scope() {
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].instance.service_name, "svc");
     assert_eq!(services[0].instance.scope, ScopeRef::Store);
+    assert_eq!(services[0].state.instance_id, instance_ids[0]);
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn facade_patch_service_requires_current_scope_and_updates_definition() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+
+    store
+        .for_agent("agent-a")
+        .add_service_config("svc", stdio_config())
+        .await
+        .unwrap();
+
+    store
+        .for_agent("agent-a")
+        .patch_service("svc", serde_json::json!({"headers": {"X-Demo": "agent-a"}}))
+        .await
+        .unwrap();
+
+    let config = store.show_config().await.unwrap();
+    assert_eq!(
+        config["mcpServers"]["svc"]["headers"]["X-Demo"],
+        serde_json::json!("agent-a")
+    );
+
+    let error = store
+        .for_store()
+        .patch_service("svc", serde_json::json!({"headers": {"X-Demo": "store"}}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Scope Store is not declared for service 'svc'"));
 
     std::fs::remove_file(path).ok();
 }
