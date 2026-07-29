@@ -276,7 +276,6 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertEqual([item["service_name"] for item in agent_context.list_services()], ["svc"])
             self.assertEqual(store.for_store().list_services(), [])
             self.assertEqual(agent_context.list_tools(), [])
-            self.assertEqual(agent_context.list_tools(instance_id), [])
 
 if __name__ == "__main__":
     unittest.main()

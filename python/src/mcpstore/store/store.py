@@ -118,10 +118,10 @@ class RustStoreBackend:
     switch_cache = cache_ops.switch_cache
 
     def for_store(self) -> RustStoreContext:
-        return RustStoreContext(self, {"type": "store"})
+        return RustStoreContext(self._inner.for_store())
 
     def for_agent(self, agent_id: str) -> RustStoreContext:
-        return RustStoreContext(self, {"type": "agent", "agent_id": agent_id})
+        return RustStoreContext(self._inner.for_agent(agent_id))
 
     def for_langchain(self, instance_id: str, response_format: str = "text") -> Any:
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
