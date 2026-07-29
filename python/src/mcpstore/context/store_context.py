@@ -1,4 +1,4 @@
-"""Scope-first Python context over the Rust ``StoreContextFacade``."""
+"""Public Store and Agent scope contexts over Rust ``ScopeContext``."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional
 from mcpstore.native.records import _base_config_payload, _record_value
 
 
-class RustStoreContext:
-    """Thin Python view of one Rust-owned Store or Agent scope."""
+class StoreContext:
+    """Thin Python view of one Rust-owned Store scope."""
 
     def __init__(self, native: Any):
         self._native = native
@@ -100,7 +100,8 @@ class RustStoreContext:
         return _record_value(self._native.call_tool(tool_name, args or {}))
 
 
-StoreContext = RustStoreContext
-AgentContext = RustStoreContext
+class AgentContext(StoreContext):
+    """Thin Python view of one Rust-owned Agent scope."""
 
-__all__ = ["AgentContext", "RustStoreContext", "StoreContext"]
+
+__all__ = ["AgentContext", "StoreContext"]

@@ -5,7 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mcpstore import MCPStore, _rust
+from mcpstore import (
+    AgentContext,
+    MCPStore,
+    SessionContext,
+    StoreContext,
+    _rust,
+)
 
 from mcpstore.store import RustStoreBackend
 
@@ -15,6 +21,16 @@ AGENT_INSTANCE_ID = "127ce370-1ed6-5b00-9713-e88d01b3010d"
 
 
 class ScopeBindingIntegrationTests(unittest.TestCase):
+    def test_public_context_exports_are_named_by_domain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+
+            self.assertIsInstance(store.for_store(), StoreContext)
+            self.assertIsInstance(store.for_agent("agent-a"), AgentContext)
+            self.assertIsInstance(store.create_session("session-a"), SessionContext)
+
     def test_real_binding_keeps_store_and_agent_instances_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
