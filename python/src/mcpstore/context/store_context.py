@@ -99,11 +99,11 @@ class RustStoreContext:
     async def list_tools_async(self, instance_id: Optional[str] = None) -> List[Dict[str, Any]]:
         return self.list_tools(instance_id)
 
-    def call_tool(self, instance_id: str, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return self._backend.call_tool(instance_id, tool_name, args)
+    def call_tool(self, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return _record_value(self._native.call_tool(tool_name, args or {}))
 
-    async def call_tool_async(self, instance_id: str, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return self.call_tool(instance_id, tool_name, args)
+    async def call_tool_async(self, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.call_tool(tool_name, args)
 
     def list_resources(self, instance_id: str) -> List[Dict[str, Any]]:
         return self._backend.list_resources(instance_id)
