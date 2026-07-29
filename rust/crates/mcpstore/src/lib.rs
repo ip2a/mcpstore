@@ -11,6 +11,7 @@ pub mod core;
 pub mod diagnostics;
 pub mod event_reactor;
 pub mod events;
+pub mod facade;
 pub(crate) mod health;
 pub mod identity;
 #[cfg(feature = "mcp-server")]
@@ -57,6 +58,9 @@ pub use event_reactor::{
     ChangeContext, EventBackend, EventReactor, ReactionContext, ReactionOutcome, ReactorConfig,
     Rule,
 };
+
+// Facade re-exports: scope-first SDK facade
+pub use facade::StoreContextFacade;
 
 // Facade re-exports: service instance identity
 pub use identity::{InstanceId, ScopeRef, ServiceInstanceKey};
