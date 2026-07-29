@@ -68,13 +68,13 @@ async fn facade_adds_service_to_current_agent_scope() {
 }
 
 #[tokio::test]
-async fn facade_add_mcp_config_uses_context_scope() {
+async fn facade_add_service_uses_context_scope() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     let mut config = McpConfig::default();
     config.mcp_servers.insert("svc".to_string(), stdio_config());
 
-    let instance_ids = store.for_store().add_mcp_config(config).await.unwrap();
+    let instance_ids = store.for_store().add_service(config).await.unwrap();
 
     assert_eq!(
         instance_ids,
@@ -85,5 +85,63 @@ async fn facade_add_mcp_config_uses_context_scope() {
     assert_eq!(services[0].instance.service_name, "svc");
     assert_eq!(services[0].instance.scope, ScopeRef::Store);
 
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn store_facade_reset_config_clears_store() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let context = store.for_store();
+
+    context
+        .add_service_config("svc", stdio_config())
+        .await
+        .unwrap();
+    assert_eq!(context.list_services().await.unwrap().len(), 1);
+
+    context.reset_config().await.unwrap();
+
+    assert!(context.list_services().await.unwrap().is_empty());
+    assert!(store.show_config().await.unwrap()["mcpServers"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn agent_facade_reset_config_only_clears_current_agent() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+
+    store
+        .for_agent("agent-a")
+        .add_service_config("svc-a", stdio_config())
+        .await
+        .unwrap();
+    store
+        .for_agent("agent-b")
+        .add_service_config("svc-b", stdio_config())
+        .await
+        .unwrap();
+
+    store.for_agent("agent-a").reset_config().await.unwrap();
+
+    assert!(store
+        .for_agent("agent-a")
+        .list_services()
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store
+            .for_agent("agent-b")
+            .list_services()
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     std::fs::remove_file(path).ok();
 }

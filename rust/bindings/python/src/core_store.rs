@@ -149,11 +149,24 @@ fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<Serv
     })
 }
 
-fn py_to_mcp_config(value: &Bound<'_, PyAny>) -> PyResult<McpConfig> {
-    let value = py_to_serde_value(value, "MCP config")?;
-    serde_json::from_value(value).map_err(|err| {
-        pyo3::exceptions::PyValueError::new_err(format!("MCP config conversion failed: {err}"))
-    })
+fn py_to_add_service_config(value: &Bound<'_, PyAny>) -> PyResult<McpConfig> {
+    if let Ok(value) = value.extract::<String>() {
+        let trimmed = value.trim_start();
+        let config = if trimmed.starts_with('{') || trimmed.starts_with('[') {
+            McpConfig::from_json_str(&value)
+        } else {
+            McpConfig::from_file(&value)
+        };
+        return config.map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()));
+    }
+    if value.hasattr("__fspath__")? {
+        let path = value.call_method0("__fspath__")?.extract::<String>()?;
+        return McpConfig::from_file(path)
+            .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()));
+    }
+    let value = py_to_serde_value(value, "service config")?;
+    McpConfig::from_input_value(value)
+        .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))
 }
 
 fn py_to_scope_ref(value: &Bound<'_, PyAny>) -> PyResult<ScopeRef> {
@@ -572,10 +585,16 @@ impl PyStoreContextFacade {
         Ok(instance_id.to_string())
     }
 
-    fn add_mcp_config(&self, config: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
-        let config = py_to_mcp_config(config)?;
+    fn reset_config(&self) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.reset_config())
+            .map_err(map_store_err)
+    }
+
+    fn add_service(&self, config: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
+        let config = py_to_add_service_config(config)?;
         let instance_ids = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.add_mcp_config(config))
+            .block_on(self.inner.add_service(config))
             .map_err(map_store_err)?;
         Ok(instance_ids
             .into_iter()
