@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
-use serde_json::Map;
+use serde_json::{Map, Value};
 
 use crate::config::{
     McpConfig, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
 };
 use crate::identity::{InstanceId, ScopeRef};
+use crate::perspective::{resolve_tool, AvailableTool};
 use crate::state::ServiceState;
 use crate::store::{MCPStore, Result, ScopedServiceEntry, ScopedToolEntry};
+use crate::transport::ToolCallResult;
 
 #[derive(Clone)]
 pub struct StoreContextFacade {
@@ -83,6 +85,24 @@ impl StoreContextFacade {
 
     pub async fn list_tools(&self) -> Result<Vec<ScopedToolEntry>> {
         self.store.list_tool_entries_scoped(&self.scope).await
+    }
+
+    pub async fn call_tool(&self, tool_name: &str, args: Value) -> Result<ToolCallResult> {
+        let tools = self.store.list_tool_entries_scoped(&self.scope).await?;
+        let available_tools = tools
+            .into_iter()
+            .map(|tool| AvailableTool {
+                instance_id: tool.instance_id,
+                service_name: tool.service_name,
+                scope: tool.scope,
+                tool_name: tool.tool_name,
+                name: tool.name,
+            })
+            .collect::<Vec<_>>();
+        let resolution = resolve_tool(tool_name, &available_tools)?;
+        self.store
+            .call_tool(resolution.instance_id, &resolution.tool_name, args)
+            .await
     }
 }
 

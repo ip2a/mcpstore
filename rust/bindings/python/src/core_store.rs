@@ -634,6 +634,26 @@ impl PyStoreContextFacade {
             .map(|tool| scoped_tool_entry_to_py(py, tool))
             .collect()
     }
+
+    #[pyo3(signature = (tool_name, args=None))]
+    fn call_tool(
+        &self,
+        py: Python<'_>,
+        tool_name: &str,
+        args: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let args = args
+            .map(|value| py_to_serde_value(value, "Tool arguments"))
+            .transpose()?
+            .unwrap_or_else(|| serde_json::json!({}));
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime()
+                    .block_on(self.inner.call_tool(tool_name, args))
+            })
+            .map_err(map_store_err)?;
+        tool_call_result_to_py(py, &result)
+    }
 }
 
 #[pymethods]
