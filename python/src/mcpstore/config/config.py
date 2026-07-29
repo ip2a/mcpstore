@@ -157,7 +157,7 @@ class LoggingConfig:
         mcpstore_loggers = [
             'mcpstore',
             'mcpstore.core',
-            'mcpstore.core.store',
+            'mcpstore.store',
             'mcpstore.adapters.langchain_adapter',
         ]
         for logger_name in mcpstore_loggers:
