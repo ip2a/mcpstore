@@ -139,5 +139,23 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             )
 
 
+    def test_python_context_uses_native_scope_facade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = RustStoreBackend.setup(str(config_path), cache_config="memory")
+
+            agent_context = store.for_agent("agent-a")
+            instance_id = agent_context.add_service_config(
+                "svc",
+                {"command": "command-that-must-not-run", "args": []},
+            )
+
+            self.assertTrue(instance_id)
+            self.assertEqual([item["service_name"] for item in agent_context.list_services()], ["svc"])
+            self.assertEqual(store.for_store().list_services(), [])
+            self.assertEqual(agent_context.list_tools(), [])
+            self.assertEqual(agent_context.list_tools(instance_id), [])
+
 if __name__ == "__main__":
     unittest.main()

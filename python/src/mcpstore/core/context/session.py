@@ -1,7 +1,5 @@
-"""Compatibility aliases for Rust-backed sessions."""
+"""Compatibility aliases for the historical session module."""
 
-from mcpstore.core.store.rust_backend import RustSession as Session
-
-SessionContext = Session
+from mcpstore.sessions import Session, SessionContext
 
 __all__ = ["Session", "SessionContext"]

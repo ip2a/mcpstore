@@ -1,38 +1,14 @@
-"""Public store exports.
+"""Compatibility exports for the split Python SDK facade."""
 
-Python SDK only exposes the Rust-backed store facade as the authoritative
-``MCPStore`` entry point.
-"""
-
-from .rust_backend import (
-    MCPStore,
-    RustCacheProxy,
-    RustServiceProxy,
-    RustSession,
-    RustStoreBackend,
-    RustStoreContext,
-    RustToolProxy,
-)
-
-MCPStoreContext = RustStoreContext
-ServiceProxy = RustServiceProxy
-ToolProxy = RustToolProxy
-CacheProxy = RustCacheProxy
-Session = RustSession
-SessionContext = RustSession
+from mcpstore.cache import CacheProxy, RustCacheProxy
+from mcpstore.context import MCPStoreContext, RustStoreContext
+from mcpstore.service import RustServiceProxy, ServiceProxy
+from mcpstore.sessions import RustSession, Session, SessionContext
+from mcpstore.store import MCPStore, RustStoreBackend
+from mcpstore.tools import RustToolProxy, ToolProxy
 
 __all__ = [
-    "MCPStore",
-    "RustStoreBackend",
-    "RustStoreContext",
-    "RustSession",
-    "RustServiceProxy",
-    "RustToolProxy",
-    "RustCacheProxy",
-    "MCPStoreContext",
-    "ServiceProxy",
-    "ToolProxy",
-    "CacheProxy",
-    "Session",
-    "SessionContext",
+    "MCPStore", "RustStoreBackend", "RustStoreContext", "RustSession",
+    "RustServiceProxy", "RustToolProxy", "RustCacheProxy", "MCPStoreContext",
+    "ServiceProxy", "ToolProxy", "CacheProxy", "Session", "SessionContext",
 ]
