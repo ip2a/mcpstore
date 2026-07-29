@@ -1,9 +1,13 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
-import { parseKvLines, updateServiceScope } from "@/lib/api"
-import { getServiceEditValues } from "@/lib/service-info"
-import type { AddServiceTransport } from "@/features/services/use-add-service-form"
+import {
+  fieldsToConfig,
+  serviceInstanceToFields,
+  type ServiceConfigFields,
+  type ServiceConfigFormat,
+} from "@/features/services/service-config-draft"
+import { updateServiceScope } from "@/lib/api"
 import type { ServiceInstance } from "@/lib/api"
 
 export function useEditServiceForm({
@@ -15,24 +19,33 @@ export function useEditServiceForm({
   onUpdated: () => Promise<void>
   service: ServiceInstance
 }) {
-  const defaults = useMemo(() => getServiceEditValues(service), [service])
-  const [transport, setTransport] = useState<AddServiceTransport>(defaults.transport)
+  const initialFields = useMemo(() => serviceInstanceToFields(service), [service])
+  const [configFields, setConfigFields] = useState<ServiceConfigFields>(initialFields)
+  const [previewFormat, setPreviewFormat] = useState<ServiceConfigFormat>("json")
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setConfigFields(initialFields)
+  }, [initialFields])
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
     setSubmitting(true)
     try {
+      const config = fieldsToConfig(configFields)
+      if (configFields.transport === "stdio" && !config.command) {
+        throw new Error("stdio config requires command")
+      }
+      if (configFields.transport !== "stdio" && !config.url) {
+        throw new Error("http config requires url")
+      }
+
       await updateServiceScope({
         serviceName: service.service_name,
         scope: service.scope,
-        transport,
-        commandOrUrl: String(data.get("commandOrUrl") || "").trim(),
-        description: String(data.get("description") || "").trim() || undefined,
-        workingDir: String(data.get("workingDir") || "").trim() || undefined,
-        env: parseKvLines(String(data.get("env") || "")),
-        headers: parseKvLines(String(data.get("headers") || "")),
+        transport: configFields.transport,
+        commandOrUrl: "",
+        config,
       })
       toast.success("Service updated")
       await onUpdated()
@@ -45,10 +58,11 @@ export function useEditServiceForm({
   }
 
   return {
-    defaults,
+    configFields,
     onSubmit,
-    setTransport,
+    previewFormat,
+    setConfigFields,
+    setPreviewFormat,
     submitting,
-    transport,
   }
 }

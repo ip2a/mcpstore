@@ -109,7 +109,7 @@ export async function removeServiceScope(serviceName: string, scope: ScopeRef) {
 
 export async function updateServiceScope(input: UpdateServiceScopeInput) {
   const descriptor: ScopeDescriptor = {
-    config: buildServiceConfig(input),
+    config: input.config ?? buildServiceConfig(input),
     ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
   };
   const path =

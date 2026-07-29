@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowLeftIcon, MoreHorizontalIcon, PlusIcon, SettingsIcon } from "lucide-react"
+import { MoreHorizontalIcon, SettingsIcon } from "lucide-react"
 
 import { useNavItems, type AppView } from "@/app/app-view"
 import { Button } from "@/components/ui/button"
@@ -209,13 +209,11 @@ export function AppHeaderNav({
         collapsePriority: 0,
         renderButton: () => (
           <Button type="button" variant="outline" size="sm" onClick={onBack}>
-            <ArrowLeftIcon data-icon="inline-start" />
             {t("cancel")}
           </Button>
         ),
         renderMenuItem: () => (
           <DropdownMenuItem onSelect={onBack}>
-            <ArrowLeftIcon />
             {t("cancel")}
           </DropdownMenuItem>
         ),
@@ -224,19 +222,16 @@ export function AppHeaderNav({
 
     navItems.forEach((item, index) => {
       if (view.name === item.view.name) return
-      const Icon = item.icon
       next.push({
         id: `nav-${item.view.name}`,
         collapsePriority: 10 + index,
         renderButton: () => (
           <Button key={item.view.name} variant="outline" size="sm" onClick={() => onViewChange(item.view)}>
-            <Icon data-icon="inline-start" />
             {item.label}
           </Button>
         ),
         renderMenuItem: () => (
           <DropdownMenuItem onSelect={() => onViewChange(item.view)}>
-            <Icon />
             {item.label}
           </DropdownMenuItem>
         ),
@@ -248,13 +243,11 @@ export function AppHeaderNav({
       collapsePriority: 50,
       renderButton: () => (
         <Button variant="outline" size="sm" onClick={() => setAddDialogOpen(true)}>
-          <PlusIcon data-icon="inline-start" />
           {t("add")}
         </Button>
       ),
       renderMenuItem: () => (
         <DropdownMenuItem onSelect={() => setAddDialogOpen(true)}>
-          <PlusIcon />
           {t("add")}
         </DropdownMenuItem>
       ),

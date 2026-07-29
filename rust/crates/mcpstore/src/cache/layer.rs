@@ -38,8 +38,8 @@ pub enum CacheError {
 
 pub type Result<T> = std::result::Result<T, CacheError>;
 
-pub(in crate::cache) const CACHE_SCHEMA_VERSION: u32 = 2;
-const CACHE_SCHEMA_STATE: &str = "cache_schema";
+pub(crate) const CACHE_SCHEMA_VERSION: u32 = 2;
+pub(crate) const CACHE_SCHEMA_STATE: &str = "cache_schema";
 const CACHE_SCHEMA_KEY: &str = "current";
 
 // ==================== CacheLayerManager ====================
@@ -184,15 +184,40 @@ impl CacheLayerManager {
                     .and_then(|value| value.get("version"))
                     .and_then(serde_json::Value::as_u64);
 
-                if version != Some(u64::from(CACHE_SCHEMA_VERSION)) {
-                    Self::clear_namespace(store.as_ref(), &namespace).await?;
-                    store
-                        .put(
-                            CACHE_SCHEMA_KEY,
-                            serde_json::json!({ "version": CACHE_SCHEMA_VERSION }),
-                            &collection,
-                        )
-                        .await?;
+                match version {
+                    None if current.is_none() => {
+                        let prefix = format!("{namespace}:");
+                        let mut has_business_data = false;
+                        for name in store.collections().await? {
+                            if name.starts_with(&prefix)
+                                && name != collection
+                                && !store.keys(&name).await?.is_empty()
+                            {
+                                has_business_data = true;
+                                break;
+                            }
+                        }
+                        if has_business_data {
+                            return Err(CacheError::Validation(
+                                "cache schema marker is missing for non-empty namespace"
+                                    .to_string(),
+                            ));
+                        }
+                        store
+                            .put(
+                                CACHE_SCHEMA_KEY,
+                                serde_json::json!({ "version": CACHE_SCHEMA_VERSION }),
+                                &collection,
+                            )
+                            .await?;
+                    }
+                    Some(version) if version == u64::from(CACHE_SCHEMA_VERSION) => {}
+                    _ => {
+                        return Err(CacheError::Validation(format!(
+                            "cache schema mismatch: expected {}, found {version:?}",
+                            CACHE_SCHEMA_VERSION
+                        )));
+                    }
                 }
                 Ok(())
             })

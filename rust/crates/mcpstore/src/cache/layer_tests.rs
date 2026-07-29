@@ -96,39 +96,42 @@ async fn test_cache_layer_rejects_removed_client_configs_entity() {
 }
 
 #[tokio::test]
-async fn test_cache_layer_clears_unversioned_schema() {
+async fn test_cache_layer_rejects_missing_schema_marker_without_deleting_data() {
     let store = memory_cache_store();
     store
         .put(
             "svc",
-            serde_json::json!({"service_global_name": "svc"}),
-            "test:entity:services",
+            serde_json::json!({"service_name": "svc"}),
+            "test:entity:service_definitions",
         )
         .await
         .unwrap();
     let mgr = CacheLayerManager::new(store.clone(), "test");
 
-    assert!(mgr
+    let error = mgr
         .get_entity("service_definitions", "svc")
         .await
-        .unwrap()
-        .is_none());
-    assert!(store
-        .get("svc", "test:entity:services")
-        .await
-        .unwrap()
-        .is_none());
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("schema marker is missing"));
+    assert_eq!(
+        store
+            .get("svc", "test:entity:service_definitions")
+            .await
+            .unwrap(),
+        Some(serde_json::json!({"service_name": "svc"}))
+    );
     assert_eq!(
         store
             .get("current", "test:state:cache_schema")
             .await
             .unwrap(),
-        Some(serde_json::json!({"version": CACHE_SCHEMA_VERSION}))
+        None
     );
 }
 
 #[tokio::test]
-async fn test_cache_layer_clears_old_versioned_schema() {
+async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
     let store = memory_cache_store();
     store
         .put(
@@ -148,22 +151,25 @@ async fn test_cache_layer_clears_old_versioned_schema() {
         .unwrap();
     let mgr = CacheLayerManager::new(store.clone(), "test");
 
-    assert!(mgr
+    let error = mgr
         .get_entity("service_definitions", "svc")
         .await
-        .unwrap()
-        .is_none());
-    assert!(store
-        .get("svc", "test:entity:service_definitions")
-        .await
-        .unwrap()
-        .is_none());
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("cache schema mismatch"));
+    assert_eq!(
+        store
+            .get("svc", "test:entity:service_definitions")
+            .await
+            .unwrap(),
+        Some(serde_json::json!({"service_name": "svc"}))
+    );
     assert_eq!(
         store
             .get("current", "test:state:cache_schema")
             .await
             .unwrap(),
-        Some(serde_json::json!({"version": CACHE_SCHEMA_VERSION}))
+        Some(serde_json::json!({"version": 1}))
     );
 }
 

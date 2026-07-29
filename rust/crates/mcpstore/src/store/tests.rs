@@ -977,12 +977,15 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
             .unwrap()
             .is_none());
     }
-    assert!(store
-        .cache()
-        .get_relation("agent_instances", "agent-a")
-        .await
-        .unwrap()
-        .is_none());
+    assert_eq!(
+        store
+            .cache()
+            .get_relation("agent_instances", "agent-a")
+            .await
+            .unwrap()
+            .unwrap()["instances"],
+        serde_json::json!([])
+    );
     assert!(store.show_config().await.unwrap()["mcpServers"]
         .get("svc")
         .is_none());
@@ -1187,6 +1190,42 @@ async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity()
         by_type["ServiceConnectRequested"]["payload"]["instance_id"],
         instance_id.to_string()
     );
+}
+
+#[tokio::test]
+async fn local_reset_preserves_cache_schema_marker() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    store
+        .cache()
+        .put_entity(
+            "clients",
+            "client-a",
+            serde_json::json!({"client_id": "client-a"}),
+        )
+        .await
+        .unwrap();
+
+    store.reset_config().await.unwrap();
+
+    assert!(store
+        .cache()
+        .get_entity("clients", "client-a")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store
+            .cache()
+            .get_state(crate::cache::layer::CACHE_SCHEMA_STATE, "current")
+            .await
+            .unwrap(),
+        Some(serde_json::json!({
+            "version": crate::cache::layer::CACHE_SCHEMA_VERSION
+        }))
+    );
+
+    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]

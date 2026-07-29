@@ -327,6 +327,7 @@ export type UpdateServiceScopeInput = {
   env?: Record<string, string>;
   headers?: Record<string, string>;
   lifecycle?: ServiceLifecycleConfig;
+  config?: Record<string, unknown>;
 };
 
 export type ClientConfigInspectPayload = {

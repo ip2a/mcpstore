@@ -1,9 +1,8 @@
 import { useState } from "react"
-import { EyeIcon, LinkIcon, MoreHorizontalIcon, PencilIcon, RotateCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
+import { EyeIcon, LayersIcon, LinkIcon, MoreHorizontalIcon, PencilIcon, RotateCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
 
 import { EntityRow } from "@/components/shared/entity-row"
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
-import { Badge } from "@/components/ui/badge"
+import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
@@ -13,9 +12,10 @@ import {
   isServiceDisconnecting,
   ServiceConnectionButtonForEntry,
 } from "@/features/services/service-connection-button"
+import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dialog"
 import { EditServiceDialog } from "@/features/services/edit-service-dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceInstance } from "@/lib/api"
+import type { AgentItem, ServiceInstance } from "@/lib/api"
 
 function ServiceMoreActionsDialog({
   busy,
@@ -126,6 +126,7 @@ function ServiceMoreActionsDialog({
 
 function ServiceRow({
   busy,
+  onAddScope,
   onConnect,
   onDisconnect,
   onEdit,
@@ -134,6 +135,7 @@ function ServiceRow({
   service,
 }: {
   busy: string | null
+  onAddScope: (service: ServiceInstance) => void
   onConnect: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
   onEdit: (service: ServiceInstance) => void
@@ -142,8 +144,6 @@ function ServiceRow({
   service: ServiceInstance
 }) {
   const { t } = useI18n()
-  const scope = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
-  const transport = service.transport || "-"
   const toolCount = service.tools?.length || 0
 
   return (
@@ -170,6 +170,15 @@ function ServiceRow({
             {t("edit")}
           </Button>
           <ServiceConnectionButtonForEntry busy={busy} service={service} onConnect={onConnect} onDisconnect={onDisconnect} />
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={t("serviceListAddScopeFor", { name: service.service_name })}
+            onClick={() => onAddScope(service)}
+          >
+            <LayersIcon data-icon="inline-start" />
+            {t("addScope")}
+          </Button>
           <Button variant="outline" size="sm" aria-label={t("serviceListMoreActionsFor", { name: service.service_name })} onClick={() => onMore(service)}>
             <MoreHorizontalIcon data-icon="inline-start" />
             {t("more")}
@@ -182,23 +191,19 @@ function ServiceRow({
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
         </div>
-        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
-          <Badge variant="outline" className="max-w-full font-mono">
-            <span className="truncate">{scope}</span>
-          </Badge>
-          <span className="shrink-0">{transport}</span>
-          <ServiceStatusBadge state={service.state} />
-          <span className="shrink-0">{t("serviceRowToolCount", { count: toolCount })}</span>
-        </div>
+        <ServiceRowMeta service={service} showScope toolCount={toolCount} />
       </div>
     </EntityRow>
   )
 }
 
 export function ServiceList(props: {
+  agents: AgentItem[]
+  allServices: ServiceInstance[]
   services: ServiceInstance[]
   busy: string | null
   onConnect: (service: ServiceInstance) => void
+  onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
   onOpen: (service: ServiceInstance) => void
@@ -207,6 +212,7 @@ export function ServiceList(props: {
 }) {
   const [moreService, setMoreService] = useState<ServiceInstance | null>(null)
   const [editService, setEditService] = useState<ServiceInstance | null>(null)
+  const [scopeService, setScopeService] = useState<ServiceInstance | null>(null)
 
   return (
     <>
@@ -215,6 +221,7 @@ export function ServiceList(props: {
           <ServiceRow
             key={service.instance_id}
             busy={props.busy}
+            onAddScope={setScopeService}
             onConnect={props.onConnect}
             onDisconnect={props.onDisconnect}
             onEdit={setEditService}
@@ -244,6 +251,16 @@ export function ServiceList(props: {
         onDelete={props.onDelete}
         onDisconnect={props.onDisconnect}
         onRestart={props.onRestart}
+      />
+      <AddServiceScopeDialog
+        agents={props.agents}
+        allServices={props.allServices}
+        busy={props.busy}
+        service={scopeService}
+        onOpenChange={(open) => {
+          if (!open) setScopeService(null)
+        }}
+        onDeclareScope={props.onDeclareScope}
       />
     </>
   )

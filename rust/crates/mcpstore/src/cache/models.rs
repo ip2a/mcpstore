@@ -129,6 +129,8 @@ pub struct InstanceRelationItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AgentInstanceRelation {
     pub instances: Vec<InstanceRelationItem>,
+    #[serde(default)]
+    pub version: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

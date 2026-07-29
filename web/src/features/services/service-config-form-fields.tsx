@@ -3,9 +3,10 @@ import type { ReactNode } from "react"
 import { FieldCollapsible } from "@/components/shared/field-collapsible"
 import { KeyValuePairsEditor } from "@/components/shared/key-value-pairs-editor"
 import { StringListEditor } from "@/components/shared/string-list-editor"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { Switch } from "@/components/ui/switch"
 import { useI18n } from "@/lib/i18n-context"
 import { getUiTransportMode, type ServiceConfigFields } from "@/features/services/service-config-draft"
 import { cn } from "@/lib/utils"
@@ -106,23 +107,17 @@ export function ServiceConfigFormFields({
             />
           </FieldCollapsible>
 
-          <Field className="gap-2">
-            <div className="flex items-start gap-3">
-              <input
+          <FieldCollapsible title={t("oauthEnabled")}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-muted-foreground">{t("oauthEnabledHint")}</span>
+              <Switch
                 id="config-oauth-enabled"
-                type="checkbox"
-                className="mt-0.5 size-4 shrink-0 rounded border border-input accent-primary"
                 checked={fields.oauthEnabled}
-                onChange={(event) => updateFields({ oauthEnabled: event.target.checked })}
+                onCheckedChange={(oauthEnabled) => updateFields({ oauthEnabled })}
+                aria-label={t("oauthEnabled")}
               />
-              <div className="grid gap-1">
-                <FieldLabel htmlFor="config-oauth-enabled" className="font-normal">
-                  {t("oauthEnabled")}
-                </FieldLabel>
-                <FieldDescription>{t("oauthEnabledHint")}</FieldDescription>
-              </div>
             </div>
-          </Field>
+          </FieldCollapsible>
         </>
       )}
 

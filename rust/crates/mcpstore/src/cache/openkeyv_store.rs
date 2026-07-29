@@ -78,7 +78,8 @@ where
 
         let current_version = revisioned
             .as_ref()
-            .and_then(|r| value_version(&codec::value_to_json(r.value.clone()).ok()?));
+            .and_then(|r| codec::value_to_json(r.value.clone()).ok())
+            .map(|value| value_version(&value).unwrap_or(0));
 
         let matches = match expected_version {
             Some(expected) => current_version == Some(expected),
@@ -257,6 +258,30 @@ mod tests {
             .await;
 
         assert!(matches!(err, Err(CacheError::Conflict(_))));
+    }
+
+    #[tokio::test]
+    async fn openkeyv_memory_adapter_upgrades_unversioned_value() {
+        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        store
+            .put("agent-a", serde_json::json!({"instances": []}), "relations")
+            .await
+            .unwrap();
+
+        store
+            .compare_and_put(
+                "agent-a",
+                Some(0),
+                serde_json::json!({"instances": [], "version": 1}),
+                "relations",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.get("agent-a", "relations").await.unwrap(),
+            Some(serde_json::json!({"instances": [], "version": 1}))
+        );
     }
 
     #[tokio::test]

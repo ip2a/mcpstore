@@ -1,4 +1,5 @@
 import { ActivityIcon, DatabaseIcon } from "lucide-react"
+import { useRef, type ComponentRef } from "react"
 
 import { HomeHero } from "@/components/home-hero"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -8,6 +9,7 @@ import { SearchBox } from "@/components/shared/search-box"
 import { Button } from "@/components/ui/button"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
+import { usePreserveServiceListScroll } from "@/features/services/use-preserve-service-list-scroll"
 import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, CacheBackend, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
@@ -22,6 +24,7 @@ export function ServicesView(props: {
   onCache: () => void
   onCheck: () => void
   onConnect: (service: ServiceInstance) => void
+  onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
   onOpen: (service: ServiceInstance) => void
@@ -45,6 +48,13 @@ export function ServicesView(props: {
     totals,
   } = useServicesList(props.services)
   const agentIds = props.agents.map((agent) => agent.agent_id)
+  const listScrollRef = useRef<ComponentRef<typeof ScrollPane>>(null)
+
+  usePreserveServiceListScroll({
+    busy: props.busy,
+    listRootRef: listScrollRef,
+    services: props.services,
+  })
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
@@ -86,13 +96,19 @@ export function ServicesView(props: {
             </Button>
           </div>
         </div>
-        <ScrollPane className="min-h-0 flex-1">
+        <ScrollPane ref={listScrollRef} className="min-h-0 flex-1">
           {props.error ? (
             <PageError title={t("dashboardFailedToLoad")} message={props.error} onRefresh={props.onRefresh} />
           ) : props.loading && props.services.length === 0 ? (
             <PageSkeleton />
           ) : filteredServices.length ? (
-            <ServiceList {...props} services={filteredServices} />
+            <ServiceList
+              {...props}
+              agents={props.agents}
+              allServices={props.services}
+              services={filteredServices}
+              onDeclareScope={props.onDeclareScope}
+            />
           ) : (
             <PageEmpty title={t("noServices")} description={t("noServicesInViewDescription")} onRefresh={props.onRefresh} />
           )}
