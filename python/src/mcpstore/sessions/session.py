@@ -27,6 +27,9 @@ class SessionContext:
     def to_dict(self) -> Dict[str, Any]:
         return _plain_record_value(self._entity)
 
+    def show_config(self) -> Dict[str, Any]:
+        return _record_value(self._backend._inner.show_session_config(self.session_key))
+
     def refresh(self) -> "SessionContext":
         entity = self._backend._inner.get_session(self.session_key)
         if entity is None:

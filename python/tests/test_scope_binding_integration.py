@@ -95,6 +95,33 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertIn("store", scopes)
             self.assertNotIn("agent1", scopes.get("agents", {}))
 
+    def test_show_config_uses_store_agent_and_session_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store_context = store.for_store()
+            agent_context = store.for_agent("agent-a")
+
+            store_context.add_service_config(
+                "store-only", {"command": "command-that-must-not-run", "args": []}
+            )
+            agent_context.add_service_config(
+                "agent-only", {"command": "command-that-must-not-run", "args": []}
+            )
+
+            root_config = store.show_config()
+            self.assertEqual(set(root_config["mcpServers"]), {"store-only", "agent-only"})
+
+            store_config = store_context.show_config()
+            self.assertEqual(set(store_config["mcpServers"]), {"store-only"})
+
+            agent_config = agent_context.show_config()
+            self.assertEqual(set(agent_config["mcpServers"]), {"agent-only"})
+
+            session = store.create_session("session-a", scope="agent", agent_id="agent-a")
+            self.assertEqual(session.show_config(), agent_config)
+
     def test_public_mcpstore_exposes_scope_facade(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"

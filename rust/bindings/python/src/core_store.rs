@@ -603,6 +603,13 @@ impl PyScopeContext {
         serializable_to_py(py, self.inner.scope(), "Scope")
     }
 
+    fn show_config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let config = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.show_config())
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, config)
+    }
+
     fn add_service_config(
         &self,
         service_name: &str,
@@ -2331,6 +2338,13 @@ impl PyMCPStore {
         let scope = py_to_scope_ref(scope)?;
         let config = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.show_scope_config(&scope))
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, config)
+    }
+
+    fn show_session_config(&self, py: Python<'_>, session_key: &str) -> PyResult<Py<PyAny>> {
+        let config = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.show_session_config(session_key))
             .map_err(map_store_err)?;
         serde_value_to_py(py, config)
     }

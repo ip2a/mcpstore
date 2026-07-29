@@ -60,6 +60,24 @@ impl MCPStore {
         project_config(&config, ConfigFormat::Native)
     }
 
+    pub async fn show_session_config(&self, session_key: &str) -> Result<Value> {
+        let session = self
+            .get_session(session_key)
+            .await?
+            .ok_or_else(|| StoreError::Other(format!("Session not found: {session_key}")))?;
+        let scope = match session.scope {
+            crate::cache::models::SessionScope::Store => ScopeRef::Store,
+            crate::cache::models::SessionScope::Agent => ScopeRef::Agent {
+                agent_id: session.agent_id.ok_or_else(|| {
+                    StoreError::Other(format!(
+                        "Agent-scoped session is missing agent_id: {session_key}"
+                    ))
+                })?,
+            },
+        };
+        self.show_scope_config(&scope).await
+    }
+
     pub async fn reset_config(&self) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
