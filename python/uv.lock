@@ -20,15 +20,6 @@ wheels = [
 ]
 
 [[package]]
-name = "async-timeout"
-version = "5.0.1"
-source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
-sdist = { url = "https://mirrors.aliyun.com/pypi/packages/a5/ae/136395dfbfe00dfc94da3f3e136d0b13f394cba8f4841120e34226265780/async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3" }
-wheels = [
-    { url = "https://mirrors.aliyun.com/pypi/packages/fe/ba/e2081de779ca30d473f21f5b30e0e737c438205440784c7dfc81efc2b029/async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c" },
-]
-
-[[package]]
 name = "dnspython"
 version = "2.8.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -91,22 +82,13 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
 ]
 
-[package.optional-dependencies]
-redis = [
-    { name = "redis" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "maturin" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "pydantic", extras = ["email"], specifier = ">=2.11.7" },
-    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0.0" },
-]
-provides-extras = ["redis"]
+requires-dist = [{ name = "pydantic", extras = ["email"], specifier = ">=2.11.7" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.14.1" }]
@@ -245,18 +227,6 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/ac/ad/5565071e937d8e752842ac241463944c9eb14c87e2d269f2658a5bd05e98/pydantic_core-2.46.4-pp311-pypy311_pp73-musllinux_1_1_armv7l.whl", hash = "sha256:d396ec2b979760aaf3218e76c24e65bd0aca24983298653b3a9d7a45f9e47b30" },
     { url = "https://mirrors.aliyun.com/pypi/packages/4f/c3/66883a5cec183e7fba4d024b4cbbe61851a63750ef606b0afecc46d1f2bf/pydantic_core-2.46.4-pp311-pypy311_pp73-musllinux_1_1_x86_64.whl", hash = "sha256:86e1a4418c6cd97d60c95c71164158eaf7324fae7b0923264016baa993eba6fc" },
     { url = "https://mirrors.aliyun.com/pypi/packages/4b/2d/69abac8f838090bbecd5df894befb2c2619e7996a98ddb949db9f3b93225/pydantic_core-2.46.4-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:d51026d73fcfd93610abc7b27789c26b313920fcfb20e27462d74a7f8b06e983" },
-]
-
-[[package]]
-name = "redis"
-version = "7.4.0"
-source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
-dependencies = [
-    { name = "async-timeout", marker = "python_full_version < '3.11.3'" },
-]
-sdist = { url = "https://mirrors.aliyun.com/pypi/packages/7b/7f/3759b1d0d72b7c92f0d70ffd9dc962b7b7b5ee74e135f9d7d8ab06b8a318/redis-7.4.0.tar.gz", hash = "sha256:64a6ea7bf567ad43c964d2c30d82853f8df927c5c9017766c55a1d1ed95d18ad" }
-wheels = [
-    { url = "https://mirrors.aliyun.com/pypi/packages/74/3a/95deec7db1eb53979973ebd156f3369a72732208d1391cd2e5d127062a32/redis-7.4.0-py3-none-any.whl", hash = "sha256:a9c74a5c893a5ef8455a5adb793a31bb70feb821c86eccb62eebef5a19c429ec" },
 ]
 
 [[package]]

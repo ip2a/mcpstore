@@ -13,8 +13,6 @@ class CacheType(Enum):
     """Cache type enumeration."""
     MEMORY = "memory"
     REDIS = "redis"
-    OPENKEYV_MEMORY = "openkeyv_memory"
-    OPENKEYV_REDIS = "openkeyv_redis"
 
 
 @dataclass
@@ -32,10 +30,6 @@ class MemoryConfig(BaseCacheConfig):
     cache_type: Literal[CacheType.MEMORY] = CacheType.MEMORY
 
 
-@dataclass
-class OpenKeyvMemoryConfig(MemoryConfig):
-    """openkeyv memory cache configuration for Rust core."""
-    cache_type: Literal[CacheType.OPENKEYV_MEMORY] = CacheType.OPENKEYV_MEMORY
 
 
 @dataclass
@@ -88,10 +82,6 @@ class RedisConfig(BaseCacheConfig):
             )
 
 
-@dataclass
-class OpenKeyvRedisConfig(RedisConfig):
-    """openkeyv Redis cache configuration for Rust core."""
-    cache_type: Literal[CacheType.OPENKEYV_REDIS] = CacheType.OPENKEYV_REDIS
 
 
 def get_namespace(config: object, default: str = "mcpstore") -> str:
