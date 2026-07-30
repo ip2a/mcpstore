@@ -6,7 +6,7 @@
 - is_nullable: 检查 JSON Schema 属性是否可为 null
 - process_tool_args: 统一处理工具参数转换
 - create_args_schema: 创建 Pydantic 参数模型
-- call_tool_response_helper: 统一处理工具调用结果
+- to_tool_call_view: 统一处理工具调用结果
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ __all__ = [
     'process_tool_args',
     'enhance_description',
     'create_args_schema',
-    'call_tool_response_helper',
+    'to_tool_call_view',
     'build_tool_error_payload',
     'service_name',
     'service_status_value',
@@ -47,7 +47,7 @@ __all__ = [
 # ============================================================================
 
 class ToolCallView(BaseModel):
-    """标准化 MCPStore CallToolResult 的辅助视图。"""
+    """Standardized view over an MCPStore CallToolResult."""
 
     text: str = ""
     content: List[Any] = Field(default_factory=list)
@@ -300,7 +300,7 @@ def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
     return artifacts
 
 
-def call_tool_response_helper(result: Any) -> ToolCallView:
+def to_tool_call_view(result: Any) -> ToolCallView:
     """
     将 MCPStore CallToolResult 统一转换为 ToolCallView。
 
@@ -522,7 +522,7 @@ def build_sync_executor(
         try:
             tool_input = dict(kwargs)
             result = context.call_tool(instance_id, tool_name, tool_input)
-            view = call_tool_response_helper(result)
+            view = to_tool_call_view(result)
             if view.is_error:
                 payload = build_tool_error_payload(
                     tool_name,
@@ -567,7 +567,7 @@ def build_async_executor(
         try:
             tool_input = dict(kwargs)
             result = await asyncio.to_thread(context.call_tool, instance_id, tool_name, tool_input)
-            view = call_tool_response_helper(result)
+            view = to_tool_call_view(result)
             if view.is_error:
                 payload = build_tool_error_payload(
                     tool_name,
