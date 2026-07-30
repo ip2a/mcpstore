@@ -10,8 +10,6 @@ pub enum CacheStorage {
     #[default]
     Memory,
     Redis,
-    OpenKeyvMemory,
-    OpenKeyvRedis,
 }
 
 impl CacheStorage {
@@ -19,8 +17,6 @@ impl CacheStorage {
         match self {
             Self::Memory => "memory",
             Self::Redis => "redis",
-            Self::OpenKeyvMemory => "openkeyv_memory",
-            Self::OpenKeyvRedis => "openkeyv_redis",
         }
     }
 }

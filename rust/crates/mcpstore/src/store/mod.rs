@@ -105,8 +105,6 @@ impl MCPStore {
             .unwrap_or(match &app_config.cache.backend {
                 CacheBackend::Redis => CacheStorage::Redis,
                 CacheBackend::Memory => CacheStorage::Memory,
-                CacheBackend::OpenKeyvMemory => CacheStorage::OpenKeyvMemory,
-                CacheBackend::OpenKeyvRedis => CacheStorage::OpenKeyvRedis,
             });
         let redis_url = options
             .redis_url
@@ -114,11 +112,11 @@ impl MCPStore {
             .or_else(|| app_config.cache.redis_url.clone())
             .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
         let (cache_store, event_backend) = match cache_storage {
-            crate::store::CacheStorage::Memory | crate::store::CacheStorage::OpenKeyvMemory => {
+            crate::store::CacheStorage::Memory => {
                 let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
                 (store, Some(EventBackend::from_memory(mem)))
             }
-            crate::store::CacheStorage::Redis | crate::store::CacheStorage::OpenKeyvRedis => {
+            crate::store::CacheStorage::Redis => {
                 let store = Self::build_cache_store(&cache_storage, &redis_url, &namespace)?;
                 (store, None) // Redis EventBackend created lazily in setup_event_reactor
             }
@@ -216,8 +214,7 @@ impl MCPStore {
                 // Redis: construct now (was deferred because it's async).
                 let storage = self.cache_storage.read().await.clone();
                 match storage {
-                    crate::store::CacheStorage::Redis
-                    | crate::store::CacheStorage::OpenKeyvRedis => {
+                    crate::store::CacheStorage::Redis => {
                         let url = self
                             .redis_url
                             .read()
