@@ -50,7 +50,7 @@ impl EventBackend {
     }
 
     /// Construct a Redis backend, connecting to the given URL.
-    #[cfg(feature = "backend-redis")]
+    #[cfg(feature = "redis")]
     pub async fn from_redis_url(url: &str) -> openkeyv::Result<Self> {
         let store = openkeyv::store::redis::RedisStore::new(url).await?;
         Ok(Self(Arc::new(store)))
