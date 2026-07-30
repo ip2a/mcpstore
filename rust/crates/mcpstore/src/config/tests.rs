@@ -572,3 +572,4 @@ fn test_add_examples_only_inserts_missing_entries() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
