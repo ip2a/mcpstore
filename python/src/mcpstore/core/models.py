@@ -147,6 +147,14 @@ class DataResponse(BaseModel, Generic[T]):
     data: T
 
 
+class ServiceInfoResponse(BaseModel):
+    service: Optional[ServiceInfo] = None
+    tools: List[Dict[str, Any]]
+    connected: bool
+    success: bool = True
+    message: Optional[str] = None
+
+
 class ServicesResponse(BaseModel):
     services: List[ServiceInfo]
     total_services: int
@@ -234,6 +242,18 @@ class ToolsResponse(BaseModel):
     total_tools: int
     success: bool = True
     message: Optional[str] = None
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    field: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+
+
+class ResponseMeta(BaseModel):
+    timestamp: str
+    request_id: str
     execution_time_ms: int
     api_version: str = "1.0.0"
 
