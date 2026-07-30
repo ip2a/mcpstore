@@ -77,19 +77,6 @@ def __getattr__(name: str):
         globals()["PerspectiveResolver"] = PerspectiveResolver
         return PerspectiveResolver
 
-    if name in {
-        "ArgumentTransform",
-        "ToolTransformConfig",
-        "ToolTransformationManager",
-        "ToolTransformer",
-        "TransformationType",
-        "get_transformation_manager",
-    }:
-        from mcpstore.tools import transformation as transformation_module
-
-        value = getattr(transformation_module, name)
-        globals()[name] = value
-        return value
 
     # Public request/response models.
     models = {
@@ -208,12 +195,6 @@ __all__ = [
 
     # Utilities
     "PerspectiveResolver",
-    "ArgumentTransform",
-    "ToolTransformConfig",
-    "ToolTransformationManager",
-    "ToolTransformer",
-    "TransformationType",
-    "get_transformation_manager",
     "ServiceInfo",
     "ServiceInfoResponse",
     "ServicesResponse",
