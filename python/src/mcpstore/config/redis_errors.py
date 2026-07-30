@@ -72,9 +72,3 @@ def handle_redis_connection_error(error: Exception, config: Any) -> RedisConnect
         ],
     )
 
-
-async def test_redis_connection(config: Any) -> None:
-    raise handle_redis_connection_error(
-        NotImplementedError("Python Redis connection tests were removed from the Rust-backed runtime"),
-        config,
-    )

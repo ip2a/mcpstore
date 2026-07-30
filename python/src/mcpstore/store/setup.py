@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import os
 from typing import Any, Dict, Optional
@@ -104,29 +103,6 @@ class StoreSetupManager:
         **kwargs: Any,
     ):
         """Initialize MCPStore synchronously with the Rust core."""
-        return asyncio.run(
-            StoreSetupManager._setup_store_internal(
-                mcpjson_path=mcpjson_path,
-                debug=debug,
-                cache=cache,
-                static_config=static_config,
-                cache_mode=cache_mode,
-                only_db=only_db,
-                extra_options=kwargs,
-            )
-        )
-
-
-    @staticmethod
-    async def _setup_store_internal(
-        mcpjson_path: str | None,
-        debug: bool | str,
-        cache: Any,
-        static_config: Optional[Dict[str, Any]],
-        cache_mode: str,
-        only_db: bool,
-        extra_options: Dict[str, Any],
-    ):
         from mcpstore.config.config import LoggingConfig
 
         LoggingConfig.setup_logging(debug=debug)
@@ -134,11 +110,11 @@ class StoreSetupManager:
         mcpjson_path, cache = StoreSetupManager._apply_setup_aliases(
             mcpjson_path=mcpjson_path,
             cache=cache,
-            extra_options=extra_options,
+            extra_options=kwargs,
         )
 
-        if extra_options:
-            unsupported = ", ".join(sorted(extra_options))
+        if kwargs:
+            unsupported = ", ".join(sorted(kwargs))
             raise ValueError(f"Rust core 当前不支持 setup_store 参数: {unsupported}")
         config_path = StoreSetupManager._normalize_path(mcpjson_path)
         resolved_cache, resolved_only_db = StoreSetupManager._normalize_cache_options(

@@ -12,7 +12,6 @@ from typing import List, Dict, Any, Tuple
 
 # 导入公共函数
 from .common import (
-    build_async_executor,
     build_sync_executor,
     build_tool_error_payload,
     call_tool_response_helper,
@@ -179,12 +178,6 @@ class OpenAIAdapter:
                         name,
                         args_schema,
                     ),
-                    "async_callable": build_async_executor(
-                        self._context,
-                        instance_id,
-                        name,
-                        args_schema,
-                    ),
                     "name": name,
                     "schema": args_schema,
                 }
@@ -209,7 +202,6 @@ class OpenAIAdapter:
             registry[tool_data["name"]] = {
                 "openai_format": tool_data["tool"],
                 "execute": tool_data["callable"],
-                "execute_async": tool_data["async_callable"],
                 "schema": tool_data["schema"],
             }
         return registry
