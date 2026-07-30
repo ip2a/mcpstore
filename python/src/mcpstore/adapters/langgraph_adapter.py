@@ -17,8 +17,3 @@ class LangGraphAdapter:
             response_format=self._response_format,
         ).list_tools()
 
-    async def list_tools_async(self) -> List[object]:
-        return await self._context.for_langchain(
-            self._instance_id,
-            response_format=self._response_format,
-        ).list_tools_async()

@@ -21,14 +21,10 @@ class SemanticKernelAdapter:
     def list_tools(self) -> List[Callable[..., Any]]:
         return self._build_functions(self._context.list_tools(self._instance_id))
 
-    async def list_tools_async(self) -> List[Callable[..., Any]]:
-        return self._build_functions(await self._context.list_tools_async(self._instance_id))
 
     def get_functions(self) -> List[Callable[..., Any]]:
         return self.list_tools()
 
-    async def get_functions_async(self) -> List[Callable[..., Any]]:
-        return await self.list_tools_async()
 
     def _build_functions(self, mcp_tools: List[Any]) -> List[Callable[..., Any]]:
         functions: List[Callable[..., Any]] = []

@@ -13,5 +13,3 @@ class CrewAIAdapter:
     def list_tools(self) -> List[object]:
         return self._context.for_langchain(self._instance_id).list_tools()
 
-    async def list_tools_async(self) -> List[object]:
-        return await self._context.for_langchain(self._instance_id).list_tools_async()

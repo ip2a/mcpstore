@@ -30,13 +30,6 @@ class RustStoreBackend:
         from mcpstore.store.setup import StoreSetupManager
         return StoreSetupManager.setup_store(mcpjson_path, debug, cache, static_config, cache_mode, only_db, **kwargs)
 
-    @staticmethod
-    async def setup_store_async(mcpjson_path: str | None = None, debug: bool | str = False,
-                                cache: Any = None, static_config: Optional[Dict[str, Any]] = None,
-                                cache_mode: str = "auto", only_db: bool = False, **kwargs: Any):
-        from mcpstore.store.setup import StoreSetupManager
-        return await StoreSetupManager.setup_store_async(mcpjson_path, debug, cache, static_config, cache_mode, only_db, **kwargs)
-
     _normalize_cache_config = staticmethod(setup_module.normalize_cache_config)
     _redis_url = staticmethod(setup_module.redis_url)
     _cache_options = staticmethod(setup_module.cache_options)
@@ -45,50 +38,34 @@ class RustStoreBackend:
     current_backend = configuration.current_backend
     load_from_config = configuration.load_from_config
     add_service = configuration.add_service
-    add_service_async = configuration.add_service_async
     declare_service_scope = configuration.declare_service_scope
-    declare_service_scope_async = configuration.declare_service_scope_async
     remove_service_scope = configuration.remove_service_scope
-    remove_service_scope_async = configuration.remove_service_scope_async
     patch_service = configuration.patch_service
-    patch_service_async = configuration.patch_service_async
     update_service = configuration.update_service
-    update_service_async = configuration.update_service_async
     remove_service = configuration.remove_service
-    remove_service_async = configuration.remove_service_async
     get_definition_config = configuration.get_definition_config
     get_effective_config = configuration.get_effective_config
     show_config = configuration.show_config
     reset_config = configuration.reset_config
 
     list_instances = instances.list_instances
-    list_instances_async = instances.list_instances_async
     list_instances_scoped = instances.list_instances_scoped
     find_instance = instances.find_instance
     instance_info = instances.instance_info
     connect_service = instances.connect_service
-    connect_service_async = instances.connect_service_async
     disconnect_service = instances.disconnect_service
-    disconnect_service_async = instances.disconnect_service_async
     restart_service = instances.restart_service
-    restart_service_async = instances.restart_service_async
     wait_instance_ready = instances.wait_instance_ready
-    wait_instance_ready_async = instances.wait_instance_ready_async
     check_instances = instances.check_instances
     service_state = instances.service_state
     list_tools = instances.list_tools
-    list_tools_async = instances.list_tools_async
     list_tool_entries = instances.list_tool_entries
     list_changed_tools = instances.list_changed_tools
     call_tool = instances.call_tool
-    call_tool_async = instances.call_tool_async
     list_resources = instances.list_resources
-    list_resources_async = instances.list_resources_async
     list_resource_templates = instances.list_resource_templates
     read_resource = instances.read_resource
-    read_resource_async = instances.read_resource_async
     list_prompts = instances.list_prompts
-    list_prompts_async = instances.list_prompts_async
     get_prompt = instances.get_prompt
     export_instance_config = instances.export_instance_config
 

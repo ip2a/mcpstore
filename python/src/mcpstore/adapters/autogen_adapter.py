@@ -33,23 +33,7 @@ class AutoGenAdapter:
             tools.append(fn)
         return tools
 
-    async def list_tools_async(self) -> List[Callable[..., Any]]:
-        tools: List[Callable[..., Any]] = []
-        mcp_tools: List[Any] = await self._context.list_tools_async(self._instance_id)
-        for t in mcp_tools:
-            args_schema = create_args_schema(t)
-            fn = build_sync_executor(
-                self._context,
-                tool_instance_id(t),
-                tool_name(t),
-                args_schema,
-            )
-            attach_signature_from_schema(fn, args_schema)
-            tools.append(fn)
-        return tools
 
     def get_functions(self) -> List[Callable[..., Any]]:
         return self.list_tools()
 
-    async def get_functions_async(self) -> List[Callable[..., Any]]:
-        return await self.list_tools_async()

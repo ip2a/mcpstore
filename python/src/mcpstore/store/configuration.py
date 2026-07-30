@@ -25,9 +25,6 @@ def load_from_config(backend) -> None:
 def add_service(backend, service_name: str, config: Dict[str, Any]) -> None:
     backend._inner.add_service(service_name, _dict_payload(config, "Service config"))
 
-async def add_service_async(backend, service_name: str, config: Dict[str, Any]) -> None:
-    backend.add_service(service_name, config)
-
 def declare_service_scope(
     backend,
     service_name: str,
@@ -42,14 +39,6 @@ def declare_service_scope(
         )
     )
 
-async def declare_service_scope_async(
-    backend,
-    service_name: str,
-    scope: ScopeRef | Dict[str, Any],
-    descriptor: ScopeDescriptor | Dict[str, Any],
-) -> str:
-    return backend.declare_service_scope(service_name, scope, descriptor)
-
 def remove_service_scope(
     backend,
     service_name: str,
@@ -57,21 +46,11 @@ def remove_service_scope(
 ) -> None:
     backend._inner.remove_service_scope(service_name, _scope_payload(scope))
 
-async def remove_service_scope_async(
-    backend,
-    service_name: str,
-    scope: ScopeRef | Dict[str, Any],
-) -> None:
-    backend.remove_service_scope(service_name, scope)
-
 def patch_service(backend, service_name: str, base_updates: Dict[str, Any]) -> None:
     backend._inner.patch_service(
         service_name,
         _base_config_payload(base_updates, "Service config patch"),
     )
-
-async def patch_service_async(backend, service_name: str, base_updates: Dict[str, Any]) -> None:
-    backend.patch_service(service_name, base_updates)
 
 def update_service(backend, service_name: str, config: Dict[str, Any]) -> None:
     backend._inner.update_service(
@@ -79,14 +58,8 @@ def update_service(backend, service_name: str, config: Dict[str, Any]) -> None:
         _base_config_payload(config, "Service config update"),
     )
 
-async def update_service_async(backend, service_name: str, config: Dict[str, Any]) -> None:
-    backend.update_service(service_name, config)
-
 def remove_service(backend, service_name: str) -> None:
     backend._inner.remove_service(service_name)
-
-async def remove_service_async(backend, service_name: str) -> None:
-    backend.remove_service(service_name)
 
 def get_definition_config(backend, service_name: str) -> Optional[Dict[str, Any]]:
     return _record_value(backend._inner.get_definition_config(service_name))

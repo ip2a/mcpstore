@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import inspect
+import asyncio
 import json
 import keyword
 import warnings
@@ -565,7 +566,7 @@ def build_async_executor(
         tool_input = {}
         try:
             tool_input = dict(kwargs)
-            result = await context.call_tool_async(instance_id, tool_name, tool_input)
+            result = await asyncio.to_thread(context.call_tool, instance_id, tool_name, tool_input)
             view = call_tool_response_helper(result)
             if view.is_error:
                 payload = build_tool_error_payload(

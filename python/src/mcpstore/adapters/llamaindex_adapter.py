@@ -21,8 +21,6 @@ class LlamaIndexAdapter:
     def list_tools(self) -> List[object]:
         return self._build_tools(self._context.list_tools(self._instance_id))
 
-    async def list_tools_async(self) -> List[object]:
-        return self._build_tools(await self._context.list_tools_async(self._instance_id))
 
     def _build_tools(self, mcp_tools: List[Any]) -> List[object]:
         try:

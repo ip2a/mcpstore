@@ -41,16 +41,6 @@ class OpenAIAdapter:
             for tool_info in self._context.list_tools(self._instance_id)
         ]
 
-    async def list_tools_async(self) -> List[Dict[str, Any]]:
-        """获取所有 MCPStore 工具并转换为 OpenAI function 格式（异步版本）。"""
-        mcp_tools_info = await self._context.list_tools_async(self._instance_id)
-        openai_tools = []
-
-        for tool_info in mcp_tools_info:
-            openai_tool = self._convert_to_openai_format(tool_info)
-            openai_tools.append(openai_tool)
-
-        return openai_tools
 
     def _convert_to_openai_format(self, tool_info: Any) -> Dict[str, Any]:
         """
@@ -201,34 +191,6 @@ class OpenAIAdapter:
             )
         return callable_tools
 
-    async def get_callable_tools_async(self) -> List[Dict[str, Any]]:
-        """获取带可调用函数的工具（异步版本）。"""
-        callable_tools = []
-        for tool_info in await self._context.list_tools_async(self._instance_id):
-            openai_tool = self._convert_to_openai_format(tool_info)
-            args_schema = create_args_schema(tool_info)
-            name = tool_name(tool_info)
-            instance_id = tool_instance_id(tool_info)
-            callable_tools.append(
-                {
-                    "tool": openai_tool,
-                    "callable": build_sync_executor(
-                        self._context,
-                        instance_id,
-                        name,
-                        args_schema,
-                    ),
-                    "async_callable": build_async_executor(
-                        self._context,
-                        instance_id,
-                        name,
-                        args_schema,
-                    ),
-                    "name": name,
-                    "schema": args_schema,
-                }
-            )
-        return callable_tools
 
     def create_tool_registry(self) -> Dict[str, Any]:
         """
@@ -239,9 +201,6 @@ class OpenAIAdapter:
         """
         return self._registry_from_callable_tools(self.get_callable_tools())
 
-    async def create_tool_registry_async(self) -> Dict[str, Any]:
-        """创建工具注册表（异步版本）。"""
-        return self._registry_from_callable_tools(await self.get_callable_tools_async())
 
     @staticmethod
     def _registry_from_callable_tools(callable_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -291,29 +250,6 @@ class OpenAIAdapter:
                 results.append(f"Error executing tool call: {str(e)}")
         return results
 
-    async def batch_execute_tool_calls_async(self, tool_calls: List[Dict[str, Any]]) -> List[str]:
-        """批量执行工具调用（异步版本）。"""
-        results = []
-        for tool_call in tool_calls:
-            try:
-                results.append(await self.execute_tool_call_async(tool_call))
-            except Exception as e:
-                results.append(f"Error executing tool call: {str(e)}")
-        return results
-
-    async def execute_tool_call_async(self, tool_call: Dict[str, Any]) -> str:
-        """执行工具调用（异步版本）。"""
-        tool_name = None
-        try:
-            tool_name, arguments = self._parse_tool_call(tool_call)
-            result = await self._context.call_tool_async(
-                self._instance_id,
-                tool_name,
-                arguments,
-            )
-            return self._format_tool_result(tool_name, arguments, result)
-        except Exception as e:
-            return f"Tool '{tool_name}' execution failed: {str(e)}"
 
     @staticmethod
     def _parse_tool_call(tool_call: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:

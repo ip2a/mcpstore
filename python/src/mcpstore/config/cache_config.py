@@ -155,14 +155,3 @@ def create_kv_store(*args, **kwargs):
         "Use MCPStore.setup_store(..., cache=...) or store.switch_cache(...) so "
         "Python and Rust runtimes share the Rust-backed cache implementation."
     )
-
-
-async def create_kv_store_async(*args, **kwargs):
-    """Async compatibility placeholder for the removed Python key_value backend."""
-
-    _ = args, kwargs
-    raise NotImplementedError(
-        "create_kv_store_async no longer creates Python key_value stores. "
-        "Use MCPStore.setup_store_async(..., cache=...) or store.switch_cache(...) so "
-        "Python and Rust runtimes share the Rust-backed cache implementation."
-    )

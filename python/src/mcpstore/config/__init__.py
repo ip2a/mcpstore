@@ -15,8 +15,7 @@ def __getattr__(name: str):
         "get_namespace",
         "detect_strategy",
         "create_kv_store",
-        "create_kv_store_async",
-    }:
+           }:
         from . import cache_config as _cache_config
 
         value = getattr(_cache_config, name)
@@ -80,8 +79,7 @@ __all__ = [
     "get_namespace",
     "detect_strategy",
     "create_kv_store",
-    "create_kv_store_async",
-    "RedisHealthCheck",
+       "RedisHealthCheck",
     "start_health_check",
     "RedisConnectionFailure",
     "mask_password_in_url",
