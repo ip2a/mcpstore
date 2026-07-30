@@ -1,7 +1,7 @@
 import type { SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/api"
 import type { I18nKey } from "@/lib/i18n-core"
 
-export type SectionId = "general" | "diagnostics" | "config" | "about"
+export type SectionId = "general" | "backend" | "diagnostics" | "config" | "about"
 
 export type SettingsDraft = {
   language: UiLanguage
@@ -25,6 +25,7 @@ export type SettingsDraft = {
 
 export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
   { id: "general", labelKey: "general" },
+  { id: "backend", labelKey: "coreBackend" },
   { id: "diagnostics", labelKey: "diagnostics" },
   { id: "config", labelKey: "configFile" },
   { id: "about", labelKey: "about" },
