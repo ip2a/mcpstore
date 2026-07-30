@@ -26,7 +26,7 @@ pip install -r requirements.txt
 ## 运行
 
 ```bash
-uvicorn app:app --reload --port 8000
+uvicorn app:app --reload --port 18201
 ```
 
 ## 响应格式
@@ -43,24 +43,24 @@ uvicorn app:app --reload --port 8000
 
 ```bash
 # 健康检查
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:18201/health
 
 # 查看 store 配置
-curl http://127.0.0.1:8000/config
+curl http://127.0.0.1:18201/config
 
 # 添加服务（标准 mcpServers 结构，复用包内 MCPServerConfig）
-curl -X POST http://127.0.0.1:8000/services \
+curl -X POST http://127.0.0.1:18201/services \
   -H "Content-Type: application/json" \
   -d '{"mcpServers":{"gitodo":{"command":"uvx","args":["gitodo"]}}}'
 
 # 列出服务
-curl http://127.0.0.1:8000/services
+curl http://127.0.0.1:18201/services
 
 # 列出工具
-curl http://127.0.0.1:8000/tools
+curl http://127.0.0.1:18201/tools
 
 # 调用工具（返回 {content, is_error} 作为 data）
-curl -X POST http://127.0.0.1:8000/tools/gitodo_get_tasks/call \
+curl -X POST http://127.0.0.1:18201/tools/gitodo_get_tasks/call \
   -H "Content-Type: application/json" \
   -d '{"args":{}}'
 ```
