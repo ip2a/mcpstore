@@ -77,6 +77,27 @@ def __getattr__(name: str):
         globals()["PerspectiveResolver"] = PerspectiveResolver
         return PerspectiveResolver
 
+    if name in {
+        "AsyncMCPStore",
+        "AsyncScopeContext",
+        "AsyncService",
+        "AsyncTool",
+    }:
+        from mcpstore._rust import (
+            AsyncMCPStore,
+            AsyncScopeContext,
+            AsyncService,
+            AsyncTool,
+        )
+
+        globals().update({
+            "AsyncMCPStore": AsyncMCPStore,
+            "AsyncScopeContext": AsyncScopeContext,
+            "AsyncService": AsyncService,
+            "AsyncTool": AsyncTool,
+        })
+        return globals()[name]
+
 
     # Public request/response models.
     models = {
@@ -184,6 +205,12 @@ __all__ = [
 
     # Utilities
     "PerspectiveResolver",
+
+    # Async Rust chain (native coroutine API)
+    "AsyncMCPStore",
+    "AsyncScopeContext",
+    "AsyncService",
+    "AsyncTool",
     "ServiceInfo",
     "ServiceInfoResponse",
     "ServicesResponse",
