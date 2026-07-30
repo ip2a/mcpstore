@@ -18,7 +18,7 @@ from pydantic import BaseModel
 # 导入公共函数
 from .common import (
     build_tool_error_payload,
-    call_tool_response_helper,
+    to_tool_call_view,
     create_args_schema,
     enhance_description,
     process_tool_args,
@@ -142,7 +142,7 @@ class LangChainAdapter:
 
                 # 调用 mcpstore 核心方法
                 result = adapter_self._context._backend.call_tool(instance_id, tool_name, tool_input)
-                view = call_tool_response_helper(result)
+                view = to_tool_call_view(result)
 
                 if view.is_error:
                     return adapter_self._format_error_output(
@@ -203,7 +203,7 @@ class LangChainAdapter:
                     tool_name,
                     tool_input,
                 )
-                view = call_tool_response_helper(result)
+                view = to_tool_call_view(result)
 
                 if view.is_error:
                     return adapter_self._format_error_output(
@@ -298,7 +298,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
             try:
                 tool_input = process_tool_args(args_schema, args, kwargs)
                 result = adapter_self._session.call_tool(instance_id, tool_name, tool_input)
-                view = call_tool_response_helper(result)
+                view = to_tool_call_view(result)
 
                 if view.is_error:
                     return adapter_self._format_error_output(
@@ -351,7 +351,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                     tool_name,
                     tool_input,
                 )
-                view = call_tool_response_helper(result)
+                view = to_tool_call_view(result)
 
                 if view.is_error:
                     return adapter_self._format_error_output(

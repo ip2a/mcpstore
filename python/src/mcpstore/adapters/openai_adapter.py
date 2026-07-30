@@ -15,7 +15,7 @@ from .common import (
     build_async_executor,
     build_sync_executor,
     build_tool_error_payload,
-    call_tool_response_helper,
+    to_tool_call_view,
     create_args_schema,
     enhance_description,
     is_nullable,
@@ -272,7 +272,7 @@ class OpenAIAdapter:
 
     @staticmethod
     def _format_tool_result(name: str, arguments: Dict[str, Any], result: Any) -> str:
-        view = call_tool_response_helper(result)
+        view = to_tool_call_view(result)
         if view.is_error:
             payload = build_tool_error_payload(
                 name,

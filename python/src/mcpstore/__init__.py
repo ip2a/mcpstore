@@ -125,11 +125,11 @@ def __getattr__(name: str):
         return value
 
     # Adapter common utilities
-    if name in ("call_tool_response_helper", "ToolCallView"):
-        from mcpstore.adapters.common import call_tool_response_helper, ToolCallView
+    if name in ("to_tool_call_view", "ToolCallView"):
+        from mcpstore.adapters.common import to_tool_call_view, ToolCallView
 
         globals().update({
-            "call_tool_response_helper": call_tool_response_helper,
+            "to_tool_call_view": to_tool_call_view,
             "ToolCallView": ToolCallView,
         })
         return globals()[name]
@@ -222,7 +222,7 @@ __all__ = [
     "AgentScope",
 
     # Adapter Utilities
-    "call_tool_response_helper",
+    "to_tool_call_view",
     "ToolCallView",
 
     # Adapters
