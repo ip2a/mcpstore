@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from mcpstore.context.store_context import AgentContext, StoreContext
 from mcpstore.cache import store as cache_ops
-from mcpstore.store import configuration, instances, setup as setup_module, transforms
+from mcpstore.store import configuration, instances, setup as setup_module
 from mcpstore.sessions import store as session_ops
 
 
@@ -68,14 +68,6 @@ class RustStoreBackend:
     list_prompts = instances.list_prompts
     get_prompt = instances.get_prompt
     export_instance_config = instances.export_instance_config
-
-    set_tool_transform = transforms.set_tool_transform
-    create_llm_friendly_tool_transform = transforms.create_llm_friendly_tool_transform
-    create_parameter_renamed_tool_transform = transforms.create_parameter_renamed_tool_transform
-    create_validated_tool_transform = transforms.create_validated_tool_transform
-    get_tool_transform = transforms.get_tool_transform
-    list_tool_transforms = transforms.list_tool_transforms
-    delete_tool_transform = transforms.delete_tool_transform
 
     create_session = session_ops.create_session
     get_session = session_ops.get_session
