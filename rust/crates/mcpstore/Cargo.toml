@@ -45,26 +45,27 @@ zeroize = { version = "1", features = ["derive"] }
 jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 
 [features]
-default = ["mcp-server", "backend-redis"]
+default = ["mcp-server", "light", "redis", "memcached", "valkey"]
 mcp-server = ["dep:axum", "rmcp/transport-streamable-http-server"]
 
 # Backend passthrough — enable the openkeyv feature for each store type.
-backend-memory  = []                             # in-memory (zero-cost)
-backend-redis   = ["openkeyv/redis"]
-backend-valkey  = ["openkeyv/valkey"]
-backend-disk    = ["openkeyv/disk"]
-backend-sqlite  = ["openkeyv/sqlite"]
-backend-postgres = ["openkeyv/postgres"]
-backend-mongodb = ["openkeyv/mongodb"]
-backend-memcached = ["openkeyv/memcached"]
-backend-rocksdb = ["openkeyv/rocksdb"]
-backend-duckdb  = ["openkeyv/duckdb"]
-backend-opensearch = ["openkeyv/opensearch"]
-backend-vault   = ["openkeyv/vault"]
-backend-keyring = ["openkeyv/keyring"]
-backend-firestore = ["openkeyv/firestore"]
-backend-s3      = ["openkeyv/s3"]
-backend-dynamodb = ["openkeyv/dynamodb"]
+# 默认档对齐 openkeyv: light + redis + memcached + valkey
+light     = ["openkeyv/light"]
+disk      = ["openkeyv/disk"]
+redis     = ["openkeyv/redis"]
+sqlite    = ["openkeyv/sqlite"]
+postgres  = ["openkeyv/postgres"]
+mongodb   = ["openkeyv/mongodb"]
+memcached = ["openkeyv/memcached"]
+valkey    = ["openkeyv/valkey"]
+rocksdb   = ["openkeyv/rocksdb"]
+duckdb    = ["openkeyv/duckdb"]
+opensearch = ["openkeyv/opensearch"]
+vault     = ["openkeyv/vault"]
+keyring   = ["openkeyv/keyring"]
+firestore = ["openkeyv/firestore"]
+s3        = ["openkeyv/s3"]
+dynamodb  = ["openkeyv/dynamodb"]
 
 [dev-dependencies]
 tokio-test = "0.4"
