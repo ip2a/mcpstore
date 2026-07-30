@@ -31,10 +31,6 @@ classifiers = [
 [project.scripts]
 mcpstore = "mcpstore.runner.main:main"
 
-[project.optional-dependencies]
-redis = [
-    "redis>=5.0.0",
-]
 
 
 [tool.setuptools]
