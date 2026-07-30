@@ -20,7 +20,8 @@ mcpstore debug menu
 2) 本地运行 App (Tauri)
 3) 本地运行 TUI
 4) 本地运行内置 Web (mcpstore web)
-5) 清理构建产物
+5) Python API demo (FastAPI, demos/python_api)
+6) 清理构建产物
 0) 退出
 MENU
 }
@@ -112,6 +113,27 @@ run_embedded_web() {
     cargo run --manifest-path "$MCPSTORE_MANIFEST" --bin mcpstore -- web --host "$web_host" --port "$web_port"
 }
 
+run_python_demo() {
+  local demo_dir="$ROOT_DIR/demos/python_api"
+  local demo_host="${MCPSTORE_DEMO_HOST:-127.0.0.1}"
+  local demo_port="${MCPSTORE_DEMO_PORT:-8000}"
+  local venv_python="$ROOT_DIR/python/.venv/bin/python"
+
+  if [ ! -f "$demo_dir/app.py" ]; then
+    echo "[Demo] 找不到 $demo_dir/app.py" >&2
+    exit 1
+  fi
+  if [ ! -x "$venv_python" ]; then
+    echo "[Demo] 找不到 uv 虚拟环境: $venv_python" >&2
+    echo "       请先在 python/ 目录执行 uv sync" >&2
+    exit 1
+  fi
+
+  echo "[Demo] 启动 FastAPI demo: http://${demo_host}:${demo_port}/"
+  echo "[Demo] API 文档:         http://${demo_host}:${demo_port}/docs"
+  (cd "$demo_dir" && "$venv_python" -m uvicorn app:app --reload --host "$demo_host" --port "$demo_port")
+}
+
 clean_artifacts() {
   require_cmd cargo
   echo "[Clean] 清理 Rust workspace 构建产物..."
@@ -140,7 +162,8 @@ main() {
       2) run_app ;;
       3) run_tui ;;
       4) run_embedded_web ;;
-      5) clean_artifacts ;;
+      5) run_python_demo ;;
+      6) clean_artifacts ;;
       0) exit 0 ;;
       *) echo "未知选项: $choice" ;;
     esac
