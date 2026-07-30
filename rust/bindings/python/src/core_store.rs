@@ -49,7 +49,7 @@ pub struct PyTool {
     inner: Tool,
 }
 
-fn map_store_err(err: StoreError) -> PyErr {
+pub(crate) fn map_store_err(err: StoreError) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
 }
 
@@ -83,7 +83,7 @@ fn parse_openapi_bundle_options(
     })
 }
 
-fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMode> {
+pub(crate) fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMode> {
     match source_mode {
         Some("db") => Ok(SourceMode::Db),
         Some("local") | None => Ok(SourceMode::Local),
@@ -93,7 +93,7 @@ fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMode> {
     }
 }
 
-fn parse_backend(backend: Option<&str>) -> PyResult<Option<BackendKind>> {
+pub(crate) fn parse_backend(backend: Option<&str>) -> PyResult<Option<BackendKind>> {
     match backend {
         Some("memory") => Ok(Some(BackendKind::Memory)),
         Some("redis") => Ok(Some(BackendKind::Redis)),
@@ -117,7 +117,7 @@ fn parse_tool_visibility_filter(filter: Option<&str>) -> PyResult<ToolVisibility
     }
 }
 
-fn parse_session_scope(scope: Option<&str>) -> PyResult<SessionScope> {
+pub(crate) fn parse_session_scope(scope: Option<&str>) -> PyResult<SessionScope> {
     match scope {
         Some("store") | None => Ok(SessionScope::Store),
         Some("agent") => Ok(SessionScope::Agent),
@@ -153,14 +153,14 @@ fn backend_as_str(backend: &BackendKind) -> &'static str {
     backend.as_str()
 }
 
-fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<ServerConfig> {
+pub(crate) fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<ServerConfig> {
     let value = py_to_serde_value(value, context)?;
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("{context} conversion failed: {err}"))
     })
 }
 
-fn py_to_add_service_config(value: &Bound<'_, PyAny>) -> PyResult<McpConfig> {
+pub(crate) fn py_to_add_service_config(value: &Bound<'_, PyAny>) -> PyResult<McpConfig> {
     if let Ok(value) = value.extract::<String>() {
         let trimmed = value.trim_start();
         let config = if trimmed.starts_with('{') || trimmed.starts_with('[') {
@@ -199,7 +199,7 @@ fn parse_instance_id(value: &str) -> PyResult<InstanceId> {
     })
 }
 
-fn facade_service_target<'a>(
+pub(crate) fn facade_service_target<'a>(
     service_name: Option<&'a str>,
     instance_id: Option<&str>,
 ) -> PyResult<ServiceTarget<'a>> {
@@ -215,7 +215,7 @@ fn facade_service_target<'a>(
     }
 }
 
-fn duration_from_seconds(timeout: f64) -> PyResult<Duration> {
+pub(crate) fn duration_from_seconds(timeout: f64) -> PyResult<Duration> {
     if !timeout.is_finite() || timeout < 0.0 {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "timeout must be a finite non-negative number of seconds",
@@ -267,7 +267,7 @@ fn tool_info_to_py(py: Python<'_>, tool: &ToolInfo) -> PyResult<Py<PyAny>> {
     Ok(dict.into_any().unbind())
 }
 
-fn scoped_tool_entry_to_py(py: Python<'_>, tool: &ScopedToolEntry) -> PyResult<Py<PyAny>> {
+pub(crate) fn scoped_tool_entry_to_py(py: Python<'_>, tool: &ScopedToolEntry) -> PyResult<Py<PyAny>> {
     serializable_to_py(py, tool, "Scoped tool")
 }
 
@@ -426,7 +426,7 @@ fn content_item_to_py(py: Python<'_>, item: &ContentItem) -> PyResult<Py<PyAny>>
     Ok(dict.into_any().unbind())
 }
 
-fn tool_call_result_to_py(py: Python<'_>, result: &ToolCallResult) -> PyResult<Py<PyAny>> {
+pub(crate) fn tool_call_result_to_py(py: Python<'_>, result: &ToolCallResult) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     let content = PyList::empty(py);
     for item in &result.content {
@@ -457,7 +457,7 @@ fn cache_health_report_to_py(py: Python<'_>, report: &CacheHealthReport) -> PyRe
     Ok(dict.into_any().unbind())
 }
 
-fn session_entity_to_py(py: Python<'_>, session: &SessionEntity) -> PyResult<Py<PyAny>> {
+pub(crate) fn session_entity_to_py(py: Python<'_>, session: &SessionEntity) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("session_key", &session.session_key)?;
     dict.set_item("session_id", &session.session_id)?;
@@ -473,7 +473,7 @@ fn session_entity_to_py(py: Python<'_>, session: &SessionEntity) -> PyResult<Py<
     Ok(dict.into_any().unbind())
 }
 
-fn session_status_to_py(py: Python<'_>, status: &SessionStatusState) -> PyResult<Py<PyAny>> {
+pub(crate) fn session_status_to_py(py: Python<'_>, status: &SessionStatusState) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("session_key", &status.session_key)?;
     dict.set_item("status", session_status_as_str(&status.status))?;
