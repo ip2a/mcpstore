@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch"
 import { logSizeMb, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
+import { getApiBase, setApiBase } from "@/lib/api/backend"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 
@@ -101,10 +102,11 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
           <ScrollArea className="min-h-0">
             <div className="p-4 sm:p-5">
-              {loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
-              {error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
+              {section === "backend" ? <BackendSection /> : null}
+              {section !== "backend" && loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
+              {section !== "backend" && error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
 
-              {!loading && !error && draft ? (
+              {!loading && !error && draft && section !== "backend" ? (
                 <DialogForm onSubmit={onSubmit}>
                   {section === "general" ? (
                     <section className="flex flex-col gap-5">
@@ -325,5 +327,41 @@ function SettingsError({ message, onRetry }: { message: string; onRetry: () => v
         {t("retry")}
       </Button>
     </div>
+  )
+}
+
+function BackendSection() {
+  const { t } = useI18n()
+  const [url, setUrl] = useState(getApiBase())
+
+  function apply() {
+    setApiBase(url)
+    toast.success(t("coreBackendApplied"))
+    window.location.reload()
+  }
+
+  return (
+    <section className="flex flex-col gap-5">
+      <SectionHead title={t("coreBackend")} description={t("coreBackendDescription")} />
+      <FieldGroup>
+        <Field orientation="responsive">
+          <FieldContent>
+            <FieldTitle>{t("coreBackendUrlLabel")}</FieldTitle>
+            <FieldDescription>{t("coreBackendDescription")}</FieldDescription>
+          </FieldContent>
+          <InputGroup className="max-w-xl">
+            <InputGroupInput
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder={t("coreBackendUrlPlaceholder")}
+            />
+          </InputGroup>
+        </Field>
+      </FieldGroup>
+      <Button type="button" className="w-fit" onClick={apply}>
+        <RefreshCwIcon data-icon="inline-start" />
+        {t("coreBackendApply")}
+      </Button>
+    </section>
   )
 }

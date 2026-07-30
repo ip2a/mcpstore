@@ -3,9 +3,8 @@ import { ChevronDownIcon } from "lucide-react"
 import { PathText } from "@/components/shared/path-text"
 import { MCPSTORE_ASCII, randomAsciiBannerColor } from "@/lib/ascii-banner"
 import { useI18n } from "@/lib/i18n-context"
+import { getApiBase } from "@/lib/api/backend"
 import type { CacheBackend } from "@/lib/api"
-
-const API_BASE = import.meta.env.VITE_MCPSTORE_API_BASE || "/api"
 
 export type HomeHeroStats = {
   loading: boolean
@@ -41,7 +40,7 @@ export function HomeHero({ backend, stats }: { backend?: CacheBackend; stats: Ho
   const statsLine = formatHeroStats(statItems, stats)
   const [collapsed, setCollapsed] = useState(false)
   const [bannerColor, setBannerColor] = useState(randomAsciiBannerColor)
-  const subtitle = t("homeHeroSubtitle", { backend: backend || "", api: API_BASE })
+  const subtitle = t("homeHeroSubtitle", { backend: backend || "", api: getApiBase() })
 
   function setHeroCollapsed(next: boolean) {
     setBannerColor(randomAsciiBannerColor())

@@ -1,12 +1,11 @@
 import { ApiError, type ApiEnvelope, type CacheBackend } from "../api";
+import { getApiBase } from "./backend";
 
 type FlexibleEnvelope<T> =
   ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string };
 
-const API_BASE = import.meta.env.VITE_MCPSTORE_API_BASE || "/api";
-
 export function apiUrl(path: string) {
-  return `${API_BASE}${path}`;
+  return `${getApiBase()}${path}`;
 }
 
 export function buildQuery(
