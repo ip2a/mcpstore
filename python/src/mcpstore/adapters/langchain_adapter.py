@@ -7,7 +7,6 @@ LangChain 适配器模块
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import asdict, is_dataclass
@@ -179,66 +178,6 @@ class LangChainAdapter:
 
         return _tool_executor
 
-    def _create_tool_coroutine(
-        self,
-        instance_id: str,
-        tool_name: str,
-        args_schema: Type[BaseModel],
-    ):
-        """
-        创建健壮的异步执行函数，智能处理各种参数传递方式。
-        """
-        adapter_self = self  # 闭包捕获
-
-        async def _tool_executor(*args, **kwargs):
-            tool_input = {}
-            try:
-                # 使用公共函数处理参数
-                tool_input = process_tool_args(args_schema, args, kwargs)
-
-                # 调用 mcpstore 核心方法（通过 to_thread 在线程池中执行同步版本）
-                result = await asyncio.to_thread(
-                    adapter_self._context.call_tool,
-                    instance_id,
-                    tool_name,
-                    tool_input,
-                )
-                view = call_tool_response_helper(result)
-
-                if view.is_error:
-                    return adapter_self._format_error_output(
-                        tool_name,
-                        view.error_message or view.text or "Tool execution failed",
-                        tool_input=tool_input,
-                        view=view,
-                    )
-
-                if adapter_self._response_format == "content_and_artifact":
-                    response = {"text": view.text, "artifacts": view.artifacts}
-                    structured = adapter_self._normalize_structured_value(view.structured)
-                    data = adapter_self._normalize_structured_value(view.data)
-                    if structured is not None:
-                        response["structured"] = structured
-                    if data is not None:
-                        response["data"] = data
-                    return response
-
-                if view.text:
-                    return view.text
-                actual = view.structured if view.structured is not None else view.data
-                actual = adapter_self._normalize_structured_value(actual)
-                if isinstance(actual, (dict, list)):
-                    return json.dumps(actual, ensure_ascii=False)
-                return "" if actual is None else str(actual)
-
-            except Exception as e:
-                return adapter_self._format_error_output(
-                    tool_name,
-                    f"Tool '{tool_name}' execution failed: {str(e)}",
-                    tool_input=tool_input,
-                )
-
-        return _tool_executor
 
     def list_tools(self) -> List[Tool]:
         """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
@@ -254,17 +193,15 @@ class LangChainAdapter:
             name = tool_name(tool_info)
             instance_id = tool_instance_id(tool_info)
 
-            # 创建同步和异步函数
+            # 创建同步执行函数
             sync_func = self._create_tool_function(instance_id, name, args_schema)
-            async_coroutine = self._create_tool_coroutine(instance_id, name, args_schema)
 
             # 创建 LangChain StructuredTool
             lc_tool = StructuredTool(
                 name=name,
                 description=enhanced_description,
                 func=sync_func,
-                coroutine=async_coroutine,
-                args_schema=args_schema,
+                                args_schema=args_schema,
             )
 
             langchain_tools.append(lc_tool)
@@ -334,58 +271,6 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
         return _tool_executor
 
-    def _create_tool_coroutine(
-        self,
-        instance_id: str,
-        tool_name: str,
-        args_schema: Type[BaseModel],
-    ):
-        adapter_self = self
-
-        async def _tool_executor(*args, **kwargs):
-            tool_input = {}
-            try:
-                tool_input = process_tool_args(args_schema, args, kwargs)
-                result = await asyncio.to_thread(adapter_self._session.call_tool,
-                    instance_id,
-                    tool_name,
-                    tool_input,
-                )
-                view = call_tool_response_helper(result)
-
-                if view.is_error:
-                    return adapter_self._format_error_output(
-                        tool_name,
-                        view.error_message or view.text or "Tool execution failed",
-                        tool_input=tool_input,
-                        view=view,
-                    )
-
-                if adapter_self._response_format == "content_and_artifact":
-                    response = {"text": view.text, "artifacts": view.artifacts}
-                    structured = adapter_self._normalize_structured_value(view.structured)
-                    data = adapter_self._normalize_structured_value(view.data)
-                    if structured is not None:
-                        response["structured"] = structured
-                    if data is not None:
-                        response["data"] = data
-                    return response
-
-                if view.text:
-                    return view.text
-                actual = view.structured if view.structured is not None else view.data
-                actual = adapter_self._normalize_structured_value(actual)
-                if isinstance(actual, (dict, list)):
-                    return json.dumps(actual, ensure_ascii=False)
-                return "" if actual is None else str(actual)
-            except Exception as e:
-                return adapter_self._format_error_output(
-                    tool_name,
-                    f"Tool '{tool_name}' execution failed: {str(e)}",
-                    tool_input=tool_input,
-                )
-
-        return _tool_executor
 
     def list_tools(self) -> List[Tool]:
         tools = [

@@ -48,8 +48,7 @@ def __getattr__(name: str):
         "mask_password_in_url",
         "get_connection_info",
         "handle_redis_connection_error",
-        "test_redis_connection",
-    }:
+           }:
         from . import redis_errors as _redis_errors
 
         value = getattr(_redis_errors, name)
@@ -85,8 +84,7 @@ __all__ = [
     "mask_password_in_url",
     "get_connection_info",
     "handle_redis_connection_error",
-    "test_redis_connection",
-    "initialize_config_system",
+       "initialize_config_system",
     "ensure_config_directory",
     "create_default_config_if_not_exists",
     "get_user_config_path",
