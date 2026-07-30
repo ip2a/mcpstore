@@ -6,11 +6,10 @@ import functools
 import inspect
 import time
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from math import ceil
-from typing import Annotated, Any, Callable, Dict, Generic, List, Literal, Optional, Set, TypeVar, Union
+from typing import Annotated, Any, Callable, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -148,40 +147,6 @@ class DataResponse(BaseModel, Generic[T]):
     data: T
 
 
-class RegistrationResponse(BaseModel):
-    success: bool
-    message: str
-    service_name: Optional[str] = None
-    instance_id: Optional[str] = None
-
-
-class ExecutionResponse(BaseModel):
-    success: bool
-    message: Optional[str] = None
-    result: Optional[Any] = None
-    error: Optional[str] = None
-
-
-class ConfigResponse(BaseModel):
-    success: bool
-    message: str
-    config: Optional[Dict[str, Any]] = None
-
-
-class HealthResponse(BaseModel):
-    success: bool
-    status: str
-    services: Optional[Dict[str, str]] = None
-
-
-class ServiceInfoResponse(BaseModel):
-    service: Optional[ServiceInfo] = None
-    tools: List[Dict[str, Any]]
-    connected: bool
-    success: bool = True
-    message: Optional[str] = None
-
-
 class ServicesResponse(BaseModel):
     services: List[ServiceInfo]
     total_services: int
@@ -269,153 +234,6 @@ class ToolsResponse(BaseModel):
     total_tools: int
     success: bool = True
     message: Optional[str] = None
-
-
-@dataclass
-class AgentInfo:
-    agent_id: str
-    name: Optional[str] = None
-    description: Optional[str] = None
-    created_at: Optional[datetime] = None
-    last_active: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class AgentServiceSummary:
-    instance_id: str
-    service_name: str
-    scope: ScopeRef
-    service_type: str
-    status: ServiceConnectionState
-    tool_count: int
-    last_used: Optional[datetime] = None
-    response_time: Optional[float] = None
-    health_details: Optional[ServiceStateMetadata] = None
-
-
-@dataclass
-class AgentStatistics:
-    agent_id: str
-    service_count: int
-    tool_count: int
-    healthy_services: int
-    unhealthy_services: int
-    total_tool_executions: int
-    is_active: bool = False
-    last_activity: Optional[datetime] = None
-    services: List[AgentServiceSummary] = field(default_factory=list)
-
-
-@dataclass
-class AgentsSummary:
-    total_agents: int
-    active_agents: int
-    total_services: int
-    total_tools: int
-    store_services: int
-    store_tools: int
-    agents: List[AgentStatistics] = field(default_factory=list)
-
-
-@dataclass
-class ToolSetState:
-    instance_id: str
-    service_name: str
-    scope: Dict[str, Any]
-    available_tools: Set[str] = field(default_factory=set)
-    created_at: float = field(default_factory=time.time)
-    updated_at: float = field(default_factory=time.time)
-    version: int = 1
-    operation_history: List[Dict[str, Any]] = field(default_factory=list)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "instance_id": self.instance_id,
-            "service_name": self.service_name,
-            "scope": self.scope,
-            "available_tools": list(self.available_tools),
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "version": self.version,
-            "operation_history": self.operation_history[-10:],
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ToolSetState":
-        return cls(
-            instance_id=data["instance_id"],
-            service_name=data["service_name"],
-            scope=dict(data["scope"]),
-            available_tools=set(data.get("available_tools", [])),
-            created_at=data.get("created_at", time.time()),
-            updated_at=data.get("updated_at", time.time()),
-            version=data.get("version", 1),
-            operation_history=data.get("operation_history", []),
-        )
-
-    def add_tools(self, tool_names: Set[str]) -> None:
-        self.available_tools.update(tool_names)
-        self.updated_at = time.time()
-        self.version += 1
-        self._record_operation("add", list(tool_names))
-
-    def remove_tools(self, tool_names: Set[str]) -> None:
-        self.available_tools.difference_update(tool_names)
-        self.updated_at = time.time()
-        self.version += 1
-        self._record_operation("remove", list(tool_names))
-
-    def reset(self, all_tools: Set[str]) -> None:
-        self.available_tools = all_tools.copy()
-        self.updated_at = time.time()
-        self.version += 1
-        self._record_operation("reset", [])
-
-    def _record_operation(self, op_type: str, tools: List[str]) -> None:
-        self.operation_history.append({"type": op_type, "tools": tools, "timestamp": time.time()})
-
-
-@dataclass
-class CallToolFailureResult:
-    message: str
-    cause: Optional[Any] = None
-    _result: Any = field(init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        from mcp import types as mcp_types
-
-        text_block = mcp_types.TextContent(type="text", text=self.message)
-        failure = mcp_types.CallToolResult(
-            content=[text_block],
-            structuredContent=None,
-            isError=True,
-        )
-        setattr(failure, "structured_content", None)
-        setattr(failure, "data", None)
-        setattr(failure, "error", self.message)
-        setattr(failure, "is_error", True)
-        if self.cause is not None:
-            setattr(failure, "cause", str(self.cause))
-        self._result = failure
-
-    def unwrap(self) -> Any:
-        return self._result
-
-    def __getattr__(self, item: str) -> Any:
-        return getattr(self._result, item)
-
-
-class ErrorDetail(BaseModel):
-    code: str
-    message: str
-    field: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
-
-
-class ResponseMeta(BaseModel):
-    timestamp: str
-    request_id: str
     execution_time_ms: int
     api_version: str = "1.0.0"
 
@@ -558,62 +376,6 @@ class ResponseBuilder:
             request_id=request_id,
             pagination=pagination,
         )
-
-
-class TimedResponseBuilder:
-    def __init__(self):
-        self.start_time: Optional[float] = None
-        self.request_id = ResponseBuilder._generate_request_id()
-
-    def __enter__(self) -> "TimedResponseBuilder":
-        self.start_time = time.time()
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        return None
-
-    def _get_execution_time(self) -> int:
-        if self.start_time is None:
-            return 0
-        return int((time.time() - self.start_time) * 1000)
-
-    def success(self, message: str = "success", data: Any = None, **kwargs: Any) -> Dict[str, Any]:
-        return ResponseBuilder.success(
-            message=message,
-            data=data,
-            execution_time_ms=self._get_execution_time(),
-            request_id=self.request_id,
-            **kwargs,
-        )
-
-    def error(self, code: ErrorCode | str, message: str, **kwargs: Any) -> Dict[str, Any]:
-        return ResponseBuilder.error(
-            code=code,
-            message=message,
-            execution_time_ms=self._get_execution_time(),
-            request_id=self.request_id,
-            **kwargs,
-        )
-
-    def paginated_list(
-        self,
-        message: str,
-        items: List[Any],
-        page: int,
-        page_size: int,
-        total: int,
-    ) -> Dict[str, Any]:
-        return ResponseBuilder.paginated_list(
-            message=message,
-            items=items,
-            page=page,
-            page_size=page_size,
-            total=total,
-            execution_time_ms=self._get_execution_time(),
-            request_id=self.request_id,
-        )
-
-
 class MCPStoreException(Exception):
     def __init__(
         self,
