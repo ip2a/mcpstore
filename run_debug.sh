@@ -116,7 +116,7 @@ run_embedded_web() {
 run_python_demo() {
   local demo_dir="$ROOT_DIR/demos/python_api"
   local demo_host="${MCPSTORE_DEMO_HOST:-127.0.0.1}"
-  local demo_port="${MCPSTORE_DEMO_PORT:-8000}"
+  local demo_port="${MCPSTORE_DEMO_PORT:-18201}"
   local venv_python="$ROOT_DIR/python/.venv/bin/python"
 
   if [ ! -f "$demo_dir/app.py" ]; then
