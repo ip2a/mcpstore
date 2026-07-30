@@ -61,6 +61,7 @@ def __getattr__(name: str):
         globals()["PerspectiveResolver"] = PerspectiveResolver
         return PerspectiveResolver
 
+    # Async Rust chain (native coroutine API)
     if name in {
         "AsyncMCPStore",
         "AsyncScopeContext",
@@ -82,29 +83,18 @@ def __getattr__(name: str):
         })
         return globals()[name]
 
-
-    # Public request/response models.
-    models = {
+    # Public request models: scope references and service-config payloads.
+    if name in {
         "CommandServiceConfig",
-        "ErrorCode",
         "MCPServerConfig",
-        "MCPStoreException",
         "ServiceConfig",
         "ServiceConfigUnion",
         "ScopeDescriptor",
         "ScopeRef",
         "StoreScope",
         "AgentScope",
-        "ServiceConnectionState",
-        "ServiceInfo",
-        "ToolExecutionError",
-        "ToolExecutionRequest",
-        "ToolInfo",
         "URLServiceConfig",
-        "ServiceNotFoundException",
-        "ValidationException",
-    }
-    if name in models:
+    }:
         from mcpstore.core import models as core_models
 
         value = getattr(core_models, name)
@@ -159,8 +149,6 @@ __all__ = [
     "OpenKeyvMemoryConfig",
     "OpenKeyvRedisConfig",
 
-    # FastAPI helpers
-
     # Utilities
     "PerspectiveResolver",
 
@@ -169,24 +157,17 @@ __all__ = [
     "AsyncScopeContext",
     "AsyncService",
     "AsyncTool",
-    "ServiceInfo",
-    "ServiceConnectionState",
-    "ToolInfo",
-    "ToolExecutionRequest",
-    "ErrorCode",
-    "MCPStoreException",
-    "ServiceNotFoundException",
-    "ToolExecutionError",
-    "ValidationException",
+
+    # Request Models (scope + service config)
     "ServiceConfig",
     "URLServiceConfig",
     "CommandServiceConfig",
     "MCPServerConfig",
     "ServiceConfigUnion",
-    "ScopeDescriptor",
-    "ScopeRef",
     "StoreScope",
     "AgentScope",
+    "ScopeRef",
+    "ScopeDescriptor",
 
     # Adapter Utilities
     "to_tool_call_view",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from mcpstore.native.records import _record_value, _plain_record_value
+from mcpstore.native.records import _record_value
 
 if TYPE_CHECKING:
     from mcpstore.store.store import RustStoreBackend
@@ -25,7 +25,7 @@ class SessionContext:
         return str(self._entity["session_id"])
 
     def to_dict(self) -> Dict[str, Any]:
-        return _plain_record_value(self._entity)
+        return _record_value(self._entity)
 
     def show_config(self) -> Dict[str, Any]:
         return _record_value(self._backend._inner.show_session_config(self.session_key))

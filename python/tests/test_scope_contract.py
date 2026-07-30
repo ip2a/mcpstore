@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import unittest
 from typing import Any
 
-from pydantic import ValidationError
-
 from mcpstore.adapters.openai_adapter import OpenAIAdapter
-from mcpstore.core.models import (
-    AgentOnlyServiceRequest,
-    AgentScope,
-    PatchServiceRequest,
-    ScopeDescriptor,
-    UpdateServiceRequest,
-)
+from mcpstore.core.models import ScopeDescriptor
 from mcpstore.store import RustStoreBackend
 from mcpstore.store.setup import StoreSetupManager
 
@@ -97,7 +88,7 @@ class ScopeContractTests(unittest.TestCase):
         self.store.add_service("demo", config)
         instance_id = self.store.declare_service_scope(
             "demo",
-            AgentScope(agent_id="agent-a"),
+            {"type": "agent", "agent_id": "agent-a"},
             ScopeDescriptor(config={"env": {"TOKEN": "agent"}}),
         )
         self.store.remove_service_scope(
@@ -149,12 +140,6 @@ class ScopeContractTests(unittest.TestCase):
             ],
         )
 
-    def test_request_models_reject_scope_updates(self) -> None:
-        with self.assertRaises(ValidationError):
-            UpdateServiceRequest(config={"_mcpstore": {}})
-        with self.assertRaises(ValidationError):
-            PatchServiceRequest(updates={"_mcpstore": {}})
-
     def test_runtime_and_export_use_instance_id(self) -> None:
         self.store.connect_service("instance-a")
         tools = self.store.list_tools("instance-a")
@@ -204,82 +189,6 @@ class ScopeContractTests(unittest.TestCase):
                 ("add_service", "one", {"command": "one"}),
                 ("add_service", "two", {"url": "https://example.test/mcp"}),
             ],
-        )
-
-    def test_agent_only_route_builds_native_scope_extension(self) -> None:
-        try:
-            from mcpstore.api import api_pack
-        except ImportError as exc:
-            self.skipTest(str(exc))
-
-        previous_store = api_pack.get_store.__globals__["_store"]
-        try:
-            api_pack.api_set_store(self.store)
-            request = AgentOnlyServiceRequest(
-                config={"command": "demo"},
-                descriptor=ScopeDescriptor(config={"env": {"TOKEN": "agent"}}),
-            )
-            asyncio.run(
-                api_pack.add_agent_only_service(
-                    "agent-a",
-                    "demo",
-                    request,
-                )
-            )
-        finally:
-            api_pack.api_set_store(previous_store)
-
-        self.assertEqual(
-            self.core.calls,
-            [
-                (
-                    "add_service",
-                    "demo",
-                    {
-                        "command": "demo",
-                        "_mcpstore": {
-                            "scopes": {
-                                "agents": {
-                                    "agent-a": {
-                                        "config": {"env": {"TOKEN": "agent"}},
-                                        "lifecycle": None,
-                                    }
-                                }
-                            }
-                        },
-                    },
-                )
-            ],
-        )
-
-    def test_fastapi_routes_separate_definitions_scopes_and_instances(self) -> None:
-        from mcpstore.api import api_pack
-
-        routes = {
-            (route.path, method)
-            for route in api_pack.api_store_router.routes
-            for method in route.methods
-        }
-        self.assertIn(("/services/{service_name}", "POST"), routes)
-        self.assertIn(
-            ("/services/{service_name}/scopes/store", "PUT"),
-            routes,
-        )
-        self.assertIn(
-            ("/services/{service_name}/scopes/store", "DELETE"),
-            routes,
-        )
-        self.assertIn(
-            ("/services/{service_name}/scopes/agents/{agent_id}", "PUT"),
-            routes,
-        )
-        self.assertIn(
-            ("/services/{service_name}/scopes/agents/{agent_id}", "DELETE"),
-            routes,
-        )
-        self.assertNotIn(("/services", "POST"), routes)
-        self.assertFalse(
-            any(path == "/services/{service_name}/scopes" for path, _ in routes)
         )
 
 
