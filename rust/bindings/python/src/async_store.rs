@@ -13,7 +13,7 @@ use std::sync::Arc;
 use crate::core_store::{
     duration_from_seconds, facade_service_target, map_store_err, parse_backend,
     parse_session_scope, parse_source_mode, py_to_add_service_config, py_to_server_config,
-    session_entity_to_py, session_status_to_py, tool_call_result_to_py,
+    serializable_to_py,
 };
 use pyo3_async_runtimes::tokio::future_into_py;
 
@@ -179,7 +179,7 @@ impl PyAsyncMCPStore {
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let session = inner.create_session(request).await.map_err(map_store_err)?;
-            Python::with_gil(|py| session_entity_to_py(py, &session))
+            Python::with_gil(|py| serializable_to_py(py, &session, "session_entity"))
         })
     }
 
@@ -193,7 +193,7 @@ impl PyAsyncMCPStore {
         future_into_py(py, async move {
             let session = inner.get_session(&session_key).await.map_err(map_store_err)?;
             Python::with_gil(|py| match session {
-                Some(session) => session_entity_to_py(py, &session),
+                Some(session) => serializable_to_py(py, &session, "session_entity"),
                 None => Ok(py.None()),
             })
         })
@@ -213,7 +213,7 @@ impl PyAsyncMCPStore {
                 .close_session(&session_key, reason)
                 .await
                 .map_err(map_store_err)?;
-            Python::with_gil(|py| session_status_to_py(py, &status))
+            Python::with_gil(|py| serializable_to_py(py, &status, "session_status"))
         })
     }
 
@@ -307,7 +307,7 @@ impl PyAsyncMCPStore {
                 .call_tool_in_session(&session_key, instance_id, &tool_name, args)
                 .await
                 .map_err(map_store_err)?;
-            Python::with_gil(|py| tool_call_result_to_py(py, &result))
+            Python::with_gil(|py| serializable_to_py(py, &result, "tool_call_result"))
         })
     }
 }
@@ -571,7 +571,7 @@ impl PyAsyncScopeContext {
         let tool_name = tool_name.to_string();
         future_into_py(py, async move {
             let result = inner.call_tool(&tool_name, args).await.map_err(map_store_err)?;
-            Python::with_gil(|py| tool_call_result_to_py(py, &result))
+            Python::with_gil(|py| serializable_to_py(py, &result, "tool_call_result"))
         })
     }
 }
@@ -724,7 +724,7 @@ impl PyAsyncTool {
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let result = inner.call(args).await.map_err(map_store_err)?;
-            Python::with_gil(|py| tool_call_result_to_py(py, &result))
+            Python::with_gil(|py| serializable_to_py(py, &result, "tool_call_result"))
         })
     }
 }
