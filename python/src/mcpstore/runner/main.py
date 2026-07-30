@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-key", help="MCPStore business session key")
     parser.add_argument(
         "--backend",
-        choices=["memory", "redis", "openkeyv_memory", "openkeyv_redis"],
+        choices=["memory", "redis"],
         help="Cache backend",
     )
     parser.add_argument("--redis-url", help="Redis URL when using the redis backend")

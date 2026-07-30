@@ -16,9 +16,6 @@ def normalize_cache_config(cache_config: Any) -> Any:
         if cache_type == "memory":
             from mcpstore.config import MemoryConfig
             return MemoryConfig()
-        if cache_type == "openkeyv_memory":
-            from mcpstore.config import OpenKeyvMemoryConfig
-            return OpenKeyvMemoryConfig()
         raise ValueError(f"Unsupported Rust cache type: {cache_config!r}")
     if isinstance(cache_config, dict):
         raw_type = cache_config.get("type", cache_config.get("cache_type"))
@@ -28,9 +25,7 @@ def normalize_cache_config(cache_config: Any) -> Any:
         options.pop("cache_type", None)
         configs = {
             "memory": "MemoryConfig",
-            "openkeyv_memory": "OpenKeyvMemoryConfig",
             "redis": "RedisConfig",
-            "openkeyv_redis": "OpenKeyvRedisConfig",
         }
         config_name = configs.get(cache_type)
         if config_name:
@@ -61,9 +56,7 @@ def cache_options(cache_config: Any) -> tuple[Optional[str], Optional[str], Opti
     cache_type = getattr(raw_type, "value", raw_type)
     backend = {
         "memory": "memory",
-        "openkeyv_memory": "openkeyv-memory",
         "redis": "redis",
-        "openkeyv_redis": "openkeyv-redis",
     }.get(cache_type)
     if backend is None:
         raise ValueError(f"Unsupported Rust cache type: {cache_type!r}")
@@ -184,7 +177,7 @@ class StoreSetupManager:
         if mode == "shared":
             cache_type_value = getattr(cache, "cache_type", None)
             cache_type = getattr(cache_type_value, "value", cache_type_value)
-            if cache_type not in {"redis", "openkeyv_redis"}:
+            if cache_type != "redis":
                 raise ValueError("cache_mode='shared' 需要 RedisConfig；memory 后端无法跨进程共享 session")
 
         resolved_only_db = False if mode == "local" else only_db or mode == "shared"

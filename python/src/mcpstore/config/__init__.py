@@ -8,8 +8,6 @@ def __getattr__(name: str):
         "CacheType",
         "MemoryConfig",
         "RedisConfig",
-        "OpenKeyvMemoryConfig",
-        "OpenKeyvRedisConfig",
         "get_namespace",
     }:
         from . import cache_config as _cache_config
@@ -33,7 +31,5 @@ __all__ = [
     "CacheType",
     "MemoryConfig",
     "RedisConfig",
-    "OpenKeyvMemoryConfig",
-    "OpenKeyvRedisConfig",
     "get_namespace",
 ]
