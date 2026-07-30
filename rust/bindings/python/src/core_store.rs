@@ -4,26 +4,17 @@ use mcpstore::config::ScopeDescriptor;
 use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
 use mcpstore::core::store::{
-    BackendKind, CacheHealthReport, EventCapabilityReport, MCPStore, ScopedServiceEntry,
-    ScopedToolEntry, SourceMode, StoreOptions,
+    BackendKind, MCPStore, SourceMode, StoreOptions,
 };
 use mcpstore::{
-    cache::models::{
-        ContextToolVisibilityState, SessionContextState, SessionEntity, SessionScope,
-        SessionServiceItem, SessionServiceRelation, SessionStateData, SessionStatus,
-        SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
-        ToolTransformRule,
-    },
-    ContentItem, Event, InstanceId, McpConfig, ScopeContext, ScopeRef, Service, ServiceInstance,
-    ServiceTarget, StoreError, Tool, ToolCallResult, ToolInfo,
+    cache::models::SessionScope, InstanceId, McpConfig, ScopeContext, ScopeRef, Service,
+    ServiceTarget, StoreError, Tool,
 };
 use mcpstore::{
-    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
-    SessionRestartReport, SessionRetryPolicy, SessionToolSelection, ToolTransformPatch,
+    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionRetryPolicy, SessionToolSelection, ToolTransformPatch,
     ToolVisibilityFilter,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -134,21 +125,6 @@ fn parse_config_format(format: Option<&str>) -> PyResult<ConfigFormat> {
         .map_err(|err: StoreError| pyo3::exceptions::PyValueError::new_err(err.to_string()))
 }
 
-fn session_scope_as_str(scope: &SessionScope) -> &'static str {
-    match scope {
-        SessionScope::Store => "store",
-        SessionScope::Agent => "agent",
-    }
-}
-
-fn session_status_as_str(status: &SessionStatus) -> &'static str {
-    match status {
-        SessionStatus::Active => "active",
-        SessionStatus::Closed => "closed",
-        SessionStatus::Expired => "expired",
-    }
-}
-
 fn backend_as_str(backend: &BackendKind) -> &'static str {
     backend.as_str()
 }
@@ -224,7 +200,7 @@ pub(crate) fn duration_from_seconds(timeout: f64) -> PyResult<Duration> {
     Ok(Duration::from_secs_f64(timeout))
 }
 
-fn serializable_to_py<T: serde::Serialize>(
+pub(crate) fn serializable_to_py<T: serde::Serialize>(
     py: Python<'_>,
     value: &T,
     context: &str,
@@ -233,378 +209,6 @@ fn serializable_to_py<T: serde::Serialize>(
         pyo3::exceptions::PyRuntimeError::new_err(format!("{context} conversion failed: {err}"))
     })?;
     serde_value_to_py(py, value)
-}
-
-fn tool_info_to_py(py: Python<'_>, tool: &ToolInfo) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("name", &tool.name)?;
-    dict.set_item("title", tool.title.as_deref())?;
-    dict.set_item("description", &tool.description)?;
-    dict.set_item(
-        "input_schema",
-        serde_value_to_py(py, tool.input_schema.clone())?,
-    )?;
-    dict.set_item(
-        "output_schema",
-        serde_value_to_py(
-            py,
-            tool.output_schema
-                .clone()
-                .unwrap_or(serde_json::Value::Null),
-        )?,
-    )?;
-    dict.set_item(
-        "annotations",
-        serde_value_to_py(
-            py,
-            tool.annotations.clone().unwrap_or(serde_json::Value::Null),
-        )?,
-    )?;
-    dict.set_item(
-        "_meta",
-        serde_value_to_py(py, tool.meta.clone().unwrap_or(serde_json::Value::Null))?,
-    )?;
-    Ok(dict.into_any().unbind())
-}
-
-pub(crate) fn scoped_tool_entry_to_py(py: Python<'_>, tool: &ScopedToolEntry) -> PyResult<Py<PyAny>> {
-    serializable_to_py(py, tool, "Scoped tool")
-}
-
-fn service_entry_dict<'py>(
-    py: Python<'py>,
-    service: &ServiceInstance,
-) -> PyResult<Bound<'py, PyDict>> {
-    let dict = PyDict::new(py);
-    let tools = PyList::empty(py);
-    for tool in &service.tools {
-        tools.append(tool_info_to_py(py, tool)?)?;
-    }
-
-    dict.set_item("instance_id", service.instance_id.to_string())?;
-    dict.set_item("service_name", &service.service_name)?;
-    dict.set_item("scope", serializable_to_py(py, &service.scope, "Scope")?)?;
-    dict.set_item("transport", &service.transport)?;
-    dict.set_item("url", service.url.as_deref())?;
-    dict.set_item("command", service.command.as_deref())?;
-    dict.set_item("tools", tools)?;
-    dict.set_item(
-        "effective_config",
-        serde_value_to_py(
-            py,
-            serde_json::Value::Object(service.effective_config.clone()),
-        )?,
-    )?;
-    dict.set_item(
-        "config_revision",
-        serializable_to_py(py, &service.config_revision, "Config revision")?,
-    )?;
-    dict.set_item(
-        "applied_config_revision",
-        serializable_to_py(
-            py,
-            &service.applied_config_revision,
-            "Applied config revision",
-        )?,
-    )?;
-    dict.set_item("restart_required", service.restart_required())?;
-    dict.set_item("added_time", service.added_time)?;
-    Ok(dict)
-}
-
-fn service_entry_to_py(py: Python<'_>, service: &ServiceInstance) -> PyResult<Py<PyAny>> {
-    let dict = service_entry_dict(py, service)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn scoped_service_entry_to_py(py: Python<'_>, entry: &ScopedServiceEntry) -> PyResult<Py<PyAny>> {
-    let dict = service_entry_dict(py, &entry.instance)?;
-    dict.set_item("tool_count", entry.tool_count)?;
-    dict.set_item(
-        "state",
-        serializable_to_py(py, &entry.state, "Service state")?,
-    )?;
-    Ok(dict.into_any().unbind())
-}
-
-fn event_to_py(py: Python<'_>, event: &Event) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("event_type", &event.event_type)?;
-    dict.set_item("event_id", &event.event_id)?;
-    dict.set_item("timestamp", event.timestamp)?;
-    dict.set_item("priority", event.priority)?;
-    dict.set_item("payload", serde_value_to_py(py, event.payload.clone())?)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn event_capability_report_to_py(
-    py: Python<'_>,
-    report: &EventCapabilityReport,
-) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("event_bus", report.event_bus)?;
-    dict.set_item("history", report.history)?;
-    dict.set_item("history_capacity", report.history_capacity)?;
-    dict.set_item("cache_event_layer", report.cache_event_layer)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn content_item_to_py(py: Python<'_>, item: &ContentItem) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    match item {
-        ContentItem::Text {
-            text,
-            annotations,
-            meta,
-        } => {
-            dict.set_item("type", "text")?;
-            dict.set_item("text", text)?;
-            if let Some(value) = annotations {
-                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
-            }
-            if let Some(value) = meta {
-                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
-            }
-        }
-        ContentItem::Image {
-            data,
-            mime_type,
-            annotations,
-            meta,
-        } => {
-            dict.set_item("type", "image")?;
-            dict.set_item("data", data)?;
-            dict.set_item("mime_type", mime_type)?;
-            if let Some(value) = annotations {
-                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
-            }
-            if let Some(value) = meta {
-                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
-            }
-        }
-        ContentItem::Audio {
-            data,
-            mime_type,
-            annotations,
-            meta,
-        } => {
-            dict.set_item("type", "audio")?;
-            dict.set_item("data", data)?;
-            dict.set_item("mime_type", mime_type)?;
-            if let Some(value) = annotations {
-                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
-            }
-            if let Some(value) = meta {
-                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
-            }
-        }
-        ContentItem::Resource {
-            resource,
-            annotations,
-            meta,
-        } => {
-            dict.set_item("type", "resource")?;
-            dict.set_item("resource", serde_value_to_py(py, resource.clone())?)?;
-            if let Some(value) = annotations {
-                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
-            }
-            if let Some(value) = meta {
-                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
-            }
-        }
-        ContentItem::ResourceLink {
-            resource,
-            annotations,
-        } => {
-            dict.set_item("type", "resource_link")?;
-            dict.set_item("resource", serde_value_to_py(py, resource.clone())?)?;
-            if let Some(value) = annotations {
-                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
-            }
-        }
-    }
-    Ok(dict.into_any().unbind())
-}
-
-pub(crate) fn tool_call_result_to_py(py: Python<'_>, result: &ToolCallResult) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    let content = PyList::empty(py);
-    for item in &result.content {
-        content.append(content_item_to_py(py, item)?)?;
-    }
-    dict.set_item("content", content)?;
-    dict.set_item("is_error", result.is_error)?;
-    dict.set_item("data", py.None())?;
-    Ok(dict.into_any().unbind())
-}
-
-fn string_list_to_py(py: Python<'_>, values: &[String]) -> PyResult<Py<PyAny>> {
-    let list = PyList::empty(py);
-    for value in values {
-        list.append(value)?;
-    }
-    Ok(list.into_any().unbind())
-}
-
-fn cache_health_report_to_py(py: Python<'_>, report: &CacheHealthReport) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("namespace", &report.namespace)?;
-    dict.set_item("backend", &report.backend)?;
-    dict.set_item("entities", string_list_to_py(py, &report.entities)?)?;
-    dict.set_item("relations", string_list_to_py(py, &report.relations)?)?;
-    dict.set_item("states", string_list_to_py(py, &report.states)?)?;
-    dict.set_item("events", string_list_to_py(py, &report.events)?)?;
-    Ok(dict.into_any().unbind())
-}
-
-pub(crate) fn session_entity_to_py(py: Python<'_>, session: &SessionEntity) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("session_key", &session.session_key)?;
-    dict.set_item("session_id", &session.session_id)?;
-    dict.set_item("scope", session_scope_as_str(&session.scope))?;
-    dict.set_item("agent_id", session.agent_id.as_deref())?;
-    dict.set_item("created_at", session.created_at)?;
-    dict.set_item("updated_at", session.updated_at)?;
-    dict.set_item("last_active", session.last_active)?;
-    dict.set_item("lease_seconds", session.lease_seconds)?;
-    dict.set_item("expires_at", session.expires_at)?;
-    dict.set_item("version", session.version)?;
-    dict.set_item("metadata", serde_value_to_py(py, session.metadata.clone())?)?;
-    Ok(dict.into_any().unbind())
-}
-
-pub(crate) fn session_status_to_py(py: Python<'_>, status: &SessionStatusState) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("session_key", &status.session_key)?;
-    dict.set_item("status", session_status_as_str(&status.status))?;
-    dict.set_item("updated_at", status.updated_at)?;
-    dict.set_item("version", status.version)?;
-    dict.set_item("reason", status.reason.as_deref())?;
-    Ok(dict.into_any().unbind())
-}
-
-fn session_state_to_py(py: Python<'_>, state: &SessionStateData) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("session_key", &state.session_key)?;
-    dict.set_item(
-        "values",
-        serde_value_to_py(py, serde_json::Value::Object(state.values.clone()))?,
-    )?;
-    dict.set_item("updated_at", state.updated_at)?;
-    dict.set_item("version", state.version)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn session_context_state_to_py(py: Python<'_>, state: &SessionContextState) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("context_key", &state.context_key)?;
-    dict.set_item("active_session_key", state.active_session_key.as_deref())?;
-    dict.set_item("auto_session_key", state.auto_session_key.as_deref())?;
-    dict.set_item("updated_at", state.updated_at)?;
-    dict.set_item("version", state.version)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn session_cleanup_report_to_py(
-    py: Python<'_>,
-    report: &SessionCleanupReport,
-) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("refreshed_sessions", report.refreshed_sessions)?;
-    dict.set_item("expired_sessions", report.expired_sessions)?;
-    dict.set_item("cleared_active_session", report.cleared_active_session)?;
-    dict.set_item("cleared_auto_session", report.cleared_auto_session)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn session_restart_report_to_py(
-    py: Python<'_>,
-    report: &SessionRestartReport,
-) -> PyResult<Py<PyAny>> {
-    serializable_to_py(py, report, "Session restart report")
-}
-
-fn session_service_item_to_py(py: Python<'_>, service: &SessionServiceItem) -> PyResult<Py<PyAny>> {
-    serializable_to_py(py, service, "Session service")
-}
-
-fn session_service_relation_to_py(
-    py: Python<'_>,
-    relation: &SessionServiceRelation,
-) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    let services = PyList::empty(py);
-    for service in &relation.services {
-        services.append(session_service_item_to_py(py, service)?)?;
-    }
-    dict.set_item("session_key", &relation.session_key)?;
-    dict.set_item("services", services)?;
-    dict.set_item("updated_at", relation.updated_at)?;
-    dict.set_item("version", relation.version)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn session_tool_item_to_py(py: Python<'_>, tool: &SessionToolItem) -> PyResult<Py<PyAny>> {
-    serializable_to_py(py, tool, "Session tool")
-}
-
-fn session_tool_visibility_to_py(
-    py: Python<'_>,
-    visibility: &SessionToolVisibility,
-) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    let tools = PyList::empty(py);
-    for tool in &visibility.tools {
-        tools.append(session_tool_item_to_py(py, tool)?)?;
-    }
-    dict.set_item("session_key", &visibility.session_key)?;
-    dict.set_item("mode", "allowlist")?;
-    dict.set_item("tools", tools)?;
-    dict.set_item("updated_at", visibility.updated_at)?;
-    dict.set_item("version", visibility.version)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn context_tool_visibility_to_py(
-    py: Python<'_>,
-    visibility: &ContextToolVisibilityState,
-) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    let tools = PyList::empty(py);
-    for tool in &visibility.tools {
-        tools.append(session_tool_item_to_py(py, tool)?)?;
-    }
-    dict.set_item("context_key", &visibility.context_key)?;
-    dict.set_item("instance_id", visibility.instance_id.to_string())?;
-    dict.set_item("service_name", &visibility.service_name)?;
-    dict.set_item("scope", serializable_to_py(py, &visibility.scope, "Scope")?)?;
-    dict.set_item("mode", "allowlist")?;
-    dict.set_item("tools", tools)?;
-    dict.set_item("updated_at", visibility.updated_at)?;
-    dict.set_item("version", visibility.version)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn tool_preference_state_to_py(py: Python<'_>, state: &ToolPreferenceState) -> PyResult<Py<PyAny>> {
-    serde_value_to_py(
-        py,
-        serde_json::to_value(state).map_err(|err| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Tool preferences conversion failed: {err}"
-            ))
-        })?,
-    )
-}
-
-fn tool_transform_rule_to_py(py: Python<'_>, rule: &ToolTransformRule) -> PyResult<Py<PyAny>> {
-    serde_value_to_py(
-        py,
-        serde_json::to_value(rule).map_err(|err| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Tool transform conversion failed: {err}"
-            ))
-        })?,
-    )
 }
 
 #[pymethods]
@@ -792,7 +396,7 @@ impl PyScopeContext {
                     .block_on(self.inner.call_tool(tool_name, args))
             })
             .map_err(map_store_err)?;
-        tool_call_result_to_py(py, &result)
+        serializable_to_py(py, &result, "tool_call_result")
     }
 }
 
@@ -884,7 +488,7 @@ impl PyTool {
         let info = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.info())
             .map_err(map_store_err)?;
-        scoped_tool_entry_to_py(py, &info)
+        serializable_to_py(py, &info, "scoped_tool_entry")
     }
 
     #[pyo3(signature = (args=None))]
@@ -898,7 +502,7 @@ impl PyTool {
                 pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.call(args))
             })
             .map_err(map_store_err)?;
-        tool_call_result_to_py(py, &result)
+        serializable_to_py(py, &result, "tool_call_result")
     }
 }
 
@@ -1029,13 +633,13 @@ impl PyMCPStore {
     fn event_history(&self, py: Python<'_>, count: usize) -> PyResult<Vec<Py<PyAny>>> {
         let events =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.event_history(count));
-        events.iter().map(|event| event_to_py(py, event)).collect()
+        events.iter().map(|event| serializable_to_py(py, event, "event")).collect()
     }
 
     fn event_capability_report(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let report = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.event_capability_report_entry());
-        event_capability_report_to_py(py, &report)
+        serializable_to_py(py, &report, "event_capability_report")
     }
 
     fn restart_service(&self, instance_id: &str) -> PyResult<()> {
@@ -1312,7 +916,7 @@ impl PyMCPStore {
             .block_on(self.inner.find_instance(instance_id));
         service
             .as_ref()
-            .map(|entry| service_entry_to_py(py, entry))
+            .map(|entry| serializable_to_py(py, entry, "service_entry"))
             .transpose()
     }
 
@@ -1345,11 +949,12 @@ impl PyMCPStore {
     }
 
     fn list_instances(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        let services =
-            pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.list_instances());
+        let services = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_services())
+            .map_err(map_store_err)?;
         services
             .iter()
-            .map(|entry| service_entry_to_py(py, entry))
+            .map(|service| serializable_to_py(py, service, "service"))
             .collect()
     }
 
@@ -1373,7 +978,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         tools
             .iter()
-            .map(|tool| scoped_tool_entry_to_py(py, tool))
+            .map(|tool| serializable_to_py(py, tool, "scoped_tool_entry"))
             .collect()
     }
 
@@ -1395,7 +1000,7 @@ impl PyMCPStore {
                 ))
             })
             .map_err(map_store_err)?;
-        tool_call_result_to_py(py, &result)
+        serializable_to_py(py, &result, "tool_call_result")
     }
 
     fn set_tool_transform(
@@ -1415,7 +1020,7 @@ impl PyMCPStore {
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.set_tool_transform(instance_id, tool_name, patch))
             .map_err(map_store_err)?;
-        tool_transform_rule_to_py(py, &rule)
+        serializable_to_py(py, &rule, "tool_transform_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
@@ -1440,7 +1045,7 @@ impl PyMCPStore {
                 add_safety_policy,
             ))
             .map_err(map_store_err)?;
-        tool_transform_rule_to_py(py, &rule)
+        serializable_to_py(py, &rule, "tool_transform_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, parameter_mapping, new_tool_name=None))]
@@ -1474,7 +1079,7 @@ impl PyMCPStore {
                 &pairs,
             ))
             .map_err(map_store_err)?;
-        tool_transform_rule_to_py(py, &rule)
+        serializable_to_py(py, &rule, "tool_transform_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, validation_rules, new_tool_name=None))]
@@ -1503,7 +1108,7 @@ impl PyMCPStore {
                 &pairs,
             ))
             .map_err(map_store_err)?;
-        tool_transform_rule_to_py(py, &rule)
+        serializable_to_py(py, &rule, "tool_transform_rule")
     }
 
     fn get_tool_transform(
@@ -1517,7 +1122,7 @@ impl PyMCPStore {
             .block_on(self.inner.get_tool_transform(instance_id, tool_name))
             .map_err(map_store_err)?;
         rule.as_ref()
-            .map(|rule| tool_transform_rule_to_py(py, rule))
+            .map(|rule| serializable_to_py(py, rule, "tool_transform_rule"))
             .transpose()
     }
 
@@ -1527,7 +1132,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         rules
             .iter()
-            .map(|rule| tool_transform_rule_to_py(py, rule))
+            .map(|rule| serializable_to_py(py, rule, "tool_transform_rule"))
             .collect()
     }
 
@@ -1561,7 +1166,7 @@ impl PyMCPStore {
         let session = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.create_session(request))
             .map_err(map_store_err)?;
-        session_entity_to_py(py, &session)
+        serializable_to_py(py, &session, "session_entity")
     }
 
     fn get_session(&self, py: Python<'_>, session_key: &str) -> PyResult<Option<Py<PyAny>>> {
@@ -1570,7 +1175,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         session
             .as_ref()
-            .map(|session| session_entity_to_py(py, session))
+            .map(|session| serializable_to_py(py, session, "session_entity"))
             .transpose()
     }
 
@@ -1591,7 +1196,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         session
             .as_ref()
-            .map(|session| session_entity_to_py(py, session))
+            .map(|session| serializable_to_py(py, session, "session_entity"))
             .transpose()
     }
 
@@ -1611,7 +1216,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         sessions
             .iter()
-            .map(|session| session_entity_to_py(py, session))
+            .map(|session| serializable_to_py(py, session, "session_entity"))
             .collect()
     }
 
@@ -1625,7 +1230,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         session
             .as_ref()
-            .map(|session| session_entity_to_py(py, session))
+            .map(|session| serializable_to_py(py, session, "session_entity"))
             .transpose()
     }
 
@@ -1639,7 +1244,7 @@ impl PyMCPStore {
         let session = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.update_session_metadata(session_key, metadata))
             .map_err(map_store_err)?;
-        session_entity_to_py(py, &session)
+        serializable_to_py(py, &session, "session_entity")
     }
 
     fn get_session_status(&self, py: Python<'_>, session_key: &str) -> PyResult<Option<Py<PyAny>>> {
@@ -1648,7 +1253,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         status
             .as_ref()
-            .map(|status| session_status_to_py(py, status))
+            .map(|status| serializable_to_py(py, status, "session_status"))
             .transpose()
     }
 
@@ -1662,7 +1267,7 @@ impl PyMCPStore {
         let status = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.close_session(session_key, reason))
             .map_err(map_store_err)?;
-        session_status_to_py(py, &status)
+        serializable_to_py(py, &status, "session_status")
     }
 
     #[pyo3(signature = (scope=None, agent_id=None, reason=None))]
@@ -1685,7 +1290,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         statuses
             .iter()
-            .map(|status| session_status_to_py(py, status))
+            .map(|status| serializable_to_py(py, status, "session_status"))
             .collect()
     }
 
@@ -1703,7 +1308,7 @@ impl PyMCPStore {
         let report = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.cleanup_sessions(scope, agent_id.as_deref()))
             .map_err(map_store_err)?;
-        session_cleanup_report_to_py(py, &report)
+        serializable_to_py(py, &report, "session_cleanup_report")
     }
 
     #[pyo3(signature = (scope=None, agent_id=None))]
@@ -1720,7 +1325,7 @@ impl PyMCPStore {
         let report = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.restart_sessions(scope, agent_id.as_deref()))
             .map_err(map_store_err)?;
-        session_restart_report_to_py(py, &report)
+        serializable_to_py(py, &report, "session_restart_report")
     }
 
     fn extend_session(
@@ -1732,7 +1337,7 @@ impl PyMCPStore {
         let session = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.extend_session(session_key, lease_seconds))
             .map_err(map_store_err)?;
-        session_entity_to_py(py, &session)
+        serializable_to_py(py, &session, "session_entity")
     }
 
     #[pyo3(signature = (session_key, lease_seconds, max_attempts=3, delay_millis=0))]
@@ -1751,7 +1356,7 @@ impl PyMCPStore {
                     .extend_session_with_retry(session_key, lease_seconds, policy),
             )
             .map_err(map_store_err)?;
-        session_entity_to_py(py, &session)
+        serializable_to_py(py, &session, "session_entity")
     }
 
     fn bind_service_to_session(
@@ -1764,7 +1369,7 @@ impl PyMCPStore {
         let relation = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.bind_service_to_session(session_key, instance_id))
             .map_err(map_store_err)?;
-        session_service_relation_to_py(py, &relation)
+        serializable_to_py(py, &relation, "session_service_relation")
     }
 
     #[pyo3(signature = (session_key, instance_id, max_attempts=3, delay_millis=0))]
@@ -1785,7 +1390,7 @@ impl PyMCPStore {
                 policy,
             ))
             .map_err(map_store_err)?;
-        session_service_relation_to_py(py, &relation)
+        serializable_to_py(py, &relation, "session_service_relation")
     }
 
     fn unbind_service_from_session(
@@ -1801,7 +1406,7 @@ impl PyMCPStore {
                     .unbind_service_from_session(session_key, instance_id),
             )
             .map_err(map_store_err)?;
-        session_service_relation_to_py(py, &relation)
+        serializable_to_py(py, &relation, "session_service_relation")
     }
 
     #[pyo3(signature = (session_key, instance_id, max_attempts=3, delay_millis=0))]
@@ -1822,7 +1427,7 @@ impl PyMCPStore {
                 policy,
             ))
             .map_err(map_store_err)?;
-        session_service_relation_to_py(py, &relation)
+        serializable_to_py(py, &relation, "session_service_relation")
     }
 
     fn list_session_services(&self, py: Python<'_>, session_key: &str) -> PyResult<Vec<Py<PyAny>>> {
@@ -1831,7 +1436,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         services
             .iter()
-            .map(|service| session_service_item_to_py(py, service))
+            .map(|service| serializable_to_py(py, service, "session_service_item"))
             .collect()
     }
 
@@ -1854,7 +1459,7 @@ impl PyMCPStore {
                     .set_session_tool_visibility(session_key, selections),
             )
             .map_err(map_store_err)?;
-        session_tool_visibility_to_py(py, &visibility)
+        serializable_to_py(py, &visibility, "session_tool_visibility")
     }
 
     fn list_session_tools(&self, py: Python<'_>, session_key: &str) -> PyResult<Vec<Py<PyAny>>> {
@@ -1863,7 +1468,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         tools
             .iter()
-            .map(|tool| session_tool_item_to_py(py, tool))
+            .map(|tool| serializable_to_py(py, tool, "session_tool_item"))
             .collect()
     }
 
@@ -1877,7 +1482,7 @@ impl PyMCPStore {
             .block_on(self.inner.get_context_tool_visibility(instance_id))
             .map_err(map_store_err)?;
         match visibility {
-            Some(visibility) => context_tool_visibility_to_py(py, &visibility),
+            Some(visibility) => serializable_to_py(py, &visibility, "context_tool_visibility"),
             None => Ok(py.None()),
         }
     }
@@ -1895,7 +1500,7 @@ impl PyMCPStore {
                     .set_context_tool_visibility(instance_id, tool_names),
             )
             .map_err(map_store_err)?;
-        context_tool_visibility_to_py(py, &visibility)
+        serializable_to_py(py, &visibility, "context_tool_visibility")
     }
 
     fn clear_context_tool_visibility(&self, instance_id: &str) -> PyResult<()> {
@@ -1916,7 +1521,7 @@ impl PyMCPStore {
             .block_on(self.inner.get_tool_preferences(instance_id, tool_name))
             .map_err(map_store_err)?;
         match state {
-            Some(state) => tool_preference_state_to_py(py, &state),
+            Some(state) => serializable_to_py(py, &state, "tool_preference_state"),
             None => Ok(py.None()),
         }
     }
@@ -1960,7 +1565,7 @@ impl PyMCPStore {
                     .set_tool_preference(instance_id, tool_name, key, value),
             )
             .map_err(map_store_err)?;
-        tool_preference_state_to_py(py, &state)
+        serializable_to_py(py, &state, "tool_preference_state")
     }
 
     #[pyo3(signature = (instance_id, tool_name, key))]
@@ -1979,7 +1584,7 @@ impl PyMCPStore {
             )
             .map_err(map_store_err)?;
         match state {
-            Some(state) => tool_preference_state_to_py(py, &state),
+            Some(state) => serializable_to_py(py, &state, "tool_preference_state"),
             None => Ok(py.None()),
         }
     }
@@ -2000,7 +1605,7 @@ impl PyMCPStore {
         let state = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.list_session_state(session_key))
             .map_err(map_store_err)?;
-        session_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_state")
     }
 
     fn set_session_state(
@@ -2014,7 +1619,7 @@ impl PyMCPStore {
         let state = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.set_session_state(session_key, key, value))
             .map_err(map_store_err)?;
-        session_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_state")
     }
 
     #[pyo3(signature = (session_key, key, value, max_attempts=3, delay_millis=0))]
@@ -2035,7 +1640,7 @@ impl PyMCPStore {
                     .set_session_state_with_retry(session_key, key, value, policy),
             )
             .map_err(map_store_err)?;
-        session_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_state")
     }
 
     fn delete_session_state(
@@ -2047,7 +1652,7 @@ impl PyMCPStore {
         let state = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.delete_session_state(session_key, key))
             .map_err(map_store_err)?;
-        session_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_state")
     }
 
     #[pyo3(signature = (session_key, key, max_attempts=3, delay_millis=0))]
@@ -2066,14 +1671,14 @@ impl PyMCPStore {
                     .delete_session_state_with_retry(session_key, key, policy),
             )
             .map_err(map_store_err)?;
-        session_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_state")
     }
 
     fn clear_session_state(&self, py: Python<'_>, session_key: &str) -> PyResult<Py<PyAny>> {
         let state = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.clear_session_state(session_key))
             .map_err(map_store_err)?;
-        session_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_state")
     }
 
     #[pyo3(signature = (scope=None, agent_id=None))]
@@ -2091,7 +1696,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         state
             .as_ref()
-            .map(|state| session_context_state_to_py(py, state))
+            .map(|state| serializable_to_py(py, state, "session_context_state"))
             .transpose()
     }
 
@@ -2110,7 +1715,7 @@ impl PyMCPStore {
                 session_key.as_deref(),
             ))
             .map_err(map_store_err)?;
-        session_context_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_context_state")
     }
 
     #[pyo3(signature = (scope=None, agent_id=None))]
@@ -2128,7 +1733,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         session
             .as_ref()
-            .map(|session| session_entity_to_py(py, session))
+            .map(|session| serializable_to_py(py, session, "session_entity"))
             .transpose()
     }
 
@@ -2147,7 +1752,7 @@ impl PyMCPStore {
                 session_key,
             ))
             .map_err(map_store_err)?;
-        session_context_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_context_state")
     }
 
     #[pyo3(signature = (scope=None, agent_id=None))]
@@ -2163,7 +1768,7 @@ impl PyMCPStore {
                 agent_id.as_deref(),
             ))
             .map_err(map_store_err)?;
-        session_context_state_to_py(py, &state)
+        serializable_to_py(py, &state, "session_context_state")
     }
 
     #[pyo3(signature = (scope=None, agent_id=None))]
@@ -2186,7 +1791,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         tools
             .iter()
-            .map(|tool| scoped_tool_entry_to_py(py, tool))
+            .map(|tool| serializable_to_py(py, tool, "scoped_tool_entry"))
             .collect()
     }
 
@@ -2210,7 +1815,7 @@ impl PyMCPStore {
                 ))
             })
             .map_err(map_store_err)?;
-        tool_call_result_to_py(py, &result)
+        serializable_to_py(py, &result, "tool_call_result")
     }
 
     fn list_resources_in_session(
@@ -2315,11 +1920,11 @@ impl PyMCPStore {
     ) -> PyResult<Vec<Py<PyAny>>> {
         let scope = py_to_scope_ref(scope)?;
         let services = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_service_entries_scoped(&scope))
+            .block_on(self.inner.list_services_scoped(&scope))
             .map_err(map_store_err)?;
         services
             .iter()
-            .map(|service| scoped_service_entry_to_py(py, service))
+            .map(|service| serializable_to_py(py, service, "service"))
             .collect()
     }
 
@@ -2348,7 +1953,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         tools
             .iter()
-            .map(|tool| scoped_tool_entry_to_py(py, tool))
+            .map(|tool| serializable_to_py(py, tool, "scoped_tool_entry"))
             .collect()
     }
 
@@ -2499,7 +2104,7 @@ impl PyMCPStore {
         let health = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.cache_health_report())
             .map_err(map_store_err)?;
-        cache_health_report_to_py(py, &health)
+        serializable_to_py(py, &health, "cache_health_report")
     }
 
     fn cache_inspect(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {

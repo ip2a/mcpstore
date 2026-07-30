@@ -11,11 +11,15 @@ use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolInfo {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub description: String,
     pub input_schema: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }
 

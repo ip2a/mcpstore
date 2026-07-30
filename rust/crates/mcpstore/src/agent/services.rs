@@ -1,25 +1,38 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
+    pub async fn list_services(&self) -> Result<Vec<serde_json::Value>> {
+        let instances = self.list_instances().await;
+        let mut services = Vec::with_capacity(instances.len());
+        for instance in instances {
+            services.push(self.enrich_service(instance).await?);
+        }
+        Ok(services)
+    }
+
     pub async fn list_services_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
         let instances = self.list_scope_instances(scope).await?;
         let mut services = Vec::with_capacity(instances.len());
         for instance in instances {
-            let tool_count = instance.tools.len();
-            let state = self.service_state_entry(instance.instance_id).await?;
-            let mut value = serde_json::to_value(instance)
-                .map_err(|error| StoreError::Other(error.to_string()))?;
-            if let serde_json::Value::Object(object) = &mut value {
-                object.insert("tool_count".to_string(), serde_json::json!(tool_count));
-                object.insert(
-                    "state".to_string(),
-                    serde_json::to_value(state)
-                        .map_err(|error| StoreError::Other(error.to_string()))?,
-                );
-            }
-            services.push(value);
+            services.push(self.enrich_service(instance).await?);
         }
         Ok(services)
+    }
+
+    async fn enrich_service(&self, instance: ServiceInstance) -> Result<serde_json::Value> {
+        let tool_count = instance.tools.len();
+        let state = self.service_state_entry(instance.instance_id).await?;
+        let mut value = serde_json::to_value(instance)
+            .map_err(|error| StoreError::Other(error.to_string()))?;
+        if let serde_json::Value::Object(object) = &mut value {
+            object.insert("tool_count".to_string(), serde_json::json!(tool_count));
+            object.insert(
+                "state".to_string(),
+                serde_json::to_value(state)
+                    .map_err(|error| StoreError::Other(error.to_string()))?,
+            );
+        }
+        Ok(value)
     }
 
     pub async fn list_service_entries_scoped(
