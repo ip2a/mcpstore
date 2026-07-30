@@ -18,8 +18,6 @@ class RustToolProxy:
     def call(self, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._backend.call_tool(self.instance_id, self.tool_name, args)
 
-    async def call_async(self, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return self.call(args)
 
 
 ToolProxy = RustToolProxy

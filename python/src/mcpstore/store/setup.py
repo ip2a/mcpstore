@@ -104,13 +104,6 @@ class StoreSetupManager:
         **kwargs: Any,
     ):
         """Initialize MCPStore synchronously with the Rust core."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-        else:
-            raise RuntimeError("检测到正在运行的事件循环：请使用 setup_store_async() 接口。")
-
         return asyncio.run(
             StoreSetupManager._setup_store_internal(
                 mcpjson_path=mcpjson_path,
@@ -123,26 +116,6 @@ class StoreSetupManager:
             )
         )
 
-    @staticmethod
-    async def setup_store_async(
-        mcpjson_path: str | None = None,
-        debug: bool | str = False,
-        cache: Any = None,
-        static_config: Optional[Dict[str, Any]] = None,
-        cache_mode: str = "auto",
-        only_db: bool = False,
-        **kwargs: Any,
-    ):
-        """Initialize MCPStore asynchronously with the Rust core."""
-        return await StoreSetupManager._setup_store_internal(
-            mcpjson_path=mcpjson_path,
-            debug=debug,
-            cache=cache,
-            static_config=static_config,
-            cache_mode=cache_mode,
-            only_db=only_db,
-            extra_options=kwargs,
-        )
 
     @staticmethod
     async def _setup_store_internal(
