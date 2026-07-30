@@ -5,7 +5,7 @@ use crate::store::prelude::*;
 use openkeyv::AsyncKeyValue;
 
 fn is_redis(storage: &CacheStorage) -> bool {
-    matches!(storage, CacheStorage::Redis | CacheStorage::OpenKeyvRedis)
+    matches!(storage, CacheStorage::Redis)
 }
 
 fn migration_error(error: openkeyv::Error) -> StoreError {
@@ -19,8 +19,8 @@ impl MCPStore {
         _namespace: &str,
     ) -> Result<Arc<dyn CacheStore>> {
         match cache_storage {
-            CacheStorage::Memory | CacheStorage::OpenKeyvMemory => Ok(memory_cache_store()),
-            CacheStorage::Redis | CacheStorage::OpenKeyvRedis => Ok(redis_cache_store(redis_url)),
+            CacheStorage::Memory => Ok(memory_cache_store()),
+            CacheStorage::Redis => Ok(redis_cache_store(redis_url)),
         }
     }
 
@@ -76,11 +76,11 @@ impl MCPStore {
 
         // The cache adapter and event backend share the same underlying target.
         let (cache_store, event_backend) = match cache_storage {
-            CacheStorage::Memory | CacheStorage::OpenKeyvMemory => {
+            CacheStorage::Memory => {
                 let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
                 (store, crate::event_reactor::EventBackend::from_memory(mem))
             }
-            CacheStorage::Redis | CacheStorage::OpenKeyvRedis => {
+            CacheStorage::Redis => {
                 let store = Self::build_cache_store(
                     &cache_storage,
                     &resolved_redis_url,
