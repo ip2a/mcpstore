@@ -7,6 +7,7 @@ LangChain 适配器模块
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import asdict, is_dataclass
@@ -195,8 +196,9 @@ class LangChainAdapter:
                 # 使用公共函数处理参数
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
-                # 调用 mcpstore 核心方法（异步版本）
-                result = await adapter_self._context.call_tool_async(
+                # 调用 mcpstore 核心方法（通过 to_thread 在线程池中执行同步版本）
+                result = await asyncio.to_thread(
+                    adapter_self._context.call_tool,
                     instance_id,
                     tool_name,
                     tool_input,
@@ -242,23 +244,6 @@ class LangChainAdapter:
         """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
         return self._build_langchain_tools(self._context.list_tools(self._instance_id))
 
-    async def list_tools_async(self) -> List[Tool]:
-        """
-        获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（异步版本）。
-
-        Raises:
-            RuntimeError: 如果没有可用工具（所有服务连接失败）
-        """
-        mcp_tools_info = await self._context.list_tools_async(self._instance_id)
-
-        # 检查工具是否为空，提供友好的错误信息
-        if not mcp_tools_info:
-            logger.warning("[LIST_TOOLS] empty=True")
-            raise RuntimeError(
-                f"Instance {self._instance_id!r} exposes no available tools"
-            )
-
-        return self._build_langchain_tools(mcp_tools_info)
 
     def _build_langchain_tools(self, mcp_tools_info: List[Any]) -> List[Tool]:
         langchain_tools = []
@@ -361,7 +346,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
             tool_input = {}
             try:
                 tool_input = process_tool_args(args_schema, args, kwargs)
-                result = await adapter_self._session.call_tool_async(
+                result = await asyncio.to_thread(adapter_self._session.call_tool,
                     instance_id,
                     tool_name,
                     tool_input,
@@ -410,10 +395,3 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         ]
         return self._build_langchain_tools(tools)
 
-    async def list_tools_async(self) -> List[Tool]:
-        tools = [
-            tool
-            for tool in await self._session.list_tools_async()
-            if tool_instance_id(tool) == self._instance_id
-        ]
-        return self._build_langchain_tools(tools)

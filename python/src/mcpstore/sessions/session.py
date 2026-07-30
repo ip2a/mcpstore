@@ -51,8 +51,6 @@ class SessionContext:
     def list_tools(self) -> List[Dict[str, Any]]:
         return _record_value(self._backend._inner.list_tools_in_session(self.session_key))
 
-    async def list_tools_async(self) -> List[Dict[str, Any]]:
-        return self.list_tools()
 
     def call_tool(
         self,
@@ -69,13 +67,6 @@ class SessionContext:
             )
         )
 
-    async def call_tool_async(
-        self,
-        instance_id: str,
-        tool_name: str,
-        args: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        return self.call_tool(instance_id, tool_name, args)
 
     def close(self, reason: Optional[str] = None) -> Dict[str, Any]:
         return _record_value(self._backend._inner.close_session(self.session_key, reason))
