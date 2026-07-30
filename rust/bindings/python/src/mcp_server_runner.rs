@@ -53,8 +53,6 @@ fn parse_backend(backend: Option<&str>) -> PyResult<Option<mcpstore::CacheStorag
         None => None,
         Some("memory") => Some(mcpstore::CacheStorage::Memory),
         Some("redis") => Some(mcpstore::CacheStorage::Redis),
-        Some("openkeyv_memory") => Some(mcpstore::CacheStorage::OpenKeyvMemory),
-        Some("openkeyv_redis") => Some(mcpstore::CacheStorage::OpenKeyvRedis),
         Some(other) => {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Unsupported cache backend: {other}"

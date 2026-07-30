@@ -1,124 +1,121 @@
 //! Concrete openkeyv backend for EventReactor.
 //!
-//! Holds a native openkeyv store instance (MemoryStore or RedisStore) and
-//! implements the full capability set required by EventReactor:
-//! AsyncChangeFeed + AsyncCompareAndSwap + AsyncKeyValue + Clone.
-//!
-//! This is separate from the cache layer's `Arc<dyn CacheStore>` (which is
-//! type-erased and cannot satisfy Clone or AsyncChangeFeed). The EventBackend
-//! is constructed asynchronously and owned by MCPStore as an optional
-//! capability — when the configured backend supports ChangeFeed + CAS.
+//! Holds a shared openkeyv store (any implementation of the capabilities the
+//! reactor needs) as a trait object. `Arc<dyn EventBackendCap>` is `Clone`, so
+//! the newtype satisfies the `EventReactor<S>` bound without per-method match
+//! dispatch.
+
+use std::sync::Arc;
 
 use openkeyv::{
-    store::memory::MemoryStore, store::redis::RedisStore, AsyncChangeFeed, AsyncCompareAndSwap,
-    AsyncEnumerateCollections, AsyncEnumerateKeys, AsyncKeyValue, ChangeFeedRequest,
-    ChangeSubscription, CompareAndDeleteResult, CompareAndSwapResult, Result, Revision,
-    RevisionedValue, Value,
+    AsyncChangeFeed, AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys,
+    AsyncKeyValue, Revision, RevisionedValue, Value,
 };
 
-/// Concrete event-capable backend wrapping a native openkeyv store.
-#[derive(Clone)]
-pub enum EventBackend {
-    Memory(MemoryStore),
-    Redis(RedisStore),
+/// Aggregate of the openkeyv capabilities the reactor needs. Object-safe
+/// (every supertrait is `#[async_trait]` with `Send + Sync` and no generics).
+pub trait EventBackendCap:
+    AsyncKeyValue
+    + AsyncCompareAndSwap
+    + AsyncEnumerateKeys
+    + AsyncEnumerateCollections
+    + AsyncChangeFeed
+    + Send
+    + Sync
+{
 }
+
+impl<T> EventBackendCap for T where
+    T: AsyncKeyValue
+        + AsyncCompareAndSwap
+        + AsyncEnumerateKeys
+        + AsyncEnumerateCollections
+        + AsyncChangeFeed
+        + Send
+        + Sync,
+{
+}
+
+/// Shared event-capable backend. Cheap to clone (one `Arc` bump).
+#[derive(Clone)]
+pub struct EventBackend(Arc<dyn EventBackendCap>);
 
 impl EventBackend {
-    /// Wrap an existing MemoryStore handle (shares the same `Arc<MemoryClient>`
-    /// as the cache layer, so both see the same data and ChangeFeed events).
-    pub fn from_memory(store: MemoryStore) -> Self {
-        Self::Memory(store)
+    /// Wrap an existing store handle (e.g. share the cache layer's `MemoryStore`).
+    pub fn from_memory<S>(store: S) -> Self
+    where
+        S: EventBackendCap + 'static,
+    {
+        Self(Arc::new(store))
     }
 
-    /// Construct a Redis backend, connecting to the given URL. Redis data is
-    /// shared across connections naturally via the Redis server.
-    pub async fn from_redis_url(url: &str) -> Result<Self> {
-        let store = RedisStore::new(url).await?;
-        Ok(Self::Redis(store))
+    /// Construct a Redis backend, connecting to the given URL.
+    #[cfg(feature = "backend-redis")]
+    pub async fn from_redis_url(url: &str) -> openkeyv::Result<Self> {
+        let store = openkeyv::store::redis::RedisStore::new(url).await?;
+        Ok(Self(Arc::new(store)))
+    }
+
+    /// Access the underlying capability object (for ad-hoc trait queries).
+    pub fn cap(&self) -> &Arc<dyn EventBackendCap> {
+        &self.0
     }
 }
 
-// Delegate AsyncKeyValue to the inner store.
+// The remaining trait impls delegate to the inner trait object.
 #[async_trait::async_trait]
 impl AsyncKeyValue for EventBackend {
-    async fn get(&self, key: &str, collection: Option<&str>) -> Result<Option<Value>> {
-        match self {
-            Self::Memory(s) => s.get(key, collection).await,
-            Self::Redis(s) => s.get(key, collection).await,
-        }
+    async fn get(&self, key: &str, collection: Option<&str>) -> openkeyv::Result<Option<Value>> {
+        self.0.get(key, collection).await
     }
-
     async fn ttl(
         &self,
         key: &str,
         collection: Option<&str>,
-    ) -> Result<Option<(Value, Option<f64>)>> {
-        match self {
-            Self::Memory(s) => s.ttl(key, collection).await,
-            Self::Redis(s) => s.ttl(key, collection).await,
-        }
+    ) -> openkeyv::Result<Option<(Value, Option<f64>)>> {
+        self.0.ttl(key, collection).await
     }
-
     async fn put(
         &self,
         key: &str,
         value: Value,
         collection: Option<&str>,
         ttl: Option<f64>,
-    ) -> Result<()> {
-        match self {
-            Self::Memory(s) => s.put(key, value, collection, ttl).await,
-            Self::Redis(s) => s.put(key, value, collection, ttl).await,
-        }
+    ) -> openkeyv::Result<()> {
+        self.0.put(key, value, collection, ttl).await
     }
-
-    async fn delete(&self, key: &str, collection: Option<&str>) -> Result<bool> {
-        match self {
-            Self::Memory(s) => s.delete(key, collection).await,
-            Self::Redis(s) => s.delete(key, collection).await,
-        }
+    async fn delete(&self, key: &str, collection: Option<&str>) -> openkeyv::Result<bool> {
+        self.0.delete(key, collection).await
     }
-
     async fn get_many(
         &self,
         keys: &[String],
         collection: Option<&str>,
-    ) -> Result<Vec<Option<Value>>> {
-        match self {
-            Self::Memory(s) => s.get_many(keys, collection).await,
-            Self::Redis(s) => s.get_many(keys, collection).await,
-        }
+    ) -> openkeyv::Result<Vec<Option<Value>>> {
+        self.0.get_many(keys, collection).await
     }
-
     async fn ttl_many(
         &self,
         keys: &[String],
         collection: Option<&str>,
-    ) -> Result<Vec<Option<(Value, Option<f64>)>>> {
-        match self {
-            Self::Memory(s) => s.ttl_many(keys, collection).await,
-            Self::Redis(s) => s.ttl_many(keys, collection).await,
-        }
+    ) -> openkeyv::Result<Vec<Option<(Value, Option<f64>)>>> {
+        self.0.ttl_many(keys, collection).await
     }
-
     async fn put_many(
         &self,
         keys: &[String],
         values: &[Value],
         collection: Option<&str>,
         ttl: Option<f64>,
-    ) -> Result<()> {
-        match self {
-            Self::Memory(s) => s.put_many(keys, values, collection, ttl).await,
-            Self::Redis(s) => s.put_many(keys, values, collection, ttl).await,
-        }
+    ) -> openkeyv::Result<()> {
+        self.0.put_many(keys, values, collection, ttl).await
     }
-
-    async fn delete_many(&self, keys: &[String], collection: Option<&str>) -> Result<usize> {
-        match self {
-            Self::Memory(s) => s.delete_many(keys, collection).await,
-            Self::Redis(s) => s.delete_many(keys, collection).await,
-        }
+    async fn delete_many(
+        &self,
+        keys: &[String],
+        collection: Option<&str>,
+    ) -> openkeyv::Result<usize> {
+        self.0.delete_many(keys, collection).await
     }
 }
 
@@ -128,13 +125,9 @@ impl AsyncCompareAndSwap for EventBackend {
         &self,
         key: &str,
         collection: Option<&str>,
-    ) -> Result<Option<RevisionedValue>> {
-        match self {
-            Self::Memory(s) => s.get_with_revision(key, collection).await,
-            Self::Redis(s) => s.get_with_revision(key, collection).await,
-        }
+    ) -> openkeyv::Result<Option<RevisionedValue>> {
+        self.0.get_with_revision(key, collection).await
     }
-
     async fn compare_and_swap(
         &self,
         key: &str,
@@ -142,58 +135,45 @@ impl AsyncCompareAndSwap for EventBackend {
         value: Value,
         collection: Option<&str>,
         ttl: Option<f64>,
-    ) -> Result<CompareAndSwapResult> {
-        match self {
-            Self::Memory(s) => {
-                s.compare_and_swap(key, expected, value, collection, ttl)
-                    .await
-            }
-            Self::Redis(s) => {
-                s.compare_and_swap(key, expected, value, collection, ttl)
-                    .await
-            }
-        }
+    ) -> openkeyv::Result<openkeyv::CompareAndSwapResult> {
+        self.0
+            .compare_and_swap(key, expected, value, collection, ttl)
+            .await
     }
-
     async fn compare_and_delete(
         &self,
         key: &str,
         expected: &Revision,
         collection: Option<&str>,
-    ) -> Result<CompareAndDeleteResult> {
-        match self {
-            Self::Memory(s) => s.compare_and_delete(key, expected, collection).await,
-            Self::Redis(s) => s.compare_and_delete(key, expected, collection).await,
-        }
+    ) -> openkeyv::Result<openkeyv::CompareAndDeleteResult> {
+        self.0.compare_and_delete(key, expected, collection).await
     }
 }
 
 #[async_trait::async_trait]
 impl AsyncEnumerateKeys for EventBackend {
-    async fn keys(&self, collection: Option<&str>, limit: Option<usize>) -> Result<Vec<String>> {
-        match self {
-            Self::Memory(s) => s.keys(collection, limit).await,
-            Self::Redis(s) => s.keys(collection, limit).await,
-        }
+    async fn keys(
+        &self,
+        collection: Option<&str>,
+        limit: Option<usize>,
+    ) -> openkeyv::Result<Vec<String>> {
+        self.0.keys(collection, limit).await
     }
 }
 
 #[async_trait::async_trait]
 impl AsyncEnumerateCollections for EventBackend {
-    async fn collections(&self, limit: Option<usize>) -> Result<Vec<String>> {
-        match self {
-            Self::Memory(s) => s.collections(limit).await,
-            Self::Redis(s) => s.collections(limit).await,
-        }
+    async fn collections(&self, limit: Option<usize>) -> openkeyv::Result<Vec<String>> {
+        self.0.collections(limit).await
     }
 }
 
 #[async_trait::async_trait]
 impl AsyncChangeFeed for EventBackend {
-    async fn subscribe(&self, request: ChangeFeedRequest) -> Result<ChangeSubscription> {
-        match self {
-            Self::Memory(s) => s.subscribe(request).await,
-            Self::Redis(s) => s.subscribe(request).await,
-        }
+    async fn subscribe(
+        &self,
+        request: openkeyv::ChangeFeedRequest,
+    ) -> openkeyv::Result<openkeyv::ChangeSubscription> {
+        self.0.subscribe(request).await
     }
 }

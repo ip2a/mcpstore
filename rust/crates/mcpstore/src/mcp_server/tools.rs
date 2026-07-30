@@ -757,7 +757,7 @@ pub(super) fn cache_switch_schema() -> Map<String, Value> {
         "backend".to_string(),
         serde_json::json!({
             "type": "string",
-            "enum": ["memory", "redis", "openkeyv_memory", "openkeyv_redis"],
+            "enum": ["memory", "redis"],
             "description": "Target MCPStore cache backend. Redis backends require redis_url unless the store already has one."
         }),
     );
@@ -765,7 +765,7 @@ pub(super) fn cache_switch_schema() -> Map<String, Value> {
         "redis_url".to_string(),
         serde_json::json!({
             "type": "string",
-            "description": "Optional Redis URL for redis/openkeyv_redis backends."
+            "description": "Optional Redis URL for redis backend."
         }),
     );
     properties.insert(
@@ -1413,8 +1413,7 @@ pub(super) fn parse_cache_storage_argument(value: &str) -> Result<CacheStorage, 
     match value {
         "memory" => Ok(CacheStorage::Memory),
         "redis" => Ok(CacheStorage::Redis),
-        "openkeyv_memory" => Ok(CacheStorage::OpenKeyvMemory),
-        "openkeyv_redis" => Ok(CacheStorage::OpenKeyvRedis),
+
         other => Err(ErrorData::invalid_params(
             format!("不支持的 cache backend: {other}"),
             None,

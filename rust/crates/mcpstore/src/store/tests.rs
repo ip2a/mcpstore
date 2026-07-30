@@ -4507,7 +4507,7 @@ async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-openkeyv-memory".to_string()),
     })
@@ -4517,7 +4517,7 @@ async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
 
     assert_eq!(
         store.current_cache_storage().await,
-        CacheStorage::OpenKeyvMemory
+        CacheStorage::Memory
     );
     assert!(store
         .cache()
@@ -4542,14 +4542,14 @@ async fn switch_cache_storage_to_openkeyv_memory_migrates_runtime_cache() {
     store.add_service("svc", stdio_config()).await.unwrap();
 
     let snapshot = store
-        .switch_cache_storage(CacheStorage::OpenKeyvMemory, None, None)
+        .switch_cache_storage(CacheStorage::Memory, None, None)
         .await
         .unwrap();
 
     assert!(snapshot.entities["service_definitions"].contains_key("svc"));
     assert_eq!(
         store.current_cache_storage().await,
-        CacheStorage::OpenKeyvMemory
+        CacheStorage::Memory
     );
     assert!(store
         .cache()
@@ -4567,7 +4567,7 @@ async fn update_and_patch_service_update_runtime_cache() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-update-patch".to_string()),
     })
@@ -4602,7 +4602,7 @@ async fn event_history_and_cache_health_are_reported() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-event-health".to_string()),
     })
@@ -4618,7 +4618,7 @@ async fn event_history_and_cache_health_are_reported() {
 
     store.add_service("svc", stdio_config()).await.unwrap();
     let health = store.cache_health_check().await.unwrap();
-    assert_eq!(health["backend"], serde_json::json!("openkeyv_memory"));
+    assert_eq!(health["backend"], serde_json::json!("memory"));
     assert!(health["entities"]
         .as_array()
         .unwrap()
@@ -4633,7 +4633,7 @@ async fn list_tools_uses_registry_without_transport_connection() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-list-tools-registry".to_string()),
     })
@@ -5064,7 +5064,7 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-connect-failure-status".to_string()),
     })
@@ -5142,7 +5142,7 @@ async fn connect_service_accepts_server_without_tools_capability() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-connect-without-tools".to_string()),
     })
@@ -5227,7 +5227,7 @@ async fn resource_subscriptions_are_restored_after_reconnect() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-resource-subscription-reconnect".to_string()),
     })
@@ -5272,7 +5272,7 @@ async fn connect_service_times_out_hanging_stdio_startup() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-connect-timeout-status".to_string()),
     })
@@ -5324,7 +5324,7 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-retry-backoff".to_string()),
     })
@@ -5384,7 +5384,7 @@ async fn manual_startup_policy_blocks_implicit_connect() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-manual-startup-policy".to_string()),
     })
@@ -5415,7 +5415,7 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-on-failure-max-retries".to_string()),
     })
@@ -5479,7 +5479,7 @@ async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-oauth-status-projection".to_string()),
     })
@@ -5527,7 +5527,7 @@ async fn authorization_callback_uri_only_exposes_authorization_code_redirect_uri
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-oauth-callback-uri".to_string()),
     })
@@ -5563,7 +5563,7 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-auth-required-lifecycle".to_string()),
     })
@@ -5602,7 +5602,7 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-insufficient-scope-lifecycle".to_string()),
     })
@@ -5649,7 +5649,7 @@ async fn successful_health_check_records_canonical_health() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-health-observation".to_string()),
     })
@@ -5695,7 +5695,7 @@ async fn export_instance_config_projects_third_party_config_without_mcpstore_ext
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-config-format-projection".to_string()),
     })
@@ -5739,7 +5739,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
     let source = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some(format!("test-db-load-seed-{}", uuid::Uuid::new_v4())),
     })
@@ -5758,7 +5758,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some(format!("test-db-load-readonly-{}", uuid::Uuid::new_v4())),
     })
@@ -7450,7 +7450,7 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        backend: Some(CacheStorage::OpenKeyvMemory),
+        backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some("test-first-oauth-auth-required".to_string()),
     })

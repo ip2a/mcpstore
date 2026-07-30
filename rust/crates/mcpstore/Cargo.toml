@@ -27,8 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rmcp = { workspace = true }
 
 # Cache backends
-openkeyv = { path = "/Volumes/data0/data4work/2026_4/openkeyv/rust/crates/openkeyv", default-features = false, features = ["redis", "json"] }
-redis = { workspace = true }
+openkeyv = { path = "/Volumes/data0/data4work/2026_4/openkeyv/rust/crates/openkeyv", default-features = false, features = ["json"] }
 # HTTP / web (only needed for the optional MCP server runner)
 axum = { version = "0.7", optional = true }
 http = "1"
@@ -46,8 +45,26 @@ zeroize = { version = "1", features = ["derive"] }
 jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 
 [features]
-default = ["mcp-server"]
+default = ["mcp-server", "backend-redis"]
 mcp-server = ["dep:axum", "rmcp/transport-streamable-http-server"]
+
+# Backend passthrough — enable the openkeyv feature for each store type.
+backend-memory  = []                             # in-memory (zero-cost)
+backend-redis   = ["openkeyv/redis"]
+backend-valkey  = ["openkeyv/valkey"]
+backend-disk    = ["openkeyv/disk"]
+backend-sqlite  = ["openkeyv/sqlite"]
+backend-postgres = ["openkeyv/postgres"]
+backend-mongodb = ["openkeyv/mongodb"]
+backend-memcached = ["openkeyv/memcached"]
+backend-rocksdb = ["openkeyv/rocksdb"]
+backend-duckdb  = ["openkeyv/duckdb"]
+backend-opensearch = ["openkeyv/opensearch"]
+backend-vault   = ["openkeyv/vault"]
+backend-keyring = ["openkeyv/keyring"]
+backend-firestore = ["openkeyv/firestore"]
+backend-s3      = ["openkeyv/s3"]
+backend-dynamodb = ["openkeyv/dynamodb"]
 
 [dev-dependencies]
 tokio-test = "0.4"

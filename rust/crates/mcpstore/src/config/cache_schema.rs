@@ -10,10 +10,6 @@ pub enum CacheBackend {
     #[default]
     Memory,
     Redis,
-    #[serde(rename = "openkeyv_memory", alias = "openkeyv-memory")]
-    OpenKeyvMemory,
-    #[serde(rename = "openkeyv_redis", alias = "openkeyv-redis")]
-    OpenKeyvRedis,
 }
 
 impl CacheBackend {
@@ -21,8 +17,6 @@ impl CacheBackend {
         match self {
             Self::Memory => "memory",
             Self::Redis => "redis",
-            Self::OpenKeyvMemory => "openkeyv_memory",
-            Self::OpenKeyvRedis => "openkeyv_redis",
         }
     }
 }

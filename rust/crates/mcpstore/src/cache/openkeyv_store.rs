@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use openkeyv::{
     AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, AsyncKeyValue, Revision,
 };
@@ -6,6 +8,8 @@ use serde_json::Value as JsonValue;
 use crate::cache::storage::CacheStore;
 use crate::cache::{codec, CacheError, Result};
 
+/// Aggregate trait over the openkeyv capabilities the cache needs.
+/// Object-safe: no generics, all methods come from object-safe supertraits.
 pub(in crate::cache) trait OpenKeyvStoreApi:
     AsyncKeyValue + AsyncEnumerateKeys + AsyncEnumerateCollections + AsyncCompareAndSwap + Send + Sync
 {
@@ -17,22 +21,17 @@ impl<T> OpenKeyvStoreApi for T where
         + AsyncEnumerateCollections
         + AsyncCompareAndSwap
         + Send
-        + Sync
+        + Sync,
 {
 }
 
-pub(in crate::cache) struct OpenKeyvCacheStore<T>
-where
-    T: OpenKeyvStoreApi,
-{
-    inner: T,
+/// Cache adapter over any openkeyv store (memory, redis, …) held as a trait object.
+pub(in crate::cache) struct OpenKeyvCacheStore {
+    inner: Arc<dyn OpenKeyvStoreApi>,
 }
 
-impl<T> OpenKeyvCacheStore<T>
-where
-    T: OpenKeyvStoreApi,
-{
-    pub(in crate::cache) fn new(inner: T) -> Self {
+impl OpenKeyvCacheStore {
+    pub(in crate::cache) fn new(inner: Arc<dyn OpenKeyvStoreApi>) -> Self {
         Self { inner }
     }
 }
@@ -46,10 +45,7 @@ fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
 }
 
 #[async_trait::async_trait]
-impl<T> CacheStore for OpenKeyvCacheStore<T>
-where
-    T: OpenKeyvStoreApi,
-{
+impl CacheStore for OpenKeyvCacheStore {
     async fn put(&self, key: &str, value: JsonValue, collection: &str) -> Result<()> {
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
@@ -113,7 +109,7 @@ where
             .get(key, Some(collection))
             .await
             .map_err(map_openkeyv_err)?
-            .map(|v| codec::value_to_json(v))
+            .map(codec::value_to_json)
             .transpose()
     }
 
@@ -126,7 +122,10 @@ where
     }
 
     async fn collections(&self) -> Result<Vec<String>> {
-        self.inner.collections(None).await.map_err(map_openkeyv_err)
+        self.inner
+            .collections(None)
+            .await
+            .map_err(map_openkeyv_err)
     }
 
     async fn keys(&self, collection: &str) -> Result<Vec<String>> {
@@ -155,7 +154,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_round_trips_objects() {
-        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(Arc::new(OpenKeyvMemoryStore::new()));
         let value = serde_json::json!({"name": "svc", "enabled": true});
 
         store
@@ -180,7 +179,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_preserves_get_many_order() {
-        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(Arc::new(OpenKeyvMemoryStore::new()));
         store
             .put("a", serde_json::json!({"name": "a"}), "services")
             .await
@@ -200,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_deletes_entries() {
-        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(Arc::new(OpenKeyvMemoryStore::new()));
         store
             .put("svc", serde_json::json!({"name": "svc"}), "services")
             .await
@@ -213,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_compare_and_put_rejects_stale_version() {
-        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(Arc::new(OpenKeyvMemoryStore::new()));
         store
             .compare_and_put(
                 "s1",
@@ -242,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_compare_and_put_rejects_duplicate_create() {
-        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(Arc::new(OpenKeyvMemoryStore::new()));
         store
             .put("s1", serde_json::json!({"session_key": "s1"}), "sessions")
             .await
@@ -262,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_upgrades_unversioned_value() {
-        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(Arc::new(OpenKeyvMemoryStore::new()));
         store
             .put("agent-a", serde_json::json!({"instances": []}), "relations")
             .await
@@ -286,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_rejects_non_object_values() {
-        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(Arc::new(OpenKeyvMemoryStore::new()));
         let err = store
             .put("bad", serde_json::json!(["not", "object"]), "services")
             .await;

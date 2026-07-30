@@ -88,8 +88,6 @@ pub(crate) fn parse_backend(backend: Option<&str>) -> PyResult<Option<BackendKin
     match backend {
         Some("memory") => Ok(Some(BackendKind::Memory)),
         Some("redis") => Ok(Some(BackendKind::Redis)),
-        Some("openkeyv_memory") => Ok(Some(BackendKind::OpenKeyvMemory)),
-        Some("openkeyv_redis") => Ok(Some(BackendKind::OpenKeyvRedis)),
         None => Ok(None),
         Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Unsupported backend: {other}"
