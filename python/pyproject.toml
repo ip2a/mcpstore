@@ -31,6 +31,23 @@ classifiers = [
 [project.scripts]
 mcpstore = "mcpstore.runner.main:main"
 
+# 重型后端 extras（binary wheel 不含；需源码编译安装）:
+#   pip install mcpstore[postgres] --no-binary mcpstore
+# 编译时自动透传对应 cargo feature
+[project.optional-dependencies]
+postgres = []
+mongodb = []
+s3 = []
+duckdb = []
+sqlite = []
+rocksdb = []
+opensearch = []
+vault = []
+firestore = []
+dynamodb = []
+disk = []
+keyring = []
+
 
 
 [tool.setuptools]
@@ -44,6 +61,9 @@ exclude = ["*test*"]
 manifest-path = "../rust/bindings/python/Cargo.toml"
 python-source = "src"
 module-name = "mcpstore._rust"
+# 钉死 default：light + redis + memcached + valkey（对齐 openkeyv）
+# 重型后端走源码编译: pip install mcpstore --no-binary mcpstore
+features = ["light", "redis", "memcached", "valkey"]
 
 
 [[tool.uv.index]]
