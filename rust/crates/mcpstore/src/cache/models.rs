@@ -4,7 +4,7 @@ use crate::config::{ScopeDeclarations, ServiceLifecycleConfig};
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ConfigRevision, ServiceDefinition};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheHealthReport {
     pub namespace: String,
     pub backend: String,
