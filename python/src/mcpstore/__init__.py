@@ -55,22 +55,6 @@ def __getattr__(name: str):
         })
         return globals()[name]
 
-    if name in {
-        "api_agent_router",
-        "api_cache_router",
-        "api_instance_router",
-        "api_main_router",
-        "api_session_router",
-        "api_set_store",
-        "api_store_router",
-        "get_store",
-    }:
-        from mcpstore import api as api_module
-
-        value = getattr(api_module, name)
-        globals()[name] = value
-        return value
-
     if name == "PerspectiveResolver":
         from mcpstore._rust import PerspectiveResolver
 
@@ -101,20 +85,10 @@ def __getattr__(name: str):
 
     # Public request/response models.
     models = {
-        "APIResponse",
-        "AddServiceRequest",
-        "AgentOnlyServiceRequest",
         "CommandServiceConfig",
-        "DataResponse",
         "ErrorCode",
-        "ErrorDetail",
-        "ListResponse",
         "MCPServerConfig",
         "MCPStoreException",
-        "Pagination",
-        "PatchServiceRequest",
-        "ResponseBuilder",
-        "ResponseMeta",
         "ServiceConfig",
         "ServiceConfigUnion",
         "ScopeDescriptor",
@@ -123,20 +97,12 @@ def __getattr__(name: str):
         "AgentScope",
         "ServiceConnectionState",
         "ServiceInfo",
-        "ServiceInfoResponse",
-        "ServicesResponse",
         "ToolExecutionError",
         "ToolExecutionRequest",
         "ToolInfo",
-        "ToolsResponse",
-        "UpdateServiceRequest",
         "URLServiceConfig",
         "ServiceNotFoundException",
         "ValidationException",
-        "api_endpoint",
-        "handle_errors",
-        "paginated",
-        "timed_response",
     }
     if name in models:
         from mcpstore.core import models as core_models
@@ -194,14 +160,6 @@ __all__ = [
     "OpenKeyvRedisConfig",
 
     # FastAPI helpers
-    "api_agent_router",
-    "api_cache_router",
-    "api_instance_router",
-    "api_main_router",
-    "api_session_router",
-    "api_set_store",
-    "api_store_router",
-    "get_store",
 
     # Utilities
     "PerspectiveResolver",
@@ -212,37 +170,19 @@ __all__ = [
     "AsyncService",
     "AsyncTool",
     "ServiceInfo",
-    "ServiceInfoResponse",
-    "ServicesResponse",
     "ServiceConnectionState",
     "ToolInfo",
-    "ToolsResponse",
     "ToolExecutionRequest",
-    "APIResponse",
-    "ErrorDetail",
-    "ResponseMeta",
-    "Pagination",
-    "ResponseBuilder",
-    "timed_response",
-    "paginated",
-    "handle_errors",
-    "api_endpoint",
     "ErrorCode",
     "MCPStoreException",
     "ServiceNotFoundException",
     "ToolExecutionError",
     "ValidationException",
-    "ListResponse",
-    "DataResponse",
     "ServiceConfig",
     "URLServiceConfig",
     "CommandServiceConfig",
     "MCPServerConfig",
     "ServiceConfigUnion",
-    "AddServiceRequest",
-    "AgentOnlyServiceRequest",
-    "UpdateServiceRequest",
-    "PatchServiceRequest",
     "ScopeDescriptor",
     "ScopeRef",
     "StoreScope",
