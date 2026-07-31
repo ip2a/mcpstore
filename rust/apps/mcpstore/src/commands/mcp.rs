@@ -887,6 +887,9 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
 }
 
 async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
+    if crate::daemon::client::daemon_socket_exists() {
+        return run_call_via_daemon(a).await;
+    }
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
         CallCommandError::new(a.output, CallErrorCode::InvalidInput, error.to_string())
     })?;
@@ -1056,6 +1059,90 @@ fn scope_label(scope: &ScopeRef) -> &'static str {
         ScopeRef::Store => "store",
         ScopeRef::Agent { .. } => "agent",
     }
+}
+
+/// Resolve a call target through the running daemon. UUIDs are used directly;
+/// service names are resolved via the daemon's `list_services`.
+async fn resolve_call_target_daemon(
+    scope: &ScopeRef,
+    target: &str,
+    output: CallOutputFormat,
+) -> Result<InstanceId, CallCommandError> {
+    if let Ok(instance_id) = InstanceId::from_str(target) {
+        return Ok(instance_id);
+    }
+    let response = crate::daemon::client::call_daemon("list_services", json!({ "scope": scope }))
+        .await
+        .map_err(|error| CallCommandError::new(output, CallErrorCode::CommandFailed, error))?;
+    let instance = response
+        .get("services")
+        .and_then(Value::as_array)
+        .and_then(|services| {
+            services
+                .iter()
+                .find(|svc| svc.get("service_name").and_then(Value::as_str) == Some(target))
+        })
+        .and_then(|svc| svc.get("instance_id"))
+        .and_then(Value::as_str)
+        .and_then(|value| InstanceId::from_str(value).ok());
+    instance.ok_or_else(|| {
+        CallCommandError::new(
+            output,
+            CallErrorCode::ServiceNotFound,
+            format!("service not found in {} scope: {target}", scope_label(scope)),
+        )
+    })
+}
+
+/// Load the target tool's input schema through the daemon's `list_tools`.
+async fn load_tool_input_schema_daemon(
+    instance_id: InstanceId,
+    tool_name: &str,
+    output: CallOutputFormat,
+) -> Result<Option<Value>, CallCommandError> {
+    let response = crate::daemon::client::call_daemon(
+        "list_tools",
+        json!({ "instance_id": instance_id }),
+    )
+    .await
+    .map_err(|error| CallCommandError::new(output, CallErrorCode::CommandFailed, error))?;
+    Ok(response
+        .get("tools")
+        .and_then(Value::as_array)
+        .and_then(|tools| {
+            tools
+                .iter()
+                .find(|t| t.get("name").and_then(Value::as_str) == Some(tool_name))
+        })
+        .and_then(|t| t.get("schema").cloned()))
+}
+
+/// Daemon fast path: reuse the daemon's long-lived MCP server connections across
+/// CLI invocations. The daemon speaks request/response, so streaming progress,
+/// elicitation, per-call timeouts, and cancellation apply only to the local path
+/// used when no daemon is running.
+async fn run_call_via_daemon(a: CallToolArgs) -> Result<(), CallCommandError> {
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|error| CallCommandError::new(a.output, CallErrorCode::InvalidInput, error.to_string()))?;
+    let instance_id = resolve_call_target_daemon(&scope, &a.target, a.output).await?;
+    let schema = load_tool_input_schema_daemon(instance_id, &a.tool_name, a.output).await?;
+    let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
+    let value = crate::daemon::client::call_daemon(
+        "call_tool",
+        json!({ "instance_id": instance_id, "tool_name": a.tool_name, "args": args }),
+    )
+    .await
+    .map_err(|error| CallCommandError::new(a.output, CallErrorCode::CommandFailed, error))?;
+    let result: ToolCallResult = serde_json::from_value(value).map_err(|error| {
+        CallCommandError::new(
+            a.output,
+            CallErrorCode::ProtocolFailed,
+            format!("daemon returned a malformed tool result: {error}"),
+        )
+    })?;
+    emit_call_result(a.output, instance_id, &a.tool_name, &result)
 }
 
 /// Load the target tool's input schema so arguments can be positionally mapped,
@@ -1317,19 +1404,29 @@ fn finish_call_execution(
             tool_name,
         ));
     };
+    emit_call_result(output, instance_id, tool_name, &result)
+}
+
+/// Format a completed tool result for the chosen output format. Shared by the
+/// local streaming path (`finish_call_execution`) and the daemon fast path.
+fn emit_call_result(
+    output: CallOutputFormat,
+    instance_id: InstanceId,
+    tool_name: &str,
+    result: &ToolCallResult,
+) -> Result<(), CallCommandError> {
     if result.is_error {
         return Err(CallCommandError::for_call(
             output,
             CallErrorCode::ToolFailed,
-            tool_error_message(&result),
+            tool_error_message(result),
             instance_id,
             tool_name,
         ));
     }
-
     match output {
         CallOutputFormat::Human => {
-            print_tool_content(&result);
+            print_tool_content(result);
             Ok(())
         }
         CallOutputFormat::Json | CallOutputFormat::Jsonl => emit_call_value(
