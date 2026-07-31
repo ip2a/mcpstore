@@ -224,8 +224,13 @@ pub struct ListArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
-    #[arg(long, help = "Emit machine-readable JSON")]
-    pub json: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = OutputFormat::Human,
+        help = "Output format: human, json, or jsonl"
+    )]
+    pub output: OutputFormat,
 }
 
 /// Collect service summaries (name, instance, transport, readiness, tool count)
@@ -275,12 +280,12 @@ async fn load_service_summaries(
 pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
 
-    if a.json {
+    if a.output != OutputFormat::Human {
         let services = load_service_summaries(&a.store, &scope).await?;
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({ "services": services, "total": services.len() }))?
-        );
+        emit_call_value(
+            a.output,
+            json!({ "services": services, "total": services.len() }),
+        )?;
         return Ok(());
     }
 
@@ -663,8 +668,13 @@ pub struct ToolsArgs {
     pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
-    #[arg(long, help = "Emit machine-readable JSON")]
-    pub json: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = OutputFormat::Human,
+        help = "Output format: human, json, or jsonl"
+    )]
+    pub output: OutputFormat,
     #[arg(long, help = "Include each tool's input schema")]
     pub schema: bool,
 }
@@ -701,15 +711,11 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
             .collect()
     };
 
-    if a.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "instance_id": instance_id,
-                "tools": entries,
-                "total": entries.len(),
-            }))?
-        );
+    if a.output != OutputFormat::Human {
+        emit_call_value(
+            a.output,
+            json!({ "instance_id": instance_id, "tools": entries, "total": entries.len() }),
+        )?;
         return Ok(());
     }
     println!("[Tools] instance={} count={}", instance_id, entries.len());
@@ -739,7 +745,7 @@ fn tool_summary_value(tool: Value, include_schema: bool) -> Value {
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
-pub enum CallOutputFormat {
+pub enum OutputFormat {
     #[default]
     Human,
     Json,
@@ -834,7 +840,7 @@ impl CallErrorCode {
 
 #[derive(Debug)]
 pub struct CallCommandError {
-    format: CallOutputFormat,
+    format: OutputFormat,
     code: CallErrorCode,
     message: String,
     instance_id: Option<InstanceId>,
@@ -842,7 +848,7 @@ pub struct CallCommandError {
 }
 
 impl CallCommandError {
-    fn new(format: CallOutputFormat, code: CallErrorCode, message: impl Into<String>) -> Self {
+    fn new(format: OutputFormat, code: CallErrorCode, message: impl Into<String>) -> Self {
         Self {
             format,
             code,
@@ -853,7 +859,7 @@ impl CallCommandError {
     }
 
     fn for_call(
-        format: CallOutputFormat,
+        format: OutputFormat,
         code: CallErrorCode,
         message: impl Into<String>,
         instance_id: InstanceId,
@@ -870,7 +876,7 @@ impl CallCommandError {
 
     fn from_store(
         error: StoreError,
-        format: CallOutputFormat,
+        format: OutputFormat,
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Self {
@@ -929,7 +935,7 @@ impl CallCommandError {
 impl std::fmt::Display for CallCommandError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.format {
-            CallOutputFormat::Human => match self.code.hint() {
+            OutputFormat::Human => match self.code.hint() {
                 Some(hint) => write!(
                     formatter,
                     "{}: {}\n  hint: {}",
@@ -939,7 +945,7 @@ impl std::fmt::Display for CallCommandError {
                 ),
                 None => write!(formatter, "{}: {}", self.code.as_str(), self.message),
             },
-            CallOutputFormat::Json | CallOutputFormat::Jsonl => self.json_value().fmt(formatter),
+            OutputFormat::Json | OutputFormat::Jsonl => self.json_value().fmt(formatter),
         }
     }
 }
@@ -975,10 +981,10 @@ pub struct CallToolArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = CallOutputFormat::Human,
+        default_value_t = OutputFormat::Human,
         help = "Output format: human, json, or jsonl"
     )]
-    pub output: CallOutputFormat,
+    pub output: OutputFormat,
     #[arg(
         long,
         value_name = "SECONDS",
@@ -1142,17 +1148,17 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
     }
 }
 
-fn call_elicitation_output(output: CallOutputFormat) -> ElicitationOutputFormat {
+fn call_elicitation_output(output: OutputFormat) -> ElicitationOutputFormat {
     match output {
-        CallOutputFormat::Human => ElicitationOutputFormat::Human,
-        CallOutputFormat::Json => ElicitationOutputFormat::Json,
-        CallOutputFormat::Jsonl => ElicitationOutputFormat::Jsonl,
+        OutputFormat::Human => ElicitationOutputFormat::Human,
+        OutputFormat::Json => ElicitationOutputFormat::Json,
+        OutputFormat::Jsonl => ElicitationOutputFormat::Jsonl,
     }
 }
 
 fn call_elicitation_error(
     error: ElicitationCommandError,
-    output: CallOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
 ) -> CallCommandError {
@@ -1171,7 +1177,7 @@ async fn resolve_call_target(
     store: &MCPStore,
     scope: &ScopeRef,
     target: &str,
-    output: CallOutputFormat,
+    output: OutputFormat,
 ) -> Result<InstanceId, CallCommandError> {
     if let Ok(instance_id) = InstanceId::from_str(target) {
         return Ok(instance_id);
@@ -1202,7 +1208,7 @@ fn scope_label(scope: &ScopeRef) -> &'static str {
 async fn resolve_call_target_daemon(
     scope: &ScopeRef,
     target: &str,
-    output: CallOutputFormat,
+    output: OutputFormat,
 ) -> Result<InstanceId, CallCommandError> {
     if let Ok(instance_id) = InstanceId::from_str(target) {
         return Ok(instance_id);
@@ -1234,7 +1240,7 @@ async fn resolve_call_target_daemon(
 async fn load_tool_input_schema_daemon(
     instance_id: InstanceId,
     tool_name: &str,
-    output: CallOutputFormat,
+    output: OutputFormat,
 ) -> Result<Option<Value>, CallCommandError> {
     let response = crate::daemon::client::call_daemon(
         "list_tools",
@@ -1288,7 +1294,7 @@ async fn load_tool_input_schema(
     store: &MCPStore,
     instance_id: InstanceId,
     tool_name: &str,
-    output: CallOutputFormat,
+    output: OutputFormat,
 ) -> Result<Option<Value>, CallCommandError> {
     let entries = store
         .list_tool_entries_for_instance_with_filter(
@@ -1310,7 +1316,7 @@ fn build_call_arguments(
     raw_args: &[String],
     arguments_json: &str,
     schema: Option<&Value>,
-    output: CallOutputFormat,
+    output: OutputFormat,
 ) -> Result<Value, CallCommandError> {
     let mut object = parse_arguments_json_object(arguments_json, output)?;
     let (keyed, positional) = split_argument_tokens(raw_args);
@@ -1332,7 +1338,7 @@ fn build_call_arguments(
 
 fn parse_arguments_json_object(
     arguments_json: &str,
-    output: CallOutputFormat,
+    output: OutputFormat,
 ) -> Result<Map<String, Value>, CallCommandError> {
     let value: Value = serde_json::from_str(arguments_json).map_err(|error| {
         CallCommandError::new(
@@ -1391,7 +1397,7 @@ fn coerce_value(raw: &str) -> Value {
 fn apply_tool_schema(
     object: &mut Map<String, Value>,
     schema: &Value,
-    output: CallOutputFormat,
+    output: OutputFormat,
 ) -> Result<(), CallCommandError> {
     let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) else {
         return Ok(());
@@ -1449,11 +1455,11 @@ fn coerce_value_to_schema(value: &Value, spec: &Value) -> Option<Value> {
 }
 
 fn emit_call_started(
-    output: CallOutputFormat,
+    output: OutputFormat,
     tool_name: &str,
     execution: &mcpstore::McpStoreToolExecutionHandle<'_>,
 ) -> Result<(), CallCommandError> {
-    if output != CallOutputFormat::Jsonl {
+    if output != OutputFormat::Jsonl {
         return Ok(());
     }
     emit_call_value(
@@ -1470,12 +1476,12 @@ fn emit_call_started(
 }
 
 fn emit_call_progress(
-    output: CallOutputFormat,
+    output: OutputFormat,
     tool_name: &str,
     progress: &mcpstore::McpExecutionProgress,
 ) -> Result<(), CallCommandError> {
     match output {
-        CallOutputFormat::Human => {
+        OutputFormat::Human => {
             let amount = progress.total.map_or_else(
                 || progress.progress.to_string(),
                 |total| format!("{}/{}", progress.progress, total),
@@ -1487,8 +1493,8 @@ fn emit_call_progress(
             }
             Ok(())
         }
-        CallOutputFormat::Json => Ok(()),
-        CallOutputFormat::Jsonl => emit_call_value(
+        OutputFormat::Json => Ok(()),
+        OutputFormat::Jsonl => emit_call_value(
             output,
             json!({
                 "event": "execution.progress",
@@ -1504,17 +1510,17 @@ fn emit_call_progress(
 }
 
 fn emit_call_cancellation_requested(
-    output: CallOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
 ) -> Result<(), CallCommandError> {
     match output {
-        CallOutputFormat::Human => {
+        OutputFormat::Human => {
             eprintln!("[Cancellation requested] {tool_name}");
             Ok(())
         }
-        CallOutputFormat::Json => Ok(()),
-        CallOutputFormat::Jsonl => emit_call_value(
+        OutputFormat::Json => Ok(()),
+        OutputFormat::Jsonl => emit_call_value(
             output,
             json!({
                 "event": "execution.cancellation_requested",
@@ -1526,7 +1532,7 @@ fn emit_call_cancellation_requested(
 }
 
 fn finish_call_execution(
-    output: CallOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
     execution: McpToolExecution,
@@ -1546,7 +1552,7 @@ fn finish_call_execution(
 /// Format a completed tool result for the chosen output format. Shared by the
 /// local streaming path (`finish_call_execution`) and the daemon fast path.
 fn emit_call_result(
-    output: CallOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
     result: &ToolCallResult,
@@ -1561,11 +1567,11 @@ fn emit_call_result(
         ));
     }
     match output {
-        CallOutputFormat::Human => {
+        OutputFormat::Human => {
             print_tool_content(result);
             Ok(())
         }
-        CallOutputFormat::Json | CallOutputFormat::Jsonl => emit_call_value(
+        OutputFormat::Json | OutputFormat::Jsonl => emit_call_value(
             output,
             json!({
                 "event": "execution.completed",
@@ -1608,11 +1614,11 @@ fn tool_error_message(result: &ToolCallResult) -> String {
         .unwrap_or_else(|| "tool returned an error result".to_string())
 }
 
-fn emit_call_value(output: CallOutputFormat, value: Value) -> Result<(), CallCommandError> {
+fn emit_call_value(output: OutputFormat, value: Value) -> Result<(), CallCommandError> {
     let encoded = match output {
-        CallOutputFormat::Human => Ok(value.to_string()),
-        CallOutputFormat::Json => serde_json::to_string_pretty(&value),
-        CallOutputFormat::Jsonl => serde_json::to_string(&value),
+        OutputFormat::Human => Ok(value.to_string()),
+        OutputFormat::Json => serde_json::to_string_pretty(&value),
+        OutputFormat::Jsonl => serde_json::to_string(&value),
     }
     .map_err(|error| {
         CallCommandError::new(
@@ -1925,10 +1931,10 @@ mod tests {
     #[test]
     fn call_arguments_require_a_json_object() {
         assert_eq!(
-            parse_arguments_json_object(r#"{"value":1}"#, CallOutputFormat::Human).unwrap()["value"],
+            parse_arguments_json_object(r#"{"value":1}"#, OutputFormat::Human).unwrap()["value"],
             1
         );
-        let error = parse_arguments_json_object("[]", CallOutputFormat::Jsonl).unwrap_err();
+        let error = parse_arguments_json_object("[]", OutputFormat::Jsonl).unwrap_err();
         assert_eq!(error.code, CallErrorCode::InvalidInput);
         assert_eq!(error.exit_code(), 2);
         let value: Value = serde_json::from_str(&error.to_string()).unwrap();
@@ -1965,7 +1971,7 @@ mod tests {
         ] {
             let error = CallCommandError::from_store(
                 StoreError::Transport(error),
-                CallOutputFormat::Jsonl,
+                OutputFormat::Jsonl,
                 instance_id,
                 "long_tool",
             );
@@ -2113,7 +2119,7 @@ mod tests {
             &["owner:ip2a".to_string()],
             r#"{"repo":"mcpstore"}"#,
             None,
-            CallOutputFormat::Human,
+            OutputFormat::Human,
         )
         .unwrap();
         assert_eq!(built["owner"], "ip2a");
@@ -2139,7 +2145,7 @@ mod tests {
             &["owner:ip2a".to_string()],
             "{}",
             Some(&schema),
-            CallOutputFormat::Human,
+            OutputFormat::Human,
         )
         .unwrap();
         assert_eq!(defaulted["owner"], "ip2a");
@@ -2150,7 +2156,7 @@ mod tests {
             &[],
             r#"{"owner":"x","count":"42","verified":"true"}"#,
             Some(&schema),
-            CallOutputFormat::Human,
+            OutputFormat::Human,
         )
         .unwrap();
         assert_eq!(coerced["count"], 42);
@@ -2162,7 +2168,7 @@ mod tests {
         let schema = json_schema(
             r#"{"type":"object","properties":{"owner":{"type":"string"}},"required":["owner"]}"#,
         );
-        let err = build_call_arguments(&[], "{}", Some(&schema), CallOutputFormat::Human)
+        let err = build_call_arguments(&[], "{}", Some(&schema), OutputFormat::Human)
             .unwrap_err()
             .to_string();
         assert!(err.contains("missing required"), "{err}");
@@ -2170,7 +2176,7 @@ mod tests {
 
     #[test]
     fn build_call_arguments_rejects_positional() {
-        let err = build_call_arguments(&["lonely".to_string()], "{}", None, CallOutputFormat::Human)
+        let err = build_call_arguments(&["lonely".to_string()], "{}", None, OutputFormat::Human)
             .unwrap_err()
             .to_string();
         assert!(err.contains("positional"), "{err}");
@@ -2179,7 +2185,7 @@ mod tests {
     #[test]
     fn call_error_human_output_includes_hint() {
         let error = CallCommandError::new(
-            CallOutputFormat::Human,
+            OutputFormat::Human,
             CallErrorCode::ServiceNotFound,
             "service not found: github".to_string(),
         );
