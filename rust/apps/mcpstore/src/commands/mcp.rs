@@ -1265,12 +1265,17 @@ async fn resolve_target(
         return Ok(instance_id);
     }
     let scope_name = scope_label(scope);
+    if let Some(cached) = crate::schema_cache::load_target(scope_name, target) {
+        if let Ok(instance_id) = InstanceId::from_str(&cached) {
+            return Ok(instance_id);
+        }
+    }
     if crate::daemon::client::daemon_socket_exists() {
         let response =
             crate::daemon::client::call_daemon("list_services", json!({ "scope": scope }))
                 .await
                 .map_err(ResolveError::Backend)?;
-        return response
+        let instance_id = response
             .get("services")
             .and_then(Value::as_array)
             .and_then(|services| {
@@ -1280,7 +1285,11 @@ async fn resolve_target(
             })
             .and_then(|svc| svc.get("instance_id"))
             .and_then(Value::as_str)
-            .and_then(|s| InstanceId::from_str(s).ok())
+            .and_then(|s| InstanceId::from_str(s).ok());
+        if let Some(id) = &instance_id {
+            crate::schema_cache::save_target(scope_name, target, &id.to_string());
+        }
+        return instance_id
             .ok_or_else(|| ResolveError::NotFound { scope_name, target: target.to_string() });
     }
     let store = build_store(store_args).map_err(|e| ResolveError::Backend(e.to_string()))?;
@@ -1288,13 +1297,17 @@ async fn resolve_target(
         .load_from_source()
         .await
         .map_err(|e| ResolveError::Backend(e.to_string()))?;
-    store
+    let instance_id = store
         .list_scope_instances(scope)
         .await
         .map_err(|e| ResolveError::Backend(e.to_string()))?
         .into_iter()
         .find(|instance| instance.service_name == target)
-        .map(|instance| instance.instance_id)
+        .map(|instance| instance.instance_id);
+    if let Some(id) = &instance_id {
+        crate::schema_cache::save_target(scope_name, target, &id.to_string());
+    }
+    instance_id
         .ok_or_else(|| ResolveError::NotFound { scope_name, target: target.to_string() })
 }
 
