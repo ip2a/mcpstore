@@ -1,13 +1,13 @@
 use clap::{Args, ValueEnum};
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
 use mcpstore::transport::TransportError;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
 use mcpstore::{
-    InstanceId, McpExecutionOptions, McpServerCapabilities, McpServerMetadata,
+    InstanceId, McpExecutionOptions, McpServerCapabilities, McpServerMetadata, MCPStore,
     McpStoreExecutionUpdate, McpToolExecution, ScopeRef, StoreError, ToolCallResult,
 };
 
@@ -812,12 +812,30 @@ impl std::error::Error for CallCommandError {}
 
 #[derive(Args)]
 pub struct CallToolArgs {
-    #[arg(help = "Service instance ID")]
-    pub instance_id: String,
-    #[arg(help = "Tool name")]
+    #[arg(
+        value_name = "SERVICE|INSTANCE",
+        help = "Service name or instance ID"
+    )]
+    pub target: String,
+    #[arg(value_name = "TOOL", help = "Tool name")]
     pub tool_name: String,
-    #[arg(long, default_value = "{}", help = "Tool call arguments JSON object")]
+    #[arg(
+        trailing_var_arg = true,
+        value_name = "ARGS",
+        help = "Tool arguments: key:value | key=value | --key=value (named options must precede trailing ARGS)"
+    )]
+    pub args: Vec<String>,
+    #[arg(long, default_value = "{}", help = "Tool arguments JSON object, merged with ARGS")]
     pub arguments: String,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Scope::Store,
+        help = "Scope used to resolve a service name target"
+    )]
+    pub scope: Scope,
+    #[arg(long, help = "Agent ID, only used with --scope agent")]
+    pub agent: Option<String>,
     #[arg(
         long,
         value_enum,
@@ -869,22 +887,22 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
 }
 
 async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
-    let args = parse_call_arguments(&a.arguments, a.output)?;
-    let instance_id = parse_instance_id(&a.instance_id).map_err(|error| {
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
         CallCommandError::new(a.output, CallErrorCode::InvalidInput, error.to_string())
     })?;
-    let store = build_store(&a.store).map_err(|error| {
-        CallCommandError::for_call(
-            a.output,
-            CallErrorCode::CommandFailed,
-            error.to_string(),
-            instance_id,
-            &a.tool_name,
-        )
-    })?;
-    store.load_from_source().await.map_err(|error| {
+    let store = build_store(&a.store)
+        .map_err(|error| CallCommandError::new(a.output, CallErrorCode::CommandFailed, error.to_string()))?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|error| CallCommandError::new(a.output, CallErrorCode::CommandFailed, error.to_string()))?;
+    let instance_id = resolve_call_target(&store, &scope, &a.target, a.output).await?;
+
+    store.connect_service(instance_id).await.map_err(|error| {
         CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
     })?;
+    let schema = load_tool_input_schema(&store, instance_id, &a.tool_name, a.output).await?;
+    let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
 
     let mut options = McpExecutionOptions::default();
     if let Some(timeout) = a.timeout {
@@ -1008,25 +1026,203 @@ fn call_elicitation_error(
     CallCommandError::for_call(output, code, error.message(), instance_id, tool_name)
 }
 
-fn parse_call_arguments(
-    arguments: &str,
+/// Resolve a call target to an instance ID. UUIDs are used directly; any other
+/// value is treated as a service name and resolved within the requested scope.
+async fn resolve_call_target(
+    store: &MCPStore,
+    scope: &ScopeRef,
+    target: &str,
+    output: CallOutputFormat,
+) -> Result<InstanceId, CallCommandError> {
+    if let Ok(instance_id) = InstanceId::from_str(target) {
+        return Ok(instance_id);
+    }
+    let instances = store
+        .list_scope_instances(scope)
+        .await
+        .map_err(|error| CallCommandError::new(output, CallErrorCode::CommandFailed, error.to_string()))?;
+    match instances.iter().find(|instance| instance.service_name == target) {
+        Some(instance) => Ok(instance.instance_id),
+        None => Err(CallCommandError::new(
+            output,
+            CallErrorCode::ServiceNotFound,
+            format!("service not found in {} scope: {target}", scope_label(scope)),
+        )),
+    }
+}
+
+fn scope_label(scope: &ScopeRef) -> &'static str {
+    match scope {
+        ScopeRef::Store => "store",
+        ScopeRef::Agent { .. } => "agent",
+    }
+}
+
+/// Load the target tool's input schema so arguments can be positionally mapped,
+/// defaulted, coerced, and validated. Returns `None` when the tool is not in the
+/// available-tool set for the instance.
+async fn load_tool_input_schema(
+    store: &MCPStore,
+    instance_id: InstanceId,
+    tool_name: &str,
+    output: CallOutputFormat,
+) -> Result<Option<Value>, CallCommandError> {
+    let entries = store
+        .list_tool_entries_for_instance_with_filter(
+            instance_id,
+            mcpstore::ToolVisibilityFilter::Available,
+        )
+        .await
+        .map_err(|error| CallCommandError::from_store(error, output, instance_id, tool_name))?;
+    Ok(entries
+        .iter()
+        .find(|entry| entry.tool_name == tool_name)
+        .map(|entry| entry.input_schema.clone()))
+}
+
+/// Merge the `--arguments` JSON base with trailing argument tokens, then apply
+/// schema-driven positional mapping, defaults, type coercion, and required-field
+/// validation when a schema is available.
+fn build_call_arguments(
+    raw_args: &[String],
+    arguments_json: &str,
+    schema: Option<&Value>,
     output: CallOutputFormat,
 ) -> Result<Value, CallCommandError> {
-    let value: Value = serde_json::from_str(arguments).map_err(|error| {
+    let mut object = parse_arguments_json_object(arguments_json, output)?;
+    let (keyed, positional) = split_argument_tokens(raw_args);
+    for (key, raw_value) in keyed {
+        object.insert(key, coerce_value(&raw_value));
+    }
+    if !positional.is_empty() {
+        return Err(CallCommandError::new(
+            output,
+            CallErrorCode::InvalidInput,
+            "positional arguments are not supported; pass them as key:value or key=value",
+        ));
+    }
+    if let Some(schema) = schema {
+        apply_tool_schema(&mut object, schema, output)?;
+    }
+    Ok(Value::Object(object))
+}
+
+fn parse_arguments_json_object(
+    arguments_json: &str,
+    output: CallOutputFormat,
+) -> Result<Map<String, Value>, CallCommandError> {
+    let value: Value = serde_json::from_str(arguments_json).map_err(|error| {
         CallCommandError::new(
             output,
             CallErrorCode::InvalidInput,
             format!("invalid --arguments JSON: {error}"),
         )
     })?;
-    if !value.is_object() {
-        return Err(CallCommandError::new(
+    match value {
+        Value::Object(map) => Ok(map),
+        _ => Err(CallCommandError::new(
             output,
             CallErrorCode::InvalidInput,
             "--arguments must be a JSON object",
-        ));
+        )),
     }
-    Ok(value)
+}
+
+/// Split trailing tokens into keyed (`key:value`, `key=value`, `--key=value`) and
+/// positional values. A bare `--flag` without `=` falls through to positional.
+fn split_argument_tokens(args: &[String]) -> (Vec<(String, String)>, Vec<String>) {
+    let mut keyed = Vec::new();
+    let mut positional = Vec::new();
+    for raw in args {
+        if let Some(rest) = raw.strip_prefix("--") {
+            if let Some((key, value)) = rest.split_once('=') {
+                keyed.push((key.to_string(), value.to_string()));
+                continue;
+            }
+        }
+        if let Some((key, value)) = raw.split_once(':') {
+            keyed.push((key.to_string(), value.to_string()));
+            continue;
+        }
+        if let Some((key, value)) = raw.split_once('=') {
+            keyed.push((key.to_string(), value.to_string()));
+            continue;
+        }
+        positional.push(raw.clone());
+    }
+    (keyed, positional)
+}
+
+/// Parse a raw token as JSON when it is valid (numbers, booleans, arrays, quoted
+/// strings); otherwise keep it as a string.
+fn coerce_value(raw: &str) -> Value {
+    match serde_json::from_str::<Value>(raw) {
+        Ok(value) => value,
+        Err(_) => Value::String(raw.to_string()),
+    }
+}
+
+/// Apply a tool's input schema: fill defaults, validate required fields, and
+/// coerce string values to declared primitive types. Property iteration order is
+/// not significant because every step is keyed.
+fn apply_tool_schema(
+    object: &mut Map<String, Value>,
+    schema: &Value,
+    output: CallOutputFormat,
+) -> Result<(), CallCommandError> {
+    let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) else {
+        return Ok(());
+    };
+
+    for (key, spec) in properties.iter() {
+        if !object.contains_key(key) {
+            if let Some(default) = spec.get("default") {
+                object.insert(key.clone(), default.clone());
+            }
+        }
+    }
+
+    if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
+        let missing: Vec<&str> = required
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|key| !object.contains_key(*key))
+            .collect();
+        if !missing.is_empty() {
+            return Err(CallCommandError::new(
+                output,
+                CallErrorCode::InvalidInput,
+                format!("missing required argument(s): {}", missing.join(", ")),
+            ));
+        }
+    }
+
+    for (key, spec) in properties.iter() {
+        if let Some(value) = object.get(key) {
+            if let Some(coerced) = coerce_value_to_schema(value, spec) {
+                object.insert(key.clone(), coerced);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Coerce a value that parsed as a string into the schema's primitive type when
+/// the schema declares integer, number, or boolean.
+fn coerce_value_to_schema(value: &Value, spec: &Value) -> Option<Value> {
+    let schema_type = spec.get("type")?.as_str()?;
+    let raw = value.as_str()?;
+    Some(match schema_type {
+        "integer" => Value::from(raw.parse::<i64>().ok()?),
+        "number" => Value::Number(serde_json::Number::from_f64(raw.parse::<f64>().ok()?)?),
+        "boolean" => match raw {
+            "true" => Value::Bool(true),
+            "false" => Value::Bool(false),
+            _ => return None,
+        },
+        _ => return None,
+    })
 }
 
 fn emit_call_started(
@@ -1496,10 +1692,10 @@ mod tests {
     #[test]
     fn call_arguments_require_a_json_object() {
         assert_eq!(
-            parse_call_arguments(r#"{"value":1}"#, CallOutputFormat::Human).unwrap()["value"],
+            parse_arguments_json_object(r#"{"value":1}"#, CallOutputFormat::Human).unwrap()["value"],
             1
         );
-        let error = parse_call_arguments("[]", CallOutputFormat::Jsonl).unwrap_err();
+        let error = parse_arguments_json_object("[]", CallOutputFormat::Jsonl).unwrap_err();
         assert_eq!(error.code, CallErrorCode::InvalidInput);
         assert_eq!(error.exit_code(), 2);
         let value: Value = serde_json::from_str(&error.to_string()).unwrap();
@@ -1643,5 +1839,107 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("--agent is required"));
+    }
+
+    fn json_schema(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn split_argument_tokens_classifies_keyed_and_positional() {
+        let args: Vec<String> = ["owner:ip2a", "repo=mcp/store", "--draft=true", "bare", "--flag"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let (keyed, positional) = split_argument_tokens(&args);
+        assert_eq!(
+            keyed,
+            vec![
+                ("owner".to_string(), "ip2a".to_string()),
+                ("repo".to_string(), "mcp/store".to_string()),
+                ("draft".to_string(), "true".to_string()),
+            ]
+        );
+        assert_eq!(positional, vec!["bare".to_string(), "--flag".to_string()]);
+    }
+
+    #[test]
+    fn coerce_value_parses_json_or_keeps_string() {
+        assert_eq!(coerce_value("5"), Value::from(5));
+        assert_eq!(coerce_value("true"), Value::Bool(true));
+        assert_eq!(coerce_value("ip2a"), Value::String("ip2a".to_string()));
+        assert_eq!(
+            coerce_value("[1, 2]"),
+            Value::Array(vec![Value::from(1), Value::from(2)])
+        );
+    }
+
+    #[test]
+    fn build_call_arguments_without_schema_merges_keyed_and_base() {
+        let built = build_call_arguments(
+            &["owner:ip2a".to_string()],
+            r#"{"repo":"mcpstore"}"#,
+            None,
+            CallOutputFormat::Human,
+        )
+        .unwrap();
+        assert_eq!(built["owner"], "ip2a");
+        assert_eq!(built["repo"], "mcpstore");
+    }
+
+    #[test]
+    fn build_call_arguments_fills_defaults_and_coerces() {
+        let schema = json_schema(
+            r#"{
+                "type": "object",
+                "properties": {
+                    "owner": {"type": "string"},
+                    "count": {"type": "integer", "default": 1},
+                    "verified": {"type": "boolean"}
+                },
+                "required": ["owner"]
+            }"#,
+        );
+
+        // `count` omitted → default 1 applied.
+        let defaulted = build_call_arguments(
+            &["owner:ip2a".to_string()],
+            "{}",
+            Some(&schema),
+            CallOutputFormat::Human,
+        )
+        .unwrap();
+        assert_eq!(defaulted["owner"], "ip2a");
+        assert_eq!(defaulted["count"], 1);
+
+        // base string values coerced to declared primitive types.
+        let coerced = build_call_arguments(
+            &[],
+            r#"{"owner":"x","count":"42","verified":"true"}"#,
+            Some(&schema),
+            CallOutputFormat::Human,
+        )
+        .unwrap();
+        assert_eq!(coerced["count"], 42);
+        assert_eq!(coerced["verified"], true);
+    }
+
+    #[test]
+    fn build_call_arguments_reports_missing_required() {
+        let schema = json_schema(
+            r#"{"type":"object","properties":{"owner":{"type":"string"}},"required":["owner"]}"#,
+        );
+        let err = build_call_arguments(&[], "{}", Some(&schema), CallOutputFormat::Human)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("missing required"), "{err}");
+    }
+
+    #[test]
+    fn build_call_arguments_rejects_positional() {
+        let err = build_call_arguments(&["lonely".to_string()], "{}", None, CallOutputFormat::Human)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("positional"), "{err}");
     }
 }

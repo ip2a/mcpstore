@@ -362,13 +362,41 @@ mod tests {
 
         match cli.command {
             Commands::Call(args) => {
-                assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
+                assert_eq!(args.target, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.tool_name, "get_repo_status");
                 assert_eq!(args.arguments, "{}");
                 assert_eq!(args.output, commands::mcp::CallOutputFormat::Jsonl);
                 assert_eq!(args.timeout, Some(15));
                 assert_eq!(args.max_total_timeout, Some(60));
                 assert!(args.non_interactive);
+            }
+            _ => panic!("Expected to parse as call command"),
+        }
+    }
+
+    #[test]
+    fn parses_call_with_service_name_and_tool_args() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "--scope",
+            "agent",
+            "--agent",
+            "bot",
+            "github",
+            "get_repo",
+            "owner:ip2a",
+            "repo:mcp/store",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::Call(args) => {
+                assert_eq!(args.target, "github");
+                assert_eq!(args.tool_name, "get_repo");
+                assert_eq!(args.args, vec!["owner:ip2a", "repo:mcp/store"]);
+                assert_eq!(args.scope, commands::mcp::Scope::Agent);
+                assert_eq!(args.agent.as_deref(), Some("bot"));
             }
             _ => panic!("Expected to parse as call command"),
         }
