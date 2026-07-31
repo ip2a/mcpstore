@@ -787,4 +787,29 @@ mod tests {
             _ => panic!("Expected complete command"),
         }
     }
+
+    #[test]
+    fn parses_list_and_tools_machine_output_flags() {
+        let list_cli = Cli::try_parse_from(["mcpstore", "list", "--json"]).unwrap();
+        match list_cli.command {
+            Commands::List(args) => assert!(args.json),
+            _ => panic!("Expected list command"),
+        }
+
+        let tools_cli = Cli::try_parse_from([
+            "mcpstore",
+            "tools",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--json",
+            "--schema",
+        ])
+        .unwrap();
+        match tools_cli.command {
+            Commands::Tools(args) => {
+                assert!(args.json);
+                assert!(args.schema);
+            }
+            _ => panic!("Expected tools command"),
+        }
+    }
 }

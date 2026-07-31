@@ -224,10 +224,65 @@ pub struct ListArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(long, help = "Emit machine-readable JSON")]
+    pub json: bool,
+}
+
+/// Collect service summaries (name, instance, transport, readiness, tool count)
+/// from the daemon when running, otherwise from a local store. Used by the
+/// machine-readable `list --json` view.
+async fn load_service_summaries(
+    store_args: &StoreSourceArgs,
+    scope: &ScopeRef,
+) -> std::result::Result<Vec<Value>, BoxErr> {
+    if crate::daemon::client::daemon_socket_exists() {
+        let result =
+            crate::daemon::client::call_daemon("list_services", json!({ "scope": scope })).await?;
+        return Ok(result
+            .get("services")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|svc| {
+                json!({
+                    "service_name": svc.get("service_name").and_then(Value::as_str).unwrap_or(""),
+                    "instance_id": svc.get("instance_id").and_then(Value::as_str).unwrap_or(""),
+                    "transport": svc.get("transport").and_then(Value::as_str).unwrap_or(""),
+                    "readiness": svc.pointer("/state/readiness/status").and_then(Value::as_str).unwrap_or(""),
+                    "tools_count": svc.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0),
+                })
+            })
+            .collect());
+    }
+    let store = build_store(store_args)?;
+    store.load_from_source().await?;
+    let services = store.list_scope_instances(scope).await?;
+    let mut out = Vec::with_capacity(services.len());
+    for svc in services {
+        let state = store.service_state_entry(svc.instance_id).await?;
+        out.push(json!({
+            "service_name": svc.service_name,
+            "instance_id": svc.instance_id,
+            "transport": svc.transport,
+            "readiness": state.readiness.status,
+            "tools_count": svc.tools.len(),
+        }));
+    }
+    Ok(out)
 }
 
 pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
+
+    if a.json {
+        let services = load_service_summaries(&a.store, &scope).await?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "services": services, "total": services.len() }))?
+        );
+        return Ok(());
+    }
 
     if crate::daemon::client::daemon_socket_exists() {
         let result = crate::daemon::client::call_daemon(
@@ -585,41 +640,79 @@ pub struct ToolsArgs {
     pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
+    #[arg(long, help = "Emit machine-readable JSON")]
+    pub json: bool,
+    #[arg(long, help = "Include each tool's input schema")]
+    pub schema: bool,
 }
 
 pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"instance_id": a.instance_id});
-        let result = crate::daemon::client::call_daemon("list_tools", params).await?;
-        let tools = result
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    let entries: Vec<Value> = if crate::daemon::client::daemon_socket_exists() {
+        let result = crate::daemon::client::call_daemon(
+            "list_tools",
+            json!({ "instance_id": instance_id }),
+        )
+        .await?;
+        result
             .get("tools")
             .and_then(|v| v.as_array())
             .cloned()
-            .unwrap_or_default();
-        println!("[Tools] instance={} count={}", a.instance_id, tools.len());
-        for t in tools {
-            let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-            let desc = t.get("description").and_then(|v| v.as_str()).unwrap_or("");
-            println!("  - {}: {}", name, desc);
-        }
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| tool_summary_value(t, a.schema))
+            .collect()
+    } else {
+        let store = build_store(&a.store)?;
+        store.load_from_source().await?;
+        store.connect_service(instance_id).await?;
+        let tools = store
+            .list_tool_entries_for_instance_with_filter(
+                instance_id,
+                mcpstore::ToolVisibilityFilter::Available,
+            )
+            .await?;
+        tools
+            .iter()
+            .map(|t| tool_summary_value(json!({ "name": t.name, "description": t.description, "schema": t.input_schema }), a.schema))
+            .collect()
+    };
+
+    if a.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "instance_id": instance_id,
+                "tools": entries,
+                "total": entries.len(),
+            }))?
+        );
         return Ok(());
     }
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-    let instance_id = parse_instance_id(&a.instance_id)?;
-    store.connect_service(instance_id).await?;
-
-    let tools = store
-        .list_tool_entries_for_instance_with_filter(
-            instance_id,
-            mcpstore::ToolVisibilityFilter::Available,
-        )
-        .await?;
-    println!("[Tools] instance={} count={}", instance_id, tools.len());
-    for t in &tools {
-        println!("  - {}: {}", t.name, t.description);
+    println!("[Tools] instance={} count={}", instance_id, entries.len());
+    for t in &entries {
+        println!(
+            "  - {}: {}",
+            t.get("name").and_then(Value::as_str).unwrap_or("?"),
+            t.get("description").and_then(Value::as_str).unwrap_or("")
+        );
     }
     Ok(())
+}
+
+/// Build a tool summary `{name, description}` plus `schema` when requested, from
+/// a value that carries `name`, `description`, and (optionally) `schema`.
+fn tool_summary_value(tool: Value, include_schema: bool) -> Value {
+    let mut summary = json!({
+        "name": tool.get("name").and_then(Value::as_str).unwrap_or(""),
+        "description": tool.get("description").and_then(Value::as_str).unwrap_or(""),
+    });
+    if include_schema {
+        if let Some(schema) = tool.get("schema") {
+            summary["schema"] = schema.clone();
+        }
+    }
+    summary
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
