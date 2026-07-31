@@ -514,28 +514,51 @@ pub struct CheckArgs {
     pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
+    #[arg(long, help = "Exit 0 when ready, non-zero otherwise")]
+    pub exit_code: bool,
+    #[arg(long, help = "Suppress output; signal readiness only via the exit code")]
+    pub quiet: bool,
 }
 
 pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"instance_id": a.instance_id});
-        let result = crate::daemon::client::call_daemon("check_service", params).await?;
-        if let Some(obj) = result.as_object() {
-            for (k, v) in obj {
-                println!("[Check] {} => {}", k, v.as_str().unwrap_or("?"));
-            }
-        }
-        return Ok(());
-    }
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-
     let instance_id = parse_instance_id(&a.instance_id)?;
-    let status = store.service_state_entry(instance_id).await?;
-    println!(
-        "[Check] {} => readiness={:?} phase={:?} health={:?}",
-        instance_id, status.readiness.status, status.phase, status.health
-    );
+    let (ready, label) = if crate::daemon::client::daemon_socket_exists() {
+        let result = crate::daemon::client::call_daemon(
+            "check_service",
+            json!({ "instance_id": instance_id }),
+        )
+        .await?;
+        let readiness = result
+            .pointer("/state/readiness/status")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let phase = result
+            .pointer("/state/phase")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        (
+            readiness == "ready",
+            format!("{instance_id} => readiness={readiness} phase={phase}"),
+        )
+    } else {
+        let store = build_store(&a.store)?;
+        store.load_from_source().await?;
+        let status = store.service_state_entry(instance_id).await?;
+        (
+            status.readiness.status == mcpstore::ReadinessStatus::Ready,
+            format!(
+                "{instance_id} => readiness={:?} phase={:?} health={:?}",
+                status.readiness.status, status.phase, status.health
+            ),
+        )
+    };
+
+    if !a.quiet {
+        println!("[Check] {label}");
+    }
+    if a.exit_code {
+        std::process::exit(i32::from(!ready));
+    }
     Ok(())
 }
 
