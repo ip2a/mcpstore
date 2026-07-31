@@ -178,9 +178,9 @@ impl McpStoreServer {
 impl ServerHandler for McpStoreServer {
     async fn on_initialized(&self, context: rmcp::service::NotificationContext<RoleServer>) {
         self.store
-            .event_bus
+            .event_bus()
             .subscribe(
-                crate::events::types::EventKind::McpToolsChanged.as_str(),
+                mcpstore::events::types::EventKind::McpToolsChanged.as_str(),
                 0,
                 Arc::new(AggregateToolsChangedNotification {
                     peer: context.peer,

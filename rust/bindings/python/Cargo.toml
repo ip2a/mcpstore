@@ -26,4 +26,4 @@ tracing-subscriber = { workspace = true }
 rmcp = { workspace = true }
 
 # Unified crate
-mcpstore = { path = "../../crates/mcpstore", features = ["mcp-server"] }
+mcpstore = { path = "../../crates/mcpstore" }

@@ -4,7 +4,7 @@ mod tests {
     use super::super::tools::*;
     use super::super::transport::normalize_http_path;
     use super::super::*;
-    use crate::{events::types::EventKind, CacheStorage, ServiceInstanceKey};
+    use mcpstore::{events::types::EventKind, CacheStorage, ServiceInstanceKey};
     use rmcp::{
         service::{NotificationContext, RoleClient},
         ClientHandler, ServiceExt,
@@ -92,7 +92,7 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
                 store
-                    .event_bus
+                    .event_bus()
                     .publish(
                         Event::new(
                             EventKind::McpToolsChanged.as_str(),
@@ -111,7 +111,7 @@ mod tests {
         .unwrap();
 
         store
-            .event_bus
+            .event_bus()
             .publish(
                 Event::new(
                     EventKind::McpToolsChanged.as_str(),
@@ -126,7 +126,7 @@ mod tests {
         client.cancel().await.unwrap();
         server.cancel().await.unwrap();
         store
-            .event_bus
+            .event_bus()
             .publish(
                 Event::new(
                     EventKind::McpToolsChanged.as_str(),

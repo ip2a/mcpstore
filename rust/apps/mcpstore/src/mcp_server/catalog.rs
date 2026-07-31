@@ -123,7 +123,7 @@ pub(super) fn projected_catalog_uri(
     let service_name = read_required_string(payload, "service_name")?;
     let instance_id = read_required_instance_id(payload, "instance_id")?;
     let namespace = stable_namespace(&service_name, instance_id);
-    let mut uri = reqwest::Url::parse("mcpstore://aggregate/")?;
+    let mut uri = url::Url::parse("mcpstore://aggregate/")?;
     {
         let mut segments = uri
             .path_segments_mut()

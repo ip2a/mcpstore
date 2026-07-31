@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::{
+use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
     events::{bus::EventHandler, Event},
     CacheStorage, ContentItem, InstanceId, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
@@ -191,7 +191,7 @@ struct AggregateToolsChangedNotification {
 #[async_trait::async_trait]
 impl EventHandler for AggregateToolsChangedNotification {
     async fn handle(&self, event: &Event) {
-        if event.event_type != crate::events::types::EventKind::McpToolsChanged.as_str() {
+        if event.event_type != mcpstore::events::types::EventKind::McpToolsChanged.as_str() {
             return;
         }
         if let Some(instance_id) = self.instance_id {

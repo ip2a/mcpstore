@@ -24,8 +24,6 @@ pub(super) async fn page_home(
     let cache_storage_label = match store.current_cache_storage().await {
         CacheStorage::Memory => "memory",
         CacheStorage::Redis => "redis",
-        CacheStorage::OpenKeyvMemory => "openkeyv_memory",
-        CacheStorage::OpenKeyvRedis => "openkeyv_redis",
     };
     let source_label = if store.is_db_source() { "db" } else { "local" };
 

@@ -14,8 +14,6 @@ pub mod events;
 pub mod facade;
 pub(crate) mod health;
 pub mod identity;
-#[cfg(feature = "mcp-server")]
-pub mod mcp_server;
 pub mod openapi;
 pub mod openapi_runtime;
 pub mod perspective;
