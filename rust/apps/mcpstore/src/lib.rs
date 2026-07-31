@@ -4,6 +4,7 @@ pub mod commands;
 pub mod daemon;
 pub mod error;
 pub mod mcp_server;
+pub mod schema_cache;
 pub mod store_args;
 pub mod tui;
 
