@@ -817,6 +817,19 @@ impl CallErrorCode {
             _ => "execution.failed",
         }
     }
+
+    /// A brief human-facing next-step suggestion, when one is useful.
+    fn hint(self) -> Option<&'static str> {
+        match self {
+            Self::InvalidInput => Some("check the tool schema with `mcpstore tools <instance> --schema`"),
+            Self::ServiceNotFound => Some("run `mcpstore list` to see configured services"),
+            Self::ConnectionFailed => Some("run `mcpstore check <instance>` or `mcpstore restart <instance>`"),
+            Self::AuthenticationRequired => Some("run `mcpstore auth login <instance>`"),
+            Self::TimedOut => Some("retry, or raise --timeout / --max-total-timeout"),
+            Self::ElicitationInputRequired => Some("re-run without --non-interactive to answer the prompt"),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -916,9 +929,16 @@ impl CallCommandError {
 impl std::fmt::Display for CallCommandError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.format {
-            CallOutputFormat::Human => {
-                write!(formatter, "{}: {}", self.code.as_str(), self.message)
-            }
+            CallOutputFormat::Human => match self.code.hint() {
+                Some(hint) => write!(
+                    formatter,
+                    "{}: {}\n  hint: {}",
+                    self.code.as_str(),
+                    self.message,
+                    hint
+                ),
+                None => write!(formatter, "{}: {}", self.code.as_str(), self.message),
+            },
             CallOutputFormat::Json | CallOutputFormat::Jsonl => self.json_value().fmt(formatter),
         }
     }
@@ -2154,5 +2174,18 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("positional"), "{err}");
+    }
+
+    #[test]
+    fn call_error_human_output_includes_hint() {
+        let error = CallCommandError::new(
+            CallOutputFormat::Human,
+            CallErrorCode::ServiceNotFound,
+            "service not found: github".to_string(),
+        );
+        let rendered = error.to_string();
+        assert!(rendered.contains("service_not_found"), "{rendered}");
+        assert!(rendered.contains("hint:"), "{rendered}");
+        assert!(rendered.contains("mcpstore list"), "{rendered}");
     }
 }
