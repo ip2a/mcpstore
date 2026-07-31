@@ -1,6 +1,6 @@
 [package]
 name = "mcpstore"
-version = "1.5.18"
+version.workspace = true
 edition = "2021"
 rust-version = "1.78"
 authors = ["ooooofish <ooooofish@126.com>"]
@@ -28,8 +28,6 @@ rmcp = { workspace = true }
 
 # Cache backends
 openkeyv = { path = "/Volumes/data0/data4work/2026_4/openkeyv/rust/crates/openkeyv", default-features = false, features = ["json"] }
-# HTTP / web (only needed for the optional MCP server runner)
-axum = { version = "0.7", optional = true }
 http = "1"
 iri-string = "0.7.12"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }
@@ -45,8 +43,7 @@ zeroize = { version = "1", features = ["derive"] }
 jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 
 [features]
-default = ["mcp-server", "light", "redis", "memcached", "valkey"]
-mcp-server = ["dep:axum", "rmcp/transport-streamable-http-server"]
+default = ["light", "redis", "memcached", "valkey"]
 
 # Backend passthrough — enable the openkeyv feature for each store type.
 # 默认档对齐 openkeyv: light + redis + memcached + valkey

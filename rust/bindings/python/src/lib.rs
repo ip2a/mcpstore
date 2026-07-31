@@ -4,7 +4,6 @@
 //! Exposes:
 //! - MCPStore (sync) + AsyncMCPStore (async)
 //! - PerspectiveResolver
-//! - start_mcp_server (MCP server runner entry point used by `uvx mcpstore`)
 //!
 //! Built with PyO3 + maturin. Target module name: `mcpstore._rust`
 
@@ -12,7 +11,6 @@ use pyo3::prelude::*;
 
 mod async_store;
 mod core_store;
-mod mcp_server_runner;
 mod perspective;
 mod py_value;
 
@@ -30,7 +28,6 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<async_store::PyAsyncService>()?;
     m.add_class::<async_store::PyAsyncTool>()?;
     m.add_class::<perspective::PyPerspectiveResolver>()?;
-    mcp_server_runner::register_module(m)?;
 
     Ok(())
 }

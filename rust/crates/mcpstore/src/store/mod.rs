@@ -187,6 +187,10 @@ impl MCPStore {
         &self.cache
     }
 
+    pub fn event_bus(&self) -> &EventBus {
+        &self.event_bus
+    }
+
     pub fn namespace(&self) -> String {
         self.namespace
             .read()

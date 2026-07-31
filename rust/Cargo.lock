@@ -3654,7 +3654,6 @@ name = "mcpstore"
 version = "1.5.18"
 dependencies = [
  "async-trait",
- "axum 0.7.9",
  "base64",
  "blake3",
  "chrono",
@@ -3687,6 +3686,7 @@ dependencies = [
 name = "mcpstore-cli"
 version = "1.5.18"
 dependencies = [
+ "async-trait",
  "axum 0.7.9",
  "chrono",
  "clap",

@@ -1,8 +1,9 @@
 use clap::{Args, ValueEnum};
-use mcpstore::mcp_server::{
+use mcpstore::{CacheStorage, InstanceId, ScopeRef, SourceMode};
+
+use crate::mcp_server::{
     McpServerOptions as CoreMcpServerOptions, McpServerTransport as CoreMcpServerTransport,
 };
-use mcpstore::{CacheStorage, InstanceId, ScopeRef, SourceMode};
 
 use crate::{
     commands::mcp::Scope,
@@ -140,5 +141,5 @@ impl McpServerArgs {
 }
 
 pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
-    mcpstore::mcp_server::run(args.to_core_options()).await
+    crate::mcp_server::run(args.to_core_options()).await
 }
