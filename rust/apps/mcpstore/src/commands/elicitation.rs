@@ -12,6 +12,8 @@ use mcpstore::{
 };
 use serde_json::{json, Value};
 
+use crate::error::OutputFormat;
+
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
 pub enum ElicitationActionArg {
     #[default]
@@ -50,13 +52,6 @@ impl ElicitationArgs {
         McpElicitationSessionOptions::default()
             .with_response_timeout(Duration::from_secs(self.elicitation_timeout))
     }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum ElicitationOutputFormat {
-    Human,
-    Json,
-    Jsonl,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -104,7 +99,7 @@ pub async fn settle_execution_after_elicitation_error(
 pub async fn handle_elicitation(
     request: McpElicitationRequest,
     args: &ElicitationArgs,
-    output: ElicitationOutputFormat,
+    output: OutputFormat,
     non_interactive: bool,
 ) -> Result<(), ElicitationCommandError> {
     emit_requested(output, &request)?;
@@ -168,7 +163,7 @@ pub async fn handle_elicitation(
 async fn accept_request(
     request: McpElicitationRequest,
     args: &ElicitationArgs,
-    output: ElicitationOutputFormat,
+    output: OutputFormat,
     interactive: bool,
 ) -> Result<(), ElicitationCommandError> {
     match request.kind() {
@@ -379,7 +374,7 @@ enum PromptAction {
 }
 
 fn emit_requested(
-    output: ElicitationOutputFormat,
+    output: OutputFormat,
     request: &McpElicitationRequest,
 ) -> Result<(), ElicitationCommandError> {
     let (kind, message, schema) = match request.kind() {
@@ -396,7 +391,7 @@ fn emit_requested(
         event["schema"] = schema;
     }
     match output {
-        ElicitationOutputFormat::Human => {
+        OutputFormat::Human => {
             eprintln!("\nServer requested {kind} elicitation: {message}");
             if let Some(schema) = event.get("schema") {
                 eprintln!(
@@ -406,13 +401,13 @@ fn emit_requested(
             }
             Ok(())
         }
-        ElicitationOutputFormat::Json => write_json_stderr(&event),
-        ElicitationOutputFormat::Jsonl => write_json_stdout(&event),
+        OutputFormat::Json => write_json_stderr(&event),
+        OutputFormat::Jsonl => write_json_stdout(&event),
     }
 }
 
 fn emit_url_handoff(
-    output: ElicitationOutputFormat,
+    output: OutputFormat,
     request: &McpElicitationRequest,
     url: &str,
     elicitation_id: &str,
@@ -422,30 +417,30 @@ fn emit_url_handoff(
     event["url"] = json!(url);
     event["elicitation_id"] = json!(elicitation_id);
     match output {
-        ElicitationOutputFormat::Human => {
+        OutputFormat::Human => {
             eprintln!("Open this server-provided URL after verifying its destination:");
             eprintln!("{url}");
             Ok(())
         }
-        ElicitationOutputFormat::Json => write_json_stderr(&event),
-        ElicitationOutputFormat::Jsonl => write_json_stdout(&event),
+        OutputFormat::Json => write_json_stderr(&event),
+        OutputFormat::Jsonl => write_json_stdout(&event),
     }
 }
 
 fn emit_state(
-    output: ElicitationOutputFormat,
+    output: OutputFormat,
     event_name: &'static str,
     identity: &Value,
 ) -> Result<(), ElicitationCommandError> {
     let mut event = identity.clone();
     event["event"] = json!(event_name);
     match output {
-        ElicitationOutputFormat::Human => {
+        OutputFormat::Human => {
             eprintln!("{}", event_name.replace('.', " "));
             Ok(())
         }
-        ElicitationOutputFormat::Json => write_json_stderr(&event),
-        ElicitationOutputFormat::Jsonl => write_json_stdout(&event),
+        OutputFormat::Json => write_json_stderr(&event),
+        OutputFormat::Jsonl => write_json_stdout(&event),
     }
 }
 
@@ -469,7 +464,7 @@ fn write_json_stderr(value: &Value) -> Result<(), ElicitationCommandError> {
 fn abort_request(
     request: McpElicitationRequest,
     error: ElicitationCommandError,
-    output: ElicitationOutputFormat,
+    output: OutputFormat,
 ) -> Result<(), ElicitationCommandError> {
     let identity = request_identity(&request);
     let _ = request.cancel();
@@ -479,7 +474,7 @@ fn abort_request(
 
 fn response_failure(
     error: McpElicitationResponseError,
-    output: ElicitationOutputFormat,
+    output: OutputFormat,
     identity: &Value,
 ) -> ElicitationCommandError {
     let kind = match error {

@@ -127,7 +127,7 @@ pub fn run() -> Result<(), BoxErr> {
 
 fn uses_machine_output(command: &Commands) -> bool {
     match command {
-        Commands::Call(args) => args.output != commands::mcp::OutputFormat::Human,
+        Commands::Call(args) => args.output != crate::error::OutputFormat::Human,
         Commands::Task(args) => {
             let output = match &args.action {
                 commands::task::TaskAction::Run(args) => args.runtime.output,
@@ -136,32 +136,32 @@ fn uses_machine_output(command: &Commands) -> bool {
                 | commands::task::TaskAction::Result(args)
                 | commands::task::TaskAction::Cancel(args) => args.runtime.output,
             };
-            output != commands::task::TaskOutputFormat::Human
+            output != crate::error::OutputFormat::Human
         }
         Commands::Resource(args) => match &args.action {
             commands::protocol::ResourceAction::List(args) => {
-                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+                args.output.output != crate::error::OutputFormat::Human
             }
             commands::protocol::ResourceAction::Templates(args) => {
-                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+                args.output.output != crate::error::OutputFormat::Human
             }
             commands::protocol::ResourceAction::Read(args) => {
-                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+                args.output.output != crate::error::OutputFormat::Human
             }
         },
         Commands::Prompt(args) => match &args.action {
             commands::protocol::PromptAction::List(args) => {
-                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+                args.output.output != crate::error::OutputFormat::Human
             }
             commands::protocol::PromptAction::Get(args) => {
-                args.output.output != commands::protocol::ProtocolOutputFormat::Human
+                args.output.output != crate::error::OutputFormat::Human
             }
         },
         Commands::Complete(args) => {
-            args.output.output != commands::protocol::ProtocolOutputFormat::Human
+            args.output.output != crate::error::OutputFormat::Human
         }
-        Commands::List(args) => args.output != commands::mcp::OutputFormat::Human,
-        Commands::Tools(args) => args.output != commands::mcp::OutputFormat::Human,
+        Commands::List(args) => args.output != crate::error::OutputFormat::Human,
+        Commands::Tools(args) => args.output != crate::error::OutputFormat::Human,
         _ => false,
     }
 }
@@ -367,7 +367,7 @@ mod tests {
                 assert_eq!(args.target, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.tool_name, "get_repo_status");
                 assert_eq!(args.arguments, "{}");
-                assert_eq!(args.output, commands::mcp::OutputFormat::Jsonl);
+                assert_eq!(args.output, crate::error::OutputFormat::Jsonl);
                 assert_eq!(args.timeout, Some(15));
                 assert_eq!(args.max_total_timeout, Some(60));
                 assert!(args.non_interactive);
@@ -487,7 +487,7 @@ mod tests {
                 assert_eq!(args.ttl, Some(5000));
                 assert_eq!(args.timeout, Some(20));
                 assert_eq!(args.max_total_timeout, Some(90));
-                assert_eq!(args.runtime.output, commands::task::TaskOutputFormat::Jsonl);
+                assert_eq!(args.runtime.output, crate::error::OutputFormat::Jsonl);
                 assert!(args.runtime.non_interactive);
             }
             _ => panic!("Expected to parse as task run command"),
@@ -506,7 +506,7 @@ mod tests {
                 action: commands::task::TaskAction::List(args),
             }) => {
                 assert_eq!(args.instance_id.to_string(), instance_id);
-                assert_eq!(args.runtime.output, commands::task::TaskOutputFormat::Json);
+                assert_eq!(args.runtime.output, crate::error::OutputFormat::Json);
             }
             _ => panic!("Expected to parse as task list command"),
         }
@@ -543,7 +543,7 @@ mod tests {
             assert_eq!(target.task_id, "task-1");
             assert_eq!(
                 target.runtime.output,
-                commands::task::TaskOutputFormat::Jsonl
+                crate::error::OutputFormat::Jsonl
             );
         }
     }
@@ -738,7 +738,7 @@ mod tests {
                 assert_eq!(args.uri, "repo://mcp/store");
                 assert_eq!(
                     args.output.output,
-                    commands::protocol::ProtocolOutputFormat::Json
+                    crate::error::OutputFormat::Json
                 );
             }
             _ => panic!("Expected resource read command"),
@@ -799,7 +799,7 @@ mod tests {
                 assert_eq!(args.reference, "repo://mcp/{name}");
                 assert_eq!(
                     args.output.output,
-                    commands::protocol::ProtocolOutputFormat::Jsonl
+                    crate::error::OutputFormat::Jsonl
                 );
             }
             _ => panic!("Expected complete command"),
@@ -811,7 +811,7 @@ mod tests {
         let list_cli = Cli::try_parse_from(["mcpstore", "list", "--output", "json"]).unwrap();
         match list_cli.command {
             Commands::List(args) => {
-                assert_eq!(args.output, commands::mcp::OutputFormat::Json);
+                assert_eq!(args.output, crate::error::OutputFormat::Json);
             }
             _ => panic!("Expected list command"),
         }
@@ -827,7 +827,7 @@ mod tests {
         .unwrap();
         match tools_cli.command {
             Commands::Tools(args) => {
-                assert_eq!(args.output, commands::mcp::OutputFormat::Jsonl);
+                assert_eq!(args.output, crate::error::OutputFormat::Jsonl);
                 assert!(args.schema);
             }
             _ => panic!("Expected tools command"),

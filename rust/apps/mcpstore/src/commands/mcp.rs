@@ -1,10 +1,13 @@
 use clap::{Args, ValueEnum};
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
+#[cfg(test)]
 use mcpstore::transport::TransportError;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
+
+use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
 
 use mcpstore::{
     InstanceId, McpExecutionOptions, McpServerCapabilities, McpServerMetadata, MCPStore,
@@ -14,7 +17,7 @@ use mcpstore::{
 use crate::{
     commands::elicitation::{
         handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
-        ElicitationCommandError, ElicitationErrorKind, ElicitationOutputFormat,
+        ElicitationCommandError, ElicitationErrorKind,
     },
     store_args::{build_store, CacheStorageArg, StoreSourceArgs},
     BoxErr,
@@ -774,213 +777,18 @@ fn tool_summary_value(tool: Value, include_schema: bool) -> Value {
     summary
 }
 
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
-pub enum OutputFormat {
-    #[default]
-    Human,
-    Json,
-    Jsonl,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum CallErrorCode {
-    InvalidInput,
-    ServiceNotFound,
-    ConnectionFailed,
-    AuthenticationRequired,
-    CapabilityUnsupported,
-    Cancelled,
-    TimedOut,
-    Disconnected,
-    ToolFailed,
-    ProtocolFailed,
-    ElicitationInputRequired,
-    ElicitationCancelled,
-    ElicitationTimedOut,
-    ElicitationInvalidResponse,
-    CommandFailed,
-}
-
-impl CallErrorCode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::InvalidInput => "invalid_input",
-            Self::ServiceNotFound => "service_not_found",
-            Self::ConnectionFailed => "connection_failed",
-            Self::AuthenticationRequired => "authentication_required",
-            Self::CapabilityUnsupported => "capability_unsupported",
-            Self::Cancelled => "execution_cancelled",
-            Self::TimedOut => "execution_timed_out",
-            Self::Disconnected => "execution_disconnected",
-            Self::ToolFailed => "tool_failed",
-            Self::ProtocolFailed => "protocol_failed",
-            Self::ElicitationInputRequired => "input_required",
-            Self::ElicitationCancelled => "elicitation_cancelled",
-            Self::ElicitationTimedOut => "elicitation_timed_out",
-            Self::ElicitationInvalidResponse => "elicitation_invalid_response",
-            Self::CommandFailed => "call_command_failed",
-        }
-    }
-
-    fn exit_code(self) -> i32 {
-        match self {
-            Self::InvalidInput => 2,
-            Self::ServiceNotFound => 10,
-            Self::ConnectionFailed => 11,
-            Self::AuthenticationRequired => 12,
-            Self::CapabilityUnsupported => 20,
-            Self::Cancelled => 30,
-            Self::TimedOut => 31,
-            Self::Disconnected => 32,
-            Self::ToolFailed => 33,
-            Self::ProtocolFailed => 34,
-            Self::ElicitationInputRequired => 35,
-            Self::ElicitationCancelled => 36,
-            Self::ElicitationTimedOut => 37,
-            Self::ElicitationInvalidResponse => 38,
-            Self::CommandFailed => 1,
-        }
-    }
-
-    fn event(self) -> &'static str {
-        match self {
-            Self::Cancelled => "execution.cancelled",
-            Self::TimedOut => "execution.timed_out",
-            Self::ElicitationInputRequired => "elicitation.input_required",
-            Self::ElicitationCancelled => "elicitation.cancelled",
-            Self::ElicitationTimedOut => "elicitation.timed_out",
-            Self::ElicitationInvalidResponse => "elicitation.invalid_response",
-            _ => "execution.failed",
-        }
-    }
-
-    /// A brief human-facing next-step suggestion, when one is useful.
-    fn hint(self) -> Option<&'static str> {
-        match self {
-            Self::InvalidInput => Some("check the tool schema with `mcpstore tools <instance> --schema`"),
-            Self::ServiceNotFound => Some("run `mcpstore list` to see configured services"),
-            Self::ConnectionFailed => Some("run `mcpstore check <instance>` or `mcpstore restart <instance>`"),
-            Self::AuthenticationRequired => Some("run `mcpstore auth login <instance>`"),
-            Self::TimedOut => Some("retry, or raise --timeout / --max-total-timeout"),
-            Self::ElicitationInputRequired => Some("re-run without --non-interactive to answer the prompt"),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct CallCommandError {
+/// Build a `CliError` from a `StoreError`, tagged for the `call` command
+/// (execution domain) with instance/tool context attached.
+fn call_error_from_store(
+    error: StoreError,
     format: OutputFormat,
-    code: CallErrorCode,
-    message: String,
-    instance_id: Option<InstanceId>,
-    tool_name: Option<String>,
+    instance_id: InstanceId,
+    tool_name: &str,
+) -> CliError {
+    CliError::from_store(&error, format, Domain::Execution)
+        .with("instance_id", instance_id.to_string())
+        .with("tool_name", tool_name)
 }
-
-impl CallCommandError {
-    fn new(format: OutputFormat, code: CallErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            format,
-            code,
-            message: message.into(),
-            instance_id: None,
-            tool_name: None,
-        }
-    }
-
-    fn for_call(
-        format: OutputFormat,
-        code: CallErrorCode,
-        message: impl Into<String>,
-        instance_id: InstanceId,
-        tool_name: impl Into<String>,
-    ) -> Self {
-        Self {
-            format,
-            code,
-            message: message.into(),
-            instance_id: Some(instance_id),
-            tool_name: Some(tool_name.into()),
-        }
-    }
-
-    fn from_store(
-        error: StoreError,
-        format: OutputFormat,
-        instance_id: InstanceId,
-        tool_name: &str,
-    ) -> Self {
-        let code = match &error {
-            StoreError::ToolNotAvailable { .. } => CallErrorCode::InvalidInput,
-            StoreError::ServiceNotFound(_) => CallErrorCode::ServiceNotFound,
-            StoreError::Auth(_) => CallErrorCode::AuthenticationRequired,
-            StoreError::Transport(error) => match error {
-                TransportError::InvalidInput(_) => CallErrorCode::InvalidInput,
-                TransportError::AuthRequired(_) | TransportError::InsufficientScope { .. } => {
-                    CallErrorCode::AuthenticationRequired
-                }
-                TransportError::CapabilityUnsupported { .. } => {
-                    CallErrorCode::CapabilityUnsupported
-                }
-                TransportError::RequestCancelled { .. } => CallErrorCode::Cancelled,
-                TransportError::RequestTimedOut { .. } => CallErrorCode::TimedOut,
-                TransportError::RequestDisconnected { .. } => CallErrorCode::Disconnected,
-                TransportError::ConnectionFailed(_)
-                | TransportError::NotConnected(_)
-                | TransportError::Io(_) => CallErrorCode::ConnectionFailed,
-                TransportError::ToolCallFailed(_) => CallErrorCode::ToolFailed,
-                TransportError::Protocol(_) => CallErrorCode::ProtocolFailed,
-                TransportError::ElicitationSessionActive { .. } => {
-                    CallErrorCode::ElicitationInvalidResponse
-                }
-                TransportError::TaskNotFound { .. } | TransportError::TaskState(_) => {
-                    CallErrorCode::CommandFailed
-                }
-            },
-            StoreError::Cache(_)
-            | StoreError::Config(_)
-            | StoreError::State(_)
-            | StoreError::Other(_) => CallErrorCode::CommandFailed,
-        };
-        Self::for_call(format, code, error.to_string(), instance_id, tool_name)
-    }
-
-    pub fn exit_code(&self) -> i32 {
-        self.code.exit_code()
-    }
-
-    fn json_value(&self) -> Value {
-        json!({
-            "event": self.code.event(),
-            "error": {
-                "code": self.code.as_str(),
-                "message": self.message,
-            },
-            "instance_id": self.instance_id,
-            "tool_name": self.tool_name,
-        })
-    }
-}
-
-impl std::fmt::Display for CallCommandError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.format {
-            OutputFormat::Human => match self.code.hint() {
-                Some(hint) => write!(
-                    formatter,
-                    "{}: {}\n  hint: {}",
-                    self.code.as_str(),
-                    self.message,
-                    hint
-                ),
-                None => write!(formatter, "{}: {}", self.code.as_str(), self.message),
-            },
-            OutputFormat::Json | OutputFormat::Jsonl => self.json_value().fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for CallCommandError {}
 
 #[derive(Args)]
 pub struct CallToolArgs {
@@ -1058,25 +866,25 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
+async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
     if crate::daemon::client::daemon_socket_exists() {
         return run_call_via_daemon(a).await;
     }
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
-        CallCommandError::new(a.output, CallErrorCode::InvalidInput, error.to_string())
+        CliError::new_execution(a.output, ErrorCode::InvalidInput, error.to_string())
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_call_err(e, a.output))?;
     let store = build_store(&a.store)
-        .map_err(|error| CallCommandError::new(a.output, CallErrorCode::CommandFailed, error.to_string()))?;
+        .map_err(|error| CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string()))?;
     store
         .load_from_source()
         .await
-        .map_err(|error| CallCommandError::new(a.output, CallErrorCode::CommandFailed, error.to_string()))?;
+        .map_err(|error| CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string()))?;
 
     store.connect_service(instance_id).await.map_err(|error| {
-        CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+        call_error_from_store(error, a.output, instance_id, &a.tool_name)
     })?;
     let schema = load_tool_input_schema(&store, instance_id, &a.tool_name, a.output).await?;
     let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
@@ -1093,13 +901,13 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
         .open_elicitation_session(instance_id, a.elicitation.session_options())
         .await
         .map_err(|error| {
-            CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+            call_error_from_store(error, a.output, instance_id, &a.tool_name)
         })?;
     let mut execution = store
         .start_tool_execution(instance_id, &a.tool_name, args, options)
         .await
         .map_err(|error| {
-            CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+            call_error_from_store(error, a.output, instance_id, &a.tool_name)
         })?;
     emit_call_started(a.output, &a.tool_name, &execution)?;
 
@@ -1122,7 +930,7 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
                             if let Err(error) = handle_elicitation(
                                 request,
                                 &a.elicitation,
-                                call_elicitation_output(a.output),
+                                a.output,
                                 a.non_interactive,
                             )
                             .await
@@ -1141,9 +949,9 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
                     continue;
                 }
                 signal = tokio::signal::ctrl_c() => {
-                    signal.map_err(|error| CallCommandError::for_call(
+                    signal.map_err(|error| CliError::for_call(
                         a.output,
-                        CallErrorCode::CommandFailed,
+                        ErrorCode::CommandFailed,
                         format!("failed to listen for Ctrl+C: {error}"),
                         instance_id,
                         &a.tool_name,
@@ -1163,14 +971,14 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
             }
             Some(McpStoreExecutionUpdate::Finished(result)) => {
                 let execution = result.map_err(|error| {
-                    CallCommandError::from_store(error, a.output, instance_id, &a.tool_name)
+                    call_error_from_store(error, a.output, instance_id, &a.tool_name)
                 })?;
                 return finish_call_execution(a.output, instance_id, &a.tool_name, execution);
             }
             None => {
-                return Err(CallCommandError::for_call(
+                return Err(CliError::for_call(
                     a.output,
-                    CallErrorCode::ProtocolFailed,
+                    ErrorCode::ProtocolFailed,
                     "tool execution ended without a result",
                     instance_id,
                     &a.tool_name,
@@ -1180,27 +988,20 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CallCommandError> {
     }
 }
 
-fn call_elicitation_output(output: OutputFormat) -> ElicitationOutputFormat {
-    match output {
-        OutputFormat::Human => ElicitationOutputFormat::Human,
-        OutputFormat::Json => ElicitationOutputFormat::Json,
-        OutputFormat::Jsonl => ElicitationOutputFormat::Jsonl,
-    }
-}
 
 fn call_elicitation_error(
     error: ElicitationCommandError,
     output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
-) -> CallCommandError {
+) -> CliError {
     let code = match error.kind() {
-        ElicitationErrorKind::InputRequired => CallErrorCode::ElicitationInputRequired,
-        ElicitationErrorKind::Cancelled => CallErrorCode::ElicitationCancelled,
-        ElicitationErrorKind::TimedOut => CallErrorCode::ElicitationTimedOut,
-        ElicitationErrorKind::InvalidResponse => CallErrorCode::ElicitationInvalidResponse,
+        ElicitationErrorKind::InputRequired => ErrorCode::ElicitationInputRequired,
+        ElicitationErrorKind::Cancelled => ErrorCode::ElicitationCancelled,
+        ElicitationErrorKind::TimedOut => ErrorCode::ElicitationTimedOut,
+        ElicitationErrorKind::InvalidResponse => ErrorCode::ElicitationInvalidResponse,
     };
-    CallCommandError::for_call(output, code, error.message(), instance_id, tool_name)
+    CliError::for_call(output, code, error.message(), instance_id, tool_name)
 }
 
 /// Resolve a call target to an instance ID. UUIDs are used directly; any other
@@ -1275,12 +1076,12 @@ async fn resolve_target(
         .ok_or_else(|| ResolveError::NotFound { scope_name, target: target.to_string() })
 }
 
-fn resolve_err_to_call_err(e: ResolveError, output: OutputFormat) -> CallCommandError {
+fn resolve_err_to_call_err(e: ResolveError, output: OutputFormat) -> CliError {
     let code = match &e {
-        ResolveError::NotFound { .. } => CallErrorCode::ServiceNotFound,
-        ResolveError::Backend(_) => CallErrorCode::CommandFailed,
+        ResolveError::NotFound { .. } => ErrorCode::ServiceNotFound,
+        ResolveError::Backend(_) => ErrorCode::CommandFailed,
     };
-    CallCommandError::new(output, code, e.to_string())
+    CliError::new_execution(output, code, e.to_string())
 }
 
 /// Load the target tool's input schema through the daemon's `list_tools`.
@@ -1288,13 +1089,13 @@ async fn load_tool_input_schema_daemon(
     instance_id: InstanceId,
     tool_name: &str,
     output: OutputFormat,
-) -> Result<Option<Value>, CallCommandError> {
+) -> Result<Option<Value>, CliError> {
     let response = crate::daemon::client::call_daemon(
         "list_tools",
         json!({ "instance_id": instance_id }),
     )
     .await
-    .map_err(|error| CallCommandError::new(output, CallErrorCode::CommandFailed, error))?;
+    .map_err(|error| CliError::new_execution(output, ErrorCode::CommandFailed, error))?;
     Ok(response
         .get("tools")
         .and_then(Value::as_array)
@@ -1310,11 +1111,11 @@ async fn load_tool_input_schema_daemon(
 /// CLI invocations. The daemon speaks request/response, so streaming progress,
 /// elicitation, per-call timeouts, and cancellation apply only to the local path
 /// used when no daemon is running.
-async fn run_call_via_daemon(a: CallToolArgs) -> Result<(), CallCommandError> {
+async fn run_call_via_daemon(a: CallToolArgs) -> Result<(), CliError> {
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
-        .map_err(|error| CallCommandError::new(a.output, CallErrorCode::InvalidInput, error.to_string()))?;
+        .map_err(|error| CliError::new_execution(a.output, ErrorCode::InvalidInput, error.to_string()))?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_call_err(e, a.output))?;
@@ -1325,11 +1126,11 @@ async fn run_call_via_daemon(a: CallToolArgs) -> Result<(), CallCommandError> {
         json!({ "instance_id": instance_id, "tool_name": a.tool_name, "args": args }),
     )
     .await
-    .map_err(|error| CallCommandError::new(a.output, CallErrorCode::CommandFailed, error))?;
+    .map_err(|error| CliError::new_execution(a.output, ErrorCode::CommandFailed, error))?;
     let result: ToolCallResult = serde_json::from_value(value).map_err(|error| {
-        CallCommandError::new(
+        CliError::new_execution(
             a.output,
-            CallErrorCode::ProtocolFailed,
+            ErrorCode::ProtocolFailed,
             format!("daemon returned a malformed tool result: {error}"),
         )
     })?;
@@ -1344,14 +1145,14 @@ async fn load_tool_input_schema(
     instance_id: InstanceId,
     tool_name: &str,
     output: OutputFormat,
-) -> Result<Option<Value>, CallCommandError> {
+) -> Result<Option<Value>, CliError> {
     let entries = store
         .list_tool_entries_for_instance_with_filter(
             instance_id,
             mcpstore::ToolVisibilityFilter::Available,
         )
         .await
-        .map_err(|error| CallCommandError::from_store(error, output, instance_id, tool_name))?;
+        .map_err(|error| call_error_from_store(error, output, instance_id, tool_name))?;
     Ok(entries
         .iter()
         .find(|entry| entry.tool_name == tool_name)
@@ -1366,16 +1167,16 @@ fn build_call_arguments(
     arguments_json: &str,
     schema: Option<&Value>,
     output: OutputFormat,
-) -> Result<Value, CallCommandError> {
+) -> Result<Value, CliError> {
     let mut object = parse_arguments_json_object(arguments_json, output)?;
     let (keyed, positional) = split_argument_tokens(raw_args);
     for (key, raw_value) in keyed {
         object.insert(key, coerce_value(&raw_value));
     }
     if !positional.is_empty() {
-        return Err(CallCommandError::new(
+        return Err(CliError::new_execution(
             output,
-            CallErrorCode::InvalidInput,
+            ErrorCode::InvalidInput,
             "positional arguments are not supported; pass them as key:value or key=value",
         ));
     }
@@ -1388,19 +1189,19 @@ fn build_call_arguments(
 fn parse_arguments_json_object(
     arguments_json: &str,
     output: OutputFormat,
-) -> Result<Map<String, Value>, CallCommandError> {
+) -> Result<Map<String, Value>, CliError> {
     let value: Value = serde_json::from_str(arguments_json).map_err(|error| {
-        CallCommandError::new(
+        CliError::new_execution(
             output,
-            CallErrorCode::InvalidInput,
+            ErrorCode::InvalidInput,
             format!("invalid --arguments JSON: {error}"),
         )
     })?;
     match value {
         Value::Object(map) => Ok(map),
-        _ => Err(CallCommandError::new(
+        _ => Err(CliError::new_execution(
             output,
-            CallErrorCode::InvalidInput,
+            ErrorCode::InvalidInput,
             "--arguments must be a JSON object",
         )),
     }
@@ -1447,7 +1248,7 @@ fn apply_tool_schema(
     object: &mut Map<String, Value>,
     schema: &Value,
     output: OutputFormat,
-) -> Result<(), CallCommandError> {
+) -> Result<(), CliError> {
     let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) else {
         return Ok(());
     };
@@ -1467,9 +1268,9 @@ fn apply_tool_schema(
             .filter(|key| !object.contains_key(*key))
             .collect();
         if !missing.is_empty() {
-            return Err(CallCommandError::new(
+            return Err(CliError::new_execution(
                 output,
-                CallErrorCode::InvalidInput,
+                ErrorCode::InvalidInput,
                 format!("missing required argument(s): {}", missing.join(", ")),
             ));
         }
@@ -1507,7 +1308,7 @@ fn emit_call_started(
     output: OutputFormat,
     tool_name: &str,
     execution: &mcpstore::McpStoreToolExecutionHandle<'_>,
-) -> Result<(), CallCommandError> {
+) -> Result<(), CliError> {
     if output != OutputFormat::Jsonl {
         return Ok(());
     }
@@ -1528,7 +1329,7 @@ fn emit_call_progress(
     output: OutputFormat,
     tool_name: &str,
     progress: &mcpstore::McpExecutionProgress,
-) -> Result<(), CallCommandError> {
+) -> Result<(), CliError> {
     match output {
         OutputFormat::Human => {
             let amount = progress.total.map_or_else(
@@ -1562,7 +1363,7 @@ fn emit_call_cancellation_requested(
     output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
-) -> Result<(), CallCommandError> {
+) -> Result<(), CliError> {
     match output {
         OutputFormat::Human => {
             eprintln!("[Cancellation requested] {tool_name}");
@@ -1585,11 +1386,11 @@ fn finish_call_execution(
     instance_id: InstanceId,
     tool_name: &str,
     execution: McpToolExecution,
-) -> Result<(), CallCommandError> {
+) -> Result<(), CliError> {
     let McpToolExecution::Immediate { result } = execution else {
-        return Err(CallCommandError::for_call(
+        return Err(CliError::for_call(
             output,
-            CallErrorCode::ProtocolFailed,
+            ErrorCode::ProtocolFailed,
             "tool call unexpectedly returned a task",
             instance_id,
             tool_name,
@@ -1605,11 +1406,11 @@ fn emit_call_result(
     instance_id: InstanceId,
     tool_name: &str,
     result: &ToolCallResult,
-) -> Result<(), CallCommandError> {
+) -> Result<(), CliError> {
     if result.is_error {
-        return Err(CallCommandError::for_call(
+        return Err(CliError::for_call(
             output,
-            CallErrorCode::ToolFailed,
+            ErrorCode::ToolFailed,
             tool_error_message(result),
             instance_id,
             tool_name,
@@ -1663,16 +1464,16 @@ fn tool_error_message(result: &ToolCallResult) -> String {
         .unwrap_or_else(|| "tool returned an error result".to_string())
 }
 
-fn emit_call_value(output: OutputFormat, value: Value) -> Result<(), CallCommandError> {
+fn emit_call_value(output: OutputFormat, value: Value) -> Result<(), CliError> {
     let encoded = match output {
         OutputFormat::Human => Ok(value.to_string()),
         OutputFormat::Json => serde_json::to_string_pretty(&value),
         OutputFormat::Jsonl => serde_json::to_string(&value),
     }
     .map_err(|error| {
-        CallCommandError::new(
+        CliError::new_execution(
             output,
-            CallErrorCode::CommandFailed,
+            ErrorCode::CommandFailed,
             format!("failed to encode call output: {error}"),
         )
     })?;
@@ -1984,7 +1785,7 @@ mod tests {
             1
         );
         let error = parse_arguments_json_object("[]", OutputFormat::Jsonl).unwrap_err();
-        assert_eq!(error.code, CallErrorCode::InvalidInput);
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
         assert_eq!(error.exit_code(), 2);
         let value: Value = serde_json::from_str(&error.to_string()).unwrap();
         assert_eq!(value["event"], "execution.failed");
@@ -1999,7 +1800,7 @@ mod tests {
                 TransportError::RequestCancelled {
                     reason: Some("cancelled".to_string()),
                 },
-                CallErrorCode::Cancelled,
+                ErrorCode::Cancelled,
                 30,
                 "execution.cancelled",
             ),
@@ -2007,26 +1808,28 @@ mod tests {
                 TransportError::RequestTimedOut {
                     timeout: Duration::from_secs(1),
                 },
-                CallErrorCode::TimedOut,
+                ErrorCode::TimedOut,
                 31,
                 "execution.timed_out",
             ),
             (
                 TransportError::RequestDisconnected { instance_id },
-                CallErrorCode::Disconnected,
+                ErrorCode::Disconnected,
                 32,
                 "execution.failed",
             ),
         ] {
-            let error = CallCommandError::from_store(
-                StoreError::Transport(error),
+            let error = CliError::from_store(
+                &StoreError::Transport(error),
                 OutputFormat::Jsonl,
-                instance_id,
-                "long_tool",
-            );
-            assert_eq!(error.code, code);
+                Domain::Execution,
+            )
+            .with("instance_id", instance_id.to_string())
+            .with("tool_name", "long_tool");
+            assert_eq!(error.code(), code);
             assert_eq!(error.exit_code(), exit_code);
-            assert_eq!(error.json_value()["event"], event);
+            let v: Value = serde_json::from_str(&error.to_string()).unwrap();
+            assert_eq!(v["event"], event);
         }
     }
 
@@ -2233,9 +2036,9 @@ mod tests {
 
     #[test]
     fn call_error_human_output_includes_hint() {
-        let error = CallCommandError::new(
+        let error = CliError::new_execution(
             OutputFormat::Human,
-            CallErrorCode::ServiceNotFound,
+            ErrorCode::ServiceNotFound,
             "service not found: github".to_string(),
         );
         let rendered = error.to_string();
