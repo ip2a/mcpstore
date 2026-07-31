@@ -321,7 +321,7 @@ mod tests {
 
         match cli.command {
             Commands::Get(args) => {
-                assert_eq!(args.instance_id, instance_id);
+                assert_eq!(args.target, instance_id);
             }
             _ => panic!("Expected to parse as get command"),
         }
@@ -333,7 +333,7 @@ mod tests {
         let cli = Cli::try_parse_from(["mcpstore", "check", instance_id]).unwrap();
 
         match cli.command {
-            Commands::Check(args) => assert_eq!(args.instance_id, instance_id),
+            Commands::Check(args) => assert_eq!(args.target, instance_id),
             _ => panic!("Expected to parse as check command"),
         }
     }
