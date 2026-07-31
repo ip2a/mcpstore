@@ -160,6 +160,8 @@ fn uses_machine_output(command: &Commands) -> bool {
         Commands::Complete(args) => {
             args.output.output != commands::protocol::ProtocolOutputFormat::Human
         }
+        Commands::List(args) => args.json,
+        Commands::Tools(args) => args.json,
         _ => false,
     }
 }
@@ -425,6 +427,21 @@ mod tests {
         ])
         .unwrap();
         assert!(uses_machine_output(&task.command));
+
+        let list_json = Cli::try_parse_from(["mcpstore", "list", "--json"]).unwrap();
+        assert!(uses_machine_output(&list_json.command));
+
+        let tools_json = Cli::try_parse_from([
+            "mcpstore",
+            "tools",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--json",
+        ])
+        .unwrap();
+        assert!(uses_machine_output(&tools_json.command));
+
+        let list_human = Cli::try_parse_from(["mcpstore", "list"]).unwrap();
+        assert!(!uses_machine_output(&list_human.command));
 
         let human = Cli::try_parse_from([
             "mcpstore",
