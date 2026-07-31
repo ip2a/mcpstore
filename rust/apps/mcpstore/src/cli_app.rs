@@ -127,7 +127,7 @@ pub fn run() -> Result<(), BoxErr> {
 
 fn uses_machine_output(command: &Commands) -> bool {
     match command {
-        Commands::Call(args) => args.output != commands::mcp::CallOutputFormat::Human,
+        Commands::Call(args) => args.output != commands::mcp::OutputFormat::Human,
         Commands::Task(args) => {
             let output = match &args.action {
                 commands::task::TaskAction::Run(args) => args.runtime.output,
@@ -160,8 +160,8 @@ fn uses_machine_output(command: &Commands) -> bool {
         Commands::Complete(args) => {
             args.output.output != commands::protocol::ProtocolOutputFormat::Human
         }
-        Commands::List(args) => args.json,
-        Commands::Tools(args) => args.json,
+        Commands::List(args) => args.output != commands::mcp::OutputFormat::Human,
+        Commands::Tools(args) => args.output != commands::mcp::OutputFormat::Human,
         _ => false,
     }
 }
@@ -367,7 +367,7 @@ mod tests {
                 assert_eq!(args.target, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.tool_name, "get_repo_status");
                 assert_eq!(args.arguments, "{}");
-                assert_eq!(args.output, commands::mcp::CallOutputFormat::Jsonl);
+                assert_eq!(args.output, commands::mcp::OutputFormat::Jsonl);
                 assert_eq!(args.timeout, Some(15));
                 assert_eq!(args.max_total_timeout, Some(60));
                 assert!(args.non_interactive);
@@ -428,14 +428,15 @@ mod tests {
         .unwrap();
         assert!(uses_machine_output(&task.command));
 
-        let list_json = Cli::try_parse_from(["mcpstore", "list", "--json"]).unwrap();
+        let list_json = Cli::try_parse_from(["mcpstore", "list", "--output", "json"]).unwrap();
         assert!(uses_machine_output(&list_json.command));
 
         let tools_json = Cli::try_parse_from([
             "mcpstore",
             "tools",
             "127ce370-1ed6-5b00-9713-e88d01b3010d",
-            "--json",
+            "--output",
+            "json",
         ])
         .unwrap();
         assert!(uses_machine_output(&tools_json.command));
@@ -807,9 +808,11 @@ mod tests {
 
     #[test]
     fn parses_list_and_tools_machine_output_flags() {
-        let list_cli = Cli::try_parse_from(["mcpstore", "list", "--json"]).unwrap();
+        let list_cli = Cli::try_parse_from(["mcpstore", "list", "--output", "json"]).unwrap();
         match list_cli.command {
-            Commands::List(args) => assert!(args.json),
+            Commands::List(args) => {
+                assert_eq!(args.output, commands::mcp::OutputFormat::Json);
+            }
             _ => panic!("Expected list command"),
         }
 
@@ -817,13 +820,14 @@ mod tests {
             "mcpstore",
             "tools",
             "127ce370-1ed6-5b00-9713-e88d01b3010d",
-            "--json",
+            "--output",
+            "jsonl",
             "--schema",
         ])
         .unwrap();
         match tools_cli.command {
             Commands::Tools(args) => {
-                assert!(args.json);
+                assert_eq!(args.output, commands::mcp::OutputFormat::Jsonl);
                 assert!(args.schema);
             }
             _ => panic!("Expected tools command"),
