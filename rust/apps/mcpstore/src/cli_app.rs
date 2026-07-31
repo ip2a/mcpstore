@@ -812,4 +812,23 @@ mod tests {
             _ => panic!("Expected tools command"),
         }
     }
+
+    #[test]
+    fn parses_check_exit_code_flags() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "check",
+            "127ce370-1ed6-5b00-9713-e88d01b3010d",
+            "--exit-code",
+            "--quiet",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Check(args) => {
+                assert!(args.exit_code);
+                assert!(args.quiet);
+            }
+            _ => panic!("Expected check command"),
+        }
+    }
 }
