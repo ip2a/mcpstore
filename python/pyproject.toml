@@ -28,9 +28,6 @@ classifiers = [
 "Homepage" = "https://github.com/ip2a/mcpstore"
 "Bug Tracker" = "https://github.com/ip2a/mcpstore/issues"
 
-[project.scripts]
-mcpstore = "mcpstore.runner.main:main"
-
 # 重型后端 extras（binary wheel 不含；需源码编译安装）:
 #   pip install mcpstore[postgres] --no-binary mcpstore
 # 编译时自动透传对应 cargo feature

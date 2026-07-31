@@ -17,10 +17,10 @@ use mcpstore::{
         ClientEntryStatus, ClientKind, ConfigChangeReceipt,
     },
     config::ScopeDescriptor,
-    mcp_server::{McpServerOptions, McpServerTransport},
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, McpLoggingLevel, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, ToolTransformPatch,
 };
+use crate::mcp_server::{McpServerOptions, McpServerTransport};
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;

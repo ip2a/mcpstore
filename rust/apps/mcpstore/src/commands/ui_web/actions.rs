@@ -78,15 +78,11 @@ pub(super) async fn action_switch_cache_storage(
     let cache_storage = match target {
         "memory" => CacheStorage::Memory,
         "redis" => CacheStorage::Redis,
-        "openkeyv_memory" => CacheStorage::OpenKeyvMemory,
-        "openkeyv_redis" => CacheStorage::OpenKeyvRedis,
         _ => {
             return Html(
                 layout(
                     "mcpstore - Error",
-                    error_markup(
-                        "Target cache storage must be memory, redis, openkeyv_memory, or openkeyv_redis",
-                    ),
+                    error_markup("Target cache storage must be memory or redis"),
                 )
                 .into_string(),
             )
@@ -118,8 +114,6 @@ pub(super) async fn modal_switch_cache_storage(
     let current_label = match cache_storage {
         CacheStorage::Memory => "memory",
         CacheStorage::Redis => "redis",
-        CacheStorage::OpenKeyvMemory => "openkeyv_memory",
-        CacheStorage::OpenKeyvRedis => "openkeyv_redis",
     };
     let content = html! {
         dialog open {
@@ -137,8 +131,6 @@ pub(super) async fn modal_switch_cache_storage(
                         select id="field-target" name="target" {
                             option value="memory" selected[cache_storage == CacheStorage::Memory] { "memory" }
                             option value="redis" selected[cache_storage == CacheStorage::Redis] { "redis" }
-                            option value="openkeyv_memory" selected[cache_storage == CacheStorage::OpenKeyvMemory] { "openkeyv_memory" }
-                            option value="openkeyv_redis" selected[cache_storage == CacheStorage::OpenKeyvRedis] { "openkeyv_redis" }
                         }
                     }
                     footer {

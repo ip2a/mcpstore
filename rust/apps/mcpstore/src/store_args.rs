@@ -22,10 +22,6 @@ impl SourceArg {
 pub enum CacheStorageArg {
     Memory,
     Redis,
-    #[value(name = "openkeyv_memory", alias = "openkeyv-memory")]
-    OpenKeyvMemory,
-    #[value(name = "openkeyv_redis", alias = "openkeyv-redis")]
-    OpenKeyvRedis,
 }
 
 impl CacheStorageArg {
@@ -33,8 +29,6 @@ impl CacheStorageArg {
         match self {
             Self::Memory => CacheStorage::Memory,
             Self::Redis => CacheStorage::Redis,
-            Self::OpenKeyvMemory => CacheStorage::OpenKeyvMemory,
-            Self::OpenKeyvRedis => CacheStorage::OpenKeyvRedis,
         }
     }
 }
@@ -53,7 +47,7 @@ pub struct StoreSourceArgs {
     #[arg(
         long,
         value_enum,
-        help = "Cache storage: memory, redis, openkeyv_memory, or openkeyv_redis"
+        help = "Cache storage: memory or redis"
     )]
     pub backend: Option<CacheStorageArg>,
     #[arg(

@@ -2,6 +2,7 @@ pub mod bootstrap;
 pub mod cli_app;
 pub mod commands;
 pub mod daemon;
+pub mod mcp_server;
 pub mod store_args;
 pub mod tui;
 

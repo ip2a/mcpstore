@@ -97,8 +97,6 @@ pub(super) fn parse_cache_storage(value: &str) -> ApiResult<CacheStorage> {
     match value {
         "memory" => Ok(CacheStorage::Memory),
         "redis" => Ok(CacheStorage::Redis),
-        "openkeyv_memory" => Ok(CacheStorage::OpenKeyvMemory),
-        "openkeyv_redis" => Ok(CacheStorage::OpenKeyvRedis),
         other => Err(ApiError::invalid_parameter(
             format!("不支持的 backend: {other}"),
             Some("backend"),
@@ -133,8 +131,8 @@ mod tests {
             CacheStorage::Memory
         ));
         assert!(matches!(
-            parse_cache_storage("openkeyv_redis").unwrap(),
-            CacheStorage::OpenKeyvRedis
+            parse_cache_storage("redis").unwrap(),
+            CacheStorage::Redis
         ));
         assert!(parse_cache_storage("unknown").is_err());
     }

@@ -72,7 +72,7 @@ pub(super) async fn build_tool_bindings(
         store
             .list_tools_for_instance_with_filter(
                 instance_id,
-                crate::agent::tool_visibility::ToolVisibilityFilter::Available,
+                mcpstore::ToolVisibilityFilter::Available,
             )
             .await?
     } else {
