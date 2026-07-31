@@ -1,154 +1,24 @@
 use clap::{Args, Subcommand, ValueEnum};
-use mcpstore::transport::TransportError;
-use mcpstore::{InstanceId, McpCompletionReference, McpCompletionRequest, StoreError};
+use mcpstore::{InstanceId, McpCompletionReference, McpCompletionRequest};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
 use crate::{
     commands::mcp::parse_instance_id,
     store_args::{build_store, StoreSourceArgs},
     BoxErr,
 };
 
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
-pub enum ProtocolOutputFormat {
-    #[default]
-    Human,
-    Json,
-    Jsonl,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum ProtocolErrorCode {
-    InvalidInput,
-    ServiceNotFound,
-    ConnectionFailed,
-    AuthenticationRequired,
-    CapabilityUnsupported,
-    ProtocolFailed,
-    CommandFailed,
-}
-
-impl ProtocolErrorCode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::InvalidInput => "invalid_input",
-            Self::ServiceNotFound => "service_not_found",
-            Self::ConnectionFailed => "connection_failed",
-            Self::AuthenticationRequired => "authentication_required",
-            Self::CapabilityUnsupported => "capability_unsupported",
-            Self::ProtocolFailed => "protocol_failed",
-            Self::CommandFailed => "protocol_command_failed",
-        }
-    }
-
-    fn exit_code(self) -> i32 {
-        match self {
-            Self::InvalidInput => 2,
-            Self::ServiceNotFound => 10,
-            Self::ConnectionFailed => 11,
-            Self::AuthenticationRequired => 12,
-            Self::CapabilityUnsupported => 20,
-            Self::ProtocolFailed => 34,
-            Self::CommandFailed => 1,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ProtocolCommandError {
-    format: ProtocolOutputFormat,
-    code: ProtocolErrorCode,
-    message: String,
-    instance_id: Option<InstanceId>,
-}
-
-impl ProtocolCommandError {
-    fn new(
-        format: ProtocolOutputFormat,
-        code: ProtocolErrorCode,
-        message: impl Into<String>,
-        instance_id: Option<InstanceId>,
-    ) -> Self {
-        Self {
-            format,
-            code,
-            message: message.into(),
-            instance_id,
-        }
-    }
-
-    fn from_store(
-        error: StoreError,
-        format: ProtocolOutputFormat,
-        instance_id: InstanceId,
-    ) -> Self {
-        let code = match &error {
-            StoreError::ToolNotAvailable { .. } => ProtocolErrorCode::InvalidInput,
-            StoreError::ServiceNotFound(_) => ProtocolErrorCode::ServiceNotFound,
-            StoreError::Auth(_) => ProtocolErrorCode::AuthenticationRequired,
-            StoreError::Transport(error) => match error {
-                TransportError::InvalidInput(_) => ProtocolErrorCode::InvalidInput,
-                TransportError::AuthRequired(_) | TransportError::InsufficientScope { .. } => {
-                    ProtocolErrorCode::AuthenticationRequired
-                }
-                TransportError::CapabilityUnsupported { .. } => {
-                    ProtocolErrorCode::CapabilityUnsupported
-                }
-                TransportError::ConnectionFailed(_)
-                | TransportError::NotConnected(_)
-                | TransportError::Io(_) => ProtocolErrorCode::ConnectionFailed,
-                TransportError::Protocol(_) => ProtocolErrorCode::ProtocolFailed,
-                _ => ProtocolErrorCode::CommandFailed,
-            },
-            StoreError::Cache(_)
-            | StoreError::Config(_)
-            | StoreError::State(_)
-            | StoreError::Other(_) => ProtocolErrorCode::CommandFailed,
-        };
-        Self::new(format, code, error.to_string(), Some(instance_id))
-    }
-
-    pub fn exit_code(&self) -> i32 {
-        self.code.exit_code()
-    }
-
-    fn json_value(&self) -> Value {
-        json!({
-            "event": "protocol.failed",
-            "error": {
-                "code": self.code.as_str(),
-                "message": self.message,
-            },
-            "instance_id": self.instance_id,
-        })
-    }
-}
-
-impl std::fmt::Display for ProtocolCommandError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.format {
-            ProtocolOutputFormat::Human => {
-                write!(formatter, "{}: {}", self.code.as_str(), self.message)
-            }
-            ProtocolOutputFormat::Json | ProtocolOutputFormat::Jsonl => {
-                self.json_value().fmt(formatter)
-            }
-        }
-    }
-}
-
-impl std::error::Error for ProtocolCommandError {}
-
 #[derive(Debug, Clone, Args)]
 pub struct ProtocolOutputArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = ProtocolOutputFormat::Human,
+        default_value_t = OutputFormat::Human,
         help = "Output format: human, json, or jsonl"
     )]
-    pub output: ProtocolOutputFormat,
+    pub output: OutputFormat,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -260,7 +130,7 @@ pub async fn complete(args: CompleteArgs) -> Result<(), BoxErr> {
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute_resource(args: ResourceArgs) -> Result<(), ProtocolCommandError> {
+async fn execute_resource(args: ResourceArgs) -> Result<(), CliError> {
     match args.action {
         ResourceAction::List(args) => execute_resource_list(args).await,
         ResourceAction::Templates(args) => execute_resource_templates(args).await,
@@ -268,31 +138,22 @@ async fn execute_resource(args: ResourceArgs) -> Result<(), ProtocolCommandError
     }
 }
 
-async fn execute_resource_list(args: ProtocolInstanceArgs) -> Result<(), ProtocolCommandError> {
+async fn execute_resource_list(args: ProtocolInstanceArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::InvalidInput,
-            error.to_string(),
-            None,
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::CommandFailed,
-            error.to_string(),
-            Some(instance_id),
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
+            .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let resources = store.list_resources(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let total = resources.len();
     let value = json!({
@@ -310,34 +171,25 @@ async fn execute_resource_list(args: ProtocolInstanceArgs) -> Result<(), Protoco
 
 async fn execute_resource_templates(
     args: ProtocolInstanceArgs,
-) -> Result<(), ProtocolCommandError> {
+) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::InvalidInput,
-            error.to_string(),
-            None,
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::CommandFailed,
-            error.to_string(),
-            Some(instance_id),
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
+            .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let templates = store
         .list_resource_templates(instance_id)
         .await
         .map_err(|error| {
-            ProtocolCommandError::from_store(error, args.output.output, instance_id)
+            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
         })?;
     let total = templates.len();
     let value = json!({
@@ -353,42 +205,34 @@ async fn execute_resource_templates(
     )
 }
 
-async fn execute_resource_read(args: ResourceReadArgs) -> Result<(), ProtocolCommandError> {
+async fn execute_resource_read(args: ResourceReadArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::InvalidInput,
-            error.to_string(),
-            None,
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
     })?;
     if args.uri.trim().is_empty() {
-        return Err(ProtocolCommandError::new(
+        return Err(CliError::new(
             args.output.output,
-            ProtocolErrorCode::InvalidInput,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
             "resource URI must not be empty",
-            Some(instance_id),
-        ));
+        )
+        .with("instance_id", instance_id.to_string()));
     }
     let store = build_store(&args.store).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::CommandFailed,
-            error.to_string(),
-            Some(instance_id),
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
+            .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let resource = store
         .read_resource(instance_id, &args.uri)
         .await
         .map_err(|error| {
-            ProtocolCommandError::from_store(error, args.output.output, instance_id)
+            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
         })?;
     let value = json!({
         "event": "resource.read",
@@ -399,38 +243,29 @@ async fn execute_resource_read(args: ResourceReadArgs) -> Result<(), ProtocolCom
     emit(args.output.output, value["resource"].to_string(), value)
 }
 
-async fn execute_prompt(args: PromptArgs) -> Result<(), ProtocolCommandError> {
+async fn execute_prompt(args: PromptArgs) -> Result<(), CliError> {
     match args.action {
         PromptAction::List(args) => execute_prompt_list(args).await,
         PromptAction::Get(args) => execute_prompt_get(args).await,
     }
 }
 
-async fn execute_prompt_list(args: ProtocolInstanceArgs) -> Result<(), ProtocolCommandError> {
+async fn execute_prompt_list(args: ProtocolInstanceArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::InvalidInput,
-            error.to_string(),
-            None,
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::CommandFailed,
-            error.to_string(),
-            Some(instance_id),
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
+            .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let prompts = store.list_prompts(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let total = prompts.len();
     let value = json!({
@@ -446,14 +281,9 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs) -> Result<(), ProtocolC
     )
 }
 
-async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), ProtocolCommandError> {
+async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::InvalidInput,
-            error.to_string(),
-            None,
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
     })?;
     let arguments = parse_object(
         &args.arguments,
@@ -462,32 +292,29 @@ async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), ProtocolCommandEr
         "prompt arguments",
     )?;
     if args.prompt_name.trim().is_empty() {
-        return Err(ProtocolCommandError::new(
+        return Err(CliError::new(
             args.output.output,
-            ProtocolErrorCode::InvalidInput,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
             "prompt name must not be empty",
-            Some(instance_id),
-        ));
+        )
+        .with("instance_id", instance_id.to_string()));
     }
     let store = build_store(&args.store).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::CommandFailed,
-            error.to_string(),
-            Some(instance_id),
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
+            .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let prompt = store
         .get_prompt(instance_id, &args.prompt_name, arguments)
         .await
         .map_err(|error| {
-            ProtocolCommandError::from_store(error, args.output.output, instance_id)
+            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
         })?;
     let value = json!({
         "event": "prompt.get",
@@ -498,31 +325,28 @@ async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), ProtocolCommandEr
     emit(args.output.output, value["prompt"].to_string(), value)
 }
 
-async fn execute_complete(args: CompleteArgs) -> Result<(), ProtocolCommandError> {
+async fn execute_complete(args: CompleteArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::InvalidInput,
-            error.to_string(),
-            None,
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
     })?;
     if args.reference.trim().is_empty() || args.argument_name.trim().is_empty() {
-        return Err(ProtocolCommandError::new(
+        return Err(CliError::new(
             args.output.output,
-            ProtocolErrorCode::InvalidInput,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
             "reference and argument-name must not be empty",
-            Some(instance_id),
-        ));
+        )
+        .with("instance_id", instance_id.to_string()));
     }
     let context =
         serde_json::from_str::<HashMap<String, String>>(&args.context).map_err(|error| {
-            ProtocolCommandError::new(
+            CliError::new(
                 args.output.output,
-                ProtocolErrorCode::InvalidInput,
+                Domain::Protocol,
+                ErrorCode::InvalidInput,
                 format!("completion context must be a JSON object with string values: {error}"),
-                Some(instance_id),
             )
+            .with("instance_id", instance_id.to_string())
         })?;
     let reference = match args.reference_kind {
         CompletionReferenceKind::Prompt => McpCompletionReference::Prompt {
@@ -539,24 +363,20 @@ async fn execute_complete(args: CompleteArgs) -> Result<(), ProtocolCommandError
         context,
     };
     let store = build_store(&args.store).map_err(|error| {
-        ProtocolCommandError::new(
-            args.output.output,
-            ProtocolErrorCode::CommandFailed,
-            error.to_string(),
-            Some(instance_id),
-        )
+        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
+            .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        ProtocolCommandError::from_store(error, args.output.output, instance_id)
+        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
     })?;
     let completion = store
         .complete_mcp_argument(instance_id, request)
         .await
         .map_err(|error| {
-            ProtocolCommandError::from_store(error, args.output.output, instance_id)
+            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
         })?;
     let value = json!({
         "event": "completion.completed",
@@ -568,25 +388,21 @@ async fn execute_complete(args: CompleteArgs) -> Result<(), ProtocolCommandError
 
 fn parse_object(
     input: &str,
-    format: ProtocolOutputFormat,
+    format: OutputFormat,
     instance_id: Option<InstanceId>,
     name: &str,
-) -> Result<Value, ProtocolCommandError> {
-    let value: Value = serde_json::from_str(input).map_err(|error| {
-        ProtocolCommandError::new(
-            format,
-            ProtocolErrorCode::InvalidInput,
-            format!("{name} must be a JSON object: {error}"),
-            instance_id,
-        )
-    })?;
+) -> Result<Value, CliError> {
+    let make_error = |message: String| {
+        let err = CliError::new(format, Domain::Protocol, ErrorCode::InvalidInput, message);
+        match instance_id {
+            Some(id) => err.with("instance_id", id.to_string()),
+            None => err,
+        }
+    };
+    let value: Value = serde_json::from_str(input)
+        .map_err(|error| make_error(format!("{name} must be a JSON object: {error}")))?;
     if !value.is_object() {
-        return Err(ProtocolCommandError::new(
-            format,
-            ProtocolErrorCode::InvalidInput,
-            format!("{name} must be a JSON object"),
-            instance_id,
-        ));
+        return Err(make_error(format!("{name} must be a JSON object")));
     }
     Ok(value)
 }
@@ -639,25 +455,20 @@ fn format_prompt_list(
 }
 
 fn emit(
-    format: ProtocolOutputFormat,
+    format: OutputFormat,
     human: String,
     value: Value,
-) -> Result<(), ProtocolCommandError> {
+) -> Result<(), CliError> {
     let encoded = match format {
-        ProtocolOutputFormat::Human => {
+        OutputFormat::Human => {
             println!("{human}");
             return Ok(());
         }
-        ProtocolOutputFormat::Json => serde_json::to_string_pretty(&value),
-        ProtocolOutputFormat::Jsonl => serde_json::to_string(&value),
+        OutputFormat::Json => serde_json::to_string_pretty(&value),
+        OutputFormat::Jsonl => serde_json::to_string(&value),
     }
     .map_err(|error| {
-        ProtocolCommandError::new(
-            format,
-            ProtocolErrorCode::CommandFailed,
-            error.to_string(),
-            None,
-        )
+        CliError::new(format, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
     })?;
     println!("{encoded}");
     Ok(())
@@ -669,8 +480,8 @@ mod tests {
 
     #[test]
     fn object_parser_rejects_non_object() {
-        let error = parse_object("[]", ProtocolOutputFormat::Jsonl, None, "arguments").unwrap_err();
-        assert_eq!(error.code, ProtocolErrorCode::InvalidInput);
+        let error = parse_object("[]", OutputFormat::Jsonl, None, "arguments").unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
         assert_eq!(error.exit_code(), 2);
     }
 }

@@ -1,4 +1,5 @@
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
+#[cfg(test)]
 use mcpstore::transport::TransportError;
 use mcpstore::{
     InstanceId, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpTask, McpTaskRecord,
@@ -9,213 +10,11 @@ use std::time::Duration;
 
 use crate::commands::elicitation::{
     handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
-    ElicitationCommandError, ElicitationErrorKind, ElicitationOutputFormat,
+    ElicitationCommandError, ElicitationErrorKind,
 };
+use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
 use crate::store_args::{build_store, StoreSourceArgs};
 use crate::BoxErr;
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
-pub enum TaskOutputFormat {
-    #[default]
-    Human,
-    Json,
-    Jsonl,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum TaskErrorCode {
-    InvalidInput,
-    ServiceNotFound,
-    ConnectionFailed,
-    AuthenticationRequired,
-    CapabilityUnsupported,
-    TaskNotFound,
-    TaskExpired,
-    TaskResultUnavailable,
-    TaskFailed,
-    TaskNotCancellable,
-    TaskProtocolFailed,
-    TaskStateFailed,
-    ExecutionCancelled,
-    ExecutionTimedOut,
-    ExecutionDisconnected,
-    ElicitationInputRequired,
-    ElicitationCancelled,
-    ElicitationTimedOut,
-    ElicitationInvalidResponse,
-    CommandFailed,
-}
-
-impl TaskErrorCode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::InvalidInput => "invalid_input",
-            Self::ServiceNotFound => "service_not_found",
-            Self::ConnectionFailed => "connection_failed",
-            Self::AuthenticationRequired => "authentication_required",
-            Self::CapabilityUnsupported => "capability_unsupported",
-            Self::TaskNotFound => "task_not_found",
-            Self::TaskExpired => "task_expired",
-            Self::TaskResultUnavailable => "task_result_unavailable",
-            Self::TaskFailed => "task_failed",
-            Self::TaskNotCancellable => "task_not_cancellable",
-            Self::TaskProtocolFailed => "task_protocol_failed",
-            Self::TaskStateFailed => "task_state_failed",
-            Self::ExecutionCancelled => "execution_cancelled",
-            Self::ExecutionTimedOut => "execution_timed_out",
-            Self::ExecutionDisconnected => "execution_disconnected",
-            Self::ElicitationInputRequired => "input_required",
-            Self::ElicitationCancelled => "elicitation_cancelled",
-            Self::ElicitationTimedOut => "elicitation_timed_out",
-            Self::ElicitationInvalidResponse => "elicitation_invalid_response",
-            Self::CommandFailed => "task_command_failed",
-        }
-    }
-
-    fn exit_code(self) -> i32 {
-        match self {
-            Self::InvalidInput => 2,
-            Self::ServiceNotFound => 10,
-            Self::ConnectionFailed => 11,
-            Self::AuthenticationRequired => 12,
-            Self::CapabilityUnsupported => 20,
-            Self::TaskNotFound => 21,
-            Self::TaskExpired => 22,
-            Self::TaskResultUnavailable => 23,
-            Self::TaskFailed => 24,
-            Self::TaskProtocolFailed => 25,
-            Self::TaskStateFailed => 26,
-            Self::TaskNotCancellable => 27,
-            Self::ExecutionCancelled => 30,
-            Self::ExecutionTimedOut => 31,
-            Self::ExecutionDisconnected => 32,
-            Self::ElicitationInputRequired => 35,
-            Self::ElicitationCancelled => 36,
-            Self::ElicitationTimedOut => 37,
-            Self::ElicitationInvalidResponse => 38,
-            Self::CommandFailed => 1,
-        }
-    }
-
-    fn event(self) -> &'static str {
-        match self {
-            Self::ExecutionCancelled => "task.cancelled",
-            Self::ExecutionTimedOut => "task.timed_out",
-            Self::ExecutionDisconnected => "task.failed",
-            Self::ElicitationInputRequired => "elicitation.input_required",
-            Self::ElicitationCancelled => "elicitation.cancelled",
-            Self::ElicitationTimedOut => "elicitation.timed_out",
-            Self::ElicitationInvalidResponse => "elicitation.invalid_response",
-            _ => "task.error",
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct TaskCommandError {
-    format: TaskOutputFormat,
-    code: TaskErrorCode,
-    message: String,
-    instance_id: Option<InstanceId>,
-    task_id: Option<String>,
-}
-
-impl TaskCommandError {
-    fn new(format: TaskOutputFormat, code: TaskErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            format,
-            code,
-            message: message.into(),
-            instance_id: None,
-            task_id: None,
-        }
-    }
-
-    fn for_task(
-        format: TaskOutputFormat,
-        code: TaskErrorCode,
-        message: impl Into<String>,
-        instance_id: InstanceId,
-        task_id: impl Into<String>,
-    ) -> Self {
-        Self {
-            format,
-            code,
-            message: message.into(),
-            instance_id: Some(instance_id),
-            task_id: Some(task_id.into()),
-        }
-    }
-
-    fn from_store(error: StoreError, format: TaskOutputFormat) -> Self {
-        let code = match &error {
-            StoreError::ToolNotAvailable { .. } => TaskErrorCode::InvalidInput,
-            StoreError::ServiceNotFound(_) => TaskErrorCode::ServiceNotFound,
-            StoreError::Auth(_) => TaskErrorCode::AuthenticationRequired,
-            StoreError::Transport(error) => match error {
-                TransportError::InvalidInput(_) => TaskErrorCode::InvalidInput,
-                TransportError::AuthRequired(_) | TransportError::InsufficientScope { .. } => {
-                    TaskErrorCode::AuthenticationRequired
-                }
-                TransportError::CapabilityUnsupported { .. } => {
-                    TaskErrorCode::CapabilityUnsupported
-                }
-                TransportError::RequestCancelled { .. } => TaskErrorCode::ExecutionCancelled,
-                TransportError::RequestTimedOut { .. } => TaskErrorCode::ExecutionTimedOut,
-                TransportError::RequestDisconnected { .. } => TaskErrorCode::ExecutionDisconnected,
-                TransportError::ConnectionFailed(_)
-                | TransportError::NotConnected(_)
-                | TransportError::Io(_) => TaskErrorCode::ConnectionFailed,
-                TransportError::ElicitationSessionActive { .. } => {
-                    TaskErrorCode::ElicitationInvalidResponse
-                }
-                TransportError::TaskNotFound { .. } => TaskErrorCode::TaskNotFound,
-                TransportError::Protocol(_) => TaskErrorCode::TaskProtocolFailed,
-                TransportError::TaskState(_) => TaskErrorCode::TaskStateFailed,
-                TransportError::ToolCallFailed(_) => TaskErrorCode::CommandFailed,
-            },
-            StoreError::Cache(_) => TaskErrorCode::TaskStateFailed,
-            StoreError::Config(_) | StoreError::State(_) | StoreError::Other(_) => {
-                TaskErrorCode::CommandFailed
-            }
-        };
-        Self::new(format, code, error.to_string())
-    }
-
-    fn with_instance(mut self, instance_id: InstanceId) -> Self {
-        self.instance_id = Some(instance_id);
-        self
-    }
-
-    pub fn exit_code(&self) -> i32 {
-        self.code.exit_code()
-    }
-
-    fn json_value(&self) -> Value {
-        json!({
-            "event": self.code.event(),
-            "error": {
-                "code": self.code.as_str(),
-                "message": self.message,
-            },
-            "instance_id": self.instance_id,
-            "task_id": self.task_id,
-        })
-    }
-}
-
-impl std::fmt::Display for TaskCommandError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.format {
-            TaskOutputFormat::Human => {
-                write!(formatter, "{}: {}", self.code.as_str(), self.message)
-            }
-            TaskOutputFormat::Json | TaskOutputFormat::Jsonl => self.json_value().fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for TaskCommandError {}
 
 #[derive(Args)]
 pub struct TaskArgs {
@@ -237,10 +36,10 @@ pub struct TaskRuntimeArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = TaskOutputFormat::Human,
+        default_value_t = OutputFormat::Human,
         help = "Output format: human, json, or jsonl"
     )]
-    pub output: TaskOutputFormat,
+    pub output: OutputFormat,
     #[arg(long, help = "Guarantee that the command does not prompt for input")]
     pub non_interactive: bool,
     #[command(flatten)]
@@ -299,7 +98,7 @@ pub async fn run(args: TaskArgs) -> Result<(), BoxErr> {
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute(action: TaskAction) -> Result<(), TaskCommandError> {
+async fn execute(action: TaskAction) -> Result<(), CliError> {
     match action {
         TaskAction::Run(args) => run_task(args).await,
         TaskAction::List(args) => list_tasks(args).await,
@@ -309,7 +108,7 @@ async fn execute(action: TaskAction) -> Result<(), TaskCommandError> {
     }
 }
 
-async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
+async fn run_task(args: TaskRunArgs) -> Result<(), CliError> {
     let output = args.runtime.output;
     let input = parse_input(&args.input, output)?;
     let store = loaded_store(&args.runtime, output).await?;
@@ -324,11 +123,11 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
     let mut elicitation = store
         .open_elicitation_session(args.instance_id, args.elicitation.session_options())
         .await
-        .map_err(|error| TaskCommandError::from_store(error, output))?;
+        .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
     let mut execution = store
         .start_task_execution(args.instance_id, &args.tool_name, input, args.ttl, options)
         .await
-        .map_err(|error| TaskCommandError::from_store(error, output))?;
+        .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
     emit_task_started(output, &args.tool_name, &execution)?;
 
     let mut cancellation_requested = false;
@@ -350,7 +149,7 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
                             if let Err(error) = handle_elicitation(
                                 request,
                                 &args.elicitation,
-                                task_elicitation_output(output),
+                                output,
                                 args.runtime.non_interactive,
                             )
                             .await
@@ -368,9 +167,10 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
                     continue;
                 }
                 signal = tokio::signal::ctrl_c() => {
-                    signal.map_err(|error| TaskCommandError::new(
+                    signal.map_err(|error| CliError::new(
                         output,
-                        TaskErrorCode::CommandFailed,
+                        Domain::Task,
+                        ErrorCode::CommandFailed,
                         format!("failed to listen for Ctrl+C: {error}"),
                     ))?;
                     if execution.cancel("cancelled by user (Ctrl+C)") {
@@ -388,7 +188,7 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
             }
             Some(McpStoreExecutionUpdate::Finished(result)) => {
                 let execution = result.map_err(|error| {
-                    TaskCommandError::from_store(error, output).with_instance(args.instance_id)
+                    CliError::from_store(&error, output, Domain::Task).with("instance_id", args.instance_id.to_string())
                 })?;
                 if cancellation_requested {
                     return cancel_created_task(
@@ -410,46 +210,40 @@ async fn run_task(args: TaskRunArgs) -> Result<(), TaskCommandError> {
                 .await;
             }
             None => {
-                return Err(TaskCommandError::new(
+                return Err(CliError::new(
                     output,
-                    TaskErrorCode::TaskProtocolFailed,
+                    Domain::Task,
+                    ErrorCode::TaskProtocolFailed,
                     "task execution ended without a result",
                 )
-                .with_instance(args.instance_id));
+                .with("instance_id", args.instance_id.to_string()));
             }
         }
     }
 }
 
-fn task_elicitation_output(output: TaskOutputFormat) -> ElicitationOutputFormat {
-    match output {
-        TaskOutputFormat::Human => ElicitationOutputFormat::Human,
-        TaskOutputFormat::Json => ElicitationOutputFormat::Json,
-        TaskOutputFormat::Jsonl => ElicitationOutputFormat::Jsonl,
-    }
-}
 
 fn task_elicitation_error(
     error: ElicitationCommandError,
-    output: TaskOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
-) -> TaskCommandError {
+) -> CliError {
     let code = match error.kind() {
-        ElicitationErrorKind::InputRequired => TaskErrorCode::ElicitationInputRequired,
-        ElicitationErrorKind::Cancelled => TaskErrorCode::ElicitationCancelled,
-        ElicitationErrorKind::TimedOut => TaskErrorCode::ElicitationTimedOut,
-        ElicitationErrorKind::InvalidResponse => TaskErrorCode::ElicitationInvalidResponse,
+        ElicitationErrorKind::InputRequired => ErrorCode::ElicitationInputRequired,
+        ElicitationErrorKind::Cancelled => ErrorCode::ElicitationCancelled,
+        ElicitationErrorKind::TimedOut => ErrorCode::ElicitationTimedOut,
+        ElicitationErrorKind::InvalidResponse => ErrorCode::ElicitationInvalidResponse,
     };
-    TaskCommandError::new(output, code, error.message()).with_instance(instance_id)
+    CliError::new(output, Domain::Task, code, error.message()).with("instance_id", instance_id.to_string())
 }
 
 async fn finish_task_execution(
     store: &MCPStore,
-    output: TaskOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
     execution: McpToolExecution,
-) -> Result<(), TaskCommandError> {
+) -> Result<(), CliError> {
     match execution {
         McpToolExecution::Immediate { result } => emit(
             output,
@@ -475,11 +269,11 @@ async fn finish_task_execution(
 
 async fn cancel_created_task(
     store: &MCPStore,
-    output: TaskOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
     execution: McpToolExecution,
-) -> Result<(), TaskCommandError> {
+) -> Result<(), CliError> {
     let task_id = match execution {
         McpToolExecution::Task { task } => {
             store
@@ -490,22 +284,26 @@ async fn cancel_created_task(
         }
         McpToolExecution::Immediate { .. } => None,
     };
-    let mut error = TaskCommandError::new(
+    let error = CliError::new(
         output,
-        TaskErrorCode::ExecutionCancelled,
+        Domain::Task,
+        ErrorCode::Cancelled,
         format!("task execution for {tool_name} was cancelled by user"),
     )
-    .with_instance(instance_id);
-    error.task_id = task_id;
+    .with("instance_id", instance_id.to_string());
+    let error = match &task_id {
+        Some(id) => error.with("task_id", id.as_str()),
+        None => error,
+    };
     Err(error)
 }
 
 fn emit_task_started(
-    output: TaskOutputFormat,
+    output: OutputFormat,
     tool_name: &str,
     execution: &mcpstore::McpStoreToolExecutionHandle<'_>,
-) -> Result<(), TaskCommandError> {
-    if output != TaskOutputFormat::Jsonl {
+) -> Result<(), CliError> {
+    if output != OutputFormat::Jsonl {
         return Ok(());
     }
     emit_value(
@@ -522,12 +320,12 @@ fn emit_task_started(
 }
 
 fn emit_task_progress(
-    output: TaskOutputFormat,
+    output: OutputFormat,
     tool_name: &str,
     progress: &mcpstore::McpExecutionProgress,
-) -> Result<(), TaskCommandError> {
+) -> Result<(), CliError> {
     match output {
-        TaskOutputFormat::Human => {
+        OutputFormat::Human => {
             let amount = progress.total.map_or_else(
                 || progress.progress.to_string(),
                 |total| format!("{}/{}", progress.progress, total),
@@ -539,8 +337,8 @@ fn emit_task_progress(
             }
             Ok(())
         }
-        TaskOutputFormat::Json => Ok(()),
-        TaskOutputFormat::Jsonl => emit_value(
+        OutputFormat::Json => Ok(()),
+        OutputFormat::Jsonl => emit_value(
             output,
             json!({
                 "event": "task.progress",
@@ -556,17 +354,17 @@ fn emit_task_progress(
 }
 
 fn emit_task_cancellation_requested(
-    output: TaskOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
-) -> Result<(), TaskCommandError> {
+) -> Result<(), CliError> {
     match output {
-        TaskOutputFormat::Human => {
+        OutputFormat::Human => {
             eprintln!("[Cancellation requested] {tool_name}");
             Ok(())
         }
-        TaskOutputFormat::Json => Ok(()),
-        TaskOutputFormat::Jsonl => emit_value(
+        OutputFormat::Json => Ok(()),
+        OutputFormat::Jsonl => emit_value(
             output,
             json!({
                 "event": "task.cancellation_requested",
@@ -577,27 +375,27 @@ fn emit_task_cancellation_requested(
     }
 }
 
-async fn list_tasks(args: TaskInstanceArgs) -> Result<(), TaskCommandError> {
+async fn list_tasks(args: TaskInstanceArgs) -> Result<(), CliError> {
     let output = args.runtime.output;
     let store = loaded_store(&args.runtime, output).await?;
     store
         .list_tasks(args.instance_id)
         .await
-        .map_err(|error| TaskCommandError::from_store(error, output))?;
+        .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
     let records = store
         .list_task_records(args.instance_id)
         .await
-        .map_err(|error| TaskCommandError::from_store(error, output))?;
+        .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
 
     match output {
-        TaskOutputFormat::Human => {
+        OutputFormat::Human => {
             println!("tasks: {}", records.len());
             for record in &records {
                 println!("{}", task_human("task", record));
             }
             Ok(())
         }
-        TaskOutputFormat::Json => emit_value(
+        OutputFormat::Json => emit_value(
             output,
             json!({
                 "event": "task.list",
@@ -606,7 +404,7 @@ async fn list_tasks(args: TaskInstanceArgs) -> Result<(), TaskCommandError> {
                 "tasks": records,
             }),
         ),
-        TaskOutputFormat::Jsonl => {
+        OutputFormat::Jsonl => {
             for record in &records {
                 emit_value(output, task_event("task.observed", record))?;
             }
@@ -622,7 +420,7 @@ async fn list_tasks(args: TaskInstanceArgs) -> Result<(), TaskCommandError> {
     }
 }
 
-async fn show_status(args: TaskTargetArgs) -> Result<(), TaskCommandError> {
+async fn show_status(args: TaskTargetArgs) -> Result<(), CliError> {
     let output = args.runtime.output;
     let store = loaded_store(&args.runtime, output).await?;
     store
@@ -637,7 +435,7 @@ async fn show_status(args: TaskTargetArgs) -> Result<(), TaskCommandError> {
     )
 }
 
-async fn show_result(args: TaskTargetArgs) -> Result<(), TaskCommandError> {
+async fn show_result(args: TaskTargetArgs) -> Result<(), CliError> {
     let output = args.runtime.output;
     let store = loaded_store(&args.runtime, output).await?;
     let task = store
@@ -666,7 +464,7 @@ async fn show_result(args: TaskTargetArgs) -> Result<(), TaskCommandError> {
     )
 }
 
-async fn cancel_task(args: TaskTargetArgs) -> Result<(), TaskCommandError> {
+async fn cancel_task(args: TaskTargetArgs) -> Result<(), CliError> {
     let output = args.runtime.output;
     let store = loaded_store(&args.runtime, output).await?;
     if let Some(record) = store
@@ -690,15 +488,15 @@ async fn cancel_task(args: TaskTargetArgs) -> Result<(), TaskCommandError> {
 
 async fn loaded_store(
     runtime: &TaskRuntimeArgs,
-    output: TaskOutputFormat,
-) -> Result<std::sync::Arc<MCPStore>, TaskCommandError> {
+    output: OutputFormat,
+) -> Result<std::sync::Arc<MCPStore>, CliError> {
     let store = build_store(&runtime.store).map_err(|error| {
-        TaskCommandError::new(output, TaskErrorCode::CommandFailed, error.to_string())
+        CliError::new(output, Domain::Task, ErrorCode::CommandFailed, error.to_string())
     })?;
     store
         .load_from_source()
         .await
-        .map_err(|error| TaskCommandError::from_store(error, output))?;
+        .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
     Ok(store)
 }
 
@@ -706,35 +504,38 @@ async fn require_task_record(
     store: &MCPStore,
     instance_id: InstanceId,
     task_id: &str,
-    output: TaskOutputFormat,
-) -> Result<McpTaskRecord, TaskCommandError> {
+    output: OutputFormat,
+) -> Result<McpTaskRecord, CliError> {
     store
         .get_task_record(instance_id, task_id)
         .await
         .map_err(|error| with_task_context(error, output, instance_id, task_id))?
         .ok_or_else(|| {
-            TaskCommandError::for_task(
+            CliError::new(
                 output,
-                TaskErrorCode::TaskStateFailed,
+                Domain::Task,
+                ErrorCode::TaskStateFailed,
                 "task state was not persisted after the operation",
-                instance_id,
-                task_id,
             )
+            .with("instance_id", instance_id.to_string())
+            .with("task_id", task_id)
         })
 }
 
-fn parse_input(input: &str, output: TaskOutputFormat) -> Result<Value, TaskCommandError> {
+fn parse_input(input: &str, output: OutputFormat) -> Result<Value, CliError> {
     let value: Value = serde_json::from_str(input).map_err(|error| {
-        TaskCommandError::new(
+        CliError::new(
             output,
-            TaskErrorCode::InvalidInput,
+            Domain::Task,
+            ErrorCode::InvalidInput,
             format!("invalid --input JSON: {error}"),
         )
     })?;
     if !value.is_object() {
-        return Err(TaskCommandError::new(
+        return Err(CliError::new(
             output,
-            TaskErrorCode::InvalidInput,
+            Domain::Task,
+            ErrorCode::InvalidInput,
             "--input must be a JSON object",
         ));
     }
@@ -743,76 +544,80 @@ fn parse_input(input: &str, output: TaskOutputFormat) -> Result<Value, TaskComma
 
 fn with_task_context(
     error: StoreError,
-    output: TaskOutputFormat,
+    output: OutputFormat,
     instance_id: InstanceId,
     task_id: &str,
-) -> TaskCommandError {
-    let mut error = TaskCommandError::from_store(error, output);
-    error.instance_id = Some(instance_id);
-    error.task_id = Some(task_id.to_string());
-    error
+) -> CliError {
+    CliError::from_store(&error, output, Domain::Task)
+        .with("instance_id", instance_id.to_string())
+        .with("task_id", task_id)
 }
 
 fn ensure_result_available(
     instance_id: InstanceId,
     task: &McpTask,
-    output: TaskOutputFormat,
-) -> Result<(), TaskCommandError> {
+    output: OutputFormat,
+) -> Result<(), CliError> {
     match task.status {
         McpTaskStatus::Completed => Ok(()),
-        McpTaskStatus::Failed => Err(TaskCommandError::for_task(
+        McpTaskStatus::Failed => Err(CliError::new(
             output,
-            TaskErrorCode::TaskFailed,
+            Domain::Task,
+            ErrorCode::TaskFailed,
             task.status_message
                 .as_deref()
                 .unwrap_or("task failed without a status message"),
-            instance_id,
-            &task.task_id,
-        )),
-        McpTaskStatus::Expired => Err(TaskCommandError::for_task(
+        )
+        .with("instance_id", instance_id.to_string())
+        .with("task_id", task.task_id.as_str())),
+        McpTaskStatus::Expired => Err(CliError::new(
             output,
-            TaskErrorCode::TaskExpired,
+            Domain::Task,
+            ErrorCode::TaskExpired,
             "task retention TTL has elapsed",
-            instance_id,
-            &task.task_id,
-        )),
-        _ => Err(TaskCommandError::for_task(
+        )
+        .with("instance_id", instance_id.to_string())
+        .with("task_id", task.task_id.as_str())),
+        _ => Err(CliError::new(
             output,
-            TaskErrorCode::TaskResultUnavailable,
+            Domain::Task,
+            ErrorCode::TaskResultUnavailable,
             format!(
                 "task result is unavailable while status is {}",
                 status_name(&task.status)
             ),
-            instance_id,
-            &task.task_id,
-        )),
+        )
+        .with("instance_id", instance_id.to_string())
+        .with("task_id", task.task_id.as_str())),
     }
 }
 
 fn ensure_cancellable(
     instance_id: InstanceId,
     task: &McpTask,
-    output: TaskOutputFormat,
-) -> Result<(), TaskCommandError> {
+    output: OutputFormat,
+) -> Result<(), CliError> {
     match task.status {
-        McpTaskStatus::Expired => Err(TaskCommandError::for_task(
+        McpTaskStatus::Expired => Err(CliError::new(
             output,
-            TaskErrorCode::TaskExpired,
+            Domain::Task,
+            ErrorCode::TaskExpired,
             "task retention TTL has elapsed",
-            instance_id,
-            &task.task_id,
-        )),
+        )
+        .with("instance_id", instance_id.to_string())
+        .with("task_id", task.task_id.as_str())),
         McpTaskStatus::Completed | McpTaskStatus::Failed | McpTaskStatus::Cancelled => {
-            Err(TaskCommandError::for_task(
+            Err(CliError::new(
                 output,
-                TaskErrorCode::TaskNotCancellable,
+                Domain::Task,
+                ErrorCode::TaskNotCancellable,
                 format!(
                     "task cannot be cancelled while status is {}",
                     status_name(&task.status)
                 ),
-                instance_id,
-                &task.task_id,
-            ))
+            )
+            .with("instance_id", instance_id.to_string())
+            .with("task_id", task.task_id.as_str()))
         }
         _ => Ok(()),
     }
@@ -875,26 +680,27 @@ fn status_name(status: &McpTaskStatus) -> &'static str {
     }
 }
 
-fn emit(output: TaskOutputFormat, human: String, value: Value) -> Result<(), TaskCommandError> {
+fn emit(output: OutputFormat, human: String, value: Value) -> Result<(), CliError> {
     match output {
-        TaskOutputFormat::Human => {
+        OutputFormat::Human => {
             println!("{human}");
             Ok(())
         }
-        TaskOutputFormat::Json | TaskOutputFormat::Jsonl => emit_value(output, value),
+        OutputFormat::Json | OutputFormat::Jsonl => emit_value(output, value),
     }
 }
 
-fn emit_value(output: TaskOutputFormat, value: Value) -> Result<(), TaskCommandError> {
+fn emit_value(output: OutputFormat, value: Value) -> Result<(), CliError> {
     let encoded = match output {
-        TaskOutputFormat::Human => Ok(value.to_string()),
-        TaskOutputFormat::Json => serde_json::to_string_pretty(&value),
-        TaskOutputFormat::Jsonl => serde_json::to_string(&value),
+        OutputFormat::Human => Ok(value.to_string()),
+        OutputFormat::Json => serde_json::to_string_pretty(&value),
+        OutputFormat::Jsonl => serde_json::to_string(&value),
     }
     .map_err(|error| {
-        TaskCommandError::new(
+        CliError::new(
             output,
-            TaskErrorCode::CommandFailed,
+            Domain::Task,
+            ErrorCode::CommandFailed,
             format!("failed to encode task output: {error}"),
         )
     })?;
@@ -921,11 +727,11 @@ mod tests {
     #[test]
     fn input_must_be_a_json_object() {
         assert_eq!(
-            parse_input("{\"value\":1}", TaskOutputFormat::Human).unwrap()["value"],
+            parse_input("{\"value\":1}", OutputFormat::Human).unwrap()["value"],
             1
         );
-        let error = parse_input("[]", TaskOutputFormat::Human).unwrap_err();
-        assert_eq!(error.code, TaskErrorCode::InvalidInput);
+        let error = parse_input("[]", OutputFormat::Human).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidInput);
         assert_eq!(error.exit_code(), 2);
     }
 
@@ -935,26 +741,26 @@ mod tests {
         assert!(ensure_result_available(
             instance_id,
             &task(McpTaskStatus::Completed),
-            TaskOutputFormat::Jsonl,
+            OutputFormat::Jsonl,
         )
         .is_ok());
 
         for (status, code, exit_code) in [
-            (McpTaskStatus::Failed, TaskErrorCode::TaskFailed, 24),
-            (McpTaskStatus::Expired, TaskErrorCode::TaskExpired, 22),
+            (McpTaskStatus::Failed, ErrorCode::TaskFailed, 24),
+            (McpTaskStatus::Expired, ErrorCode::TaskExpired, 22),
             (
                 McpTaskStatus::Working,
-                TaskErrorCode::TaskResultUnavailable,
+                ErrorCode::TaskResultUnavailable,
                 23,
             ),
         ] {
             let error =
-                ensure_result_available(instance_id, &task(status), TaskOutputFormat::Jsonl)
+                ensure_result_available(instance_id, &task(status), OutputFormat::Jsonl)
                     .unwrap_err();
-            assert_eq!(error.code, code);
+            assert_eq!(error.code(), code);
             assert_eq!(error.exit_code(), exit_code);
             let value: Value = serde_json::from_str(&error.to_string()).unwrap();
-            assert_eq!(value["event"], "task.error");
+            assert_eq!(value["event"], "task.failed");
             assert_eq!(value["error"]["code"], code.as_str());
         }
     }
@@ -966,10 +772,10 @@ mod tests {
         let expired = ensure_cancellable(
             instance_id,
             &task(McpTaskStatus::Expired),
-            TaskOutputFormat::Jsonl,
+            OutputFormat::Jsonl,
         )
         .unwrap_err();
-        assert_eq!(expired.code, TaskErrorCode::TaskExpired);
+        assert_eq!(expired.code(), ErrorCode::TaskExpired);
         assert_eq!(expired.exit_code(), 22);
 
         for status in [
@@ -977,39 +783,42 @@ mod tests {
             McpTaskStatus::Failed,
             McpTaskStatus::Cancelled,
         ] {
-            let error = ensure_cancellable(instance_id, &task(status), TaskOutputFormat::Jsonl)
+            let error = ensure_cancellable(instance_id, &task(status), OutputFormat::Jsonl)
                 .unwrap_err();
-            assert_eq!(error.code, TaskErrorCode::TaskNotCancellable);
+            assert_eq!(error.code(), ErrorCode::TaskNotCancellable);
             assert_eq!(error.exit_code(), 27);
         }
     }
 
     #[test]
     fn store_errors_map_to_stable_task_codes() {
-        let service = TaskCommandError::from_store(
-            StoreError::ServiceNotFound("missing".to_string()),
-            TaskOutputFormat::Human,
+        let service = CliError::from_store(
+            &StoreError::ServiceNotFound("missing".to_string()),
+            OutputFormat::Human,
+            Domain::Task,
         );
-        assert_eq!(service.code, TaskErrorCode::ServiceNotFound);
+        assert_eq!(service.code(), ErrorCode::ServiceNotFound);
         assert_eq!(service.exit_code(), 10);
 
-        let unsupported = TaskCommandError::from_store(
-            StoreError::Transport(TransportError::CapabilityUnsupported {
+        let unsupported = CliError::from_store(
+            &StoreError::Transport(TransportError::CapabilityUnsupported {
                 instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
                 capability: "tasks.list",
             }),
-            TaskOutputFormat::Json,
+            OutputFormat::Json,
+            Domain::Task,
         );
-        assert_eq!(unsupported.code, TaskErrorCode::CapabilityUnsupported);
+        assert_eq!(unsupported.code(), ErrorCode::CapabilityUnsupported);
         assert_eq!(unsupported.exit_code(), 20);
 
-        let missing = TaskCommandError::from_store(
-            StoreError::Transport(TransportError::TaskNotFound {
+        let missing = CliError::from_store(
+            &StoreError::Transport(TransportError::TaskNotFound {
                 task_id: "task-1".to_string(),
             }),
-            TaskOutputFormat::Jsonl,
+            OutputFormat::Jsonl,
+            Domain::Task,
         );
-        assert_eq!(missing.code, TaskErrorCode::TaskNotFound);
+        assert_eq!(missing.code(), ErrorCode::TaskNotFound);
         assert_eq!(missing.exit_code(), 21);
     }
 
@@ -1019,7 +828,7 @@ mod tests {
         for (error, code, exit_code, event) in [
             (
                 TransportError::RequestCancelled { reason: None },
-                TaskErrorCode::ExecutionCancelled,
+                ErrorCode::Cancelled,
                 30,
                 "task.cancelled",
             ),
@@ -1027,23 +836,24 @@ mod tests {
                 TransportError::RequestTimedOut {
                     timeout: Duration::from_secs(1),
                 },
-                TaskErrorCode::ExecutionTimedOut,
+                ErrorCode::TimedOut,
                 31,
                 "task.timed_out",
             ),
             (
                 TransportError::RequestDisconnected { instance_id },
-                TaskErrorCode::ExecutionDisconnected,
+                ErrorCode::Disconnected,
                 32,
                 "task.failed",
             ),
         ] {
             let error =
-                TaskCommandError::from_store(StoreError::Transport(error), TaskOutputFormat::Jsonl)
-                    .with_instance(instance_id);
-            assert_eq!(error.code, code);
+                CliError::from_store(&StoreError::Transport(error), OutputFormat::Jsonl, Domain::Task)
+                    .with("instance_id", instance_id.to_string());
+            assert_eq!(error.code(), code);
             assert_eq!(error.exit_code(), exit_code);
-            assert_eq!(error.json_value()["event"], event);
+            let v: Value = serde_json::from_str(&error.to_string()).unwrap();
+            assert_eq!(v["event"], event);
         }
     }
 
