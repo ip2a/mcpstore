@@ -1312,20 +1312,26 @@ async fn load_tool_input_schema_daemon(
     tool_name: &str,
     output: OutputFormat,
 ) -> Result<Option<Value>, CliError> {
+    if let Some(cached) = crate::schema_cache::load(&instance_id.to_string()) {
+        if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
+            return Ok(Some(schema));
+        }
+    }
     let response = crate::daemon::client::call_daemon(
         "list_tools",
         json!({ "instance_id": instance_id }),
     )
     .await
     .map_err(|error| CliError::new_execution(output, ErrorCode::CommandFailed, error))?;
-    Ok(response
+    let tools = response
         .get("tools")
         .and_then(Value::as_array)
-        .and_then(|tools| {
-            tools
-                .iter()
-                .find(|t| t.get("name").and_then(Value::as_str) == Some(tool_name))
-        })
+        .cloned()
+        .unwrap_or_default();
+    crate::schema_cache::save(&instance_id.to_string(), &tools);
+    Ok(tools
+        .iter()
+        .find(|t| t.get("name").and_then(Value::as_str) == Some(tool_name))
         .and_then(|t| t.get("schema").cloned()))
 }
 
@@ -1368,6 +1374,11 @@ async fn load_tool_input_schema(
     tool_name: &str,
     output: OutputFormat,
 ) -> Result<Option<Value>, CliError> {
+    if let Some(cached) = crate::schema_cache::load(&instance_id.to_string()) {
+        if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
+            return Ok(Some(schema));
+        }
+    }
     let entries = store
         .list_tool_entries_for_instance_with_filter(
             instance_id,
@@ -1375,6 +1386,11 @@ async fn load_tool_input_schema(
         )
         .await
         .map_err(|error| call_error_from_store(error, output, instance_id, tool_name))?;
+    let tools_json: Vec<Value> = entries
+        .iter()
+        .map(|e| json!({ "name": e.tool_name, "schema": e.input_schema }))
+        .collect();
+    crate::schema_cache::save(&instance_id.to_string(), &tools_json);
     Ok(entries
         .iter()
         .find(|entry| entry.tool_name == tool_name)
