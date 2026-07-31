@@ -380,16 +380,42 @@ pub struct GetArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human, help = "Output format: human, json, or jsonl")]
+    pub output: OutputFormat,
 }
 
 pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-    let payload = store.service_info_scoped(instance_id).await?;
-    let json = serde_json::to_string_pretty(&payload)?;
-    println!("{json}");
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let instance_id = resolve_target(&a.store, &scope, &a.target)
+        .await
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
+    let store = build_store(&a.store)
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    let payload = store
+        .service_info_scoped(instance_id)
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    match a.output {
+        OutputFormat::Human => {
+            let json = serde_json::to_string_pretty(&payload).map_err(|e| {
+                CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string())
+            })?;
+            println!("{json}");
+        }
+        _ => {
+            emit_call_value(
+                a.output,
+                json!({"event": "service.info", "instance_id": instance_id.to_string(), "info": payload}),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -430,31 +456,62 @@ pub struct ConnectArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human, help = "Output format: human, json, or jsonl")]
+    pub output: OutputFormat,
 }
 
 pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let instance_id = resolve_target(&a.store, &scope, &a.target)
+        .await
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id});
-        let result = crate::daemon::client::call_daemon("connect_service", params).await?;
+        let result = crate::daemon::client::call_daemon("connect_service", params)
+            .await
+            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
         let tools_count = result.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
         let capabilities = result
             .get("mcp")
             .cloned()
             .and_then(|value| serde_json::from_value::<Option<McpServerMetadata>>(value).ok())
             .flatten();
-        println!(
-            "[Success] Connected: {} (tools={}, capabilities={})",
-            instance_id,
-            tools_count,
-            format_capabilities(capabilities.as_ref())
-        );
+        match a.output {
+            OutputFormat::Human => {
+                println!(
+                    "[Success] Connected: {} (tools={}, capabilities={})",
+                    instance_id,
+                    tools_count,
+                    format_capabilities(capabilities.as_ref())
+                );
+            }
+            _ => {
+                emit_call_value(
+                    a.output,
+                    json!({
+                        "event": "service.connected",
+                        "instance_id": instance_id.to_string(),
+                        "tools_count": tools_count,
+                        "capabilities": format_capabilities(capabilities.as_ref()),
+                    }),
+                )?;
+            }
+        }
         return Ok(());
     }
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-    store.connect_service(instance_id).await?;
+    let store = build_store(&a.store)
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
     let tools = store
         .list_tool_entries_for_instance_with_filter(
             instance_id,
@@ -462,15 +519,33 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
         )
         .await
         .unwrap_or_default();
-    let metadata = store.mcp_server_metadata(instance_id).await?;
-    println!(
-        "[Success] Connected: {} (tools={}, capabilities={})",
-        instance_id,
-        tools.len(),
-        format_capabilities(metadata.as_ref())
-    );
-    for t in &tools {
-        println!("  - {}: {}", t.name, t.description);
+    let metadata = store
+        .mcp_server_metadata(instance_id)
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    match a.output {
+        OutputFormat::Human => {
+            println!(
+                "[Success] Connected: {} (tools={}, capabilities={})",
+                instance_id,
+                tools.len(),
+                format_capabilities(metadata.as_ref())
+            );
+            for t in &tools {
+                println!("  - {}: {}", t.name, t.description);
+            }
+        }
+        _ => {
+            emit_call_value(
+                a.output,
+                json!({
+                    "event": "service.connected",
+                    "instance_id": instance_id.to_string(),
+                    "tools_count": tools.len(),
+                    "capabilities": format_capabilities(metadata.as_ref()),
+                }),
+            )?;
+        }
     }
     Ok(())
 }
@@ -485,21 +560,57 @@ pub struct DisconnectArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human, help = "Output format: human, json, or jsonl")]
+    pub output: OutputFormat,
 }
 
 pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let instance_id = resolve_target(&a.store, &scope, &a.target)
+        .await
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id});
-        crate::daemon::client::call_daemon("disconnect_service", params).await?;
-        println!("[Success] Disconnected: {}", instance_id);
+        crate::daemon::client::call_daemon("disconnect_service", params)
+            .await
+            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
+        match a.output {
+            OutputFormat::Human => {
+                println!("[Success] Disconnected: {}", instance_id);
+            }
+            _ => {
+                emit_call_value(
+                    a.output,
+                    json!({"event": "service.disconnected", "instance_id": instance_id.to_string()}),
+                )?;
+            }
+        }
         return Ok(());
     }
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-    store.disconnect_service(instance_id).await?;
-    println!("[Success] Disconnected: {}", instance_id);
+    let store = build_store(&a.store)
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    store
+        .disconnect_service(instance_id)
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    match a.output {
+        OutputFormat::Human => {
+            println!("[Success] Disconnected: {}", instance_id);
+        }
+        _ => {
+            emit_call_value(
+                a.output,
+                json!({"event": "service.disconnected", "instance_id": instance_id.to_string()}),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -513,21 +624,57 @@ pub struct RestartArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human, help = "Output format: human, json, or jsonl")]
+    pub output: OutputFormat,
 }
 
 pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let instance_id = resolve_target(&a.store, &scope, &a.target)
+        .await
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id});
-        crate::daemon::client::call_daemon("restart_service", params).await?;
-        println!("[Success] Restarted: {}", instance_id);
+        crate::daemon::client::call_daemon("restart_service", params)
+            .await
+            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
+        match a.output {
+            OutputFormat::Human => {
+                println!("[Success] Restarted: {}", instance_id);
+            }
+            _ => {
+                emit_call_value(
+                    a.output,
+                    json!({"event": "service.restarted", "instance_id": instance_id.to_string()}),
+                )?;
+            }
+        }
         return Ok(());
     }
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-    store.restart_service(instance_id).await?;
-    println!("[Success] Restarted: {}", instance_id);
+    let store = build_store(&a.store)
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    store
+        .restart_service(instance_id)
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    match a.output {
+        OutputFormat::Human => {
+            println!("[Success] Restarted: {}", instance_id);
+        }
+        _ => {
+            emit_call_value(
+                a.output,
+                json!({"event": "service.restarted", "instance_id": instance_id.to_string()}),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -541,6 +688,8 @@ pub struct CheckArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human, help = "Output format: human, json, or jsonl")]
+    pub output: OutputFormat,
     #[arg(long, help = "Exit 0 when ready, non-zero otherwise")]
     pub exit_code: bool,
     #[arg(long, help = "Suppress output; signal readiness only via the exit code")]
@@ -548,14 +697,20 @@ pub struct CheckArgs {
 }
 
 pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let instance_id = resolve_target(&a.store, &scope, &a.target)
+        .await
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
     let (ready, label) = if crate::daemon::client::daemon_socket_exists() {
         let result = crate::daemon::client::call_daemon(
             "check_service",
             json!({ "instance_id": instance_id }),
         )
-        .await?;
+        .await
+        .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
         let readiness = result
             .pointer("/state/readiness/status")
             .and_then(Value::as_str)
@@ -569,9 +724,16 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
             format!("{instance_id} => readiness={readiness} phase={phase}"),
         )
     } else {
-        let store = build_store(&a.store)?;
-        store.load_from_source().await?;
-        let status = store.service_state_entry(instance_id).await?;
+        let store = build_store(&a.store)
+            .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+        store
+            .load_from_source()
+            .await
+            .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+        let status = store
+            .service_state_entry(instance_id)
+            .await
+            .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
         (
             status.readiness.status == mcpstore::ReadinessStatus::Ready,
             format!(
@@ -582,7 +744,22 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     };
 
     if !a.quiet {
-        println!("[Check] {label}");
+        match a.output {
+            OutputFormat::Human => {
+                println!("[Check] {label}");
+            }
+            _ => {
+                emit_call_value(
+                    a.output,
+                    json!({
+                        "event": "service.checked",
+                        "instance_id": instance_id.to_string(),
+                        "ready": ready,
+                        "label": label,
+                    }),
+                )?;
+            }
+        }
     }
     if a.exit_code {
         std::process::exit(i32::from(!ready));
@@ -602,31 +779,76 @@ pub struct WaitArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Human, help = "Output format: human, json, or jsonl")]
+    pub output: OutputFormat,
 }
 
 pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let instance_id = resolve_target(&a.store, &scope, &a.target)
+        .await
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id, "timeout": a.timeout});
-        let result = crate::daemon::client::call_daemon("wait_service", params).await?;
+        let result = crate::daemon::client::call_daemon("wait_service", params)
+            .await
+            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
         let readiness = result
             .pointer("/state/readiness/status")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
-        println!("[Success] Service ready: {} ({})", instance_id, readiness);
+        match a.output {
+            OutputFormat::Human => {
+                println!("[Success] Service ready: {} ({})", instance_id, readiness);
+            }
+            _ => {
+                emit_call_value(
+                    a.output,
+                    json!({
+                        "event": "service.ready",
+                        "instance_id": instance_id.to_string(),
+                        "readiness": readiness,
+                    }),
+                )?;
+            }
+        }
         return Ok(());
     }
-    let store = build_store(&a.store)?;
-    store.load_from_source().await?;
-    store.connect_service(instance_id).await?;
+    let store = build_store(&a.store)
+        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
     let status = store
         .wait_instance_ready(instance_id, std::time::Duration::from_secs(a.timeout))
-        .await?;
-    println!(
-        "[Success] Service ready: {} (readiness={:?}, health={:?})",
-        instance_id, status.readiness.status, status.health
-    );
+        .await
+        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    match a.output {
+        OutputFormat::Human => {
+            println!(
+                "[Success] Service ready: {} (readiness={:?}, health={:?})",
+                instance_id, status.readiness.status, status.health
+            );
+        }
+        _ => {
+            emit_call_value(
+                a.output,
+                json!({
+                    "event": "service.ready",
+                    "instance_id": instance_id.to_string(),
+                    "readiness": format!("{:?} {:?}", status.readiness.status, status.health),
+                }),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -875,7 +1097,7 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_call_err(e, a.output))?;
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Execution))?;
     let store = build_store(&a.store)
         .map_err(|error| CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string()))?;
     store
@@ -1076,12 +1298,12 @@ async fn resolve_target(
         .ok_or_else(|| ResolveError::NotFound { scope_name, target: target.to_string() })
 }
 
-fn resolve_err_to_call_err(e: ResolveError, output: OutputFormat) -> CliError {
+fn resolve_err_to_cli_err(e: ResolveError, output: OutputFormat, domain: Domain) -> CliError {
     let code = match &e {
         ResolveError::NotFound { .. } => ErrorCode::ServiceNotFound,
         ResolveError::Backend(_) => ErrorCode::CommandFailed,
     };
-    CliError::new_execution(output, code, e.to_string())
+    CliError::new(output, domain, code, e.to_string())
 }
 
 /// Load the target tool's input schema through the daemon's `list_tools`.
@@ -1118,7 +1340,7 @@ async fn run_call_via_daemon(a: CallToolArgs) -> Result<(), CliError> {
         .map_err(|error| CliError::new_execution(a.output, ErrorCode::InvalidInput, error.to_string()))?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_call_err(e, a.output))?;
+        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Execution))?;
     let schema = load_tool_input_schema_daemon(instance_id, &a.tool_name, a.output).await?;
     let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
     let value = crate::daemon::client::call_daemon(

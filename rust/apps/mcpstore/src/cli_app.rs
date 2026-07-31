@@ -162,6 +162,12 @@ fn uses_machine_output(command: &Commands) -> bool {
         }
         Commands::List(args) => args.output != crate::error::OutputFormat::Human,
         Commands::Tools(args) => args.output != crate::error::OutputFormat::Human,
+        Commands::Get(args) => args.output != crate::error::OutputFormat::Human,
+        Commands::Connect(args) => args.output != crate::error::OutputFormat::Human,
+        Commands::Disconnect(args) => args.output != crate::error::OutputFormat::Human,
+        Commands::Restart(args) => args.output != crate::error::OutputFormat::Human,
+        Commands::Check(args) => args.output != crate::error::OutputFormat::Human,
+        Commands::Wait(args) => args.output != crate::error::OutputFormat::Human,
         _ => false,
     }
 }
