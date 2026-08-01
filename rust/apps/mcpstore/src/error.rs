@@ -149,9 +149,10 @@ impl ErrorCode {
         }
     }
 
-    /// The single, authoritative `StoreError` classifier (previously copied
-    /// across call/task/protocol).
-    pub fn from_store(error: &StoreError) -> Self {
+    /// The single, authoritative `StoreError` classifier. Domain-aware: the task
+    /// command family collapses ToolCallFailed and Protocol to match its historical
+    /// exit codes (1 and 25, not 33 and 34).
+    pub fn from_store(error: &StoreError, domain: Domain) -> Self {
         match error {
             StoreError::ToolNotAvailable { .. } => Self::InvalidInput,
             StoreError::ServiceNotFound(_) => Self::ServiceNotFound,
@@ -168,8 +169,14 @@ impl ErrorCode {
                 TransportError::ConnectionFailed(_)
                 | TransportError::NotConnected(_)
                 | TransportError::Io(_) => Self::ConnectionFailed,
-                TransportError::ToolCallFailed(_) => Self::ToolFailed,
-                TransportError::Protocol(_) => Self::ProtocolFailed,
+                TransportError::ToolCallFailed(_) => match domain {
+                    Domain::Task => Self::CommandFailed,
+                    _ => Self::ToolFailed,
+                },
+                TransportError::Protocol(_) => match domain {
+                    Domain::Task => Self::TaskProtocolFailed,
+                    _ => Self::ProtocolFailed,
+                },
                 TransportError::ElicitationSessionActive { .. } => {
                     Self::ElicitationInvalidResponse
                 }
@@ -251,7 +258,7 @@ impl CliError {
 
     /// Classify a `StoreError` into a `CliError` for the given command family.
     pub fn from_store(error: &StoreError, format: OutputFormat, domain: Domain) -> Self {
-        Self::new(format, domain, ErrorCode::from_store(error), error.to_string())
+        Self::new(format, domain, ErrorCode::from_store(error, domain), error.to_string())
     }
 
     /// Classify a daemon error string into a `CliError`.
