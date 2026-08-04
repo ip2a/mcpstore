@@ -14,8 +14,8 @@ use crate::registry::ServiceRegistry;
 use crate::transport::client::McpConnection;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
-    McpCompletion, McpCompletionRequest, McpExecutionOptions, McpLoggingLevel, McpServerMetadata,
-    McpTask, McpTaskRecord, McpToolExecution, McpToolExecutionHandle, Result, TaskStateStore,
+    McpCompletion, McpCompletionRequest, McpExecutionOptions, McpServerMetadata, McpTask,
+    McpTaskRecord, McpToolExecution, McpToolExecutionHandle, Result, TaskStateStore,
     ToolCallResult, TransportError,
 };
 
@@ -26,7 +26,6 @@ pub struct ConnectionPool {
     registry: ServiceRegistry,
     event_bus: EventBus,
     task_state: TaskStateStore,
-    task_worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
     supervisor: Arc<Mutex<Option<Arc<InstanceSupervisor>>>>,
 }
 
@@ -39,7 +38,6 @@ impl Clone for ConnectionPool {
             registry: self.registry.clone(),
             event_bus: self.event_bus.clone(),
             task_state: self.task_state.clone(),
-            task_worker: Mutex::new(None),
             supervisor: Arc::clone(&self.supervisor),
         }
     }
@@ -59,7 +57,6 @@ impl ConnectionPool {
             registry,
             event_bus,
             task_state: TaskStateStore::new(cache),
-            task_worker: Mutex::new(None),
             supervisor: Arc::new(Mutex::new(None)),
         }
     }
@@ -78,7 +75,6 @@ impl ConnectionPool {
             self.event_bus.clone(),
         );
         self.connections.write().await.insert(instance_id, conn);
-        self.start_task_worker();
     }
 
     pub async fn connect(&self, instance_id: InstanceId) -> Result<()> {
@@ -99,9 +95,7 @@ impl ConnectionPool {
                 true
             } else {
                 conn.connect(supervisor).await?;
-                for uri in subscriptions {
-                    conn.subscribe_resource(&uri).await?;
-                }
+                conn.refresh_subscription(&subscriptions).await?;
                 false
             }
         };
@@ -144,14 +138,13 @@ impl ConnectionPool {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
-        ttl: Option<u64>,
         options: McpExecutionOptions,
     ) -> Result<McpToolExecutionHandle> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
-        conn.start_tool_task(tool_name, args, ttl, options).await
+        conn.start_tool_task(tool_name, args, options).await
     }
 
     pub async fn call_tool_task(
@@ -159,16 +152,9 @@ impl ConnectionPool {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
-        ttl: Option<u64>,
     ) -> Result<McpToolExecution> {
         let execution = self
-            .start_task_tool_execution(
-                instance_id,
-                tool_name,
-                args,
-                ttl,
-                McpExecutionOptions::default(),
-            )
+            .start_task_tool_execution(instance_id, tool_name, args, McpExecutionOptions::default())
             .await?
             .wait()
             .await?;
@@ -180,17 +166,12 @@ impl ConnectionPool {
     }
 
     pub async fn list_tasks(&self, instance_id: InstanceId) -> Result<Vec<McpTask>> {
-        let tasks = {
-            let conns = self.connections.read().await;
-            let conn = conns.get(&instance_id).ok_or_else(|| {
-                TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
-            })?;
-            conn.list_tasks().await?
-        };
-        for task in &tasks {
-            self.observe_task(instance_id, task.clone(), None).await?;
-        }
-        Ok(tasks)
+        Ok(self
+            .list_task_records(instance_id)
+            .await?
+            .into_iter()
+            .map(|record| record.task)
+            .collect())
     }
 
     pub async fn get_task(&self, instance_id: InstanceId, task_id: &str) -> Result<McpTask> {
@@ -223,16 +204,18 @@ impl ConnectionPool {
         result
     }
 
-    pub async fn cancel_task(&self, instance_id: InstanceId, task_id: &str) -> Result<McpTask> {
-        let task = {
+    pub async fn cancel_task(&self, instance_id: InstanceId, task_id: &str) -> Result<()> {
+        let result = {
             let conns = self.connections.read().await;
             let conn = conns.get(&instance_id).ok_or_else(|| {
                 TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
             })?;
-            conn.cancel_task(task_id).await?
+            conn.cancel_task(task_id).await
         };
-        self.observe_task(instance_id, task.clone(), None).await?;
-        Ok(task)
+        if let Err(error) = &result {
+            self.record_task_error(instance_id, task_id, error).await;
+        }
+        result
     }
 
     pub async fn list_task_records(&self, instance_id: InstanceId) -> Result<Vec<McpTaskRecord>> {
@@ -385,48 +368,37 @@ impl ConnectionPool {
     }
 
     pub async fn subscribe_resource(&self, instance_id: InstanceId, uri: &str) -> Result<()> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
+        let subscriptions = {
+            let mut subscriptions = self.resource_subscriptions.write().await;
+            let uris = subscriptions.entry(instance_id).or_default();
+            uris.insert(uri.to_string());
+            uris.clone()
+        };
+        let mut conns = self.connections.write().await;
+        let conn = conns.get_mut(&instance_id).ok_or_else(|| {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
-        conn.subscribe_resource(uri).await?;
-        drop(conns);
-        self.resource_subscriptions
-            .write()
-            .await
-            .entry(instance_id)
-            .or_default()
-            .insert(uri.to_string());
-        Ok(())
+        conn.refresh_subscription(&subscriptions).await
     }
 
     pub async fn unsubscribe_resource(&self, instance_id: InstanceId, uri: &str) -> Result<()> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
-        })?;
-        conn.unsubscribe_resource(uri).await?;
-        drop(conns);
-        let mut subscriptions = self.resource_subscriptions.write().await;
-        if let Some(uris) = subscriptions.get_mut(&instance_id) {
-            uris.remove(uri);
-            if uris.is_empty() {
-                subscriptions.remove(&instance_id);
+        let subscriptions = {
+            let mut subscriptions = self.resource_subscriptions.write().await;
+            let mut remaining = HashSet::new();
+            if let Some(uris) = subscriptions.get_mut(&instance_id) {
+                uris.remove(uri);
+                remaining.clone_from(uris);
+                if uris.is_empty() {
+                    subscriptions.remove(&instance_id);
+                }
             }
-        }
-        Ok(())
-    }
-
-    pub async fn set_logging_level(
-        &self,
-        instance_id: InstanceId,
-        level: McpLoggingLevel,
-    ) -> Result<()> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
+            remaining
+        };
+        let mut conns = self.connections.write().await;
+        let conn = conns.get_mut(&instance_id).ok_or_else(|| {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
-        conn.set_logging_level(level).await
+        conn.refresh_subscription(&subscriptions).await
     }
 
     pub async fn ping(&self, instance_id: InstanceId, timeout: std::time::Duration) -> Result<()> {
@@ -443,23 +415,6 @@ impl ConnectionPool {
             .get(&instance_id)
             .map(McpConnection::is_connected)
             .unwrap_or(false)
-    }
-
-    fn start_task_worker(&self) {
-        let mut worker = self.task_worker.lock().expect("task worker lock poisoned");
-        if worker.is_some() {
-            return;
-        }
-        let task_state = self.task_state.clone();
-        *worker = Some(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-            loop {
-                interval.tick().await;
-                if let Err(error) = task_state.expire_due_tasks(chrono::Utc::now()).await {
-                    tracing::warn!("[TASKS] failed to expire task records: {error}");
-                }
-            }
-        }));
     }
 
     pub(crate) async fn observe_tool_task(
@@ -522,70 +477,5 @@ impl ConnectionPool {
                     .await;
             }
         }
-    }
-}
-
-impl Drop for ConnectionPool {
-    fn drop(&mut self) {
-        if let Ok(mut worker) = self.task_worker.lock() {
-            if let Some(handle) = worker.take() {
-                handle.abort();
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::{Duration, Utc};
-
-    use crate::cache::{memory_cache_store, CacheLayerManager};
-    use crate::identity::{ScopeRef, ServiceInstanceKey};
-    use crate::transport::{McpTask, McpTaskStatus};
-
-    #[tokio::test]
-    async fn task_worker_expires_due_records() {
-        let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), "task-worker"));
-        let pool = ConnectionPool::new(
-            AuthCoordinator::for_tests(
-                crate::auth::SystemKeyring::new().unwrap(),
-                crate::auth::test_state_manager(),
-            )
-            .unwrap(),
-            ServiceRegistry::new(),
-            EventBus::with_history(1),
-            cache,
-        );
-        let instance_id = ServiceInstanceKey::new("worker", ScopeRef::Store).instance_id();
-        pool.add(instance_id, ServerConfig::default()).await;
-
-        let timestamp = (Utc::now() - Duration::milliseconds(100)).to_rfc3339();
-        pool.task_state
-            .observe(
-                instance_id,
-                McpTask {
-                    task_id: "task-1".to_string(),
-                    status: McpTaskStatus::Working,
-                    status_message: None,
-                    created_at: timestamp.clone(),
-                    last_updated_at: timestamp,
-                    ttl: Some(10),
-                    poll_interval: None,
-                },
-                None,
-            )
-            .await
-            .unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
-
-        let record = pool
-            .task_state
-            .get(instance_id, "task-1")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(record.task.status, McpTaskStatus::Expired);
     }
 }

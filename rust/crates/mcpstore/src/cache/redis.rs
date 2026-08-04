@@ -6,7 +6,6 @@ use openkeyv::{
 };
 use tokio::sync::OnceCell;
 
-
 /// Lazily-connected Redis store that fulfils the cache's aggregate trait.
 /// Built on first use so `redis_cache_store(url)` stays synchronous.
 pub(in crate::cache) struct LazyRedisStore {
@@ -16,7 +15,10 @@ pub(in crate::cache) struct LazyRedisStore {
 
 impl LazyRedisStore {
     pub(in crate::cache) fn new(url: impl Into<String>) -> Self {
-        Self { inner: OnceCell::new(), url: url.into() }
+        Self {
+            inner: OnceCell::new(),
+            url: url.into(),
+        }
     }
 
     async fn handle(&self) -> openkeyv::Result<&Arc<OpenKeyvRedisInner>> {
@@ -25,8 +27,6 @@ impl LazyRedisStore {
             .await
     }
 }
-
-
 
 #[async_trait::async_trait]
 impl AsyncKeyValue for LazyRedisStore {
@@ -76,9 +76,13 @@ impl AsyncKeyValue for LazyRedisStore {
         self.handle()
             .await?
             .put_many(keys, values, collection, ttl)
-.await
+            .await
     }
-    async fn delete_many(&self, keys: &[String], collection: Option<&str>) -> openkeyv::Result<usize> {
+    async fn delete_many(
+        &self,
+        keys: &[String],
+        collection: Option<&str>,
+    ) -> openkeyv::Result<usize> {
         self.handle().await?.delete_many(keys, collection).await
     }
 }
@@ -93,7 +97,7 @@ impl AsyncCompareAndSwap for LazyRedisStore {
         self.handle()
             .await?
             .get_with_revision(key, collection)
-.await
+            .await
     }
     async fn compare_and_swap(
         &self,
@@ -106,7 +110,7 @@ impl AsyncCompareAndSwap for LazyRedisStore {
         self.handle()
             .await?
             .compare_and_swap(key, expected, value, collection, ttl)
-.await
+            .await
     }
     async fn compare_and_delete(
         &self,
@@ -117,13 +121,17 @@ impl AsyncCompareAndSwap for LazyRedisStore {
         self.handle()
             .await?
             .compare_and_delete(key, expected, collection)
-.await
+            .await
     }
 }
 
 #[async_trait::async_trait]
 impl AsyncEnumerateKeys for LazyRedisStore {
-    async fn keys(&self, collection: Option<&str>, limit: Option<usize>) -> openkeyv::Result<Vec<String>> {
+    async fn keys(
+        &self,
+        collection: Option<&str>,
+        limit: Option<usize>,
+    ) -> openkeyv::Result<Vec<String>> {
         self.handle().await?.keys(collection, limit).await
     }
 }

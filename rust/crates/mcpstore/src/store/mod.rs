@@ -3,7 +3,7 @@ use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
 
 pub(crate) use crate::cache::models::OpenApiImportContextState;
 pub(crate) use crate::cache::CacheLayerManager;
-pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
+pub(crate) use crate::config::{ConfigManager, ServerConfig, StartupPolicy};
 use crate::diagnostics::Diagnostics;
 use crate::event_reactor::{EventBackend, EventReactor, ReactorConfig, Rule};
 pub(crate) use crate::events::{Event, EventBus};
@@ -102,23 +102,31 @@ impl MCPStore {
         let cache_storage = options
             .backend
             .clone()
-            .unwrap_or(match &app_config.cache.backend {
-                CacheBackend::Redis => CacheStorage::Redis,
-                CacheBackend::Memory => CacheStorage::Memory,
-            });
+            .unwrap_or_else(|| CacheStorage::new(app_config.cache.backend.as_str(), None))
+            .with_fallback_url(
+                options
+                    .redis_url
+                    .clone()
+                    .or_else(|| app_config.cache.url.clone()),
+            );
         let redis_url = options
             .redis_url
             .clone()
-            .or_else(|| app_config.cache.redis_url.clone())
+            .or_else(|| app_config.cache.url.clone())
             .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
-        let (cache_store, event_backend) = match cache_storage {
-            crate::store::CacheStorage::Memory => {
+        let (cache_store, event_backend) = match cache_storage.as_str() {
+            "memory" => {
                 let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
                 (store, Some(EventBackend::from_memory(mem)))
             }
-            crate::store::CacheStorage::Redis => {
+            "redis" => {
                 let store = Self::build_cache_store(&cache_storage, &redis_url, &namespace)?;
                 (store, None) // Redis EventBackend created lazily in setup_event_reactor
+            }
+            backend => {
+                return Err(StoreError::Other(format!(
+                    "OpenKeyv backend '{backend}' does not provide the CAS and ChangeFeed capabilities required by MCPStore"
+                )))
             }
         };
         let registry = ServiceRegistry::new();
@@ -217,8 +225,8 @@ impl MCPStore {
             None => {
                 // Redis: construct now (was deferred because it's async).
                 let storage = self.cache_storage.read().await.clone();
-                match storage {
-                    crate::store::CacheStorage::Redis => {
+                match storage.as_str() {
+                    "redis" => {
                         let url = self
                             .redis_url
                             .read()
@@ -231,10 +239,10 @@ impl MCPStore {
                         *self.event_backend.write().await = Some(b.clone());
                         b
                     }
-                    _ => {
-                        return Err(StoreError::Other(
-                            "no event backend available for this storage".into(),
-                        ));
+                    backend => {
+                        return Err(StoreError::Other(format!(
+                            "OpenKeyv backend '{backend}' does not provide ChangeFeed support"
+                        )));
                     }
                 }
             }

@@ -154,7 +154,7 @@ fn render_status_tabs(
         let prefix = if i > 0 { "  " } else { "" };
         vec![
             Span::raw(prefix),
-            Span::styled(format!("{} {}", i + 1, tab.label(locale)), style),
+            Span::styled(format!("[{}]", tab.label(locale)), style),
         ]
     }));
 

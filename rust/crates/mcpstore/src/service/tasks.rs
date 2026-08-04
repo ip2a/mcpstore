@@ -10,10 +10,9 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
-        ttl: Option<u64>,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
-        self.start_task_tool_execution(instance_id, tool_name, args, ttl, options)
+        self.start_task_tool_execution(instance_id, tool_name, args, options)
             .await
     }
 
@@ -22,18 +21,11 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
-        ttl: Option<u64>,
     ) -> Result<McpToolExecution> {
-        self.start_task_execution(
-            instance_id,
-            tool_name,
-            args,
-            ttl,
-            McpExecutionOptions::default(),
-        )
-        .await?
-        .wait()
-        .await
+        self.start_task_execution(instance_id, tool_name, args, McpExecutionOptions::default())
+            .await?
+            .wait()
+            .await
     }
 
     pub async fn list_tasks(&self, instance_id: InstanceId) -> Result<Vec<McpTask>> {
@@ -64,7 +56,7 @@ impl MCPStore {
             .map_err(StoreError::Transport)
     }
 
-    pub async fn cancel_task(&self, instance_id: InstanceId, task_id: &str) -> Result<McpTask> {
+    pub async fn cancel_task(&self, instance_id: InstanceId, task_id: &str) -> Result<()> {
         self.ensure_task_instance_connected(instance_id).await?;
         self.pool
             .cancel_task(instance_id, task_id)

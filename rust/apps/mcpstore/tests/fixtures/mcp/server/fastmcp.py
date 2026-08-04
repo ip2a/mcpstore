@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 
-_LATEST_PROTOCOL_VERSION = "2025-11-25"
+_LATEST_PROTOCOL_VERSION = "2026-07-28"
 
 
 @dataclass
@@ -88,20 +88,31 @@ class FastMCP:
         method = request.get("method")
         params = request.get("params") or {}
 
-        if method == "initialize":
-            protocol_version = params.get("protocolVersion") or _LATEST_PROTOCOL_VERSION
+        meta = params.get("_meta") or {}
+        protocol_version = meta.get("io.modelcontextprotocol/protocolVersion")
+        if protocol_version != _LATEST_PROTOCOL_VERSION:
+            raise ValueError(
+                f"仅支持 MCP {_LATEST_PROTOCOL_VERSION}，实际值: {protocol_version}"
+            )
+
+        if method == "server/discover":
             return {
-                "protocolVersion": protocol_version,
+                "resultType": "complete",
+                "supportedVersions": [_LATEST_PROTOCOL_VERSION],
                 "capabilities": {
                     "tools": {},
                     "resources": {},
                     "prompts": {},
                 },
-                "serverInfo": {
-                    "name": self._name,
-                    "version": "0.1.0",
-                },
                 "instructions": "fixture fastmcp replacement",
+                "ttlMs": 0,
+                "cacheScope": "private",
+                "_meta": {
+                    "io.modelcontextprotocol/serverInfo": {
+                        "name": self._name,
+                        "version": "0.1.0",
+                    }
+                },
             }
 
         if method == "ping":
@@ -256,6 +267,7 @@ def _serve_stdio(app: FastMCP) -> None:
         request_id = request["id"]
         try:
             result = app._handle_request(request)
+            result.setdefault("resultType", "complete")
             _write_message(
                 {
                     "jsonrpc": "2.0",

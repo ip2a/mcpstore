@@ -54,8 +54,6 @@ pub struct TaskRunArgs {
     pub tool_name: String,
     #[arg(long, default_value = "{}", help = "Tool input JSON object")]
     pub input: String,
-    #[arg(long, help = "Requested task retention TTL in milliseconds")]
-    pub ttl: Option<u64>,
     #[arg(
         long,
         value_name = "SECONDS",
@@ -125,7 +123,7 @@ async fn run_task(args: TaskRunArgs) -> Result<(), CliError> {
         .await
         .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
     let mut execution = store
-        .start_task_execution(args.instance_id, &args.tool_name, input, args.ttl, options)
+        .start_task_execution(args.instance_id, &args.tool_name, input, options)
         .await
         .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
     emit_task_started(output, &args.tool_name, &execution)?;
@@ -188,7 +186,8 @@ async fn run_task(args: TaskRunArgs) -> Result<(), CliError> {
             }
             Some(McpStoreExecutionUpdate::Finished(result)) => {
                 let execution = result.map_err(|error| {
-                    CliError::from_store(&error, output, Domain::Task).with("instance_id", args.instance_id.to_string())
+                    CliError::from_store(&error, output, Domain::Task)
+                        .with("instance_id", args.instance_id.to_string())
                 })?;
                 if cancellation_requested {
                     return cancel_created_task(
@@ -222,7 +221,6 @@ async fn run_task(args: TaskRunArgs) -> Result<(), CliError> {
     }
 }
 
-
 fn task_elicitation_error(
     error: ElicitationCommandError,
     output: OutputFormat,
@@ -234,7 +232,8 @@ fn task_elicitation_error(
         ElicitationErrorKind::TimedOut => ErrorCode::ElicitationTimedOut,
         ElicitationErrorKind::InvalidResponse => ErrorCode::ElicitationInvalidResponse,
     };
-    CliError::new(output, Domain::Task, code, error.message()).with("instance_id", instance_id.to_string())
+    CliError::new(output, Domain::Task, code, error.message())
+        .with("instance_id", instance_id.to_string())
 }
 
 async fn finish_task_execution(
@@ -378,10 +377,6 @@ fn emit_task_cancellation_requested(
 async fn list_tasks(args: TaskInstanceArgs) -> Result<(), CliError> {
     let output = args.runtime.output;
     let store = loaded_store(&args.runtime, output).await?;
-    store
-        .list_tasks(args.instance_id)
-        .await
-        .map_err(|error| CliError::from_store(&error, output, Domain::Task))?;
     let records = store
         .list_task_records(args.instance_id)
         .await
@@ -481,8 +476,8 @@ async fn cancel_task(args: TaskTargetArgs) -> Result<(), CliError> {
     let record = require_task_record(&store, args.instance_id, &args.task_id, output).await?;
     emit(
         output,
-        task_human("cancelled", &record),
-        task_event("task.cancelled", &record),
+        task_human("cancellation_requested", &record),
+        task_event("task.cancellation_requested", &record),
     )
 }
 
@@ -491,7 +486,12 @@ async fn loaded_store(
     output: OutputFormat,
 ) -> Result<std::sync::Arc<MCPStore>, CliError> {
     let store = build_store(&runtime.store).map_err(|error| {
-        CliError::new(output, Domain::Task, ErrorCode::CommandFailed, error.to_string())
+        CliError::new(
+            output,
+            Domain::Task,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
     })?;
     store
         .load_from_source()
@@ -570,14 +570,6 @@ fn ensure_result_available(
         )
         .with("instance_id", instance_id.to_string())
         .with("task_id", task.task_id.as_str())),
-        McpTaskStatus::Expired => Err(CliError::new(
-            output,
-            Domain::Task,
-            ErrorCode::TaskExpired,
-            "task retention TTL has elapsed",
-        )
-        .with("instance_id", instance_id.to_string())
-        .with("task_id", task.task_id.as_str())),
         _ => Err(CliError::new(
             output,
             Domain::Task,
@@ -598,14 +590,6 @@ fn ensure_cancellable(
     output: OutputFormat,
 ) -> Result<(), CliError> {
     match task.status {
-        McpTaskStatus::Expired => Err(CliError::new(
-            output,
-            Domain::Task,
-            ErrorCode::TaskExpired,
-            "task retention TTL has elapsed",
-        )
-        .with("instance_id", instance_id.to_string())
-        .with("task_id", task.task_id.as_str())),
         McpTaskStatus::Completed | McpTaskStatus::Failed | McpTaskStatus::Cancelled => {
             Err(CliError::new(
                 output,
@@ -648,10 +632,10 @@ fn task_human(label: &str, record: &McpTaskRecord) -> String {
     if let Some(message) = &record.task.status_message {
         lines.push(format!("message: {message}"));
     }
-    if let Some(ttl) = record.task.ttl {
+    if let Some(ttl) = record.task.ttl_ms {
         lines.push(format!("ttl_ms: {ttl}"));
     }
-    if let Some(poll_interval) = record.task.poll_interval {
+    if let Some(poll_interval) = record.task.poll_interval_ms {
         lines.push(format!("poll_interval_ms: {poll_interval}"));
     }
     if let Some(error) = &record.last_error {
@@ -674,7 +658,6 @@ fn status_name(status: &McpTaskStatus) -> &'static str {
         McpTaskStatus::Completed => "completed",
         McpTaskStatus::Failed => "failed",
         McpTaskStatus::Cancelled => "cancelled",
-        McpTaskStatus::Expired => "expired",
         McpTaskStatus::Disconnected => "disconnected",
         McpTaskStatus::Unknown => "unknown",
     }
@@ -719,8 +702,8 @@ mod tests {
             status_message: None,
             created_at: "2026-07-15T00:00:00Z".to_string(),
             last_updated_at: "2026-07-15T00:00:01Z".to_string(),
-            ttl: Some(60_000),
-            poll_interval: Some(250),
+            ttl_ms: Some(60_000),
+            poll_interval_ms: Some(250),
         }
     }
 
@@ -747,16 +730,10 @@ mod tests {
 
         for (status, code, exit_code) in [
             (McpTaskStatus::Failed, ErrorCode::TaskFailed, 24),
-            (McpTaskStatus::Expired, ErrorCode::TaskExpired, 22),
-            (
-                McpTaskStatus::Working,
-                ErrorCode::TaskResultUnavailable,
-                23,
-            ),
+            (McpTaskStatus::Working, ErrorCode::TaskResultUnavailable, 23),
         ] {
-            let error =
-                ensure_result_available(instance_id, &task(status), OutputFormat::Jsonl)
-                    .unwrap_err();
+            let error = ensure_result_available(instance_id, &task(status), OutputFormat::Jsonl)
+                .unwrap_err();
             assert_eq!(error.code(), code);
             assert_eq!(error.exit_code(), exit_code);
             let value: Value = serde_json::from_str(&error.to_string()).unwrap();
@@ -769,22 +746,13 @@ mod tests {
     fn terminal_tasks_have_stable_cancellation_errors() {
         let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
 
-        let expired = ensure_cancellable(
-            instance_id,
-            &task(McpTaskStatus::Expired),
-            OutputFormat::Jsonl,
-        )
-        .unwrap_err();
-        assert_eq!(expired.code(), ErrorCode::TaskExpired);
-        assert_eq!(expired.exit_code(), 22);
-
         for status in [
             McpTaskStatus::Completed,
             McpTaskStatus::Failed,
             McpTaskStatus::Cancelled,
         ] {
-            let error = ensure_cancellable(instance_id, &task(status), OutputFormat::Jsonl)
-                .unwrap_err();
+            let error =
+                ensure_cancellable(instance_id, &task(status), OutputFormat::Jsonl).unwrap_err();
             assert_eq!(error.code(), ErrorCode::TaskNotCancellable);
             assert_eq!(error.exit_code(), 27);
         }
@@ -847,9 +815,12 @@ mod tests {
                 "task.failed",
             ),
         ] {
-            let error =
-                CliError::from_store(&StoreError::Transport(error), OutputFormat::Jsonl, Domain::Task)
-                    .with("instance_id", instance_id.to_string());
+            let error = CliError::from_store(
+                &StoreError::Transport(error),
+                OutputFormat::Jsonl,
+                Domain::Task,
+            )
+            .with("instance_id", instance_id.to_string());
             assert_eq!(error.code(), code);
             assert_eq!(error.exit_code(), exit_code);
             let v: Value = serde_json::from_str(&error.to_string()).unwrap();

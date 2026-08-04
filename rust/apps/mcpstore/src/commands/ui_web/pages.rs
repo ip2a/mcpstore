@@ -4,7 +4,7 @@ use axum::{
 };
 use maud::html;
 use mcpstore::state::{DesiredState, ReadinessStatus};
-use mcpstore::{CacheStorage, InstanceId, MCPStore, ScopeRef};
+use mcpstore::{InstanceId, MCPStore, ScopeRef};
 use std::{collections::BTreeSet, collections::HashMap, sync::Arc};
 
 use super::{
@@ -21,10 +21,8 @@ pub(super) async fn page_home(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let agent_filter = params.get("agent").cloned().unwrap_or_default();
-    let cache_storage_label = match store.current_cache_storage().await {
-        CacheStorage::Memory => "memory",
-        CacheStorage::Redis => "redis",
-    };
+    let cache_storage = store.current_cache_storage().await;
+    let cache_storage_label = cache_storage.as_str();
     let source_label = if store.is_db_source() { "db" } else { "local" };
 
     let all_instances = store.list_instances().await;

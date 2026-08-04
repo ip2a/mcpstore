@@ -3,16 +3,14 @@
 use mcpstore::config::ScopeDescriptor;
 use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
-use mcpstore::core::store::{
-    BackendKind, MCPStore, SourceMode, StoreOptions,
-};
+use mcpstore::core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
 use mcpstore::{
     cache::models::SessionScope, InstanceId, McpConfig, ScopeContext, ScopeRef, Service,
     ServiceTarget, StoreError, Tool,
 };
 use mcpstore::{
-    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionRetryPolicy, SessionToolSelection, ToolTransformPatch,
-    ToolVisibilityFilter,
+    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionRetryPolicy,
+    SessionToolSelection, ToolTransformPatch, ToolVisibilityFilter,
 };
 use pyo3::prelude::*;
 use std::str::FromStr;
@@ -86,12 +84,8 @@ pub(crate) fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMod
 
 pub(crate) fn parse_backend(backend: Option<&str>) -> PyResult<Option<BackendKind>> {
     match backend {
-        Some("memory") => Ok(Some(BackendKind::Memory)),
-        Some("redis") => Ok(Some(BackendKind::Redis)),
+        Some(backend) => Ok(Some(BackendKind::new(backend, None))),
         None => Ok(None),
-        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Unsupported backend: {other}"
-        ))),
     }
 }
 
@@ -123,11 +117,14 @@ fn parse_config_format(format: Option<&str>) -> PyResult<ConfigFormat> {
         .map_err(|err: StoreError| pyo3::exceptions::PyValueError::new_err(err.to_string()))
 }
 
-fn backend_as_str(backend: &BackendKind) -> &'static str {
+fn backend_as_str(backend: &BackendKind) -> &str {
     backend.as_str()
 }
 
-pub(crate) fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<ServerConfig> {
+pub(crate) fn py_to_server_config(
+    value: &Bound<'_, PyAny>,
+    context: &str,
+) -> PyResult<ServerConfig> {
     let value = py_to_serde_value(value, context)?;
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("{context} conversion failed: {err}"))
@@ -631,7 +628,10 @@ impl PyMCPStore {
     fn event_history(&self, py: Python<'_>, count: usize) -> PyResult<Vec<Py<PyAny>>> {
         let events =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.event_history(count));
-        events.iter().map(|event| serializable_to_py(py, event, "event")).collect()
+        events
+            .iter()
+            .map(|event| serializable_to_py(py, event, "event"))
+            .collect()
     }
 
     fn event_capability_report(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {

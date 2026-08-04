@@ -27,6 +27,7 @@ pub fn render(
         .direction(Direction::Horizontal)
         .constraints(tab_constraints)
         .split(layout[0]);
+    let compact = area.width < 100;
 
     for (index, page) in pages.iter().enumerate() {
         let style = if page.id == active_view {
@@ -34,7 +35,16 @@ pub fn render(
         } else {
             theme::text()
         };
-        let tab = Paragraph::new(Line::from(Span::styled(page.title(locale), style)))
+        let label = if compact {
+            format!(
+                "{} {}",
+                index + 1,
+                truncate(page.title(locale), tabs[index].width.saturating_sub(2))
+            )
+        } else {
+            page.title(locale).to_string()
+        };
+        let tab = Paragraph::new(Line::from(Span::styled(label, style)))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::NONE));
         frame.render_widget(tab, tabs[index]);
@@ -51,4 +61,8 @@ pub fn render(
     )))
     .block(Block::default().borders(Borders::NONE));
     frame.render_widget(line, layout[1]);
+}
+
+fn truncate(value: &str, width: u16) -> String {
+    value.chars().take(width as usize).collect()
 }

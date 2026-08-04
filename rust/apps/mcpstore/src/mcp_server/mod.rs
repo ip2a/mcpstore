@@ -1,6 +1,10 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
@@ -10,18 +14,20 @@ use mcpstore::{
 };
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, ContentBlock, GetPromptRequestParams,
-        GetPromptResult, Implementation, ListPromptsResult, ListResourceTemplatesResult,
-        ListResourcesResult, ListToolsResult, PaginatedRequestParams, Prompt,
-        ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
-        ResourceTemplate, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+        GetPromptRequestParams, GetPromptResponse, GetPromptResult, Implementation,
+        ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
+        PaginatedRequestParams, Prompt, ProtocolVersion, ReadResourceRequestParams,
+        ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ResourceTemplate,
+        ServerCapabilities, ServerInfo, SubscriptionFilter, Tool, ToolAnnotations,
     },
     serve_server,
+    service::{SubscriptionContext, SubscriptionSink},
     transport::{
         stdio, streamable_http_server::session::local::LocalSessionManager,
         StreamableHttpServerConfig, StreamableHttpService,
     },
-    ErrorData, RoleServer, ServerHandler,
+    ErrorData, ServerHandler,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -184,7 +190,8 @@ struct ToolBinding {
 }
 
 struct AggregateToolsChangedNotification {
-    peer: rmcp::service::Peer<RoleServer>,
+    sink: SubscriptionSink,
+    active: Arc<AtomicBool>,
     instance_id: Option<InstanceId>,
 }
 
@@ -204,13 +211,13 @@ impl EventHandler for AggregateToolsChangedNotification {
                 return;
             }
         }
-        if let Err(error) = self.peer.notify_tool_list_changed().await {
-            tracing::debug!(%error, "aggregate MCP client disconnected before tools/list_changed");
+        if let Err(error) = self.sink.notify_tool_list_changed().await {
+            tracing::debug!(%error, "aggregate MCP subscription closed before tools/list_changed");
         }
     }
 
     fn is_alive(&self) -> bool {
-        !self.peer.is_transport_closed()
+        self.active.load(Ordering::Acquire)
     }
 }
 

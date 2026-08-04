@@ -32,7 +32,7 @@ impl<T> EventBackendCap for T where
         + AsyncEnumerateCollections
         + AsyncChangeFeed
         + Send
-        + Sync,
+        + Sync
 {
 }
 

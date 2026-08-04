@@ -27,11 +27,20 @@ pub struct HeaderStats {
 }
 
 /// Compute header height based on terminal width.
-pub fn header_height(_term_width: u16) -> u16 {
-    BANNER_HEIGHT + tui_layout::HEADER_BORDER_HEIGHT
+pub fn header_height(term_width: u16) -> u16 {
+    if term_width < 100 {
+        2
+    } else {
+        BANNER_HEIGHT + tui_layout::HEADER_BORDER_HEIGHT
+    }
 }
 
 pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
+    if area.width < 100 {
+        render_compact(frame, area, stats);
+        return;
+    }
+
     let block = Block::default().borders(Borders::BOTTOM);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -46,6 +55,25 @@ pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 
     render_banner(frame, layout[0]);
     render_stats(frame, layout[1], stats);
+}
+
+fn render_compact(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
+    let title = format!(
+        "MCPStore  {} total / {} ready / {} down",
+        stats.total, stats.ready, stats.not_ready
+    );
+    let context = format!(
+        "{}  {}  config={}",
+        stats.cache_storage, stats.namespace, stats.config_path
+    );
+    let lines = vec![
+        Line::from(Span::styled(title, theme::accent_bold())),
+        Line::from(context),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines).block(Block::default().borders(Borders::BOTTOM)),
+        area,
+    );
 }
 
 fn render_banner(frame: &mut Frame, area: Rect) {
@@ -119,4 +147,38 @@ fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 
     let stats_widget = Paragraph::new(text).alignment(Alignment::Left);
     frame.render_widget(stats_widget, inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    #[test]
+    fn uses_compact_header_below_normal_width() {
+        assert_eq!(header_height(120), 6);
+        assert_eq!(header_height(99), 2);
+    }
+
+    #[test]
+    fn compact_header_renders_at_narrow_width() {
+        let backend = TestBackend::new(60, 2);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let stats = HeaderStats {
+            total: 3,
+            ready: 2,
+            not_ready: 1,
+            unknown: 0,
+            cache_storage: "memory".to_string(),
+            namespace: "default".to_string(),
+            config_path: "/tmp/mcp.toml".to_string(),
+        };
+
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                render(frame, area, &stats);
+            })
+            .unwrap();
+    }
 }

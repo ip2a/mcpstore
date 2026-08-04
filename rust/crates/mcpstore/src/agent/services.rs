@@ -22,8 +22,8 @@ impl MCPStore {
     async fn enrich_service(&self, instance: ServiceInstance) -> Result<serde_json::Value> {
         let tool_count = instance.tools.len();
         let state = self.service_state_entry(instance.instance_id).await?;
-        let mut value = serde_json::to_value(instance)
-            .map_err(|error| StoreError::Other(error.to_string()))?;
+        let mut value =
+            serde_json::to_value(instance).map_err(|error| StoreError::Other(error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             object.insert(

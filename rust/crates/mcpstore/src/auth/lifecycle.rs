@@ -356,31 +356,8 @@ impl MCPStore {
             return Ok(());
         }
 
-        let auth = super::discovery::inferred_oauth_authorization_code_config();
-        let auth_value = serde_json::to_value(&auth).map_err(|error| {
-            StoreError::Other(format!(
-                "Discovered OAuth config cannot be encoded: {error}"
-            ))
-        })?;
-        self.patch_service(
-            &instance.service_name,
-            serde_json::json!({ "auth": auth_value }),
-        )
-        .await?;
-
-        self.event_bus
-            .publish(
-                crate::events::Event::new(
-                    "OAUTH_CONFIG_DISCOVERED",
-                    serde_json::json!({
-                        "instance_id": instance_id,
-                        "service_name": instance.service_name,
-                        "scope": instance.scope,
-                    }),
-                ),
-                true,
-            )
-            .await;
-        Ok(())
+        Err(StoreError::Auth(super::AuthError::InvalidConfig(
+            "OAuth is required; configure auth.client_id or auth.client_metadata_url".to_string(),
+        )))
     }
 }

@@ -5,7 +5,7 @@ use crate::store::prelude::*;
 use openkeyv::AsyncKeyValue;
 
 fn is_redis(storage: &CacheStorage) -> bool {
-    matches!(storage, CacheStorage::Redis)
+    storage.as_str() == "redis"
 }
 
 fn migration_error(error: openkeyv::Error) -> StoreError {
@@ -18,9 +18,14 @@ impl MCPStore {
         redis_url: &str,
         _namespace: &str,
     ) -> Result<Arc<dyn CacheStore>> {
-        match cache_storage {
-            CacheStorage::Memory => Ok(memory_cache_store()),
-            CacheStorage::Redis => Ok(redis_cache_store(redis_url)),
+        match cache_storage.as_str() {
+            "memory" => Ok(memory_cache_store()),
+            "redis" => Ok(redis_cache_store(
+                cache_storage.url().unwrap_or(redis_url),
+            )),
+            backend => Err(StoreError::Other(format!(
+                "OpenKeyv backend '{backend}' does not provide the capabilities required by MCPStore"
+            ))),
         }
     }
 
@@ -38,15 +43,13 @@ impl MCPStore {
         redis_url: Option<String>,
         namespace: Option<String>,
     ) -> Result<CacheSnapshot> {
-        let resolved_redis_url = match redis_url {
-            Some(url) => url,
-            None => self
-                .redis_url
-                .read()
-                .await
-                .clone()
-                .unwrap_or_else(|| "redis://127.0.0.1/".to_string()),
-        };
+        let current_url = self.redis_url.read().await.clone();
+        let resolved_redis_url = cache_storage
+            .url()
+            .map(ToOwned::to_owned)
+            .or(redis_url)
+            .or(current_url)
+            .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
         let resolved_namespace = namespace.unwrap_or_else(|| self.namespace());
         let current_storage = self.cache_storage.read().await.clone();
         let current_redis_url = self.redis_url.read().await.clone().unwrap_or_default();
@@ -75,12 +78,12 @@ impl MCPStore {
         let snapshot = self.cache.snapshot().await?;
 
         // The cache adapter and event backend share the same underlying target.
-        let (cache_store, event_backend) = match cache_storage {
-            CacheStorage::Memory => {
+        let (cache_store, event_backend) = match cache_storage.as_str() {
+            "memory" => {
                 let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
                 (store, crate::event_reactor::EventBackend::from_memory(mem))
             }
-            CacheStorage::Redis => {
+            "redis" => {
                 let store = Self::build_cache_store(
                     &cache_storage,
                     &resolved_redis_url,
@@ -91,6 +94,11 @@ impl MCPStore {
                         .await
                         .map_err(|e| StoreError::Other(format!("event backend init: {e}")))?;
                 (store, backend)
+            }
+            backend => {
+                return Err(StoreError::Other(format!(
+                    "OpenKeyv backend '{backend}' cannot be hot-swapped because it does not expose MCPStore's required CAS and ChangeFeed capabilities"
+                )))
             }
         };
 

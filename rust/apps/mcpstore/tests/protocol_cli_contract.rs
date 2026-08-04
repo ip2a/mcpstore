@@ -30,13 +30,18 @@ struct Fixture {
     dir: PathBuf,
     config: PathBuf,
     instance_id: String,
+    namespace: String,
 }
 
 impl Fixture {
     fn new() -> Self {
         let dir = unique_temp_dir();
         let config = dir.join("mcp.json");
-        let service_name = "protocol-fixture";
+        let service_name = dir
+            .file_name()
+            .expect("temporary fixture directory must have a name")
+            .to_string_lossy()
+            .into_owned();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/mock_mcp_server.py")
             .canonicalize()
@@ -52,15 +57,9 @@ impl Fixture {
             &config,
             serde_json::to_vec_pretty(&json!({
                 "mcpServers": {
-                    service_name: {
-                        "command": "uv",
-                        "args": [
-                            "run",
-                            "--project",
-                            repo_root().join("python").display().to_string(),
-                            "python",
-                            fixture.display().to_string(),
-                        ],
+                    service_name.clone(): {
+                        "command": "python3",
+                        "args": [fixture.display().to_string()],
                         "env": {"PYTHONPATH": pythonpath},
                         "transport": "stdio",
                     }
@@ -69,13 +68,14 @@ impl Fixture {
             .expect("failed to encode fixture config"),
         )
         .expect("failed to write fixture config");
-        let instance_id = ServiceInstanceKey::new(service_name, ScopeRef::Store)
+        let instance_id = ServiceInstanceKey::new(&service_name, ScopeRef::Store)
             .instance_id()
             .to_string();
         Self {
             dir,
             config,
             instance_id,
+            namespace: service_name,
         }
     }
 
@@ -85,6 +85,8 @@ impl Fixture {
             .args(args)
             .arg("--config-path")
             .arg(&self.config)
+            .arg("--namespace")
+            .arg(&self.namespace)
             .env("MCPSTORE_SOCKET", socket)
             .current_dir(repo_root().join("rust"))
             .output()

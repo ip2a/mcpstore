@@ -84,10 +84,6 @@ fn render_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {
 }
 
 fn status_lines(app: &TuiApp) -> Vec<Line<'static>> {
-    let manager = app.store.config_manager();
-    let install_path = std::env::current_exe()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| "-".to_string());
     let stats = app.header_stats();
 
     vec![
@@ -96,21 +92,25 @@ fn status_lines(app: &TuiApp) -> Vec<Line<'static>> {
             TextKey::SettingsRuntimeStatus,
             "ready".to_string(),
         ),
-        kv_line(app.locale, TextKey::SettingsInstallPath, install_path),
+        kv_line(
+            app.locale,
+            TextKey::SettingsInstallPath,
+            app.install_path.clone(),
+        ),
         kv_line(
             app.locale,
             TextKey::SettingsMcpConfigPath,
-            manager.mcp_path().display().to_string(),
+            app.config_path.clone(),
         ),
         kv_line(
             app.locale,
             TextKey::SettingsAppConfigPath,
-            manager.app_config_path().display().to_string(),
+            app.app_config_path.clone(),
         ),
         kv_line(
             app.locale,
             TextKey::SettingsConfigExists,
-            exists_label(app.locale, manager.app_config_exists()).to_string(),
+            exists_label(app.locale, app.app_config_exists).to_string(),
         ),
         kv_line(
             app.locale,
@@ -139,7 +139,6 @@ fn status_lines(app: &TuiApp) -> Vec<Line<'static>> {
 }
 
 fn general_lines(app: &TuiApp) -> Vec<Line<'static>> {
-    let manager = app.store.config_manager();
     vec![
         Line::from(vec![
             Span::styled("> ", theme::accent()),
@@ -158,12 +157,12 @@ fn general_lines(app: &TuiApp) -> Vec<Line<'static>> {
         kv_line(
             app.locale,
             TextKey::SettingsConfigFile,
-            manager.app_config_path().display().to_string(),
+            app.app_config_path.clone(),
         ),
         kv_line(
             app.locale,
             TextKey::SettingsConfigExists,
-            exists_label(app.locale, manager.app_config_exists()).to_string(),
+            exists_label(app.locale, app.app_config_exists).to_string(),
         ),
     ]
 }

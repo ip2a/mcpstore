@@ -140,20 +140,33 @@ async fn execute_resource(args: ResourceArgs) -> Result<(), CliError> {
 
 async fn execute_resource_list(args: ProtocolInstanceArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
-            .with("instance_id", instance_id.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
+        .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let resources = store.list_resources(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let total = resources.len();
     let value = json!({
@@ -169,27 +182,38 @@ async fn execute_resource_list(args: ProtocolInstanceArgs) -> Result<(), CliErro
     )
 }
 
-async fn execute_resource_templates(
-    args: ProtocolInstanceArgs,
-) -> Result<(), CliError> {
+async fn execute_resource_templates(args: ProtocolInstanceArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
-            .with("instance_id", instance_id.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
+        .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let templates = store
         .list_resource_templates(instance_id)
         .await
         .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+            CliError::from_store(&error, args.output.output, Domain::Protocol)
+                .with("instance_id", instance_id.to_string())
         })?;
     let total = templates.len();
     let value = json!({
@@ -207,7 +231,12 @@ async fn execute_resource_templates(
 
 async fn execute_resource_read(args: ResourceReadArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     if args.uri.trim().is_empty() {
         return Err(CliError::new(
@@ -219,20 +248,28 @@ async fn execute_resource_read(args: ResourceReadArgs) -> Result<(), CliError> {
         .with("instance_id", instance_id.to_string()));
     }
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
-            .with("instance_id", instance_id.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
+        .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let resource = store
         .read_resource(instance_id, &args.uri)
         .await
         .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+            CliError::from_store(&error, args.output.output, Domain::Protocol)
+                .with("instance_id", instance_id.to_string())
         })?;
     let value = json!({
         "event": "resource.read",
@@ -252,20 +289,33 @@ async fn execute_prompt(args: PromptArgs) -> Result<(), CliError> {
 
 async fn execute_prompt_list(args: ProtocolInstanceArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
-            .with("instance_id", instance_id.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
+        .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let prompts = store.list_prompts(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let total = prompts.len();
     let value = json!({
@@ -283,7 +333,12 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs) -> Result<(), CliError>
 
 async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     let arguments = parse_object(
         &args.arguments,
@@ -301,20 +356,28 @@ async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), CliError> {
         .with("instance_id", instance_id.to_string()));
     }
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
-            .with("instance_id", instance_id.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
+        .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let prompt = store
         .get_prompt(instance_id, &args.prompt_name, arguments)
         .await
         .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+            CliError::from_store(&error, args.output.output, Domain::Protocol)
+                .with("instance_id", instance_id.to_string())
         })?;
     let value = json!({
         "event": "prompt.get",
@@ -327,7 +390,12 @@ async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), CliError> {
 
 async fn execute_complete(args: CompleteArgs) -> Result<(), CliError> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::InvalidInput, error.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     if args.reference.trim().is_empty() || args.argument_name.trim().is_empty() {
         return Err(CliError::new(
@@ -363,20 +431,28 @@ async fn execute_complete(args: CompleteArgs) -> Result<(), CliError> {
         context,
     };
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(args.output.output, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
-            .with("instance_id", instance_id.to_string())
+        CliError::new(
+            args.output.output,
+            Domain::Protocol,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
+        .with("instance_id", instance_id.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+        CliError::from_store(&error, args.output.output, Domain::Protocol)
+            .with("instance_id", instance_id.to_string())
     })?;
     let completion = store
         .complete_mcp_argument(instance_id, request)
         .await
         .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol).with("instance_id", instance_id.to_string())
+            CliError::from_store(&error, args.output.output, Domain::Protocol)
+                .with("instance_id", instance_id.to_string())
         })?;
     let value = json!({
         "event": "completion.completed",
@@ -454,11 +530,7 @@ fn format_prompt_list(
     output
 }
 
-fn emit(
-    format: OutputFormat,
-    human: String,
-    value: Value,
-) -> Result<(), CliError> {
+fn emit(format: OutputFormat, human: String, value: Value) -> Result<(), CliError> {
     let encoded = match format {
         OutputFormat::Human => {
             println!("{human}");
@@ -468,7 +540,12 @@ fn emit(
         OutputFormat::Jsonl => serde_json::to_string(&value),
     }
     .map_err(|error| {
-        CliError::new(format, Domain::Protocol, ErrorCode::CommandFailed, error.to_string())
+        CliError::new(
+            format,
+            Domain::Protocol,
+            ErrorCode::CommandFailed,
+            error.to_string(),
+        )
     })?;
     println!("{encoded}");
     Ok(())

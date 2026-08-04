@@ -5,19 +5,55 @@ pub enum SourceMode {
     Db,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub enum CacheStorage {
-    #[default]
-    Memory,
-    Redis,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CacheStorage {
+    backend: String,
+    url: Option<String>,
 }
 
 impl CacheStorage {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Memory => "memory",
-            Self::Redis => "redis",
+    pub fn memory() -> Self {
+        Self::new("memory", None)
+    }
+
+    pub fn redis() -> Self {
+        Self::new("redis", None)
+    }
+
+    pub fn openkeyv(backend: impl Into<String>, url: impl Into<String>) -> Self {
+        Self::new(backend, Some(url.into()))
+    }
+
+    pub fn new(backend: impl Into<String>, url: Option<String>) -> Self {
+        Self {
+            backend: backend.into().to_ascii_lowercase(),
+            url,
         }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.backend
+    }
+
+    pub fn url(&self) -> Option<&str> {
+        self.url.as_deref()
+    }
+
+    pub fn is_memory(&self) -> bool {
+        self.backend == "memory"
+    }
+
+    pub fn with_fallback_url(mut self, url: Option<String>) -> Self {
+        if self.url.is_none() {
+            self.url = url;
+        }
+        self
+    }
+}
+
+impl Default for CacheStorage {
+    fn default() -> Self {
+        Self::memory()
     }
 }
 

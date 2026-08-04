@@ -37,11 +37,17 @@ pub(super) async fn connect(
 
     if server_config.auth.is_none() {
         let transport = StreamableHttpClientTransport::from_config(transport_config);
-        return rmcp::service::serve_client(handler, transport)
-            .await
-            .map_err(|err| {
-                TransportError::ConnectionFailed(format!("HTTP MCP handshake failed: {err}"))
-            });
+        return rmcp::service::serve_client_with_lifecycle(
+            handler,
+            transport,
+            rmcp::service::ClientLifecycleMode::Discover {
+                preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
+            },
+        )
+        .await
+        .map_err(|err| {
+            TransportError::ConnectionFailed(format!("HTTP MCP handshake failed: {err}"))
+        });
     }
 
     let authorization_manager = auth_coordinator
@@ -66,7 +72,15 @@ pub(super) async fn connect(
     );
     let transport = StreamableHttpClientTransport::with_client(oauth_client, transport_config);
 
-    match rmcp::service::serve_client(handler, transport).await {
+    match rmcp::service::serve_client_with_lifecycle(
+        handler,
+        transport,
+        rmcp::service::ClientLifecycleMode::Discover {
+            preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
+        },
+    )
+    .await
+    {
         Ok(client) => Ok(client),
         Err(error) => match auth_coordinator.status(instance_id).await {
             crate::auth::AuthStatus::Unauthenticated => Err(TransportError::AuthRequired(

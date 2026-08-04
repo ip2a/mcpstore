@@ -6,21 +6,15 @@ mod tests {
     use super::super::*;
     use mcpstore::{events::types::EventKind, CacheStorage, ServiceInstanceKey};
     use rmcp::{
-        service::{NotificationContext, RoleClient},
+        model::{ProtocolVersion, ServerNotification, SubscriptionFilter},
+        service::ClientLifecycleMode,
         ClientHandler, ServiceExt,
     };
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Clone, Default)]
-    struct NotificationClient {
-        tool_list_changes: Arc<AtomicUsize>,
-    }
+    struct NotificationClient;
 
-    impl ClientHandler for NotificationClient {
-        async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) {
-            self.tool_list_changes.fetch_add(1, Ordering::SeqCst);
-        }
-    }
+    impl ClientHandler for NotificationClient {}
 
     #[test]
     fn launch_descriptor_matches_the_runtime_cli_contract() {
@@ -57,7 +51,7 @@ mod tests {
     #[tokio::test]
     async fn aggregate_server_forwards_scoped_tool_list_changes() {
         let store = MCPStore::setup_with_options(StoreOptions {
-            backend: Some(CacheStorage::Memory),
+            backend: Some(CacheStorage::memory()),
             ..StoreOptions::default()
         })
         .unwrap();
@@ -82,33 +76,39 @@ mod tests {
         let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
         let server_start =
             tokio::spawn(async move { server.serve(server_transport).await.unwrap() });
-        let client = client_handler
-            .clone()
-            .serve(client_transport)
-            .await
-            .unwrap();
-        let server = server_start.await.unwrap();
-
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                store
-                    .event_bus()
-                    .publish(
-                        Event::new(
-                            EventKind::McpToolsChanged.as_str(),
-                            serde_json::json!({"instanceId": instance_id}),
-                        ),
-                        true,
-                    )
-                    .await;
-                if client_handler.tool_list_changes.load(Ordering::SeqCst) == 1 {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
+        let client = rmcp::service::serve_client_with_lifecycle(
+            client_handler,
+            client_transport,
+            ClientLifecycleMode::Discover {
+                preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+            },
+        )
         .await
         .unwrap();
+        let server = server_start.await.unwrap();
+
+        let mut subscription = client
+            .listen(SubscriptionFilter::builder().tools_list_changed().build())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        store
+            .event_bus()
+            .publish(
+                Event::new(
+                    EventKind::McpToolsChanged.as_str(),
+                    serde_json::json!({"instanceId": instance_id}),
+                ),
+                true,
+            )
+            .await;
+        assert!(matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), subscription.next())
+                .await
+                .unwrap()
+                .unwrap(),
+            Some(ServerNotification::ToolListChangedNotification(_))
+        ));
 
         store
             .event_bus()
@@ -120,9 +120,13 @@ mod tests {
                 true,
             )
             .await;
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        assert_eq!(client_handler.tool_list_changes.load(Ordering::SeqCst), 1);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), subscription.next())
+                .await
+                .is_err()
+        );
 
+        subscription.cancel().await.unwrap();
         client.cancel().await.unwrap();
         server.cancel().await.unwrap();
         store

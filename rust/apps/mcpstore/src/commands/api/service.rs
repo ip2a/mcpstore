@@ -34,11 +34,6 @@ pub(super) struct ResourceSubscriptionRequest {
     uri: String,
 }
 
-#[derive(Deserialize)]
-pub(super) struct LoggingLevelRequest {
-    level: McpLoggingLevel,
-}
-
 pub(super) async fn store_list_services(State(state): State<Arc<ApiState>>) -> ApiResult {
     let services = state
         .store
@@ -457,22 +452,6 @@ pub(super) async fn store_unsubscribe_resource(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("资源更新订阅已取消", json!({ "uri": uri })))
-}
-
-pub(super) async fn store_set_logging_level(
-    State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
-    Json(payload): Json<LoggingLevelRequest>,
-) -> ApiResult {
-    state
-        .store
-        .set_mcp_logging_level(instance_id, payload.level)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "远端日志级别设置成功",
-        json!({ "level": payload.level }),
-    ))
 }
 
 pub(super) async fn store_check_service(

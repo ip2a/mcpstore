@@ -20,8 +20,8 @@ fn env_filter_from(rust_log: &str, default_directive: &str) -> EnvFilter {
                 .parse()
                 .expect("invalid tracing directive"),
         )
-        // rmcp 2.2 emits token exchange responses at debug level. Keep that target
-        // above debug/trace even when the process-wide RUST_LOG requests them.
+        // rmcp auth logs may include token exchange responses at debug level. Keep
+        // that target above debug/trace even when RUST_LOG requests them.
         .add_directive(
             RMCP_AUTH_LOG_DIRECTIVE
                 .parse()

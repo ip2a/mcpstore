@@ -1,7 +1,6 @@
 use rmcp::model::{
-    CallToolRequestParams, CancelTaskParams, CancelTaskRequest, ClientRequest, ErrorCode,
-    GetTaskParams, GetTaskPayloadParams, GetTaskPayloadRequest, GetTaskRequest, ListTasksRequest,
-    PaginatedRequestParams, ServerResult, Task as RmcpTask, TaskMetadata, TaskStatus,
+    CallToolRequestParams, CancelTaskParams, DetailedTask, ErrorCode, GetTaskParams,
+    Task as RmcpTask, TaskPayload, TaskStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,7 +16,6 @@ pub enum McpTaskStatus {
     Completed,
     Failed,
     Cancelled,
-    Expired,
     Disconnected,
     Unknown,
 }
@@ -44,9 +42,9 @@ pub struct McpTask {
     pub status_message: Option<String>,
     pub created_at: String,
     pub last_updated_at: String,
-    pub ttl: Option<u64>,
+    pub ttl_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub poll_interval: Option<u64>,
+    pub poll_interval_ms: Option<u64>,
 }
 
 impl From<RmcpTask> for McpTask {
@@ -57,9 +55,15 @@ impl From<RmcpTask> for McpTask {
             status_message: task.status_message,
             created_at: task.created_at,
             last_updated_at: task.last_updated_at,
-            ttl: task.ttl,
-            poll_interval: task.poll_interval,
+            ttl_ms: task.ttl_ms,
+            poll_interval_ms: task.poll_interval_ms,
         }
+    }
+}
+
+impl From<DetailedTask> for McpTask {
+    fn from(task: DetailedTask) -> Self {
+        task.task.into()
     }
 }
 
@@ -75,23 +79,16 @@ impl McpConnection {
         &self,
         tool_name: &str,
         arguments: Value,
-        ttl: Option<u64>,
         options: McpExecutionOptions,
     ) -> Result<crate::transport::McpToolExecutionHandle> {
-        self.require_capability("tasks.requests.tools", |info| {
-            info.capabilities
-                .tasks
-                .as_ref()
-                .is_some_and(|tasks| tasks.supports_tools_call())
+        self.require_capability("io.modelcontextprotocol/tasks", |info| {
+            info.capabilities.supports_tasks()
         })?;
         let arguments = match arguments {
             Value::Object(map) => map,
             _ => serde_json::Map::new(),
         };
-        let task = ttl.map_or_else(TaskMetadata::new, |ttl| TaskMetadata::new().with_ttl(ttl));
-        let params = CallToolRequestParams::new(tool_name.to_string())
-            .with_arguments(arguments)
-            .with_task(task);
+        let params = CallToolRequestParams::new(tool_name.to_string()).with_arguments(arguments);
         self.start_tool_request(params, options, true, "task tool call")
             .await
     }
@@ -100,110 +97,58 @@ impl McpConnection {
         &self,
         tool_name: &str,
         arguments: Value,
-        ttl: Option<u64>,
     ) -> Result<McpToolExecution> {
-        self.start_tool_task(tool_name, arguments, ttl, McpExecutionOptions::default())
+        self.start_tool_task(tool_name, arguments, McpExecutionOptions::default())
             .await?
             .wait()
             .await
     }
 
-    pub async fn list_tasks(&self) -> Result<Vec<McpTask>> {
-        self.require_capability("tasks.list", |info| {
-            info.capabilities
-                .tasks
-                .as_ref()
-                .is_some_and(|tasks| tasks.supports_list())
-        })?;
-        let client = self.get_client()?;
-        let mut cursor = None;
-        let mut tasks = Vec::new();
-        loop {
-            let response = client
-                .send_request(ClientRequest::ListTasksRequest(
-                    ListTasksRequest::with_param(
-                        PaginatedRequestParams::default().with_cursor(cursor),
-                    ),
-                ))
-                .await
-                .map_err(|error| self.protocol_error("list tasks", error))?;
-            let ServerResult::ListTasksResult(result) = response else {
-                return Err(TransportError::Protocol(
-                    "list tasks returned an unexpected response".to_string(),
-                ));
-            };
-            tasks.extend(result.tasks.into_iter().map(McpTask::from));
-            cursor = result.next_cursor;
-            if cursor.is_none() {
-                return Ok(tasks);
-            }
-        }
-    }
-
     pub async fn get_task(&self, task_id: &str) -> Result<McpTask> {
-        self.require_capability("tasks", |info| info.capabilities.tasks.is_some())?;
-        let client = self.get_client()?;
-        let response = client
-            .send_request(ClientRequest::GetTaskRequest(GetTaskRequest::new(
-                GetTaskParams::new(task_id),
-            )))
-            .await
-            .map_err(|error| self.task_protocol_error("get task", task_id, error))?;
-        match response {
-            ServerResult::GetTaskResult(result) => Ok(result.task.into()),
-            _ => Err(TransportError::Protocol(
-                "get task returned an unexpected response".to_string(),
-            )),
-        }
+        Ok(self.get_detailed_task(task_id).await?.into())
     }
 
     pub async fn get_task_result(&self, task_id: &str) -> Result<Value> {
-        self.require_capability("tasks", |info| info.capabilities.tasks.is_some())?;
-        let client = self.get_client()?;
-        let response = client
-            .send_request(ClientRequest::GetTaskPayloadRequest(
-                GetTaskPayloadRequest::new(GetTaskPayloadParams::new(task_id)),
-            ))
-            .await
-            .map_err(|error| self.task_protocol_error("get task result", task_id, error))?;
-        match response {
-            ServerResult::GetTaskPayloadResult(result) => Ok(result.0),
-            // rmcp 2.2.0 intentionally deserializes the wire shape of
-            // `tasks/result` as `CustomResult`, because it is indistinguishable
-            // from `GetTaskPayloadResult` on the wire.
-            ServerResult::CustomResult(result) => Ok(result.0),
-            ServerResult::CallToolResult(result) => serde_json::to_value(result).map_err(|error| {
-                TransportError::Protocol(format!("failed to encode task result: {error}"))
-            }),
-            _ => Err(TransportError::Protocol(
-                "get task result returned an unexpected response".to_string(),
-            )),
+        let task = self.get_detailed_task(task_id).await?;
+        match task.payload {
+            TaskPayload::Completed { result } => Ok(Value::Object(result)),
+            TaskPayload::Failed { error } => Err(TransportError::Protocol(format!(
+                "task {task_id} failed: {}",
+                Value::Object(error)
+            ))),
+            TaskPayload::Cancelled => Err(TransportError::Protocol(format!(
+                "task {task_id} was cancelled"
+            ))),
+            TaskPayload::Working | TaskPayload::InputRequired { .. } => Err(
+                TransportError::Protocol(format!("task {task_id} result is not available")),
+            ),
+            _ => Err(TransportError::Protocol(format!(
+                "task {task_id} returned an unsupported payload"
+            ))),
         }
     }
 
-    pub async fn cancel_task(&self, task_id: &str) -> Result<McpTask> {
-        self.require_capability("tasks.cancel", |info| {
-            info.capabilities
-                .tasks
-                .as_ref()
-                .is_some_and(|tasks| tasks.supports_cancel())
-        })?;
-        let client = self.get_client()?;
-        let response = client
-            .send_request(ClientRequest::CancelTaskRequest(CancelTaskRequest::new(
-                CancelTaskParams::new(task_id),
-            )))
+    pub async fn cancel_task(&self, task_id: &str) -> Result<()> {
+        self.require_tasks()?;
+        self.get_client()?
+            .cancel_task(CancelTaskParams::new(task_id))
             .await
-            .map_err(|error| self.task_protocol_error("cancel task", task_id, error))?;
-        match response {
-            ServerResult::CancelTaskResult(result) => Ok(result.task.into()),
-            // `CancelTaskResult` and `GetTaskResult` have the same wire shape;
-            // rmcp 2.2.0 resolves the deserialized response to `GetTaskResult`.
-            ServerResult::GetTaskResult(result) => Ok(result.task.into()),
-            _ => Err(TransportError::Protocol(
-                "cancel task returned an unexpected response".to_string(),
-            )),
-        }
+            .map_err(|error| self.task_protocol_error("cancel task", task_id, error))
+    }
+
+    async fn get_detailed_task(&self, task_id: &str) -> Result<DetailedTask> {
+        self.require_tasks()?;
+        self.get_client()?
+            .get_task(GetTaskParams::new(task_id))
+            .await
+            .map(|result| result.task)
+            .map_err(|error| self.task_protocol_error("get task", task_id, error))
+    }
+
+    fn require_tasks(&self) -> Result<()> {
+        self.require_capability("io.modelcontextprotocol/tasks", |info| {
+            info.capabilities.supports_tasks()
+        })
     }
 
     fn protocol_error(&self, operation: &str, error: rmcp::ServiceError) -> TransportError {

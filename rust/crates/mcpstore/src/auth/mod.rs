@@ -11,9 +11,9 @@ mod state;
 
 pub use callback_listener::{LocalCallbackListener, OAuthCallback};
 pub use config::{
-    default_oauth_redirect_uri, minimal_oauth_authorization_code_config, AuthConfig,
-    AuthorizationCodeClientAuthMethod, ClientCredentialsAuthMethod, JwtSigningAlgorithm,
-    OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig, DEFAULT_OAUTH_REDIRECT_URI,
+    default_oauth_redirect_uri, AuthConfig, AuthorizationCodeClientAuthMethod,
+    ClientCredentialsAuthMethod, JwtSigningAlgorithm, OAuthAuthorizationCodeConfig,
+    OAuthClientCredentialsConfig, DEFAULT_OAUTH_REDIRECT_URI,
 };
 #[cfg(test)]
 pub(crate) use coordinator::test_state_manager;
@@ -22,7 +22,7 @@ pub use credentials::{
     ClientSecret, KeyringClientSecretStore, KeyringCredentialStore, KeyringPrivateKeyStore,
     PrivateKey,
 };
-pub use discovery::{http_endpoint_requires_oauth, inferred_oauth_authorization_code_config};
+pub use discovery::http_endpoint_requires_oauth;
 pub use key::AuthCredentialKey;
 pub(crate) use keyring::SystemKeyring;
 pub use models::{

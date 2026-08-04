@@ -203,46 +203,10 @@ fn service_items(app: &TuiApp) -> Vec<ListItem<'static>> {
 }
 
 pub fn log_config_lines(app: &TuiApp) -> Vec<Line<'static>> {
-    let manager = app.store.config_manager();
-    let config = manager.load_app_config_or_default().ok();
-    let server_log_level = config
-        .as_ref()
-        .map(|config| config.server.log_level.clone())
-        .unwrap_or_else(|| "-".to_string());
-    let standalone_log_level = config
-        .as_ref()
-        .map(|config| config.standalone.log_level.clone())
-        .unwrap_or_else(|| "-".to_string());
-    let standalone_log_format = config
-        .as_ref()
-        .map(|config| config.standalone.log_format.clone())
-        .unwrap_or_else(|| "-".to_string());
-    let debug_enabled = config
-        .as_ref()
-        .map(|config| config.standalone.enable_debug.to_string())
-        .unwrap_or_else(|| "-".to_string());
-
-    vec![
-        kv_line(app, TextKey::SettingsServerLogLevel, server_log_level),
-        kv_line(
-            app,
-            TextKey::SettingsStandaloneLogLevel,
-            standalone_log_level,
-        ),
-        kv_line(
-            app,
-            TextKey::SettingsStandaloneLogFormat,
-            standalone_log_format,
-        ),
-        kv_line(app, TextKey::SettingsDebugEnabled, debug_enabled),
-        kv_line(app, TextKey::SettingsTracingSink, "stderr".to_string()),
-        kv_line(app, TextKey::SettingsLogFile, "not configured".to_string()),
-        kv_line(
-            app,
-            TextKey::SettingsConfigFile,
-            manager.app_config_path().display().to_string(),
-        ),
-    ]
+    app.log_config
+        .iter()
+        .map(|(key, value)| kv_line(app, *key, value.clone()))
+        .collect()
 }
 
 fn kv_line(app: &TuiApp, key: TextKey, value: String) -> Line<'static> {

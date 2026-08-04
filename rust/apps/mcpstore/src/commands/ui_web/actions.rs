@@ -75,19 +75,17 @@ pub(super) async fn action_switch_cache_storage(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let target = params.get("target").map(String::as_str).unwrap_or("");
-    let cache_storage = match target {
-        "memory" => CacheStorage::Memory,
-        "redis" => CacheStorage::Redis,
-        _ => {
-            return Html(
-                layout(
-                    "mcpstore - Error",
-                    error_markup("Target cache storage must be memory or redis"),
-                )
-                .into_string(),
+    let cache_storage = if target.trim().is_empty() {
+        return Html(
+            layout(
+                "mcpstore - Error",
+                error_markup("Target cache storage is required"),
             )
-            .into_response();
-        }
+            .into_string(),
+        )
+        .into_response();
+    } else {
+        CacheStorage::new(target, None)
     };
     let had_reactor = store.has_reactor().await;
     match store.switch_cache_storage(cache_storage, None, None).await {
@@ -111,10 +109,7 @@ pub(super) async fn modal_switch_cache_storage(
     State(store): State<Arc<MCPStore>>,
 ) -> impl IntoResponse {
     let cache_storage = store.current_cache_storage().await;
-    let current_label = match cache_storage {
-        CacheStorage::Memory => "memory",
-        CacheStorage::Redis => "redis",
-    };
+    let current_label = cache_storage.as_str();
     let content = html! {
         dialog open {
             article {
@@ -129,8 +124,8 @@ pub(super) async fn modal_switch_cache_storage(
                     div.field {
                         label for="field-target" { "Target cache storage" }
                         select id="field-target" name="target" {
-                            option value="memory" selected[cache_storage == CacheStorage::Memory] { "memory" }
-                            option value="redis" selected[cache_storage == CacheStorage::Redis] { "redis" }
+                            option value="memory" selected[cache_storage.as_str() == "memory"] { "memory" }
+                            option value="redis" selected[cache_storage.as_str() == "redis"] { "redis" }
                         }
                     }
                     footer {

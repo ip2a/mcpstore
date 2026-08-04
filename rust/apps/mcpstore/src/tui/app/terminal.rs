@@ -64,7 +64,8 @@ pub fn run(
     let mut terminal = Terminal::new(backend)?;
 
     loop {
-        terminal.draw(|frame| super::super::ui::draw(frame, &mut app, &rt))?;
+        app.sync_status_history();
+        terminal.draw(|frame| super::super::ui::draw(frame, &mut app))?;
         if app.has_pending_task() {
             if let Err(error) = app.process_pending_task(&rt) {
                 app.status_message = format!("[错误] {error}");

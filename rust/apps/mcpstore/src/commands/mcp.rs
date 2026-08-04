@@ -10,8 +10,9 @@ use std::time::Duration;
 use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
 
 use mcpstore::{
-    InstanceId, McpExecutionOptions, McpServerCapabilities, McpServerMetadata, MCPStore,
-    McpStoreExecutionUpdate, McpToolExecution, ScopeRef, StoreError, ToolCallResult,
+    CacheStorage, InstanceId, MCPStore, McpExecutionOptions, McpServerCapabilities,
+    McpServerMetadata, McpStoreExecutionUpdate, McpToolExecution, ScopeRef, StoreError,
+    ToolCallResult,
 };
 
 use crate::{
@@ -19,7 +20,7 @@ use crate::{
         handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
         ElicitationCommandError, ElicitationErrorKind,
     },
-    store_args::{build_store, CacheStorageArg, StoreSourceArgs},
+    store_args::{build_store, StoreSourceArgs},
     BoxErr,
 };
 
@@ -385,15 +386,25 @@ pub struct GetArgs {
 }
 
 pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a
-        .scope
-        .to_ref(a.agent.as_deref())
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::InvalidInput,
+            e.to_string(),
+        )
+    })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
-    let store = build_store(&a.store)
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    let store = build_store(&a.store).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::CommandFailed,
+            e.to_string(),
+        )
+    })?;
     store
         .load_from_source()
         .await
@@ -405,7 +416,12 @@ pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
     match a.output {
         OutputFormat::Human => {
             let json = serde_json::to_string_pretty(&payload).map_err(|e| {
-                CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string())
+                CliError::new(
+                    a.output,
+                    Domain::Service,
+                    ErrorCode::CommandFailed,
+                    e.to_string(),
+                )
             })?;
             println!("{json}");
         }
@@ -461,10 +477,14 @@ pub struct ConnectArgs {
 }
 
 pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a
-        .scope
-        .to_ref(a.agent.as_deref())
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::InvalidInput,
+            e.to_string(),
+        )
+    })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
@@ -473,7 +493,10 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
         let result = crate::daemon::client::call_daemon("connect_service", params)
             .await
             .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
-        let tools_count = result.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let tools_count = result
+            .get("tools_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         let capabilities = result
             .get("mcp")
             .cloned()
@@ -502,8 +525,14 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    let store = build_store(&a.store).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::CommandFailed,
+            e.to_string(),
+        )
+    })?;
     store
         .load_from_source()
         .await
@@ -565,10 +594,14 @@ pub struct DisconnectArgs {
 }
 
 pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a
-        .scope
-        .to_ref(a.agent.as_deref())
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::InvalidInput,
+            e.to_string(),
+        )
+    })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
@@ -590,8 +623,14 @@ pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    let store = build_store(&a.store).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::CommandFailed,
+            e.to_string(),
+        )
+    })?;
     store
         .load_from_source()
         .await
@@ -629,10 +668,14 @@ pub struct RestartArgs {
 }
 
 pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a
-        .scope
-        .to_ref(a.agent.as_deref())
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::InvalidInput,
+            e.to_string(),
+        )
+    })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
@@ -654,8 +697,14 @@ pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    let store = build_store(&a.store).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::CommandFailed,
+            e.to_string(),
+        )
+    })?;
     store
         .load_from_source()
         .await
@@ -692,15 +741,22 @@ pub struct CheckArgs {
     pub output: OutputFormat,
     #[arg(long, help = "Exit 0 when ready, non-zero otherwise")]
     pub exit_code: bool,
-    #[arg(long, help = "Suppress output; signal readiness only via the exit code")]
+    #[arg(
+        long,
+        help = "Suppress output; signal readiness only via the exit code"
+    )]
     pub quiet: bool,
 }
 
 pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a
-        .scope
-        .to_ref(a.agent.as_deref())
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::InvalidInput,
+            e.to_string(),
+        )
+    })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
@@ -724,8 +780,14 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
             format!("{instance_id} => readiness={readiness} phase={phase}"),
         )
     } else {
-        let store = build_store(&a.store)
-            .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+        let store = build_store(&a.store).map_err(|e| {
+            CliError::new(
+                a.output,
+                Domain::Service,
+                ErrorCode::CommandFailed,
+                e.to_string(),
+            )
+        })?;
         store
             .load_from_source()
             .await
@@ -784,10 +846,14 @@ pub struct WaitArgs {
 }
 
 pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
-    let scope = a
-        .scope
-        .to_ref(a.agent.as_deref())
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::InvalidInput, e.to_string()))?;
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::InvalidInput,
+            e.to_string(),
+        )
+    })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
@@ -817,8 +883,14 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
-        .map_err(|e| CliError::new(a.output, Domain::Service, ErrorCode::CommandFailed, e.to_string()))?;
+    let store = build_store(&a.store).map_err(|e| {
+        CliError::new(
+            a.output,
+            Domain::Service,
+            ErrorCode::CommandFailed,
+            e.to_string(),
+        )
+    })?;
     store
         .load_from_source()
         .await
@@ -937,11 +1009,9 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
     let entries: Vec<Value> = if crate::daemon::client::daemon_socket_exists() {
-        let result = crate::daemon::client::call_daemon(
-            "list_tools",
-            json!({ "instance_id": instance_id }),
-        )
-        .await?;
+        let result =
+            crate::daemon::client::call_daemon("list_tools", json!({ "instance_id": instance_id }))
+                .await?;
         result
             .get("tools")
             .and_then(|v| v.as_array())
@@ -1014,10 +1084,7 @@ fn call_error_from_store(
 
 #[derive(Args)]
 pub struct CallToolArgs {
-    #[arg(
-        value_name = "SERVICE|INSTANCE",
-        help = "Service name or instance ID"
-    )]
+    #[arg(value_name = "SERVICE|INSTANCE", help = "Service name or instance ID")]
     pub target: String,
     #[arg(value_name = "TOOL", help = "Tool name")]
     pub tool_name: String,
@@ -1027,7 +1094,11 @@ pub struct CallToolArgs {
         help = "Tool arguments: key:value | key=value | --key=value (named options must precede trailing ARGS)"
     )]
     pub args: Vec<String>,
-    #[arg(long, default_value = "{}", help = "Tool arguments JSON object, merged with ARGS")]
+    #[arg(
+        long,
+        default_value = "{}",
+        help = "Tool arguments JSON object, merged with ARGS"
+    )]
     pub arguments: String,
     #[arg(
         long,
@@ -1069,17 +1140,14 @@ pub struct CallToolArgs {
 pub struct MigrateBackendArgs {
     #[command(flatten)]
     pub store: StoreSourceArgs,
+    #[arg(long = "target-backend", help = "Target OpenKeyv backend name")]
+    pub target_cache_storage: String,
     #[arg(
-        long = "target-backend",
-        value_enum,
-        help = "Target cache storage: memory or redis"
+        long = "target-url",
+        visible_alias = "target-redis-url",
+        help = "Target OpenKeyv backend connection URL"
     )]
-    pub target_cache_storage: CacheStorageArg,
-    #[arg(
-        long,
-        help = "Target Redis URL; used when target cache storage is redis"
-    )]
-    pub target_redis_url: Option<String>,
+    pub target_url: Option<String>,
 }
 
 pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
@@ -1089,6 +1157,7 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
 }
 
 async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
+    parse_arguments_json_object(&a.arguments, a.output)?;
     if crate::daemon::client::daemon_socket_exists() {
         return run_call_via_daemon(a).await;
     }
@@ -1098,16 +1167,17 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Execution))?;
-    let store = build_store(&a.store)
-        .map_err(|error| CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string()))?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|error| CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string()))?;
-
-    store.connect_service(instance_id).await.map_err(|error| {
-        call_error_from_store(error, a.output, instance_id, &a.tool_name)
+    let store = build_store(&a.store).map_err(|error| {
+        CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string())
     })?;
+    store.load_from_source().await.map_err(|error| {
+        CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string())
+    })?;
+
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
     let schema = load_tool_input_schema(&store, instance_id, &a.tool_name, a.output).await?;
     let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
 
@@ -1122,15 +1192,11 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
     let mut elicitation = store
         .open_elicitation_session(instance_id, a.elicitation.session_options())
         .await
-        .map_err(|error| {
-            call_error_from_store(error, a.output, instance_id, &a.tool_name)
-        })?;
+        .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
     let mut execution = store
         .start_tool_execution(instance_id, &a.tool_name, args, options)
         .await
-        .map_err(|error| {
-            call_error_from_store(error, a.output, instance_id, &a.tool_name)
-        })?;
+        .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
     emit_call_started(a.output, &a.tool_name, &execution)?;
 
     let mut cancellation_requested = false;
@@ -1210,7 +1276,6 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
     }
 }
 
-
 fn call_elicitation_error(
     error: ElicitationCommandError,
     output: OutputFormat,
@@ -1237,7 +1302,10 @@ fn scope_label(scope: &ScopeRef) -> &'static str {
 
 #[derive(Debug)]
 enum ResolveError {
-    NotFound { scope_name: &'static str, target: String },
+    NotFound {
+        scope_name: &'static str,
+        target: String,
+    },
     Backend(String),
 }
 
@@ -1289,8 +1357,10 @@ async fn resolve_target(
         if let Some(id) = &instance_id {
             crate::schema_cache::save_target(scope_name, target, &id.to_string());
         }
-        return instance_id
-            .ok_or_else(|| ResolveError::NotFound { scope_name, target: target.to_string() });
+        return instance_id.ok_or_else(|| ResolveError::NotFound {
+            scope_name,
+            target: target.to_string(),
+        });
     }
     let store = build_store(store_args).map_err(|e| ResolveError::Backend(e.to_string()))?;
     store
@@ -1307,8 +1377,10 @@ async fn resolve_target(
     if let Some(id) = &instance_id {
         crate::schema_cache::save_target(scope_name, target, &id.to_string());
     }
-    instance_id
-        .ok_or_else(|| ResolveError::NotFound { scope_name, target: target.to_string() })
+    instance_id.ok_or_else(|| ResolveError::NotFound {
+        scope_name,
+        target: target.to_string(),
+    })
 }
 
 fn resolve_err_to_cli_err(e: ResolveError, output: OutputFormat, domain: Domain) -> CliError {
@@ -1330,12 +1402,10 @@ async fn load_tool_input_schema_daemon(
             return Ok(Some(schema));
         }
     }
-    let response = crate::daemon::client::call_daemon(
-        "list_tools",
-        json!({ "instance_id": instance_id }),
-    )
-    .await
-    .map_err(|error| CliError::new_execution(output, ErrorCode::CommandFailed, error))?;
+    let response =
+        crate::daemon::client::call_daemon("list_tools", json!({ "instance_id": instance_id }))
+            .await
+            .map_err(|error| CliError::new_execution(output, ErrorCode::CommandFailed, error))?;
     let tools = response
         .get("tools")
         .and_then(Value::as_array)
@@ -1353,10 +1423,9 @@ async fn load_tool_input_schema_daemon(
 /// elicitation, per-call timeouts, and cancellation apply only to the local path
 /// used when no daemon is running.
 async fn run_call_via_daemon(a: CallToolArgs) -> Result<(), CliError> {
-    let scope = a
-        .scope
-        .to_ref(a.agent.as_deref())
-        .map_err(|error| CliError::new_execution(a.output, ErrorCode::InvalidInput, error.to_string()))?;
+    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
+        CliError::new_execution(a.output, ErrorCode::InvalidInput, error.to_string())
+    })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Execution))?;
@@ -1736,9 +1805,9 @@ pub async fn migrate_backend(a: MigrateBackendArgs) -> std::result::Result<(), B
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
 
-    let target_cache_storage = a.target_cache_storage.as_cache_storage();
+    let target_cache_storage = CacheStorage::new(a.target_cache_storage, a.target_url.clone());
     let snapshot = store
-        .switch_cache_storage(target_cache_storage.clone(), a.target_redis_url, None)
+        .switch_cache_storage(target_cache_storage.clone(), a.target_url, None)
         .await?;
     let total_entries: usize = snapshot.entities.values().map(HashMap::len).sum::<usize>()
         + snapshot.relations.values().map(HashMap::len).sum::<usize>()
@@ -1924,16 +1993,11 @@ fn format_capabilities(metadata: Option<&McpServerMetadata>) -> String {
         tools,
         tools_list_changed,
         resources,
-        resources_subscribe,
         resources_list_changed,
         prompts,
         prompts_list_changed,
         completions,
-        logging,
         tasks,
-        task_list,
-        task_cancel,
-        task_tool_calls,
         extensions,
         experimental,
         ..
@@ -1943,16 +2007,11 @@ fn format_capabilities(metadata: Option<&McpServerMetadata>) -> String {
         ("tools", *tools),
         ("tools.list_changed", *tools_list_changed),
         ("resources", *resources),
-        ("resources.subscribe", *resources_subscribe),
         ("resources.list_changed", *resources_list_changed),
         ("prompts", *prompts),
         ("prompts.list_changed", *prompts_list_changed),
         ("completions", *completions),
-        ("logging", *logging),
         ("tasks", *tasks),
-        ("tasks.list", *task_list),
-        ("tasks.cancel", *task_cancel),
-        ("tasks.tool_calls", *task_tool_calls),
         ("extensions", !extensions.is_empty()),
         ("experimental", !experimental.is_empty()),
     ] {
@@ -1995,36 +2054,31 @@ mod tests {
     #[test]
     fn capability_summary_reports_protocol_features() {
         let metadata = McpServerMetadata {
-            protocol_version: "2025-06-18".to_string(),
-            server_info: mcpstore::McpServerImplementation {
+            protocol_version: "2026-07-28".to_string(),
+            server_info: Some(mcpstore::McpServerImplementation {
                 name: "fixture".to_string(),
                 title: None,
                 version: "1.0.0".to_string(),
                 description: None,
                 website_url: None,
-            },
+            }),
             instructions: None,
             capabilities: McpServerCapabilities {
                 tools: true,
                 tools_list_changed: false,
                 resources: true,
-                resources_subscribe: true,
                 resources_list_changed: false,
                 prompts: true,
                 prompts_list_changed: false,
                 completions: true,
-                logging: false,
                 tasks: false,
-                task_list: false,
-                task_cancel: false,
-                task_tool_calls: false,
                 extensions: Default::default(),
                 experimental: Default::default(),
             },
         };
         assert_eq!(
             format_capabilities(Some(&metadata)),
-            "tools,resources,resources.subscribe,prompts,completions"
+            "tools,resources,prompts,completions"
         );
         assert_eq!(format_capabilities(None), "unknown");
     }
@@ -2189,10 +2243,16 @@ mod tests {
 
     #[test]
     fn split_argument_tokens_classifies_keyed_and_positional() {
-        let args: Vec<String> = ["owner:ip2a", "repo=mcp/store", "--draft=true", "bare", "--flag"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let args: Vec<String> = [
+            "owner:ip2a",
+            "repo=mcp/store",
+            "--draft=true",
+            "bare",
+            "--flag",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         let (keyed, positional) = split_argument_tokens(&args);
         assert_eq!(
             keyed,

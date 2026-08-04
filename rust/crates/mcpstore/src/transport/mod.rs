@@ -27,8 +27,8 @@ pub use execution::{
     McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecutionHandle,
 };
 pub use protocol::{
-    McpCompletion, McpCompletionReference, McpCompletionRequest, McpLoggingLevel,
-    McpServerCapabilities, McpServerImplementation, McpServerMetadata,
+    McpCompletion, McpCompletionReference, McpCompletionRequest, McpServerCapabilities,
+    McpServerImplementation, McpServerMetadata,
 };
 pub use task_state::McpTaskRecord;
 pub(crate) use task_state::TaskStateStore;
@@ -92,8 +92,6 @@ pub struct DiscoveredTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub icons: Option<Value>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
@@ -114,10 +112,6 @@ impl From<rmcp::model::Tool> for DiscoveredTool {
                 .annotations
                 .as_ref()
                 .and_then(|annotations| serde_json::to_value(annotations).ok()),
-            execution: tool
-                .execution
-                .as_ref()
-                .and_then(|execution| serde_json::to_value(execution).ok()),
             icons: tool
                 .icons
                 .as_ref()

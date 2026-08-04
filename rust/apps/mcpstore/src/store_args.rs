@@ -18,21 +18,6 @@ impl SourceArg {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum CacheStorageArg {
-    Memory,
-    Redis,
-}
-
-impl CacheStorageArg {
-    pub fn as_cache_storage(self) -> CacheStorage {
-        match self {
-            Self::Memory => CacheStorage::Memory,
-            Self::Redis => CacheStorage::Redis,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Args)]
 pub struct StoreSourceArgs {
     #[arg(long, help = "Config file path")]
@@ -46,15 +31,15 @@ pub struct StoreSourceArgs {
     pub source: SourceArg,
     #[arg(
         long,
-        value_enum,
-        help = "Cache storage: memory or redis"
+        help = "OpenKeyv backend name: memory, redis, valkey, postgres, sqlite, ..."
     )]
-    pub backend: Option<CacheStorageArg>,
+    pub backend: Option<String>,
     #[arg(
-        long,
-        help = "Redis URL; defaults to redis cache storage when provided"
+        long = "url",
+        visible_alias = "redis-url",
+        help = "OpenKeyv backend connection URL"
     )]
-    pub redis_url: Option<String>,
+    pub backend_url: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
 }
@@ -63,8 +48,13 @@ impl StoreSourceArgs {
     pub fn to_store_options(&self) -> StoreOptions {
         let backend = self
             .backend
-            .map(CacheStorageArg::as_cache_storage)
-            .or_else(|| self.redis_url.as_ref().map(|_| CacheStorage::Redis));
+            .as_ref()
+            .map(|backend| CacheStorage::new(backend, self.backend_url.clone()))
+            .or_else(|| {
+                self.backend_url
+                    .as_ref()
+                    .map(|url| CacheStorage::openkeyv("redis", url))
+            });
 
         StoreOptions {
             config_path: self.config_path.clone(),
@@ -73,7 +63,7 @@ impl StoreSourceArgs {
                 SourceArg::Db => SourceMode::Db,
             },
             backend,
-            redis_url: self.redis_url.clone(),
+            redis_url: self.backend_url.clone(),
             namespace: self.namespace.clone(),
         }
     }

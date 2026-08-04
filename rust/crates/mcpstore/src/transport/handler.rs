@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
-#[allow(deprecated)]
-use rmcp::model::LoggingMessageNotificationParam;
 use rmcp::model::{
     CancelledNotificationParam, ClientCapabilities, ClientInfo, ClientRequest, CustomNotification,
     ElicitRequestParams, ElicitResult, ElicitationCapability, FormElicitationCapability,
     Implementation, ListPromptsRequest, ListResourceTemplatesRequest, ListResourcesRequest,
     ListToolsRequest, PaginatedRequestParams, ProgressNotificationParam, ReadResourceRequest,
-    ReadResourceRequestParams, ResourceUpdatedNotificationParam, ServerResult,
+    ReadResourceRequestParams, ResourceUpdatedNotificationParam, ServerNotification, ServerResult,
     UrlElicitationCapability,
 };
 use rmcp::service::{NotificationContext, Peer, RequestContext, RoleClient};
@@ -94,6 +92,32 @@ impl McpStoreClientHandler {
         let mut tasks = self.notification_work.lock().await;
         while tasks.try_join_next().is_some() {}
         tasks.spawn(work);
+    }
+
+    pub(crate) async fn handle_subscription_notification(
+        &self,
+        notification: ServerNotification,
+        peer: &Peer<RoleClient>,
+    ) {
+        match notification {
+            ServerNotification::ToolListChangedNotification(_) => self.refresh_tools(peer).await,
+            ServerNotification::PromptListChangedNotification(_) => {
+                self.refresh_prompts(peer).await
+            }
+            ServerNotification::ResourceListChangedNotification(_) => {
+                self.refresh_resources(peer).await
+            }
+            ServerNotification::ResourceUpdatedNotification(notification) => {
+                self.refresh_resource(notification.params.uri, peer).await
+            }
+            notification => {
+                tracing::warn!(
+                    instance_id = %self.instance_id,
+                    ?notification,
+                    "received an unexpected notification on MCP subscription"
+                );
+            }
+        }
     }
 
     pub(crate) async fn shutdown(&self) {
@@ -437,6 +461,7 @@ impl ClientHandler for McpStoreClientHandler {
         ClientInfo::new(
             ClientCapabilities::builder()
                 .enable_elicitation_with(elicitation)
+                .enable_tasks()
                 .build(),
             Implementation::new("mcpstore", env!("CARGO_PKG_VERSION")),
         )
@@ -475,22 +500,6 @@ impl ClientHandler for McpStoreClientHandler {
             EventKind::McpProgress,
             serde_json::json!({
                 "method": "notifications/progress",
-                "params": params,
-            }),
-        )
-        .await;
-    }
-
-    #[allow(deprecated)]
-    async fn on_logging_message(
-        &self,
-        params: LoggingMessageNotificationParam,
-        _context: NotificationContext<RoleClient>,
-    ) {
-        self.publish(
-            EventKind::McpLogMessage,
-            serde_json::json!({
-                "method": "notifications/message",
                 "params": params,
             }),
         )
@@ -557,15 +566,14 @@ mod tests {
     use std::time::Duration;
 
     use rmcp::model::{
-        CancelledNotificationParam, CustomNotification, ElicitRequestParams, ElicitationAction,
-        ElicitationSchema, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
-        ListToolsResult, NumberOrString, PaginatedRequestParams, ProgressNotificationParam,
-        ProgressToken, Prompt, ReadResourceRequestParams, ReadResourceResult, Resource,
-        ResourceContents, ResourceTemplate, ServerCapabilities, ServerInfo, ServerNotification,
-        Tool,
+        CallToolRequestParams, CallToolResponse, CallToolResult, CancelledNotificationParam,
+        CustomNotification, ElicitRequest, ElicitRequestParams, ElicitationSchema, InputRequest,
+        InputRequests, InputRequiredResult, ListPromptsResult, ListResourceTemplatesResult,
+        ListResourcesResult, ListToolsResult, NumberOrString, PaginatedRequestParams,
+        ProgressNotificationParam, ProgressToken, Prompt, ReadResourceRequestParams,
+        ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ResourceTemplate,
+        ServerCapabilities, ServerInfo, ServerNotification, Tool,
     };
-    #[allow(deprecated)]
-    use rmcp::model::{LoggingLevel, LoggingMessageNotificationParam};
     use rmcp::service::{RequestContext, RoleServer};
     use rmcp::{ClientHandler, ServerHandler, ServiceExt};
     use serde_json::{json, Map};
@@ -578,6 +586,7 @@ mod tests {
     #[derive(Clone)]
     struct NotificationServer {
         tool_name: Arc<RwLock<String>>,
+        subscription_sink: Arc<RwLock<Option<rmcp::service::SubscriptionSink>>>,
     }
 
     impl ServerHandler for NotificationServer {
@@ -588,10 +597,28 @@ mod tests {
                     .enable_tool_list_changed()
                     .enable_resources()
                     .enable_resources_list_changed()
+                    .enable_resources_subscribe()
                     .enable_prompts()
                     .enable_prompts_list_changed()
                     .build(),
             )
+        }
+
+        fn accepted_subscription_filter(
+            &self,
+            requested: &rmcp::model::SubscriptionFilter,
+        ) -> Option<rmcp::model::SubscriptionFilter> {
+            Some(requested.supported_by(&self.get_info().capabilities))
+        }
+
+        async fn listen(
+            &self,
+            context: rmcp::service::SubscriptionContext,
+        ) -> Result<(), rmcp::ErrorData> {
+            *self.subscription_sink.write().await = Some(context.sink().clone());
+            context.cancelled().await;
+            self.subscription_sink.write().await.take();
+            Ok(())
         }
 
         async fn list_tools(
@@ -605,6 +632,44 @@ mod tests {
                 "notification test tool",
                 Arc::new(Map::new()),
             )]))
+        }
+
+        async fn call_tool(
+            &self,
+            request: CallToolRequestParams,
+            _context: RequestContext<RoleServer>,
+        ) -> Result<CallToolResponse, rmcp::ErrorData> {
+            if request.name.as_ref() != "elicitation" {
+                return Ok(CallToolResult::success(Vec::new()).into());
+            }
+            let Some(responses) = request.input_responses else {
+                let mut input_requests = InputRequests::new();
+                input_requests.insert(
+                    "confirmation".to_string(),
+                    InputRequest::Elicitation(ElicitRequest::new(
+                        ElicitRequestParams::FormElicitationParams {
+                            meta: None,
+                            message: "Confirm".to_string(),
+                            requested_schema: ElicitationSchema::builder().build().unwrap(),
+                        },
+                    )),
+                );
+                return Ok(InputRequiredResult::new(
+                    Some(input_requests),
+                    Some("opaque-request-state".to_string()),
+                )
+                .into());
+            };
+            if request.request_state.as_deref() != Some("opaque-request-state")
+                || responses["confirmation"]["action"] != "accept"
+                || responses["confirmation"]["content"]["confirmed"] != true
+            {
+                return Err(rmcp::ErrorData::invalid_params(
+                    "MRTR retry did not echo the elicitation response and request state",
+                    None,
+                ));
+            }
+            Ok(CallToolResult::success(Vec::new()).into())
         }
 
         async fn list_resources(
@@ -632,11 +697,10 @@ mod tests {
             &self,
             request: ReadResourceRequestParams,
             _context: RequestContext<RoleServer>,
-        ) -> Result<ReadResourceResult, rmcp::ErrorData> {
-            Ok(ReadResourceResult::new(vec![ResourceContents::text(
-                "updated",
-                request.uri,
-            )]))
+        ) -> Result<ReadResourceResponse, rmcp::ErrorData> {
+            Ok(ReadResourceResponse::Complete(ReadResourceResult::new(
+                vec![ResourceContents::text("updated", request.uri)],
+            )))
         }
 
         async fn list_prompts(
@@ -718,7 +782,7 @@ mod tests {
             Some(true)
         );
         assert!(elicitation.url.is_some());
-        assert!(info.capabilities.tasks.is_none());
+        assert!(info.capabilities.supports_tasks());
     }
 
     #[tokio::test]
@@ -731,36 +795,44 @@ mod tests {
             .unwrap();
         let server_handler = NotificationServer {
             tool_name: Arc::new(RwLock::new("tool".to_string())),
+            subscription_sink: Arc::new(RwLock::new(None)),
         };
         let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
         let server_start =
             tokio::spawn(async move { server_handler.serve(server_transport).await.unwrap() });
-        let client = handler.serve(client_transport).await.unwrap();
+        let client = rmcp::service::serve_client_with_lifecycle(
+            handler.clone(),
+            client_transport,
+            rmcp::service::ClientLifecycleMode::Discover {
+                preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
+            },
+        )
+        .await
+        .unwrap();
         let server = server_start.await.unwrap();
-
-        let response = tokio::spawn({
-            let peer = server.peer().clone();
-            async move {
-                peer.create_elicitation(ElicitRequestParams::FormElicitationParams {
-                    meta: None,
-                    message: "Confirm".to_string(),
-                    requested_schema: ElicitationSchema::builder().build().unwrap(),
-                })
-                .await
-                .unwrap()
-            }
-        });
+        let mut connection =
+            crate::transport::client::McpConnection::from_test_client(instance_id, client, handler);
+        let response = connection
+            .start_tool_call(
+                "elicitation",
+                json!({}),
+                crate::transport::McpExecutionOptions::default(),
+            )
+            .await
+            .unwrap();
         let request = session.next_request().await.unwrap();
         assert_eq!(request.instance_id(), instance_id);
-        request.accept(Some(json!({}))).unwrap();
-        assert_eq!(response.await.unwrap().action, ElicitationAction::Accept);
+        request.accept(Some(json!({"confirmed": true}))).unwrap();
+        assert!(matches!(
+            response.wait().await.unwrap(),
+            crate::transport::McpToolExecution::Immediate { .. }
+        ));
 
-        client.cancel().await.unwrap();
+        connection.disconnect().await.unwrap();
         server.cancel().await.unwrap();
     }
 
     #[tokio::test]
-    #[allow(deprecated)]
     async fn notifications_refresh_scoped_state_and_publish_domain_events() {
         let registry = ServiceRegistry::new();
         let primary = instance("primary");
@@ -772,16 +844,41 @@ mod tests {
         let event_bus = EventBus::with_history(100);
         let handler = McpStoreClientHandler::new(primary_id, registry.clone(), event_bus.clone());
         let tool_name = Arc::new(RwLock::new("updated_tool".to_string()));
+        let subscription_sink = Arc::new(RwLock::new(None));
         let server_handler = NotificationServer {
             tool_name: tool_name.clone(),
+            subscription_sink: Arc::clone(&subscription_sink),
         };
         let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
         let server_start =
             tokio::spawn(async move { server_handler.serve(server_transport).await.unwrap() });
-        let client = handler.clone().serve(client_transport).await.unwrap();
+        let client = rmcp::service::serve_client_with_lifecycle(
+            handler.clone(),
+            client_transport,
+            rmcp::service::ClientLifecycleMode::Discover {
+                preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
+            },
+        )
+        .await
+        .unwrap();
         let server = server_start.await.unwrap();
+        let mut connection = crate::transport::client::McpConnection::from_test_client(
+            primary_id,
+            client,
+            handler.clone(),
+        );
+        connection
+            .refresh_subscription(&HashSet::from(["test://resource".to_string()]))
+            .await
+            .unwrap();
+        let sink = loop {
+            if let Some(sink) = subscription_sink.read().await.clone() {
+                break sink;
+            }
+            tokio::task::yield_now().await;
+        };
 
-        server.peer().notify_tool_list_changed().await.unwrap();
+        sink.notify_tool_list_changed().await.unwrap();
         wait_for_event(&event_bus, EventKind::McpToolsChanged.as_str()).await;
         assert!(registry
             .find_tool(primary_id, "updated_tool")
@@ -789,16 +886,14 @@ mod tests {
             .is_some());
         assert!(registry.list_instance_tools(untouched_id).await.is_empty());
 
-        server.peer().notify_resource_list_changed().await.unwrap();
+        sink.notify_resource_list_changed().await.unwrap();
         wait_for_event(&event_bus, EventKind::McpResourcesChanged.as_str()).await;
-        server
-            .peer()
-            .notify_resource_updated(ResourceUpdatedNotificationParam::new("test://resource"))
+        sink.notify_resource_updated("test://resource")
             .await
             .unwrap();
         wait_for_event(&event_bus, EventKind::McpResourceUpdated.as_str()).await;
 
-        server.peer().notify_prompt_list_changed().await.unwrap();
+        sink.notify_prompt_list_changed().await.unwrap();
         wait_for_event(&event_bus, EventKind::McpPromptsChanged.as_str()).await;
 
         server
@@ -808,14 +903,6 @@ mod tests {
                     .with_total(1.0)
                     .with_message("halfway"),
             )
-            .await
-            .unwrap();
-        server
-            .peer()
-            .notify_logging_message(LoggingMessageNotificationParam::new(
-                LoggingLevel::Info,
-                json!({"message": "ready"}),
-            ))
             .await
             .unwrap();
         server
@@ -835,7 +922,6 @@ mod tests {
 
         for event_type in [
             EventKind::McpProgress.as_str(),
-            EventKind::McpLogMessage.as_str(),
             EventKind::McpRequestCancelled.as_str(),
             EventKind::McpCustomNotification.as_str(),
         ] {
@@ -867,10 +953,9 @@ mod tests {
         );
         assert_eq!(custom.payload["notification"]["recognized"], false);
 
-        client.cancel().await.unwrap();
-        handler.shutdown().await;
+        connection.disconnect().await.unwrap();
         let history_len = event_bus.get_history(100).await.len();
-        assert!(server.peer().notify_tool_list_changed().await.is_err());
+        assert!(sink.notify_tool_list_changed().await.is_err());
         tokio::time::sleep(Duration::from_millis(25)).await;
         assert_eq!(event_bus.get_history(100).await.len(), history_len);
         server.cancel().await.unwrap();

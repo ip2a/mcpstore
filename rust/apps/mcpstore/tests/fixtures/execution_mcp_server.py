@@ -10,6 +10,7 @@ marker_path = os.environ.get("MCP_EXECUTION_MARKER")
 elicitation_lock = threading.Lock()
 pending_elicitations = {}
 next_elicitation_id = 1
+PROTOCOL_VERSION = "2026-07-28"
 
 
 def mark(message):
@@ -28,6 +29,7 @@ def send(message):
 
 
 def respond(request_id, result):
+    result.setdefault("resultType", "complete")
     send({"jsonrpc": "2.0", "id": request_id, "result": result})
 
 
@@ -102,13 +104,12 @@ def run_tool(request_id, params):
             respond(
                 request_id,
                 {
-                    "task": {
-                        "taskId": "fixture-elicitation-task",
-                        "status": "working",
-                        "createdAt": "2026-01-01T00:00:00Z",
-                        "lastUpdatedAt": "2026-01-01T00:00:00Z",
-                        "ttl": None,
-                    }
+                    "resultType": "task",
+                    "taskId": "fixture-elicitation-task",
+                    "status": "working",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "lastUpdatedAt": "2026-01-01T00:00:00Z",
+                    "ttlMs": None,
                 },
             )
         else:
@@ -148,7 +149,11 @@ def request_elicitation(name):
         request_id = "fixture-elicit-" + str(next_elicitation_id)
         next_elicitation_id += 1
         completed = threading.Event()
-        pending_elicitations[request_id] = {"event": completed, "result": None}
+        pending_elicitations[request_id] = {
+            "event": completed,
+            "result": None,
+            "name": name,
+        }
 
     if name in {"elicit_form", "elicit_task_form"}:
         params = {
@@ -180,10 +185,7 @@ def request_elicitation(name):
     completed.wait(10)
     with elicitation_lock:
         entry = pending_elicitations.pop(request_id, None)
-    result = entry.get("result") if entry else None
-    if result is not None:
-        mark("elicitation_response:" + name + ":" + str(result.get("action", "")))
-    return result
+    return entry.get("result") if entry else None
 
 
 def handle(message):
@@ -195,24 +197,37 @@ def handle(message):
         with elicitation_lock:
             entry = pending_elicitations.get(str(request_id))
             if entry is not None:
-                entry["result"] = message.get("result") or {}
+                result = message.get("result") or {}
+                entry["result"] = result
+                mark(
+                    "elicitation_response:"
+                    + entry["name"]
+                    + ":"
+                    + str(result.get("action", ""))
+                )
                 entry["event"].set()
                 return
 
-    if method == "initialize":
+    if method == "server/discover":
+        metadata = params.get("_meta") or {}
+        if metadata.get("io.modelcontextprotocol/protocolVersion") != PROTOCOL_VERSION:
+            raise ValueError("unsupported MCP protocol version")
         respond(
             request_id,
             {
-                "protocolVersion": params.get("protocolVersion"),
+                "supportedVersions": [PROTOCOL_VERSION],
                 "capabilities": {
                     "tools": {"listChanged": False},
-                    "tasks": {
-                        "list": {},
-                        "cancel": {},
-                        "requests": {"tools": {"call": {}}},
-                    },
+                    "extensions": {"io.modelcontextprotocol/tasks": {}},
                 },
-                "serverInfo": {"name": "execution-cli-fixture", "version": "1.0.0"},
+                "ttlMs": 0,
+                "cacheScope": "private",
+                "_meta": {
+                    "io.modelcontextprotocol/serverInfo": {
+                        "name": "execution-cli-fixture",
+                        "version": "1.0.0",
+                    }
+                },
             },
         )
     elif method == "ping":
