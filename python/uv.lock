@@ -89,6 +89,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", extras = ["email"], specifier = ">=2.11.7" }]
+provides-extras = ["postgres", "mongodb", "s3", "duckdb", "sqlite", "rocksdb", "opensearch", "vault", "firestore", "dynamodb", "disk", "keyring"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "maturin", specifier = ">=1.14.1" }]
