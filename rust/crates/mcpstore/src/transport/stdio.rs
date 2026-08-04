@@ -1,6 +1,7 @@
+use std::collections::VecDeque;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 use crate::config::ServerConfig;
@@ -12,9 +13,13 @@ use crate::transport::{Result, TransportError};
 
 use rmcp::transport::async_rw::AsyncRwTransport;
 use rmcp::RoleClient;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 type StdioTransport =
     AsyncRwTransport<RoleClient, tokio::process::ChildStdout, tokio::process::ChildStdin>;
+
+/// How many trailing child stderr lines we keep to surface in handshake errors.
+const STDERR_TAIL_LINES: usize = 50;
 
 pub(super) struct StdioProcess {
     exited: Arc<AtomicBool>,
@@ -56,7 +61,7 @@ pub(super) async fn connect(
     }
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit());
+        .stderr(std::process::Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|err| {
         TransportError::ConnectionFailed(format!("Failed to spawn child process: {err}"))
@@ -67,6 +72,47 @@ pub(super) async fn connect(
     let stdin = child.stdin.take().ok_or_else(|| {
         TransportError::ConnectionFailed(format!("stdio child for {name} has no stdin"))
     })?;
+    let stderr = child.stderr.take();
+
+    // Capture child stderr so we can surface it when the handshake fails, and
+    // keep it visible through tracing while the service runs.
+    let stderr_tail: Arc<Mutex<VecDeque<String>>> =
+        Arc::new(Mutex::new(VecDeque::new()));
+    if let Some(stderr) = stderr {
+        let tail = Arc::clone(&stderr_tail);
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break, // EOF — child closed stderr
+                    Ok(_) => {
+                        let trimmed = line.trim_end();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        tracing::debug!(
+                            target: "mcpstore::transport::stdio::stderr",
+                            "{trimmed}"
+                        );
+                        let mut guard = match tail.lock() {
+                            Ok(g) => g,
+                            Err(p) => p.into_inner(),
+                        };
+                        if guard.len() >= STDERR_TAIL_LINES {
+                            guard.pop_front();
+                        }
+                        guard.push_back(trimmed.to_string());
+                    }
+                    Err(error) => {
+                        tracing::debug!("stdio stderr read failed: {error}");
+                        break;
+                    }
+                }
+            }
+        });
+    }
 
     let exited = Arc::new(AtomicBool::new(false));
     let exited_signal = Arc::clone(&exited);
@@ -107,7 +153,7 @@ pub(super) async fn connect(
     });
 
     let transport = StdioTransport::new_client(stdout, stdin);
-    let client = rmcp::service::serve_client_with_lifecycle(
+    let client = match rmcp::service::serve_client_with_lifecycle(
         handler,
         transport,
         rmcp::service::ClientLifecycleMode::Discover {
@@ -115,7 +161,27 @@ pub(super) async fn connect(
         },
     )
     .await
-    .map_err(|err| TransportError::ConnectionFailed(format!("MCP handshake failed: {err}")))?;
+    {
+        Ok(client) => client,
+        Err(err) => {
+            let mut detail = format!("MCP handshake failed: {err}");
+            // Give the child a moment to flush stderr before we snapshot the tail.
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let tail = match stderr_tail.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
+            if !tail.is_empty() {
+                detail.push_str("\n--- child stderr (last lines) ---\n");
+                detail.push_str(&tail.iter().cloned().collect::<Vec<_>>().join("\n"));
+            } else if exited.load(Ordering::Acquire) {
+                detail.push_str("\n(child process exited before responding; no stderr output)");
+            } else {
+                detail.push_str("\n(child process produced no stderr output)");
+            }
+            return Err(TransportError::ConnectionFailed(detail));
+        }
+    };
 
     Ok((
         client,
