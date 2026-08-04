@@ -19,7 +19,7 @@ import { getAgentId } from "@/features/agents/model"
 import { type SelectedScope, useAgentScope } from "@/features/agents/use-agent-scope"
 import { type AgentItem, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
-import { formatServiceLaunchLine } from "@/lib/service-info"
+import { getServiceEndpointLabel } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
 
 type RightPaneView = "overview" | "scope"
@@ -319,6 +319,9 @@ export function AgentsView(props: {
                           >
                             <div className="min-w-0">
                               <span className="block min-w-0 truncate font-semibold">{service.service_name}</span>
+                              <span className="block min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
+                                {getServiceEndpointLabel(service)}
+                              </span>
                               <ServiceRowMeta service={service} toolCount={toolCount} />
                             </div>
                           </EntityRow>
@@ -503,7 +506,7 @@ function ScopeServiceSheet({
 
   const endpoint = service.url || service.command || "-"
   const scope = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
-  const launchLine = formatServiceLaunchLine(service)
+  const launchLine = getServiceEndpointLabel(service)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

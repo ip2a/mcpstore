@@ -108,14 +108,47 @@ export function ServiceConfigFormFields({
           </FieldCollapsible>
 
           <FieldCollapsible title={t("oauthEnabled")}>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">{t("oauthEnabledHint")}</span>
-              <Switch
-                id="config-oauth-enabled"
-                checked={fields.oauthEnabled}
-                onCheckedChange={(oauthEnabled) => updateFields({ oauthEnabled })}
-                aria-label={t("oauthEnabled")}
-              />
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-muted-foreground">{t("oauthEnabledHint")}</span>
+                <Switch
+                  id="config-oauth-enabled"
+                  checked={fields.oauthEnabled}
+                  onCheckedChange={(oauthEnabled) => updateFields({ oauthEnabled })}
+                  aria-label={t("oauthEnabled")}
+                />
+              </div>
+              {fields.oauthEnabled ? (
+                <>
+                  <Field>
+                    <FieldLabel htmlFor="config-oauth-client-id">{t("oauthClientId")}</FieldLabel>
+                    <Input
+                      id="config-oauth-client-id"
+                      value={fields.oauthClientId}
+                      placeholder={t("oauthClientIdHint")}
+                      onChange={(event) => updateFields({ oauthClientId: event.target.value })}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="config-oauth-client-metadata-url">
+                      {t("oauthClientMetadataUrl")}
+                    </FieldLabel>
+                    <Input
+                      id="config-oauth-client-metadata-url"
+                      type="url"
+                      value={fields.oauthClientMetadataUrl}
+                      placeholder="https://client.example/mcpstore.json"
+                      required={!fields.oauthClientId.trim()}
+                      onChange={(event) =>
+                        updateFields({ oauthClientMetadataUrl: event.target.value })
+                      }
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {t("oauthClientMetadataUrlHint")}
+                    </span>
+                  </Field>
+                </>
+              ) : null}
             </div>
           </FieldCollapsible>
         </>

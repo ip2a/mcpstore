@@ -161,7 +161,6 @@ export type McpServerCapabilities = {
   prompts: boolean;
   promptsListChanged: boolean;
   completions: boolean;
-  logging: boolean;
   tasks: boolean;
   taskList: boolean;
   taskCancel: boolean;

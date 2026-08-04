@@ -12,6 +12,11 @@ export function getServiceLaunchCommand(service: ServiceInstance) {
   return [command, ...args].filter(Boolean).join(" ")
 }
 
+export function getServiceEndpointLabel(service: ServiceInstance) {
+  const url = String(service.url || "").trim()
+  return url || getServiceLaunchCommand(service) || "-"
+}
+
 export function formatServiceLaunchLine(service: ServiceInstance) {
   const transport = getServiceTransport(service)
   const config = service.effective_config

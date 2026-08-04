@@ -1,14 +1,9 @@
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { Badge } from "@/components/ui/badge"
-import { getServiceLaunchCommand, getServiceTransport } from "@/lib/service-info"
+import { getServiceTransport } from "@/lib/service-info"
 import type { ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 
-function serviceEndpointLabel(service: ServiceInstance) {
-  const url = String(service.url || "").trim()
-  if (url) return url
-  return getServiceLaunchCommand(service) || "-"
-}
 
 export function ServiceRowMeta({
   service,
@@ -24,7 +19,6 @@ export function ServiceRowMeta({
     service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
   const transport = getServiceTransport(service)
   const transportLabel = transport !== "unknown" ? transport : "-"
-  const endpoint = serviceEndpointLabel(service)
 
   return (
     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
@@ -35,9 +29,6 @@ export function ServiceRowMeta({
       ) : null}
       <Badge variant="outline" className="shrink-0 font-mono">
         {transportLabel}
-      </Badge>
-      <Badge variant="outline" className="max-w-full font-mono" title={endpoint}>
-        <span className="truncate">{endpoint}</span>
       </Badge>
       <ServiceStatusBadge state={service.state} />
       {toolCount !== undefined ? (

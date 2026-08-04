@@ -287,7 +287,6 @@ export function ServiceOverviewPane({
         capabilities.resourcesSubscribe && t("resourceSubscriptions"),
         capabilities.prompts && t("prompts"),
         capabilities.completions && t("completions"),
-        capabilities.logging && t("logging"),
         capabilities.tasks && t("tasks"),
       ].filter((label): label is string => Boolean(label))
     : [];
