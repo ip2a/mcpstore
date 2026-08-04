@@ -23,6 +23,26 @@ class BaseCacheConfig:
 
 
 @dataclass
+class OpenKeyvConfig(BaseCacheConfig):
+    """Configuration for any OpenKeyv backend compiled into the Rust core."""
+
+    backend: str = "memory"
+    url: Optional[str] = None
+    namespace: Optional[str] = None
+
+    @property
+    def cache_type(self) -> str:
+        return self.backend.strip().lower()
+
+    def __post_init__(self) -> None:
+        self.backend = self.backend.strip().lower()
+        if not self.backend:
+            raise ValueError("OpenKeyv backend name cannot be empty")
+        if self.backend != "memory" and not self.url:
+            raise ValueError(f"OpenKeyv backend {self.backend!r} requires a URL")
+
+
+@dataclass
 class MemoryConfig(BaseCacheConfig):
     """Memory cache configuration."""
     max_size: Optional[int] = None

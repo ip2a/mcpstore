@@ -69,6 +69,14 @@ def _read_field(data: Any, *names: str, default: Any = None) -> Any:
     for name in names:
         if hasattr(data, name):
             return getattr(data, name)
+
+    info = getattr(data, "info", None)
+    if callable(info):
+        try:
+            return _read_field(info(), *names, default=default)
+        except Exception:
+            pass
+
     return default
 
 
@@ -502,7 +510,7 @@ def create_args_schema(tool_info: Any) -> Type[BaseModel]:
 
 def build_sync_executor(
     context: Any,
-    instance_id: str,
+    instance_id: str | None,
     tool_name: str,
     args_schema: Type[BaseModel]
 ) -> Callable[..., Any]:
@@ -521,7 +529,10 @@ def build_sync_executor(
         tool_input = {}
         try:
             tool_input = dict(kwargs)
-            result = context.call_tool(instance_id, tool_name, tool_input)
+            if instance_id is None:
+                result = context.call_tool(tool_name, tool_input)
+            else:
+                result = context.call_tool(instance_id, tool_name, tool_input)
             view = to_tool_call_view(result)
             if view.is_error:
                 payload = build_tool_error_payload(
@@ -547,7 +558,7 @@ def build_sync_executor(
 
 def build_async_executor(
     context: Any,
-    instance_id: str,
+    instance_id: str | None,
     tool_name: str,
     args_schema: Type[BaseModel]
 ) -> Callable[..., Any]:
@@ -566,7 +577,10 @@ def build_async_executor(
         tool_input = {}
         try:
             tool_input = dict(kwargs)
-            result = await asyncio.to_thread(context.call_tool, instance_id, tool_name, tool_input)
+            if instance_id is None:
+                result = await asyncio.to_thread(context.call_tool, tool_name, tool_input)
+            else:
+                result = await asyncio.to_thread(context.call_tool, instance_id, tool_name, tool_input)
             view = to_tool_call_view(result)
             if view.is_error:
                 payload = build_tool_error_payload(

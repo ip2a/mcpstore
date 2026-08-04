@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,46 @@ from mcpstore.store import RustStoreBackend
 
 STORE_INSTANCE_ID = "c81af510-755b-55c7-8487-5668ab36e06e"
 AGENT_INSTANCE_ID = "127ce370-1ed6-5b00-9713-e88d01b3010d"
+
+
+class _FakeToolNative:
+    def __init__(self, name: str, instance_id: str):
+        self._name = name
+        self._instance_id = instance_id
+
+    def info(self):
+        return {
+            "name": self._name,
+            "instance_id": self._instance_id,
+            "description": f"{self._name} tool",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string"},
+                },
+                "required": ["value"],
+            },
+        }
+
+
+class _FakeScopeNative:
+    def __init__(self, tools: list[_FakeToolNative]):
+        self._tools = tools
+        self.calls: list[tuple[str, dict]] = []
+
+    def scope(self):
+        return {"type": "store"}
+
+    def list_tools(self):
+        return self._tools
+
+    def call_tool(self, tool_name: str, args: dict):
+        self.calls.append((tool_name, args))
+        return {
+            "content": [],
+            "structured_content": {"tool": tool_name, "args": args},
+            "data": {"tool": tool_name, "args": args},
+        }
 
 
 class ScopeBindingIntegrationTests(unittest.TestCase):
@@ -151,6 +192,38 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertEqual(service.info()["service_name"], "svc")
             self.assertEqual(store.for_store().list_services(), [])
             self.assertEqual(context.list_tools(), [])
+
+    def test_list_agents_is_available_from_python_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "mcp.json"
+            config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
+            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store.for_agent("agent-a").add_service_config("svc-a", {"command": "command-that-must-not-run", "args": []})
+            store.for_agent("agent-b").add_service_config("svc-b", {"command": "command-that-must-not-run", "args": []})
+
+            agents = store.list_agents()
+            agent_ids = {agent["agent_id"] for agent in agents}
+
+            self.assertIn("agent-a", agent_ids)
+            self.assertIn("agent-b", agent_ids)
+            self.assertTrue(all(isinstance(agent.get("instance_ids"), list) for agent in agents))
+
+    def test_scope_adapter_is_bound_to_the_current_python_context(self) -> None:
+        native = _FakeScopeNative([
+            _FakeToolNative("alpha", "alpha-instance"),
+            _FakeToolNative("beta", "beta-instance"),
+        ])
+        context = StoreContext(native)
+
+        adapter = context.for_openai()
+        tools = adapter.list_tools()
+        registry = adapter.create_tool_registry()
+        result = registry["alpha"]["execute"](value="x")
+
+        self.assertEqual(context.scope, {"type": "store"})
+        self.assertEqual([tool["function"]["name"] for tool in tools], ["alpha", "beta"])
+        self.assertEqual(json.loads(result), {"tool": "alpha", "args": {"value": "x"}})
+        self.assertEqual(native.calls, [("alpha", {"value": "x"})])
 
 
 if __name__ == "__main__":

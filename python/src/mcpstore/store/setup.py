@@ -12,26 +12,28 @@ def normalize_cache_config(cache_config: Any) -> Any:
     if cache_config is None or hasattr(cache_config, "cache_type"):
         return cache_config
     if isinstance(cache_config, str):
-        cache_type = cache_config.strip().lower()
-        if cache_type == "memory":
-            from mcpstore.config import MemoryConfig
-            return MemoryConfig()
-        raise ValueError(f"Unsupported Rust cache type: {cache_config!r}")
+        from mcpstore.config import OpenKeyvConfig
+
+        return OpenKeyvConfig(backend=cache_config)
     if isinstance(cache_config, dict):
-        raw_type = cache_config.get("type", cache_config.get("cache_type"))
-        cache_type = getattr(raw_type, "value", raw_type)
+        raw_type = cache_config.get(
+            "backend", cache_config.get("type", cache_config.get("cache_type"))
+        )
+        cache_type = str(getattr(raw_type, "value", raw_type) or "").strip().lower()
+        if not cache_type:
+            raise ValueError("OpenKeyv backend name cannot be empty")
         options = dict(cache_config)
+        options.pop("backend", None)
         options.pop("type", None)
         options.pop("cache_type", None)
-        configs = {
-            "memory": "MemoryConfig",
-            "redis": "RedisConfig",
-        }
+        configs = {"memory": "MemoryConfig", "redis": "RedisConfig"}
         config_name = configs.get(cache_type)
         if config_name:
             from mcpstore import config as config_module
             return getattr(config_module, config_name)(**options)
-        raise ValueError(f"Unsupported Rust cache type: {cache_type!r}")
+        from mcpstore.config import OpenKeyvConfig
+
+        return OpenKeyvConfig(backend=cache_type, **options)
     return cache_config
 
 
@@ -54,15 +56,12 @@ def cache_options(cache_config: Any) -> tuple[Optional[str], Optional[str], Opti
         return None, None, None
     raw_type = getattr(cache_config, "cache_type", None)
     cache_type = getattr(raw_type, "value", raw_type)
-    backend = {
-        "memory": "memory",
-        "redis": "redis",
-    }.get(cache_type)
-    if backend is None:
-        raise ValueError(f"Unsupported Rust cache type: {cache_type!r}")
-    url = redis_url(cache_config) if "redis" in backend else None
-    if "redis" in backend and not url:
-        raise ValueError("Redis cache configuration requires url or host")
+    backend = str(cache_type).strip().lower()
+    if not backend:
+        raise ValueError("OpenKeyv backend name cannot be empty")
+    url = redis_url(cache_config)
+    if backend != "memory" and not url:
+        raise ValueError(f"OpenKeyv backend {backend!r} requires a URL")
     return backend, url, getattr(cache_config, "namespace", None)
 
 
@@ -177,8 +176,10 @@ class StoreSetupManager:
         if mode == "shared":
             cache_type_value = getattr(cache, "cache_type", None)
             cache_type = getattr(cache_type_value, "value", cache_type_value)
-            if cache_type != "redis":
-                raise ValueError("cache_mode='shared' 需要 RedisConfig；memory 后端无法跨进程共享 session")
+            if not cache_type or str(cache_type).lower() == "memory":
+                raise ValueError(
+                    "cache_mode='shared' requires a non-memory OpenKeyv backend"
+                )
 
         resolved_only_db = False if mode == "local" else only_db or mode == "shared"
         if mode == "local" and cache is None:

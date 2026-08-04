@@ -14,11 +14,13 @@ from .common import (
 class LlamaIndexAdapter:
     """Adapter from MCPStore tools to LlamaIndex FunctionTool objects."""
 
-    def __init__(self, context: Any, instance_id: str):
+    def __init__(self, context: Any, instance_id: str | None = None):
         self._context = context
         self._instance_id = instance_id
 
     def list_tools(self) -> List[object]:
+        if self._instance_id is None:
+            return self._build_tools(self._context.list_tools())
         return self._build_tools(self._context.list_tools(self._instance_id))
 
 
@@ -36,7 +38,7 @@ class LlamaIndexAdapter:
             args_schema = create_args_schema(tool_info)
             sync_fn = build_sync_executor(
                 self._context,
-                tool_instance_id(tool_info),
+                None if self._instance_id is None else tool_instance_id(tool_info),
                 name,
                 args_schema,
             )
