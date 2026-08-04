@@ -64,25 +64,8 @@ pub fn run() -> Result<(), BoxErr> {
     let app_config = ConfigManager::new().load_app_config_or_default().ok();
     if uses_machine_output(&cli.command) {
         bootstrap::init_tracing_silent("mcpstore=info");
-    } else if let Some(config) = &app_config {
-        if config.diagnostics.enabled && config.diagnostics.runtime_log.enabled {
-            let log_path = ConfigManager::new()
-                .mcp_path()
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."))
-                .join("logs")
-                .join("mcpstore.log");
-            bootstrap::init_tracing_with_file(
-                &format!("mcpstore={}", config.diagnostics.runtime_log.level),
-                log_path,
-                config.diagnostics.runtime_log.max_size_bytes,
-                config.diagnostics.runtime_log.retention_days,
-            )?;
-        } else {
-            bootstrap::init_tracing("mcpstore=info");
-        }
     } else {
-        bootstrap::init_tracing("mcpstore=info");
+        bootstrap::init_tracing_from_config(app_config.as_ref());
     }
 
     let rt = bootstrap::build_runtime()?;
