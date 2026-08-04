@@ -3701,7 +3701,6 @@ dependencies = [
  "tokio-test",
  "toml",
  "tracing",
- "tracing-subscriber",
  "url",
  "uuid",
  "zeroize",

@@ -31,13 +31,13 @@ pub fn run(
     tick_ms: u64,
     locale_override: Option<Locale>,
 ) -> Result<(), BoxErr> {
-    bootstrap::init_tracing_silent("mcpstore=warn");
-
     let rt = bootstrap::build_runtime()?;
     let store = crate::store_args::build_store(args)?;
     rt.block_on(async { store.load_from_source().await })?;
 
     let app_config = store.config_manager().load_app_config_or_default()?;
+    bootstrap::init_tracing_from_config(Some(&app_config));
+
     let locale = locale_override
         .or_else(|| Locale::from_config_value(&app_config.ui.language))
         .unwrap_or_default();
