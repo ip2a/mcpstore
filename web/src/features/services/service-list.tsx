@@ -15,6 +15,7 @@ import {
 import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dialog"
 import { EditServiceDialog } from "@/features/services/edit-service-dialog"
 import { useI18n } from "@/lib/i18n-context"
+import { getServiceEndpointLabel } from "@/lib/service-info"
 import type { AgentItem, ServiceInstance } from "@/lib/api"
 
 function ServiceMoreActionsDialog({
@@ -190,6 +191,9 @@ function ServiceRow({
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
+          <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
+            {getServiceEndpointLabel(service)}
+          </span>
         </div>
         <ServiceRowMeta service={service} showScope toolCount={toolCount} />
       </div>

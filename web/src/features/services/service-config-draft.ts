@@ -16,6 +16,8 @@ export type ServiceConfigFields = {
   envText: string
   headersText: string
   oauthEnabled: boolean
+  oauthClientId: string
+  oauthClientMetadataUrl: string
 }
 
 export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
@@ -28,6 +30,8 @@ export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
   envText: "",
   headersText: "",
   oauthEnabled: false,
+  oauthClientId: "",
+  oauthClientMetadataUrl: "",
 }
 
 const TRANSPORTS = new Set<ServiceConfigTransport>(["stdio", "streamable-http"])
@@ -86,9 +90,12 @@ export function fieldsToConfig(fields: ServiceConfigFields): Record<string, unkn
   if (fields.url.trim()) config.url = fields.url.trim()
   if (Object.keys(headers).length) config.headers = headers
   if (fields.oauthEnabled) {
+    const clientId = fields.oauthClientId.trim()
     config.auth = {
       type: "oauth_authorization_code",
-      dynamic_client_registration: true,
+      ...(clientId
+        ? { client_id: clientId }
+        : { client_metadata_url: fields.oauthClientMetadataUrl.trim() }),
     }
   }
   return config
@@ -101,6 +108,7 @@ export function configToFields(config: Record<string, unknown>): ServiceConfigFi
     auth !== null &&
     !Array.isArray(auth) &&
     (auth as Record<string, unknown>).type === "oauth_authorization_code"
+  const oauthConfig = oauthEnabled ? (auth as Record<string, unknown>) : undefined
 
   return {
     transport: normalizeTransport(config.transport),
@@ -112,6 +120,8 @@ export function configToFields(config: Record<string, unknown>): ServiceConfigFi
     envText: formatKvText(config.env as Record<string, unknown> | undefined),
     headersText: formatKvText(config.headers as Record<string, unknown> | undefined),
     oauthEnabled,
+    oauthClientId: String(oauthConfig?.client_id || ""),
+    oauthClientMetadataUrl: String(oauthConfig?.client_metadata_url || ""),
   }
 }
 
