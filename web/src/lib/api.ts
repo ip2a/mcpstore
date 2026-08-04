@@ -226,6 +226,7 @@ export type DiagnosticsSettingsPayload = {
   runtime_log?: {
     enabled?: boolean;
     max_size_bytes?: number;
+    retention_days?: number | null;
   };
   history?: {
     enabled?: boolean;
