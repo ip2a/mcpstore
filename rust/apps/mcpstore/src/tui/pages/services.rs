@@ -15,13 +15,25 @@ pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
 }
 
 pub fn render_content(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
+    let content = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(area);
+    widgets::filter_bar::render(
+        frame,
+        content[0],
+        &app.filter,
+        app.focus_area == FocusArea::ViewFilter,
+        app.locale,
+    );
+
     let layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(tui_layout::CONTENT_MENU_PERCENT),
             Constraint::Percentage(tui_layout::CONTENT_BODY_PERCENT),
         ])
-        .split(area);
+        .split(content[1]);
 
     render_menu(frame, layout[0], app);
     widgets::service_table::render(

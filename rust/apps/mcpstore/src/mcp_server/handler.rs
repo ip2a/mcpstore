@@ -176,18 +176,34 @@ impl McpStoreServer {
 }
 
 impl ServerHandler for McpStoreServer {
-    async fn on_initialized(&self, context: rmcp::service::NotificationContext<RoleServer>) {
+    fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
+        Cow::Borrowed(&[ProtocolVersion::V_2026_07_28])
+    }
+
+    fn accepted_subscription_filter(
+        &self,
+        requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        Some(requested.supported_by(&self.get_info().capabilities))
+    }
+
+    async fn listen(&self, context: SubscriptionContext) -> Result<(), ErrorData> {
+        let active = Arc::new(AtomicBool::new(true));
         self.store
             .event_bus()
             .subscribe(
                 mcpstore::events::types::EventKind::McpToolsChanged.as_str(),
                 0,
                 Arc::new(AggregateToolsChangedNotification {
-                    peer: context.peer,
+                    sink: context.sink().clone(),
+                    active: Arc::clone(&active),
                     instance_id: self.instance_id,
                 }),
             )
             .await;
+        context.cancelled().await;
+        active.store(false, Ordering::Release);
+        Ok(())
     }
 
     fn get_info(&self) -> ServerInfo {
@@ -278,7 +294,7 @@ impl ServerHandler for McpStoreServer {
         &self,
         request: ReadResourceRequestParams,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
-    ) -> impl std::future::Future<Output = Result<ReadResourceResult, ErrorData>> + '_ {
+    ) -> impl std::future::Future<Output = Result<ReadResourceResponse, ErrorData>> + '_ {
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let target_instance_id = self.instance_id;
@@ -298,7 +314,7 @@ impl ServerHandler for McpStoreServer {
                 .read_resource_scoped(instance_id, &original_uri)
                 .await
                 .map_err(map_store_error)?;
-            deserialize_item::<ReadResourceResult>(result, "read resource result")
+            deserialize_item::<ReadResourceResult>(result, "read resource result").map(Into::into)
         }
     }
 
@@ -330,7 +346,7 @@ impl ServerHandler for McpStoreServer {
         &self,
         request: GetPromptRequestParams,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
-    ) -> impl std::future::Future<Output = Result<GetPromptResult, ErrorData>> + '_ {
+    ) -> impl std::future::Future<Output = Result<GetPromptResponse, ErrorData>> + '_ {
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let target_instance_id = self.instance_id;
@@ -350,7 +366,7 @@ impl ServerHandler for McpStoreServer {
                 .get_prompt_scoped(instance_id, &original_name, arguments)
                 .await
                 .map_err(map_store_error)?;
-            deserialize_item::<GetPromptResult>(result, "prompt result")
+            deserialize_item::<GetPromptResult>(result, "prompt result").map(Into::into)
         }
     }
 
@@ -358,7 +374,7 @@ impl ServerHandler for McpStoreServer {
         &self,
         request: CallToolRequestParams,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
-    ) -> impl std::future::Future<Output = Result<CallToolResult, ErrorData>> + '_ {
+    ) -> impl std::future::Future<Output = Result<CallToolResponse, ErrorData>> + '_ {
         let tool_name = request.name.as_ref().to_string();
         let binding = self.bindings.get(tool_name.as_str()).cloned();
         let is_session_state_tool = self.session_state_tools.contains_key(tool_name.as_str());
@@ -382,22 +398,33 @@ impl ServerHandler for McpStoreServer {
                     arguments,
                     default_session_key.as_deref(),
                 )
-                .await;
+                .await
+                .map(Into::into);
             }
             if is_tool_transform_tool {
-                return call_tool_transform_tool(&store, &tool_name, arguments).await;
+                return call_tool_transform_tool(&store, &tool_name, arguments)
+                    .await
+                    .map(Into::into);
             }
             if is_openapi_tool {
-                return call_openapi_tool(&store, &tool_name, arguments).await;
+                return call_openapi_tool(&store, &tool_name, arguments)
+                    .await
+                    .map(Into::into);
             }
             if is_service_tool {
-                return call_service_tool(&store, &tool_name, &scope, arguments).await;
+                return call_service_tool(&store, &tool_name, &scope, arguments)
+                    .await
+                    .map(Into::into);
             }
             if is_cache_tool {
-                return call_cache_tool(&store, &tool_name, arguments).await;
+                return call_cache_tool(&store, &tool_name, arguments)
+                    .await
+                    .map(Into::into);
             }
             if is_event_tool {
-                return call_event_tool(&store, &tool_name, arguments).await;
+                return call_event_tool(&store, &tool_name, arguments)
+                    .await
+                    .map(Into::into);
             }
 
             let (args, session_key) = extract_business_session_key(
@@ -457,11 +484,11 @@ impl ServerHandler for McpStoreServer {
                 }
             }
 
-            Ok(if result.is_error {
+            Ok(CallToolResponse::Complete(if result.is_error {
                 CallToolResult::error(content)
             } else {
                 CallToolResult::success(content)
-            })
+            }))
         }
     }
 }

@@ -20,7 +20,7 @@ enum McpStoreExecutionInner {
 
 enum ToolExecutionMode {
     Immediate,
-    Task { ttl: Option<u64> },
+    Task,
 }
 
 struct ToolExecutionContext {
@@ -187,14 +187,13 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
-        ttl: Option<u64>,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
         self.start_tool_execution_inner(
             instance_id,
             tool_name,
             args,
-            ToolExecutionMode::Task { ttl },
+            ToolExecutionMode::Task,
             options,
         )
         .await
@@ -222,7 +221,7 @@ impl MCPStore {
             .await
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
         let is_openapi_virtual = self.is_openapi_virtual_instance(instance_id).await?;
-        if matches!(mode, ToolExecutionMode::Task { .. }) && is_openapi_virtual {
+        if matches!(mode, ToolExecutionMode::Task) && is_openapi_virtual {
             return Err(StoreError::Transport(
                 TransportError::CapabilityUnsupported {
                     instance_id,
@@ -236,8 +235,7 @@ impl MCPStore {
             scope: instance.scope,
             tool_name: tool_name.clone(),
             arguments: args.clone(),
-            task_tool_name: matches!(mode, ToolExecutionMode::Task { .. })
-                .then(|| tool_name.clone()),
+            task_tool_name: matches!(mode, ToolExecutionMode::Task).then(|| tool_name.clone()),
             is_openapi_virtual,
             started_at: Instant::now(),
         };
@@ -256,9 +254,9 @@ impl MCPStore {
         }
 
         let started = match mode {
-            ToolExecutionMode::Task { ttl } => {
+            ToolExecutionMode::Task => {
                 self.pool
-                    .start_task_tool_execution(instance_id, &tool_name, args, ttl, options)
+                    .start_task_tool_execution(instance_id, &tool_name, args, options)
                     .await
             }
             ToolExecutionMode::Immediate => {

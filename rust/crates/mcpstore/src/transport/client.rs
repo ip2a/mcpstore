@@ -11,7 +11,7 @@ use crate::transport::{Result, TransportError};
 
 pub use crate::transport::pool::ConnectionPool;
 
-use rmcp::model::{ClientRequest, InitializeResult, PingRequest};
+use rmcp::model::{ClientRequest, PingRequest, ServerPeerInfo};
 use rmcp::service::{RoleClient, RunningService};
 use std::sync::Arc;
 
@@ -29,7 +29,8 @@ pub struct McpConnection {
     client: Option<ActiveClient>,
     stdio_process: Option<stdio_transport::StdioProcess>,
     auth_coordinator: AuthCoordinator,
-    handler: McpStoreClientHandler,
+    pub(in crate::transport) handler: McpStoreClientHandler,
+    pub(in crate::transport) subscription_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl McpConnection {
@@ -49,6 +50,7 @@ impl McpConnection {
             stdio_process: None,
             auth_coordinator,
             handler: McpStoreClientHandler::new(instance_id, registry, event_bus),
+            subscription_task: None,
         }
     }
 
@@ -79,6 +81,7 @@ impl McpConnection {
             )
             .expect("test auth coordinator"),
             handler,
+            subscription_task: None,
         }
     }
 
@@ -132,6 +135,10 @@ impl McpConnection {
     }
 
     pub async fn disconnect(&mut self) -> Result<()> {
+        if let Some(task) = self.subscription_task.take() {
+            task.abort();
+            let _ = task.await;
+        }
         if let Some(process) = self.stdio_process.take() {
             process.shutdown().await;
         }
@@ -174,7 +181,7 @@ impl McpConnection {
         (self.auth_coordinator.clone(), self.config.auth.clone())
     }
 
-    pub(in crate::transport) fn peer_info(&self) -> Result<Arc<InitializeResult>> {
+    pub(in crate::transport) fn peer_info(&self) -> Result<Arc<ServerPeerInfo>> {
         self.get_client()?.peer_info().ok_or_else(|| {
             TransportError::Protocol(format!(
                 "MCP handshake metadata unavailable for {}",

@@ -145,8 +145,8 @@ impl ConfigManager {
         let mut app_config = AppConfig::default();
         if let Some(redis_url) = redis_url {
             app_config.cache = CacheConfig {
-                backend: CacheBackend::Redis,
-                redis_url: Some(redis_url),
+                backend: CacheBackend::redis(),
+                url: Some(redis_url),
                 namespace: "mcpstore".to_string(),
             };
         }

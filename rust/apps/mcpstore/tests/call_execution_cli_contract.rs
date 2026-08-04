@@ -33,6 +33,7 @@ struct Fixture {
     marker: PathBuf,
     socket: PathBuf,
     instance_id: String,
+    namespace: String,
 }
 
 impl Fixture {
@@ -60,6 +61,7 @@ impl Fixture {
             .unwrap(),
         )
         .unwrap();
+        let namespace = service_name.clone();
         let instance_id = ServiceInstanceKey::new(service_name, ScopeRef::Store)
             .instance_id()
             .to_string();
@@ -69,6 +71,7 @@ impl Fixture {
             marker,
             socket,
             instance_id,
+            namespace,
         }
     }
 
@@ -97,6 +100,8 @@ impl Fixture {
                 "--config-path",
             ])
             .arg(&self.config)
+            .arg("--namespace")
+            .arg(&self.namespace)
             .env("MCPSTORE_SOCKET", &self.socket);
         if !interactive_flag {
             command.arg("--non-interactive");
@@ -126,6 +131,8 @@ impl Fixture {
                 "--config-path",
             ])
             .arg(&self.config)
+            .arg("--namespace")
+            .arg(&self.namespace)
             .env("MCPSTORE_SOCKET", &self.socket);
         command
     }
@@ -174,7 +181,12 @@ fn call_jsonl_streams_progress_and_completion() {
     );
 
     let events = json_lines(&output.stdout);
-    assert_eq!(events.len(), 4);
+    assert_eq!(
+        events.len(),
+        4,
+        "stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     assert_eq!(events[0]["event"], "execution.started");
     assert_eq!(events[1]["event"], "execution.progress");
     assert_eq!(events[2]["event"], "execution.progress");

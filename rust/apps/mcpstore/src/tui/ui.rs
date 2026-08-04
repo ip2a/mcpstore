@@ -1,6 +1,7 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -8,21 +9,13 @@ use crate::tui::app::{FocusArea, TuiApp};
 use crate::tui::i18n::{self, Locale, TextKey};
 use crate::tui::{layout, pages, theme, widgets};
 
-pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
-    app.sync_status_history();
-    if app.active_view == super::app::MainView::Logs {
-        app.refresh_log_sources(rt);
-    }
-    if app.active_view == super::app::MainView::Agents {
-        if let Err(error) = app.refresh_agents(rt) {
-            app.status_message = format!(
-                "{} {error}",
-                i18n::text(app.locale, TextKey::StatusErrorPrefix)
-            );
-        }
-    }
-    if app.active_view == super::app::MainView::Status {
-        app.refresh_status_sources(rt);
+pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
+    if frame.area().width < 40 || frame.area().height < 16 {
+        frame.render_widget(
+            Paragraph::new("Terminal too small. Resize to at least 40x16."),
+            frame.area(),
+        );
+        return;
     }
     let term_width = frame.area().width;
     let header_h = widgets::header::header_height(term_width);
@@ -48,45 +41,41 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
     );
     render_active_view(frame, main_layout[2], app);
 
-    if app.pending_action.is_some() {
-        render_confirm_dialog(frame, app.locale);
-    }
-
-    if app.show_service_detail {
-        if let Some(detail) = app.selected_detail.as_ref() {
-            widgets::modal::render_service_detail(frame, app.locale, detail);
+    match &app.overlay {
+        super::app::Overlay::Confirm(_) => render_confirm_dialog(frame, app.locale),
+        super::app::Overlay::ServiceDetail => {
+            if let Some(detail) = app.selected_detail.as_ref() {
+                widgets::modal::render_service_detail(frame, app.locale, detail);
+            }
         }
-    }
-
-    if app.show_tool_detail {
-        if let Some(tool) = app.current_tool() {
-            widgets::modal::render_tool_detail(
+        super::app::Overlay::ToolDetail => {
+            if let Some(tool) = app.current_tool() {
+                widgets::modal::render_tool_detail(
+                    frame,
+                    app.locale,
+                    &tool.service_name,
+                    tool,
+                    &app.tool_test_args,
+                    &app.tool_test_result,
+                );
+            }
+        }
+        super::app::Overlay::Edit(modal) => {
+            widgets::modal::render_input(frame, &modal.title, &modal.value, &modal.hint);
+        }
+        super::app::Overlay::Select(modal) => {
+            widgets::modal::render_select(
                 frame,
                 app.locale,
-                &tool.service_name,
-                tool,
-                &app.tool_test_args,
-                &app.tool_test_result,
+                &modal.title,
+                &modal.options,
+                modal.selected,
             );
         }
-    }
-
-    if let Some(modal) = app.edit_modal.as_ref() {
-        widgets::modal::render_input(frame, &modal.title, &modal.value, &modal.hint);
-    }
-
-    if let Some(modal) = app.select_modal.as_ref() {
-        widgets::modal::render_select(
-            frame,
-            app.locale,
-            &modal.title,
-            &modal.options,
-            modal.selected,
-        );
-    }
-
-    if let Some(modal) = app.loading_modal.as_ref() {
-        widgets::modal::render_loading(frame, &modal.title, &modal.message);
+        super::app::Overlay::Loading(modal) => {
+            widgets::modal::render_loading(frame, &modal.title, &modal.message);
+        }
+        super::app::Overlay::None => {}
     }
 }
 

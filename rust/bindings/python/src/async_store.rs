@@ -108,11 +108,7 @@ impl PyAsyncMCPStore {
         })
     }
 
-    fn remove_service<'a>(
-        &self,
-        py: Python<'a>,
-        service_name: &str,
-    ) -> PyResult<Bound<'a, PyAny>> {
+    fn remove_service<'a>(&self, py: Python<'a>, service_name: &str) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         let service_name = service_name.to_string();
         future_into_py(py, async move {
@@ -124,11 +120,7 @@ impl PyAsyncMCPStore {
         })
     }
 
-    fn restart_service<'a>(
-        &self,
-        py: Python<'a>,
-        instance_id: &str,
-    ) -> PyResult<Bound<'a, PyAny>> {
+    fn restart_service<'a>(&self, py: Python<'a>, instance_id: &str) -> PyResult<Bound<'a, PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
         let inner = self.inner.clone();
         future_into_py(py, async move {
@@ -183,15 +175,14 @@ impl PyAsyncMCPStore {
         })
     }
 
-    fn get_session<'a>(
-        &self,
-        py: Python<'a>,
-        session_key: &str,
-    ) -> PyResult<Bound<'a, PyAny>> {
+    fn get_session<'a>(&self, py: Python<'a>, session_key: &str) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         let session_key = session_key.to_string();
         future_into_py(py, async move {
-            let session = inner.get_session(&session_key).await.map_err(map_store_err)?;
+            let session = inner
+                .get_session(&session_key)
+                .await
+                .map_err(map_store_err)?;
             Python::with_gil(|py| match session {
                 Some(session) => serializable_to_py(py, &session, "session_entity"),
                 None => Ok(py.None()),
@@ -313,12 +304,15 @@ impl PyAsyncMCPStore {
 }
 
 fn serde_list<T: serde::Serialize>(py: Python<'_>, items: &[T]) -> PyResult<Py<PyAny>> {
-    let list = pyo3::types::PyList::new(py, items.iter().map(|item| {
-        serde_json::to_value(item)
-            .ok()
-            .and_then(|v| crate::py_value::serde_value_to_py(py, v).ok())
-            .unwrap_or_else(|| py.None())
-    }))?;
+    let list = pyo3::types::PyList::new(
+        py,
+        items.iter().map(|item| {
+            serde_json::to_value(item)
+                .ok()
+                .and_then(|v| crate::py_value::serde_value_to_py(py, v).ok())
+                .unwrap_or_else(|| py.None())
+        }),
+    )?;
     Ok(list.into_any().unbind())
 }
 
@@ -394,7 +388,10 @@ impl PyAsyncScopeContext {
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let target = facade_service_target(service_name.as_deref(), instance_id.as_deref())?;
-            let new_inner = inner.wait_service(target, duration).await.map_err(map_store_err)?;
+            let new_inner = inner
+                .wait_service(target, duration)
+                .await
+                .map_err(map_store_err)?;
             Python::with_gil(|py| Py::new(py, PyAsyncScopeContext { inner: new_inner }))
         })
     }
@@ -406,9 +403,9 @@ impl PyAsyncScopeContext {
             Python::with_gil(|py| {
                 let list = pyo3::types::PyList::new(
                     py,
-                    services.into_iter().map(|s| {
-                        Py::new(py, PyAsyncService { inner: s }).unwrap().into_any()
-                    }),
+                    services
+                        .into_iter()
+                        .map(|s| Py::new(py, PyAsyncService { inner: s }).unwrap().into_any()),
                 )?;
                 Ok::<Py<PyAny>, PyErr>(list.into_any().unbind())
             })
@@ -505,7 +502,10 @@ impl PyAsyncScopeContext {
         let inner = self.inner.clone();
         future_into_py(py, async move {
             let target = facade_service_target(service_name.as_deref(), instance_id.as_deref())?;
-            let new_inner = inner.disconnect_service(target).await.map_err(map_store_err)?;
+            let new_inner = inner
+                .disconnect_service(target)
+                .await
+                .map_err(map_store_err)?;
             Python::with_gil(|py| Py::new(py, PyAsyncScopeContext { inner: new_inner }))
         })
     }
@@ -534,20 +534,16 @@ impl PyAsyncScopeContext {
             Python::with_gil(|py| {
                 let list = pyo3::types::PyList::new(
                     py,
-                    tools.into_iter().map(|t| {
-                        Py::new(py, PyAsyncTool { inner: t }).unwrap().into_any()
-                    }),
+                    tools
+                        .into_iter()
+                        .map(|t| Py::new(py, PyAsyncTool { inner: t }).unwrap().into_any()),
                 )?;
                 Ok::<Py<PyAny>, PyErr>(list.into_any().unbind())
             })
         })
     }
 
-    fn find_tool<'a>(
-        &self,
-        py: Python<'a>,
-        tool_name: &str,
-    ) -> PyResult<Bound<'a, PyAny>> {
+    fn find_tool<'a>(&self, py: Python<'a>, tool_name: &str) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         let tool_name = tool_name.to_string();
         future_into_py(py, async move {
@@ -570,7 +566,10 @@ impl PyAsyncScopeContext {
         let inner = self.inner.clone();
         let tool_name = tool_name.to_string();
         future_into_py(py, async move {
-            let result = inner.call_tool(&tool_name, args).await.map_err(map_store_err)?;
+            let result = inner
+                .call_tool(&tool_name, args)
+                .await
+                .map_err(map_store_err)?;
             Python::with_gil(|py| serializable_to_py(py, &result, "tool_call_result"))
         })
     }
@@ -675,20 +674,16 @@ impl PyAsyncService {
             Python::with_gil(|py| {
                 let list = pyo3::types::PyList::new(
                     py,
-                    tools.into_iter().map(|t| {
-                        Py::new(py, PyAsyncTool { inner: t }).unwrap().into_any()
-                    }),
+                    tools
+                        .into_iter()
+                        .map(|t| Py::new(py, PyAsyncTool { inner: t }).unwrap().into_any()),
                 )?;
                 Ok::<Py<PyAny>, PyErr>(list.into_any().unbind())
             })
         })
     }
 
-    fn find_tool<'a>(
-        &self,
-        py: Python<'a>,
-        tool_name: &str,
-    ) -> PyResult<Bound<'a, PyAny>> {
+    fn find_tool<'a>(&self, py: Python<'a>, tool_name: &str) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         let tool_name = tool_name.to_string();
         future_into_py(py, async move {

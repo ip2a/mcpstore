@@ -3,8 +3,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 
-use super::{ConfigError, Result};
 use super::service_schema::ServerConfig;
+use super::{ConfigError, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpConfig {
@@ -25,7 +25,8 @@ impl McpConfig {
                     .filter(|value| !value.trim().is_empty())
                     .ok_or_else(|| {
                         ConfigError::Invalid(
-                            "service config must contain mcpServers or a non-empty name".to_string(),
+                            "service config must contain mcpServers or a non-empty name"
+                                .to_string(),
                         )
                     })?;
                 let server_config = serde_json::from_value(Value::Object(object))?;
@@ -36,8 +37,13 @@ impl McpConfig {
             Value::Array(values) => {
                 let mut config = Self::default();
                 for value in values {
-                    for (service_name, server_config) in Self::from_input_value(value)?.mcp_servers {
-                        if config.mcp_servers.insert(service_name.clone(), server_config).is_some() {
+                    for (service_name, server_config) in Self::from_input_value(value)?.mcp_servers
+                    {
+                        if config
+                            .mcp_servers
+                            .insert(service_name.clone(), server_config)
+                            .is_some()
+                        {
                             return Err(ConfigError::Invalid(format!(
                                 "duplicate service name in config input: {service_name}"
                             )));
@@ -107,7 +113,6 @@ impl McpConfig {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::McpConfig;
@@ -141,15 +146,22 @@ mod tests {
 
     #[test]
     fn parses_json_and_toml_files() {
-        let directory = std::env::temp_dir().join(format!("mcpstore-config-input-{}", uuid::Uuid::new_v4()));
+        let directory =
+            std::env::temp_dir().join(format!("mcpstore-config-input-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).unwrap();
         let json_path = directory.join("services.json");
         let toml_path = directory.join("services.toml");
         std::fs::write(&json_path, r#"{"mcpServers":{"json":{"command":"echo"}}}"#).unwrap();
         std::fs::write(&toml_path, "[mcpServers.toml]\ncommand = \"echo\"\n").unwrap();
 
-        assert!(McpConfig::from_file(&json_path).unwrap().mcp_servers.contains_key("json"));
-        assert!(McpConfig::from_file(&toml_path).unwrap().mcp_servers.contains_key("toml"));
+        assert!(McpConfig::from_file(&json_path)
+            .unwrap()
+            .mcp_servers
+            .contains_key("json"));
+        assert!(McpConfig::from_file(&toml_path)
+            .unwrap()
+            .mcp_servers
+            .contains_key("toml"));
 
         std::fs::remove_dir_all(directory).ok();
     }

@@ -21,7 +21,7 @@ impl<T> OpenKeyvStoreApi for T where
         + AsyncEnumerateCollections
         + AsyncCompareAndSwap
         + Send
-        + Sync,
+        + Sync
 {
 }
 
@@ -122,10 +122,7 @@ impl CacheStore for OpenKeyvCacheStore {
     }
 
     async fn collections(&self) -> Result<Vec<String>> {
-        self.inner
-            .collections(None)
-            .await
-            .map_err(map_openkeyv_err)
+        self.inner.collections(None).await.map_err(map_openkeyv_err)
     }
 
     async fn keys(&self, collection: &str) -> Result<Vec<String>> {

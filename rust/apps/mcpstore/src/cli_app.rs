@@ -157,9 +157,7 @@ fn uses_machine_output(command: &Commands) -> bool {
                 args.output.output != crate::error::OutputFormat::Human
             }
         },
-        Commands::Complete(args) => {
-            args.output.output != crate::error::OutputFormat::Human
-        }
+        Commands::Complete(args) => args.output.output != crate::error::OutputFormat::Human,
         Commands::List(args) => args.output != crate::error::OutputFormat::Human,
         Commands::Tools(args) => args.output != crate::error::OutputFormat::Human,
         Commands::Get(args) => args.output != crate::error::OutputFormat::Human,
@@ -471,8 +469,6 @@ mod tests {
             "long_tool",
             "--input",
             r#"{"value":1}"#,
-            "--ttl",
-            "5000",
             "--timeout",
             "20",
             "--max-total-timeout",
@@ -490,7 +486,6 @@ mod tests {
                 assert_eq!(args.instance_id.to_string(), instance_id);
                 assert_eq!(args.tool_name, "long_tool");
                 assert_eq!(args.input, r#"{"value":1}"#);
-                assert_eq!(args.ttl, Some(5000));
                 assert_eq!(args.timeout, Some(20));
                 assert_eq!(args.max_total_timeout, Some(90));
                 assert_eq!(args.runtime.output, crate::error::OutputFormat::Jsonl);
@@ -547,10 +542,7 @@ mod tests {
             };
             assert_eq!(target.instance_id.to_string(), instance_id);
             assert_eq!(target.task_id, "task-1");
-            assert_eq!(
-                target.runtime.output,
-                crate::error::OutputFormat::Jsonl
-            );
+            assert_eq!(target.runtime.output, crate::error::OutputFormat::Jsonl);
         }
     }
 
@@ -623,12 +615,9 @@ mod tests {
         match cli.command {
             Commands::List(args) => {
                 assert_eq!(args.store.source, crate::store_args::SourceArg::Db);
+                assert_eq!(args.store.backend.as_deref(), Some("redis"));
                 assert_eq!(
-                    args.store.backend,
-                    Some(crate::store_args::CacheStorageArg::Redis)
-                );
-                assert_eq!(
-                    args.store.redis_url.as_deref(),
+                    args.store.backend_url.as_deref(),
                     Some("redis://127.0.0.1:6379/0")
                 );
                 assert_eq!(args.store.namespace.as_deref(), Some("demo"));
@@ -654,14 +643,8 @@ mod tests {
         match cli.command {
             Commands::MigrateBackend(args) => {
                 assert_eq!(args.store.source, crate::store_args::SourceArg::Local);
-                assert_eq!(
-                    args.target_cache_storage,
-                    crate::store_args::CacheStorageArg::Redis
-                );
-                assert_eq!(
-                    args.target_redis_url.as_deref(),
-                    Some("redis://127.0.0.1:6379/0")
-                );
+                assert_eq!(args.target_cache_storage, "redis");
+                assert_eq!(args.target_url.as_deref(), Some("redis://127.0.0.1:6379/0"));
             }
             _ => panic!("Expected to parse as migrate-backend command"),
         }
@@ -742,10 +725,7 @@ mod tests {
             }) => {
                 assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.uri, "repo://mcp/store");
-                assert_eq!(
-                    args.output.output,
-                    crate::error::OutputFormat::Json
-                );
+                assert_eq!(args.output.output, crate::error::OutputFormat::Json);
             }
             _ => panic!("Expected resource read command"),
         }
@@ -803,10 +783,7 @@ mod tests {
                     commands::protocol::CompletionReferenceKind::Resource
                 );
                 assert_eq!(args.reference, "repo://mcp/{name}");
-                assert_eq!(
-                    args.output.output,
-                    crate::error::OutputFormat::Jsonl
-                );
+                assert_eq!(args.output.output, crate::error::OutputFormat::Jsonl);
             }
             _ => panic!("Expected complete command"),
         }

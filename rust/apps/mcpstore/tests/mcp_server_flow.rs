@@ -6,14 +6,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rmcp::{
     model::{
-        CallToolRequestParams, ContentBlock, GetPromptRequestParams, ReadResourceRequestParams,
-        ResourceContents,
+        CallToolRequestParams, ContentBlock, GetPromptRequestParams, ProtocolVersion,
+        ReadResourceRequestParams, ResourceContents,
     },
+    service::{ClientLifecycleMode, ClientServiceExt},
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
         StreamableHttpClientTransport, TokioChildProcess,
     },
-    ServiceExt,
 };
 use tokio::io::AsyncReadExt;
 
@@ -23,6 +23,12 @@ use mcpstore::{
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+fn discover_lifecycle() -> ClientLifecycleMode {
+    ClientLifecycleMode::Discover {
+        preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+    }
+}
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -139,11 +145,7 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
             "--header".to_string(),
             format!("Authorization=Bearer-{label}_HEADER_SECRET"),
             "--".to_string(),
-            "uv".to_string(),
-            "run".to_string(),
-            "--project".to_string(),
-            repo_root.join("python").display().to_string(),
-            "python".to_string(),
+            "python3".to_string(),
             fixture.display().to_string(),
         ];
         assert_success(&run_cli(&add_args), &format!("add {service_name}"));
@@ -169,7 +171,7 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
         stderr.read_to_string(&mut buffer).await?;
         Ok::<_, std::io::Error>(buffer)
     });
-    let client = match ().serve(transport).await {
+    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
@@ -322,7 +324,7 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
         stderr.read_to_string(&mut buffer).await?;
         Ok::<_, std::io::Error>(buffer)
     });
-    let client = ().serve(transport).await?;
+    let client = ().serve_with_lifecycle(transport, discover_lifecycle()).await?;
 
     assert_eq!(
         client
@@ -390,11 +392,7 @@ async fn mcp_server_command_exposes_only_selected_instance_over_stdio_inner() ->
             "--env".to_string(),
             format!("PYTHONPATH={pythonpath}"),
             "--".to_string(),
-            "uv".to_string(),
-            "run".to_string(),
-            "--project".to_string(),
-            repo_root.join("python").display().to_string(),
-            "python".to_string(),
+            "python3".to_string(),
             fixture.display().to_string(),
         ];
         assert_success(&run_cli(&add_args), &format!("add {service_name}"));
@@ -419,7 +417,7 @@ async fn mcp_server_command_exposes_only_selected_instance_over_stdio_inner() ->
         stderr.read_to_string(&mut buffer).await?;
         Ok::<_, std::io::Error>(buffer)
     });
-    let client = match ().serve(transport).await {
+    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
@@ -541,11 +539,7 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
         "--env".to_string(),
         format!("PYTHONPATH={pythonpath}"),
         "--".to_string(),
-        "uv".to_string(),
-        "run".to_string(),
-        "--project".to_string(),
-        repo_root.join("python").display().to_string(),
-        "python".to_string(),
+        "python3".to_string(),
         fixture.display().to_string(),
     ]);
     let add_stdout = assert_success(&run_cli(&add_args), "add session fixture");
@@ -553,7 +547,7 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
 
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(config_path_arg.clone()),
-        backend: Some(CacheStorage::Redis),
+        backend: Some(CacheStorage::redis()),
         redis_url: Some(redis_url.clone()),
         namespace: Some(namespace.clone()),
         ..StoreOptions::default()
@@ -591,7 +585,7 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
         stderr.read_to_string(&mut buffer).await?;
         Ok::<_, std::io::Error>(buffer)
     });
-    let client = match ().serve(transport).await {
+    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
@@ -690,11 +684,7 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
         "--env".to_string(),
         format!("PYTHONPATH={pythonpath}"),
         "--".to_string(),
-        "uv".to_string(),
-        "run".to_string(),
-        "--project".to_string(),
-        repo_root.join("python").display().to_string(),
-        "python".to_string(),
+        "python3".to_string(),
         fixture.display().to_string(),
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
@@ -717,7 +707,7 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
         Ok::<_, std::io::Error>(buffer)
     });
 
-    let client = match ().serve(transport).await {
+    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
@@ -828,11 +818,7 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
         "--env".to_string(),
         format!("PYTHONPATH={pythonpath}"),
         "--".to_string(),
-        "uv".to_string(),
-        "run".to_string(),
-        "--project".to_string(),
-        repo_root.join("python").display().to_string(),
-        "python".to_string(),
+        "python3".to_string(),
         fixture.display().to_string(),
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
@@ -859,7 +845,7 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
         Ok::<_, std::io::Error>(buffer)
     });
 
-    let client = match ().serve(transport).await {
+    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
@@ -939,11 +925,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
         "--env".to_string(),
         format!("PYTHONPATH={pythonpath}"),
         "--".to_string(),
-        "uv".to_string(),
-        "run".to_string(),
-        "--project".to_string(),
-        repo_root.join("python").display().to_string(),
-        "python".to_string(),
+        "python3".to_string(),
         fixture.display().to_string(),
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
@@ -1063,7 +1045,7 @@ async fn connect_http_client(
         let transport = StreamableHttpClientTransport::from_config(
             StreamableHttpClientTransportConfig::with_uri(base_url.to_string()),
         );
-        match ().serve(transport).await {
+        match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
             Ok(client) => return Ok(client),
             Err(error) => {
                 last_error = error.to_string();

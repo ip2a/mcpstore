@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::mcp_server::{McpServerOptions, McpServerTransport};
 use axum::{
     extract::State,
     routing::{get, post, put},
@@ -17,10 +18,9 @@ use mcpstore::{
         ClientEntryStatus, ClientKind, ConfigChangeReceipt,
     },
     config::ScopeDescriptor,
-    AuthFlow, InstanceId, MCPStore, McpCompletionRequest, McpLoggingLevel, OpenApiBundleOptions,
+    AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, ToolTransformPatch,
 };
-use crate::mcp_server::{McpServerOptions, McpServerTransport};
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
@@ -362,10 +362,6 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route(
             "/instances/:instance_id/resources/unsubscribe",
             post(service::store_unsubscribe_resource),
-        )
-        .route(
-            "/instances/:instance_id/logging/level",
-            post(service::store_set_logging_level),
         )
         .route(
             "/instances/:instance_id/check",

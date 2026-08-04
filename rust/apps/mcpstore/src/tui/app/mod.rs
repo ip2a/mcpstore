@@ -41,12 +41,23 @@ pub struct SelectedDetail {
     pub tools: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum PendingAction {
     Remove {
         service_name: String,
         scope: ScopeRef,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum Overlay {
+    None,
+    Confirm(PendingAction),
+    Edit(EditModalState),
+    Select(SelectModalState),
+    Loading(LoadingModalState),
+    ServiceDetail,
+    ToolDetail,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,10 +114,7 @@ pub struct TuiApp {
     pub selected_detail: Option<SelectedDetail>,
     pub status_message: String,
     pub status_history: VecDeque<String>,
-    pub pending_action: Option<PendingAction>,
-    pub edit_modal: Option<EditModalState>,
-    pub select_modal: Option<SelectModalState>,
-    pub loading_modal: Option<LoadingModalState>,
+    pub overlay: Overlay,
     pub pending_task: Option<PendingTask>,
     pub should_quit: bool,
     pub tick_rate: Duration,
@@ -114,6 +122,10 @@ pub struct TuiApp {
     pub cache_storage_label: String,
     pub namespace: String,
     pub config_path: String,
+    pub app_config_path: String,
+    pub app_config_exists: bool,
+    pub install_path: String,
+    pub log_config: Vec<(TextKey, String)>,
     pub filter: FilterBarState,
     pub service_list_menu: ServiceListMenu,
     pub service_list_pane: ContentPane,
@@ -128,7 +140,6 @@ pub struct TuiApp {
     pub selected_tool_service: usize,
     pub service_tools: Vec<ToolSummary>,
     pub selected_tool: usize,
-    pub show_tool_detail: bool,
     pub tool_test_args: String,
     pub tool_test_result: Vec<String>,
     pub agents: Vec<AgentSummary>,
@@ -142,7 +153,6 @@ pub struct TuiApp {
     pub status_section: StatusSection,
     pub status_pane: ContentPane,
     pub add_service: AddServiceFormState,
-    pub show_service_detail: bool,
     last_status_snapshot: String,
 }
 
@@ -164,6 +174,12 @@ impl TuiApp {
         .to_string();
         let mut status_history = VecDeque::new();
         status_history.push_back(format_status_history_entry(&initial_status));
+        let config_manager = store.config_manager();
+        let app_config_path = config_manager.app_config_path().display().to_string();
+        let app_config_exists = config_manager.app_config_exists();
+        let install_path = std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| "-".to_string());
         Self {
             store,
             locale,
@@ -177,10 +193,7 @@ impl TuiApp {
             selected_detail: None,
             status_message: initial_status.clone(),
             status_history,
-            pending_action: None,
-            edit_modal: None,
-            select_modal: None,
-            loading_modal: None,
+            overlay: Overlay::None,
             pending_task: None,
             should_quit: false,
             tick_rate,
@@ -188,6 +201,10 @@ impl TuiApp {
             cache_storage_label,
             namespace,
             config_path,
+            app_config_path,
+            app_config_exists,
+            install_path,
+            log_config: Vec::new(),
             filter: FilterBarState::default(),
             service_list_menu: ServiceListMenu::All,
             service_list_pane: ContentPane::Menu,
@@ -202,7 +219,6 @@ impl TuiApp {
             selected_tool_service: 0,
             service_tools: Vec::new(),
             selected_tool: 0,
-            show_tool_detail: false,
             tool_test_args: "{}".to_string(),
             tool_test_result: Vec::new(),
             agents: Vec::new(),
@@ -216,7 +232,6 @@ impl TuiApp {
             status_section: StatusSection::Overview,
             status_pane: ContentPane::Menu,
             add_service: AddServiceFormState::default(),
-            show_service_detail: false,
             last_status_snapshot: initial_status,
         }
     }
@@ -250,6 +265,38 @@ impl TuiApp {
             .collect();
     }
 
+    pub fn refresh_log_config(&mut self) {
+        let config = self
+            .store
+            .config_manager()
+            .load_app_config_or_default()
+            .ok();
+        let value = |read: &dyn Fn(&mcpstore::config::AppConfig) -> String| {
+            config.as_ref().map(read).unwrap_or_else(|| "-".to_string())
+        };
+        self.log_config = vec![
+            (
+                TextKey::SettingsServerLogLevel,
+                value(&|config| config.server.log_level.clone()),
+            ),
+            (
+                TextKey::SettingsStandaloneLogLevel,
+                value(&|config| config.standalone.log_level.clone()),
+            ),
+            (
+                TextKey::SettingsStandaloneLogFormat,
+                value(&|config| config.standalone.log_format.clone()),
+            ),
+            (
+                TextKey::SettingsDebugEnabled,
+                value(&|config| config.standalone.enable_debug.to_string()),
+            ),
+            (TextKey::SettingsTracingSink, "stderr".to_string()),
+            (TextKey::SettingsLogFile, "not configured".to_string()),
+            (TextKey::SettingsConfigFile, self.app_config_path.clone()),
+        ];
+    }
+
     pub fn refresh_status_sources(&mut self, rt: &tokio::runtime::Runtime) {
         self.status_cache_lines = match rt.block_on(async { self.store.cache_health_check().await })
         {
@@ -258,6 +305,22 @@ impl TuiApp {
         };
         let event_capability = rt.block_on(async { self.store.event_capability_report().await });
         self.status_event_lines = json_lines(&event_capability, 160);
+    }
+
+    pub fn refresh_active_view_sources(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+    ) -> Result<(), BoxErr> {
+        match self.active_view {
+            MainView::Logs => {
+                self.refresh_log_sources(rt);
+                self.refresh_log_config();
+            }
+            MainView::Agents => self.refresh_agents(rt)?,
+            MainView::Status => self.refresh_status_sources(rt),
+            _ => {}
+        }
+        Ok(())
     }
 
     pub fn next_view(&mut self) {
@@ -285,7 +348,7 @@ impl TuiApp {
 
     pub fn focus_service_list_menu(&mut self) {
         self.service_list_pane = ContentPane::Menu;
-        self.show_service_detail = false;
+        self.overlay = Overlay::None;
         self.status_message = "[进行中] 服务列表: 左侧菜单".to_string();
     }
 
@@ -369,7 +432,7 @@ impl TuiApp {
         }
 
         self.pending_task = Some(PendingTask::RefreshTools);
-        self.loading_modal = Some(LoadingModalState {
+        self.overlay = Overlay::Loading(LoadingModalState {
             title: "读取工具列表".to_string(),
             message: if self.tool_filter == ToolFilterTab::All {
                 "正在连接全部服务并读取全局工具列表...".to_string()
@@ -386,12 +449,12 @@ impl TuiApp {
             return;
         }
 
-        self.show_tool_detail = true;
+        self.overlay = Overlay::ToolDetail;
         self.status_message = "[进行中] 查看工具详情".to_string();
     }
 
     pub fn close_tool_detail(&mut self) {
-        self.show_tool_detail = false;
+        self.overlay = Overlay::None;
         self.status_message = "[进行中] 已关闭工具详情".to_string();
     }
 
@@ -401,7 +464,7 @@ impl TuiApp {
             return;
         }
 
-        self.edit_modal = Some(EditModalState {
+        self.overlay = Overlay::Edit(EditModalState {
             target: EditTarget::ToolTestArgs,
             title: "测试工具参数".to_string(),
             value: self.tool_test_args.clone(),
@@ -437,7 +500,7 @@ impl TuiApp {
 
     pub fn queue_agent_refresh(&mut self) {
         self.pending_task = Some(PendingTask::RefreshAgents);
-        self.loading_modal = Some(LoadingModalState {
+        self.overlay = Overlay::Loading(LoadingModalState {
             title: "刷新 Agent".to_string(),
             message: "正在读取 Agent 列表与服务授权关系...".to_string(),
         });
@@ -445,7 +508,7 @@ impl TuiApp {
     }
 
     pub fn open_agent_id_editor(&mut self) {
-        self.edit_modal = Some(EditModalState {
+        self.overlay = Overlay::Edit(EditModalState {
             target: EditTarget::AgentId,
             title: "选择 Agent".to_string(),
             value: self
@@ -462,7 +525,7 @@ impl TuiApp {
             return;
         };
         self.pending_agent_id = agent_id;
-        self.edit_modal = Some(EditModalState {
+        self.overlay = Overlay::Edit(EditModalState {
             target: EditTarget::AgentAssignService,
             title: "授权服务给 Agent".to_string(),
             value: self
@@ -486,7 +549,7 @@ impl TuiApp {
         self.pending_agent_id = agent_id;
         self.pending_agent_service = service_name;
         self.pending_task = Some(PendingTask::UnassignAgentService);
-        self.loading_modal = Some(LoadingModalState {
+        self.overlay = Overlay::Loading(LoadingModalState {
             title: "解除 Agent 授权".to_string(),
             message: "正在更新 Agent 服务授权关系...".to_string(),
         });
@@ -573,7 +636,7 @@ impl TuiApp {
             return;
         }
 
-        self.edit_modal = Some(EditModalState {
+        self.overlay = Overlay::Edit(EditModalState {
             target: EditTarget::Locale,
             title: "编辑语种".to_string(),
             value: self.locale.as_config_value().to_string(),
@@ -600,7 +663,7 @@ impl TuiApp {
                 .iter()
                 .position(|option| option == &value)
                 .unwrap_or(0);
-            self.select_modal = Some(SelectModalState {
+            self.overlay = Overlay::Select(SelectModalState {
                 target: EditTarget::AddServiceField(field),
                 title: format!("选择 {}", field.label()),
                 options,
@@ -609,7 +672,7 @@ impl TuiApp {
             return;
         }
 
-        self.edit_modal = Some(EditModalState {
+        self.overlay = Overlay::Edit(EditModalState {
             target: EditTarget::AddServiceField(field),
             title: format!("编辑 {}", field.label()),
             value: self.add_service_value(field),
@@ -620,17 +683,17 @@ impl TuiApp {
     pub fn handle_edit_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char(c) => {
-                if let Some(modal) = self.edit_modal.as_mut() {
+                if let Overlay::Edit(modal) = &mut self.overlay {
                     modal.value.push(c);
                 }
             }
             KeyCode::Backspace => {
-                if let Some(modal) = self.edit_modal.as_mut() {
+                if let Overlay::Edit(modal) = &mut self.overlay {
                     modal.value.pop();
                 }
             }
             KeyCode::Esc => {
-                self.edit_modal = None;
+                self.overlay = Overlay::None;
                 self.status_message = "[进行中] 已取消编辑".to_string();
             }
             KeyCode::Enter => self.save_edit_modal(),
@@ -639,7 +702,7 @@ impl TuiApp {
     }
 
     pub fn handle_select_input(&mut self, key: KeyEvent) {
-        let Some(modal) = self.select_modal.as_mut() else {
+        let Overlay::Select(modal) = &mut self.overlay else {
             return;
         };
 
@@ -653,7 +716,7 @@ impl TuiApp {
                 }
             }
             KeyCode::Esc => {
-                self.select_modal = None;
+                self.overlay = Overlay::None;
                 self.status_message = "[进行中] 已取消选择".to_string();
             }
             KeyCode::Enter => self.save_select_modal(),
@@ -662,7 +725,12 @@ impl TuiApp {
     }
 
     pub fn focus_next_area(&mut self) {
-        self.focus_area = self.focus_area.next();
+        self.focus_area = match self.focus_area {
+            FocusArea::MainNav if self.has_filter_focus() => FocusArea::ViewFilter,
+            FocusArea::MainNav => FocusArea::ViewTable,
+            FocusArea::ViewFilter => FocusArea::ViewTable,
+            FocusArea::ViewTable => FocusArea::ViewTable,
+        };
         self.filter.search_mode = false;
         if self.active_view == MainView::ServiceManagement
             && self.focus_area == FocusArea::ViewTable
@@ -689,7 +757,12 @@ impl TuiApp {
     }
 
     pub fn focus_previous_area(&mut self) {
-        self.focus_area = self.focus_area.previous();
+        self.focus_area = match self.focus_area {
+            FocusArea::MainNav => FocusArea::MainNav,
+            FocusArea::ViewFilter => FocusArea::MainNav,
+            FocusArea::ViewTable if self.has_filter_focus() => FocusArea::ViewFilter,
+            FocusArea::ViewTable => FocusArea::MainNav,
+        };
         self.filter.search_mode = false;
         self.status_message = format!("[进行中] 焦点: {}", self.focus_area.label(self.locale));
     }
@@ -707,8 +780,16 @@ impl TuiApp {
         let len = visible_pages.len() as isize;
         let next = (current + offset).rem_euclid(len) as usize;
         self.active_view = visible_pages[next].id;
+        self.focus_area = FocusArea::MainNav;
         self.filter.search_mode = false;
         self.status_message = format!("[进行中] 当前页面: {}", self.active_view.label(self.locale));
+    }
+
+    fn has_filter_focus(&self) -> bool {
+        matches!(
+            self.active_view,
+            MainView::ServiceManagement | MainView::Tools
+        )
     }
 
     fn shift_service_tab(&mut self, offset: isize) {
@@ -721,7 +802,7 @@ impl TuiApp {
         self.select_service_tab(ServiceManagementTab::ALL[next]);
     }
 
-    fn shift_service_list_menu(&mut self, offset: isize, rt: &tokio::runtime::Runtime) {
+    fn shift_service_list_menu(&mut self, offset: isize, _rt: &tokio::runtime::Runtime) {
         let current = ServiceListMenu::ALL
             .iter()
             .position(|item| *item == self.service_list_menu)
@@ -737,11 +818,7 @@ impl TuiApp {
             } else {
                 Some(0)
             });
-        if let Err(error) = self.refresh_selected_detail(rt) {
-            self.status_message = format!("[错误] {error}");
-        } else {
-            self.status_message = format!("[进行中] 服务列表: {}", self.service_list_menu.label());
-        }
+        self.status_message = format!("[进行中] 服务列表: {}", self.service_list_menu.label());
     }
 
     fn shift_settings_section(&mut self, offset: isize) {
@@ -931,8 +1008,12 @@ impl TuiApp {
     }
 
     fn save_edit_modal(&mut self) {
-        let Some(modal) = self.edit_modal.take() else {
-            return;
+        let modal = match std::mem::replace(&mut self.overlay, Overlay::None) {
+            Overlay::Edit(modal) => modal,
+            overlay => {
+                self.overlay = overlay;
+                return;
+            }
         };
 
         match modal.target {
@@ -943,7 +1024,7 @@ impl TuiApp {
                         i18n::text(self.locale, TextKey::StatusErrorPrefix),
                         i18n::text(self.locale, TextKey::LocaleUnsupported)
                     );
-                    self.edit_modal = Some(modal);
+                    self.overlay = Overlay::Edit(modal);
                     return;
                 };
 
@@ -960,7 +1041,7 @@ impl TuiApp {
                                 &[("error", &error.to_string())]
                             )
                         );
-                        self.edit_modal = Some(modal);
+                        self.overlay = Overlay::Edit(modal);
                         return;
                     }
                 };
@@ -976,7 +1057,7 @@ impl TuiApp {
                             &[("error", &error.to_string())]
                         )
                     );
-                    self.edit_modal = Some(modal);
+                    self.overlay = Overlay::Edit(modal);
                     return;
                 }
 
@@ -1012,7 +1093,7 @@ impl TuiApp {
                                 &[("error", &error.to_string())]
                             )
                         );
-                        self.edit_modal = Some(modal);
+                        self.overlay = Overlay::Edit(modal);
                         return;
                     }
                 };
@@ -1022,13 +1103,13 @@ impl TuiApp {
                         i18n::text(self.locale, TextKey::StatusErrorPrefix),
                         i18n::text(self.locale, TextKey::ToolTestArgsMustBeObject)
                     );
-                    self.edit_modal = Some(modal);
+                    self.overlay = Overlay::Edit(modal);
                     return;
                 }
 
                 self.tool_test_args = modal.value;
                 self.pending_task = Some(PendingTask::ToolTest);
-                self.loading_modal = Some(LoadingModalState {
+                self.overlay = Overlay::Loading(LoadingModalState {
                     title: i18n::text(self.locale, TextKey::TestingToolTitle).to_string(),
                     message: i18n::text(self.locale, TextKey::CallingToolWaiting).to_string(),
                 });
@@ -1046,7 +1127,7 @@ impl TuiApp {
                         i18n::text(self.locale, TextKey::StatusErrorPrefix),
                         i18n::text(self.locale, TextKey::AgentIdCannotBeEmpty)
                     );
-                    self.edit_modal = Some(modal);
+                    self.overlay = Overlay::Edit(modal);
                     return;
                 }
                 self.ensure_agent_visible(agent_id.to_string());
@@ -1064,12 +1145,12 @@ impl TuiApp {
                         i18n::text(self.locale, TextKey::StatusErrorPrefix),
                         i18n::text(self.locale, TextKey::ServiceNameCannotBeEmpty)
                     );
-                    self.edit_modal = Some(modal);
+                    self.overlay = Overlay::Edit(modal);
                     return;
                 }
                 self.pending_agent_service = service_name.to_string();
                 self.pending_task = Some(PendingTask::AssignAgentService);
-                self.loading_modal = Some(LoadingModalState {
+                self.overlay = Overlay::Loading(LoadingModalState {
                     title: i18n::text(self.locale, TextKey::AgentServiceAuthorization).to_string(),
                     message: i18n::text(self.locale, TextKey::UpdatingAgentServiceAuthorization)
                         .to_string(),
@@ -1084,8 +1165,12 @@ impl TuiApp {
     }
 
     fn save_select_modal(&mut self) {
-        let Some(modal) = self.select_modal.take() else {
-            return;
+        let modal = match std::mem::replace(&mut self.overlay, Overlay::None) {
+            Overlay::Select(modal) => modal,
+            overlay => {
+                self.overlay = overlay;
+                return;
+            }
         };
 
         let Some(value) = modal.options.get(modal.selected).cloned() else {
@@ -1164,7 +1249,7 @@ impl TuiApp {
         }
 
         self.pending_task = Some(PendingTask::AddService);
-        self.loading_modal = Some(LoadingModalState {
+        self.overlay = Overlay::Loading(LoadingModalState {
             title: "添加服务".to_string(),
             message: "正在写入配置、连接服务并刷新服务列表...".to_string(),
         });
@@ -1189,7 +1274,7 @@ impl TuiApp {
             PendingTask::UnassignAgentService => self.execute_unassign_agent_service(rt),
         };
 
-        self.loading_modal = None;
+        self.overlay = Overlay::None;
         result
     }
 
@@ -1269,7 +1354,7 @@ impl TuiApp {
         self.service_tab = ServiceManagementTab::Services;
         self.service_list_pane = ContentPane::Body;
         self.focus_area = FocusArea::ViewTable;
-        self.show_service_detail = false;
+        self.overlay = Overlay::None;
         let service_label = name;
 
         self.status_message = match connect_result {
@@ -1308,7 +1393,7 @@ impl TuiApp {
         let result = rt.block_on(async { self.store.call_tool(instance_id, &tool, args).await })?;
 
         self.tool_test_result = format_tool_call_result(result.is_error, &result.content);
-        self.show_tool_detail = true;
+        self.overlay = Overlay::ToolDetail;
         self.refresh(rt, false)?;
         self.refresh_tools_for_selected_service(rt, false)?;
         self.status_message = format!("[成功] 工具测试完成 {service}/{tool}");
@@ -1792,13 +1877,15 @@ impl TuiApp {
             return Ok(());
         }
         self.refresh_selected_detail(rt)?;
-        self.show_service_detail = self.selected_detail.is_some();
+        if self.selected_detail.is_some() {
+            self.overlay = Overlay::ServiceDetail;
+        }
         self.status_message = "[进行中] 查看服务详情".to_string();
         Ok(())
     }
 
     pub fn close_service_detail(&mut self) {
-        self.show_service_detail = false;
+        self.overlay = Overlay::None;
         self.status_message = "[进行中] 已关闭服务详情".to_string();
     }
 
@@ -1820,11 +1907,7 @@ impl TuiApp {
         self.refresh_selected_detail(rt)
     }
 
-    pub fn move_selection(
-        &mut self,
-        offset: isize,
-        rt: &tokio::runtime::Runtime,
-    ) -> Result<(), BoxErr> {
+    pub fn move_selection(&mut self, offset: isize) -> Result<(), BoxErr> {
         if self.filtered_services.is_empty() {
             return Ok(());
         }
@@ -1832,17 +1915,15 @@ impl TuiApp {
         let next = (self.selected as isize + offset).clamp(0, len - 1);
         self.selected = next as usize;
         self.table_state.select(Some(self.selected));
-        self.refresh_selected_detail(rt)?;
         Ok(())
     }
 
-    pub fn jump_to(&mut self, index: usize, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
+    pub fn jump_to(&mut self, index: usize) -> Result<(), BoxErr> {
         if self.filtered_services.is_empty() {
             return Ok(());
         }
         self.selected = index.min(self.filtered_services.len() - 1);
         self.table_state.select(Some(self.selected));
-        self.refresh_selected_detail(rt)?;
         Ok(())
     }
 
@@ -1852,13 +1933,23 @@ impl TuiApp {
                 self.filter.search_text.push(c);
                 self.apply_filter();
                 self.selected = 0;
-                self.table_state.select(Some(0));
+                self.table_state
+                    .select(if self.filtered_services.is_empty() {
+                        None
+                    } else {
+                        Some(0)
+                    });
             }
             KeyCode::Backspace => {
                 self.filter.search_text.pop();
                 self.apply_filter();
                 self.selected = 0;
-                self.table_state.select(Some(0));
+                self.table_state
+                    .select(if self.filtered_services.is_empty() {
+                        None
+                    } else {
+                        Some(0)
+                    });
             }
             KeyCode::Esc => {
                 self.filter.search_mode = false;
@@ -1867,14 +1958,17 @@ impl TuiApp {
         }
     }
 
-    pub fn set_status_filter(&mut self, status: FilterStatus, rt: &tokio::runtime::Runtime) {
+    pub fn set_status_filter(&mut self, status: FilterStatus) {
         self.filter.active_status = status;
         self.apply_filter();
         self.selected = 0;
-        self.table_state.select(Some(0));
-        if let Err(e) = self.refresh_selected_detail(rt) {
-            self.status_message = format!("[错误] {e}");
-        }
+        self.table_state
+            .select(if self.filtered_services.is_empty() {
+                None
+            } else {
+                Some(0)
+            });
+        self.status_message = "[进行中] 已更新服务筛选".to_string();
     }
 
     pub fn toggle_sort(&mut self) {
@@ -1885,6 +1979,10 @@ impl TuiApp {
     pub fn toggle_sort_direction(&mut self) {
         self.filter.sort_asc = !self.filter.sort_asc;
         self.apply_filter();
+    }
+
+    pub fn cycle_status_filter(&mut self) {
+        self.set_status_filter(self.filter.active_status.next());
     }
 
     pub fn connect_selected(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
@@ -1922,7 +2020,7 @@ impl TuiApp {
 
     pub fn prompt_remove(&mut self) {
         if let Some(service) = self.current_service().cloned() {
-            self.pending_action = Some(PendingAction::Remove {
+            self.overlay = Overlay::Confirm(PendingAction::Remove {
                 service_name: service.name.clone(),
                 scope: service.scope,
             });
@@ -1936,10 +2034,11 @@ impl TuiApp {
     }
 
     pub fn confirm_remove(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        if let Some(PendingAction::Remove {
+        let overlay = std::mem::replace(&mut self.overlay, Overlay::None);
+        if let Overlay::Confirm(PendingAction::Remove {
             service_name,
             scope,
-        }) = self.pending_action.take()
+        }) = overlay
         {
             rt.block_on(async { self.store.remove_service_scope(&service_name, &scope).await })?;
             self.refresh(rt, false)?;
@@ -1949,7 +2048,7 @@ impl TuiApp {
     }
 
     pub fn cancel_pending(&mut self) {
-        self.pending_action = None;
+        self.overlay = Overlay::None;
         self.status_message = i18n::text(self.locale, TextKey::OperationCancelled).to_string();
     }
 }

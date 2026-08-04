@@ -22,8 +22,8 @@ pub(super) fn normalize_prefix(prefix: &str) -> String {
     normalized
 }
 
-pub(super) fn cache_storage_label(cache_storage: CacheStorage) -> &'static str {
-    cache_storage.as_str()
+pub(super) fn cache_storage_label(cache_storage: CacheStorage) -> String {
+    cache_storage.as_str().to_string()
 }
 
 pub(super) fn extract_tool_name(payload: &Value) -> ApiResult<String> {
@@ -94,14 +94,14 @@ pub(super) fn parse_positive_usize(value: &str) -> ApiResult<usize> {
 }
 
 pub(super) fn parse_cache_storage(value: &str) -> ApiResult<CacheStorage> {
-    match value {
-        "memory" => Ok(CacheStorage::Memory),
-        "redis" => Ok(CacheStorage::Redis),
-        other => Err(ApiError::invalid_parameter(
-            format!("不支持的 backend: {other}"),
+    let backend = value.trim();
+    if backend.is_empty() {
+        return Err(ApiError::invalid_parameter(
+            "backend 不能为空",
             Some("backend"),
-        )),
+        ));
     }
+    Ok(CacheStorage::new(backend, None))
 }
 
 #[cfg(test)]
@@ -126,15 +126,12 @@ mod tests {
 
     #[test]
     fn parse_cache_storage_supports_known_values() {
-        assert!(matches!(
-            parse_cache_storage("memory").unwrap(),
-            CacheStorage::Memory
-        ));
-        assert!(matches!(
-            parse_cache_storage("redis").unwrap(),
-            CacheStorage::Redis
-        ));
-        assert!(parse_cache_storage("unknown").is_err());
+        assert_eq!(parse_cache_storage("memory").unwrap().as_str(), "memory");
+        assert_eq!(parse_cache_storage("redis").unwrap().as_str(), "redis");
+        assert_eq!(
+            parse_cache_storage("postgres").unwrap().as_str(),
+            "postgres"
+        );
     }
 
     #[test]

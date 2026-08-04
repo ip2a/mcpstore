@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::cache::CacheLayerManager;
@@ -48,7 +48,7 @@ impl TaskStateStore {
                     .as_ref()
                     .and_then(|record| record.tool_name.clone())
             }),
-            task: task.with_effective_status(now),
+            task,
             last_observed_at: now.to_rfc3339(),
             last_error: None,
         };
@@ -62,13 +62,7 @@ impl TaskStateStore {
         task_id: &str,
     ) -> crate::cache::Result<Option<McpTaskRecord>> {
         let key = task_key(instance_id, task_id);
-        let Some(mut record) = self.get_by_key(&key).await? else {
-            return Ok(None);
-        };
-        if record.task.mark_expired(Utc::now()) {
-            self.put_record(&key, &record).await?;
-        }
-        Ok(Some(record))
+        self.get_by_key(&key).await
     }
 
     pub(crate) async fn list(
@@ -76,15 +70,11 @@ impl TaskStateStore {
         instance_id: InstanceId,
     ) -> crate::cache::Result<Vec<McpTaskRecord>> {
         let entities = self.cache.get_all_entities_async(TASK_ENTITY_TYPE).await?;
-        let now = Utc::now();
         let mut records = Vec::new();
-        for (key, value) in entities {
-            let mut record: McpTaskRecord = serde_json::from_value(value)?;
+        for (_key, value) in entities {
+            let record: McpTaskRecord = serde_json::from_value(value)?;
             if record.instance_id != instance_id {
                 continue;
-            }
-            if record.task.mark_expired(now) {
-                self.put_record(&key, &record).await?;
             }
             records.push(record);
         }
@@ -126,22 +116,6 @@ impl TaskStateStore {
         Ok(())
     }
 
-    pub(crate) async fn expire_due_tasks(&self, now: DateTime<Utc>) -> crate::cache::Result<usize> {
-        let entities = self.cache.get_all_entities_async(TASK_ENTITY_TYPE).await?;
-        let mut expired = 0;
-        for (key, value) in entities {
-            let mut record: McpTaskRecord = serde_json::from_value(value)?;
-            if record.task.mark_expired(now) {
-                if record.last_error.is_none() {
-                    record.last_error = Some("task retention TTL elapsed".to_string());
-                }
-                self.put_record(&key, &record).await?;
-                expired += 1;
-            }
-        }
-        Ok(expired)
-    }
-
     async fn get_by_key(&self, key: &str) -> crate::cache::Result<Option<McpTaskRecord>> {
         self.cache
             .get_entity(TASK_ENTITY_TYPE, key)
@@ -162,42 +136,9 @@ fn task_key(instance_id: InstanceId, task_id: &str) -> String {
     format!("{instance_id}::{task_id}")
 }
 
-impl McpTask {
-    fn with_effective_status(mut self, now: DateTime<Utc>) -> Self {
-        self.mark_expired(now);
-        self
-    }
-
-    fn mark_expired(&mut self, now: DateTime<Utc>) -> bool {
-        if self.status.is_terminal() || self.status == McpTaskStatus::Expired {
-            return false;
-        }
-        let Some(ttl) = self.ttl else {
-            return false;
-        };
-        let Ok(ttl) = i64::try_from(ttl) else {
-            return false;
-        };
-        let Ok(last_updated_at) = DateTime::parse_from_rfc3339(&self.last_updated_at) else {
-            return false;
-        };
-        let expires_at = last_updated_at
-            .with_timezone(&Utc)
-            .checked_add_signed(Duration::milliseconds(ttl));
-        if expires_at.is_some_and(|expires_at| expires_at <= now) {
-            self.status = McpTaskStatus::Expired;
-            return true;
-        }
-        false
-    }
-}
-
 impl McpTaskStatus {
     pub(crate) fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            Self::Completed | Self::Failed | Self::Cancelled | Self::Expired
-        )
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
     }
 }
 
@@ -205,7 +146,7 @@ impl McpTaskStatus {
 mod tests {
     use std::sync::Arc;
 
-    use chrono::{Duration, Utc};
+    use chrono::Utc;
 
     use super::*;
     use crate::cache::{memory_cache_store, CacheLayerManager};
@@ -215,7 +156,7 @@ mod tests {
         ServiceInstanceKey::new(service_name, ScopeRef::Store).instance_id()
     }
 
-    fn task(task_id: &str, status: McpTaskStatus, ttl: Option<u64>) -> McpTask {
+    fn task(task_id: &str, status: McpTaskStatus, ttl_ms: Option<u64>) -> McpTask {
         let timestamp = Utc::now().to_rfc3339();
         McpTask {
             task_id: task_id.to_string(),
@@ -223,8 +164,8 @@ mod tests {
             status_message: None,
             created_at: timestamp.clone(),
             last_updated_at: timestamp,
-            ttl,
-            poll_interval: Some(25),
+            ttl_ms,
+            poll_interval_ms: Some(25),
         }
     }
 
@@ -249,7 +190,7 @@ mod tests {
         let records = second.list(instance_id).await.unwrap();
         assert_eq!(records, vec![observed]);
         assert_eq!(records[0].tool_name.as_deref(), Some("long_tool"));
-        assert_eq!(records[0].task.poll_interval, Some(25));
+        assert_eq!(records[0].task.poll_interval_ms, Some(25));
     }
 
     #[tokio::test]
@@ -277,35 +218,6 @@ mod tests {
 
         assert_eq!(state.list(instance("alpha")).await.unwrap(), vec![first]);
         assert_eq!(state.list(instance("beta")).await.unwrap(), vec![second]);
-    }
-
-    #[tokio::test]
-    async fn expires_non_terminal_tasks_but_preserves_terminal_tasks() {
-        let state = TaskStateStore::new(Arc::new(CacheLayerManager::new(
-            memory_cache_store(),
-            "task-state",
-        )));
-        let now = Utc::now();
-        let mut working = task("working", McpTaskStatus::Working, Some(10));
-        working.last_updated_at = (now - Duration::milliseconds(100)).to_rfc3339();
-        let mut completed = task("completed", McpTaskStatus::Completed, Some(10));
-        completed.last_updated_at = (now - Duration::milliseconds(100)).to_rfc3339();
-        state
-            .observe(instance("alpha"), working, Some("work"))
-            .await
-            .unwrap();
-        state
-            .observe(instance("alpha"), completed, Some("done"))
-            .await
-            .unwrap();
-
-        let records = state.list(instance("alpha")).await.unwrap();
-        let statuses = records
-            .into_iter()
-            .map(|record| (record.task_id, record.task.status))
-            .collect::<std::collections::HashMap<_, _>>();
-        assert_eq!(statuses["working"], McpTaskStatus::Expired);
-        assert_eq!(statuses["completed"], McpTaskStatus::Completed);
     }
 
     #[tokio::test]

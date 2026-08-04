@@ -69,8 +69,12 @@ fn auth_config_supports_all_declared_flows_without_secret_fields() {
             "resource": "https://mcp.example/resource",
             "audience": "https://api.example",
             "credential_profile": "alice",
-            "dynamic_client_registration": false,
             "client_auth_method": "none"
+        }),
+        serde_json::json!({
+            "type": "oauth_authorization_code",
+            "client_metadata_url": "https://client.example/mcpstore.json",
+            "redirect_uri": "http://127.0.0.1:8787/oauth/callback"
         }),
         serde_json::json!({
             "type": "oauth_client_credentials",
@@ -120,18 +124,18 @@ fn auth_config_rejects_secret_fields() {
 }
 
 #[test]
-fn dynamic_authorization_cannot_force_token_endpoint_authentication() {
+fn client_metadata_authorization_cannot_force_token_endpoint_authentication() {
     let config = serde_json::json!({
         "type": "oauth_authorization_code",
         "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
-        "dynamic_client_registration": true,
+        "client_metadata_url": "https://client.example/mcpstore.json",
         "client_auth_method": "client_secret_post"
     });
 
     let error = serde_json::from_value::<AuthConfig>(config).unwrap_err();
     assert!(error
         .to_string()
-        .contains("client_auth_method cannot be forced"));
+        .contains("client_auth_method requires a pre-registered auth.client_id"));
 }
 
 #[test]
@@ -141,6 +145,18 @@ fn auth_config_rejects_incomplete_or_empty_declarations() {
             "type": "oauth_authorization_code",
             "dynamic_client_registration": true,
             "scopes": [""]
+        }),
+        serde_json::json!({
+            "type": "oauth_authorization_code"
+        }),
+        serde_json::json!({
+            "type": "oauth_authorization_code",
+            "client_id": "client-1",
+            "client_metadata_url": "https://client.example/mcpstore.json"
+        }),
+        serde_json::json!({
+            "type": "oauth_authorization_code",
+            "client_metadata_url": "http://client.example/mcpstore.json"
         }),
         serde_json::json!({
             "type": "oauth_client_credentials",
@@ -159,9 +175,10 @@ fn auth_config_rejects_incomplete_or_empty_declarations() {
 }
 
 #[test]
-fn authorization_code_defaults_to_local_callback_and_dynamic_registration() {
+fn authorization_code_defaults_to_local_callback_with_client_metadata() {
     let config: AuthConfig = serde_json::from_value(serde_json::json!({
         "type": "oauth_authorization_code",
+        "client_metadata_url": "https://client.example/mcpstore.json",
         "redirect_uri": " "
     }))
     .unwrap();
@@ -170,7 +187,10 @@ fn authorization_code_defaults_to_local_callback_and_dynamic_registration() {
         panic!("expected authorization code config");
     };
     assert_eq!(config.redirect_uri, DEFAULT_OAUTH_REDIRECT_URI);
-    assert!(config.dynamic_client_registration);
+    assert_eq!(
+        config.client_metadata_url.as_deref(),
+        Some("https://client.example/mcpstore.json")
+    );
 }
 
 #[test]
@@ -549,6 +569,160 @@ async fn omitted_resource_uses_service_url_for_secure_credential_isolation() {
     );
 }
 
+#[derive(Default)]
+struct CimdOAuthClient {
+    requests: Mutex<Vec<String>>,
+    supports_cimd: bool,
+}
+
+impl rmcp::transport::auth::OAuthHttpClient for CimdOAuthClient {
+    fn execute(
+        &self,
+        request: rmcp::transport::auth::OAuthHttpRequest,
+    ) -> rmcp::transport::auth::OAuthHttpClientFuture<'_> {
+        let uri = request.request.uri().to_string();
+        self.requests.lock().unwrap().push(uri.clone());
+        let response = if uri == "https://mcp.example/mcp" {
+            http::Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header(
+                    http::header::WWW_AUTHENTICATE,
+                    r#"Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource""#,
+                )
+                .body(Vec::new())
+                .unwrap()
+        } else if uri == "https://mcp.example/.well-known/oauth-protected-resource" {
+            http::Response::builder()
+                .status(StatusCode::OK)
+                .header(http::header::CONTENT_TYPE, "application/json")
+                .body(
+                    serde_json::to_vec(&serde_json::json!({
+                        "resource": "https://mcp.example/mcp",
+                        "authorization_servers": ["https://issuer.example"]
+                    }))
+                    .unwrap(),
+                )
+                .unwrap()
+        } else if uri == "https://issuer.example/.well-known/oauth-authorization-server" {
+            http::Response::builder()
+                .status(StatusCode::OK)
+                .header(http::header::CONTENT_TYPE, "application/json")
+                .body(
+                    serde_json::to_vec(&serde_json::json!({
+                        "issuer": "https://issuer.example",
+                        "authorization_endpoint": "https://issuer.example/authorize",
+                        "token_endpoint": "https://issuer.example/token",
+                        "registration_endpoint": "https://issuer.example/register",
+                        "response_types_supported": ["code"],
+                        "code_challenge_methods_supported": ["S256"],
+                        "client_id_metadata_document_supported": self.supports_cimd
+                    }))
+                    .unwrap(),
+                )
+                .unwrap()
+        } else {
+            http::Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Vec::new())
+                .unwrap()
+        };
+        Box::pin(async move { Ok(response) })
+    }
+}
+
+#[tokio::test]
+async fn authorization_code_uses_client_metadata_url_as_client_id() {
+    let oauth_client = Arc::new(CimdOAuthClient {
+        supports_cimd: true,
+        ..Default::default()
+    });
+    let instance_id = instance_id("cimd");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests_with_oauth_http_client(
+        test_keyring(),
+        oauth_client.clone(),
+        state_manager,
+    )
+    .unwrap();
+    let auth: AuthConfig = serde_json::from_value(serde_json::json!({
+        "type": "oauth_authorization_code",
+        "client_metadata_url": "https://client.example/mcpstore.json"
+    }))
+    .unwrap();
+
+    let start = coordinator
+        .begin_authorization(instance_id, "https://mcp.example/mcp", &auth)
+        .await
+        .unwrap();
+    let query = url::Url::parse(&start.authorization_url)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect::<HashMap<_, _>>();
+    assert_eq!(
+        query.get("client_id").map(String::as_str),
+        Some("https://client.example/mcpstore.json")
+    );
+    assert!(oauth_client
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|uri| !uri.ends_with("/register")));
+}
+
+#[tokio::test]
+async fn authorization_code_never_falls_back_to_dynamic_registration() {
+    let oauth_client = Arc::new(CimdOAuthClient::default());
+    let instance_id = instance_id("cimd-only");
+    let state_manager = test_state_manager();
+    state_manager
+        .create(ServiceState::new(
+            instance_id,
+            "test".to_string(),
+            ScopeRef::Store,
+            DesiredState::Stopped,
+            AuthState::NotRequired,
+            0,
+        ))
+        .await
+        .unwrap();
+    let coordinator = AuthCoordinator::for_tests_with_oauth_http_client(
+        test_keyring(),
+        oauth_client.clone(),
+        state_manager,
+    )
+    .unwrap();
+    let auth: AuthConfig = serde_json::from_value(serde_json::json!({
+        "type": "oauth_authorization_code",
+        "client_metadata_url": "https://client.example/mcpstore.json"
+    }))
+    .unwrap();
+
+    let error = coordinator
+        .begin_authorization(instance_id, "https://mcp.example/mcp", &auth)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, AuthError::InvalidConfig(_)));
+    assert!(oauth_client
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|uri| !uri.ends_with("/register")));
+}
+
 const TEST_RSA_PRIVATE_KEY: &str = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCJRLsJP9477ViY
 DNLZsxZImyGh8axjlvwhhNPuEfnQotshElqMYg3yVJUK01vwP3HAb43rfPNBi63M
@@ -589,7 +763,28 @@ impl rmcp::transport::auth::OAuthHttpClient for PrivateKeyJwtOAuthClient {
         request: rmcp::transport::auth::OAuthHttpRequest,
     ) -> rmcp::transport::auth::OAuthHttpClientFuture<'_> {
         let uri = request.request.uri().to_string();
-        let response = if uri.ends_with("/.well-known/oauth-authorization-server/mcp") {
+        let response = if uri == "https://mcp.example/mcp" {
+            http::Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header(
+                    http::header::WWW_AUTHENTICATE,
+                    r#"Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource""#,
+                )
+                .body(Vec::new())
+                .unwrap()
+        } else if uri == "https://mcp.example/.well-known/oauth-protected-resource" {
+            http::Response::builder()
+                .status(StatusCode::OK)
+                .header(http::header::CONTENT_TYPE, "application/json")
+                .body(
+                    serde_json::to_vec(&serde_json::json!({
+                        "resource": "https://mcp.example/mcp",
+                        "authorization_servers": ["https://issuer.example"]
+                    }))
+                    .unwrap(),
+                )
+                .unwrap()
+        } else if uri == "https://issuer.example/.well-known/oauth-authorization-server" {
             http::Response::builder()
                 .status(StatusCode::OK)
                 .header(http::header::CONTENT_TYPE, "application/json")
@@ -720,5 +915,5 @@ async fn private_key_jwt_uses_rmcp_official_client_credentials_flow() {
     .unwrap();
     assert_eq!(header["alg"], "RS256");
     assert_eq!(claims["sub"], "machine-client");
-    assert_eq!(claims["aud"], "https://issuer.example/token");
+    assert_eq!(claims["aud"], "https://issuer.example");
 }

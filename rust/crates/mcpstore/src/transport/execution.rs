@@ -2,9 +2,12 @@ use std::time::Duration;
 
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CancelledNotificationParam, ClientRequest,
-    ProgressNotificationParam, ServerResult,
+    ElicitResult, GetExtensions, GetMeta, InputRequest, InputRequiredResult, InputResponses,
+    NumberOrString, ProgressNotificationParam, ServerRequest, ServerResult,
+    DEFAULT_MRTR_MAX_ROUNDS,
 };
-use rmcp::service::{PeerRequestOptions, RequestHandle, RoleClient};
+use rmcp::service::{Peer, PeerRequestOptions, RequestContext, RequestHandle, RoleClient};
+use rmcp::ClientHandler;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -12,6 +15,7 @@ use crate::auth::{AuthConfig, AuthCoordinator, AuthStatus};
 use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
 use crate::transport::content::content_item_from_rmcp;
+use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::{McpTask, McpToolExecution, Result, ToolCallResult, TransportError};
 
 const EXECUTION_UPDATE_BUFFER: usize = 64;
@@ -155,6 +159,7 @@ impl McpConnection {
     ) -> Result<McpToolExecutionHandle> {
         let mut progress_notifications = self.subscribe_progress();
         let client = self.get_client()?;
+        let retry_params = params.clone();
         let request = match client
             .send_cancellable_request(
                 ClientRequest::CallToolRequest(CallToolRequest::new(params)),
@@ -175,6 +180,7 @@ impl McpConnection {
         let request_id_value = request_id.clone().into_json_value();
         let progress_token_value = progress_token.0.clone().into_json_value();
         let (auth_coordinator, auth) = self.execution_auth();
+        let handler = self.handler.clone();
         let (cancellation, cancellation_rx) = oneshot::channel();
         let (updates_tx, updates) = mpsc::channel(EXECUTION_UPDATE_BUFFER);
 
@@ -182,8 +188,11 @@ impl McpConnection {
             let result = drive_tool_request(
                 instance_id,
                 request,
+                retry_params,
+                options,
                 &mut progress_notifications,
                 cancellation_rx,
+                handler,
                 auth_coordinator,
                 auth,
                 accepts_task,
@@ -214,44 +223,110 @@ fn arguments_object(arguments: serde_json::Value) -> serde_json::Map<String, ser
 #[allow(clippy::too_many_arguments)]
 async fn drive_tool_request(
     instance_id: InstanceId,
-    request: RequestHandle<RoleClient>,
+    mut request: RequestHandle<RoleClient>,
+    mut params: CallToolRequestParams,
+    options: McpExecutionOptions,
     progress_notifications: &mut broadcast::Receiver<ProgressNotificationParam>,
     mut cancellation: oneshot::Receiver<Option<String>>,
+    handler: McpStoreClientHandler,
     auth_coordinator: AuthCoordinator,
     auth: AuthConfig,
     accepts_task: bool,
     operation: &'static str,
     updates: &mpsc::Sender<McpExecutionUpdate>,
 ) -> Result<McpToolExecution> {
+    let peer = request.peer.clone();
+    let mut cancellation_open = true;
+    let mut progress_open = true;
+    let mut state_only_rounds = 0usize;
+
+    for round in 0..DEFAULT_MRTR_MAX_ROUNDS {
+        let response = await_tool_response(
+            instance_id,
+            request,
+            progress_notifications,
+            &mut cancellation,
+            &mut cancellation_open,
+            &mut progress_open,
+            operation,
+            updates,
+        )
+        .await;
+
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                return Err(
+                    classify_auth_failure(instance_id, &auth_coordinator, &auth, error).await,
+                );
+            }
+        };
+
+        let ServerResult::InputRequiredResult(input_required) = response else {
+            return execution_from_response(response, accepts_task, operation);
+        };
+        if round + 1 == DEFAULT_MRTR_MAX_ROUNDS {
+            return Err(TransportError::Protocol(format!(
+                "{operation} exceeded {DEFAULT_MRTR_MAX_ROUNDS} MRTR input rounds"
+            )));
+        }
+
+        let mut input = Box::pin(prepare_input_required_retry(
+            &handler,
+            &peer,
+            input_required,
+            &mut state_only_rounds,
+            operation,
+        ));
+        let (input_responses, request_state) = tokio::select! {
+            result = &mut input => result?,
+            reason = &mut cancellation, if cancellation_open => {
+                return Err(TransportError::RequestCancelled { reason: reason.ok().flatten() });
+            }
+        };
+        params.input_responses = input_responses;
+        params.request_state = request_state;
+
+        request = match peer
+            .send_cancellable_request(
+                ClientRequest::CallToolRequest(CallToolRequest::new(params.clone())),
+                options.peer_options(),
+            )
+            .await
+        {
+            Ok(request) => request,
+            Err(error) => {
+                let fallback = map_service_error(instance_id, operation, error);
+                return Err(
+                    classify_auth_failure(instance_id, &auth_coordinator, &auth, fallback).await,
+                );
+            }
+        };
+    }
+
+    unreachable!("MRTR round loop always returns")
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn await_tool_response(
+    instance_id: InstanceId,
+    request: RequestHandle<RoleClient>,
+    progress_notifications: &mut broadcast::Receiver<ProgressNotificationParam>,
+    cancellation: &mut oneshot::Receiver<Option<String>>,
+    cancellation_open: &mut bool,
+    progress_open: &mut bool,
+    operation: &'static str,
+    updates: &mpsc::Sender<McpExecutionUpdate>,
+) -> Result<ServerResult> {
     let request_id = request.id.clone();
     let progress_token = request.progress_token.clone();
     let peer = request.peer.clone();
     let mut response = Box::pin(request.await_response());
-    let mut cancellation_open = true;
-    let mut progress_open = true;
     let response = loop {
         tokio::select! {
-            response = &mut response => break response,
-            notification = progress_notifications.recv(), if progress_open => {
-                match notification {
-                    Ok(notification) if notification.progress_token == progress_token => {
-                        let update = McpExecutionUpdate::Progress(McpExecutionProgress {
-                            instance_id,
-                            progress_token: notification.progress_token.0.into_json_value(),
-                            progress: notification.progress,
-                            total: notification.total,
-                            message: notification.message,
-                        });
-                        if updates.try_send(update).is_err() {
-                            tracing::warn!(%instance_id, "dropping MCP progress update because the execution consumer is lagging");
-                        }
-                    }
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => progress_open = false,
-                }
-            }
-            reason = &mut cancellation, if cancellation_open => {
-                cancellation_open = false;
+            biased;
+            reason = &mut *cancellation, if *cancellation_open => {
+                *cancellation_open = false;
                 let reason = reason.ok().flatten();
                 // `await_response` owns the rmcp RequestHandle. Sending the same typed
                 // cancellation notification through its cloned Peer lets rmcp resolve the
@@ -263,19 +338,157 @@ async fn drive_tool_request(
                 .await
                 .map_err(|error| map_service_error(instance_id, operation, error))?;
             }
+            // rmcp dispatches notifications before the following response. Prefer queued
+            // progress so a ready response cannot overtake its final progress event.
+            notification = progress_notifications.recv(), if *progress_open => {
+                match notification {
+                    Ok(notification) if notification.progress_token == progress_token => {
+                        forward_progress_update(instance_id, notification, updates);
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => *progress_open = false,
+                }
+            }
+            response = &mut response => break response,
         }
     };
 
+    // rmcp dispatches notification handlers on separate tasks, so the response
+    // channel can resolve before earlier progress handlers have published their
+    // updates. Give already-dispatched handlers a short bounded window to flush.
+    drain_dispatched_progress(
+        instance_id,
+        &progress_token,
+        progress_notifications,
+        progress_open,
+        updates,
+    )
+    .await;
+
     let response = match response {
         Ok(response) => response,
-        Err(error) => {
-            let fallback = map_service_error(instance_id, operation, error);
-            return Err(
-                classify_auth_failure(instance_id, &auth_coordinator, &auth, fallback).await,
-            );
-        }
+        Err(error) => return Err(map_service_error(instance_id, operation, error)),
     };
-    execution_from_response(response, accepts_task, operation)
+    Ok(response)
+}
+
+fn forward_progress_update(
+    instance_id: InstanceId,
+    notification: ProgressNotificationParam,
+    updates: &mpsc::Sender<McpExecutionUpdate>,
+) {
+    let update = McpExecutionUpdate::Progress(McpExecutionProgress {
+        instance_id,
+        progress_token: notification.progress_token.0.into_json_value(),
+        progress: notification.progress,
+        total: notification.total,
+        message: notification.message,
+    });
+    if updates.try_send(update).is_err() {
+        tracing::warn!(%instance_id, "dropping MCP progress update because the execution consumer is lagging");
+    }
+}
+
+async fn drain_dispatched_progress(
+    instance_id: InstanceId,
+    progress_token: &rmcp::model::ProgressToken,
+    progress_notifications: &mut broadcast::Receiver<ProgressNotificationParam>,
+    progress_open: &mut bool,
+    updates: &mpsc::Sender<McpExecutionUpdate>,
+) {
+    if !*progress_open {
+        return;
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(10);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, progress_notifications.recv()).await {
+            Ok(Ok(notification)) if notification.progress_token == *progress_token => {
+                forward_progress_update(instance_id, notification, updates);
+            }
+            Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                *progress_open = false;
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+async fn prepare_input_required_retry(
+    handler: &McpStoreClientHandler,
+    peer: &Peer<RoleClient>,
+    result: InputRequiredResult,
+    state_only_rounds: &mut usize,
+    operation: &str,
+) -> Result<(Option<InputResponses>, Option<String>)> {
+    let had_input_requests = result
+        .input_requests
+        .as_ref()
+        .is_some_and(|requests| !requests.is_empty());
+    if !had_input_requests && result.request_state.is_none() {
+        return Err(TransportError::Protocol(format!(
+            "{operation} returned input_required without inputRequests or requestState"
+        )));
+    }
+
+    let mut responses = InputResponses::new();
+    for (key, request) in result.input_requests.unwrap_or_default() {
+        let value = fulfill_input_request(handler, peer, &key, request, operation).await?;
+        responses.insert(key, value);
+    }
+
+    if had_input_requests {
+        *state_only_rounds = 0;
+    } else {
+        let millis = (50u64.saturating_mul(1_u64 << (*state_only_rounds).min(3))).min(250);
+        tokio::time::sleep(Duration::from_millis(millis)).await;
+        *state_only_rounds += 1;
+    }
+
+    Ok((
+        (!responses.is_empty()).then_some(responses),
+        result.request_state,
+    ))
+}
+
+async fn fulfill_input_request(
+    handler: &McpStoreClientHandler,
+    peer: &Peer<RoleClient>,
+    key: &str,
+    request: InputRequest,
+    operation: &str,
+) -> Result<serde_json::Value> {
+    let InputRequest::Elicitation(request) = request else {
+        return Err(TransportError::Protocol(format!(
+            "{operation} requested an MRTR input capability MCPStore did not declare"
+        )));
+    };
+    let mut request = ServerRequest::ElicitRequest(request);
+    let mut context =
+        RequestContext::new(NumberOrString::String(key.to_string().into()), peer.clone());
+    std::mem::swap(&mut context.meta, request.get_meta_mut());
+    std::mem::swap(&mut context.extensions, request.extensions_mut());
+    let ServerRequest::ElicitRequest(request) = request else {
+        unreachable!("MRTR elicitation request changed variant")
+    };
+    let response: ElicitResult = handler
+        .create_elicitation(request.params, context)
+        .await
+        .map_err(|error| {
+            TransportError::Protocol(format!(
+                "{operation} failed to fulfill MRTR input {key}: {error}"
+            ))
+        })?;
+    serde_json::to_value(response).map_err(|error| {
+        TransportError::Protocol(format!(
+            "{operation} failed to serialize MRTR input {key}: {error}"
+        ))
+    })
 }
 
 fn execution_from_response(
@@ -355,7 +568,8 @@ mod tests {
     use std::sync::Arc;
 
     use rmcp::model::{
-        CallToolRequestParams, CallToolResult, Implementation, ServerCapabilities, ServerInfo,
+        CallToolRequestParams, CallToolResponse, CallToolResult, Implementation,
+        ServerCapabilities, ServerInfo,
     };
     use rmcp::service::{RequestContext, RoleServer, RunningService};
     use rmcp::{ServerHandler, ServiceExt};
@@ -398,7 +612,7 @@ mod tests {
             &self,
             request: CallToolRequestParams,
             context: RequestContext<RoleServer>,
-        ) -> std::result::Result<CallToolResult, rmcp::ErrorData> {
+        ) -> std::result::Result<CallToolResponse, rmcp::ErrorData> {
             match request.name.as_ref() {
                 "progress" => {
                     let token = context.meta.get_progress_token().ok_or_else(|| {
@@ -416,7 +630,9 @@ mod tests {
                             rmcp::ErrorData::internal_error(error.to_string(), None)
                         })?;
                     tokio::time::sleep(Duration::from_millis(10)).await;
-                    Ok(CallToolResult::success(Vec::new()))
+                    Ok(CallToolResponse::Complete(CallToolResult::success(
+                        Vec::new(),
+                    )))
                 }
                 "steady_progress" => {
                     let token = context.meta.get_progress_token().ok_or_else(|| {
@@ -435,7 +651,9 @@ mod tests {
                                 rmcp::ErrorData::internal_error(error.to_string(), None)
                             })?;
                     }
-                    Ok(CallToolResult::success(Vec::new()))
+                    Ok(CallToolResponse::Complete(CallToolResult::success(
+                        Vec::new(),
+                    )))
                 }
                 "endless_progress" => {
                     let token = context.meta.get_progress_token().ok_or_else(|| {
@@ -447,7 +665,7 @@ mod tests {
                         tokio::select! {
                             () = context.ct.cancelled() => {
                                 self.state.cancelled.notify_one();
-                                return Ok(CallToolResult::success(Vec::new()));
+                                return Ok(CallToolResponse::Complete(CallToolResult::success(Vec::new())));
                             }
                             () = tokio::time::sleep(Duration::from_millis(10)) => {
                                 step += 1.0;
@@ -464,14 +682,18 @@ mod tests {
                     self.state.started.notify_one();
                     context.ct.cancelled().await;
                     self.state.cancelled.notify_one();
-                    Ok(CallToolResult::success(Vec::new()))
+                    Ok(CallToolResponse::Complete(CallToolResult::success(
+                        Vec::new(),
+                    )))
                 }
                 "never" => {
                     self.state.started.notify_one();
                     std::future::pending::<()>().await;
                     unreachable!()
                 }
-                _ => Ok(CallToolResult::success(Vec::new())),
+                _ => Ok(CallToolResponse::Complete(CallToolResult::success(
+                    Vec::new(),
+                ))),
             }
         }
     }
@@ -495,7 +717,15 @@ mod tests {
         let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
         let server_start =
             tokio::spawn(async move { server_handler.serve(server_transport).await.unwrap() });
-        let client = handler.clone().serve(client_transport).await.unwrap();
+        let client = rmcp::service::serve_client_with_lifecycle(
+            handler.clone(),
+            client_transport,
+            rmcp::service::ClientLifecycleMode::Discover {
+                preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
+            },
+        )
+        .await
+        .unwrap();
         let server = server_start.await.unwrap();
         (
             McpConnection::from_test_client(instance_id, client, handler),
