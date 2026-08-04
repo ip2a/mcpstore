@@ -10,6 +10,9 @@ from mcpstore.native.records import _record_value, _scope_payload
 def list_instances(backend) -> List[Dict[str, Any]]:
     return _record_value(backend._inner.list_instances())
 
+def list_agents(backend) -> List[Dict[str, Any]]:
+    return _record_value(backend._inner.list_agents())
+
 def list_instances_scoped(
     backend,
     scope: ScopeRef | Dict[str, Any],

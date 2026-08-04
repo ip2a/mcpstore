@@ -49,6 +49,7 @@ class RustStoreBackend:
     reset_config = configuration.reset_config
 
     list_instances = instances.list_instances
+    list_agents = instances.list_agents
     list_instances_scoped = instances.list_instances_scoped
     find_instance = instances.find_instance
     instance_info = instances.instance_info
