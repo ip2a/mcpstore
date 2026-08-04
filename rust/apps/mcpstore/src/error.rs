@@ -58,7 +58,6 @@ pub enum ErrorCode {
     AuthenticationRequired,
     CapabilityUnsupported,
     TaskNotFound,
-    TaskExpired,
     TaskResultUnavailable,
     TaskFailed,
     TaskProtocolFailed,
@@ -84,7 +83,6 @@ impl ErrorCode {
             Self::AuthenticationRequired => "authentication_required",
             Self::CapabilityUnsupported => "capability_unsupported",
             Self::TaskNotFound => "task_not_found",
-            Self::TaskExpired => "task_expired",
             Self::TaskResultUnavailable => "task_result_unavailable",
             Self::TaskFailed => "task_failed",
             Self::TaskProtocolFailed => "task_protocol_failed",
@@ -112,7 +110,6 @@ impl ErrorCode {
             Self::AuthenticationRequired => 12,
             Self::CapabilityUnsupported => 20,
             Self::TaskNotFound => 21,
-            Self::TaskExpired => 22,
             Self::TaskResultUnavailable => 23,
             Self::TaskFailed => 24,
             Self::TaskProtocolFailed => 25,
@@ -177,9 +174,7 @@ impl ErrorCode {
                     Domain::Task => Self::TaskProtocolFailed,
                     _ => Self::ProtocolFailed,
                 },
-                TransportError::ElicitationSessionActive { .. } => {
-                    Self::ElicitationInvalidResponse
-                }
+                TransportError::ElicitationSessionActive { .. } => Self::ElicitationInvalidResponse,
                 TransportError::TaskNotFound { .. } => Self::TaskNotFound,
                 TransportError::TaskState(_) => Self::TaskStateFailed,
             },
@@ -258,7 +253,12 @@ impl CliError {
 
     /// Classify a `StoreError` into a `CliError` for the given command family.
     pub fn from_store(error: &StoreError, format: OutputFormat, domain: Domain) -> Self {
-        Self::new(format, domain, ErrorCode::from_store(error, domain), error.to_string())
+        Self::new(
+            format,
+            domain,
+            ErrorCode::from_store(error, domain),
+            error.to_string(),
+        )
     }
 
     /// Classify a daemon error string into a `CliError`.
@@ -268,7 +268,11 @@ impl CliError {
     }
 
     /// Convenience for the `execution` domain without instance/tool context.
-    pub fn new_execution(format: OutputFormat, code: ErrorCode, message: impl Into<String>) -> Self {
+    pub fn new_execution(
+        format: OutputFormat,
+        code: ErrorCode,
+        message: impl Into<String>,
+    ) -> Self {
         Self::new(format, Domain::Execution, code, message)
     }
 
@@ -281,6 +285,10 @@ impl CliError {
     }
 
     fn event(&self) -> String {
+        // Preserve the task command's established invalid-input event contract.
+        if self.domain == Domain::Task && self.code == ErrorCode::InvalidInput {
+            return "task.error".into();
+        }
         // Elicitation events are unprefixed (same across all command families).
         let detail = match self.code {
             ErrorCode::ElicitationInputRequired => return "elicitation.input_required".into(),
@@ -312,7 +320,13 @@ impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.format {
             OutputFormat::Human => match self.code.hint() {
-                Some(hint) => write!(f, "{}: {}\n  hint: {}", self.code.as_str(), self.message, hint),
+                Some(hint) => write!(
+                    f,
+                    "{}: {}\n  hint: {}",
+                    self.code.as_str(),
+                    self.message,
+                    hint
+                ),
                 None => write!(f, "{}: {}", self.code.as_str(), self.message),
             },
             OutputFormat::Json => match serde_json::to_string_pretty(&self.json_value()) {
@@ -325,6 +339,3 @@ impl std::fmt::Display for CliError {
 }
 
 impl std::error::Error for CliError {}
-
-
-

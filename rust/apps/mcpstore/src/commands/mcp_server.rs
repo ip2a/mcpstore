@@ -5,11 +5,7 @@ use crate::mcp_server::{
     McpServerOptions as CoreMcpServerOptions, McpServerTransport as CoreMcpServerTransport,
 };
 
-use crate::{
-    commands::mcp::Scope,
-    store_args::{CacheStorageArg, StoreSourceArgs},
-    BoxErr,
-};
+use crate::{commands::mcp::Scope, store_args::StoreSourceArgs, BoxErr};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum McpServerTransport {
@@ -104,8 +100,14 @@ impl McpServerArgs {
         let backend = self
             .store
             .backend
-            .map(CacheStorageArg::as_cache_storage)
-            .or_else(|| self.store.redis_url.as_ref().map(|_| CacheStorage::Redis));
+            .as_ref()
+            .map(|backend| CacheStorage::new(backend, self.store.backend_url.clone()))
+            .or_else(|| {
+                self.store
+                    .backend_url
+                    .as_ref()
+                    .map(|url| CacheStorage::openkeyv("redis", url))
+            });
         CoreMcpServerOptions {
             config_path: self.store.config_path.clone(),
             source_mode: match self.store.source {
@@ -113,7 +115,7 @@ impl McpServerArgs {
                 crate::store_args::SourceArg::Db => SourceMode::Db,
             },
             backend,
-            redis_url: self.store.redis_url.clone(),
+            redis_url: self.store.backend_url.clone(),
             namespace: self.store.namespace.clone(),
             scope: match self.scope {
                 Scope::Store => ScopeRef::Store,

@@ -137,7 +137,9 @@ pub(super) async fn run_streamable_http(
         StreamableHttpService::new(
             move || Ok(server.clone()),
             Default::default(),
-            StreamableHttpServerConfig::default(),
+            StreamableHttpServerConfig::default()
+                .with_legacy_session_mode(false)
+                .with_stateless_protocol_metadata_required(true),
         );
     let router = axum::Router::new().nest_service(&path, service);
     let addr = format!("{}:{}", args.host, args.port);

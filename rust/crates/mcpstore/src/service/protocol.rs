@@ -1,5 +1,5 @@
 use crate::store::prelude::*;
-use crate::transport::{McpCompletion, McpCompletionRequest, McpLoggingLevel, McpServerMetadata};
+use crate::transport::{McpCompletion, McpCompletionRequest, McpServerMetadata};
 
 impl MCPStore {
     pub async fn mcp_server_metadata(
@@ -45,18 +45,6 @@ impl MCPStore {
         self.ensure_instance_connected(instance_id).await?;
         self.pool
             .unsubscribe_resource(instance_id, uri)
-            .await
-            .map_err(StoreError::Transport)
-    }
-
-    pub async fn set_mcp_logging_level(
-        &self,
-        instance_id: InstanceId,
-        level: McpLoggingLevel,
-    ) -> Result<()> {
-        self.ensure_instance_connected(instance_id).await?;
-        self.pool
-            .set_logging_level(instance_id, level)
             .await
             .map_err(StoreError::Transport)
     }

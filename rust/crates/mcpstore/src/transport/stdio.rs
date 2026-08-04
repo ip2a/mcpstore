@@ -107,9 +107,15 @@ pub(super) async fn connect(
     });
 
     let transport = StdioTransport::new_client(stdout, stdin);
-    let client = rmcp::service::serve_client(handler, transport)
-        .await
-        .map_err(|err| TransportError::ConnectionFailed(format!("MCP handshake failed: {err}")))?;
+    let client = rmcp::service::serve_client_with_lifecycle(
+        handler,
+        transport,
+        rmcp::service::ClientLifecycleMode::Discover {
+            preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
+        },
+    )
+    .await
+    .map_err(|err| TransportError::ConnectionFailed(format!("MCP handshake failed: {err}")))?;
 
     Ok((
         client,

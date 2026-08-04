@@ -2,8 +2,6 @@ use std::time::Duration;
 
 use http::header::WWW_AUTHENTICATE;
 
-use super::config::{minimal_oauth_authorization_code_config, AuthConfig};
-
 /// Returns true when the MCP HTTP endpoint responds with 401 and a Bearer challenge.
 pub async fn http_endpoint_requires_oauth(url: &str) -> bool {
     let Ok(client) = reqwest::Client::builder()
@@ -38,10 +36,6 @@ fn has_bearer_challenge(headers: &http::HeaderMap) -> bool {
         .iter()
         .filter_map(|value| value.to_str().ok())
         .any(|value| value.to_ascii_lowercase().contains("bearer"))
-}
-
-pub fn inferred_oauth_authorization_code_config() -> AuthConfig {
-    minimal_oauth_authorization_code_config()
 }
 
 #[cfg(test)]

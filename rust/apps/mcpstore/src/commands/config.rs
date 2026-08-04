@@ -248,8 +248,8 @@ fn show(path: Option<String>) -> std::result::Result<(), Box<dyn std::error::Err
     println!("\nCache:");
     println!("  Backend: {}", app_config.cache.backend);
     println!("  Namespace: {}", app_config.cache.namespace);
-    if let Some(redis_url) = &app_config.cache.redis_url {
-        println!("  Redis URL: {}", redis_url);
+    if let Some(url) = &app_config.cache.url {
+        println!("  Backend URL: {}", url);
     }
 
     println!(

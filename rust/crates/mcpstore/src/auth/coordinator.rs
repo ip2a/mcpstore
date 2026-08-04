@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use rmcp::transport::auth::{
     AuthError as RmcpAuthError, AuthorizationCallback, AuthorizationManager, AuthorizationMetadata,
-    AuthorizationSession, ClientCredentialsConfig, CredentialStore,
-    JwtSigningAlgorithm as RmcpJwtSigningAlgorithm, OAuthClientConfig, OAuthState,
+    AuthorizationRequest, AuthorizationSession, ClientCredentialsConfig, CredentialStore,
+    JwtSigningAlgorithm as RmcpJwtSigningAlgorithm, OAuthState,
 };
 use tokio::sync::Mutex;
 
@@ -23,7 +23,6 @@ use super::{
 };
 
 const AUTHORIZATION_STATE_TTL: Duration = Duration::from_secs(10 * 60);
-const DYNAMIC_CLIENT_IDENTITY: &str = "dynamic-client-registration";
 
 #[derive(Clone)]
 pub struct AuthCoordinator {
@@ -250,24 +249,37 @@ impl AuthCoordinator {
         let result = async {
             let key = credential_key(instance_id, base_url, auth)?;
             let mut manager = self.new_manager(base_url, &key).await?;
-            let metadata = manager.discover_metadata().await.map_err(|error| {
+            let resolution = manager.resolve_metadata().await.map_err(|error| {
                 tracing::warn!(
                     instance_id = %instance_id,
                     error = %error,
-                    "OAuth metadata discovery failed"
+                    "OAuth metadata resolution failed"
                 );
                 AuthError::AuthorizationStartFailed
             })?;
             validate_authorization_code_client_auth_method(
                 config.client_auth_method.clone(),
-                &metadata,
+                &resolution.metadata,
             )?;
-            manager.set_metadata(metadata);
+            if config.client_metadata_url.is_some()
+                && resolution
+                    .metadata
+                    .additional_fields
+                    .get("client_id_metadata_document_supported")
+                    .and_then(serde_json::Value::as_bool)
+                    != Some(true)
+            {
+                return Err(AuthError::InvalidConfig(
+                    "authorization server does not advertise client_id_metadata_document_supported=true"
+                        .to_string(),
+                ));
+            }
+            manager.set_metadata(resolution.metadata);
 
-            let scopes = config.scopes.iter().map(String::as_str).collect::<Vec<_>>();
-            let session = if let Some(client_id) = config.client_id.as_deref() {
-                let mut oauth_config = OAuthClientConfig::new(client_id, &config.redirect_uri)
-                    .with_scopes(config.scopes.clone());
+            let mut request = AuthorizationRequest::new(&config.redirect_uri)
+                .with_scopes(config.scopes.clone());
+            if let Some(client_id) = config.client_id.as_deref() {
+                request = request.with_preregistered_client(client_id);
                 if !matches!(
                     config.client_auth_method,
                     super::AuthorizationCodeClientAuthMethod::None
@@ -277,38 +289,21 @@ impl AuthCoordinator {
                         .load()
                         .await?
                         .ok_or(AuthError::MissingClientCredential)?;
-                    oauth_config = oauth_config.with_client_secret(secret.expose());
+                    request = request.with_client_secret(secret.expose());
                 }
-                manager
-                    .configure_client(oauth_config)
-                    .map_err(|_| AuthError::AuthorizationStartFailed)?;
-                let authorization_url = manager
-                    .get_authorization_url(&scopes)
-                    .await
-                    .map_err(|_| AuthError::AuthorizationStartFailed)?;
-                AuthorizationSession::for_scope_upgrade(
-                    manager,
-                    authorization_url,
-                    &config.redirect_uri,
-                )
-            } else {
-                AuthorizationSession::new(
-                    manager,
-                    &scopes,
-                    &config.redirect_uri,
-                    Some("MCPStore"),
-                    None,
-                )
-                .await
-                .map_err(|error| {
+            } else if let Some(client_metadata_url) = config.client_metadata_url.as_deref() {
+                request = request.with_client_metadata_url(client_metadata_url);
+            }
+            let session = AuthorizationSession::new(manager, request).await.map_err(
+                |(_manager, error)| {
                     tracing::warn!(
                         instance_id = %instance_id,
                         error = %error,
-                        "OAuth dynamic client registration failed"
+                        "OAuth client registration failed"
                     );
                     AuthError::AuthorizationStartFailed
-                })?
-            };
+                },
+            )?;
 
             let authorization_url = session.get_authorization_url().to_string();
             self.sessions.lock().await.insert(instance_id, session);
@@ -403,15 +398,15 @@ impl AuthCoordinator {
                         config.client_auth_method,
                         super::AuthorizationCodeClientAuthMethod::None
                     ) {
-                        let metadata = manager
-                            .discover_metadata()
+                        let resolution = manager
+                            .resolve_metadata()
                             .await
                             .map_err(|_| AuthError::RefreshFailed)?;
                         validate_authorization_code_client_auth_method(
                             config.client_auth_method.clone(),
-                            &metadata,
+                            &resolution.metadata,
                         )?;
-                        manager.set_metadata(metadata);
+                        manager.set_metadata(resolution.metadata);
                     }
                     if !manager
                         .initialize_from_store()
@@ -475,15 +470,15 @@ impl AuthCoordinator {
         validate_rmcp_resource(base_url, auth)?;
         let key = credential_key(instance_id, base_url, auth)?;
         let mut manager = self.new_manager(base_url, &key).await?;
-        let metadata = manager
-            .discover_metadata()
+        let resolution = manager
+            .resolve_metadata()
             .await
             .map_err(|_| AuthError::AuthorizationStartFailed)?;
         validate_authorization_code_client_auth_method(
             config.client_auth_method.clone(),
-            &metadata,
+            &resolution.metadata,
         )?;
-        manager.set_metadata(metadata);
+        manager.set_metadata(resolution.metadata);
         if !manager
             .initialize_from_store()
             .await
@@ -552,15 +547,15 @@ impl AuthCoordinator {
 
         if initialized {
             if let AuthConfig::OAuthAuthorizationCode(config) = auth {
-                let metadata = manager
-                    .discover_metadata()
+                let resolution = manager
+                    .resolve_metadata()
                     .await
                     .map_err(|_| AuthError::ProviderFailure)?;
                 validate_authorization_code_client_auth_method(
                     config.client_auth_method.clone(),
-                    &metadata,
+                    &resolution.metadata,
                 )?;
-                manager.set_metadata(metadata);
+                manager.set_metadata(resolution.metadata);
             }
             match manager.get_access_token().await {
                 Ok(_) => {
@@ -644,9 +639,8 @@ impl AuthCoordinator {
             }
         };
         let required = auth_required(instance_id, auth);
-        // rmcp 2.2's private-key JWT client-credentials future is not Send across
-        // the MCPStore multi-thread runtime boundary. Run the official rmcp flow
-        // on its own current-thread runtime instead of reimplementing JWT exchange.
+        // The private-key JWT exchange future keeps a form serializer across an
+        // await and is not Send. Isolate the official flow on a current-thread runtime.
         tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -718,7 +712,7 @@ fn validate_rmcp_resource(base_url: &str, auth: &AuthConfig) -> Result<(), AuthE
         if let Some(resource) = config.resource.as_deref() {
             if resource != base_url {
                 return Err(AuthError::InvalidConfig(
-                    "rmcp 2.2.0 Authorization Code OAuth uses the MCP service URL as the resource; auth.resource must be omitted or equal to the service URL".to_string(),
+                    "rmcp Authorization Code OAuth uses the MCP service URL as the resource; auth.resource must be omitted or equal to the service URL".to_string(),
                 ));
             }
         }
@@ -740,7 +734,7 @@ fn validate_authorization_code_client_auth_method(
             super::AuthorizationCodeClientAuthMethod::ClientSecretPost
         ) {
             return Err(AuthError::InvalidConfig(
-                "rmcp 2.2.0 cannot force Authorization Code client_secret_post when the authorization server does not advertise token_endpoint_auth_methods_supported".to_string(),
+                "rmcp cannot force Authorization Code client_secret_post when the authorization server does not advertise token_endpoint_auth_methods_supported".to_string(),
             ));
         }
         return Ok(());
@@ -763,7 +757,7 @@ fn validate_authorization_code_client_auth_method(
         super::AuthorizationCodeClientAuthMethod::None => Ok(()),
         requested if requested == rmcp_method => Ok(()),
         requested => Err(AuthError::InvalidConfig(format!(
-            "rmcp 2.2.0 selects Authorization Code token endpoint authentication as {}; requested {} cannot be forced through the public API",
+            "rmcp selects Authorization Code token endpoint authentication as {}; requested {} cannot be forced through the public API",
             auth_method_name(&rmcp_method),
             auth_method_name(&requested),
         ))),
@@ -788,7 +782,12 @@ fn credential_key(
         AuthConfig::OAuthAuthorizationCode(config) => config
             .client_id
             .clone()
-            .unwrap_or_else(|| DYNAMIC_CLIENT_IDENTITY.to_string()),
+            .or_else(|| config.client_metadata_url.clone())
+            .ok_or_else(|| {
+                AuthError::InvalidConfig(
+                    "configure auth.client_id or auth.client_metadata_url".to_string(),
+                )
+            })?,
         AuthConfig::OAuthClientCredentials(config) => config.client_id.clone(),
     };
     Ok(AuthCredentialKey::new(

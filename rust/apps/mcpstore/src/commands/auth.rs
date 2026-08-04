@@ -99,7 +99,7 @@ pub enum AuthErrorCategory {
     AuthRequired,
     /// Secure credential storage (keyring) is unavailable or corrupt.
     SecureStorage,
-    /// Declared authentication configuration is not usable with rmcp 2.2.0.
+    /// Declared authentication configuration is not usable through the rmcp public API.
     InvalidConfig,
     /// The requested auth operation is not supported for this flow.
     Unsupported,

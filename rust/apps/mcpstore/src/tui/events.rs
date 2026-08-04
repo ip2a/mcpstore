@@ -1,8 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{
-    AddServicePane, ContentPane, FocusArea, LogsPane, LogsSection, MainView, ServiceListMenu,
-    ServiceManagementTab, SettingsPane, SettingsSection, StatusSection, TuiApp,
+    AddServicePane, ContentPane, FocusArea, LogsPane, LogsSection, MainView, Overlay,
+    ServiceListMenu, ServiceManagementTab, SettingsPane, SettingsSection, StatusSection, TuiApp,
 };
 use super::i18n::{self, TextKey};
 use crate::BoxErr;
@@ -17,39 +17,44 @@ pub fn handle_key(
         return Ok(());
     }
 
-    if app.select_modal.is_some() {
+    if matches!(&app.overlay, Overlay::Select(_)) {
         app.handle_select_input(key);
         return Ok(());
     }
 
-    if app.edit_modal.is_some() {
+    if matches!(&app.overlay, Overlay::Edit(_)) {
         app.handle_edit_input(key);
         return Ok(());
     }
 
-    if app.show_tool_detail {
+    if matches!(&app.overlay, Overlay::ToolDetail) {
         match key.code {
-            KeyCode::Esc | KeyCode::Enter => app.close_tool_detail(),
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => app.close_tool_detail(),
             KeyCode::Char('t') => app.open_tool_test_editor(),
             _ => {}
         }
         return Ok(());
     }
 
-    if app.show_service_detail {
+    if matches!(&app.overlay, Overlay::ServiceDetail) {
         match key.code {
-            KeyCode::Esc | KeyCode::Enter => app.close_service_detail(),
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => app.close_service_detail(),
             _ => {}
         }
         return Ok(());
     }
 
-    if let Some(_pending) = app.pending_action.as_ref() {
+    if matches!(&app.overlay, Overlay::Confirm(_)) {
         return handle_pending_action(app, rt, key);
     }
 
     if app.filter.search_mode {
         app.handle_search_input(key);
+        return Ok(());
+    }
+
+    if key.code == KeyCode::Char('q') && key.modifiers.is_empty() {
+        app.should_quit = true;
         return Ok(());
     }
 
@@ -68,7 +73,7 @@ pub fn handle_key(
     }
 
     if app.active_view == MainView::Logs && app.focus_area == FocusArea::ViewTable {
-        return handle_logs_content_key(app, key);
+        return handle_logs_content_key(app, rt, key);
     }
 
     if app.active_view == MainView::ServiceManagement && app.focus_area == FocusArea::ViewTable {
@@ -104,6 +109,10 @@ pub fn handle_key(
                     i18n::text(app.locale, TextKey::StatusSuccessPrefix),
                     i18n::text(app.locale, TextKey::RefreshedStatusInfo)
                 );
+            } else if app.active_view == MainView::Logs {
+                app.refresh_log_sources(rt);
+                app.refresh_log_config();
+                app.status_message = "[成功] 已刷新日志".to_string();
             } else {
                 app.refresh(rt, true)?;
                 app.status_message = format!(
@@ -125,17 +134,25 @@ fn handle_focused_key(
     key: KeyEvent,
 ) -> Result<(), BoxErr> {
     match app.focus_area {
-        FocusArea::MainNav => handle_nav_key(app, key),
+        FocusArea::MainNav => handle_nav_key(app, rt, key),
         FocusArea::ViewFilter => handle_filter_key(app, rt, key),
         FocusArea::ViewTable => handle_table_key(app, rt, key),
     }
 }
 
-fn handle_nav_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), BoxErr> {
+fn handle_nav_key(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
+    let previous_view = app.active_view;
     match key.code {
         KeyCode::Right | KeyCode::Char('l') => app.next_view(),
         KeyCode::Left | KeyCode::Char('h') => app.previous_view(),
         _ => {}
+    }
+    if app.active_view != previous_view {
+        app.refresh_active_view_sources(rt)?;
     }
     Ok(())
 }
@@ -149,8 +166,8 @@ fn handle_filter_key(
         match key.code {
             KeyCode::Left | KeyCode::Char('h') => app.previous_service_tab(),
             KeyCode::Right | KeyCode::Char('l') => app.next_service_tab(),
-            KeyCode::Char('1') => app.select_service_tab(ServiceManagementTab::Services),
-            KeyCode::Char('2') => app.select_service_tab(ServiceManagementTab::AddService),
+            KeyCode::Char('s') => app.cycle_status_filter(),
+            KeyCode::Char('o') => app.toggle_sort(),
             _ => {}
         }
         return Ok(());
@@ -300,12 +317,12 @@ fn handle_table_key(
     }
 
     match key.code {
-        KeyCode::Char('k') => app.move_selection(-1, rt)?,
-        KeyCode::Char('j') => app.move_selection(1, rt)?,
-        KeyCode::Char('g') => app.jump_to(0, rt)?,
+        KeyCode::Char('k') => app.move_selection(-1)?,
+        KeyCode::Char('j') => app.move_selection(1)?,
+        KeyCode::Char('g') => app.jump_to(0)?,
         KeyCode::Char('G') => {
             if !app.filtered_services.is_empty() {
-                app.jump_to(app.filtered_services.len() - 1, rt)?;
+                app.jump_to(app.filtered_services.len() - 1)?;
             }
         }
         KeyCode::Char('c') => app.connect_selected(rt)?,
@@ -361,7 +378,11 @@ fn handle_settings_content_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), Bo
     Ok(())
 }
 
-fn handle_logs_content_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), BoxErr> {
+fn handle_logs_content_key(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
     match key.code {
         KeyCode::Left | KeyCode::Char('h') => app.focus_logs_menu(),
         KeyCode::Right | KeyCode::Char('l') => app.focus_logs_body(),
@@ -385,6 +406,11 @@ fn handle_logs_content_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), BoxErr
                 app.focus_logs_body();
             }
         }
+        KeyCode::Char('r') => {
+            app.refresh_log_sources(rt);
+            app.refresh_log_config();
+            app.status_message = "[成功] 已刷新日志".to_string();
+        }
         _ => {}
     }
     Ok(())
@@ -406,11 +432,11 @@ fn handle_service_list_content_key(
         }
         KeyCode::Up | KeyCode::Char('k') => match app.service_list_pane {
             ContentPane::Menu => app.previous_service_list_menu_item(rt),
-            ContentPane::Body => app.move_selection(-1, rt)?,
+            ContentPane::Body => app.move_selection(-1)?,
         },
         KeyCode::Down | KeyCode::Char('j') => match app.service_list_pane {
             ContentPane::Menu => app.next_service_list_menu_item(rt),
-            ContentPane::Body => app.move_selection(1, rt)?,
+            ContentPane::Body => app.move_selection(1)?,
         },
         KeyCode::Enter => {
             if app.service_list_pane == ContentPane::Menu {

@@ -26,4 +26,11 @@ tracing-subscriber = { workspace = true }
 rmcp = { workspace = true }
 
 # Unified crate
-mcpstore = { path = "../../crates/mcpstore" }
+mcpstore = { path = "../../crates/mcpstore", default-features = false }
+
+[features]
+default = ["light", "redis", "memcached", "valkey"]
+light = ["mcpstore/light"]
+redis = ["mcpstore/redis"]
+memcached = ["mcpstore/memcached"]
+valkey = ["mcpstore/valkey"]

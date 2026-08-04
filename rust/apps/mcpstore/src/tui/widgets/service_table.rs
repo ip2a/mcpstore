@@ -103,29 +103,44 @@ pub fn render(
     focused: bool,
     locale: Locale,
 ) {
-    let header = Row::new(vec![
-        i18n::text(locale, TextKey::TableName),
-        i18n::text(locale, TextKey::TableScope),
-        i18n::text(locale, TextKey::TableProtocol),
-        i18n::text(locale, TextKey::TableStatus),
-        i18n::text(locale, TextKey::TableTools),
-        i18n::text(locale, TextKey::TableActions),
-    ])
+    let compact = area.width < 70;
+    let header = if compact {
+        Row::new(vec![
+            i18n::text(locale, TextKey::TableName),
+            i18n::text(locale, TextKey::TableStatus),
+            i18n::text(locale, TextKey::TableTools),
+        ])
+    } else {
+        Row::new(vec![
+            i18n::text(locale, TextKey::TableName),
+            i18n::text(locale, TextKey::TableScope),
+            i18n::text(locale, TextKey::TableProtocol),
+            i18n::text(locale, TextKey::TableStatus),
+            i18n::text(locale, TextKey::TableTools),
+            i18n::text(locale, TextKey::TableActions),
+        ])
+    }
     .style(theme::table_header())
     .height(1);
 
     let rows = services.iter().map(|service| {
-        let scope = truncate_text(&scope_label(&service.scope), 10);
-
-        Row::new(vec![
-            truncate_text(&service.name, 22),
-            scope,
-            service.transport.clone(),
-            format_readiness(service.readiness).to_string(),
-            service.tools.to_string(),
-            i18n::text(locale, TextKey::ServiceRowActions).to_string(),
-        ])
-        .style(status_style(service.readiness))
+        let row = if compact {
+            Row::new(vec![
+                truncate_text(&service.name, 16),
+                format_readiness(service.readiness).to_string(),
+                service.tools.to_string(),
+            ])
+        } else {
+            Row::new(vec![
+                truncate_text(&service.name, 22),
+                truncate_text(&scope_label(&service.scope), 10),
+                service.transport.clone(),
+                format_readiness(service.readiness).to_string(),
+                service.tools.to_string(),
+                i18n::text(locale, TextKey::ServiceRowActions).to_string(),
+            ])
+        };
+        row.style(status_style(service.readiness))
     });
 
     let row_highlight_style = if focused {
@@ -134,7 +149,16 @@ pub fn render(
         Style::default()
     };
 
-    let table = Table::new(rows, tui_layout::service_table_widths())
+    let widths = if compact {
+        vec![
+            ratatui::layout::Constraint::Min(12),
+            ratatui::layout::Constraint::Length(12),
+            ratatui::layout::Constraint::Length(8),
+        ]
+    } else {
+        tui_layout::service_table_widths().to_vec()
+    };
+    let table = Table::new(rows, widths)
         .header(header)
         .block(widgets::chrome::panel_block(
             format!(

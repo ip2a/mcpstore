@@ -979,7 +979,7 @@ pub(super) async fn call_service_tool(
 pub(super) async fn call_session_state_tool(
     store: &MCPStore,
     tool_name: &str,
-    meta: Option<&rmcp::model::Meta>,
+    meta: Option<&rmcp::model::RequestMetaObject>,
     arguments: Map<String, Value>,
     default_session_key: Option<&str>,
 ) -> Result<CallToolResult, ErrorData> {
@@ -1274,7 +1274,7 @@ pub(super) async fn call_cache_tool(
         CACHE_SWITCH_TOOL => {
             let backend = required_argument_string(&arguments, "backend")?;
             let storage = parse_cache_storage_argument(backend)?;
-            let backend_label = storage.as_str();
+            let backend_label = storage.as_str().to_string();
             let redis_url = optional_string_argument(&arguments, "redis_url");
             let namespace = optional_string_argument(&arguments, "namespace");
             let had_reactor = store.has_reactor().await;
@@ -1305,7 +1305,7 @@ pub(super) async fn call_cache_tool(
 }
 
 pub(super) fn resolve_session_state_key(
-    meta: Option<&rmcp::model::Meta>,
+    meta: Option<&rmcp::model::RequestMetaObject>,
     arguments: &Map<String, Value>,
     default_session_key: Option<&str>,
 ) -> Result<String, ErrorData> {
@@ -1410,15 +1410,11 @@ pub(super) fn service_scope_descriptor_from_arguments(
 }
 
 pub(super) fn parse_cache_storage_argument(value: &str) -> Result<CacheStorage, ErrorData> {
-    match value {
-        "memory" => Ok(CacheStorage::Memory),
-        "redis" => Ok(CacheStorage::Redis),
-
-        other => Err(ErrorData::invalid_params(
-            format!("不支持的 cache backend: {other}"),
-            None,
-        )),
+    let backend = value.trim();
+    if backend.is_empty() {
+        return Err(ErrorData::invalid_params("cache backend 不能为空", None));
     }
+    Ok(CacheStorage::new(backend, None))
 }
 
 pub(super) fn openapi_import_options_from_arguments(
@@ -1497,7 +1493,7 @@ pub(super) fn openapi_ref_cache_policy_from_arguments(
 }
 
 pub(super) fn extract_business_session_key(
-    meta: Option<&rmcp::model::Meta>,
+    meta: Option<&rmcp::model::RequestMetaObject>,
     mut arguments: Map<String, Value>,
     default_session_key: Option<&str>,
 ) -> (Value, Option<String>) {
