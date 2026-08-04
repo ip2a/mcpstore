@@ -14,6 +14,7 @@ export type SettingsDraft = {
     enabled: boolean
     runtime_enabled: boolean
     runtime_max_size_bytes: number
+    runtime_retention_days: number | null
     history_enabled: boolean
     storage: "memory" | "disk"
     max_records: number
@@ -43,6 +44,7 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
       enabled: settings?.diagnostics?.enabled !== false,
       runtime_enabled: settings?.diagnostics?.runtime_log?.enabled === true,
       runtime_max_size_bytes: settings?.diagnostics?.runtime_log?.max_size_bytes || 5 * 1024 * 1024,
+      runtime_retention_days: typeof settings?.diagnostics?.runtime_log?.retention_days === "number" ? settings.diagnostics.runtime_log.retention_days : null,
       history_enabled: settings?.diagnostics?.history?.enabled === true,
       storage: settings?.diagnostics?.history?.storage === "disk" ? "disk" : "memory",
       max_records: settings?.diagnostics?.history?.max_records || 10000,
@@ -71,6 +73,7 @@ export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
       runtime_log: {
         enabled: draft.diagnostics.runtime_enabled,
         max_size_bytes: draft.diagnostics.runtime_max_size_bytes,
+        retention_days: draft.diagnostics.runtime_retention_days,
       },
       history: {
         enabled: draft.diagnostics.history_enabled,

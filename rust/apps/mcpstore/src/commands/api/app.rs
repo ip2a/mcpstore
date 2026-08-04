@@ -42,6 +42,7 @@ struct UpdateDiagnosticsRequest {
 struct UpdateRuntimeLogRequest {
     enabled: Option<bool>,
     max_size_bytes: Option<u64>,
+    retention_days: Option<Option<u64>>,
 }
 
 #[derive(Deserialize)]
@@ -121,6 +122,9 @@ pub(super) async fn update_settings(
                     ));
                 }
                 config.diagnostics.runtime_log.max_size_bytes = max_size_bytes;
+            }
+            if let Some(retention_days) = runtime_log.retention_days {
+                config.diagnostics.runtime_log.retention_days = retention_days;
             }
         }
         if let Some(history) = diagnostics.history {
@@ -210,6 +214,7 @@ fn settings_payload(config: &AppConfig) -> Value {
             "runtime_log": {
                 "enabled": config.diagnostics.runtime_log.enabled,
                 "max_size_bytes": config.diagnostics.runtime_log.max_size_bytes,
+                "retention_days": config.diagnostics.runtime_log.retention_days,
             },
             "history": {
                 "enabled": config.diagnostics.history.enabled,
