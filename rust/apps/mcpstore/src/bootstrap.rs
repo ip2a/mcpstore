@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once};
 
+use mcpstore::config::ConfigManager;
 use tracing_subscriber::EnvFilter;
 
 static TRACING_INIT: Once = Once::new();
@@ -69,6 +70,47 @@ pub fn init_tracing_with_file(
             .init();
     });
     Ok(())
+}
+
+pub fn init_tracing_from_config(config: Option<&mcpstore::AppConfig>) {
+    let default_path = ConfigManager::new()
+        .mcp_path()
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("logs")
+        .join("mcpstore.log");
+    init_tracing_from_config_with_path(config, default_path);
+}
+
+pub fn init_tracing_from_config_with_path(
+    config: Option<&mcpstore::AppConfig>,
+    log_path: std::path::PathBuf,
+) {
+    let (enabled, level, max_size_bytes, retention_days) = config
+        .map(|c| {
+            let rt = &c.diagnostics.runtime_log;
+            (
+                c.diagnostics.enabled && rt.enabled,
+                rt.level.clone(),
+                rt.max_size_bytes,
+                rt.retention_days,
+            )
+        })
+        .unwrap_or_else(|| {
+            let rt = mcpstore::config::RuntimeLogConfig::default();
+            (rt.enabled, rt.level, rt.max_size_bytes, rt.retention_days)
+        });
+
+    if enabled {
+        let _ = init_tracing_with_file(
+            &format!("mcpstore={}", level),
+            log_path,
+            max_size_bytes,
+            retention_days,
+        );
+    } else {
+        init_tracing("mcpstore=info");
+    }
 }
 
 fn cleanup_old_logs(dir: &Path, current: &Path, retention_days: Option<u64>) -> io::Result<()> {

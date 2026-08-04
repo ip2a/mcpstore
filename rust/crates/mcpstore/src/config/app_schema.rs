@@ -93,7 +93,7 @@ impl Default for SourceLogConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeLogConfig {
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_server_log_level_value")]
     pub level: String,
@@ -106,7 +106,7 @@ pub struct RuntimeLogConfig {
 impl Default for RuntimeLogConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             level: default_server_log_level_value(),
             max_size_bytes: default_log_max_size_bytes(),
             retention_days: None,
