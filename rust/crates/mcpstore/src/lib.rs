@@ -34,7 +34,10 @@ pub use auth::{
     KeyringPrivateKeyStore, KeyringStateStore, LocalCallbackListener, OAuthAuthorizationCodeConfig,
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
-pub use config::{AppConfig, CacheBackend, CacheConfig, ConfigManager, McpConfig, ServerConfig};
+pub use config::{
+    AppConfig, CacheBackend, CacheConfig, ConfigManager, HistoryConfig, HistoryPayload,
+    HistoryStorage, McpConfig, RuntimeLogConfig, ServerConfig,
+};
 
 // Facade re-exports: cache layer
 pub use cache::{CacheLayerManager, CacheSnapshot};
