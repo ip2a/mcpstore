@@ -7,6 +7,7 @@ def __getattr__(name: str):
     if name in {
         "CacheType",
         "MemoryConfig",
+        "OpenKeyvConfig",
         "RedisConfig",
         "get_namespace",
     }:
@@ -30,6 +31,7 @@ __all__ = [
     "LoggingConfig",
     "CacheType",
     "MemoryConfig",
+    "OpenKeyvConfig",
     "RedisConfig",
     "get_namespace",
 ]

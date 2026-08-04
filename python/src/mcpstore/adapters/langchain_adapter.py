@@ -52,7 +52,7 @@ class LangChainAdapter:
     将 mcpstore 的原生对象转换为 LangChain 可直接使用的对象。
     """
 
-    def __init__(self, context: Any, instance_id: str, response_format: str = "text"):
+    def __init__(self, context: Any, instance_id: str | None = None, response_format: str = "text"):
         _require_langchain()
         self._context = context
         self._instance_id = instance_id
@@ -141,7 +141,10 @@ class LangChainAdapter:
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
                 # 调用 mcpstore 核心方法
-                result = adapter_self._context._backend.call_tool(instance_id, tool_name, tool_input)
+                if adapter_self._instance_id is None:
+                    result = adapter_self._context.call_tool(tool_name, tool_input)
+                else:
+                    result = adapter_self._context.call_tool(instance_id, tool_name, tool_input)
                 view = to_tool_call_view(result)
 
                 if view.is_error:
@@ -197,12 +200,19 @@ class LangChainAdapter:
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
                 # 调用 mcpstore 核心方法（通过 to_thread 在线程池中执行同步版本）
-                result = await asyncio.to_thread(
-                    adapter_self._context.call_tool,
-                    instance_id,
-                    tool_name,
-                    tool_input,
-                )
+                if adapter_self._instance_id is None:
+                    result = await asyncio.to_thread(
+                        adapter_self._context.call_tool,
+                        tool_name,
+                        tool_input,
+                    )
+                else:
+                    result = await asyncio.to_thread(
+                        adapter_self._context.call_tool,
+                        instance_id,
+                        tool_name,
+                        tool_input,
+                    )
                 view = to_tool_call_view(result)
 
                 if view.is_error:
@@ -242,6 +252,8 @@ class LangChainAdapter:
 
     def list_tools(self) -> List[Tool]:
         """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
+        if self._instance_id is None:
+            return self._build_langchain_tools(self._context.list_tools())
         return self._build_langchain_tools(self._context.list_tools(self._instance_id))
 
 
@@ -394,4 +406,3 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
             if tool_instance_id(tool) == self._instance_id
         ]
         return self._build_langchain_tools(tools)
-

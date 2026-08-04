@@ -14,11 +14,13 @@ from .common import (
 class SemanticKernelAdapter:
     """Produces Python callables suitable for Semantic Kernel native functions."""
 
-    def __init__(self, context: Any, instance_id: str):
+    def __init__(self, context: Any, instance_id: str | None = None):
         self._context = context
         self._instance_id = instance_id
 
     def list_tools(self) -> List[Callable[..., Any]]:
+        if self._instance_id is None:
+            return self._build_functions(self._context.list_tools())
         return self._build_functions(self._context.list_tools(self._instance_id))
 
 
@@ -33,7 +35,7 @@ class SemanticKernelAdapter:
             args_schema = create_args_schema(tool_info)
             fn = build_sync_executor(
                 self._context,
-                tool_instance_id(tool_info),
+                None if self._instance_id is None else tool_instance_id(tool_info),
                 name,
                 args_schema,
             )

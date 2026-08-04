@@ -137,6 +137,41 @@ class StoreContext:
     def list_tools(self) -> List[Tool]:
         return [Tool(native) for native in self._native.list_tools()]
 
+    def for_langchain(self, response_format: str = "text") -> Any:
+        from mcpstore.adapters.langchain_adapter import LangChainAdapter
+
+        return LangChainAdapter(self, response_format=response_format)
+
+    def for_langgraph(self, response_format: str = "text") -> Any:
+        from mcpstore.adapters.langgraph_adapter import LangGraphAdapter
+
+        return LangGraphAdapter(self, response_format=response_format)
+
+    def for_openai(self) -> Any:
+        from mcpstore.adapters.openai_adapter import OpenAIAdapter
+
+        return OpenAIAdapter(self)
+
+    def for_autogen(self) -> Any:
+        from mcpstore.adapters.autogen_adapter import AutoGenAdapter
+
+        return AutoGenAdapter(self)
+
+    def for_llamaindex(self) -> Any:
+        from mcpstore.adapters.llamaindex_adapter import LlamaIndexAdapter
+
+        return LlamaIndexAdapter(self)
+
+    def for_crewai(self) -> Any:
+        from mcpstore.adapters.crewai_adapter import CrewAIAdapter
+
+        return CrewAIAdapter(self)
+
+    def for_semantic_kernel(self) -> Any:
+        from mcpstore.adapters.semantic_kernel_adapter import SemanticKernelAdapter
+
+        return SemanticKernelAdapter(self)
+
     def find_tool(self, tool_name: str) -> Tool:
         return Tool(self._native.find_tool(tool_name))
 

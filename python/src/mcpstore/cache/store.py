@@ -23,16 +23,16 @@ def reset_cache_request_metrics(backend) -> None:
     backend._inner.reset_cache_request_metrics()
 
 def find_cache(backend) -> "RustCacheProxy":
-    return RustCacheProxy(self)
+    return RustCacheProxy(backend)
 
 def switch_cache(
     backend,
     cache_config: Any,
 ) -> Dict[str, Any]:
     normalized = backend._normalize_cache_config(cache_config)
-    backend, redis_url, namespace = backend._cache_options(normalized)
-    if backend is None:
+    backend_name, backend_url, namespace = backend._cache_options(normalized)
+    if backend_name is None:
         raise ValueError("cache_config is required")
-    result = backend._inner.switch_cache_storage(backend, redis_url, namespace)
+    result = backend._inner.switch_cache_storage(backend_name, backend_url, namespace)
     backend._cache_config = normalized
     return _record_value(result)
