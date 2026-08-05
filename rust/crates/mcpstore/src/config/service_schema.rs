@@ -150,16 +150,25 @@ pub struct ResolvedServiceLifecycle {
     pub restart_policy: RestartPolicy,
 }
 
+/// Client lifecycle handshake mode for an MCP service.
+///
+/// The default is [`HandshakeMode::Initialize`]: rmcp's `Auto` mode only falls
+/// back from `server/discover` on `-32601`, so legacy servers that reject the
+/// probe with other codes (`-32600`, `-32602`, session-middleware errors)
+/// fail to connect. `Initialize` works with all deployed servers. Switch the
+/// default back to `Auto` once rmcp resolves this (see rust-sdk issue #1040).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum HandshakeMode {
     /// Probe with `server/discover`, falling back to legacy `initialize`.
-    /// Delegates compatibility handling to rmcp.
-    #[default]
+    /// Delegates compatibility handling to rmcp; opt-in for now because rmcp's
+    /// fallback is too narrow for deployed legacy servers.
     Auto,
     /// Use `server/discover` only (MCP 2026-07-28 servers).
     Discover,
     /// Use the legacy `initialize` / `notifications/initialized` handshake.
+    /// Compatible with all deployed servers; the current default.
+    #[default]
     Initialize,
 }
 
@@ -283,7 +292,7 @@ impl ServerConfig {
         }
     }
 
-    /// Resolved client handshake mode, defaulting to [`HandshakeMode::Auto`].
+    /// Resolved client handshake mode, defaulting to [`HandshakeMode::Initialize`].
     pub fn handshake_mode(&self) -> HandshakeMode {
         self.mcpstore
             .as_ref()
