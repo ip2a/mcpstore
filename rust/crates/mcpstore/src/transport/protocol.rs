@@ -255,6 +255,12 @@ impl McpConnection {
         }
 
         let info = self.peer_info()?;
+        // subscriptions/listen is a 2026-07-28 method. Legacy servers push
+        // listChanged notifications automatically after initialize, so skip
+        // the explicit listen call for older protocol versions.
+        if info.protocol_version.as_str() < rmcp::model::ProtocolVersion::V_2026_07_28.as_str() {
+            return Ok(());
+        }
         let mut builder = SubscriptionFilter::builder()
             .tools_list_changed()
             .prompts_list_changed()
