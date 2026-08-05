@@ -46,6 +46,7 @@ export function useEditServiceForm({
         transport: configFields.transport,
         commandOrUrl: "",
         config,
+        handshakeMode: configFields.handshakeMode,
       })
       toast.success("Service updated")
       await onUpdated()

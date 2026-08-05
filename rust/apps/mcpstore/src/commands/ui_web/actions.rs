@@ -369,6 +369,7 @@ pub(super) async fn action_add_exec(
                     config: override_config,
                     lifecycle: None,
                     revision: 0,
+                    ..Default::default()
                 },
             )
             .await

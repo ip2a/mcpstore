@@ -303,7 +303,10 @@ export type ServiceLifecycleConfig = {
 export type ScopeDescriptor = {
   config?: Record<string, unknown>;
   lifecycle?: ServiceLifecycleConfig;
+  handshake_mode?: HandshakeMode;
 };
+
+export type HandshakeMode = "auto" | "discover" | "initialize";
 
 export type AddServiceInput = {
   name: string;
@@ -328,6 +331,7 @@ export type UpdateServiceScopeInput = {
   headers?: Record<string, string>;
   lifecycle?: ServiceLifecycleConfig;
   config?: Record<string, unknown>;
+  handshakeMode?: HandshakeMode;
 };
 
 export type ClientConfigInspectPayload = {

@@ -150,11 +150,37 @@ pub struct ResolvedServiceLifecycle {
     pub restart_policy: RestartPolicy,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HandshakeMode {
+    /// Probe with `server/discover`, falling back to legacy `initialize`.
+    /// Delegates compatibility handling to rmcp.
+    #[default]
+    Auto,
+    /// Use `server/discover` only (MCP 2026-07-28 servers).
+    Discover,
+    /// Use the legacy `initialize` / `notifications/initialized` handshake.
+    Initialize,
+}
+
+impl HandshakeMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HandshakeMode::Auto => "auto",
+            HandshakeMode::Discover => "discover",
+            HandshakeMode::Initialize => "initialize",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpStoreExtension {
     pub scopes: ScopeDeclarations,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<ServiceLifecycleConfig>,
+    /// Client lifecycle handshake mode. Defaults to `auto` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handshake_mode: Option<HandshakeMode>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub revision: u64,
     #[serde(flatten)]
@@ -206,6 +232,9 @@ pub struct ScopeDescriptor {
     pub config: Map<String, Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<ServiceLifecycleConfig>,
+    /// Optional handshake-mode override applied to the service definition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handshake_mode: Option<HandshakeMode>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub revision: u64,
 }
@@ -252,6 +281,14 @@ impl ServerConfig {
         } else {
             "unknown"
         }
+    }
+
+    /// Resolved client handshake mode, defaulting to [`HandshakeMode::Auto`].
+    pub fn handshake_mode(&self) -> HandshakeMode {
+        self.mcpstore
+            .as_ref()
+            .and_then(|extension| extension.handshake_mode)
+            .unwrap_or_default()
     }
 
     pub fn resolved_lifecycle(
@@ -350,6 +387,7 @@ impl ServerConfig {
             self.mcpstore = Some(McpStoreExtension {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle: None,
+                handshake_mode: None,
                 revision: 1,
                 extra: Map::new(),
             });

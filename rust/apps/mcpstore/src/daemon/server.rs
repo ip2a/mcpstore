@@ -184,6 +184,9 @@ async fn handle_add_service(store: &MCPStore, params: Value) -> DaemonResponse {
             lifecycle: previous
                 .as_ref()
                 .and_then(|extension| extension.lifecycle.clone()),
+            handshake_mode: previous
+                .as_ref()
+                .and_then(|extension| extension.handshake_mode),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -211,6 +214,7 @@ async fn handle_add_service(store: &MCPStore, params: Value) -> DaemonResponse {
                     config: config.base_config(),
                     lifecycle,
                     revision: 0,
+                    ..Default::default()
                 },
             )
             .await

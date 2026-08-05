@@ -53,7 +53,13 @@ export function useAddServiceForm({ onAdded, onBack }: { onAdded: () => Promise<
         throw new Error("http config requires url")
       }
 
-      await addServiceFromConfig({ name, scope: scopeRef, config, lifecycle })
+      await addServiceFromConfig({
+        name,
+        scope: scopeRef,
+        config,
+        lifecycle,
+        handshakeMode: configFields.handshakeMode,
+      })
       toast.success("Service added")
       await onAdded()
       onBack()

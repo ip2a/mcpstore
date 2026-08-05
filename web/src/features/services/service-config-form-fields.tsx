@@ -6,9 +6,15 @@ import { StringListEditor } from "@/components/shared/string-list-editor"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useI18n } from "@/lib/i18n-context"
-import { getUiTransportMode, type ServiceConfigFields } from "@/features/services/service-config-draft"
+import {
+  HANDSHAKE_MODES,
+  getUiTransportMode,
+  type HandshakeMode,
+  type ServiceConfigFields,
+} from "@/features/services/service-config-draft"
 import { cn } from "@/lib/utils"
 
 export function ServiceConfigFormFields({
@@ -161,6 +167,30 @@ export function ServiceConfigFormFields({
           placeholder={t("optionalDescription")}
           onChange={(event) => updateFields({ description: event.target.value })}
         />
+      </FieldCollapsible>
+
+      <FieldCollapsible title={t("handshakeMode")}>
+        <Field orientation="responsive">
+          <FieldLabel htmlFor="config-handshake-mode">{t("handshakeMode")}</FieldLabel>
+          <Select
+            value={fields.handshakeMode}
+            onValueChange={(value) => updateFields({ handshakeMode: value as HandshakeMode })}
+          >
+            <SelectTrigger id="config-handshake-mode" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {HANDSHAKE_MODES.map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {t(`handshake${mode.charAt(0).toUpperCase()}${mode.slice(1)}`)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        <span className="text-xs text-muted-foreground">{t("handshakeModeHint")}</span>
       </FieldCollapsible>
 
       {scopeExtra}

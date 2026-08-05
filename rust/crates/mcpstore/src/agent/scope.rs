@@ -34,6 +34,10 @@ impl MCPStore {
             .mcpstore
             .as_mut()
             .expect("ensure_native_scopes must materialize _mcpstore");
+        // handshake_mode is a definition-level override, not per-scope: pull it
+        // out of the descriptor before storing so it does not leak into scope
+        // state, then apply it to the definition extension below.
+        let handshake_override = descriptor.handshake_mode.take();
         descriptor.revision = match extension.scopes.descriptor(scope) {
             Some(existing)
                 if existing.config == descriptor.config
@@ -44,6 +48,9 @@ impl MCPStore {
             Some(existing) => existing.revision.max(1).saturating_add(1),
             None => 1,
         };
+        if let Some(mode) = handshake_override {
+            extension.handshake_mode = Some(mode);
+        }
         match scope {
             ScopeRef::Store => extension.scopes.store = Some(descriptor),
             ScopeRef::Agent { agent_id } => {

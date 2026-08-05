@@ -185,7 +185,7 @@ impl TuiApp {
             locale,
             active_view: MainView::ServiceManagement,
             service_tab: ServiceManagementTab::Services,
-            focus_area: FocusArea::MainNav,
+            focus_area: FocusArea::ViewTable,
             all_services: Vec::new(),
             filtered_services: Vec::new(),
             selected: 0,
@@ -207,7 +207,7 @@ impl TuiApp {
             log_config: Vec::new(),
             filter: FilterBarState::default(),
             service_list_menu: ServiceListMenu::All,
-            service_list_pane: ContentPane::Menu,
+            service_list_pane: ContentPane::Body,
             settings_section: SettingsSection::Status,
             settings_pane: SettingsPane::Menu,
             logs_section: LogsSection::Runtime,
@@ -451,6 +451,35 @@ impl TuiApp {
 
         self.overlay = Overlay::ToolDetail;
         self.status_message = "[进行中] 查看工具详情".to_string();
+    }
+
+    pub fn open_tools_for_selected_service(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+    ) -> Result<(), BoxErr> {
+        let Some(service) = self.current_service().cloned() else {
+            self.status_message = "[警告] 当前没有可查看工具的服务".to_string();
+            return Ok(());
+        };
+
+        self.tool_filter = match service.scope {
+            ScopeRef::Store => ToolFilterTab::StoreScope,
+            ScopeRef::Agent { .. } => ToolFilterTab::AgentScope,
+        };
+        self.apply_tool_filter();
+        self.selected_tool_service = self
+            .tool_services
+            .iter()
+            .position(|candidate| candidate.instance_id == service.instance_id)
+            .unwrap_or(0);
+        self.selected_tool = 0;
+        self.table_state.select(Some(0));
+        self.active_view = MainView::Tools;
+        self.focus_area = FocusArea::ViewTable;
+        self.tool_pane = ContentPane::Body;
+        self.refresh_tools_for_selected_service(rt, true)?;
+        self.status_message = format!("[进行中] {} 的工具", service.name);
+        Ok(())
     }
 
     pub fn close_tool_detail(&mut self) {
@@ -1309,6 +1338,7 @@ impl TuiApp {
                             config: config.base_config(),
                             lifecycle,
                             revision: 0,
+                            ..Default::default()
                         },
                     )
                     .await
@@ -1329,6 +1359,9 @@ impl TuiApp {
                 lifecycle: previous
                     .as_ref()
                     .and_then(|extension| extension.lifecycle.clone()),
+                handshake_mode: previous
+                    .as_ref()
+                    .and_then(|extension| extension.handshake_mode),
                 revision: previous
                     .as_ref()
                     .map(|extension| extension.revision)

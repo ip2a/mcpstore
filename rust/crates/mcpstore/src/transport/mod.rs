@@ -34,6 +34,26 @@ pub use task_state::McpTaskRecord;
 pub(crate) use task_state::TaskStateStore;
 pub use tasks::{McpTask, McpTaskStatus, McpToolExecution};
 
+use crate::config::HandshakeMode;
+
+/// Maps a configured [`HandshakeMode`] to the rmcp lifecycle mode used at the
+/// transport layer. Only `discover`/`initialize`/`auto` (2026-07-28 preferred)
+/// are produced here; no fallback is applied — the selected mode wins and a
+/// failure is surfaced as a normal connection error.
+pub(crate) fn client_lifecycle_mode(mode: HandshakeMode) -> rmcp::service::ClientLifecycleMode {
+    let preferred_versions = vec![rmcp::model::ProtocolVersion::V_2026_07_28];
+    match mode {
+        HandshakeMode::Auto => rmcp::service::ClientLifecycleMode::Auto {
+            preferred_versions,
+            legacy_version: None,
+        },
+        HandshakeMode::Discover => {
+            rmcp::service::ClientLifecycleMode::Discover { preferred_versions }
+        }
+        HandshakeMode::Initialize => rmcp::service::ClientLifecycleMode::Initialize,
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum TransportError {
     #[error("{0}")]

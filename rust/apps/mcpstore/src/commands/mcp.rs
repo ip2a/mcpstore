@@ -24,6 +24,23 @@ use crate::{
     BoxErr,
 };
 
+#[derive(Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum HandshakeArg {
+    Auto,
+    Discover,
+    Initialize,
+}
+
+impl HandshakeArg {
+    pub fn to_mode(&self) -> mcpstore::config::HandshakeMode {
+        match self {
+            Self::Auto => mcpstore::config::HandshakeMode::Auto,
+            Self::Discover => mcpstore::config::HandshakeMode::Discover,
+            Self::Initialize => mcpstore::config::HandshakeMode::Initialize,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
 pub enum Scope {
     #[default]
@@ -70,6 +87,12 @@ pub struct AddArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Client handshake mode: auto (default), discover, or initialize"
+    )]
+    pub handshake: Option<HandshakeArg>,
 }
 
 pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
@@ -85,6 +108,10 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
         &header_map,
     )?;
     let transport = config.infer_transport().to_string();
+    if let Some(handshake) = a.handshake.as_ref().map(|h| h.to_mode()) {
+        let extension = config.mcpstore.get_or_insert_with(Default::default);
+        extension.handshake_mode = Some(handshake);
+    }
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     if let ScopeRef::Agent { agent_id } = &scope {
         let previous = config.mcpstore.take();
@@ -97,6 +124,9 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
             lifecycle: previous
                 .as_ref()
                 .and_then(|extension| extension.lifecycle.clone()),
+            handshake_mode: previous
+                .as_ref()
+                .and_then(|extension| extension.handshake_mode),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -137,7 +167,12 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
                 ScopeDescriptor {
                     config: config.base_config(),
                     lifecycle,
+                    handshake_mode: config
+                        .mcpstore
+                        .as_ref()
+                        .and_then(|extension| extension.handshake_mode),
                     revision: 0,
+                    ..Default::default()
                 },
             )
             .await?;
@@ -183,6 +218,9 @@ pub async fn add_json(a: AddJsonArgs) -> std::result::Result<(), BoxErr> {
             lifecycle: previous
                 .as_ref()
                 .and_then(|extension| extension.lifecycle.clone()),
+            handshake_mode: previous
+                .as_ref()
+                .and_then(|extension| extension.handshake_mode),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -206,7 +244,12 @@ pub async fn add_json(a: AddJsonArgs) -> std::result::Result<(), BoxErr> {
                 ScopeDescriptor {
                     config: config.base_config(),
                     lifecycle,
+                    handshake_mode: config
+                        .mcpstore
+                        .as_ref()
+                        .and_then(|extension| extension.handshake_mode),
                     revision: 0,
+                    ..Default::default()
                 },
             )
             .await?;
@@ -975,6 +1018,7 @@ pub async fn update(a: UpdateArgs) -> std::result::Result<(), BoxErr> {
                         config: config.base_config(),
                         lifecycle: None,
                         revision: 0,
+                        ..Default::default()
                     },
                 )
                 .await?;

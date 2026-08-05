@@ -16,6 +16,7 @@ import type {
   DiagnosticsSettingsPayload,
   FailureInfo,
   FailurePhase,
+  HandshakeMode,
   HealthState,
   LogSettingsPayload,
   McpServerCapabilities,
@@ -61,6 +62,7 @@ export async function addServiceFromConfig(input: {
   scope: ScopeRef;
   config: Record<string, unknown>;
   lifecycle?: ServiceLifecycleConfig;
+  handshakeMode?: HandshakeMode;
 }) {
   const descriptor: ScopeDescriptor = {};
   const scopes =
@@ -77,6 +79,9 @@ export async function addServiceFromConfig(input: {
       ...existing,
       scopes,
       ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+      ...(input.handshakeMode && input.handshakeMode !== "auto"
+        ? { handshake_mode: input.handshakeMode }
+        : {}),
     },
   };
   return request(`/services/${encodeURIComponent(input.name)}`, {
@@ -111,6 +116,7 @@ export async function updateServiceScope(input: UpdateServiceScopeInput) {
   const descriptor: ScopeDescriptor = {
     config: input.config ?? buildServiceConfig(input),
     ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+    ...(input.handshakeMode ? { handshake_mode: input.handshakeMode } : {}),
   };
   const path =
     input.scope.type === "store"
