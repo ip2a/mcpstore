@@ -90,7 +90,7 @@ pub struct AddArgs {
     #[arg(
         long,
         value_enum,
-        help = "Client handshake mode: auto (default), discover, or initialize"
+        help = "Client handshake mode: initialize (default), auto, or discover"
     )]
     pub handshake: Option<HandshakeArg>,
 }
