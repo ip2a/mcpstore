@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 from mcpstore import AgentContext, MCPStore, Service, SessionContext, StoreContext, Tool, _rust
 from mcpstore.store import RustStoreBackend
@@ -207,6 +208,46 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertIn("agent-a", agent_ids)
             self.assertIn("agent-b", agent_ids)
             self.assertTrue(all(isinstance(agent.get("instance_ids"), list) for agent in agents))
+
+    def test_context_service_methods_keep_positional_service_name_calls(self) -> None:
+        native = Mock()
+        native.scope.return_value = {"type": "store"}
+        for method_name in (
+            "wait_service",
+            "find_service",
+            "update_service",
+            "patch_service",
+            "restart_service",
+            "disconnect_service",
+        ):
+            getattr(native, method_name).return_value = native
+
+        context = StoreContext(native)
+        context.wait_service("svc", 3)
+        context.find_service("svc")
+        context.update_service("svc", {"command": "run"})
+        context.patch_service("svc", {"env": {"A": "B"}})
+        context.restart_service("svc")
+        context.disconnect_service("svc")
+
+        native.wait_service.assert_called_once_with(
+            service_name="svc", instance_id=None, timeout=3
+        )
+        native.find_service.assert_called_once_with(
+            service_name="svc", instance_id=None
+        )
+        native.update_service.assert_called_once_with(
+            service_name="svc", instance_id=None, config={"command": "run"}
+        )
+        native.patch_service.assert_called_once_with(
+            service_name="svc", instance_id=None, updates={"env": {"A": "B"}}
+        )
+        native.restart_service.assert_called_once_with(
+            service_name="svc", instance_id=None
+        )
+        native.disconnect_service.assert_called_once_with(
+            service_name="svc", instance_id=None
+        )
 
     def test_scope_adapter_is_bound_to_the_current_python_context(self) -> None:
         native = _FakeScopeNative([
