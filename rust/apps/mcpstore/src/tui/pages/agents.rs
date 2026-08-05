@@ -8,7 +8,7 @@ use ratatui::{
 use crate::tui::{
     app::{ContentPane, FocusArea, TuiApp},
     i18n::{self, TextKey},
-    layout as tui_layout, theme, widgets,
+    theme, widgets,
 };
 
 pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
@@ -23,65 +23,49 @@ pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
         ),
         Span::styled("Agent列表", theme::field_label()),
         Span::raw("  "),
-        Span::styled("r 刷新  e 选择Agent  a 授权服务  u 解除授权", theme::text()),
+        Span::styled(
+            "h/l Focus  j/k Move  r Refresh  e Select  a Authorize  u Revoke  q Quit",
+            theme::muted(),
+        ),
     ]);
     widgets::chrome::render_control_bar(frame, area, app, line);
 }
 
 pub fn render_content(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(tui_layout::CONTENT_MENU_PERCENT),
-            Constraint::Percentage(tui_layout::CONTENT_BODY_PERCENT),
-        ])
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
 
-    render_agent_menu(frame, layout[0], app);
+    render_agent_selector(frame, layout[0], app);
     render_agent_detail(frame, layout[1], app);
 }
 
-fn render_agent_menu(frame: &mut Frame, area: Rect, app: &TuiApp) {
+fn render_agent_selector(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let focused = app.focus_area == FocusArea::ViewTable && app.agent_pane == ContentPane::Menu;
-    let mut items = app
-        .agents
-        .iter()
-        .enumerate()
-        .map(|(index, agent)| {
-            let selected = index == app.selected_agent;
-            ListItem::new(vec![
-                Line::from(vec![
-                    Span::styled(if selected { "> " } else { "  " }, theme::accent()),
-                    Span::styled(
-                        agent.id.clone(),
-                        if selected {
-                            theme::menu_selected()
-                        } else {
-                            theme::text()
-                        },
-                    ),
-                ]),
-                Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(format!("services={}", agent.services.len()), theme::muted()),
-                ]),
-            ])
-            .style(if selected {
+    let mut spans = vec![Span::styled(
+        if focused { "> " } else { "  " },
+        theme::accent(),
+    )];
+    for (index, agent) in app.agents.iter().enumerate() {
+        spans.push(Span::styled(
+            format!(" {} ({}) ", agent.id, agent.services.len()),
+            if index == app.selected_agent {
                 theme::menu_selected()
             } else {
                 theme::text()
-            })
-        })
-        .collect::<Vec<_>>();
-
-    if items.is_empty() {
-        items.push(ListItem::new(Line::from("暂无 Agent，按 e 输入 Agent ID")));
+            },
+        ));
+        spans.push(Span::raw("  "));
     }
-
-    let menu = List::new(items)
-        .block(widgets::chrome::panel_block(" Agent列表 ", focused).padding(Padding::horizontal(1)))
-        .style(theme::text());
-    frame.render_widget(menu, area);
+    if app.agents.is_empty() {
+        spans.push(Span::styled(
+            "暂无 Agent，按 e 输入 Agent ID",
+            theme::muted(),
+        ));
+    }
+    let selector = Paragraph::new(Line::from(spans)).style(theme::text());
+    frame.render_widget(selector, area);
 }
 
 fn render_agent_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {

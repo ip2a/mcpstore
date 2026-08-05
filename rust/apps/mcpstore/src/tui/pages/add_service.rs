@@ -8,76 +8,54 @@ use ratatui::{
 use crate::tui::{
     app::{AddServiceField, AddServiceMode, AddServicePane, FocusArea, TuiApp},
     i18n::{self, Locale, TextKey},
-    layout as tui_layout, theme, widgets,
+    theme, widgets,
 };
 
 pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
-    let mut spans = Vec::new();
-
-    for (index, mode) in AddServiceMode::ALL.iter().enumerate() {
-        let style = if *mode == app.add_service.mode {
-            theme::tab_selected()
-        } else {
-            theme::text()
-        };
-        spans.push(Span::styled(
-            format!(" {} {} ", index + 1, mode.label()),
-            style,
-        ));
-        spans.push(Span::raw("  "));
-    }
-    spans.push(Span::styled(
-        i18n::text(app.locale, TextKey::AddServiceControlBarHint),
-        theme::text(),
-    ));
-
-    widgets::chrome::render_control_bar(frame, area, app, Line::from(spans));
+    widgets::chrome::render_control_bar(
+        frame,
+        area,
+        app,
+        Line::from(vec![
+            Span::styled(" Add service ", theme::field_label()),
+            Span::styled(
+                "h/l Focus  j/k Field  Enter Edit  a Add  Esc Back  q Quit",
+                theme::muted(),
+            ),
+        ]),
+    );
 }
 
 pub fn render_content(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
     let layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(tui_layout::CONTENT_MENU_PERCENT),
-            Constraint::Percentage(tui_layout::CONTENT_BODY_PERCENT),
-        ])
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
 
-    render_menu(frame, layout[0], app);
+    render_selector(frame, layout[0], app);
     render_form(frame, layout[1], app);
 }
 
-fn render_menu(frame: &mut Frame, area: Rect, app: &TuiApp) {
+fn render_selector(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let focused =
         app.focus_area == FocusArea::ViewTable && app.add_service.pane == AddServicePane::Menu;
-    let items = AddServiceMode::MENU
-        .iter()
-        .enumerate()
-        .map(|(_index, mode)| {
-            let selected = *mode == app.add_service.mode;
-            let style = if selected {
+    let mut spans = vec![Span::styled(
+        if focused { "> " } else { "  " },
+        theme::accent(),
+    )];
+    for (index, mode) in AddServiceMode::MENU.iter().enumerate() {
+        spans.push(Span::styled(
+            format!(" {} {} ", index + 1, mode.menu_label()),
+            if *mode == app.add_service.mode {
                 theme::menu_selected()
             } else {
                 theme::text()
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(if selected { "> " } else { "  " }, theme::accent()),
-                Span::styled(mode.menu_label(), style),
-            ]))
-            .style(if selected {
-                theme::menu_selected()
-            } else {
-                theme::text()
-            })
-        });
-
-    let menu = List::new(items)
-        .block(
-            widgets::chrome::panel_block(i18n::text(app.locale, TextKey::AddMethod), focused)
-                .padding(Padding::horizontal(1)),
-        )
-        .style(theme::text());
-    frame.render_widget(menu, area);
+            },
+        ));
+        spans.push(Span::raw("  "));
+    }
+    let selector = Paragraph::new(Line::from(spans)).style(theme::text());
+    frame.render_widget(selector, area);
 }
 
 fn render_form(frame: &mut Frame, area: Rect, app: &TuiApp) {

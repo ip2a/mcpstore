@@ -1,14 +1,13 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{List, ListItem, Paragraph, Wrap},
+    widgets::{Paragraph, Wrap},
     Frame,
 };
 
 use crate::tui::{
     app::{FocusArea, SettingsPane, SettingsSection, TuiApp},
     i18n::{self, Locale, TextKey},
-    layout as tui_layout,
     pages::logs,
     theme, widgets,
 };
@@ -20,51 +19,44 @@ pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
         app,
         Line::from(vec![
             focus_prefix(app.focus_area == FocusArea::ViewFilter),
-            Span::styled(" ", theme::text()),
+            Span::styled("Settings  ", theme::field_label()),
+            Span::styled(
+                "h/l Focus  j/k Section  Enter Edit  Esc Back  q Quit",
+                theme::muted(),
+            ),
         ]),
     );
 }
 
 pub fn render_content(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
     let layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(tui_layout::SETTINGS_MENU_PERCENT),
-            Constraint::Percentage(tui_layout::SETTINGS_DETAIL_PERCENT),
-        ])
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
 
-    render_menu(frame, layout[0], app);
+    render_selector(frame, layout[0], app);
     render_detail(frame, layout[1], app);
 }
 
-fn render_menu(frame: &mut Frame, area: Rect, app: &TuiApp) {
+fn render_selector(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let focused = app.focus_area == FocusArea::ViewTable && app.settings_pane == SettingsPane::Menu;
-    let items = SettingsSection::ALL.iter().map(|section| {
-        let selected = *section == app.settings_section;
-        let marker = if selected { "> " } else { "  " };
-        let style = if selected {
-            theme::selected_label()
-        } else {
-            theme::text()
-        };
-        ListItem::new(Line::from(vec![
-            Span::styled(marker, theme::accent()),
-            Span::styled(section.label(app.locale), style),
-        ]))
-    });
-
-    let menu = List::new(items)
-        .block(widgets::chrome::panel_block(
-            format!(
-                "{} / {}",
-                i18n::text(app.locale, TextKey::ContentRegion),
-                i18n::text(app.locale, TextKey::NavSettings)
-            ),
-            focused,
-        ))
-        .style(theme::text());
-    frame.render_widget(menu, area);
+    let mut spans = vec![Span::styled(
+        if focused { "> " } else { "  " },
+        theme::accent(),
+    )];
+    for section in SettingsSection::ALL {
+        spans.push(Span::styled(
+            format!(" {} ", section.label(app.locale)),
+            if section == app.settings_section {
+                theme::selected_label()
+            } else {
+                theme::text()
+            },
+        ));
+        spans.push(Span::raw("  "));
+    }
+    let selector = Paragraph::new(Line::from(spans)).style(theme::text());
+    frame.render_widget(selector, area);
 }
 
 fn render_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {

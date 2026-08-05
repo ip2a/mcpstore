@@ -11,14 +11,7 @@ pub enum MainView {
 }
 
 impl MainView {
-    pub const ALL: [Self; 6] = [
-        Self::ServiceManagement,
-        Self::Tools,
-        Self::Agents,
-        Self::Logs,
-        Self::Status,
-        Self::Settings,
-    ];
+    pub const ALL: [Self; 3] = [Self::ServiceManagement, Self::Tools, Self::Agents];
 
     pub fn label_key(&self) -> TextKey {
         match self {

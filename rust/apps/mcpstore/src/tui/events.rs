@@ -442,9 +442,10 @@ fn handle_service_list_content_key(
             if app.service_list_pane == ContentPane::Menu {
                 app.focus_service_list_body();
             } else {
-                app.open_selected_detail(rt)?;
+                app.open_tools_for_selected_service(rt)?;
             }
         }
+        KeyCode::Char('a') => app.select_service_tab(ServiceManagementTab::AddService),
         KeyCode::Char('c') if app.service_list_pane == ContentPane::Body => {
             app.connect_selected(rt)?
         }
@@ -493,11 +494,8 @@ fn handle_escape(app: &mut TuiApp) {
                     }
                 }
                 ServiceManagementTab::AddService => {
-                    if app.add_service.pane == AddServicePane::Form {
-                        app.focus_add_service_menu();
-                    } else {
-                        app.focus_previous_area();
-                    }
+                    app.select_service_tab(ServiceManagementTab::Services);
+                    app.focus_service_list_body();
                 }
             },
             MainView::Settings => {

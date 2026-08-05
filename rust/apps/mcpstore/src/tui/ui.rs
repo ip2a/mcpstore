@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -23,9 +23,10 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(header_h), // Header dynamically sized for ASCII art
-            Constraint::Length(layout::MAIN_NAV_HEIGHT), // Main navigation + divider
-            Constraint::Min(layout::MAIN_CONTENT_MIN_HEIGHT), // Active view content
+            Constraint::Length(header_h),
+            Constraint::Length(layout::MAIN_NAV_HEIGHT),
+            Constraint::Length(layout::CONTROL_BAR_HEIGHT),
+            Constraint::Min(layout::MAIN_CONTENT_MIN_HEIGHT),
         ])
         .split(frame.area());
 
@@ -39,7 +40,8 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
         app.focus_area == FocusArea::MainNav,
         app.locale,
     );
-    render_active_view(frame, main_layout[2], app);
+    pages::render_control_bar(frame, main_layout[2], app);
+    pages::render_content(frame, main_layout[3], app);
 
     match &app.overlay {
         super::app::Overlay::Confirm(_) => render_confirm_dialog(frame, app.locale),
@@ -77,21 +79,6 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
         }
         super::app::Overlay::None => {}
     }
-}
-
-fn render_active_view(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
-    // Content region: contains the active view filter row and body.
-    let content_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(layout::CONTROL_BAR_HEIGHT), // Control bar region.
-            Constraint::Length(layout::CONTROL_CONTENT_GAP_HEIGHT), // Gap between control bar and content.
-            Constraint::Min(layout::VIEW_CONTENT_MIN_HEIGHT),       // Per-view table/form
-        ])
-        .split(area);
-
-    pages::render_control_bar(frame, content_layout[0], app);
-    pages::render_content(frame, content_layout[2], app);
 }
 
 fn render_confirm_dialog(frame: &mut Frame, locale: Locale) {

@@ -5,33 +5,31 @@ use ratatui::{
 };
 
 use crate::tui::{
-    app::{FocusArea, ServiceManagementTab, TuiApp},
+    app::{ServiceManagementTab, TuiApp},
     pages::{add_service, services},
     theme, widgets,
 };
 
 pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
-    let mut spans = vec![Span::styled(
-        if app.focus_area == FocusArea::ViewFilter {
-            "> "
-        } else {
-            "  "
-        },
-        theme::accent(),
-    )];
-
-    for tab in ServiceManagementTab::ALL {
-        let style = if tab == app.service_tab {
-            theme::tab_selected()
-        } else {
-            theme::text()
-        };
-        spans.push(Span::styled(format!(" {} ", tab.label(app.locale)), style));
-        spans.push(Span::raw("  "));
-    }
-    spans.push(Span::styled("h/l 切换", theme::text()));
-
-    widgets::chrome::render_control_bar(frame, area, app, Line::from(spans));
+    let (title, hints) = match app.service_tab {
+        ServiceManagementTab::Services => (
+            " Services ",
+            "j/k Move  Enter Tools  a Add  s Status  o Sort  Ctrl-F Search  q Quit",
+        ),
+        ServiceManagementTab::AddService => (
+            " Add service ",
+            "h/l Focus  j/k Field  Enter Edit  a Save  Esc Services  q Quit",
+        ),
+    };
+    widgets::chrome::render_control_bar(
+        frame,
+        area,
+        app,
+        Line::from(vec![
+            Span::styled(title, theme::field_label()),
+            Span::styled(hints, theme::muted()),
+        ]),
+    );
 }
 
 pub fn render_content(frame: &mut Frame, area: Rect, app: &mut TuiApp) {

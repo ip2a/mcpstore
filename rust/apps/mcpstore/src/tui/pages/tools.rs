@@ -11,115 +11,66 @@ use ratatui::{
 use crate::tui::{
     app::{ContentPane, FocusArea, ToolFilterTab, ToolSummary, TuiApp},
     i18n::{self, TextKey},
-    layout as tui_layout, theme, widgets,
+    theme, widgets,
 };
 
 pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
-    let mut spans = vec![Span::styled(
-        if app.focus_area == FocusArea::ViewFilter {
-            "> "
-        } else {
-            "  "
-        },
-        theme::accent(),
-    )];
-
-    for tab in ToolFilterTab::ALL {
-        let style = if tab == app.tool_filter {
-            theme::tab_selected()
-        } else {
-            theme::text()
-        };
-        spans.push(Span::styled(format!(" {} ", tab.label()), style));
-        spans.push(Span::raw("  "));
-    }
-    spans.push(Span::styled("h/l 切换  r 读取工具列表", theme::text()));
-
-    widgets::chrome::render_control_bar(frame, area, app, Line::from(spans));
+    widgets::chrome::render_control_bar(
+        frame,
+        area,
+        app,
+        Line::from(vec![
+            Span::styled(" Tools ", theme::field_label()),
+            Span::styled(
+                "h/l Scope  j/k Move  r Refresh  Enter Details  t Test  q Quit",
+                theme::muted(),
+            ),
+        ]),
+    );
 }
 
 pub fn render_content(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
     let layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(tui_layout::CONTENT_MENU_PERCENT),
-            Constraint::Percentage(tui_layout::CONTENT_BODY_PERCENT),
-        ])
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
 
-    render_service_menu(frame, layout[0], app);
+    render_selector(frame, layout[0], app);
     render_tool_list(frame, layout[1], app);
 }
 
-fn render_service_menu(frame: &mut Frame, area: Rect, app: &TuiApp) {
+fn render_selector(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let focused = app.focus_area == FocusArea::ViewTable && app.tool_pane == ContentPane::Menu;
-    if app.tool_filter == ToolFilterTab::All {
-        let menu = List::new(vec![ListItem::new(vec![
-            Line::from(vec![
-                Span::styled("> ", theme::accent()),
-                Span::styled("全部服务", theme::menu_selected()),
-            ]),
-            Line::from(vec![
-                Span::raw("  "),
-                Span::styled(format!("tools={}", app.service_tools.len()), theme::muted()),
-            ]),
-        ])
-        .style(theme::menu_selected())])
-        .block(widgets::chrome::panel_block(" 工具范围 ", focused).padding(Padding::horizontal(1)))
-        .style(theme::text());
-        frame.render_widget(menu, area);
-        return;
-    }
-
-    let items: Vec<ListItem> = app
-        .tool_services
-        .iter()
-        .enumerate()
-        .map(|(index, service)| {
-            let selected = index == app.selected_tool_service;
-            let scope = match &service.scope {
-                mcpstore::ScopeRef::Store => "store",
-                mcpstore::ScopeRef::Agent { .. } => "agent",
-            };
-            ListItem::new(vec![
-                Line::from(vec![
-                    Span::styled(if selected { "> " } else { "  " }, theme::accent()),
-                    Span::styled(
-                        service.name.clone(),
-                        if selected {
-                            theme::menu_selected()
-                        } else {
-                            theme::text()
-                        },
-                    ),
-                ]),
-                Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(service.transport.clone(), theme::muted()),
-                    Span::raw("  "),
-                    Span::styled(scope.to_string(), theme::muted()),
-                    Span::raw("  "),
-                    Span::styled(format!("tools={}", service.tools), theme::muted()),
-                ]),
-            ])
-            .style(if selected {
-                theme::menu_selected()
+    let mut spans = vec![Span::styled(
+        if focused { "> " } else { "  " },
+        theme::accent(),
+    )];
+    for tab in ToolFilterTab::ALL {
+        spans.push(Span::styled(
+            format!(" {} ", tab.label()),
+            if tab == app.tool_filter {
+                theme::tab_selected()
             } else {
                 theme::text()
-            })
-        })
-        .collect();
-
-    let items = if items.is_empty() {
-        vec![ListItem::new(Line::from("当前分类没有服务"))]
-    } else {
-        items
-    };
-
-    let menu = List::new(items)
-        .block(widgets::chrome::panel_block(" 服务列表 ", focused).padding(Padding::horizontal(1)))
-        .style(theme::text());
-    frame.render_widget(menu, area);
+            },
+        ));
+        spans.push(Span::raw("  "));
+    }
+    if app.tool_filter != ToolFilterTab::All {
+        for (index, service) in app.tool_services.iter().enumerate() {
+            spans.push(Span::styled(
+                format!(" {} ", service.name),
+                if index == app.selected_tool_service {
+                    theme::menu_selected()
+                } else {
+                    theme::text()
+                },
+            ));
+            spans.push(Span::raw(" "));
+        }
+    }
+    let selector = Paragraph::new(Line::from(spans)).style(theme::text());
+    frame.render_widget(selector, area);
 }
 
 fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
