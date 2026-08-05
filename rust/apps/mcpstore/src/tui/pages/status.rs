@@ -1,14 +1,14 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{List, ListItem, Padding, Paragraph, Wrap},
+    widgets::{Padding, Paragraph, Wrap},
     Frame,
 };
 
 use crate::tui::{
     app::{ContentPane, FocusArea, StatusSection, TuiApp},
     i18n::{self, TextKey},
-    layout as tui_layout, theme, widgets,
+    theme, widgets,
 };
 
 pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
@@ -23,50 +23,43 @@ pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
         ),
         Span::styled("状态", theme::field_label()),
         Span::raw("  "),
-        Span::styled("r 刷新  Enter 进入  Esc 返回", theme::text()),
+        Span::styled(
+            "h/l Focus  j/k Section  r Refresh  Enter Open  Esc Back  q Quit",
+            theme::muted(),
+        ),
     ]);
     widgets::chrome::render_control_bar(frame, area, app, line);
 }
 
 pub fn render_content(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(tui_layout::CONTENT_MENU_PERCENT),
-            Constraint::Percentage(tui_layout::CONTENT_BODY_PERCENT),
-        ])
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
 
-    render_menu(frame, layout[0], app);
+    render_selector(frame, layout[0], app);
     render_body(frame, layout[1], app);
 }
 
-fn render_menu(frame: &mut Frame, area: Rect, app: &TuiApp) {
+fn render_selector(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let focused = app.focus_area == FocusArea::ViewTable && app.status_pane == ContentPane::Menu;
-    let items = StatusSection::ALL.iter().map(|section| {
-        let selected = *section == app.status_section;
-        ListItem::new(Line::from(vec![
-            Span::styled(if selected { "> " } else { "  " }, theme::accent()),
-            Span::styled(
-                section.label(),
-                if selected {
-                    theme::menu_selected()
-                } else {
-                    theme::text()
-                },
-            ),
-        ]))
-        .style(if selected {
-            theme::menu_selected()
-        } else {
-            theme::text()
-        })
-    });
-
-    let menu = List::new(items)
-        .block(widgets::chrome::panel_block(" 状态模块 ", focused).padding(Padding::horizontal(1)))
-        .style(theme::text());
-    frame.render_widget(menu, area);
+    let mut spans = vec![Span::styled(
+        if focused { "> " } else { "  " },
+        theme::accent(),
+    )];
+    for section in StatusSection::ALL {
+        spans.push(Span::styled(
+            format!(" {} ", section.label()),
+            if section == app.status_section {
+                theme::menu_selected()
+            } else {
+                theme::text()
+            },
+        ));
+        spans.push(Span::raw("  "));
+    }
+    let selector = Paragraph::new(Line::from(spans)).style(theme::text());
+    frame.render_widget(selector, area);
 }
 
 fn render_body(frame: &mut Frame, area: Rect, app: &TuiApp) {
