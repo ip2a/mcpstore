@@ -36,7 +36,7 @@ export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
   oauthEnabled: false,
   oauthClientId: "",
   oauthClientMetadataUrl: "",
-  handshakeMode: "auto",
+  handshakeMode: "initialize",
 }
 
 const TRANSPORTS = new Set<ServiceConfigTransport>(["stdio", "streamable-http"])
