@@ -36,10 +36,10 @@ class StoreContext:
 
     def wait_service(
         self,
-        *,
         service_name: Optional[str] = None,
-        instance_id: Optional[str] = None,
         timeout: float = 10.0,
+        *,
+        instance_id: Optional[str] = None,
     ) -> "StoreContext":
         return self._context(
             self._native.wait_service(
@@ -54,8 +54,8 @@ class StoreContext:
 
     def find_service(
         self,
-        *,
         service_name: Optional[str] = None,
+        *,
         instance_id: Optional[str] = None,
     ) -> Service:
         return Service(
@@ -80,8 +80,8 @@ class StoreContext:
 
     def disconnect_service(
         self,
-        *,
         service_name: Optional[str] = None,
+        *,
         instance_id: Optional[str] = None,
     ) -> "StoreContext":
         return self._context(
@@ -93,8 +93,8 @@ class StoreContext:
 
     def restart_service(
         self,
-        *,
         service_name: Optional[str] = None,
+        *,
         instance_id: Optional[str] = None,
     ) -> "StoreContext":
         return self._context(
@@ -106,10 +106,10 @@ class StoreContext:
 
     def patch_service(
         self,
-        *,
         service_name: Optional[str] = None,
+        updates: Optional[Dict[str, Any]] = None,
+        *,
         instance_id: Optional[str] = None,
-        updates: Dict[str, Any],
     ) -> "StoreContext":
         return self._context(
             self._native.patch_service(
@@ -121,10 +121,10 @@ class StoreContext:
 
     def update_service(
         self,
-        *,
         service_name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
+        *,
         instance_id: Optional[str] = None,
-        config: Dict[str, Any],
     ) -> "StoreContext":
         return self._context(
             self._native.update_service(
