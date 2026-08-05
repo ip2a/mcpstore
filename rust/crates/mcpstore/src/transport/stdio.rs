@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fmt::Display;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -161,20 +162,26 @@ pub(super) async fn connect(
     {
         Ok(client) => client,
         Err(err) => {
-            let mut detail = format!("MCP handshake failed: {err}");
-            // Give the child a moment to flush stderr before we snapshot the tail.
+            // Give the child a moment to flush stderr before we snapshot it.
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let tail = match stderr_tail.lock() {
+            let tail: Vec<String> = match stderr_tail.lock() {
                 Ok(g) => g,
                 Err(p) => p.into_inner(),
-            };
+            }
+            .iter()
+            .cloned()
+            .collect();
+            let child_exited = exited.load(Ordering::Acquire);
+            let detail = format_stdio_connect_failure(&err, &tail, child_exited);
+            // Keep the full stderr in the log so it is diagnosable even when
+            // the user-facing message is trimmed to the cause line.
             if !tail.is_empty() {
-                detail.push_str("\n--- child stderr (last lines) ---\n");
-                detail.push_str(&tail.iter().cloned().collect::<Vec<_>>().join("\n"));
-            } else if exited.load(Ordering::Acquire) {
-                detail.push_str("\n(child process exited before responding; no stderr output)");
-            } else {
-                detail.push_str("\n(child process produced no stderr output)");
+                tracing::warn!(
+                    target: "mcpstore::transport::stdio::stderr",
+                    instance_id = %instance_id,
+                    "child stderr on connect failure:\n{}",
+                    tail.join("\n")
+                );
             }
             return Err(TransportError::ConnectionFailed(detail));
         }
@@ -188,4 +195,73 @@ pub(super) async fn connect(
             shutdown: Some(shutdown_sender),
         },
     ))
+}
+
+/// Build a user-facing message for a stdio connect failure, distinguishing a
+/// child that crashed during startup (never reached the MCP handshake) from a
+/// genuine protocol/handshake error on a live process.
+fn format_stdio_connect_failure(
+    handshake_error: &impl Display,
+    stderr_tail: &[String],
+    child_exited: bool,
+) -> String {
+    if child_exited {
+        // The process died before (or while) starting — this is a server-side
+        // startup failure, not an MCP protocol issue. Surface the likely cause
+        // instead of the misleading "handshake failed" framing.
+        return match extract_startup_cause(stderr_tail) {
+            Some(cause) => format!(
+                "service process exited during startup and never reached the MCP \
+                 handshake.\n  cause: {cause}\n  hint: this is usually a \
+                 server-side problem — a dependency/import error (e.g. an \
+                 incompatible MCP SDK version), a missing binary, or an invalid \
+                 command. Full stderr is in the log file."
+            ),
+            None => format!(
+                "service process exited during startup and never reached the MCP \
+                 handshake; no stderr output was captured.\n  hint: verify the \
+                 command and arguments are correct and that the service can start \
+                 on its own."
+            ),
+        };
+    }
+
+    // Process is still alive — a real handshake/protocol failure.
+    let mut detail = format!("MCP handshake failed: {handshake_error}");
+    if !stderr_tail.is_empty() {
+        detail.push_str("\n  child stderr (last lines):\n    ");
+        detail.push_str(&stderr_tail.join("\n    "));
+    } else {
+        detail.push_str("\n  (child process produced no stderr output)");
+    }
+    detail
+}
+
+/// Pull the most likely cause line out of a crashed child's stderr.
+///
+/// Filters out installer noise (uv/pip progress lines) and Python traceback
+/// scaffolding (`Traceback ...`, `File "..."`, ...), returning the final
+/// exception line — e.g. `ImportError: cannot import name 'McpError' ...`.
+fn extract_startup_cause(lines: &[String]) -> Option<String> {
+    let is_noise = |line: &str| {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return true;
+        }
+        matches!(
+            trimmed,
+            "Traceback (most recent call last):"
+                | "The above exception was the direct cause of the following exception:"
+                | "During handling of the above exception, another exception occurred:"
+        ) || trimmed.starts_with("File \"")
+            || trimmed.starts_with("Installed ")
+            || trimmed.starts_with("Audited ")
+            || trimmed.starts_with("Resolved ")
+            || trimmed.starts_with("Downloading")
+            || trimmed.starts_with("Using cached")
+            || trimmed.starts_with("Preparing ")
+            || trimmed.starts_with("Building ")
+            || trimmed.starts_with("Collecting ")
+    };
+    lines.iter().rev().find(|line| !is_noise(line)).cloned()
 }
