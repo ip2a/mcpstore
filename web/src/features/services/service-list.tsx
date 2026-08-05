@@ -189,7 +189,7 @@ function ServiceRow({
       actionsProps={{ onClick: (event) => event.stopPropagation() }}
     >
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+        <div className="flex min-w-0 flex-nowrap items-baseline gap-x-2">
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
           <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
             {getServiceEndpointLabel(service)}
