@@ -253,7 +253,11 @@ fn extract_startup_cause(lines: &[String]) -> Option<String> {
             "Traceback (most recent call last):"
                 | "The above exception was the direct cause of the following exception:"
                 | "During handling of the above exception, another exception occurred:"
+                | "^"
+                | "{"
+                | "}"
         ) || trimmed.starts_with("File \"")
+            // Python: uv/pip installer output.
             || trimmed.starts_with("Installed ")
             || trimmed.starts_with("Audited ")
             || trimmed.starts_with("Resolved ")
@@ -262,6 +266,97 @@ fn extract_startup_cause(lines: &[String]) -> Option<String> {
             || trimmed.starts_with("Preparing ")
             || trimmed.starts_with("Building ")
             || trimmed.starts_with("Collecting ")
+            // Node.js / JS: version banner, stack frames, crash scaffolding.
+            || trimmed.starts_with("Node.js v")
+            || trimmed.starts_with("node:")
+            || trimmed.starts_with("throw ")
+            || trimmed.starts_with("at ")
+            || trimmed.starts_with("code:")
     };
-    lines.iter().rev().find(|line| !is_noise(line)).cloned()
+
+    // Prefer a headline line that carries the error type/code and its message
+    // (e.g. "Error: ...", "Error [ERR_FOO]: ...", "ImportError: ..."). This
+    // matters for runtimes whose stderr does not end on the error line —
+    // Node.js prints a stack and a "Node.js vX" banner after it.
+    let is_error_headline = |line: &str| {
+        let trimmed = line.trim();
+        trimmed.contains("Error:")
+            || trimmed.contains("Exception:")
+            || trimmed.contains(" ERR_")
+            || trimmed.contains("[ERR_")
+    };
+
+    lines
+        .iter()
+        .rev()
+        .find(|line| !is_noise(line) && is_error_headline(line))
+        .cloned()
+        .or_else(|| lines.iter().rev().find(|line| !is_noise(line)).cloned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_startup_cause;
+
+    fn lines(raw: &str) -> Vec<String> {
+        raw.lines().map(String::from).collect()
+    }
+
+    #[test]
+    fn cause_extracts_node_js_error_code_line() {
+        let raw = "\
+node:internal/modules/esm/resolve:262
+    throw new ERR_UNSUPPORTED_DIR_IMPORT(path, basePath, String(resolved));
+          ^
+Error [ERR_UNSUPPORTED_DIR_IMPORT]: Directory import '.../zod/v3' is not supported resolving ES modules imported from .../zod-compat.js
+    at finalizeResolution (node:internal/modules/esm/resolve:262:11)
+    at moduleResolve (node:internal/modules/esm/resolve:864:10) {
+  code: 'ERR_UNSUPPORTED_DIR_IMPORT',
+}
+Node.js v24.13.0
+";
+        let cause = extract_startup_cause(&lines(raw)).expect("a cause");
+        assert!(
+            cause.contains("ERR_UNSUPPORTED_DIR_IMPORT") && cause.contains("Directory import"),
+            "got: {cause}"
+        );
+    }
+
+    #[test]
+    fn cause_extracts_python_import_error() {
+        let raw = "\
+Installed 31 packages in 29ms
+Traceback (most recent call last):
+  File \"mcp-server-time\", line 6, in <module>
+    from mcp_server_time import main
+  File \"server.py\", line 12, in <module>
+    from mcp.shared.exceptions import McpError
+ImportError: cannot import name 'McpError' from 'mcp.shared.exceptions'. Did you mean: 'MCPError'?
+";
+        let cause = extract_startup_cause(&lines(raw)).expect("a cause");
+        assert!(
+            cause.starts_with("ImportError:") && cause.contains("McpError"),
+            "got: {cause}"
+        );
+    }
+
+    #[test]
+    fn cause_falls_back_to_last_meaningful_line_without_an_error_headline() {
+        let raw = "\
+some server banner line
+another descriptive line
+";
+        let cause = extract_startup_cause(&lines(raw)).expect("a cause");
+        assert_eq!(cause, "another descriptive line");
+    }
+
+    #[test]
+    fn cause_returns_none_for_pure_noise() {
+        let raw = "\
+Installed 3 packages
+Node.js v24.13.0
+    at someFrame (file:1:1)
+";
+        assert!(extract_startup_cause(&lines(raw)).is_none());
+    }
 }
