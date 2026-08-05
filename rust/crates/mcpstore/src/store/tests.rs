@@ -124,6 +124,7 @@ fn config_with_lifecycle(
             startup_policy,
             restart_policy,
         }),
+        handshake_mode: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -862,6 +863,7 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
             agents: HashMap::from([(agent_id.to_string(), ScopeDescriptor::default())]),
         },
         lifecycle: None,
+        handshake_mode: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -940,6 +942,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
             agents: HashMap::from([("agent-a".to_string(), ScopeDescriptor::default())]),
         },
         lifecycle: None,
+        handshake_mode: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -1662,6 +1665,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
             ]),
         },
         lifecycle: None,
+        handshake_mode: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -5726,6 +5730,7 @@ mod scoped_contract {
             config: config.as_object().cloned().unwrap_or_default(),
             lifecycle: None,
             revision: 1,
+            ..Default::default()
         }
     }
 
@@ -5749,6 +5754,7 @@ mod scoped_contract {
             mcpstore: Some(McpStoreExtension {
                 scopes,
                 lifecycle: None,
+                handshake_mode: None,
                 revision: 1,
                 extra: Map::new(),
             }),

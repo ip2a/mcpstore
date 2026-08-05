@@ -93,6 +93,7 @@ async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
                 base_config: base_config.clone(),
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle,
+                handshake_mode: None,
                 metadata,
                 base_revision: 1,
                 added_time: 111,

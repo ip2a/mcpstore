@@ -5,6 +5,9 @@ import { getServiceTransport } from "@/lib/service-info"
 
 export type ServiceConfigTransport = "stdio" | "streamable-http"
 export type ServiceConfigFormat = "json" | "toml"
+export type HandshakeMode = "auto" | "discover" | "initialize"
+
+export const HANDSHAKE_MODES: HandshakeMode[] = ["auto", "discover", "initialize"]
 
 export type ServiceConfigFields = {
   transport: ServiceConfigTransport
@@ -18,6 +21,7 @@ export type ServiceConfigFields = {
   oauthEnabled: boolean
   oauthClientId: string
   oauthClientMetadataUrl: string
+  handshakeMode: HandshakeMode
 }
 
 export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
@@ -32,6 +36,7 @@ export const DEFAULT_SERVICE_CONFIG_FIELDS: ServiceConfigFields = {
   oauthEnabled: false,
   oauthClientId: "",
   oauthClientMetadataUrl: "",
+  handshakeMode: "auto",
 }
 
 const TRANSPORTS = new Set<ServiceConfigTransport>(["stdio", "streamable-http"])
@@ -66,6 +71,12 @@ function formatArgsText(value: unknown) {
   return value.map((item) => String(item ?? "")).join("\n")
 }
 
+function normalizeHandshakeMode(value: unknown): HandshakeMode {
+  return typeof value === "string" && (value === "auto" || value === "discover" || value === "initialize")
+    ? value
+    : "auto"
+}
+
 export function fieldsToConfig(fields: ServiceConfigFields): Record<string, unknown> {
   const config: Record<string, unknown> = {
     transport: fields.transport,
@@ -83,21 +94,21 @@ export function fieldsToConfig(fields: ServiceConfigFields): Record<string, unkn
     if (args.length) config.args = args
     if (fields.workingDir.trim()) config.workingDir = fields.workingDir.trim()
     if (Object.keys(env).length) config.env = env
-    return config
-  }
-
-  const headers = parseKvLines(fields.headersText)
-  if (fields.url.trim()) config.url = fields.url.trim()
-  if (Object.keys(headers).length) config.headers = headers
-  if (fields.oauthEnabled) {
-    const clientId = fields.oauthClientId.trim()
-    config.auth = {
-      type: "oauth_authorization_code",
-      ...(clientId
-        ? { client_id: clientId }
-        : { client_metadata_url: fields.oauthClientMetadataUrl.trim() }),
+  } else {
+    const headers = parseKvLines(fields.headersText)
+    if (fields.url.trim()) config.url = fields.url.trim()
+    if (Object.keys(headers).length) config.headers = headers
+    if (fields.oauthEnabled) {
+      const clientId = fields.oauthClientId.trim()
+      config.auth = {
+        type: "oauth_authorization_code",
+        ...(clientId
+          ? { client_id: clientId }
+          : { client_metadata_url: fields.oauthClientMetadataUrl.trim() }),
+      }
     }
   }
+
   return config
 }
 
@@ -109,6 +120,10 @@ export function configToFields(config: Record<string, unknown>): ServiceConfigFi
     !Array.isArray(auth) &&
     (auth as Record<string, unknown>).type === "oauth_authorization_code"
   const oauthConfig = oauthEnabled ? (auth as Record<string, unknown>) : undefined
+  const mcpstore =
+    config._mcpstore && typeof config._mcpstore === "object" && !Array.isArray(config._mcpstore)
+      ? (config._mcpstore as Record<string, unknown>)
+      : undefined
 
   return {
     transport: normalizeTransport(config.transport),
@@ -122,6 +137,7 @@ export function configToFields(config: Record<string, unknown>): ServiceConfigFi
     oauthEnabled,
     oauthClientId: String(oauthConfig?.client_id || ""),
     oauthClientMetadataUrl: String(oauthConfig?.client_metadata_url || ""),
+    handshakeMode: normalizeHandshakeMode(mcpstore?.handshake_mode),
   }
 }
 

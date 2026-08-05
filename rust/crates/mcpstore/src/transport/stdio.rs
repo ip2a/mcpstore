@@ -76,8 +76,7 @@ pub(super) async fn connect(
 
     // Capture child stderr so we can surface it when the handshake fails, and
     // keep it visible through tracing while the service runs.
-    let stderr_tail: Arc<Mutex<VecDeque<String>>> =
-        Arc::new(Mutex::new(VecDeque::new()));
+    let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
     if let Some(stderr) = stderr {
         let tail = Arc::clone(&stderr_tail);
         tokio::spawn(async move {
@@ -156,9 +155,7 @@ pub(super) async fn connect(
     let client = match rmcp::service::serve_client_with_lifecycle(
         handler,
         transport,
-        rmcp::service::ClientLifecycleMode::Discover {
-            preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
-        },
+        crate::transport::client_lifecycle_mode(config.handshake_mode()),
     )
     .await
     {

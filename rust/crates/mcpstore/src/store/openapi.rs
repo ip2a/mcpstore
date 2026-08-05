@@ -337,6 +337,7 @@ impl MCPStore {
             base_config: base_config.clone(),
             scopes: scopes.clone(),
             lifecycle: None,
+            handshake_mode: None,
             base_revision: 1,
             metadata: serde_json::Map::new(),
             added_time: now,

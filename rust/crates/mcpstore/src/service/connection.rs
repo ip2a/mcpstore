@@ -232,13 +232,23 @@ impl MCPStore {
                 .try_into()
                 .unwrap_or(1),
         );
-        let transport_config: ServerConfig =
+        let mut transport_config: ServerConfig =
             serde_json::from_value(serde_json::Value::Object(instance.effective_config.clone()))
                 .map_err(|error| {
                     StoreError::Other(format!(
                         "Effective config for instance {instance_id} cannot be decoded: {error}"
                     ))
                 })?;
+        // effective_config strips _mcpstore, but the transport needs the
+        // definition-level handshake_mode to pick the right lifecycle mode.
+        if let Some(definition) = self.registry.find_definition(&instance.service_name).await {
+            if let Some(mode) = definition.handshake_mode {
+                let extension = transport_config
+                    .mcpstore
+                    .get_or_insert_with(Default::default);
+                extension.handshake_mode = Some(mode);
+            }
+        }
         self.pool.remove(instance_id).await.ok();
         self.pool.add(instance_id, transport_config).await;
         let connect_result: Result<()> =
