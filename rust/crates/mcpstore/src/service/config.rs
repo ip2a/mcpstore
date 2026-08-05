@@ -402,6 +402,7 @@ impl MCPStore {
             base_config: config.base_config(),
             scopes: config.scopes(),
             lifecycle: extension.and_then(|value| value.lifecycle.clone()),
+            handshake_mode: extension.and_then(|value| value.handshake_mode),
             base_revision: config.definition_revision(),
             metadata: extension
                 .map(|value| value.extra.clone())
@@ -425,6 +426,7 @@ impl MCPStore {
         config.mcpstore = Some(McpStoreExtension {
             scopes: definition.scopes.clone(),
             lifecycle: definition.lifecycle.clone(),
+            handshake_mode: definition.handshake_mode,
             revision: definition.base_revision,
             extra: definition.metadata.clone(),
         });

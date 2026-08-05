@@ -35,6 +35,7 @@ pub struct ServiceDefinition {
     pub base_config: Map<String, Value>,
     pub scopes: ScopeDeclarations,
     pub lifecycle: Option<ServiceLifecycleConfig>,
+    pub handshake_mode: Option<crate::config::HandshakeMode>,
     pub base_revision: u64,
     pub metadata: Map<String, Value>,
     pub added_time: i64,

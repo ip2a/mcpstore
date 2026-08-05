@@ -40,9 +40,7 @@ pub(super) async fn connect(
         return rmcp::service::serve_client_with_lifecycle(
             handler,
             transport,
-            rmcp::service::ClientLifecycleMode::Discover {
-                preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
-            },
+            crate::transport::client_lifecycle_mode(server_config.handshake_mode()),
         )
         .await
         .map_err(|err| {
@@ -75,9 +73,7 @@ pub(super) async fn connect(
     match rmcp::service::serve_client_with_lifecycle(
         handler,
         transport,
-        rmcp::service::ClientLifecycleMode::Discover {
-            preferred_versions: vec![rmcp::model::ProtocolVersion::V_2026_07_28],
-        },
+        crate::transport::client_lifecycle_mode(server_config.handshake_mode()),
     )
     .await
     {
