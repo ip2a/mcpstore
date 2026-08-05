@@ -45,6 +45,30 @@ ensure_web_deps() {
   fi
 }
 
+free_tcp_port() {
+  local port="$1"
+  local pids
+
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -z "$pids" ]; then
+    return
+  fi
+
+  echo "[Port] $port 被占用，停止进程: $(echo "$pids" | tr '\n' ' ')"
+  while IFS= read -r pid; do
+    kill "$pid" >/dev/null 2>&1 || true
+  done <<< "$pids"
+
+  sleep 1
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -n "$pids" ]; then
+    echo "[Port] 强制停止进程: $(echo "$pids" | tr '\n' ' ')"
+    while IFS= read -r pid; do
+      kill -9 "$pid" >/dev/null 2>&1 || true
+    done <<< "$pids"
+  fi
+}
+
 run_external_web() {
   require_cmd cargo
   ensure_web_deps
@@ -52,6 +76,7 @@ run_external_web() {
   local api_host="${MCPSTORE_API_HOST:-127.0.0.1}"
   local api_port="${MCPSTORE_API_PORT:-18200}"
   local vite_host="${MCPSTORE_VITE_HOST:-127.0.0.1}"
+  local vite_port="${MCPSTORE_VITE_PORT:-5174}"
   local api_target="http://${api_host}:${api_port}"
   local api_pid=""
 
@@ -68,6 +93,10 @@ run_external_web() {
   trap cleanup_api RETURN
   trap 'cleanup_api; exit 130' INT TERM
 
+  require_cmd lsof
+  free_tcp_port "$api_port"
+  free_tcp_port "$vite_port"
+
   echo "[API] 启动 Rust API: $api_target"
   cargo run --manifest-path "$MCPSTORE_MANIFEST" --bin mcpstore -- api --host "$api_host" --port "$api_port" &
   api_pid="$!"
@@ -78,7 +107,7 @@ run_external_web() {
   fi
 
   echo "[Web] 启动 Vite，并接入 VITE_MCPSTORE_API_BASE=/api（通过 Vite proxy 转发到后端 API）"
-  VITE_MCPSTORE_API_BASE="/api" npm --prefix "$WEB_DIR" run dev -- --host "$vite_host"
+  VITE_MCPSTORE_API_BASE="/api" npm --prefix "$WEB_DIR" run dev -- --host "$vite_host" --port "$vite_port"
 }
 
 run_app() {
