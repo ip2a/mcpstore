@@ -318,10 +318,12 @@ export function AgentsView(props: {
                             actionsProps={{ onClick: (event) => event.stopPropagation() }}
                           >
                             <div className="min-w-0">
-                              <span className="block min-w-0 truncate font-semibold">{service.service_name}</span>
-                              <span className="block min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
-                                {getServiceEndpointLabel(service)}
-                              </span>
+                              <div className="flex min-w-0 flex-nowrap items-baseline gap-x-2">
+                                <span className="block min-w-0 truncate font-semibold">{service.service_name}</span>
+                                <span className="block min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
+                                  {getServiceEndpointLabel(service)}
+                                </span>
+                              </div>
                               <ServiceRowMeta service={service} toolCount={toolCount} />
                             </div>
                           </EntityRow>
