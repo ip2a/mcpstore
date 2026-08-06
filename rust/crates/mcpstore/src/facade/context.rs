@@ -181,6 +181,18 @@ impl ScopeContext {
             .await
     }
 
+    pub async fn list_resources(&self) -> Result<Vec<Value>> {
+        self.store.list_resources_scoped(&self.scope).await
+    }
+
+    pub async fn list_resource_templates(&self) -> Result<Vec<Value>> {
+        self.store.list_resource_templates_scoped(&self.scope).await
+    }
+
+    pub async fn list_prompts(&self) -> Result<Vec<Value>> {
+        self.store.list_prompts_scoped(&self.scope).await
+    }
+
     async fn resolve_service(&self, target: ServiceTarget<'_>) -> Result<(String, InstanceId)> {
         match target {
             ServiceTarget::ServiceName(service_name) => Ok((
@@ -321,6 +333,56 @@ impl Service {
                 .await?,
         )?;
         Tool::new(self.context.clone(), entry.instance_id, entry.tool_name)
+    }
+
+    pub async fn list_resources(&self) -> Result<Vec<Value>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .list_resources_for_instance(self.instance_id)
+            .await
+    }
+
+    pub async fn list_resource_templates(&self) -> Result<Vec<Value>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .list_resource_templates_for_instance(self.instance_id)
+            .await
+    }
+
+    pub async fn read_resource(&self, uri: &str) -> Result<Value> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .read_resource_scoped(self.instance_id, uri)
+            .await
+    }
+
+    pub async fn list_prompts(&self) -> Result<Vec<Value>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .list_prompts_for_instance(self.instance_id)
+            .await
+    }
+
+    pub async fn get_prompt(&self, prompt_name: &str, arguments: Value) -> Result<Value> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .get_prompt_scoped(self.instance_id, prompt_name, arguments)
+            .await
     }
 }
 

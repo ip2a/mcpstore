@@ -360,6 +360,27 @@ impl PyScopeContext {
         Ok(Self { inner })
     }
 
+    fn list_resources(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let resources = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_resources())
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &resources, "Resources")
+    }
+
+    fn list_resource_templates(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let templates = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_resource_templates())
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &templates, "Resource templates")
+    }
+
+    fn list_prompts(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let prompts = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_prompts())
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &prompts, "Prompts")
+    }
+
     fn list_tools(&self) -> PyResult<Vec<PyTool>> {
         let tools = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.list_tools())
@@ -460,6 +481,53 @@ impl PyService {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service())
             .map_err(map_store_err)
+    }
+
+    fn list_resources(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let resources = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_resources())
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &resources, "Resources")
+    }
+
+    fn list_resource_templates(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let templates = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_resource_templates())
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &templates, "Resource templates")
+    }
+
+    fn read_resource(&self, py: Python<'_>, uri: &str) -> PyResult<Py<PyAny>> {
+        let resource = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.read_resource(uri))
+            })
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, resource)
+    }
+
+    fn list_prompts(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let prompts = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_prompts())
+            .map_err(map_store_err)?;
+        serializable_to_py(py, &prompts, "Prompts")
+    }
+
+    #[pyo3(signature = (prompt_name, arguments=None))]
+    fn get_prompt(
+        &self,
+        py: Python<'_>,
+        prompt_name: &str,
+        arguments: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = arguments
+            .map(|value| py_to_serde_value(value, "Prompt arguments"))
+            .transpose()?
+            .unwrap_or_else(|| serde_json::json!({}));
+        let prompt = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_prompt(prompt_name, arguments))
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, prompt)
     }
 
     fn list_tools(&self) -> PyResult<Vec<PyTool>> {

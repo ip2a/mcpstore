@@ -9,6 +9,7 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
 
     validate_ui_config(config, &mut errors);
     validate_server_settings(&config.server, &mut errors);
+    validate_mcp_aggregate_config(config, &mut errors);
     validate_health_check_config(&config.health_check, &mut errors);
     validate_monitoring_config(&config.monitoring, &mut errors);
     validate_standalone_config(&config.standalone, &mut errors);
@@ -18,6 +19,18 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
         return Err(ConfigError::Invalid(errors.join("; ")));
     }
     Ok(())
+}
+
+fn validate_mcp_aggregate_config(config: &AppConfig, errors: &mut Vec<String>) {
+    if !matches!(
+        config.mcp_aggregate.transport.as_str(),
+        "stdio" | "streamable-http"
+    ) {
+        errors.push("mcp_aggregate.transport must be one of stdio, streamable-http".to_string());
+    }
+    if config.mcp_aggregate.port == 0 {
+        errors.push("mcp_aggregate.port must be greater than 0".to_string());
+    }
 }
 
 fn validate_diagnostics_config(config: &AppConfig, errors: &mut Vec<String>) {

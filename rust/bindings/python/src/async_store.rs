@@ -527,6 +527,33 @@ impl PyAsyncScopeContext {
         })
     }
 
+    fn list_resources<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let resources = inner.list_resources().await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &resources, "Resources"))
+        })
+    }
+
+    fn list_resource_templates<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let templates = inner
+                .list_resource_templates()
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &templates, "Resource templates"))
+        })
+    }
+
+    fn list_prompts<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let prompts = inner.list_prompts().await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &prompts, "Prompts"))
+        })
+    }
+
     fn list_tools<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         future_into_py(py, async move {
@@ -664,6 +691,64 @@ impl PyAsyncService {
         future_into_py(py, async move {
             let result = inner.remove_service().await.map_err(map_store_err)?;
             Ok::<bool, PyErr>(result)
+        })
+    }
+
+    fn list_resources<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let resources = inner.list_resources().await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &resources, "Resources"))
+        })
+    }
+
+    fn list_resource_templates<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let templates = inner
+                .list_resource_templates()
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &templates, "Resource templates"))
+        })
+    }
+
+    fn read_resource<'a>(&self, py: Python<'a>, uri: &str) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let uri = uri.to_string();
+        future_into_py(py, async move {
+            let resource = inner.read_resource(&uri).await.map_err(map_store_err)?;
+            Python::with_gil(|py| crate::py_value::serde_value_to_py(py, resource))
+        })
+    }
+
+    fn list_prompts<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let prompts = inner.list_prompts().await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &prompts, "Prompts"))
+        })
+    }
+
+    #[pyo3(signature = (prompt_name, arguments=None))]
+    fn get_prompt<'a>(
+        &self,
+        py: Python<'a>,
+        prompt_name: &str,
+        arguments: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let arguments = arguments
+            .map(|value| crate::py_value::py_to_serde_value(value, "Prompt arguments"))
+            .transpose()?
+            .unwrap_or_else(|| serde_json::json!({}));
+        let inner = self.inner.clone();
+        let prompt_name = prompt_name.to_string();
+        future_into_py(py, async move {
+            let prompt = inner
+                .get_prompt(&prompt_name, arguments)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| crate::py_value::serde_value_to_py(py, prompt))
         })
     }
 

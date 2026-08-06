@@ -137,8 +137,8 @@ pub(super) fn projected_catalog_uri(
     Ok(uri.into())
 }
 
-pub(super) fn stable_namespace(service_name: &str, instance_id: InstanceId) -> String {
-    let service_name = service_name
+pub(super) fn service_namespace(service_name: &str) -> String {
+    service_name
         .chars()
         .map(|character| {
             if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
@@ -147,6 +147,9 @@ pub(super) fn stable_namespace(service_name: &str, instance_id: InstanceId) -> S
                 '_'
             }
         })
-        .collect::<String>();
-    format!("{service_name}__{instance_id}")
+        .collect()
+}
+
+pub(super) fn stable_namespace(service_name: &str, instance_id: InstanceId) -> String {
+    format!("{}__{instance_id}", service_namespace(service_name))
 }
