@@ -14,6 +14,7 @@ import {
   CodeBlockTitle,
 } from "@/components/ui/code-block"
 import { ToolParameterDocList } from "@/components/shared/tool-parameter-doc-list"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
 import { ToolAnnotationsSection, ToolMetaSection } from "@/components/shared/tool-capability-sections"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -25,7 +26,7 @@ import { TypographyH2, TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
 import type { ToolInfo } from "@/lib/api"
 import { buildSchemaExampleValue, buildToolCliCommand } from "@/lib/tool-schema-preview"
-import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args"
+import { serializeToolArgs, type ToolSchema, getMissingRequiredArgs } from "@/lib/tool-args"
 import { getToolOutputSchema, getToolSchema, extractToolDescriptionDocs } from "@/lib/tool-info"
 import { cn } from "@/lib/utils"
 
@@ -191,6 +192,8 @@ export function ToolPlaygroundAside({
   running?: boolean
   className?: string
 }) {
+  const { t } = useI18n()
+  const [missingRequired, setMissingRequired] = useState<string[]>([])
   const { cliCommand, hasOutputSchema, outputSchema, requestArgsText, responseText } = useToolPlaygroundData({
     tool,
     instanceId,
@@ -198,16 +201,39 @@ export function ToolPlaygroundAside({
     toolArgsSchema,
   })
 
+  function requestRun() {
+    const missing = getMissingRequiredArgs(serializeToolArgs(toolArgs, toolArgsSchema), toolArgsSchema)
+    if (missing.length) {
+      setMissingRequired(missing)
+      return
+    }
+    onRun?.()
+  }
+
   return (
-    <aside className={cn("flex h-full min-h-0 min-w-0 w-full flex-col gap-4", className)}>
-      <ToolRequestPanel command={cliCommand} toolName={tool.name} onRun={onRun} running={running} />
+    <>
+      <aside className={cn("flex h-full min-h-0 min-w-0 w-full flex-col gap-4", className)}>
+      <ToolRequestPanel command={cliCommand} toolName={tool.name} onRun={requestRun} running={running} />
       <ToolResponsePanel
         requestArgsText={requestArgsText}
         responseText={responseText}
         schema={outputSchema}
         hasOutputSchema={hasOutputSchema}
       />
-    </aside>
+      </aside>
+      <AlertDialog open={missingRequired.length > 0} onOpenChange={(open) => !open && setMissingRequired([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("missingRequiredTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("missingRequiredDescription", { fields: missingRequired.join(", ") })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setMissingRequired([]); onRun?.() }}>{t("knownContinue")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
@@ -287,7 +313,7 @@ function ToolResponsePanel({
           <CodeBlockCopyButton value={displayText} />
         </CodeBlockActions>
       </CodeBlockHeader>
-      <CodeBlockBody variant="response" fill>
+      <CodeBlockBody variant="response" fill nativeScroll>
         <CodeBlockJson text={displayText} />
       </CodeBlockBody>
       <CodeBlockFooter variant="response" className="shrink-0">

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { JsonBlock } from "@/components/shared/json-block"
@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { applyClientConfig, getAggregateLaunch, importClientServices, inspectClientConfig, planClientConfig, undoClientConfig } from "@/lib/api"
+import { applyClientConfig, getAggregateLaunch, getAggregateStatus, importClientServices, inspectClientConfig, planClientConfig, startAggregate, stopAggregate, undoClientConfig, type AggregateOptions, type AggregateStatus } from "@/lib/api"
 
 const initialEntries = JSON.stringify([
-  { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:1820/mcp" } },
+  { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:1830/mcp" } },
 ], null, 2)
 
 export function ClientConfigPanel() {
@@ -23,7 +23,13 @@ export function ClientConfigPanel() {
   const [result, setResult] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [transport, setTransport] = useState<"stdio" | "streamable-http">("streamable-http")
+  const [scope, setScope] = useState<"store" | "agent">("store")
+  const [agentId, setAgentId] = useState("")
+  const [host, setHost] = useState("127.0.0.1")
+  const [port, setPort] = useState("1830")
+  const [pathValue, setPathValue] = useState("/mcp")
   const [launch, setLaunch] = useState<unknown>(null)
+  const [aggregateStatus, setAggregateStatus] = useState<AggregateStatus | null>(null)
 
   function entries() {
     const value = JSON.parse(entriesText)
@@ -76,12 +82,49 @@ export function ClientConfigPanel() {
     finally { setBusy(false) }
   }
 
+  function aggregateOptions(): AggregateOptions {
+    const parsedPort = Number(port)
+    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) throw new Error("Port must be between 1 and 65535")
+    if (scope === "agent" && !agentId.trim()) throw new Error("Agent ID is required for agent scope")
+    return { transport, scope, agentId: scope === "agent" ? agentId.trim() : undefined, host, port: parsedPort, path: pathValue }
+  }
+
+  async function loadAggregateStatus() {
+    try { setAggregateStatus(await getAggregateStatus(aggregateOptions())) }
+    catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
+  }
+
   async function loadLaunch() {
     setBusy(true)
-    try { setLaunch(await getAggregateLaunch({ transport })) }
-    catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
+    try {
+      const options = aggregateOptions()
+      setLaunch(await getAggregateLaunch(options))
+      setAggregateStatus(await getAggregateStatus(options))
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
     finally { setBusy(false) }
   }
+
+  async function toggleAggregate(action: "start" | "stop") {
+    setBusy(true)
+    try {
+      const options = aggregateOptions()
+      if (action === "start") await startAggregate(options)
+      else await stopAggregate()
+      await loadAggregateStatus()
+      toast.success(action === "start" ? "Aggregate MCP service started" : "Aggregate MCP service stopped")
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
+    finally { setBusy(false) }
+  }
+
+  useEffect(() => {
+    if (scope === "agent" && !agentId.trim()) {
+      setAggregateStatus(null)
+      return
+    }
+    void loadAggregateStatus()
+    const timer = window.setInterval(() => void loadAggregateStatus(), 5000)
+    return () => window.clearInterval(timer)
+  }, [transport, scope, agentId, host, port, pathValue])
 
   return (
     <section className="mt-6 border-t pt-5">
@@ -102,10 +145,23 @@ export function ClientConfigPanel() {
           <Input value={path} onChange={(event) => { setPath(event.target.value); setContentHash("") }} placeholder="/Users/you/.codex/config.toml" />
         </label>
       </div>
-      <div className="mt-4 flex flex-wrap items-end gap-2">
+      <div className="mt-4 grid gap-4 md:grid-cols-3">
         <label className="grid gap-2"><Label>Aggregate transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
-        <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
+        <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="store">Store</option><option value="agent">Agent</option></select></label>
+        {scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentId(event.target.value)} placeholder="agent-id" /></label> : null}
+        <label className="grid gap-2"><Label>Host</Label><Input value={host} onChange={(event) => setHost(event.target.value)} /></label>
+        <label className="grid gap-2"><Label>HTTP port</Label><Input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} /></label>
+        <label className="grid gap-2"><Label>Path</Label><Input value={pathValue} onChange={(event) => setPathValue(event.target.value)} /></label>
       </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button disabled={busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())} onClick={() => void toggleAggregate("start")}>Start HTTP aggregate</Button>
+        <Button variant="outline" disabled={busy || !aggregateStatus?.running} onClick={() => void toggleAggregate("stop")}>Stop</Button>
+        <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => void loadAggregateStatus()}>Refresh status</Button>
+        <span className="text-sm text-muted-foreground">Status: {aggregateStatus?.running ? `running${aggregateStatus.pid ? ` (#${aggregateStatus.pid})` : ""}` : "stopped"}</span>
+      </div>
+      {transport === "stdio" ? <p className="mt-2 text-sm text-muted-foreground">stdio is started by the MCP client; use launch info and client configuration instead of the Web background control.</p> : null}
+      {aggregateStatus?.url ? <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{aggregateStatus.url}</p> : null}
       {launch ? <div className="mt-3"><JsonBlock value={launch} /></div> : null}
       <label className="mt-4 grid gap-2">
         <Label>Services to import from assistant (JSON string array)</Label>

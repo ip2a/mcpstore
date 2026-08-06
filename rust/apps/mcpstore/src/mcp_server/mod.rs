@@ -129,6 +129,16 @@ impl McpServerOptions {
         if let Some(session_key) = &self.session_key {
             args.extend(["--session-key".into(), session_key.clone()]);
         }
+        if self.transport == McpServerTransport::StreamableHttp {
+            args.extend([
+                "--host".into(),
+                self.host.clone(),
+                "--port".into(),
+                self.port.to_string(),
+                "--path".into(),
+                self.path.clone(),
+            ]);
+        }
         McpServerLaunchDescriptor {
             transport: self.transport.as_str().to_string(),
             command: (self.transport == McpServerTransport::Stdio).then(|| binary.to_string()),

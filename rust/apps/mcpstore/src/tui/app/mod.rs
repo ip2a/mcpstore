@@ -1,6 +1,9 @@
 use std::collections::{HashMap, VecDeque};
-use std::io;
-use std::time::Duration;
+use std::{
+    io,
+    process::{Child, Command, Stdio},
+    time::Duration,
+};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use mcpstore::{
@@ -131,6 +134,11 @@ pub struct TuiApp {
     pub service_list_pane: ContentPane,
     pub settings_section: SettingsSection,
     pub settings_pane: SettingsPane,
+    pub mcp_aggregate_transport: String,
+    pub mcp_aggregate_port: u16,
+    pub mcp_aggregate_running: bool,
+    pub mcp_aggregate_pid: Option<u32>,
+    mcp_aggregate_child: Option<Child>,
     pub logs_section: LogsSection,
     pub logs_pane: LogsPane,
     pub store_event_history: Vec<String>,
@@ -156,6 +164,15 @@ pub struct TuiApp {
     last_status_snapshot: String,
 }
 
+impl Drop for TuiApp {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.mcp_aggregate_child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 impl TuiApp {
     pub fn new(
         store: std::sync::Arc<mcpstore::MCPStore>,
@@ -165,6 +182,8 @@ impl TuiApp {
         cache_storage_label: String,
         namespace: String,
         config_path: String,
+        mcp_aggregate_transport: String,
+        mcp_aggregate_port: u16,
     ) -> Self {
         let initial_status = i18n::text_with_args(
             locale,
@@ -210,6 +229,11 @@ impl TuiApp {
             service_list_pane: ContentPane::Body,
             settings_section: SettingsSection::Status,
             settings_pane: SettingsPane::Menu,
+            mcp_aggregate_transport,
+            mcp_aggregate_port,
+            mcp_aggregate_running: false,
+            mcp_aggregate_pid: None,
+            mcp_aggregate_child: None,
             logs_section: LogsSection::Runtime,
             logs_pane: LogsPane::Menu,
             store_event_history: Vec::new(),
@@ -318,6 +342,7 @@ impl TuiApp {
             }
             MainView::Agents => self.refresh_agents(rt)?,
             MainView::Status => self.refresh_status_sources(rt),
+            MainView::Settings => self.refresh_mcp_aggregate_status(),
             _ => {}
         }
         Ok(())
@@ -610,6 +635,101 @@ impl TuiApp {
     pub fn focus_settings_detail(&mut self) {
         self.settings_pane = SettingsPane::Detail;
         self.status_message = "[进行中] 设置: 右侧内容".to_string();
+    }
+
+    pub fn refresh_mcp_aggregate_status(&mut self) {
+        let exited = match self.mcp_aggregate_child.as_mut() {
+            Some(child) => child.try_wait().ok().flatten().is_some(),
+            None => false,
+        };
+        if exited {
+            self.mcp_aggregate_child = None;
+            self.mcp_aggregate_running = false;
+            self.mcp_aggregate_pid = None;
+        } else if let Some(child) = self.mcp_aggregate_child.as_ref() {
+            self.mcp_aggregate_running = true;
+            self.mcp_aggregate_pid = Some(child.id());
+        } else {
+            self.mcp_aggregate_running = false;
+            self.mcp_aggregate_pid = None;
+        }
+    }
+
+    pub fn toggle_mcp_aggregate_transport(&mut self) -> Result<(), BoxErr> {
+        self.refresh_mcp_aggregate_status();
+        if self.mcp_aggregate_running {
+            self.status_message = "[提示] 请先停止 MCP 聚合 HTTP 服务".to_string();
+            return Ok(());
+        }
+        self.mcp_aggregate_transport = if self.mcp_aggregate_transport == "streamable-http" {
+            "stdio".to_string()
+        } else {
+            "streamable-http".to_string()
+        };
+        let manager = self.store.config_manager();
+        let mut config = manager.load_app_config_or_default()?;
+        config.mcp_aggregate.transport = self.mcp_aggregate_transport.clone();
+        manager.save_app_config(&config)?;
+        self.status_message = format!(
+            "[成功] MCP 聚合默认 transport 已更新为 {}",
+            self.mcp_aggregate_transport
+        );
+        Ok(())
+    }
+
+    pub fn toggle_mcp_aggregate(&mut self) -> Result<(), BoxErr> {
+        self.refresh_mcp_aggregate_status();
+        if let Some(mut child) = self.mcp_aggregate_child.take() {
+            child.kill()?;
+            let _ = child.wait();
+            self.mcp_aggregate_running = false;
+            self.mcp_aggregate_pid = None;
+            self.status_message = "[成功] MCP 聚合 HTTP 服务已停止".to_string();
+            return Ok(());
+        }
+
+        if self.mcp_aggregate_transport != "streamable-http" {
+            self.status_message = format!(
+                "[提示] stdio 请由 MCP 客户端启动: mcpstore mcp --transport stdio --scope store --source {} --config-path {}",
+                self.source_label, self.config_path
+            );
+            return Ok(());
+        }
+
+        let mut binary = std::env::current_exe()?;
+        if binary.file_stem().and_then(|name| name.to_str()) == Some("mcpstore-tui") {
+            binary.set_file_name(format!("mcpstore{}", std::env::consts::EXE_SUFFIX));
+        }
+        let port = self.mcp_aggregate_port.to_string();
+        let child = Command::new(binary)
+            .args([
+                "mcp",
+                "--transport",
+                "streamable-http",
+                "--scope",
+                "store",
+                "--source",
+                self.source_label.as_str(),
+                "--config-path",
+                self.config_path.as_str(),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                port.as_str(),
+                "--path",
+                "/mcp",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        self.mcp_aggregate_pid = Some(child.id());
+        self.mcp_aggregate_child = Some(child);
+        self.mcp_aggregate_running = true;
+        self.status_message = format!(
+            "[成功] MCP 聚合 HTTP 服务已启动: http://127.0.0.1:{}/mcp",
+            self.mcp_aggregate_port
+        );
+        Ok(())
     }
 
     pub fn next_add_service_mode(&mut self) {

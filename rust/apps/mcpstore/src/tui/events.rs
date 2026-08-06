@@ -368,10 +368,21 @@ fn handle_settings_content_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), Bo
         }
         KeyCode::Enter => {
             if app.settings_pane == SettingsPane::Detail {
-                app.open_settings_editor();
+                if app.settings_section == SettingsSection::McpAggregate {
+                    app.toggle_mcp_aggregate()?;
+                } else {
+                    app.open_settings_editor();
+                }
             } else {
                 app.focus_settings_detail();
             }
+        }
+        KeyCode::Char('r') if app.settings_section == SettingsSection::McpAggregate => {
+            app.refresh_mcp_aggregate_status();
+            app.status_message = "[成功] MCP 聚合状态已刷新".to_string();
+        }
+        KeyCode::Char('t') if app.settings_section == SettingsSection::McpAggregate => {
+            app.toggle_mcp_aggregate_transport()?;
         }
         _ => {}
     }

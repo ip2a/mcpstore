@@ -12,9 +12,10 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
-import { logSizeMb, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
+import { payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
 import { getApiBase, setApiBase } from "@/lib/api/backend"
@@ -45,10 +46,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     setDraft((current) => (current ? { ...current, ...patch } : current))
   }
 
-  function patchLogging(patch: Partial<SettingsDraft["logging"]>) {
-    setDraft((current) => (current ? { ...current, logging: { ...current.logging, ...patch } } : current))
-  }
-
   function patchDiagnostics(patch: Partial<SettingsDraft["diagnostics"]>) {
     setDraft((current) => (current ? { ...current, diagnostics: { ...current.diagnostics, ...patch } } : current))
   }
@@ -76,13 +73,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex h-[min(720px,calc(100dvh-32px))] flex-col gap-0 p-0 sm:max-w-3xl">
+      <DialogContent className="flex h-[min(78vh,640px)] !w-[94vw] !max-w-[94vw] flex-col gap-0 p-0 sm:!w-[84vw] sm:!max-w-[84vw]">
         <DialogHeader className="border-b px-4 py-3 sm:px-5">
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="size-4" />
             {t("settings")}
           </DialogTitle>
-          <DialogDescription>{t("settingsDescription")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid min-h-0 flex-1 grid-cols-[144px_minmax(0,1fr)]">
@@ -102,12 +98,16 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
           <ScrollArea className="min-h-0">
             <div className="p-4 sm:p-5">
-              {section === "backend" ? <BackendSection /> : null}
+              {section === "backend" && draft ? (
+                <DialogForm id="settings-form" onSubmit={onSubmit}>
+                  <BackendSection draft={draft} patchDraft={patchDraft} />
+                </DialogForm>
+              ) : null}
               {section !== "backend" && loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
               {section !== "backend" && error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
 
               {!loading && !error && draft && section !== "backend" ? (
-                <DialogForm onSubmit={onSubmit}>
+                <DialogForm id="settings-form" onSubmit={onSubmit}>
                   {section === "general" ? (
                     <section className="flex flex-col gap-5">
                       <SectionHead title={t("general")} />
@@ -146,47 +146,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             ) : null}
                             <InputGroupInput value={draft.default_backup_dir} onChange={(event) => patchDraft({ default_backup_dir: event.target.value })} placeholder="./backups" />
                           </InputGroup>
-                        </Field>
-
-                        <Field orientation="responsive">
-                          <FieldContent>
-                            <FieldTitle>{t("logMaxSizeMb")}</FieldTitle>
-                            <FieldDescription>
-                              <PathText value={settingsPaths?.log_file_path} fallback={t("logFilePathMissing")} wrap="all" />
-                            </FieldDescription>
-                          </FieldContent>
-                          <InputGroup className="w-32">
-                            <InputGroupInput
-                              inputMode="decimal"
-                              value={logSizeMb(draft)}
-                              onChange={(event) => patchLogging({ max_size_bytes: Math.max(0, Number(event.target.value || 0) * 1024 * 1024) })}
-                            />
-                            <InputGroupAddon align="inline-end">MB</InputGroupAddon>
-                          </InputGroup>
-                        </Field>
-
-                        <Field orientation="responsive">
-                          <FieldContent>
-                            <FieldTitle>{t("logRetentionDays")}</FieldTitle>
-                            <FieldDescription>{t("unlimited")}</FieldDescription>
-                          </FieldContent>
-                          <InputGroup className="w-32">
-                            <InputGroupInput
-                              inputMode="numeric"
-                              placeholder={t("unlimitedPlaceholder")}
-                              value={draft.logging.retention_days ?? ""}
-                              onChange={(event) => patchLogging({ retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
-                            />
-                            <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
-                          </InputGroup>
-                        </Field>
-                        <Field orientation="responsive">
-                          <FieldContent><FieldTitle>后端端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
-                          <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
-                        </Field>
-                        <Field orientation="responsive">
-                          <FieldContent><FieldTitle>前端端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
-                          <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
                         </Field>
                       </FieldGroup>
                     </section>
@@ -280,23 +239,27 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     </section>
                   ) : null}
 
-                  <DialogFormFooter
-                    className="mt-auto border-t pt-4"
-                    onCancel={() => handleOpenChange(false)}
-                    submitDisabled={!draft}
-                    submitLabel={
-                      <>
-                        {!saving ? <SaveIcon data-icon="inline-start" /> : null}
-                        {t("save")}
-                      </>
-                    }
-                    submitting={saving}
-                  />
                 </DialogForm>
               ) : null}
             </div>
           </ScrollArea>
         </div>
+
+        {draft ? (
+          <DialogFormFooter
+            className="shrink-0 border-t px-4 py-3 sm:px-5"
+            onCancel={() => handleOpenChange(false)}
+            submitDisabled={!draft}
+            submitLabel={
+              <>
+                {!saving ? <SaveIcon data-icon="inline-start" /> : null}
+                {t("save")}
+              </>
+            }
+            submitButtonProps={{ form: "settings-form" }}
+            submitting={saving}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   )
@@ -364,7 +327,7 @@ function SettingsError({ message, onRetry }: { message: string; onRetry: () => v
   )
 }
 
-function BackendSection() {
+function BackendSection({ draft, patchDraft }: { draft: SettingsDraft | null; patchDraft: (patch: Partial<SettingsDraft>) => void }) {
   const { t } = useI18n()
   const [url, setUrl] = useState(getApiBase())
 
@@ -376,20 +339,34 @@ function BackendSection() {
 
   return (
     <section className="flex flex-col gap-5">
-      <SectionHead title={t("coreBackend")} description={t("coreBackendDescription")} />
+      <SectionHead title={t("coreBackend")} description="分别配置 mcpstore 自身的启动参数，以及它要连接的数据与操作后端。" />
       <FieldGroup>
+        <div className="flex flex-col gap-1">
+          <h4 className="text-sm font-medium">mcpstore 启动配置</h4>
+          <p className="text-sm text-muted-foreground">控制 mcpstore 内置服务和 Web 界面的监听端口。</p>
+        </div>
+        {draft ? (
+          <>
+            <Field orientation="responsive">
+              <FieldContent><FieldTitle>后端端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
+              <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+            </Field>
+            <Field orientation="responsive">
+              <FieldContent><FieldTitle>前端端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
+              <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+            </Field>
+          </>
+        ) : null}
+      </FieldGroup>
+      <Separator />
+      <FieldGroup>
+        <div className="flex flex-col gap-1">
+          <h4 className="text-sm font-medium">mcpstore 使用的后端</h4>
+          <p className="text-sm text-muted-foreground">配置数据源与操作接口地址；修改后刷新生效。</p>
+        </div>
         <Field orientation="responsive">
-          <FieldContent>
-            <FieldTitle>{t("coreBackendUrlLabel")}</FieldTitle>
-            <FieldDescription>{t("coreBackendDescription")}</FieldDescription>
-          </FieldContent>
-          <InputGroup className="max-w-xl">
-            <InputGroupInput
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder={t("coreBackendUrlPlaceholder")}
-            />
-          </InputGroup>
+          <FieldContent><FieldTitle>{t("coreBackendUrlLabel")}</FieldTitle><FieldDescription>{t("coreBackendDescription")}</FieldDescription></FieldContent>
+          <InputGroup className="max-w-xl"><InputGroupInput value={url} onChange={(event) => setUrl(event.target.value)} placeholder={t("coreBackendUrlPlaceholder")} /></InputGroup>
         </Field>
       </FieldGroup>
       <Button type="button" className="w-fit" onClick={apply}>

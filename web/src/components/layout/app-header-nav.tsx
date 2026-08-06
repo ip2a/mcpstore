@@ -205,23 +205,23 @@ export function AppHeaderNav({
 
     if (!isHome) {
       next.push({
-        id: "cancel",
+        id: "back",
         collapsePriority: 0,
         renderButton: () => (
           <Button type="button" variant="outline" size="sm" onClick={onBack}>
-            {t("cancel")}
+            {t("back")}
           </Button>
         ),
         renderMenuItem: () => (
           <DropdownMenuItem onSelect={onBack}>
-            {t("cancel")}
+            {t("back")}
           </DropdownMenuItem>
         ),
       })
     }
 
     navItems.forEach((item, index) => {
-      if (view.name === item.view.name) return
+      if (item.view.name === "services" || view.name === item.view.name) return
       next.push({
         id: `nav-${item.view.name}`,
         collapsePriority: 10 + index,

@@ -286,8 +286,8 @@ fn test_app_config_roundtrip() {
     config.mcp_aggregate.port = 19400;
     config.ui.language = "en".to_string();
     config.ui.default_backup_dir = "./snapshots".to_string();
-    config.ui.logging.max_size_bytes = 8 * 1024 * 1024;
-    config.ui.logging.retention_days = Some(14);
+    config.diagnostics.runtime_log.max_size_bytes = 8 * 1024 * 1024;
+    config.diagnostics.runtime_log.retention_days = Some(14);
 
     mgr.save_app_config(&config).unwrap();
     let loaded = mgr.load_app_config().unwrap();
@@ -299,8 +299,11 @@ fn test_app_config_roundtrip() {
     assert_eq!(loaded.mcp_aggregate.port, 19400);
     assert_eq!(loaded.ui.language, "en");
     assert_eq!(loaded.ui.default_backup_dir, "./snapshots");
-    assert_eq!(loaded.ui.logging.max_size_bytes, 8 * 1024 * 1024);
-    assert_eq!(loaded.ui.logging.retention_days, Some(14));
+    assert_eq!(
+        loaded.diagnostics.runtime_log.max_size_bytes,
+        8 * 1024 * 1024
+    );
+    assert_eq!(loaded.diagnostics.runtime_log.retention_days, Some(14));
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -324,7 +327,7 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[ui]"));
     assert!(template.contains("language = \"en\""));
     assert!(template.contains("default_backup_dir = \"./backups\""));
-    assert!(template.contains("[ui.logging]"));
+    assert!(template.contains("[diagnostics.runtime_log]"));
     assert!(template.contains("max_size_bytes = 5242880"));
     assert!(template.contains("log_level = \"info\""));
 }

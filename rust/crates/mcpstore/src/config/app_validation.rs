@@ -53,8 +53,4 @@ fn validate_ui_config(config: &AppConfig, errors: &mut Vec<String>) {
     if config.ui.default_backup_dir.trim().is_empty() {
         errors.push("ui.default_backup_dir cannot be empty".to_string());
     }
-
-    if config.ui.logging.max_size_bytes == 0 {
-        errors.push("ui.logging.max_size_bytes must be greater than 0".to_string());
-    }
 }

@@ -183,12 +183,53 @@ async fn spawn_test_api_with_state(
     let state = Arc::new(ApiState {
         store,
         client_changes: Arc::new(Mutex::new(HashMap::new())),
+        aggregate_process: Arc::new(Mutex::new(None)),
     });
     let app = router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
     (addr, handle, state)
+}
+
+#[tokio::test]
+async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_start() {
+    let store_path = unique_temp_dir_path("aggregate-api-store").with_extension("json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::memory()),
+        redis_url: None,
+        namespace: Some(unique_namespace()),
+    })
+    .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let status: Value = client
+        .get(format!(
+            "{base_url}/aggregate/status?transport=streamable-http&port=1830"
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["data"]["running"], false);
+    assert_eq!(status["data"]["port"], 1830);
+    assert_eq!(status["data"]["url"], "http://127.0.0.1:1830/mcp");
+
+    let start = client
+        .post(format!("{base_url}/aggregate/start?transport=stdio"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(start.status(), axum::http::StatusCode::BAD_REQUEST);
+    handle.abort();
+    let _ = std::fs::remove_file(store_path);
 }
 
 #[tokio::test]

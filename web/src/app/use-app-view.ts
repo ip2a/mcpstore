@@ -48,7 +48,7 @@ function viewFromPath(pathname: string): AppView {
   if (pathname === "/" || pathname === "/services") return { name: "services" }
   if (pathname === "/agents") return { name: "agents" }
   if (pathname === "/tools") return { name: "tools" }
-  if (pathname === "/config") return { name: "config" }
+  if (pathname === "/config") return { name: "agents" }
   if (pathname === "/cache") return { name: "cache" }
   if (pathname === "/add") return { name: "services" }
   if (pathname.startsWith("/instances/")) return { name: "instance", instanceId: instanceIdFromPath(pathname) }
