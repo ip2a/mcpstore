@@ -538,24 +538,6 @@ pub(super) fn build_service_tools() -> HashMap<String, Tool> {
     .collect()
 }
 
-pub(super) fn build_event_tools() -> HashMap<String, Tool> {
-    [
-        event_tool(
-            EVENT_HISTORY_TOOL,
-            "Read recent MCPStore event history from Rust core.",
-            event_history_schema(),
-        ),
-        event_tool(
-            EVENT_CAPABILITY_REPORT_TOOL,
-            "Read MCPStore event capability report from Rust core.",
-            empty_object_schema(),
-        ),
-    ]
-    .into_iter()
-    .map(|tool| (tool.name.as_ref().to_string(), tool))
-    .collect()
-}
-
 pub(super) fn service_tool(
     name: &'static str,
     description: &'static str,
@@ -566,19 +548,6 @@ pub(super) fn service_tool(
         .read_only(read_only)
         .destructive(matches!(name, SERVICE_REMOVE_TOOL))
         .idempotent(read_only)
-        .open_world(false);
-    Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
-}
-
-pub(super) fn event_tool(
-    name: &'static str,
-    description: &'static str,
-    schema: Map<String, Value>,
-) -> Tool {
-    let annotations = ToolAnnotations::new()
-        .read_only(true)
-        .destructive(false)
-        .idempotent(true)
         .open_world(false);
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
@@ -624,24 +593,6 @@ pub(super) fn object_schema(
             ),
         );
     }
-    schema
-}
-
-pub(super) fn event_history_schema() -> Map<String, Value> {
-    let mut properties = Map::new();
-    properties.insert(
-        "count".to_string(),
-        serde_json::json!({
-            "type": "integer",
-            "minimum": 1,
-            "description": "Maximum number of recent events to return. Defaults to 100."
-        }),
-    );
-
-    let mut schema = Map::new();
-    schema.insert("type".to_string(), Value::String("object".to_string()));
-    schema.insert("properties".to_string(), Value::Object(properties));
-    schema.insert("additionalProperties".to_string(), Value::Bool(false));
     schema
 }
 
@@ -785,31 +736,6 @@ pub(super) fn cache_switch_schema() -> Map<String, Value> {
         Value::Array(vec![Value::String("backend".to_string())]),
     );
     schema
-}
-
-pub(super) async fn call_event_tool(
-    store: &MCPStore,
-    tool_name: &str,
-    arguments: Map<String, Value>,
-) -> Result<CallToolResult, ErrorData> {
-    let result = match tool_name {
-        EVENT_HISTORY_TOOL => {
-            let count = optional_positive_usize_argument(&arguments, "count")?.unwrap_or(100);
-            let events = store.event_history(count).await;
-            serde_json::json!({"events": events, "total": events.len()})
-        }
-        EVENT_CAPABILITY_REPORT_TOOL => {
-            let report = store.event_capability_report().await;
-            serde_json::json!({"report": report})
-        }
-        _ => {
-            return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore event 观测工具: {tool_name}"),
-                None,
-            ));
-        }
-    };
-    Ok(CallToolResult::structured(result))
 }
 
 pub(super) async fn call_service_tool(
@@ -1365,26 +1291,6 @@ pub(super) fn optional_string_argument(
         .map(str::to_string)
 }
 
-pub(super) fn optional_positive_usize_argument(
-    arguments: &Map<String, Value>,
-    field: &str,
-) -> Result<Option<usize>, ErrorData> {
-    let Some(value) = arguments.get(field) else {
-        return Ok(None);
-    };
-    let parsed = match value {
-        Value::Null => return Ok(None),
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.parse::<u64>().ok(),
-        _ => None,
-    }
-    .filter(|value| *value > 0)
-    .and_then(|value| usize::try_from(value).ok())
-    .ok_or_else(|| {
-        ErrorData::invalid_params(format!("{field} must be a positive integer"), None)
-    })?;
-    Ok(Some(parsed))
-}
 
 pub(super) fn service_config_from_arguments(
     arguments: &Map<String, Value>,

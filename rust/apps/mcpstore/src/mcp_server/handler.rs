@@ -3,11 +3,11 @@ use super::catalog::{
     resolve_projected_prompt,
 };
 use super::tools::{
-    build_cache_tools, build_event_tools, build_openapi_tools, build_service_tools,
+    build_cache_tools, build_openapi_tools, build_service_tools,
     build_session_state_tools, build_tool_transform_tools, deserialize_item, deserialize_items,
 };
 use super::tools::{
-    call_cache_tool, call_event_tool, call_openapi_tool, call_service_tool,
+    call_cache_tool, call_openapi_tool, call_service_tool,
     call_session_state_tool, call_tool_transform_tool, extract_business_session_key,
     map_store_error,
 };
@@ -25,7 +25,6 @@ impl McpStoreServer {
         expose_openapi_tools: bool,
         expose_service_tools: bool,
         expose_cache_tools: bool,
-        expose_event_tools: bool,
     ) -> Result<Self, BoxErr> {
         connect_target_instances(&store, &scope, instance_id).await?;
         if let Some(session_key) = session_key.as_deref() {
@@ -58,18 +57,12 @@ impl McpStoreServer {
         } else {
             HashMap::new()
         };
-        let event_tools = if expose_event_tools {
-            build_event_tools()
-        } else {
-            HashMap::new()
-        };
         for tool_name in session_state_tools
             .keys()
             .chain(tool_transform_tools.keys())
             .chain(openapi_tools.keys())
             .chain(service_tools.keys())
             .chain(cache_tools.keys())
-            .chain(event_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(format!(
@@ -87,7 +80,6 @@ impl McpStoreServer {
         tools.extend(openapi_tools.values().cloned());
         tools.extend(service_tools.values().cloned());
         tools.extend(cache_tools.values().cloned());
-        tools.extend(event_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
 
         let scope_label = match &scope {
@@ -115,7 +107,6 @@ impl McpStoreServer {
             openapi_tools: Arc::new(openapi_tools),
             service_tools: Arc::new(service_tools),
             cache_tools: Arc::new(cache_tools),
-            event_tools: Arc::new(event_tools),
             tools: Arc::new(tools),
         })
     }
@@ -148,7 +139,6 @@ impl McpStoreServer {
             .chain(self.openapi_tools.keys())
             .chain(self.service_tools.keys())
             .chain(self.cache_tools.keys())
-            .chain(self.event_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(ErrorData::internal_error(
@@ -169,7 +159,6 @@ impl McpStoreServer {
         tools.extend(self.openapi_tools.values().cloned());
         tools.extend(self.service_tools.values().cloned());
         tools.extend(self.cache_tools.values().cloned());
-        tools.extend(self.event_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(tools)
     }
@@ -236,7 +225,6 @@ impl ServerHandler for McpStoreServer {
             .or_else(|| self.openapi_tools.get(name).cloned())
             .or_else(|| self.service_tools.get(name).cloned())
             .or_else(|| self.cache_tools.get(name).cloned())
-            .or_else(|| self.event_tools.get(name).cloned())
     }
 
     fn list_resources(
@@ -382,7 +370,6 @@ impl ServerHandler for McpStoreServer {
         let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
         let is_service_tool = self.service_tools.contains_key(tool_name.as_str());
         let is_cache_tool = self.cache_tools.contains_key(tool_name.as_str());
-        let is_event_tool = self.event_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let instance_id = self.instance_id;
@@ -418,11 +405,6 @@ impl ServerHandler for McpStoreServer {
             }
             if is_cache_tool {
                 return call_cache_tool(&store, &tool_name, arguments)
-                    .await
-                    .map(Into::into);
-            }
-            if is_event_tool {
-                return call_event_tool(&store, &tool_name, arguments)
                     .await
                     .map(Into::into);
             }

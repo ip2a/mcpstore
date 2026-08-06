@@ -71,7 +71,6 @@ pub struct McpServerOptions {
     pub expose_openapi_tools: bool,
     pub expose_service_tools: bool,
     pub expose_cache_tools: bool,
-    pub expose_event_tools: bool,
 }
 
 impl Default for McpServerOptions {
@@ -94,7 +93,6 @@ impl Default for McpServerOptions {
             expose_openapi_tools: false,
             expose_service_tools: false,
             expose_cache_tools: false,
-            expose_event_tools: false,
         }
     }
 }
@@ -189,8 +187,6 @@ const SERVICE_WAIT_TOOL: &str = "mcpstore_instance_wait";
 const CACHE_HEALTH_TOOL: &str = "mcpstore_cache_health";
 const CACHE_INSPECT_TOOL: &str = "mcpstore_cache_inspect";
 const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
-const EVENT_HISTORY_TOOL: &str = "mcpstore_event_history";
-const EVENT_CAPABILITY_REPORT_TOOL: &str = "mcpstore_event_capability_report";
 
 #[derive(Clone)]
 struct ToolBinding {
@@ -244,7 +240,6 @@ struct McpStoreServer {
     openapi_tools: Arc<HashMap<String, Tool>>,
     service_tools: Arc<HashMap<String, Tool>>,
     cache_tools: Arc<HashMap<String, Tool>>,
-    event_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
 }
 
