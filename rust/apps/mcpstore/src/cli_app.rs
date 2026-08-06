@@ -45,7 +45,7 @@ pub enum Commands {
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
     MigrateBackend(commands::mcp::MigrateBackendArgs),
-    #[command(name = "mcp-server", visible_alias = "serve-mcp")]
+    #[command(name = "mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
     #[command(visible_alias = "ui")]
     Web(commands::web::WebArgs),
@@ -543,23 +543,18 @@ mod tests {
     }
 
     #[test]
-    fn parses_mcp_server_command() {
-        let cli = Cli::try_parse_from([
-            "mcpstore",
-            "mcp-server",
-            "--scope",
-            "agent",
-            "--agent",
-            "agent1",
-        ])
-        .unwrap();
+    fn parses_mcp_command() {
+        let cli = Cli::try_parse_from(["mcpstore", "mcp", "--scope", "agent", "--agent", "agent1"])
+            .unwrap();
 
         match cli.command {
             Commands::McpServer(args) => {
                 assert_eq!(args.scope, commands::mcp::Scope::Agent);
                 assert_eq!(args.agent.as_deref(), Some("agent1"));
+                assert_eq!(args.transport, None);
+                assert_eq!(args.port, None);
             }
-            _ => panic!("Expected to parse as mcp-server command"),
+            _ => panic!("Expected to parse as mcp command"),
         }
     }
 

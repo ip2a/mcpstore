@@ -23,6 +23,13 @@ pub(super) struct UpdateSettingsRequest {
     default_backup_dir: Option<String>,
     logging: Option<UpdateLoggingRequest>,
     diagnostics: Option<UpdateDiagnosticsRequest>,
+    server: Option<UpdateServerRequest>,
+}
+
+#[derive(Deserialize)]
+struct UpdateServerRequest {
+    port: Option<u16>,
+    web_port: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +110,27 @@ pub(super) async fn update_settings(
         }
         if let Some(retention_days) = logging.retention_days {
             config.ui.logging.retention_days = retention_days;
+        }
+    }
+
+    if let Some(server) = payload.server {
+        if let Some(port) = server.port {
+            if port == 0 {
+                return Err(ApiError::invalid_parameter(
+                    "后端端口必须大于 0",
+                    Some("server.port"),
+                ));
+            }
+            config.server.port = port;
+        }
+        if let Some(web_port) = server.web_port {
+            if web_port == 0 {
+                return Err(ApiError::invalid_parameter(
+                    "前端端口必须大于 0",
+                    Some("server.web_port"),
+                ));
+            }
+            config.server.web_port = web_port;
         }
     }
 
@@ -208,6 +236,11 @@ fn settings_payload(config: &AppConfig) -> Value {
         "logging": {
             "max_size_bytes": config.ui.logging.max_size_bytes,
             "retention_days": config.ui.logging.retention_days,
+        },
+        "server": {
+            "host": config.server.host,
+            "port": config.server.port,
+            "web_port": config.server.web_port,
         },
         "diagnostics": {
             "enabled": config.diagnostics.enabled,

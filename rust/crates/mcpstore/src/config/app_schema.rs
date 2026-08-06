@@ -22,6 +22,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub server: ServerSettings,
     #[serde(default)]
+    pub mcp_aggregate: McpAggregateConfig,
+    #[serde(default)]
     pub health_check: HealthCheckConfig,
     #[serde(default)]
     pub monitoring: MonitoringConfig,
@@ -44,12 +46,30 @@ impl Default for AppConfig {
             created_at: default_created_at(),
             cache: CacheConfig::default(),
             server: ServerSettings::default(),
+            mcp_aggregate: McpAggregateConfig::default(),
             health_check: HealthCheckConfig::default(),
             monitoring: MonitoringConfig::default(),
             service_defaults: ServiceDefaultsConfig::default(),
             standalone: StandaloneConfig::default(),
             ui: UiConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpAggregateConfig {
+    #[serde(default = "default_mcp_aggregate_transport")]
+    pub transport: String,
+    #[serde(default = "default_mcp_aggregate_port")]
+    pub port: u16,
+}
+
+impl Default for McpAggregateConfig {
+    fn default() -> Self {
+        Self {
+            transport: default_mcp_aggregate_transport(),
+            port: default_mcp_aggregate_port(),
         }
     }
 }
@@ -217,6 +237,8 @@ pub struct ServerSettings {
     pub host: String,
     #[serde(default = "default_server_port")]
     pub port: u16,
+    #[serde(default = "default_web_port")]
+    pub web_port: u16,
     #[serde(default)]
     pub reload: bool,
     #[serde(default)]
@@ -234,6 +256,7 @@ impl Default for ServerSettings {
         Self {
             host: default_server_host(),
             port: default_server_port(),
+            web_port: default_web_port(),
             reload: false,
             auto_open_browser: false,
             show_startup_info: true,

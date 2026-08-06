@@ -45,7 +45,19 @@ pub(in crate::config) fn default_server_host() -> String {
 }
 
 pub(in crate::config) fn default_server_port() -> u16 {
-    18200
+    1820
+}
+
+pub(in crate::config) fn default_mcp_aggregate_transport() -> String {
+    "stdio".to_string()
+}
+
+pub(in crate::config) fn default_mcp_aggregate_port() -> u16 {
+    1830
+}
+
+pub(in crate::config) fn default_web_port() -> u16 {
+    1828
 }
 
 pub(in crate::config) fn default_server_log_level_value() -> String {

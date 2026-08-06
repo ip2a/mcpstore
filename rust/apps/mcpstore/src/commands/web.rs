@@ -16,8 +16,8 @@ use crate::{
 
 #[derive(Args)]
 pub struct WebArgs {
-    #[arg(long, default_value_t = 8080, help = "Web UI 端口")]
-    pub port: u16,
+    #[arg(long, help = "Web UI 端口；未指定时读取 app 配置")]
+    pub port: Option<u16>,
     #[arg(long, default_value = "127.0.0.1", help = "绑定地址")]
     pub host: String,
     #[command(flatten)]
@@ -27,10 +27,12 @@ pub struct WebArgs {
 pub async fn run(args: WebArgs) -> Result<(), BoxErr> {
     let store = build_store(&args.store)?;
     store.load_from_source().await?;
+    let config = store.config_manager().load_app_config_or_default()?;
+    let port = args.port.unwrap_or(config.server.web_port);
 
     let app = router(store);
 
-    let addr = format!("{}:{}", args.host, args.port);
+    let addr = format!("{}:{}", args.host, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     println!("[Web UI] Starting at http://{}/", addr);
 

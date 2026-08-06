@@ -58,6 +58,9 @@ pub(super) struct AggregateLaunchQuery {
 }
 
 pub(super) async fn aggregate_launch(Query(query): Query<AggregateLaunchQuery>) -> ApiResult {
+    let app_config = ConfigManager::new()
+        .load_app_config_or_default()
+        .map_err(|error| ApiError::invalid_request(format!("加载 app 配置失败: {error}")))?;
     let scope = match query.scope.as_deref().unwrap_or("store") {
         "store" => ScopeRef::Store,
         "agent" => ScopeRef::Agent {
@@ -72,7 +75,11 @@ pub(super) async fn aggregate_launch(Query(query): Query<AggregateLaunchQuery>) 
             ))
         }
     };
-    let transport = match query.transport.as_deref().unwrap_or("stdio") {
+    let transport = match query
+        .transport
+        .as_deref()
+        .unwrap_or(app_config.mcp_aggregate.transport.as_str())
+    {
         "stdio" => McpServerTransport::Stdio,
         "streamable-http" | "http" => McpServerTransport::StreamableHttp,
         value => {
@@ -88,7 +95,7 @@ pub(super) async fn aggregate_launch(Query(query): Query<AggregateLaunchQuery>) 
         session_key: query.session_key,
         transport,
         host: query.host.unwrap_or_else(|| "127.0.0.1".into()),
-        port: query.port.unwrap_or(18300),
+        port: query.port.unwrap_or(app_config.mcp_aggregate.port),
         path: query.path.unwrap_or_else(|| "/mcp".into()),
         ..Default::default()
     };

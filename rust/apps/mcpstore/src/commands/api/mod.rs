@@ -18,7 +18,7 @@ use mcpstore::{
         ClientEntryStatus, ClientKind, ConfigChangeReceipt,
     },
     config::ScopeDescriptor,
-    AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
+    AuthFlow, ConfigManager, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, ToolTransformPatch,
 };
 use serde_json::json;
@@ -50,8 +50,8 @@ use parse::{
 
 #[derive(Args)]
 pub struct ApiArgs {
-    #[arg(long, default_value_t = 18200, help = "API 服务端口")]
-    pub port: u16,
+    #[arg(long, help = "API 服务端口；未指定时读取 app 配置")]
+    pub port: Option<u16>,
     #[arg(long, default_value = "127.0.0.1", help = "绑定地址")]
     pub host: String,
     #[arg(long, default_value = "", help = "URL 前缀，例如 /mcp")]
@@ -81,10 +81,13 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     let store = build_store(&args.store)?;
     store.load_from_source().await?;
 
+    let config = store.config_manager().load_app_config_or_default()?;
+    let port = args.port.unwrap_or(config.server.port);
+
     let prefix = normalize_prefix(&args.url_prefix);
     let app = router_for_store(store, &prefix);
 
-    let addr = format!("{}:{}", args.host, args.port);
+    let addr = format!("{}:{}", args.host, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let display_prefix = if prefix.is_empty() {
         "/".to_string()

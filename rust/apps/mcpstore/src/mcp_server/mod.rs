@@ -86,7 +86,7 @@ impl Default for McpServerOptions {
             instance_id: None,
             transport: McpServerTransport::Stdio,
             host: "127.0.0.1".to_string(),
-            port: 18300,
+            port: 1830,
             path: "/mcp".to_string(),
             session_key: None,
             expose_session_state_tools: false,
@@ -110,7 +110,7 @@ pub struct McpServerLaunchDescriptor {
 impl McpServerOptions {
     pub fn launch_descriptor(&self, binary: &str) -> McpServerLaunchDescriptor {
         let mut args = vec![
-            "mcp-server".to_string(),
+            "mcp".to_string(),
             "--transport".to_string(),
             self.transport.as_str().to_string(),
         ];

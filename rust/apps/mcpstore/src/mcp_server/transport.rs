@@ -1,4 +1,4 @@
-use super::catalog::{catalog_name_counts, stable_namespace};
+use super::catalog::{catalog_name_counts, service_namespace};
 use super::tools::{read_required_instance_id, read_required_object, read_required_string};
 use super::*;
 
@@ -80,6 +80,7 @@ pub(super) async fn build_tool_bindings(
     };
 
     let names = catalog_name_counts(&tool_payloads, "name")?;
+    let namespace_tools = target_instance_id.is_none() && session_key.is_none();
 
     let mut bindings = HashMap::with_capacity(tool_payloads.len());
     for payload in tool_payloads {
@@ -87,15 +88,12 @@ pub(super) async fn build_tool_bindings(
         let canonical_tool_name = read_required_string(&payload, "tool_name")?;
         let instance_id = read_required_instance_id(&payload, "instance_id")?;
         let service_name = read_required_string(&payload, "service_name")?;
-        let exposed_name = if names.get(&original_name).copied().unwrap_or_default() > 1 {
-            format!(
-                "{}__{}",
-                stable_namespace(&service_name, instance_id),
+        let exposed_name =
+            if namespace_tools || names.get(&original_name).copied().unwrap_or_default() > 1 {
+                format!("{}__{}", service_namespace(&service_name), original_name)
+            } else {
                 original_name
-            )
-        } else {
-            original_name
-        };
+            };
         let description = payload
             .get("description")
             .and_then(Value::as_str)
