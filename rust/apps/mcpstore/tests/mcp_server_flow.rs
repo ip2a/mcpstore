@@ -60,7 +60,7 @@ fn unique_temp_dir() -> PathBuf {
         .as_nanos();
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
-        "mcpstore-mcp-server-flow-{}-{nanos}-{id}",
+        "mcpstore-mcp-flow-{}-{nanos}-{id}",
         std::process::id()
     ));
     std::fs::create_dir_all(&dir).expect("failed to create temp dir");
@@ -153,12 +153,14 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
 
     let first_id = ServiceInstanceKey::new("first", ScopeRef::Store).instance_id();
     let second_id = ServiceInstanceKey::new("second", ScopeRef::Store).instance_id();
-    let first_namespace = format!("first__{first_id}");
-    let second_namespace = format!("second__{second_id}");
+    let first_namespace = "first";
+    let second_namespace = "second";
+    let first_prompt_namespace = format!("first__{first_id}");
+    let second_prompt_namespace = format!("second__{second_id}");
 
     let (transport, stderr) =
         TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp-server")
+            cmd.arg("mcp")
                 .arg("--config-path")
                 .arg(config_path.display().to_string())
                 .current_dir(rust_root());
@@ -176,7 +178,7 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
         Err(error) => {
             let stderr_output = stderr_task.await??;
             return Err(format!(
-                "conflict mcp-server handshake failed: {error}; stderr:\
+                "conflict mcp handshake failed: {error}; stderr:\
 {stderr_output}"
             )
             .into());
@@ -273,8 +275,8 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
         .iter()
         .map(|prompt| prompt.name.clone())
         .collect::<Vec<_>>();
-    let first_prompt = format!("{first_namespace}__explain");
-    let second_prompt = format!("{second_namespace}__explain");
+    let first_prompt = format!("{first_prompt_namespace}__explain");
+    let second_prompt = format!("{second_prompt_namespace}__explain");
     assert_eq!(
         prompt_names,
         vec![first_prompt.clone(), second_prompt.clone()]
@@ -311,7 +313,7 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
 
     let (transport, stderr) =
         TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp-server")
+            cmd.arg("mcp")
                 .arg("--config-path")
                 .arg(config_path.display().to_string())
                 .current_dir(rust_root());
@@ -401,7 +403,7 @@ async fn mcp_server_command_exposes_only_selected_instance_over_stdio_inner() ->
     let instance_id = ServiceInstanceKey::new("selected", ScopeRef::Store).instance_id();
     let (transport, stderr) =
         TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp-server")
+            cmd.arg("mcp")
                 .arg("--config-path")
                 .arg(config_path.display().to_string())
                 .arg("--instance-id")
@@ -422,7 +424,7 @@ async fn mcp_server_command_exposes_only_selected_instance_over_stdio_inner() ->
         Err(error) => {
             let stderr_output = stderr_task.await??;
             return Err(format!(
-                "instance mcp-server handshake failed: {error}; stderr:\n{stderr_output}"
+                "instance mcp handshake failed: {error}; stderr:\n{stderr_output}"
             )
             .into());
         }
@@ -570,7 +572,7 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
 
     let (transport, stderr) =
         TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp-server")
+            cmd.arg("mcp")
                 .args(store_args)
                 .arg("--session-key")
                 .arg("store:aggregate-e2e")
@@ -589,10 +591,9 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
-            return Err(format!(
-                "session mcp-server handshake failed: {error}; stderr:\n{stderr_output}"
-            )
-            .into());
+            return Err(
+                format!("session mcp handshake failed: {error}; stderr:\n{stderr_output}").into(),
+            );
         }
     };
 
@@ -689,10 +690,11 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
+    let tool_name = "demo__greet".to_string();
 
     let (transport, stderr) =
         TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp-server")
+            cmd.arg("mcp")
                 .arg("--config-path")
                 .arg(config_path.display().to_string())
                 .current_dir(rust_root());
@@ -711,12 +713,12 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
-            return Err(format!("mcp-server 握手失败: {error}; stderr:\n{stderr_output}").into());
+            return Err(format!("mcp 握手失败: {error}; stderr:\n{stderr_output}").into());
         }
     };
     let tools = client.list_all_tools().await?;
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name.as_ref(), "greet");
+    assert_eq!(tools[0].name.as_ref(), tool_name);
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
@@ -766,7 +768,7 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
     let args: serde_json::Map<String, serde_json::Value> =
         serde_json::from_value(serde_json::json!({"name": "World"}))?;
     let result = client
-        .call_tool(CallToolRequestParams::new("greet").with_arguments(args))
+        .call_tool(CallToolRequestParams::new(tool_name).with_arguments(args))
         .await?;
 
     let text = result
@@ -823,10 +825,11 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
+    let tool_name = "demo__greet".to_string();
 
     let (transport, stderr) =
         TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp-server")
+            cmd.arg("mcp")
                 .arg("--scope")
                 .arg("agent")
                 .arg("--agent")
@@ -849,16 +852,15 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
         Ok(client) => client,
         Err(error) => {
             let stderr_output = stderr_task.await??;
-            return Err(format!(
-                "agent scope mcp-server 握手失败: {error}; stderr:\n{stderr_output}"
-            )
-            .into());
+            return Err(
+                format!("agent scope mcp 握手失败: {error}; stderr:\n{stderr_output}").into(),
+            );
         }
     };
 
     let tools = client.list_all_tools().await?;
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name.as_ref(), "greet");
+    assert_eq!(tools[0].name.as_ref(), tool_name);
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
@@ -930,9 +932,10 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
     ];
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
+    let tool_name = "demo__greet".to_string();
 
     let mut child = tokio::process::Command::new(cli_bin())
-        .arg("mcp-server")
+        .arg("mcp")
         .arg("--transport")
         .arg("streamable-http")
         .arg("--host")
@@ -969,7 +972,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
 
     let tools = client.list_all_tools().await?;
     assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name.as_ref(), "greet");
+    assert_eq!(tools[0].name.as_ref(), tool_name);
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
@@ -1019,7 +1022,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
     let args: serde_json::Map<String, serde_json::Value> =
         serde_json::from_value(serde_json::json!({"name": "Rust"}))?;
     let result = client
-        .call_tool(CallToolRequestParams::new("greet").with_arguments(args))
+        .call_tool(CallToolRequestParams::new(tool_name).with_arguments(args))
         .await?;
     let text = result
         .content

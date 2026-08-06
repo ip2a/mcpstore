@@ -42,6 +42,7 @@ class FastMCP:
         self._tools: dict[str, _ToolDef] = {}
         self._resources: dict[str, _ResourceDef] = {}
         self._prompts: dict[str, _PromptDef] = {}
+        self._legacy_protocol_version: str | None = None
 
     def tool(self):
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -88,9 +89,26 @@ class FastMCP:
         method = request.get("method")
         params = request.get("params") or {}
 
+        if method == "initialize":
+            protocol_version = params.get("protocolVersion") or _LATEST_PROTOCOL_VERSION
+            self._legacy_protocol_version = protocol_version
+            return {
+                "protocolVersion": protocol_version,
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                    "prompts": {},
+                },
+                "serverInfo": {
+                    "name": self._name,
+                    "version": "0.1.0",
+                },
+                "instructions": "fixture fastmcp replacement",
+            }
+
         meta = params.get("_meta") or {}
         protocol_version = meta.get("io.modelcontextprotocol/protocolVersion")
-        if protocol_version != _LATEST_PROTOCOL_VERSION:
+        if self._legacy_protocol_version is None and protocol_version != _LATEST_PROTOCOL_VERSION:
             raise ValueError(
                 f"仅支持 MCP {_LATEST_PROTOCOL_VERSION}，实际值: {protocol_version}"
             )

@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from mcpstore import AgentContext, MCPStore, Service, SessionContext, StoreContext, Tool, _rust
 from mcpstore.store import RustStoreBackend
@@ -67,6 +67,35 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertFalse(hasattr(store, "show_scope_config"))
             self.assertTrue(Service)
             self.assertTrue(Tool)
+            for class_name, methods in {
+                "ScopeContext": (
+                    "list_resources",
+                    "list_resource_templates",
+                    "list_prompts",
+                ),
+                "Service": (
+                    "list_resources",
+                    "list_resource_templates",
+                    "read_resource",
+                    "list_prompts",
+                    "get_prompt",
+                ),
+                "AsyncScopeContext": (
+                    "list_resources",
+                    "list_resource_templates",
+                    "list_prompts",
+                ),
+                "AsyncService": (
+                    "list_resources",
+                    "list_resource_templates",
+                    "read_resource",
+                    "list_prompts",
+                    "get_prompt",
+                ),
+            }.items():
+                with self.subTest(class_name=class_name):
+                    native_class = getattr(_rust, class_name)
+                    self.assertTrue(all(hasattr(native_class, method) for method in methods))
 
     def test_real_binding_keeps_store_and_agent_instances_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,6 +276,58 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         )
         native.disconnect_service.assert_called_once_with(
             service_name="svc", instance_id=None
+        )
+
+    def test_resource_and_prompt_facades_route_by_scope_and_service(self) -> None:
+        context_native = Mock()
+        context_native.scope.return_value = {"type": "store"}
+        context_native.list_resources.return_value = [{"uri": "resource://scope"}]
+        context_native.list_resource_templates.return_value = [
+            {"uriTemplate": "resource://scope/{id}"}
+        ]
+        context_native.list_prompts.return_value = [{"name": "scope-prompt"}]
+
+        context = StoreContext(context_native)
+        self.assertEqual(context.list_resources(), [{"uri": "resource://scope"}])
+        self.assertEqual(
+            context.list_resource_templates(),
+            [{"uriTemplate": "resource://scope/{id}"}],
+        )
+        self.assertEqual(context.list_prompts(), [{"name": "scope-prompt"}])
+
+        service_native = Mock()
+        service_native.list_resources.return_value = [{"uri": "resource://service"}]
+        service_native.list_resource_templates.return_value = [
+            {"uriTemplate": "resource://service/{id}"}
+        ]
+        service_native.read_resource.return_value = {"contents": [{"text": "value"}]}
+        service_native.list_prompts.return_value = [{"name": "service-prompt"}]
+        service_native.get_prompt.side_effect = [
+            {"messages": [{"content": {"text": "default"}}]},
+            {"messages": [{"content": {"text": "named"}}]},
+        ]
+
+        service = Service(service_native)
+        self.assertEqual(service.list_resources(), [{"uri": "resource://service"}])
+        self.assertEqual(
+            service.list_resource_templates(),
+            [{"uriTemplate": "resource://service/{id}"}],
+        )
+        self.assertEqual(
+            service.read_resource("resource://service"),
+            {"contents": [{"text": "value"}]},
+        )
+        self.assertEqual(service.list_prompts(), [{"name": "service-prompt"}])
+        service.get_prompt("service-prompt")
+        service.get_prompt("service-prompt", {"name": "demo"})
+
+        service_native.read_resource.assert_called_once_with("resource://service")
+        self.assertEqual(
+            service_native.get_prompt.call_args_list,
+            [
+                call("service-prompt", {}),
+                call("service-prompt", {"name": "demo"}),
+            ],
         )
 
     def test_scope_adapter_is_bound_to_the_current_python_context(self) -> None:
