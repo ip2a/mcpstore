@@ -447,13 +447,12 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
     };
     seed_db_service_config(&store, config).await;
     store.load_from_source().await.unwrap();
-    let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
     let (addr, handle) = spawn_test_api(store).await;
     let client = reqwest::Client::new();
     let base_url = format!("http://{addr}");
 
     let status = client
-        .get(format!("{base_url}/instances/{instance_id}/auth"))
+        .get(format!("{base_url}/services/demo/auth"))
         .send()
         .await
         .unwrap();
@@ -472,7 +471,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
     );
 
     let callback = client
-        .get(format!("{base_url}/instances/{instance_id}/auth/callback"))
+        .get(format!("{base_url}/services/demo/auth/callback"))
         .query(&[
             ("code", "sensitive-code"),
             ("state", "sensitive-state"),
@@ -489,7 +488,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
 
     let empty_secret = client
         .post(format!(
-            "{base_url}/instances/{instance_id}/auth/client-secret"
+            "{base_url}/services/demo/auth/client-secret"
         ))
         .json(&json!({"client_secret": ""}))
         .send()
@@ -502,7 +501,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
 
     let empty_key = client
         .post(format!(
-            "{base_url}/instances/{instance_id}/auth/private-key"
+            "{base_url}/services/demo/auth/private-key"
         ))
         .json(&json!({"private_key_pem": ""}))
         .send()
@@ -548,11 +547,10 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
         .unwrap()
         .to_string();
     assert_eq!(session_key, "store:api-core-session");
-    let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
 
     let bind = client
         .post(format!("{base_url}/sessions/bind_service"))
-        .json(&json!({"session_key": session_key, "instance_id": instance_id}))
+        .json(&json!({"session_key": session_key, "service_name": "demo", "scope": "store"}))
         .send()
         .await
         .unwrap();
@@ -607,8 +605,8 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
     assert_eq!(list_state_payload["data"]["values"]["cursor"]["page"], 1);
 
     let delete_state = client
-        .post(format!("{base_url}/sessions/state/delete/{session_key}"))
-        .json(&json!({"key": "cursor"}))
+        .post(format!("{base_url}/sessions/state/delete"))
+        .json(&json!({"session_key": session_key, "key": "cursor"}))
         .send()
         .await
         .unwrap();
@@ -620,8 +618,8 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
         .is_empty());
 
     let set_answer = client
-        .post(format!("{base_url}/sessions/state/set/{session_key}"))
-        .json(&json!({"key": "answer", "value": 42}))
+        .post(format!("{base_url}/sessions/state/set"))
+        .json(&json!({"session_key": session_key, "key": "answer", "value": 42}))
         .send()
         .await
         .unwrap();
@@ -641,15 +639,16 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
         .is_empty());
 
     let set_path_clear = client
-        .post(format!("{base_url}/sessions/state/set/{session_key}"))
-        .json(&json!({"key": "path_clear", "value": true}))
+        .post(format!("{base_url}/sessions/state/set"))
+        .json(&json!({"session_key": session_key, "key": "path_clear", "value": true}))
         .send()
         .await
         .unwrap();
     assert!(set_path_clear.status().is_success());
 
     let clear_state_by_path = client
-        .post(format!("{base_url}/sessions/state/clear/{session_key}"))
+        .post(format!("{base_url}/sessions/state/clear"))
+        .json(&json!({"session_key": session_key}))
         .send()
         .await
         .unwrap();
@@ -699,7 +698,7 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
 }
 
 #[tokio::test]
-async fn third_party_config_export_requires_instance_id() {
+async fn third_party_config_export_requires_service_name() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
@@ -739,10 +738,9 @@ async fn third_party_config_export_requires_instance_id() {
         json!("MISSING_PARAMETER")
     );
 
-    let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
     let claude = client
         .get(format!(
-            "{base_url}/config?format=claude&instance_id={instance_id}"
+            "{base_url}/config?format=claude&service_name=demo&scope=store"
         ))
         .send()
         .await
@@ -911,7 +909,7 @@ async fn definition_and_scope_routes_are_explicit_and_isolated() {
     assert!(declare_agent.status().is_success());
 
     let store_instances = client
-        .get(format!("{base_url}/scopes/store/instances"))
+        .get(format!("{base_url}/services/list"))
         .send()
         .await
         .unwrap()
@@ -919,7 +917,9 @@ async fn definition_and_scope_routes_are_explicit_and_isolated() {
         .await
         .unwrap();
     let agent_instances = client
-        .get(format!("{base_url}/scopes/agents/agent-a/instances"))
+        .get(format!(
+            "{base_url}/services/list?scope=agent&agent_id=agent-a"
+        ))
         .send()
         .await
         .unwrap()
@@ -939,7 +939,7 @@ async fn definition_and_scope_routes_are_explicit_and_isolated() {
     assert!(remove_agent.status().is_success());
 
     let store_after_remove = client
-        .get(format!("{base_url}/scopes/store/instances"))
+        .get(format!("{base_url}/services/list"))
         .send()
         .await
         .unwrap()
@@ -947,7 +947,9 @@ async fn definition_and_scope_routes_are_explicit_and_isolated() {
         .await
         .unwrap();
     let agent_after_remove = client
-        .get(format!("{base_url}/scopes/agents/agent-a/instances"))
+        .get(format!(
+            "{base_url}/services/list?scope=agent&agent_id=agent-a"
+        ))
         .send()
         .await
         .unwrap()
@@ -1007,11 +1009,9 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
         .as_str()
         .unwrap()
         .to_string();
-    let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
-
     let bind = client
         .post(format!("{source_base_url}/sessions/bind_service"))
-        .json(&json!({"session_key": session_key, "instance_id": instance_id}))
+        .json(&json!({"session_key": session_key, "service_name": "demo", "scope": "store"}))
         .send()
         .await
         .unwrap();
@@ -1113,10 +1113,9 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
     let (addr, handle) = spawn_test_api(store).await;
     let client = reqwest::Client::new();
     let base_url = format!("http://{addr}");
-    let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
 
     let default_list = client
-        .get(format!("{base_url}/instances/{instance_id}/tools"))
+        .get(format!("{base_url}/services/demo/tools/list"))
         .send()
         .await
         .unwrap();
@@ -1126,7 +1125,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
     assert_eq!(default_payload["data"]["total"], 1);
 
     let set_policy = client
-        .put(format!("{base_url}/instances/{instance_id}/tool-policy"))
+        .put(format!("{base_url}/services/demo/tool-policy"))
         .json(&json!({"available_tools": []}))
         .send()
         .await
@@ -1139,7 +1138,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 
     let available = client
         .get(format!(
-            "{base_url}/instances/{instance_id}/tools?filter=available"
+            "{base_url}/services/demo/tools/list?filter=available"
         ))
         .send()
         .await
@@ -1151,7 +1150,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 
     let removed = client
         .get(format!(
-            "{base_url}/instances/{instance_id}/tools?filter=removed"
+            "{base_url}/services/demo/tools/list?filter=removed"
         ))
         .send()
         .await
@@ -1164,7 +1163,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 
     let invalid = client
         .get(format!(
-            "{base_url}/instances/{instance_id}/tools?filter=hidden"
+            "{base_url}/services/demo/tools/list?filter=hidden"
         ))
         .send()
         .await
@@ -1172,14 +1171,14 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
     assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
 
     let clear = client
-        .delete(format!("{base_url}/instances/{instance_id}/tool-policy"))
+        .delete(format!("{base_url}/services/demo/tool-policy"))
         .send()
         .await
         .unwrap();
     assert!(clear.status().is_success());
 
     let restored = client
-        .get(format!("{base_url}/instances/{instance_id}/tools"))
+        .get(format!("{base_url}/services/demo/tools/list"))
         .send()
         .await
         .unwrap()
@@ -1205,11 +1204,10 @@ async fn store_routes_manage_rust_core_tool_transforms() {
     let (addr, handle) = spawn_test_api(store).await;
     let client = reqwest::Client::new();
     let base_url = format!("http://{addr}");
-    let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
 
     let set_transform = client
         .put(format!(
-            "{base_url}/instances/{instance_id}/tool_transforms/echo"
+            "{base_url}/services/demo/tool_transforms/echo"
         ))
         .json(&json!({
             "display_name": "say",
@@ -1239,7 +1237,7 @@ async fn store_routes_manage_rust_core_tool_transforms() {
     assert_eq!(set_payload["data"]["transform"]["version"], 1);
 
     let list_tools = client
-        .get(format!("{base_url}/instances/{instance_id}/tools"))
+        .get(format!("{base_url}/services/demo/tools/list"))
         .send()
         .await
         .unwrap();
@@ -1256,7 +1254,7 @@ async fn store_routes_manage_rust_core_tool_transforms() {
 
     let get_transform = client
         .get(format!(
-            "{base_url}/instances/{instance_id}/tool_transforms/echo"
+            "{base_url}/services/demo/tool_transforms/echo"
         ))
         .send()
         .await
@@ -1276,7 +1274,7 @@ async fn store_routes_manage_rust_core_tool_transforms() {
 
     let delete_transform = client
         .delete(format!(
-            "{base_url}/instances/{instance_id}/tool_transforms/echo"
+            "{base_url}/services/demo/tool_transforms/echo"
         ))
         .send()
         .await
@@ -1284,7 +1282,7 @@ async fn store_routes_manage_rust_core_tool_transforms() {
     assert!(delete_transform.status().is_success());
 
     let list_tools_after_delete = client
-        .get(format!("{base_url}/instances/{instance_id}/tools"))
+        .get(format!("{base_url}/services/demo/tools/list"))
         .send()
         .await
         .unwrap();
@@ -1376,10 +1374,7 @@ async fn store_routes_manage_rust_core_openapi_imports() {
     );
 
     let service_response = client
-        .get(format!(
-            "{base_url}/instances/{}",
-            ServiceInstanceKey::new("inventory", ScopeRef::Store).instance_id()
-        ))
+        .get(format!("{base_url}/services/inventory?scope=store"))
         .send()
         .await
         .unwrap();

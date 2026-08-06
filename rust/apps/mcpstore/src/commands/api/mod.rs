@@ -46,8 +46,8 @@ mod session;
 use envelope::{success, ApiError, ApiResult};
 
 use parse::{
-    extract_prompt_args, extract_prompt_name, extract_resource_uri, extract_tool_args,
-    extract_tool_name, normalize_prefix, parse_positive_u64,
+    extract_prompt_args, extract_prompt_name, extract_tool_args, extract_tool_name, normalize_prefix,
+    parse_scope_ref, ScopeQuery,
 };
 
 #[derive(Args)]
@@ -80,6 +80,31 @@ impl Drop for AggregateProcess {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
     }
+}
+
+/// 把 `(service_name, scope)` 解析成 instance_id；服务未在该 scope 声明时返回 404。
+/// 新版 URL 以「服务名 + 作用域」寻址，instance_id 只在 API 层内部流转，不再暴露给用户。
+async fn resolve_instance(
+    state: &ApiState,
+    service_name: &str,
+    scope: &ScopeRef,
+) -> ApiResult<InstanceId> {
+    state
+        .store
+        .instance_id_for_scope(service_name, scope)
+        .await
+        .map_err(|error| match error {
+            mcpstore::StoreError::Other(_) => ApiError::not_found(
+                "SERVICE_SCOPE_NOT_FOUND",
+                format!("服务 {service_name} 未在该作用域声明"),
+                Some("service_name"),
+                Some(json!({
+                    "service_name": service_name,
+                    "scope": serde_json::to_value(scope).unwrap_or(serde_json::Value::Null),
+                })),
+            ),
+            other => ApiError::from_store(other),
+        })
 }
 
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
@@ -135,129 +160,84 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
 
 fn router(state: Arc<ApiState>, prefix: &str) -> Router {
     let base = Router::new()
+        // ===== app：应用配置 / 元信息 / 历史（app 专用，非 core）=====
         .route("/health", get(app::health))
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
-        .route("/agents/list", get(service::list_agents))
-        .route("/events/history", get(app::event_history))
         .route("/history/tool-calls", get(app::tool_call_history))
         .route(
             "/history/tool-calls/clear",
             post(app::clear_tool_call_history),
         )
+        // ===== agents / scopes =====
+        .route("/agents/list", get(service::list_agents))
+        .route("/scopes/list", get(service::scopes_list))
         .route(
-            "/events/capability_report",
-            get(app::event_capability_report),
-        )
-        .route("/sessions/create", post(session::session_create))
-        .route("/sessions/get/:session_key", get(session::session_get))
-        .route("/sessions/get", get(session::session_get_by_query))
-        .route("/sessions/find", get(session::session_find))
-        .route("/sessions/list", get(session::session_list))
-        .route("/sessions/snapshot", get(session::session_export_snapshot))
-        .route(
-            "/sessions/snapshot/import",
-            post(session::session_import_snapshot),
+            "/scopes/agents/:agent_id/config",
+            get(service::agent_show_config),
         )
         .route(
-            "/sessions/status/:session_key",
-            get(session::session_status),
+            "/scopes/agents/:agent_id/reset",
+            post(service::agent_reset_config),
         )
-        .route("/sessions/status", get(session::session_status_by_query))
-        .route("/sessions/close", post(session::session_close_by_body))
-        .route("/sessions/close/:session_key", post(session::session_close))
-        .route("/sessions/extend", post(session::session_extend_by_body))
-        .route(
-            "/sessions/extend/:session_key",
-            post(session::session_extend),
-        )
-        .route(
-            "/sessions/bind_service",
-            post(session::session_bind_service_by_body),
-        )
-        .route(
-            "/sessions/bind_service/:session_key",
-            post(session::session_bind_service),
-        )
-        .route(
-            "/sessions/unbind_service",
-            post(session::session_unbind_service_by_body),
-        )
-        .route(
-            "/sessions/unbind_service/:session_key",
-            post(session::session_unbind_service),
-        )
-        .route(
-            "/sessions/list_services",
-            get(session::session_list_services_by_query),
-        )
-        .route(
-            "/sessions/list_services/:session_key",
-            get(session::session_list_services),
-        )
-        .route(
-            "/sessions/list_tools",
-            get(session::session_list_tools_by_query),
-        )
-        .route(
-            "/sessions/list_tools/:session_key",
-            get(session::session_list_tools),
-        )
-        .route(
-            "/sessions/call_tool",
-            post(session::session_call_tool_by_body),
-        )
-        .route(
-            "/sessions/call_tool/:session_key",
-            post(session::session_call_tool),
-        )
-        .route(
-            "/sessions/state/list",
-            get(session::session_list_state_by_query),
-        )
-        .route(
-            "/sessions/state/list/:session_key",
-            get(session::session_list_state),
-        )
-        .route(
-            "/sessions/state/value",
-            get(session::session_get_state_value),
-        )
-        .route(
-            "/sessions/state/set",
-            post(session::session_set_state_by_body),
-        )
-        .route(
-            "/sessions/state/set/:session_key",
-            post(session::session_set_state),
-        )
-        .route(
-            "/sessions/state/delete",
-            post(session::session_delete_state_by_body),
-        )
-        .route(
-            "/sessions/state/delete/:session_key",
-            post(session::session_delete_state),
-        )
-        .route(
-            "/sessions/state/clear",
-            post(session::session_clear_state_by_body),
-        )
-        .route(
-            "/sessions/state/clear/:session_key",
-            post(session::session_clear_state),
-        )
-        .route("/scopes/store/instances", get(service::store_list_services))
-        .route(
-            "/scopes/agents/:agent_id/instances",
-            get(service::agent_list_services),
-        )
+        // ===== services：服务定义（根级 CRUD）+ 服务信息 =====
+        .route("/services/list", get(service::service_list_services))
         .route(
             "/services/:service_name",
-            post(service::add_service_definition)
+            get(service::service_info)
+                .post(service::add_service_definition)
                 .put(service::update_service_definition)
                 .delete(service::remove_service_definition),
         )
+        // ===== services：生命周期 / 状态（服务名 + scope 寻址）=====
+        .route("/services/:service_name/state", get(service::service_state))
+        .route(
+            "/services/:service_name/connect",
+            post(service::service_connect),
+        )
+        .route(
+            "/services/:service_name/disconnect",
+            post(service::service_disconnect),
+        )
+        .route(
+            "/services/:service_name/restart",
+            post(service::service_restart),
+        )
+        .route("/services/:service_name/wait", get(service::service_wait))
+        .route("/services/:service_name/check", get(service::service_check))
+        // ===== tools：服务嵌套形态 + 顶层形态 =====
+        .route(
+            "/services/:service_name/tools/list",
+            get(service::service_list_tools),
+        )
+        .route(
+            "/services/:service_name/tools/call",
+            post(service::service_call_tool),
+        )
+        .route("/tools/list", get(service::tools_list))
+        .route("/tools/call", post(service::tools_call))
+        // ===== resources / prompts（服务名 + scope 寻址）=====
+        .route(
+            "/services/:service_name/resources/list",
+            get(service::service_list_resources),
+        )
+        .route(
+            "/services/:service_name/resources/templates",
+            get(service::service_list_resource_templates),
+        )
+        .route(
+            "/services/:service_name/resources/read",
+            get(service::service_read_resource),
+        )
+        .route(
+            "/services/:service_name/prompts/list",
+            get(service::service_list_prompts),
+        )
+        .route(
+            "/services/:service_name/prompts/get",
+            post(service::service_get_prompt),
+        )
+        // ===== services：scope 声明 =====
         .route(
             "/services/:service_name/scopes/store",
             put(service::declare_store_scope).delete(service::remove_store_scope),
@@ -266,72 +246,92 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             "/services/:service_name/scopes/agents/:agent_id",
             put(service::declare_agent_scope).delete(service::remove_agent_scope),
         )
+        // ===== sessions（已折叠为单形态：session_key 走 query/body）=====
+        .route("/sessions/create", post(session::session_create))
+        .route("/sessions/get", get(session::session_get))
+        .route("/sessions/find", get(session::session_find))
+        .route("/sessions/list", get(session::session_list))
+        .route("/sessions/snapshot", get(session::session_export_snapshot))
         .route(
-            "/instances/:instance_id/connect",
-            post(service::store_connect_service),
+            "/sessions/snapshot/import",
+            post(session::session_import_snapshot),
         )
-        .route("/instances/:instance_id/auth", get(auth::store_auth_status))
+        .route("/sessions/status", get(session::session_status))
+        .route("/sessions/close", post(session::session_close))
+        .route("/sessions/extend", post(session::session_extend))
+        .route("/sessions/bind_service", post(session::session_bind_service))
         .route(
-            "/instances/:instance_id/auth/start",
-            post(auth::store_auth_start),
+            "/sessions/unbind_service",
+            post(session::session_unbind_service),
         )
+        .route("/sessions/list_services", get(session::session_list_services))
+        .route("/sessions/list_tools", get(session::session_list_tools))
+        .route("/sessions/call_tool", post(session::session_call_tool))
+        .route("/sessions/state/list", get(session::session_list_state))
+        .route("/sessions/state/value", get(session::session_get_state_value))
+        .route("/sessions/state/set", post(session::session_set_state))
+        .route("/sessions/state/delete", post(session::session_delete_state))
+        .route("/sessions/state/clear", post(session::session_clear_state))
+        // ===== 工具策略 / 转换规则 / 补全 / 资源订阅（服务名 + scope 寻址）=====
         .route(
-            "/instances/:instance_id/auth/callback",
-            get(auth::store_auth_callback_get).post(auth::store_auth_callback_post),
-        )
-        .route(
-            "/instances/:instance_id/auth/refresh",
-            post(auth::store_auth_refresh),
-        )
-        .route(
-            "/instances/:instance_id/auth/logout",
-            post(auth::store_auth_logout),
-        )
-        .route(
-            "/instances/:instance_id/auth/client-secret",
-            post(auth::store_auth_save_client_secret),
-        )
-        .route(
-            "/instances/:instance_id/auth/private-key",
-            post(auth::store_auth_save_private_key),
-        )
-        .route(
-            "/instances/:instance_id/auth/scope-upgrade",
-            post(auth::store_auth_scope_upgrade),
-        )
-        .route(
-            "/instances/:instance_id/disconnect",
-            post(service::store_disconnect_service),
-        )
-        .route(
-            "/instances/:instance_id/restart",
-            post(service::store_restart_service),
-        )
-        .route(
-            "/instances/:instance_id/wait",
-            get(service::store_wait_service),
-        )
-        .route(
-            "/instances/:instance_id/tools",
-            get(service::store_list_tools),
-        )
-        .route(
-            "/instances/:instance_id/tool-policy",
-            get(service::store_get_tool_policy)
-                .put(service::store_set_tool_policy)
-                .delete(service::store_clear_tool_policy),
-        )
-        .route(
-            "/instances/:instance_id/call",
-            post(service::store_call_tool),
+            "/services/:service_name/tool-policy",
+            get(service::service_get_tool_policy)
+                .put(service::service_set_tool_policy)
+                .delete(service::service_clear_tool_policy),
         )
         .route("/tool_transforms", get(service::store_list_tool_transforms))
         .route(
-            "/instances/:instance_id/tool_transforms/:tool_name",
-            get(service::store_get_tool_transform_by_path)
-                .put(service::store_set_tool_transform_by_path)
-                .delete(service::store_delete_tool_transform_by_path),
+            "/services/:service_name/tool_transforms/:tool_name",
+            get(service::service_get_tool_transform)
+                .put(service::service_set_tool_transform)
+                .delete(service::service_delete_tool_transform),
         )
+        .route(
+            "/services/:service_name/completions",
+            post(service::service_complete_argument),
+        )
+        .route(
+            "/services/:service_name/resources/subscribe",
+            post(service::service_subscribe_resource),
+        )
+        .route(
+            "/services/:service_name/resources/unsubscribe",
+            post(service::service_unsubscribe_resource),
+        )
+        // ===== OAuth 认证（服务名 + scope 寻址）=====
+        .route(
+            "/services/:service_name/auth",
+            get(auth::service_auth_status),
+        )
+        .route(
+            "/services/:service_name/auth/start",
+            post(auth::service_auth_start),
+        )
+        .route(
+            "/services/:service_name/auth/callback",
+            get(auth::service_auth_callback_get).post(auth::service_auth_callback_post),
+        )
+        .route(
+            "/services/:service_name/auth/refresh",
+            post(auth::service_auth_refresh),
+        )
+        .route(
+            "/services/:service_name/auth/logout",
+            post(auth::service_auth_logout),
+        )
+        .route(
+            "/services/:service_name/auth/client-secret",
+            post(auth::service_auth_save_client_secret),
+        )
+        .route(
+            "/services/:service_name/auth/private-key",
+            post(auth::service_auth_save_private_key),
+        )
+        .route(
+            "/services/:service_name/auth/scope-upgrade",
+            post(auth::service_auth_scope_upgrade),
+        )
+        // ===== OpenAPI 导入（保留）=====
         .route("/openapi_imports", get(openapi::store_list_openapi_imports))
         .route(
             "/openapi_imports/:name",
@@ -349,48 +349,9 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             "/openapi_imports/bundle_artifact",
             post(openapi::store_bundle_openapi_artifact),
         )
-        .route(
-            "/instances/:instance_id/resources",
-            get(service::store_list_resources),
-        )
-        .route(
-            "/instances/:instance_id/resource_templates",
-            get(service::store_list_resource_templates),
-        )
-        .route(
-            "/instances/:instance_id/read_resource",
-            get(service::store_read_resource),
-        )
-        .route(
-            "/instances/:instance_id/prompts",
-            get(service::store_list_prompts),
-        )
-        .route(
-            "/instances/:instance_id/get_prompt",
-            post(service::store_get_prompt),
-        )
-        .route(
-            "/instances/:instance_id/completions",
-            post(service::store_complete_argument),
-        )
-        .route(
-            "/instances/:instance_id/resources/subscribe",
-            post(service::store_subscribe_resource),
-        )
-        .route(
-            "/instances/:instance_id/resources/unsubscribe",
-            post(service::store_unsubscribe_resource),
-        )
-        .route(
-            "/instances/:instance_id/check",
-            get(service::store_check_service),
-        )
-        .route("/instances/:instance_id", get(service::store_service_info))
-        .route(
-            "/instances/:instance_id/state",
-            get(service::store_service_state),
-        )
+        // ===== 配置 / 编程助手 / 聚合 / 缓存（app 专用，非 core）=====
         .route("/config", get(service::store_show_config))
+        .route("/config/reset", post(service::store_reset_config))
         .route(
             "/client-config/inspect",
             post(client::client_config_inspect),
@@ -403,15 +364,6 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/aggregate/status", get(client::aggregate_status))
         .route("/aggregate/start", post(client::aggregate_start))
         .route("/aggregate/stop", post(client::aggregate_stop))
-        .route("/config/reset", post(service::store_reset_config))
-        .route(
-            "/scopes/agents/:agent_id/config",
-            get(service::agent_show_config),
-        )
-        .route(
-            "/scopes/agents/:agent_id/reset",
-            post(service::agent_reset_config),
-        )
         .route("/cache/health", get(cache::health))
         .route("/cache/inspect", get(cache::inspect))
         .route("/cache/switch", post(cache::switch))
