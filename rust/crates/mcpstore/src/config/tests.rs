@@ -282,6 +282,8 @@ fn test_app_config_roundtrip() {
     config.cache.url = Some("redis://127.0.0.1/".to_string());
     config.server.log_level = "debug".to_string();
     config.server.url_prefix = "/demo".to_string();
+    config.mcp_aggregate.transport = "streamable-http".to_string();
+    config.mcp_aggregate.port = 19400;
     config.ui.language = "en".to_string();
     config.ui.default_backup_dir = "./snapshots".to_string();
     config.ui.logging.max_size_bytes = 8 * 1024 * 1024;
@@ -293,6 +295,8 @@ fn test_app_config_roundtrip() {
     assert_eq!(loaded.cache.namespace, "mcpstore");
     assert_eq!(loaded.server.log_level, "debug");
     assert_eq!(loaded.server.url_prefix, "/demo");
+    assert_eq!(loaded.mcp_aggregate.transport, "streamable-http");
+    assert_eq!(loaded.mcp_aggregate.port, 19400);
     assert_eq!(loaded.ui.language, "en");
     assert_eq!(loaded.ui.default_backup_dir, "./snapshots");
     assert_eq!(loaded.ui.logging.max_size_bytes, 8 * 1024 * 1024);
@@ -308,6 +312,9 @@ fn test_default_template_contains_runtime_sections() {
     let template = mgr.default_app_config_toml().unwrap();
 
     assert!(template.contains("[server]"));
+    assert!(template.contains("[mcp_aggregate]"));
+    assert!(template.contains("transport = \"stdio\""));
+    assert!(template.contains("port = 1830"));
     assert!(template.contains("[health_check]"));
     assert!(template.contains("[monitoring]"));
     assert!(template.contains("[service_defaults.lifecycle]"));

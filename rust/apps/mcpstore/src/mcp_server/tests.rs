@@ -37,7 +37,7 @@ mod tests {
         assert_eq!(
             descriptor.args,
             [
-                "mcp-server",
+                "mcp",
                 "--transport",
                 "streamable-http",
                 "--scope",

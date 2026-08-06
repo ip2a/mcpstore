@@ -242,7 +242,7 @@ async fn client_config_routes_preserve_secrets_and_require_expected_hash_for_und
     let entry = json!({
         "name": "aggregate",
         "kind": "aggregate_stdio",
-        "config": {"command": "mcpstore", "args": ["mcp-server"]}
+        "config": {"command": "mcpstore", "args": ["mcp"]}
     });
 
     let inspect = client
