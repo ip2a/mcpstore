@@ -576,6 +576,6 @@ oauthConnectLoginRequired: "需要登录。请打开服务详情页并点击「�
 coreBackend: "核心后端"
 coreBackendDescription: "数据源与操作接口的地址。默认 /api（经代理到本机 Rust 后端）；可填完整 URL 指向 Python 等其它后端。修改后刷新生效。"
 coreBackendUrlLabel: "后端地址"
-coreBackendUrlPlaceholder: "/api 或 http://127.0.0.1:18200"
+coreBackendUrlPlaceholder: "/api 或 http://127.0.0.1:1820"
 coreBackendApply: "应用并刷新"
 coreBackendApplied: "已更新后端地址，正在刷新…"
