@@ -576,6 +576,6 @@ oauthConnectLoginRequired: "Login required. Open the service detail page and use
 coreBackend: "Core Backend"
 coreBackendDescription: "Address of the data source + operation API. Defaults to /api (proxied to the local Rust backend); set a full URL to point at the Python backend or others. Reload to apply."
 coreBackendUrlLabel: "Backend URL"
-coreBackendUrlPlaceholder: "/api or http://127.0.0.1:18200"
+coreBackendUrlPlaceholder: "/api or http://127.0.0.1:1820"
 coreBackendApply: "Apply & reload"
 coreBackendApplied: "Backend URL updated, reloading…"
