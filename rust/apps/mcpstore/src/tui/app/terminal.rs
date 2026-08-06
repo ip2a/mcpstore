@@ -45,6 +45,8 @@ pub fn run(
         rt.block_on(async { store.current_cache_storage().await.as_str().to_string() });
     let namespace = store.namespace();
     let config_path = store.config_manager().mcp_path().display().to_string();
+    let mcp_aggregate_transport = app_config.mcp_aggregate.transport.clone();
+    let mcp_aggregate_port = app_config.mcp_aggregate.port;
 
     let mut app = TuiApp::new(
         store,
@@ -54,6 +56,8 @@ pub fn run(
         cache_storage_label,
         namespace,
         config_path,
+        mcp_aggregate_transport,
+        mcp_aggregate_port,
     );
     app.refresh(&rt, false)?;
     app.status_message = i18n::text(app.locale, TextKey::TuiReady).to_string();

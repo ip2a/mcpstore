@@ -63,6 +63,7 @@ fn render_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let lines = match app.settings_section {
         SettingsSection::Status => status_lines(app),
         SettingsSection::General => general_lines(app),
+        SettingsSection::McpAggregate => mcp_aggregate_lines(app),
         SettingsSection::Logging => logs::log_config_lines(app),
     };
 
@@ -127,6 +128,41 @@ fn status_lines(app: &TuiApp) -> Vec<Line<'static>> {
                 stats.total, stats.ready, stats.not_ready, stats.unknown
             ),
         ),
+    ]
+}
+
+fn mcp_aggregate_lines(app: &TuiApp) -> Vec<Line<'static>> {
+    let status = if app.mcp_aggregate_running {
+        format!(
+            "running pid={}",
+            app.mcp_aggregate_pid
+                .map(|pid| pid.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        )
+    } else {
+        "stopped".to_string()
+    };
+    let endpoint = format!("http://127.0.0.1:{}/mcp", app.mcp_aggregate_port);
+    let action = if app.mcp_aggregate_transport == "streamable-http" {
+        "t: transport, Enter: start / stop, r: refresh"
+    } else {
+        "t: switch to HTTP; stdio is started by the MCP client"
+    };
+    vec![
+        kv_line(app.locale, TextKey::SettingsRuntimeStatus, status),
+        Line::from(vec![
+            Span::styled("transport: ", theme::muted()),
+            Span::styled(app.mcp_aggregate_transport.clone(), theme::text()),
+        ]),
+        Line::from(vec![
+            Span::styled("port: ", theme::muted()),
+            Span::styled(app.mcp_aggregate_port.to_string(), theme::text()),
+        ]),
+        Line::from(vec![
+            Span::styled("endpoint: ", theme::muted()),
+            Span::styled(endpoint, theme::text()),
+        ]),
+        Line::from(Span::styled(action, theme::muted())),
     ]
 }
 

@@ -21,7 +21,6 @@ use super::{
 pub(super) struct UpdateSettingsRequest {
     language: Option<String>,
     default_backup_dir: Option<String>,
-    logging: Option<UpdateLoggingRequest>,
     diagnostics: Option<UpdateDiagnosticsRequest>,
     server: Option<UpdateServerRequest>,
 }
@@ -30,12 +29,6 @@ pub(super) struct UpdateSettingsRequest {
 struct UpdateServerRequest {
     port: Option<u16>,
     web_port: Option<u16>,
-}
-
-#[derive(Deserialize)]
-struct UpdateLoggingRequest {
-    max_size_bytes: Option<u64>,
-    retention_days: Option<Option<u64>>,
 }
 
 #[derive(Deserialize)]
@@ -96,21 +89,6 @@ pub(super) async fn update_settings(
             ));
         }
         config.ui.default_backup_dir = value.to_string();
-    }
-
-    if let Some(logging) = payload.logging {
-        if let Some(max_size_bytes) = logging.max_size_bytes {
-            if max_size_bytes == 0 {
-                return Err(ApiError::invalid_parameter(
-                    "日志大小上限必须大于 0",
-                    Some("logging.max_size_bytes"),
-                ));
-            }
-            config.ui.logging.max_size_bytes = max_size_bytes;
-        }
-        if let Some(retention_days) = logging.retention_days {
-            config.ui.logging.retention_days = retention_days;
-        }
     }
 
     if let Some(server) = payload.server {
@@ -233,10 +211,6 @@ fn settings_payload(config: &AppConfig) -> Value {
     json!({
         "language": api_ui_language(&config.ui.language),
         "default_backup_dir": config.ui.default_backup_dir,
-        "logging": {
-            "max_size_bytes": config.ui.logging.max_size_bytes,
-            "retention_days": config.ui.logging.retention_days,
-        },
         "server": {
             "host": config.server.host,
             "port": config.server.port,

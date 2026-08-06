@@ -8,6 +8,8 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
+import { ConfigDetailPane } from "@/features/config/config-view"
+import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
@@ -23,8 +25,9 @@ import { getServiceEndpointLabel } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
 
 type RightPaneView = "overview" | "scope"
-type ScopeCardId = "store" | string
+type ScopeCardId = "all" | "store" | string
 
+const ALL_SCOPE_ID = "all"
 const STORE_SCOPE_ID = "store"
 
 export function AgentsView(props: {
@@ -42,10 +45,16 @@ export function AgentsView(props: {
   const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>(STORE_SCOPE_ID)
   const [addScopeDialogOpen, setAddScopeDialogOpen] = useState(false)
   const [previewServiceId, setPreviewServiceId] = useState<string | null>(null)
+  const [configScopeId, setConfigScopeId] = useState(ALL_SCOPE_ID)
+  const storeConfigQuery = useStoreConfigQuery()
+  const configAgentId = configScopeId.startsWith("agent:") ? configScopeId.slice(6) : ""
+  const agentConfigQuery = useAgentConfigQuery(configAgentId)
+  const configValue = configScopeId === "store" ? storeConfigQuery.data : configAgentId ? agentConfigQuery.data : null
+  const configLoading = storeConfigQuery.isFetching || agentConfigQuery.isFetching
 
-  const selectedScope: SelectedScope = useMemo(
+    const selectedScope: SelectedScope = useMemo(
     () =>
-      selectedScopeId === STORE_SCOPE_ID
+      selectedScopeId === ALL_SCOPE_ID || selectedScopeId === STORE_SCOPE_ID
         ? { type: "store" }
         : { type: "agent", agentId: selectedScopeId },
     [selectedScopeId],
@@ -69,7 +78,7 @@ export function AgentsView(props: {
     setSelectedAgentId,
   } = useAgentScope({ agents: props.agents, busy: props.busy, selectedScope, services: props.services })
 
-  const scopeCards = useMemo(() => [STORE_SCOPE_ID, ...agentIds] as ScopeCardId[], [agentIds])
+  const scopeCards = useMemo(() => [ALL_SCOPE_ID, STORE_SCOPE_ID, ...agentIds] as ScopeCardId[], [agentIds])
   const storeServices = useMemo(
     () => props.services.filter((service) => service.scope.type === "store"),
     [props.services],
@@ -78,7 +87,7 @@ export function AgentsView(props: {
   const loadingScope = loadingScopeServices || loadingScopeTools
   const scopeError = scopeServicesError || scopeToolsError
   const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
-  const scopeTitle = selectedScopeId === STORE_SCOPE_ID ? t("store") : selectedScopeId
+  const scopeTitle = selectedScopeId === ALL_SCOPE_ID ? t("allScopes") : selectedScopeId === STORE_SCOPE_ID ? t("store") : selectedScopeId
 
   const previewService = useMemo(
     () => scopeServices.find((service) => service.instance_id === previewServiceId) || null,
@@ -99,6 +108,11 @@ export function AgentsView(props: {
   }, [scopeTools])
 
   useEffect(() => {
+    if (configScopeId === "store") void storeConfigQuery.refetch()
+    if (configAgentId) void agentConfigQuery.refetch()
+  }, [configScopeId, configAgentId])
+
+  useEffect(() => {
     setPreviewServiceId(null)
   }, [selectedScopeId, rightPaneView])
 
@@ -112,12 +126,14 @@ export function AgentsView(props: {
   }, [props.agents, props.services.length, storeServices.length])
 
   function selectScope(scopeId: ScopeCardId) {
-    if (scopeId !== STORE_SCOPE_ID) setSelectedAgentId(scopeId)
+    if (scopeId !== ALL_SCOPE_ID && scopeId !== STORE_SCOPE_ID) setSelectedAgentId(scopeId)
+    setConfigScopeId(scopeId === ALL_SCOPE_ID || scopeId === STORE_SCOPE_ID ? scopeId : `agent:${scopeId}`)
     setSelectedScopeId(scopeId)
-    setRightPaneView("scope")
+    setRightPaneView(scopeId === ALL_SCOPE_ID ? "overview" : "scope")
   }
 
   function scopeCardMeta(scopeId: ScopeCardId) {
+    if (scopeId === ALL_SCOPE_ID) return t("allScopesDescription")
     if (scopeId === STORE_SCOPE_ID) {
       const services = scopeId === selectedScopeId && rightPaneView === "scope" ? scopeServices.length : storeServices.length
       const tools = scopeId === selectedScopeId && rightPaneView === "scope" ? scopeTools.length : 0
@@ -175,7 +191,7 @@ export function AgentsView(props: {
                   meta={scopeCardMeta(scopeId)}
                   onClick={() => selectScope(scopeId)}
                   selected={scopeId === selectedScopeId && rightPaneView === "scope"}
-                  title={scopeId === STORE_SCOPE_ID ? t("store") : scopeId}
+                  title={scopeId === ALL_SCOPE_ID ? t("allScopes") : scopeId === STORE_SCOPE_ID ? t("store") : scopeId}
                   trailing={
                     scopeId === selectedScopeId && rightPaneView === "scope" ? (
                       <Badge variant="outline">{t("active")}</Badge>
@@ -230,6 +246,15 @@ export function AgentsView(props: {
             <ScrollPane className="flex-1">
               <AgentWorkspaceOverview agents={props.agents} services={props.services} storeServices={storeServices} />
             </ScrollPane>
+            <section className="border-t pt-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-medium">{t("configuration")}</h2>
+                  <p className="text-xs text-muted-foreground">{t("allScopesDescription")}</p>
+                </div>
+              </div>
+              <p className="py-3 text-sm text-muted-foreground">{t("allScopesDescription")}</p>
+            </section>
           </>
         ) : (
           <>
@@ -340,6 +365,33 @@ export function AgentsView(props: {
                 )}
               </div>
             )}
+
+            <section className="border-t pt-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-medium">{t("configuration")}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {configScopeId === ALL_SCOPE_ID ? t("allScopesDescription") : configAgentId ? `/config/agents/${configAgentId}` : "/config"}
+                  </p>
+                </div>
+                {configScopeId !== ALL_SCOPE_ID ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={configLoading}
+                    onClick={() => void (configAgentId ? agentConfigQuery.refetch() : storeConfigQuery.refetch())}
+                  >
+                    <RefreshCwIcon data-icon="inline-start" />
+                    {t("refresh")}
+                  </Button>
+                ) : null}
+              </div>
+              {configScopeId === ALL_SCOPE_ID ? (
+                <p className="py-3 text-sm text-muted-foreground">{t("allScopesDescription")}</p>
+              ) : (
+                <ConfigDetailPane loading={configLoading && !configValue} value={configValue || {}} />
+              )}
+            </section>
 
             {selectedScope.type === "agent" ? (
               <AddScopeServiceDialog

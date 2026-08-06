@@ -1,10 +1,11 @@
 use std::{
     collections::HashMap,
     net::IpAddr,
+    process::Stdio,
     sync::{Arc, Mutex},
 };
 
-use crate::mcp_server::{McpServerOptions, McpServerTransport};
+use crate::mcp_server::{McpServerLaunchDescriptor, McpServerOptions, McpServerTransport};
 use axum::{
     extract::State,
     routing::{get, post, put},
@@ -18,12 +19,13 @@ use mcpstore::{
         ClientEntryStatus, ClientKind, ConfigChangeReceipt,
     },
     config::ScopeDescriptor,
-    AuthFlow, ConfigManager, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
+    AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, ToolTransformPatch,
 };
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
+use tokio::process::{Child, Command};
 use tower_http::cors::CorsLayer;
 
 use crate::{
@@ -66,6 +68,18 @@ pub struct ApiArgs {
 pub struct ApiState {
     store: Arc<MCPStore>,
     client_changes: Arc<Mutex<HashMap<String, ConfigChangeReceipt>>>,
+    aggregate_process: Arc<Mutex<Option<AggregateProcess>>>,
+}
+
+struct AggregateProcess {
+    child: Child,
+    descriptor: McpServerLaunchDescriptor,
+}
+
+impl Drop for AggregateProcess {
+    fn drop(&mut self) {
+        let _ = self.child.start_kill();
+    }
 }
 
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
@@ -104,6 +118,7 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     let state = Arc::new(ApiState {
         store,
         client_changes: Arc::new(Mutex::new(HashMap::new())),
+        aggregate_process: Arc::new(Mutex::new(None)),
     });
     if !state.store.is_db_source() {
         let store = state.store.clone();
@@ -385,6 +400,9 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/client-config/undo", post(client::client_config_undo))
         .route("/client-config/import", post(client::client_config_import))
         .route("/aggregate/launch", get(client::aggregate_launch))
+        .route("/aggregate/status", get(client::aggregate_status))
+        .route("/aggregate/start", post(client::aggregate_start))
+        .route("/aggregate/stop", post(client::aggregate_stop))
         .route("/config/reset", post(service::store_reset_config))
         .route(
             "/scopes/agents/:agent_id/config",

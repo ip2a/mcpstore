@@ -11,6 +11,7 @@ import {
   ToolOutputSchemaSection,
 } from "@/components/shared/tool-capability-sections"
 import { ToolServiceDetailGrid } from "@/features/tools/tool-service-detail-grid"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,7 @@ import { InputGroup, InputGroupTextarea } from "@/components/ui/input-group"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
 import { getToolSchema } from "@/lib/tool-info"
+import { getMissingRequiredArgs, type ToolSchema } from "@/lib/tool-args"
 
 export type ToolDialogState = {
   tool: ToolInfo
@@ -79,6 +81,8 @@ export function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState;
   const [args, setArgs] = useState("{}")
   const [result, setResult] = useState<unknown>(null)
   const [running, setRunning] = useState(false)
+  const [missingRequired, setMissingRequired] = useState<string[]>([])
+  const [pendingArgs, setPendingArgs] = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {
     if (state) {
@@ -87,18 +91,33 @@ export function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState;
     }
   }, [state])
 
-  async function onRun(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  async function execute(parsed: Record<string, unknown>) {
     if (!state) return
     setRunning(true)
     try {
-      const parsed = JSON.parse(args)
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error(t("toolTestArgsMustBeObject"))
       setResult(await state.onRun(parsed))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("toolCallFailed"))
     } finally {
       setRunning(false)
+    }
+  }
+
+  async function onRun(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!state) return
+    try {
+      const parsed = JSON.parse(args)
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error(t("toolTestArgsMustBeObject"))
+      const missing = getMissingRequiredArgs(parsed as Record<string, unknown>, getToolSchema(state.tool) as ToolSchema)
+      if (missing.length) {
+        setMissingRequired(missing)
+        setPendingArgs(parsed as Record<string, unknown>)
+        return
+      }
+      await execute(parsed as Record<string, unknown>)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("toolCallFailed"))
     }
   }
 
@@ -135,6 +154,28 @@ export function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState;
           <DialogFormFooter onCancel={() => onOpenChange(false)} submitLabel={running ? t("executing") : t("execute")} submitting={running} />
         </DialogForm>
       </DialogContent>
+      <AlertDialog open={missingRequired.length > 0} onOpenChange={(open) => !open && setMissingRequired([])}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("missingRequiredTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("missingRequiredDescription", { fields: missingRequired.join(", ") })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingArgs(null)}>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingArgs) void execute(pendingArgs)
+                setPendingArgs(null)
+                setMissingRequired([])
+              }}
+            >
+              {t("knownContinue")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   )
 }

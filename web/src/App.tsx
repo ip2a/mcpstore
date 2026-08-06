@@ -7,7 +7,6 @@ import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { AgentsView } from "@/features/agents/agents-view"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { CacheView } from "@/features/cache/cache-view"
-import { ConfigView } from "@/features/config/config-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
@@ -94,7 +93,7 @@ export function App() {
           <main
             className={cn(
               "flex min-h-0 min-w-0 flex-col",
-              view.name === "instance" || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "config" || view.name === "tools" ? "h-full overflow-hidden gap-3 pt-3" : "gap-6 overflow-auto py-3",
+              view.name === "instance" || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "tools" ? "h-full overflow-hidden gap-3 pt-3" : "gap-6 overflow-auto py-3",
             )}
           >
           {view.name === "instance" ? (
@@ -140,8 +139,6 @@ export function App() {
               onRunTool={runToolFromDialogState}
               isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
             />
-          ) : view.name === "config" ? (
-            <ConfigView agents={agents} resetTarget={resetTarget} onResetTarget={setResetTarget} />
           ) : view.name === "cache" ? (
             <CacheView backend={backend} revision={cacheRevision} onRefreshDashboard={refresh} onSwitch={() => setCacheDialogOpen(true)} />
           ) : (

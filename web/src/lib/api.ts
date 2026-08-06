@@ -217,7 +217,6 @@ export type SettingsPayload = {
   language?: UiLanguage;
   default_backup_dir?: string;
   server?: { host?: string; port?: number; web_port?: number };
-  logging?: LogSettingsPayload;
   diagnostics?: DiagnosticsSettingsPayload;
   [key: string]: unknown;
 };
@@ -266,7 +265,6 @@ export type UpdateSettingsPayload = {
   language?: UiLanguage;
   default_backup_dir?: string;
   server?: { port?: number; web_port?: number };
-  logging?: LogSettingsPayload;
   diagnostics?: DiagnosticsSettingsPayload;
   [key: string]: unknown;
 };
@@ -385,11 +383,16 @@ export {
 } from "./api/service";
 export {
   getAggregateLaunch,
+  getAggregateStatus,
+  startAggregate,
+  stopAggregate,
   inspectClientConfig,
   planClientConfig,
   applyClientConfig,
   undoClientConfig,
   importClientServices,
+  type AggregateOptions,
+  type AggregateStatus,
 } from "./api/config";
 export {
   showConfig,

@@ -83,12 +83,14 @@ export function CodeBlockBody({
   maxHeight = "14rem",
   fill = false,
   bare = false,
+  nativeScroll = false,
   ...props
 }: ComponentProps<"div"> & {
   variant?: CodeBlockVariant
   maxHeight?: string
   fill?: boolean
   bare?: boolean
+  nativeScroll?: boolean
 }) {
   const styles = variantStyles[variant]
 
@@ -100,6 +102,19 @@ export function CodeBlockBody({
         {...props}
       >
         {children}
+      </div>
+    )
+  }
+
+  if (nativeScroll) {
+    return (
+      <div
+        data-slot="code-block-body"
+        className={cn("relative min-h-0 overflow-auto", fill && "flex flex-1 flex-col", styles.body, className)}
+        style={fill ? undefined : { maxHeight }}
+        {...props}
+      >
+        <pre className={cn("min-w-0 p-4 font-mono leading-relaxed whitespace-pre-wrap", styles.code)}>{children}</pre>
       </div>
     )
   }

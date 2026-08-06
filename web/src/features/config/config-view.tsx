@@ -1,28 +1,22 @@
 import { useEffect, useMemo, useState } from "react"
-import { BotIcon, ClipboardIcon, RefreshCwIcon, SettingsIcon, StoreIcon } from "lucide-react"
+import { ClipboardIcon, InfoIcon, RefreshCwIcon, SettingsIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { JsonBlock } from "@/components/shared/json-block"
-import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
-import {
-  toolDetailSectionAside,
-  toolDetailSectionGrid,
-  toolDetailSectionLabel,
-} from "@/components/shared/tool-detail-section-layout"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { getAgentId } from "@/features/agents/model"
 import { type AgentItem } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
 import { ClientConfigPanel } from "@/features/config/client-config-panel"
-import { cn } from "@/lib/utils"
 
 export type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
 
@@ -164,6 +158,7 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
 
       <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
         <ConfigPreviewHeader
+          config={activeConfig || {}}
           loading={loading}
           selectedScope={selectedScope}
           onCopy={activeConfig ? () => copyConfig(activeConfig, t) : undefined}
@@ -171,28 +166,6 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
           onReset={onReset}
           resetDisabled={selectedScopeId !== "store" && !selectedAgentId}
         />
-
-        <ConfigSummarySection
-          scope={selectedScope}
-          keyCount={selectedScopeId === "store" ? storeKeyCount : agentKeyCount}
-        />
-
-        <MetricGrid columns="four">
-          <MetricTile
-            variant="compact"
-            label={t("scope")}
-            value={selectedScopeId === "store" ? t("store") : t("agent")}
-            hint={selectedScope.path}
-          />
-          <MetricTile variant="compact" label={t("store")} value={String(storeKeyCount)} hint="/config" />
-          <MetricTile variant="compact" label={t("agents")} value={String(agentIds.length)} hint={t("registeredAgentScopes")} />
-          <MetricTile
-            variant="compact"
-            label={t("keys")}
-            value={String(selectedScopeId === "store" ? storeKeyCount : agentKeyCount)}
-            hint={activeLoading ? t("loadingHint") : t("currentScope")}
-          />
-        </MetricGrid>
 
         <ScrollPane className="flex-1">
           {error && !activeConfig ? (
@@ -207,7 +180,7 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
             <PageSkeleton />
           ) : (
             <div className="flex min-w-0 flex-col">
-              <ConfigDetailPane scope={selectedScope} value={activeConfig || {}} loading={activeLoading && !activeConfig} />
+              <ConfigDetailPane value={activeConfig || {}} loading={activeLoading && !activeConfig} />
               <ClientConfigPanel />
             </div>
           )}
@@ -217,7 +190,8 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
   )
 }
 
-function ConfigPreviewHeader({
+export function ConfigPreviewHeader({
+  config,
   loading,
   onCopy,
   onRefresh,
@@ -225,21 +199,50 @@ function ConfigPreviewHeader({
   resetDisabled,
   selectedScope,
 }: {
+  config: unknown
   loading: boolean
   onCopy?: () => void
   onRefresh: () => void
   onReset: () => void
   resetDisabled?: boolean
-  selectedScope: { title: string; path: string }
+  selectedScope: { title: string; path: string; description: string; agentId?: string }
 }) {
   const { t } = useI18n()
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2">
-      <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex min-w-0 items-center gap-2">
         <strong className="truncate font-mono text-sm font-medium" title={selectedScope.path}>
           {selectedScope.path}
         </strong>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button size="sm" variant="outline">
+              <InfoIcon data-icon="inline-start" />
+              {t("details")}
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{selectedScope.title}</DialogTitle>
+              <DialogDescription>{selectedScope.description}</DialogDescription>
+            </DialogHeader>
+            <dl className="grid gap-4 text-sm">
+              <div className="grid gap-1">
+                <dt className="text-muted-foreground">{t("scope")}</dt>
+                <dd className="font-mono">{selectedScope.agentId ? `agent:${selectedScope.agentId}` : "store"}</dd>
+              </div>
+              <div className="grid gap-1">
+                <dt className="text-muted-foreground">{t("endpoint")}</dt>
+                <dd className="break-all font-mono">{selectedScope.path}</dd>
+              </div>
+              <div className="grid gap-1">
+                <dt className="text-muted-foreground">{t("keys")}</dt>
+                <dd>{countKeys(config)}</dd>
+              </div>
+            </dl>
+          </DialogContent>
+        </Dialog>
       </div>
       <div className="flex shrink-0 flex-wrap justify-end gap-2">
         <Button size="sm" variant="outline" onClick={onReset} disabled={resetDisabled}>
@@ -261,69 +264,21 @@ function ConfigPreviewHeader({
   )
 }
 
-function ConfigSummarySection({
-  keyCount,
-  scope,
-}: {
-  keyCount: number
-  scope: { title: string; description: string; agentId?: string }
-}) {
-  const { t } = useI18n()
-  const Icon = scope.agentId ? BotIcon : StoreIcon
-
-  return (
-    <section className="border-b pb-4">
-      <div className={toolDetailSectionGrid}>
-        <div className={toolDetailSectionAside}>
-          <h2 className={cn(toolDetailSectionLabel, "inline-flex items-center gap-2 font-mono")} title={scope.title}>
-            <Icon className="size-4 shrink-0" />
-            {scope.title}
-          </h2>
-        </div>
-        <p className="text-right text-sm text-muted-foreground">
-          {scope.description} · {t("keysSuffix", { count: keyCount })}
-        </p>
-      </div>
-    </section>
-  )
-}
-
-function ConfigDetailPane({
+export function ConfigDetailPane({
   loading,
-  scope,
   value,
 }: {
   loading: boolean
-  scope: { title: string; path: string; agentId?: string }
   value: unknown
 }) {
   const { t } = useI18n()
   if (loading) return <PageSkeleton />
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <section className="border-b pb-4">
-        <SectionHeading title={scope.title} titleAs="h2" description={scope.path} className="border-b-0 pb-3" />
-        <dl className="grid gap-3 text-sm">
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("scope")}</dt>
-            <dd className="font-mono">{scope.agentId ? `agent:${scope.agentId}` : "store"}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("endpoint")}</dt>
-            <dd className="break-all font-mono">{scope.path}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("keys")}</dt>
-            <dd>{countKeys(value)}</dd>
-          </div>
-        </dl>
-      </section>
-      <section className="pb-2">
-        <SectionHeading title={t("configuration")} titleAs="h2" actions={<SettingsIcon className="size-4 text-muted-foreground" />} className="border-b-0 pb-3" />
-        <JsonBlock value={value} />
-      </section>
-    </div>
+    <section className="pb-2">
+      <SectionHeading title={t("configuration")} titleAs="h2" actions={<SettingsIcon className="size-4 text-muted-foreground" />} className="border-b-0 pb-3" />
+      <JsonBlock value={value} />
+    </section>
   )
 }
 

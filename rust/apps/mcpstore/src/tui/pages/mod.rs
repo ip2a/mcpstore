@@ -28,7 +28,7 @@ impl PageDescriptor {
     }
 }
 
-const REGISTERED_PAGES: [PageDescriptor; 3] = [
+const REGISTERED_PAGES: [PageDescriptor; 4] = [
     PageDescriptor {
         id: MainView::ServiceManagement,
         title_key: TextKey::NavServiceManagement,
@@ -46,6 +46,12 @@ const REGISTERED_PAGES: [PageDescriptor; 3] = [
         title_key: TextKey::NavAgents,
         enabled: true,
         order: 30,
+    },
+    PageDescriptor {
+        id: MainView::Settings,
+        title_key: TextKey::NavSettings,
+        enabled: true,
+        order: 40,
     },
 ];
 
@@ -105,10 +111,10 @@ mod tests {
         );
         assert!(pages.iter().all(|page| page.enabled));
         assert!(pages.windows(2).all(|pair| pair[0].order <= pair[1].order));
-        assert_eq!(pages.len(), 3);
-        assert!(!pages.iter().any(|page| matches!(
-            page.id,
-            MainView::Logs | MainView::Status | MainView::Settings
-        )));
+        assert_eq!(pages.len(), 4);
+        assert!(pages.iter().any(|page| page.id == MainView::Settings));
+        assert!(!pages
+            .iter()
+            .any(|page| matches!(page.id, MainView::Logs | MainView::Status)));
     }
 }

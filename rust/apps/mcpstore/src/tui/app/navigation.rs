@@ -11,7 +11,12 @@ pub enum MainView {
 }
 
 impl MainView {
-    pub const ALL: [Self; 3] = [Self::ServiceManagement, Self::Tools, Self::Agents];
+    pub const ALL: [Self; 4] = [
+        Self::ServiceManagement,
+        Self::Tools,
+        Self::Agents,
+        Self::Settings,
+    ];
 
     pub fn label_key(&self) -> TextKey {
         match self {
@@ -124,22 +129,35 @@ impl FocusArea {
 pub enum SettingsSection {
     Status,
     General,
+    McpAggregate,
     Logging,
 }
 
 impl SettingsSection {
-    pub const ALL: [Self; 3] = [Self::Status, Self::General, Self::Logging];
+    pub const ALL: [Self; 4] = [
+        Self::Status,
+        Self::General,
+        Self::McpAggregate,
+        Self::Logging,
+    ];
 
     pub fn label_key(&self) -> TextKey {
         match self {
             Self::Status => TextKey::SettingsStatus,
             Self::General => TextKey::SettingsGeneral,
+            Self::McpAggregate => TextKey::SettingsGeneral,
             Self::Logging => TextKey::SettingsLogging,
         }
     }
 
     pub fn label(&self, locale: Locale) -> &'static str {
-        i18n::text(locale, self.label_key())
+        match self {
+            Self::McpAggregate => match locale {
+                Locale::ZhCn => "MCP聚合",
+                Locale::EnUs => "MCP Aggregate",
+            },
+            _ => i18n::text(locale, self.label_key()),
+        }
     }
 }
 

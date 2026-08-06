@@ -1,4 +1,11 @@
 import { JsonBlock } from "@/components/shared/json-block"
+import {
+  CodeBlock,
+  CodeBlockBody,
+  CodeBlockCopyButton,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "@/components/ui/code-block"
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
@@ -42,15 +49,28 @@ function normalizeToolResult(result: unknown) {
 }
 
 function TextBlock({ text, isError }: { text: string; isError?: boolean }) {
+  const { t } = useI18n()
+
   return (
-    <pre
+    <CodeBlock
+      variant="response"
       className={cn(
-        "overflow-x-auto whitespace-pre-wrap break-words rounded-lg border px-4 py-3 font-mono text-sm leading-relaxed",
-        isError ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border/60 bg-muted/20 text-foreground",
+        "min-w-0 max-w-full",
+        isError && "border-destructive/40 bg-destructive/10 text-destructive",
       )}
     >
-      {text}
-    </pre>
+      <CodeBlockHeader variant="response">
+        <CodeBlockTitle>{t("result")}</CodeBlockTitle>
+        <CodeBlockCopyButton value={text} />
+      </CodeBlockHeader>
+      <CodeBlockBody
+        variant="response"
+        maxHeight="min(60dvh, 32rem)"
+        className={cn(isError && "bg-destructive/5")}
+      >
+        {text}
+      </CodeBlockBody>
+    </CodeBlock>
   )
 }
 

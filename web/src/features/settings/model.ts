@@ -10,10 +10,6 @@ export type SettingsDraft = {
     port: number
     web_port: number
   }
-  logging: {
-    max_size_bytes: number | null
-    retention_days: number | null
-  }
   diagnostics: {
     enabled: boolean
     runtime_enabled: boolean
@@ -44,10 +40,6 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
       port: settings?.server?.port || 1820,
       web_port: settings?.server?.web_port || 1828,
     },
-    logging: {
-      max_size_bytes: typeof settings?.logging?.max_size_bytes === "number" ? settings.logging.max_size_bytes : 5 * 1024 * 1024,
-      retention_days: typeof settings?.logging?.retention_days === "number" ? settings.logging.retention_days : null,
-    },
     diagnostics: {
       enabled: settings?.diagnostics?.enabled !== false,
       runtime_enabled: settings?.diagnostics?.runtime_log?.enabled === true,
@@ -63,20 +55,11 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
   }
 }
 
-export function logSizeMb(draft: SettingsDraft) {
-  const bytes = Number(draft.logging.max_size_bytes || 0)
-  return String((bytes > 0 ? bytes : 5 * 1024 * 1024) / 1024 / 1024).replace(/\.0$/, "")
-}
-
 export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
   return {
     language: draft.language,
     default_backup_dir: draft.default_backup_dir || "./backups",
     server: draft.server,
-    logging: {
-      max_size_bytes: draft.logging.max_size_bytes,
-      retention_days: draft.logging.retention_days,
-    },
     diagnostics: {
       enabled: draft.diagnostics.enabled,
       runtime_log: {

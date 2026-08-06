@@ -724,7 +724,7 @@ export function ServiceDetailView(props: {
           ) : rightPaneView === "catalog" &&
             activeTab === "tools" &&
             selectedTool ? (
-            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(12rem,22rem)] grid-rows-1 gap-6 overflow-hidden">
+            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)] grid-rows-1 gap-6 overflow-hidden">
               <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
                 <ToolDetailDocHeader tool={selectedTool} />
                 <ScrollPane className="min-h-0 flex-1">

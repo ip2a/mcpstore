@@ -200,8 +200,6 @@ pub struct UiConfig {
     pub language: String,
     #[serde(default = "default_backup_dir")]
     pub default_backup_dir: String,
-    #[serde(default)]
-    pub logging: LoggingConfig,
 }
 
 impl Default for UiConfig {
@@ -209,24 +207,6 @@ impl Default for UiConfig {
         Self {
             language: default_ui_language(),
             default_backup_dir: default_backup_dir(),
-            logging: LoggingConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoggingConfig {
-    #[serde(default = "default_log_max_size_bytes")]
-    pub max_size_bytes: u64,
-    #[serde(default)]
-    pub retention_days: Option<u64>,
-}
-
-impl Default for LoggingConfig {
-    fn default() -> Self {
-        Self {
-            max_size_bytes: default_log_max_size_bytes(),
-            retention_days: None,
         }
     }
 }

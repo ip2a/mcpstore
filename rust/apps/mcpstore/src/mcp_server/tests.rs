@@ -43,7 +43,13 @@ mod tests {
                 "--scope",
                 "agent",
                 "--agent",
-                "coding"
+                "coding",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "19000",
+                "--path",
+                "/mcp"
             ]
         );
     }
