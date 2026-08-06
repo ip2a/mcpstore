@@ -21,7 +21,7 @@ export function ServiceRowMeta({
   const transportLabel = transport !== "unknown" ? transport : "-"
 
   return (
-    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
+    <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap font-mono text-xs text-muted-foreground">
       {showScope ? (
         <Badge variant="outline" className="max-w-full font-mono">
           <span className="truncate">{scope}</span>

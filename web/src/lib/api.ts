@@ -216,6 +216,7 @@ export type LogSettingsPayload = {
 export type SettingsPayload = {
   language?: UiLanguage;
   default_backup_dir?: string;
+  server?: { host?: string; port?: number; web_port?: number };
   logging?: LogSettingsPayload;
   diagnostics?: DiagnosticsSettingsPayload;
   [key: string]: unknown;
@@ -264,6 +265,7 @@ export type MetaPayload = {
 export type UpdateSettingsPayload = {
   language?: UiLanguage;
   default_backup_dir?: string;
+  server?: { port?: number; web_port?: number };
   logging?: LogSettingsPayload;
   diagnostics?: DiagnosticsSettingsPayload;
   [key: string]: unknown;

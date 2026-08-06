@@ -23,6 +23,7 @@ function ServiceMoreActionsDialog({
   onConnect,
   onDelete,
   onDisconnect,
+  onAddScope,
   onOpenChange,
   onRestart,
   service,
@@ -31,6 +32,7 @@ function ServiceMoreActionsDialog({
   onConnect: (service: ServiceInstance) => void
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
+  onAddScope: (service: ServiceInstance) => void
   onOpenChange: (open: boolean) => void
   onRestart: (service: ServiceInstance) => void
   service: ServiceInstance | null
@@ -108,6 +110,18 @@ function ServiceMoreActionsDialog({
             {t("restart")}
           </Button>
           <Button
+            variant="outline"
+            disabled={Boolean(busy) || !service}
+            onClick={() => {
+              if (!service) return
+              onOpenChange(false)
+              onAddScope(service)
+            }}
+          >
+            <LayersIcon data-icon="inline-start" />
+            {t("addScope")}
+          </Button>
+          <Button
             variant="destructive"
             disabled={Boolean(busy) || !service}
             onClick={() => {
@@ -171,15 +185,6 @@ function ServiceRow({
             {t("edit")}
           </Button>
           <ServiceConnectionButtonForEntry busy={busy} service={service} onConnect={onConnect} onDisconnect={onDisconnect} />
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label={t("serviceListAddScopeFor", { name: service.service_name })}
-            onClick={() => onAddScope(service)}
-          >
-            <LayersIcon data-icon="inline-start" />
-            {t("addScope")}
-          </Button>
           <Button variant="outline" size="sm" aria-label={t("serviceListMoreActionsFor", { name: service.service_name })} onClick={() => onMore(service)}>
             <MoreHorizontalIcon data-icon="inline-start" />
             {t("more")}
@@ -252,6 +257,7 @@ export function ServiceList(props: {
           if (!open) setMoreService(null)
         }}
         onConnect={props.onConnect}
+        onAddScope={setScopeService}
         onDelete={props.onDelete}
         onDisconnect={props.onDisconnect}
         onRestart={props.onRestart}

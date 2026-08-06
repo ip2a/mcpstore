@@ -14,10 +14,10 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5174,
+    port: 1828,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:18200",
+        target: "http://127.0.0.1:1820",
         changeOrigin: true,
         rewrite: (route) => route.replace(/^\/api/, ""),
       },

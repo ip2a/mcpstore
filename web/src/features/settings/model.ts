@@ -6,6 +6,10 @@ export type SectionId = "general" | "backend" | "diagnostics" | "config" | "abou
 export type SettingsDraft = {
   language: UiLanguage
   default_backup_dir: string
+  server: {
+    port: number
+    web_port: number
+  }
   logging: {
     max_size_bytes: number | null
     retention_days: number | null
@@ -36,6 +40,10 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
   return {
     language: settings?.language || "auto",
     default_backup_dir: typeof settings?.default_backup_dir === "string" ? settings.default_backup_dir : "./backups",
+    server: {
+      port: settings?.server?.port || 1820,
+      web_port: settings?.server?.web_port || 1828,
+    },
     logging: {
       max_size_bytes: typeof settings?.logging?.max_size_bytes === "number" ? settings.logging.max_size_bytes : 5 * 1024 * 1024,
       retention_days: typeof settings?.logging?.retention_days === "number" ? settings.logging.retention_days : null,
@@ -64,6 +72,7 @@ export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
   return {
     language: draft.language,
     default_backup_dir: draft.default_backup_dir || "./backups",
+    server: draft.server,
     logging: {
       max_size_bytes: draft.logging.max_size_bytes,
       retention_days: draft.logging.retention_days,
