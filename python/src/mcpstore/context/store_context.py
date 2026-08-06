@@ -134,6 +134,15 @@ class StoreContext:
             )
         )
 
+    def list_resources(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resources())
+
+    def list_resource_templates(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resource_templates())
+
+    def list_prompts(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_prompts())
+
     def list_tools(self) -> List[Tool]:
         return [Tool(native) for native in self._native.list_tools()]
 

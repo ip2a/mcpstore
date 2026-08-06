@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from mcpstore.native.records import _base_config_payload, _record_value
 
@@ -47,6 +47,30 @@ class Service:
 
     def remove_service(self) -> bool:
         return bool(self._native.remove_service())
+
+    def list_resources(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resources())
+
+    def list_resource_templates(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resource_templates())
+
+    def read_resource(self, uri: str) -> Dict[str, Any]:
+        return _record_value(self._native.read_resource(uri))
+
+    def list_prompts(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_prompts())
+
+    def get_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._native.get_prompt(
+                prompt_name,
+                {} if arguments is None else arguments,
+            )
+        )
 
     def list_tools(self) -> List["Tool"]:
         from .tool import Tool
