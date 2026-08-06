@@ -249,45 +249,59 @@ export function ToolsView(props: {
       </PanelCard>
 
       <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-        <ToolPreviewHeader
-          loading={loading}
-          selectedTool={selectedTool?.tool}
-          onCopy={selectedTool ? () => copyTool(selectedTool.tool) : undefined}
-          onDetail={selectedTool ? () => props.onToolDetail(makeRunner(selectedTool)) : undefined}
-          onRefresh={loadTools}
-          onRun={selectedTool ? () => props.onRunTool(makeRunner(selectedTool)) : undefined}
-          runningTool={runningSelectedTool}
-        />
+        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b pb-3">
+          <h2 className="min-w-fit truncate text-lg font-semibold">{t("toolList")}</h2>
+          <div className="min-w-52 flex-1">
+            <SearchBox placeholder={t("searchTools")} value={query} onChange={setQuery} />
+          </div>
+          <Button size="sm" variant="outline" onClick={loadTools} disabled={loading}>
+            <RefreshCwIcon data-icon="inline-start" />
+            {t("refresh")}
+          </Button>
+        </div>
 
-        {selectedTool ? <ToolSummarySection tool={selectedTool.tool} sourceLabel={sourceLabel} /> : null}
+        {error ? (
+          <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
+        ) : loading && !visibleTools.length ? (
+          <PageSkeleton />
+        ) : visibleTools.length ? (
+          <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-2">
+            {visibleTools.map(({ instance, tool }) => {
+              const key = toolKey(instance.instance_id, tool)
+              const itemSchema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
+              const itemParamCount = Object.keys(itemSchema.properties || {}).length
+              const scopeLabel = instance.scope.type === "store" ? t("store") : `${t("agent")} ${instance.scope.agent_id}`
 
-        <MetricGrid columns="four">
-          <MetricTile variant="compact" label={t("params")} value={String(paramCount)} hint={t("inputFields")} />
-          <MetricTile
-            variant="compact"
-            label={t("required")}
-            value={String(schema?.required?.length || 0)}
-            hint={t("mandatory")}
-          />
-          <MetricTile variant="compact" label={t("output")} value={String(outputCount)} hint={t("outputFields")} />
-          <MetricTile variant="compact" label={t("source")} value={sourceLabel} title={sourceLabel} hint={t("callScope")} />
-        </MetricGrid>
-
-        <ScrollPane className="flex-1">
-          {error && !selectedTool ? (
-            <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
-          ) : loading && !selectedTool ? (
-            <PageSkeleton />
-          ) : selectedTool ? (
-            <ToolDetailPane tool={selectedTool.tool} />
-          ) : (
-            <PageEmpty
-              title={t("noToolSelected")}
-              description={t("noToolSelectedDescription")}
-              onRefresh={loadTools}
-            />
-          )}
-        </ScrollPane>
+              return (
+                <SelectableRowButton
+                  key={key}
+                  meta={`${instance.service_name} · ${scopeLabel} · ${t("paramCount", { count: itemParamCount })}`}
+                  onClick={() => props.onToolDetail(makeRunner({ instance, tool }))}
+                  selected={false}
+                  title={tool.name}
+                  trailing={
+                    <div className="flex items-center gap-2">
+                      {itemSchema.required?.length ? <Badge variant="outline">{itemSchema.required.length}</Badge> : null}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          props.onToolDetail(makeRunner({ instance, tool }))
+                        }}
+                      >
+                        <EyeIcon data-icon="inline-start" />
+                        {t("details")}
+                      </Button>
+                    </div>
+                  }
+                />
+              )
+            })}
+          </ScrollPane>
+        ) : (
+          <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
+        )}
       </PanelCard>
     </TwoPanePage>
   )

@@ -95,11 +95,6 @@ pub struct McpServerArgs {
         help = "Expose MCPStore cache backend management tools. Disabled by default."
     )]
     pub expose_cache_tools: bool,
-    #[arg(
-        long,
-        help = "Expose MCPStore event observability tools. Disabled by default."
-    )]
-    pub expose_event_tools: bool,
 }
 
 impl McpServerArgs {
@@ -163,7 +158,6 @@ impl McpServerArgs {
             expose_openapi_tools: self.expose_openapi_tools,
             expose_service_tools: self.expose_service_tools,
             expose_cache_tools: self.expose_cache_tools,
-            expose_event_tools: self.expose_event_tools,
         })
     }
 }
@@ -204,7 +198,6 @@ mod tests {
             expose_openapi_tools: false,
             expose_service_tools: false,
             expose_cache_tools: false,
-            expose_event_tools: false,
         }
     }
 

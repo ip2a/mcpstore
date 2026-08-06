@@ -283,23 +283,6 @@ pub(super) fn config_io_api_error(error: std::io::Error) -> ApiError {
     ApiError::invalid_request(error.to_string())
 }
 
-pub(super) async fn event_history(
-    State(state): State<Arc<ApiState>>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let count = params
-        .get("count")
-        .map(String::as_str)
-        .map(parse_positive_usize)
-        .transpose()?
-        .unwrap_or(100);
-    let events = state.store.event_history(count).await;
-    Ok(success(
-        "事件历史获取成功",
-        json!({ "events": events, "total": events.len() }),
-    ))
-}
-
 pub(super) async fn tool_call_history(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
@@ -324,9 +307,4 @@ pub(super) async fn clear_tool_call_history(State(state): State<Arc<ApiState>>) 
         .await
         .map_err(config_io_api_error)?;
     Ok(success("工具调用历史已清空", json!({})))
-}
-
-pub(super) async fn event_capability_report(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let report = state.store.event_capability_report().await;
-    Ok(success("事件能力报告获取成功", report))
 }
