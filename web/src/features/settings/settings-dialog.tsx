@@ -180,6 +180,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
                           </InputGroup>
                         </Field>
+                        <Field orientation="responsive">
+                          <FieldContent><FieldTitle>后端端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
+                          <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+                        </Field>
+                        <Field orientation="responsive">
+                          <FieldContent><FieldTitle>前端端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
+                          <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+                        </Field>
                       </FieldGroup>
                     </section>
                   ) : null}

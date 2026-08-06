@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { applyClientConfig, getAggregateLaunch, importClientServices, inspectClientConfig, planClientConfig, undoClientConfig } from "@/lib/api"
 
 const initialEntries = JSON.stringify([
-  { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:18200/mcp" } },
+  { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:1820/mcp" } },
 ], null, 2)
 
 export function ClientConfigPanel() {
