@@ -633,7 +633,7 @@ mod tests {
         let cli = Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).unwrap();
 
         match cli.command {
-            Commands::Web(args) => assert_eq!(args.port, 9090),
+            Commands::Web(args) => assert_eq!(args.port, Some(9090)),
             _ => panic!("Expected to parse as web command"),
         }
     }
@@ -677,7 +677,7 @@ mod tests {
 
         match cli.command {
             Commands::Api(args) => {
-                assert_eq!(args.port, 9091);
+                assert_eq!(args.port, Some(9091));
                 assert_eq!(args.url_prefix, "/mcp");
                 assert!(!args.allow_remote);
             }

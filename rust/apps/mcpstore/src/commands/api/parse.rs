@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
-use mcpstore::CacheStorage;
+use mcpstore::{CacheStorage, ScopeRef};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::envelope::{ApiError, ApiResult};
@@ -48,16 +47,6 @@ pub(super) fn extract_tool_args(payload: &Value) -> ApiResult<Value> {
     }
 }
 
-pub(super) fn extract_resource_uri(params: &HashMap<String, String>) -> ApiResult<String> {
-    params
-        .get("uri")
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| ApiError::missing_parameter("uri"))
-}
-
 pub(super) fn extract_prompt_name(payload: &Value) -> ApiResult<String> {
     payload
         .get("prompt_name")
@@ -81,12 +70,6 @@ pub(super) fn extract_prompt_args(payload: &Value) -> ApiResult<Value> {
     }
 }
 
-pub(super) fn parse_positive_u64(value: &str) -> ApiResult<u64> {
-    value
-        .parse::<u64>()
-        .map_err(|_| ApiError::invalid_parameter(format!("无效的正整数: {value}"), Some("timeout")))
-}
-
 pub(super) fn parse_positive_usize(value: &str) -> ApiResult<usize> {
     value
         .parse::<usize>()
@@ -102,6 +85,36 @@ pub(super) fn parse_cache_storage(value: &str) -> ApiResult<CacheStorage> {
         ));
     }
     Ok(CacheStorage::new(backend, None))
+}
+
+/// Query 参数里的作用域标识：`?scope=store|agent&agent_id=...`，`scope` 缺省为 `store`。
+#[derive(Deserialize)]
+pub(super) struct ScopeQuery {
+    pub(super) scope: Option<String>,
+    pub(super) agent_id: Option<String>,
+}
+
+impl ScopeQuery {
+    pub(super) fn into_scope_ref(self) -> ApiResult<ScopeRef> {
+        parse_scope_ref(self.scope.as_deref(), self.agent_id.as_deref())
+    }
+}
+
+pub(super) fn parse_scope_ref(scope: Option<&str>, agent_id: Option<&str>) -> ApiResult<ScopeRef> {
+    match scope.unwrap_or("store") {
+        "store" => Ok(ScopeRef::Store),
+        "agent" => Ok(ScopeRef::Agent {
+            agent_id: agent_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ApiError::missing_parameter("agent_id"))?
+                .to_string(),
+        }),
+        other => Err(ApiError::invalid_parameter(
+            format!("不支持的 scope: {other}"),
+            Some("scope"),
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -136,9 +149,7 @@ mod tests {
 
     #[test]
     fn parse_positive_numbers_require_valid_integers() {
-        assert_eq!(parse_positive_u64("10").unwrap(), 10);
         assert_eq!(parse_positive_usize("7").unwrap(), 7);
-        assert!(parse_positive_u64("oops").is_err());
         assert!(parse_positive_usize("oops").is_err());
     }
 }

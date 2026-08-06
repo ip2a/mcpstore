@@ -8,8 +8,11 @@ use serde::Deserialize;
 
 const OAUTH_CALLBACK_TIMEOUT_SECS: u64 = 300;
 
+/// OAuth 回调（GET）：浏览器跳转带来 `code/state/iss`，同时携带 `scope/agent_id` 用于定位服务。
 #[derive(Deserialize)]
 pub(super) struct AuthCallbackQuery {
+    scope: Option<String>,
+    agent_id: Option<String>,
     code: Option<String>,
     state: Option<String>,
     #[serde(rename = "iss")]
@@ -36,10 +39,13 @@ pub(super) struct AuthScopeUpgradeRequest {
     required_scope: String,
 }
 
-pub(super) async fn store_auth_status(
+pub(super) async fn service_auth_status(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let auth = state
         .store
         .auth_status_view(instance_id)
@@ -48,10 +54,13 @@ pub(super) async fn store_auth_status(
     Ok(success("认证状态获取成功", json!({ "auth": auth })))
 }
 
-pub(super) async fn store_auth_start(
+pub(super) async fn service_auth_start(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let auth = state
         .store
         .auth_status_view(instance_id)
@@ -109,11 +118,13 @@ pub(super) async fn store_auth_start(
     }
 }
 
-pub(super) async fn store_auth_callback_get(
+pub(super) async fn service_auth_callback_get(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
     Query(query): Query<AuthCallbackQuery>,
 ) -> ApiResult {
+    let scope = parse_scope_ref(query.scope.as_deref(), query.agent_id.as_deref())?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let code = query
         .code
         .as_deref()
@@ -138,11 +149,14 @@ pub(super) async fn store_auth_callback_get(
     Ok(success("授权回调处理成功", json!({ "auth": auth })))
 }
 
-pub(super) async fn store_auth_callback_post(
+pub(super) async fn service_auth_callback_post(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
     Json(payload): Json<AuthCallbackRequest>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     if payload.callback_url.trim().is_empty() {
         return Err(ApiError::invalid_parameter(
             "callback_url 不能为空",
@@ -163,10 +177,13 @@ pub(super) async fn store_auth_callback_post(
     Ok(success("授权回调处理成功", json!({ "auth": auth })))
 }
 
-pub(super) async fn store_auth_refresh(
+pub(super) async fn service_auth_refresh(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
         .refresh_authorization(instance_id)
@@ -181,10 +198,13 @@ pub(super) async fn store_auth_refresh(
     Ok(success("授权刷新成功", json!({ "auth": auth })))
 }
 
-pub(super) async fn store_auth_logout(
+pub(super) async fn service_auth_logout(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
         .logout_authorization(instance_id)
@@ -198,11 +218,14 @@ pub(super) async fn store_auth_logout(
     Ok(success("授权已退出", json!({ "auth": auth })))
 }
 
-pub(super) async fn store_auth_save_client_secret(
+pub(super) async fn service_auth_save_client_secret(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
     Json(payload): Json<AuthClientSecretRequest>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
         .save_oauth_client_secret(instance_id, payload.client_secret)
@@ -211,11 +234,14 @@ pub(super) async fn store_auth_save_client_secret(
     Ok(success("客户端密钥已安全保存", json!({ "stored": true })))
 }
 
-pub(super) async fn store_auth_save_private_key(
+pub(super) async fn service_auth_save_private_key(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
     Json(payload): Json<AuthPrivateKeyRequest>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
         .save_oauth_private_key(instance_id, payload.private_key_pem.into_bytes())
@@ -224,11 +250,14 @@ pub(super) async fn store_auth_save_private_key(
     Ok(success("私钥已安全保存", json!({ "stored": true })))
 }
 
-pub(super) async fn store_auth_scope_upgrade(
+pub(super) async fn service_auth_scope_upgrade(
     State(state): State<Arc<ApiState>>,
-    Path(instance_id): Path<InstanceId>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
     Json(payload): Json<AuthScopeUpgradeRequest>,
 ) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let callback_uri = state
         .store
         .authorization_callback_uri(instance_id)
