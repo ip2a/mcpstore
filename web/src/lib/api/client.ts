@@ -1,11 +1,20 @@
-import { ApiError, type ApiEnvelope, type CacheBackend } from "../api";
-import { getApiBase } from "./backend";
+import { ApiError, type ApiEnvelope, type CacheBackend, type ScopeRef } from "../api";
+import { getApiBase, getAppApiBase } from "./backend";
 
 type FlexibleEnvelope<T> =
   ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string };
 
+/** Core 后端 base（可切换，默认 /api；指向本地 lib 或远程 mcpstore）。 */
 export function apiUrl(path: string) {
   return `${getApiBase()}${path}`;
+}
+
+/**
+ * App 自有接口 base（固定指向本 app 进程，不随 core 后端切换）。
+ * 用于 v1/meta、v1/settings、client-config、aggregate —— 见 接口文档 §附录C。
+ */
+export function appApiUrl(path: string) {
+  return `${getAppApiBase()}${path}`;
 }
 
 export function buildQuery(
@@ -20,6 +29,18 @@ export function buildQuery(
   return query ? `?${query}` : "";
 }
 
+/** 作用域 query 参数对象（文档 §17.2：?scope=store | ?scope=agent&agent_id=…）。 */
+export function scopeParams(scope: ScopeRef): Record<string, string | undefined> {
+  return scope.type === "agent"
+    ? { scope: "agent", agent_id: scope.agent_id }
+    : { scope: "store" };
+}
+
+/** 作用域 query 串；需附加更多参数时展开 scopeParams(...) 传入 buildQuery。 */
+export function scopeQuery(scope: ScopeRef): string {
+  return buildQuery(scopeParams(scope));
+}
+
 export async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   const body = text ? JSON.parse(text) : null;
@@ -31,9 +52,10 @@ export async function readJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-export async function api<T>(
+async function apiAt<T>(
   path: string,
-  options: RequestInit = {},
+  options: RequestInit,
+  urlFn: (path: string) => string,
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
@@ -47,7 +69,7 @@ export async function api<T>(
   }
 
   const payload = await readJson<T | FlexibleEnvelope<T>>(
-    await fetch(apiUrl(path), {
+    await fetch(urlFn(path), {
       ...options,
       headers,
     }),
@@ -82,8 +104,25 @@ export async function api<T>(
   return payload as T;
 }
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(apiUrl(path), {
+/** Core 接口调用（走可切换的 apiUrl）。 */
+export function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return apiAt<T>(path, options, apiUrl);
+}
+
+/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
+export function appApi<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  return apiAt<T>(path, options, appApiUrl);
+}
+
+async function requestAt<T>(
+  path: string,
+  init: RequestInit | undefined,
+  urlFn: (path: string) => string,
+): Promise<T> {
+  const response = await fetch(urlFn(path), {
     headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
   });
@@ -96,4 +135,14 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   return payload.data as T;
+}
+
+/** Core 接口调用（走可切换的 apiUrl）。 */
+export function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return requestAt<T>(path, init, apiUrl);
+}
+
+/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
+export function appRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  return requestAt<T>(path, init, appApiUrl);
 }

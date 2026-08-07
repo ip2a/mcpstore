@@ -1,13 +1,26 @@
+import type { ScopeRef, ServiceAddress } from "@/lib/api"
+
+function scopeSeg(scope: ScopeRef): string[] {
+  return scope.type === "agent" ? ["agent", scope.agent_id] : ["store"]
+}
+
 export const queryKeys = {
   health: ["health"] as const,
   instances: ["instances"] as const,
-  instance: (instanceId: string) => ["instances", instanceId] as const,
-  instanceStatus: (instanceId: string) => ["instances", instanceId, "status"] as const,
-  instanceAuth: (instanceId: string) => ["instances", instanceId, "auth"] as const,
-  instanceTools: (instanceId: string) => ["instances", instanceId, "tools"] as const,
-  instanceResources: (instanceId: string) => ["instances", instanceId, "resources"] as const,
-  instanceResourceTemplates: (instanceId: string) => ["instances", instanceId, "resource-templates"] as const,
-  instancePrompts: (instanceId: string) => ["instances", instanceId, "prompts"] as const,
+  instance: (addr: ServiceAddress) =>
+    ["instances", addr.service_name, ...scopeSeg(addr.scope)] as const,
+  instanceStatus: (addr: ServiceAddress) =>
+    [...queryKeys.instance(addr), "status"] as const,
+  instanceAuth: (addr: ServiceAddress) =>
+    [...queryKeys.instance(addr), "auth"] as const,
+  instanceTools: (addr: ServiceAddress) =>
+    [...queryKeys.instance(addr), "tools"] as const,
+  instanceResources: (addr: ServiceAddress) =>
+    [...queryKeys.instance(addr), "resources"] as const,
+  instanceResourceTemplates: (addr: ServiceAddress) =>
+    [...queryKeys.instance(addr), "resource-templates"] as const,
+  instancePrompts: (addr: ServiceAddress) =>
+    [...queryKeys.instance(addr), "prompts"] as const,
   agents: ["agents"] as const,
   agent: (agentId: string) => ["agents", agentId] as const,
   agentServices: (agentId: string) => ["agents", agentId, "instances"] as const,

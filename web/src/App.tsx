@@ -128,7 +128,7 @@ export function App() {
               busy={busy}
               onRefresh={refresh}
               onDeclareScope={declareServiceScope}
-              onOpenService={(instanceId) => setView({ name: "instance", instanceId })}
+              onOpenService={(service) => setView({ name: "instance", addr: service })}
               onRemoveScope={removeAgentServiceScope}
             />
           ) : view.name === "tools" ? (
@@ -155,7 +155,7 @@ export function App() {
               onDeclareScope={declareServiceScope}
               onDelete={setDeleteTarget}
               onDisconnect={disconnectServiceEntry}
-              onOpen={(service) => setView({ name: "instance", instanceId: service.instance_id })}
+              onOpen={(service) => setView({ name: "instance", addr: service })}
               onRefresh={refresh}
               onRestart={restartServiceEntry}
             />

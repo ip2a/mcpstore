@@ -5,6 +5,7 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react"
+import type { ServiceAddress } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 
 export type AppView =
@@ -12,7 +13,7 @@ export type AppView =
   | { name: "agents" }
   | { name: "tools" }
   | { name: "cache" }
-  | { name: "instance"; instanceId: string }
+  | { name: "instance"; addr: ServiceAddress }
 
 export type NavItem = {
   view: Exclude<AppView, { name: "instance" }>
@@ -33,6 +34,6 @@ export function useNavItems(): NavItem[] {
 export function useViewTitle(view: AppView): string {
   const { t } = useI18n()
   const items = useNavItems()
-  if (view.name === "instance") return view.instanceId
+  if (view.name === "instance") return view.addr.service_name
   return items.find((item) => item.view.name === view.name)?.label || t("navServices")
 }

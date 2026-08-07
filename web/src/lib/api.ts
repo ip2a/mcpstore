@@ -106,6 +106,12 @@ export type AuthOperationResult = {
 
 export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string };
 
+/** 服务寻址（文档 §0.4：服务名 + 作用域；URL 中无 instance_id）。ServiceInstance 结构上兼容。 */
+export type ServiceAddress = {
+  service_name: string;
+  scope: ScopeRef;
+};
+
 export type ConfigRevision = {
   base_revision: number;
   scope_revision: number;
@@ -227,14 +233,6 @@ export type DiagnosticsSettingsPayload = {
     enabled?: boolean;
     max_size_bytes?: number;
     retention_days?: number | null;
-  };
-  history?: {
-    enabled?: boolean;
-    storage?: "memory" | "disk";
-    max_records?: number;
-    max_size_bytes?: number;
-    retention_days?: number | null;
-    payload?: "none" | "metadata" | "full";
   };
 };
 

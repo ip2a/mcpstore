@@ -20,6 +20,7 @@ import {
   upgradeInstanceAuthorizationScope,
   type AuthOperationResult,
   type AuthStatus,
+  type ServiceInstance,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n-context";
 
@@ -38,9 +39,9 @@ function authStatusLabel(status: AuthStatus, t: Translate) {
   return labels[status];
 }
 
-export function ServiceAuthPanel({ instanceId }: { instanceId: string }) {
+export function ServiceAuthPanel({ service }: { service: ServiceInstance }) {
   const { t } = useI18n();
-  const authQuery = useServiceAuthQuery(instanceId);
+  const authQuery = useServiceAuthQuery(service);
   const [busy, setBusy] = useState<string | null>(null);
   const auth = authQuery.data;
 
@@ -171,7 +172,7 @@ export function ServiceAuthPanel({ instanceId }: { instanceId: string }) {
           <Button
             size="sm"
             onClick={() =>
-              run("login", () => startInstanceAuthorization(instanceId), true)
+              run("login", () => startInstanceAuthorization(service), true)
             }
             disabled={pending}
           >
@@ -191,7 +192,7 @@ export function ServiceAuthPanel({ instanceId }: { instanceId: string }) {
                 "scope",
                 () =>
                   upgradeInstanceAuthorizationScope(
-                    instanceId,
+                    service,
                     auth.required_scope!,
                   ),
                 true,
@@ -212,7 +213,7 @@ export function ServiceAuthPanel({ instanceId }: { instanceId: string }) {
             size="sm"
             variant="outline"
             onClick={() =>
-              run("refresh", () => refreshInstanceAuthorization(instanceId))
+              run("refresh", () => refreshInstanceAuthorization(service))
             }
             disabled={pending}
           >
@@ -229,7 +230,7 @@ export function ServiceAuthPanel({ instanceId }: { instanceId: string }) {
             size="sm"
             variant="outline"
             onClick={() =>
-              run("logout", () => logoutInstanceAuthorization(instanceId))
+              run("logout", () => logoutInstanceAuthorization(service))
             }
             disabled={pending}
           >

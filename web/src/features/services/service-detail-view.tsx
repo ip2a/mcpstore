@@ -123,13 +123,11 @@ export function ServiceDetailView(props: {
   );
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [toolSearchQuery, setToolSearchQuery] = useState("");
-  const detailQuery = useServiceDetailQuery(props.service.instance_id);
-  const statusQuery = useServiceStatusQuery(props.service.instance_id);
-  const resourcesQuery = useServiceResourcesQuery(props.service.instance_id);
-  const resourceTemplatesQuery = useServiceResourceTemplatesQuery(
-    props.service.instance_id,
-  );
-  const promptsQuery = useServicePromptsQuery(props.service.instance_id);
+  const detailQuery = useServiceDetailQuery(props.service);
+  const statusQuery = useServiceStatusQuery(props.service);
+  const resourcesQuery = useServiceResourcesQuery(props.service);
+  const resourceTemplatesQuery = useServiceResourceTemplatesQuery(props.service);
+  const promptsQuery = useServicePromptsQuery(props.service);
   const detail = detailQuery.data;
   const statusReport = statusQuery.data;
   const error = detailQuery.error || detailError;
@@ -638,7 +636,6 @@ export function ServiceDetailView(props: {
             resourceCount={resources.length}
             templateCount={resourceTemplates.length}
             promptCount={prompts.length}
-            instanceId={service.instance_id}
             onRefresh={refreshCurrentView}
             onRun={
               rightPaneView === "catalog" &&
@@ -784,7 +781,7 @@ export function ServiceDetailView(props: {
                 ) : selectedResource ? (
                   <ServiceResourceDetailPane
                     resource={selectedResource}
-                    instanceId={service.instance_id}
+                    service={service}
                   />
                 ) : (
                   <PageEmpty

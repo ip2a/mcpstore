@@ -171,7 +171,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                       <SectionHead title={t("diagnostics")} description={t("diagnosticsDescription")} />
                       <FieldGroup>
                         <ToggleField title={t("diagnosticsEnabled")} description={t("diagnosticsEnabledDescription")} checked={draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ enabled })} />
-                        <ToggleField title={t("historyEnabled")} description={t("historyEnabledDescription")} checked={draft.diagnostics.history_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ history_enabled: enabled })} />
                         <ToggleField title={t("runtimeLogEnabled")} description={t("runtimeLogEnabledDescription")} checked={draft.diagnostics.runtime_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ runtime_enabled: enabled })} />
                         <p className="text-xs text-muted-foreground">{t("runtimeLogRestartNotice")}</p>
                         <Field orientation="responsive">
@@ -202,27 +201,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             />
                             <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
                           </InputGroup>
-                        </Field>
-                        <Field orientation="responsive">
-                          <FieldContent>
-                            <FieldTitle>{t("historyStorage")}</FieldTitle>
-                            <FieldDescription>{t("historyStorageDescription")}</FieldDescription>
-                          </FieldContent>
-                          <Select value={draft.diagnostics.storage} onValueChange={(storage) => patchDiagnostics({ storage: storage as "memory" | "disk" })}>
-                            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                            <SelectContent><SelectGroup><SelectItem value="memory">{t("memory")}</SelectItem><SelectItem value="disk">{t("disk")}</SelectItem></SelectGroup></SelectContent>
-                          </Select>
-                        </Field>
-                        <Field orientation="responsive">
-                          <FieldContent><FieldTitle>{t("historyMaxRecords")}</FieldTitle><FieldDescription>{t("historyMaxRecordsDescription")}</FieldDescription></FieldContent>
-                          <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.diagnostics.max_records} onChange={(event) => patchDiagnostics({ max_records: Math.max(1, Number(event.target.value || 1)) })} /></InputGroup>
-                        </Field>
-                        <Field orientation="responsive">
-                          <FieldContent><FieldTitle>{t("historyPayload")}</FieldTitle><FieldDescription>{t("historyPayloadDescription")}</FieldDescription></FieldContent>
-                          <Select value={draft.diagnostics.payload} onValueChange={(payload) => patchDiagnostics({ payload: payload as SettingsDraft["diagnostics"]["payload"] })}>
-                            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                            <SelectContent><SelectGroup><SelectItem value="none">{t("payloadNone")}</SelectItem><SelectItem value="metadata">{t("payloadMetadata")}</SelectItem><SelectItem value="full">{t("payloadFull")}</SelectItem></SelectGroup></SelectContent>
-                          </Select>
                         </Field>
                       </FieldGroup>
                     </section>

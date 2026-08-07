@@ -98,7 +98,6 @@ export function ServicePreviewHeader({
   resourceCount,
   templateCount,
   promptCount,
-  instanceId,
   onRefresh,
   onRun,
   runningTool,
@@ -119,7 +118,6 @@ export function ServicePreviewHeader({
   resourceCount: number;
   templateCount: number;
   promptCount: number;
-  instanceId: string;
   onRefresh: () => void;
   onRun?: () => void;
   runningTool?: boolean;
@@ -168,7 +166,7 @@ export function ServicePreviewHeader({
     if (!selectedResource) return;
     try {
       const result = await readInstanceResource(
-        instanceId,
+        service,
         selectedResource.uri,
       );
       await navigator.clipboard.writeText(JSON.stringify(result, null, 2));
@@ -293,7 +291,7 @@ export function ServiceOverviewPane({
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <ServiceAuthPanel instanceId={service.instance_id} />
+      <ServiceAuthPanel service={service} />
       <section className="border-b pb-4">
         <SectionHeading
           title={t("service")}
@@ -402,10 +400,10 @@ export function ServiceOverviewPane({
 
 export function ServiceResourceDetailPane({
   resource,
-  instanceId,
+  service,
 }: {
   resource: ResourceInfo;
-  instanceId: string;
+  service: ServiceInstance;
 }) {
   const { t } = useI18n();
   const [content, setContent] = useState<unknown>(null);
@@ -415,7 +413,7 @@ export function ServiceResourceDetailPane({
   async function onRead() {
     setReading(true);
     try {
-      const result = await readInstanceResource(instanceId, resource.uri);
+      const result = await readInstanceResource(service, resource.uri);
       setContent(result);
     } catch (err) {
       const message =
