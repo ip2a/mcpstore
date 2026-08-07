@@ -106,6 +106,39 @@ export type AuthOperationResult = {
 
 export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string };
 
+export type ToolArgumentOverride = Record<string, unknown>;
+export type ComponentOverrideCommon = {
+  display_name?: string;
+  description?: string;
+  meta?: unknown;
+  annotations?: unknown;
+  tags?: string[];
+  enabled?: boolean;
+};
+export type ToolOverridePatch = ComponentOverrideCommon & {
+  arguments?: ToolArgumentOverride[];
+  safety_policy?: unknown;
+};
+export type PromptOverridePatch = ComponentOverrideCommon;
+export type ResourceOverridePatch = ComponentOverrideCommon & { mime_type?: string };
+export type ResourceTemplateOverridePatch = ResourceOverridePatch;
+export type ToolOverrideRule = ToolOverridePatch & {
+  instance_id: string; service_name: string; scope: ScopeRef; tool_name: string;
+  updated_at: number; version: number;
+};
+export type PromptOverrideRule = PromptOverridePatch & {
+  instance_id: string; service_name: string; scope: ScopeRef; prompt_name: string;
+  updated_at: number; version: number;
+};
+export type ResourceOverrideRule = ResourceOverridePatch & {
+  instance_id: string; service_name: string; scope: ScopeRef; uri: string;
+  updated_at: number; version: number;
+};
+export type ResourceTemplateOverrideRule = ResourceTemplateOverridePatch & {
+  instance_id: string; service_name: string; scope: ScopeRef; uri_template: string;
+  updated_at: number; version: number;
+};
+
 /** 服务寻址（文档 §0.4：服务名 + 作用域；URL 中无 instance_id）。ServiceInstance 结构上兼容。 */
 export type ServiceAddress = {
   service_name: string;

@@ -62,6 +62,7 @@ import {
 import { formatServiceLaunchLine } from "@/lib/service-info";
 import { useI18n } from "@/lib/i18n-context";
 import { cn } from "@/lib/utils";
+import { OverrideEditor } from "@/features/overrides/override-editor";
 
 export type CatalogTab = "tools" | "resources" | "prompts";
 export type ResourceSubTab = "items" | "templates";
@@ -478,14 +479,17 @@ export function ServiceResourceDetailPane({
           <JsonBlock value={content} />
         </section>
       ) : null}
+      <OverrideEditor kind="resource" serviceName={service.service_name} componentKey={resource.uri} scope={service.scope} />
     </div>
   );
 }
 
 export function ServiceResourceTemplateDetailPane({
   template,
+  service,
 }: {
   template: ResourceTemplateInfo;
+  service: ServiceInstance;
 }) {
   const { t } = useI18n();
   const uriTemplate = resourceTemplateUri(template);
@@ -552,11 +556,12 @@ export function ServiceResourceTemplateDetailPane({
           <JsonBlock value={meta} />
         </section>
       ) : null}
+      <OverrideEditor kind="resource_template" serviceName={service.service_name} componentKey={uriTemplate} scope={service.scope} />
     </div>
   );
 }
 
-export function ServicePromptDetailPane({ prompt }: { prompt: PromptInfo }) {
+export function ServicePromptDetailPane({ prompt, service }: { prompt: PromptInfo; service: ServiceInstance }) {
   const { t } = useI18n();
   const argCount = promptArgCount(prompt);
 
@@ -587,6 +592,7 @@ export function ServicePromptDetailPane({ prompt }: { prompt: PromptInfo }) {
           ) : null}
         </dl>
       </section>
+      <OverrideEditor kind="prompt" serviceName={service.service_name} componentKey={prompt.name} scope={service.scope} />
       <section className="pb-2">
         <SectionHeading
           title={t("arguments")}

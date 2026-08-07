@@ -174,6 +174,8 @@ export function ToolsView(props: {
                   tool={selectedTool.tool}
                   toolArgs={toolArgs}
                   onToolArgChange={setToolArg}
+                  serviceName={selectedTool.instance.service_name}
+                  scope={selectedTool.instance.scope}
                 />
               </ScrollPane>
             </div>

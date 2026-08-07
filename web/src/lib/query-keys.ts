@@ -37,4 +37,5 @@ export const queryKeys = {
   cacheInspect: ["cache", "inspect"] as const,
   meta: ["meta"] as const,
   settings: ["settings"] as const,
+  overrides: (kind: string) => ["overrides", kind] as const,
 }

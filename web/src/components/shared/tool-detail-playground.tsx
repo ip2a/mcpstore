@@ -24,7 +24,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { TypographyH2, TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
-import type { ToolInfo } from "@/lib/api"
+import type { ScopeRef, ToolInfo } from "@/lib/api"
+import { OverrideEditor } from "@/features/overrides/override-editor"
 import { buildSchemaExampleValue, buildToolCliCommand } from "@/lib/tool-schema-preview"
 import { serializeToolArgs, type ToolSchema, getMissingRequiredArgs } from "@/lib/tool-args"
 import { getToolOutputSchema, getToolSchema, extractToolDescriptionDocs } from "@/lib/tool-info"
@@ -110,11 +111,15 @@ export function ToolDetailDocBody({
   toolArgs,
   onToolArgChange,
   className,
+  serviceName,
+  scope,
 }: {
   tool: ToolInfo
   toolArgs: Record<string, unknown>
   onToolArgChange: (name: string, value: unknown) => void
   className?: string
+  serviceName?: string
+  scope?: ScopeRef
 }) {
   const { t } = useI18n()
   const { proseInputParams, proseOutputParams, proseReturnSummary } = extractToolDescriptionDocs(tool.description || "")
@@ -171,6 +176,7 @@ export function ToolDetailDocBody({
 
       <ToolAnnotationsSection tool={tool} />
       <ToolMetaSection tool={tool} />
+      {serviceName && scope ? <OverrideEditor kind="tool" serviceName={serviceName} componentKey={tool.name} scope={scope} /> : null}
     </div>
   )
 }
