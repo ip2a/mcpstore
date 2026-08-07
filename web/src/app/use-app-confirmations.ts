@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import type { ResetTarget } from "@/features/config/types"
+import type { ResetTarget } from "@/features/config/config-view"
 import { resetAgentConfig, resetConfig, type ServiceInstance } from "@/lib/api"
 
 type RunAction = (

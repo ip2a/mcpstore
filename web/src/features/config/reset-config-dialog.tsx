@@ -12,7 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { ResetTarget } from "@/features/config/types"
+import type { ResetTarget } from "@/features/config/config-view"
 
 export function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetTarget | null; onOpenChange: (open: boolean) => void; onConfirm: (target: ResetTarget) => void }) {
   const { t } = useI18n()
