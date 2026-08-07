@@ -362,6 +362,15 @@ impl MCPStore {
             ),
             ("tool_preferences", Self::tool_preference_matches_instance),
             ("tool_overrides", Self::tool_override_matches_instance),
+            ("prompt_overrides", Self::prompt_override_matches_instance),
+            (
+                "resource_overrides",
+                Self::resource_override_matches_instance,
+            ),
+            (
+                "resource_template_overrides",
+                Self::resource_template_override_matches_instance,
+            ),
         ] {
             for (key, value) in self.cache.get_all_states_async(state_type).await? {
                 if matches_instance(&value, instance_id)? {
@@ -404,6 +413,42 @@ impl MCPStore {
             StoreError::Other(format!("Tool override deserialization failed: {error}"))
         })?;
         Ok(state.instance_id == instance_id)
+    }
+
+    fn prompt_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        Self::weak_override_matches_instance(value, instance_id, "prompt")
+    }
+
+    fn resource_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        Self::weak_override_matches_instance(value, instance_id, "resource")
+    }
+
+    fn resource_template_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+    ) -> Result<bool> {
+        Self::weak_override_matches_instance(value, instance_id, "resource template")
+    }
+
+    fn weak_override_matches_instance(
+        value: &serde_json::Value,
+        instance_id: InstanceId,
+        label: &str,
+    ) -> Result<bool> {
+        let value_id = value
+            .get("instance_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| value.parse::<InstanceId>().ok())
+            .ok_or_else(|| {
+                StoreError::Other(format!("{label} override missing valid instance_id"))
+            })?;
+        Ok(value_id == instance_id)
     }
 
     fn instance_entity(instance: &ServiceInstance) -> ServiceInstanceEntity {

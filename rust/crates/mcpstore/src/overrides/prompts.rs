@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::overrides::{apply_meta_override, is_override_enabled, ComponentOverrideCommon};
+use crate::overrides::{
+    apply_meta_override, is_override_enabled, ComponentKind, ComponentOverrideCommon,
+};
 use crate::store::prelude::*;
 
 const PROMPT_OVERRIDES_STATE_TYPE: &str = "prompt_overrides";
@@ -76,7 +78,7 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 PROMPT_OVERRIDES_STATE_TYPE,
-                &format!("{instance_id}:{prompt_name}"),
+                &Self::component_override_key(instance_id, prompt_name),
                 expected_version,
                 serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
             )
@@ -101,7 +103,7 @@ impl MCPStore {
         self.cache
             .delete_state(
                 PROMPT_OVERRIDES_STATE_TYPE,
-                &format!("{instance_id}:{prompt_name}"),
+                &Self::component_override_key(instance_id, prompt_name),
             )
             .await
             .map_err(StoreError::from)
@@ -127,22 +129,12 @@ impl MCPStore {
         Ok(rules)
     }
     pub async fn enable_prompt(&self, instance_id: InstanceId, prompt_name: &str) -> Result<()> {
-        self.set_prompt_override(
-            instance_id,
-            prompt_name,
-            PromptOverridePatch::default().enabled(true),
-        )
-        .await
-        .map(|_| ())
+        self.patch_component_enabled(ComponentKind::Prompt, instance_id, prompt_name, true)
+            .await
     }
     pub async fn disable_prompt(&self, instance_id: InstanceId, prompt_name: &str) -> Result<()> {
-        self.set_prompt_override(
-            instance_id,
-            prompt_name,
-            PromptOverridePatch::default().enabled(false),
-        )
-        .await
-        .map(|_| ())
+        self.patch_component_enabled(ComponentKind::Prompt, instance_id, prompt_name, false)
+            .await
     }
 
     pub(crate) async fn load_prompt_override(
@@ -153,7 +145,7 @@ impl MCPStore {
         self.cache
             .get_state(
                 PROMPT_OVERRIDES_STATE_TYPE,
-                &format!("{instance_id}:{prompt_name}"),
+                &Self::component_override_key(instance_id, prompt_name),
             )
             .await?
             .map(|value| {
