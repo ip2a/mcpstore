@@ -3,13 +3,14 @@ use super::catalog::{
     resolve_projected_prompt,
 };
 use super::tools::{
-    build_cache_tools, build_openapi_tools, build_service_tools,
-    build_session_state_tools, build_tool_transform_tools, deserialize_item, deserialize_items,
+    build_cache_tools, build_openapi_tools, build_prompt_override_tools,
+    build_resource_override_tools, build_resource_template_override_tools, build_service_tools,
+    build_session_state_tools, build_tool_override_tools, deserialize_item, deserialize_items,
 };
 use super::tools::{
-    call_cache_tool, call_openapi_tool, call_service_tool,
-    call_session_state_tool, call_tool_transform_tool, extract_business_session_key,
-    map_store_error,
+    call_cache_tool, call_openapi_tool, call_prompt_override_tool, call_resource_override_tool,
+    call_resource_template_override_tool, call_service_tool, call_session_state_tool,
+    call_tool_override_tool, extract_business_session_key, map_store_error,
 };
 use super::transport::{build_tool_bindings, connect_target_instances};
 use super::*;
@@ -21,7 +22,9 @@ impl McpStoreServer {
         instance_id: Option<InstanceId>,
         session_key: Option<String>,
         expose_session_state_tools: bool,
-        expose_tool_transform_tools: bool,
+        expose_tool_override_tools: bool,
+        expose_prompt_override_tools: bool,
+        expose_resource_override_tools: bool,
         expose_openapi_tools: bool,
         expose_service_tools: bool,
         expose_cache_tools: bool,
@@ -37,8 +40,21 @@ impl McpStoreServer {
         } else {
             HashMap::new()
         };
-        let tool_transform_tools = if expose_tool_transform_tools {
-            build_tool_transform_tools()
+        let tool_override_tools = if expose_tool_override_tools {
+            build_tool_override_tools()
+        } else {
+            HashMap::new()
+        };
+        let prompt_override_tools = if expose_prompt_override_tools {
+            build_prompt_override_tools()
+        } else {
+            HashMap::new()
+        };
+        let resource_override_tools = if expose_resource_override_tools {
+            build_resource_override_tools()
+                .into_iter()
+                .chain(build_resource_template_override_tools())
+                .collect()
         } else {
             HashMap::new()
         };
@@ -59,7 +75,9 @@ impl McpStoreServer {
         };
         for tool_name in session_state_tools
             .keys()
-            .chain(tool_transform_tools.keys())
+            .chain(tool_override_tools.keys())
+            .chain(prompt_override_tools.keys())
+            .chain(resource_override_tools.keys())
             .chain(openapi_tools.keys())
             .chain(service_tools.keys())
             .chain(cache_tools.keys())
@@ -76,7 +94,9 @@ impl McpStoreServer {
             .map(|binding| binding.tool.clone())
             .collect::<Vec<_>>();
         tools.extend(session_state_tools.values().cloned());
-        tools.extend(tool_transform_tools.values().cloned());
+        tools.extend(tool_override_tools.values().cloned());
+        tools.extend(prompt_override_tools.values().cloned());
+        tools.extend(resource_override_tools.values().cloned());
         tools.extend(openapi_tools.values().cloned());
         tools.extend(service_tools.values().cloned());
         tools.extend(cache_tools.values().cloned());
@@ -103,7 +123,9 @@ impl McpStoreServer {
             scope_label,
             bindings: Arc::new(bindings),
             session_state_tools: Arc::new(session_state_tools),
-            tool_transform_tools: Arc::new(tool_transform_tools),
+            tool_override_tools: Arc::new(tool_override_tools),
+            prompt_override_tools: Arc::new(prompt_override_tools),
+            resource_override_tools: Arc::new(resource_override_tools),
             openapi_tools: Arc::new(openapi_tools),
             service_tools: Arc::new(service_tools),
             cache_tools: Arc::new(cache_tools),
@@ -135,7 +157,9 @@ impl McpStoreServer {
         for tool_name in self
             .session_state_tools
             .keys()
-            .chain(self.tool_transform_tools.keys())
+            .chain(self.tool_override_tools.keys())
+            .chain(self.prompt_override_tools.keys())
+            .chain(self.resource_override_tools.keys())
             .chain(self.openapi_tools.keys())
             .chain(self.service_tools.keys())
             .chain(self.cache_tools.keys())
@@ -155,7 +179,9 @@ impl McpStoreServer {
             .map(|binding| binding.tool.clone())
             .collect::<Vec<_>>();
         tools.extend(self.session_state_tools.values().cloned());
-        tools.extend(self.tool_transform_tools.values().cloned());
+        tools.extend(self.tool_override_tools.values().cloned());
+        tools.extend(self.prompt_override_tools.values().cloned());
+        tools.extend(self.resource_override_tools.values().cloned());
         tools.extend(self.openapi_tools.values().cloned());
         tools.extend(self.service_tools.values().cloned());
         tools.extend(self.cache_tools.values().cloned());
@@ -221,7 +247,9 @@ impl ServerHandler for McpStoreServer {
             .get(name)
             .map(|binding| binding.tool.clone())
             .or_else(|| self.session_state_tools.get(name).cloned())
-            .or_else(|| self.tool_transform_tools.get(name).cloned())
+            .or_else(|| self.tool_override_tools.get(name).cloned())
+            .or_else(|| self.prompt_override_tools.get(name).cloned())
+            .or_else(|| self.resource_override_tools.get(name).cloned())
             .or_else(|| self.openapi_tools.get(name).cloned())
             .or_else(|| self.service_tools.get(name).cloned())
             .or_else(|| self.cache_tools.get(name).cloned())
@@ -366,7 +394,11 @@ impl ServerHandler for McpStoreServer {
         let tool_name = request.name.as_ref().to_string();
         let binding = self.bindings.get(tool_name.as_str()).cloned();
         let is_session_state_tool = self.session_state_tools.contains_key(tool_name.as_str());
-        let is_tool_transform_tool = self.tool_transform_tools.contains_key(tool_name.as_str());
+        let is_tool_override_tool = self.tool_override_tools.contains_key(tool_name.as_str());
+        let is_prompt_override_tool = self.prompt_override_tools.contains_key(tool_name.as_str());
+        let is_resource_override_tool = self
+            .resource_override_tools
+            .contains_key(tool_name.as_str());
         let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
         let is_service_tool = self.service_tools.contains_key(tool_name.as_str());
         let is_cache_tool = self.cache_tools.contains_key(tool_name.as_str());
@@ -388,8 +420,23 @@ impl ServerHandler for McpStoreServer {
                 .await
                 .map(Into::into);
             }
-            if is_tool_transform_tool {
-                return call_tool_transform_tool(&store, &tool_name, arguments)
+            if is_tool_override_tool {
+                return call_tool_override_tool(&store, &tool_name, arguments)
+                    .await
+                    .map(Into::into);
+            }
+            if is_prompt_override_tool {
+                return call_prompt_override_tool(&store, &tool_name, arguments)
+                    .await
+                    .map(Into::into);
+            }
+            if is_resource_override_tool {
+                if tool_name.starts_with("mcpstore_resource_template_override_") {
+                    return call_resource_template_override_tool(&store, &tool_name, arguments)
+                        .await
+                        .map(Into::into);
+                }
+                return call_resource_override_tool(&store, &tool_name, arguments)
                     .await
                     .map(Into::into);
             }

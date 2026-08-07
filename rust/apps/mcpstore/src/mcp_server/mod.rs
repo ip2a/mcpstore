@@ -10,7 +10,9 @@ use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
     events::{bus::EventHandler, Event},
     CacheStorage, ContentItem, InstanceId, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
-    OpenApiRefCachePolicy, ScopeRef, SourceMode, StoreError, StoreOptions, ToolOverridePatch,
+    OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
+    ResourceTemplateOverridePatch, ScopeRef, SourceMode, StoreError, StoreOptions,
+    ToolOverridePatch,
 };
 use rmcp::{
     model::{
@@ -67,7 +69,9 @@ pub struct McpServerOptions {
     pub path: String,
     pub session_key: Option<String>,
     pub expose_session_state_tools: bool,
-    pub expose_tool_transform_tools: bool,
+    pub expose_tool_override_tools: bool,
+    pub expose_prompt_override_tools: bool,
+    pub expose_resource_override_tools: bool,
     pub expose_openapi_tools: bool,
     pub expose_service_tools: bool,
     pub expose_cache_tools: bool,
@@ -89,7 +93,9 @@ impl Default for McpServerOptions {
             path: "/mcp".to_string(),
             session_key: None,
             expose_session_state_tools: false,
-            expose_tool_transform_tools: false,
+            expose_tool_override_tools: false,
+            expose_prompt_override_tools: false,
+            expose_resource_override_tools: false,
             expose_openapi_tools: false,
             expose_service_tools: false,
             expose_cache_tools: false,
@@ -164,10 +170,22 @@ const SESSION_STATE_DELETE_TOOL: &str = "mcpstore_session_state_delete";
 const SESSION_STATE_CLEAR_TOOL: &str = "mcpstore_session_state_clear";
 const SESSION_SNAPSHOT_EXPORT_TOOL: &str = "mcpstore_session_snapshot_export";
 const SESSION_SNAPSHOT_IMPORT_TOOL: &str = "mcpstore_session_snapshot_import";
-const TOOL_TRANSFORM_LIST_TOOL: &str = "mcpstore_tool_transform_list";
-const TOOL_TRANSFORM_GET_TOOL: &str = "mcpstore_tool_transform_get";
-const TOOL_TRANSFORM_SET_TOOL: &str = "mcpstore_tool_transform_set";
-const TOOL_TRANSFORM_DELETE_TOOL: &str = "mcpstore_tool_transform_delete";
+const TOOL_OVERRIDE_LIST_TOOL: &str = "mcpstore_tool_override_list";
+const TOOL_OVERRIDE_GET_TOOL: &str = "mcpstore_tool_override_get";
+const TOOL_OVERRIDE_SET_TOOL: &str = "mcpstore_tool_override_set";
+const TOOL_OVERRIDE_DELETE_TOOL: &str = "mcpstore_tool_override_delete";
+const PROMPT_OVERRIDE_LIST_TOOL: &str = "mcpstore_prompt_override_list";
+const PROMPT_OVERRIDE_GET_TOOL: &str = "mcpstore_prompt_override_get";
+const PROMPT_OVERRIDE_SET_TOOL: &str = "mcpstore_prompt_override_set";
+const PROMPT_OVERRIDE_DELETE_TOOL: &str = "mcpstore_prompt_override_delete";
+const RESOURCE_OVERRIDE_LIST_TOOL: &str = "mcpstore_resource_override_list";
+const RESOURCE_OVERRIDE_GET_TOOL: &str = "mcpstore_resource_override_get";
+const RESOURCE_OVERRIDE_SET_TOOL: &str = "mcpstore_resource_override_set";
+const RESOURCE_OVERRIDE_DELETE_TOOL: &str = "mcpstore_resource_override_delete";
+const RESOURCE_TEMPLATE_OVERRIDE_LIST_TOOL: &str = "mcpstore_resource_template_override_list";
+const RESOURCE_TEMPLATE_OVERRIDE_GET_TOOL: &str = "mcpstore_resource_template_override_get";
+const RESOURCE_TEMPLATE_OVERRIDE_SET_TOOL: &str = "mcpstore_resource_template_override_set";
+const RESOURCE_TEMPLATE_OVERRIDE_DELETE_TOOL: &str = "mcpstore_resource_template_override_delete";
 const OPENAPI_IMPORT_LIST_TOOL: &str = "mcpstore_openapi_import_list";
 const OPENAPI_IMPORT_GET_TOOL: &str = "mcpstore_openapi_import_get";
 const OPENAPI_IMPORT_SET_TOOL: &str = "mcpstore_openapi_import";
@@ -236,7 +254,9 @@ struct McpStoreServer {
     scope_label: String,
     bindings: Arc<HashMap<String, ToolBinding>>,
     session_state_tools: Arc<HashMap<String, Tool>>,
-    tool_transform_tools: Arc<HashMap<String, Tool>>,
+    tool_override_tools: Arc<HashMap<String, Tool>>,
+    prompt_override_tools: Arc<HashMap<String, Tool>>,
+    resource_override_tools: Arc<HashMap<String, Tool>>,
     openapi_tools: Arc<HashMap<String, Tool>>,
     service_tools: Arc<HashMap<String, Tool>>,
     cache_tools: Arc<HashMap<String, Tool>>,

@@ -1317,7 +1317,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 }
 
 #[tokio::test]
-async fn store_routes_manage_rust_core_tool_transforms() {
+async fn store_routes_manage_rust_core_tool_overrides() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
@@ -1331,9 +1331,9 @@ async fn store_routes_manage_rust_core_tool_transforms() {
     let client = reqwest::Client::new();
     let base_url = format!("http://{addr}");
 
-    let set_transform = client
+    let set_override = client
         .put(format!(
-            "{base_url}/services/demo/tool_transforms/echo"
+            "{base_url}/services/demo/tool_overrides/echo"
         ))
         .json(&json!({
             "display_name": "say",
@@ -1357,10 +1357,10 @@ async fn store_routes_manage_rust_core_tool_transforms() {
         .send()
         .await
         .unwrap();
-    assert!(set_transform.status().is_success());
-    let set_payload = set_transform.json::<Value>().await.unwrap();
-    assert_eq!(set_payload["data"]["transform"]["display_name"], "say");
-    assert_eq!(set_payload["data"]["transform"]["version"], 1);
+    assert!(set_override.status().is_success());
+    let set_payload = set_override.json::<Value>().await.unwrap();
+    assert_eq!(set_payload["data"]["override"]["display_name"], "say");
+    assert_eq!(set_payload["data"]["override"]["version"], 1);
 
     let list_tools = client
         .get(format!("{base_url}/services/demo/tools/list"))
@@ -1378,19 +1378,19 @@ async fn store_routes_manage_rust_core_tool_transforms() {
     assert!(tool["input_schema"]["properties"].get("debug").is_none());
     assert_eq!(tool["input_schema"]["required"], json!(["message"]));
 
-    let get_transform = client
+    let get_override = client
         .get(format!(
-            "{base_url}/services/demo/tool_transforms/echo"
+            "{base_url}/services/demo/tool_overrides/echo"
         ))
         .send()
         .await
         .unwrap();
-    assert!(get_transform.status().is_success());
-    let get_payload = get_transform.json::<Value>().await.unwrap();
-    assert_eq!(get_payload["data"]["transform"]["tool_name"], "echo");
+    assert!(get_override.status().is_success());
+    let get_payload = get_override.json::<Value>().await.unwrap();
+    assert_eq!(get_payload["data"]["override"]["tool_name"], "echo");
 
     let list_transforms = client
-        .get(format!("{base_url}/tool_transforms"))
+        .get(format!("{base_url}/tool_overrides"))
         .send()
         .await
         .unwrap();
@@ -1400,7 +1400,7 @@ async fn store_routes_manage_rust_core_tool_transforms() {
 
     let delete_transform = client
         .delete(format!(
-            "{base_url}/services/demo/tool_transforms/echo"
+            "{base_url}/services/demo/tool_overrides/echo"
         ))
         .send()
         .await

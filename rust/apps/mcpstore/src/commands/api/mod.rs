@@ -20,8 +20,8 @@ use mcpstore::{
     },
     config::ScopeDescriptor,
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
-    OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ScopeView, ServerConfig,
-    ToolOverridePatch,
+    OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
+    ResourceTemplateOverridePatch, ScopeRef, ScopeView, ServerConfig, ToolOverridePatch,
 };
 use serde_json::json;
 #[cfg(test)]
@@ -47,8 +47,8 @@ mod session;
 use envelope::{success, ApiError, ApiResult};
 
 use parse::{
-    extract_prompt_args, extract_prompt_name, extract_tool_args, extract_tool_name, normalize_prefix,
-    parse_scope_ref, ScopeQuery,
+    extract_prompt_args, extract_prompt_name, extract_tool_args, extract_tool_name,
+    normalize_prefix, parse_scope_ref, ScopeQuery,
 };
 
 #[derive(Args)]
@@ -259,18 +259,30 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/sessions/status", get(session::session_status))
         .route("/sessions/close", post(session::session_close))
         .route("/sessions/extend", post(session::session_extend))
-        .route("/sessions/bind_service", post(session::session_bind_service))
+        .route(
+            "/sessions/bind_service",
+            post(session::session_bind_service),
+        )
         .route(
             "/sessions/unbind_service",
             post(session::session_unbind_service),
         )
-        .route("/sessions/list_services", get(session::session_list_services))
+        .route(
+            "/sessions/list_services",
+            get(session::session_list_services),
+        )
         .route("/sessions/list_tools", get(session::session_list_tools))
         .route("/sessions/call_tool", post(session::session_call_tool))
         .route("/sessions/state/list", get(session::session_list_state))
-        .route("/sessions/state/value", get(session::session_get_state_value))
+        .route(
+            "/sessions/state/value",
+            get(session::session_get_state_value),
+        )
         .route("/sessions/state/set", post(session::session_set_state))
-        .route("/sessions/state/delete", post(session::session_delete_state))
+        .route(
+            "/sessions/state/delete",
+            post(session::session_delete_state),
+        )
         .route("/sessions/state/clear", post(session::session_clear_state))
         // ===== 工具策略 / 转换规则 / 补全 / 资源订阅（服务名 + scope 寻址）=====
         .route(
@@ -279,12 +291,42 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
                 .put(service::service_set_tool_policy)
                 .delete(service::service_clear_tool_policy),
         )
-        .route("/tool_transforms", get(service::store_list_tool_overrides))
+        .route("/tool_overrides", get(service::store_list_tool_overrides))
         .route(
-            "/services/:service_name/tool_transforms/:tool_name",
+            "/services/:service_name/tool_overrides/:tool_name",
             get(service::service_get_tool_override)
                 .put(service::service_set_tool_override)
                 .delete(service::service_delete_tool_override),
+        )
+        .route(
+            "/prompt_overrides",
+            get(service::store_list_prompt_overrides),
+        )
+        .route(
+            "/services/:service_name/prompt_overrides/:prompt_name",
+            get(service::service_get_prompt_override)
+                .put(service::service_set_prompt_override)
+                .delete(service::service_delete_prompt_override),
+        )
+        .route(
+            "/resource_overrides",
+            get(service::store_list_resource_overrides),
+        )
+        .route(
+            "/services/:service_name/resource_overrides/*uri",
+            get(service::service_get_resource_override)
+                .put(service::service_set_resource_override)
+                .delete(service::service_delete_resource_override),
+        )
+        .route(
+            "/resource_template_overrides",
+            get(service::store_list_resource_template_overrides),
+        )
+        .route(
+            "/services/:service_name/resource_template_overrides/*uri_template",
+            get(service::service_get_resource_template_override)
+                .put(service::service_set_resource_template_override)
+                .delete(service::service_delete_resource_template_override),
         )
         .route(
             "/services/:service_name/completions",

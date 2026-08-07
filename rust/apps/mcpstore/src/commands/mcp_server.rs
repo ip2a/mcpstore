@@ -77,9 +77,19 @@ pub struct McpServerArgs {
     pub expose_session_state_tools: bool,
     #[arg(
         long,
-        help = "Expose MCPStore tool transform management tools. Disabled by default."
+        help = "Expose MCPStore tool override management tools. Disabled by default."
     )]
-    pub expose_tool_transform_tools: bool,
+    pub expose_tool_override_tools: bool,
+    #[arg(
+        long,
+        help = "Expose MCPStore prompt override management tools. Disabled by default."
+    )]
+    pub expose_prompt_override_tools: bool,
+    #[arg(
+        long,
+        help = "Expose MCPStore resource and resource-template override management tools. Disabled by default."
+    )]
+    pub expose_resource_override_tools: bool,
     #[arg(
         long,
         help = "Expose MCPStore OpenAPI import management tools. Disabled by default."
@@ -154,7 +164,9 @@ impl McpServerArgs {
             path: self.path.clone(),
             session_key: self.session_key.clone(),
             expose_session_state_tools: self.expose_session_state_tools,
-            expose_tool_transform_tools: self.expose_tool_transform_tools,
+            expose_tool_override_tools: self.expose_tool_override_tools,
+            expose_prompt_override_tools: self.expose_prompt_override_tools,
+            expose_resource_override_tools: self.expose_resource_override_tools,
             expose_openapi_tools: self.expose_openapi_tools,
             expose_service_tools: self.expose_service_tools,
             expose_cache_tools: self.expose_cache_tools,
@@ -194,7 +206,9 @@ mod tests {
             path: "/mcp".to_string(),
             session_key: None,
             expose_session_state_tools: false,
-            expose_tool_transform_tools: false,
+            expose_tool_override_tools: false,
+            expose_prompt_override_tools: false,
+            expose_resource_override_tools: false,
             expose_openapi_tools: false,
             expose_service_tools: false,
             expose_cache_tools: false,

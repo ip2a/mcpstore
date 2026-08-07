@@ -147,30 +147,30 @@ pub(super) fn session_state_schema(required: &[&str]) -> Map<String, Value> {
     schema
 }
 
-pub(super) fn build_tool_transform_tools() -> HashMap<String, Tool> {
+pub(super) fn build_tool_override_tools() -> HashMap<String, Tool> {
     [
-        tool_transform_tool(
-            TOOL_TRANSFORM_LIST_TOOL,
-            "List all Rust-backed MCPStore tool transform rules.",
-            tool_transform_schema(&[]),
+        tool_override_tool(
+            TOOL_OVERRIDE_LIST_TOOL,
+            "List all Rust-backed MCPStore tool override rules.",
+            tool_override_schema(&[]),
             true,
         ),
-        tool_transform_tool(
-            TOOL_TRANSFORM_GET_TOOL,
-            "Get one Rust-backed MCPStore tool transform rule.",
-            tool_transform_schema(&["instance_id", "tool_name"]),
+        tool_override_tool(
+            TOOL_OVERRIDE_GET_TOOL,
+            "Get one Rust-backed MCPStore tool override rule.",
+            tool_override_schema(&["instance_id", "tool_name"]),
             true,
         ),
-        tool_transform_tool(
-            TOOL_TRANSFORM_SET_TOOL,
-            "Set one Rust-backed MCPStore tool transform rule.",
-            tool_transform_schema(&["instance_id", "tool_name"]),
+        tool_override_tool(
+            TOOL_OVERRIDE_SET_TOOL,
+            "Set one Rust-backed MCPStore tool override rule.",
+            tool_override_schema(&["instance_id", "tool_name"]),
             false,
         ),
-        tool_transform_tool(
-            TOOL_TRANSFORM_DELETE_TOOL,
-            "Delete one Rust-backed MCPStore tool transform rule.",
-            tool_transform_schema(&["instance_id", "tool_name"]),
+        tool_override_tool(
+            TOOL_OVERRIDE_DELETE_TOOL,
+            "Delete one Rust-backed MCPStore tool override rule.",
+            tool_override_schema(&["instance_id", "tool_name"]),
             false,
         ),
     ]
@@ -179,7 +179,7 @@ pub(super) fn build_tool_transform_tools() -> HashMap<String, Tool> {
     .collect()
 }
 
-pub(super) fn tool_transform_tool(
+pub(super) fn tool_override_tool(
     name: &'static str,
     description: &'static str,
     schema: Map<String, Value>,
@@ -190,13 +190,13 @@ pub(super) fn tool_transform_tool(
         .destructive(!read_only)
         .idempotent(matches!(
             name,
-            TOOL_TRANSFORM_LIST_TOOL | TOOL_TRANSFORM_GET_TOOL | TOOL_TRANSFORM_DELETE_TOOL
+            TOOL_OVERRIDE_LIST_TOOL | TOOL_OVERRIDE_GET_TOOL | TOOL_OVERRIDE_DELETE_TOOL
         ))
         .open_world(false);
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
 
-pub(super) fn tool_transform_schema(required: &[&str]) -> Map<String, Value> {
+pub(super) fn tool_override_schema(required: &[&str]) -> Map<String, Value> {
     let mut properties = Map::new();
     properties.insert(
         "instance_id".to_string(),
@@ -210,7 +210,7 @@ pub(super) fn tool_transform_schema(required: &[&str]) -> Map<String, Value> {
         "tool_name".to_string(),
         serde_json::json!({
             "type": "string",
-            "description": "Original tool name or current transformed display name."
+            "description": "Original tool name or current overrideed display name."
         }),
     );
     properties.insert(
@@ -270,6 +270,144 @@ pub(super) fn tool_transform_schema(required: &[&str]) -> Map<String, Value> {
         );
     }
     schema
+}
+
+fn build_component_override_tools(
+    names: [&'static str; 4],
+    component_field: &'static str,
+    label: &'static str,
+) -> HashMap<String, Tool> {
+    [
+        component_override_tool(
+            names[0],
+            format!("List all MCPStore {label} override rules."),
+            component_override_schema(component_field, &[]),
+            true,
+        ),
+        component_override_tool(
+            names[1],
+            format!("Get one MCPStore {label} override rule."),
+            component_override_schema(component_field, &["instance_id", component_field]),
+            true,
+        ),
+        component_override_tool(
+            names[2],
+            format!("Set one MCPStore {label} override rule."),
+            component_override_schema(component_field, &["instance_id", component_field]),
+            false,
+        ),
+        component_override_tool(
+            names[3],
+            format!("Delete one MCPStore {label} override rule."),
+            component_override_schema(component_field, &["instance_id", component_field]),
+            false,
+        ),
+    ]
+    .into_iter()
+    .map(|tool| (tool.name.as_ref().to_string(), tool))
+    .collect()
+}
+
+fn component_override_tool(
+    name: &'static str,
+    description: String,
+    schema: Map<String, Value>,
+    read_only: bool,
+) -> Tool {
+    Tool::new(name, description, Arc::new(schema)).with_annotations(
+        ToolAnnotations::new()
+            .read_only(read_only)
+            .destructive(!read_only)
+            .idempotent(true)
+            .open_world(false),
+    )
+}
+
+fn component_override_schema(component_field: &str, required: &[&str]) -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "instance_id".to_string(),
+        serde_json::json!({"type": "string", "format": "uuid"}),
+    );
+    properties.insert(
+        component_field.to_string(),
+        serde_json::json!({"type": "string"}),
+    );
+    properties.insert(
+        "display_name".to_string(),
+        serde_json::json!({"type": "string"}),
+    );
+    properties.insert(
+        "description".to_string(),
+        serde_json::json!({"type": "string"}),
+    );
+    properties.insert(
+        "mime_type".to_string(),
+        serde_json::json!({"type": "string"}),
+    );
+    properties.insert(
+        "tags".to_string(),
+        serde_json::json!({"type": "array", "items": {"type": "string"}}),
+    );
+    properties.insert(
+        "enabled".to_string(),
+        serde_json::json!({"type": "boolean"}),
+    );
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("properties".to_string(), Value::Object(properties));
+    schema.insert("additionalProperties".to_string(), Value::Bool(false));
+    if !required.is_empty() {
+        schema.insert(
+            "required".to_string(),
+            Value::Array(
+                required
+                    .iter()
+                    .map(|field| Value::String((*field).to_string()))
+                    .collect(),
+            ),
+        );
+    }
+    schema
+}
+
+pub(super) fn build_prompt_override_tools() -> HashMap<String, Tool> {
+    build_component_override_tools(
+        [
+            PROMPT_OVERRIDE_LIST_TOOL,
+            PROMPT_OVERRIDE_GET_TOOL,
+            PROMPT_OVERRIDE_SET_TOOL,
+            PROMPT_OVERRIDE_DELETE_TOOL,
+        ],
+        "prompt_name",
+        "prompt",
+    )
+}
+
+pub(super) fn build_resource_override_tools() -> HashMap<String, Tool> {
+    build_component_override_tools(
+        [
+            RESOURCE_OVERRIDE_LIST_TOOL,
+            RESOURCE_OVERRIDE_GET_TOOL,
+            RESOURCE_OVERRIDE_SET_TOOL,
+            RESOURCE_OVERRIDE_DELETE_TOOL,
+        ],
+        "uri",
+        "resource",
+    )
+}
+
+pub(super) fn build_resource_template_override_tools() -> HashMap<String, Tool> {
+    build_component_override_tools(
+        [
+            RESOURCE_TEMPLATE_OVERRIDE_LIST_TOOL,
+            RESOURCE_TEMPLATE_OVERRIDE_GET_TOOL,
+            RESOURCE_TEMPLATE_OVERRIDE_SET_TOOL,
+            RESOURCE_TEMPLATE_OVERRIDE_DELETE_TOOL,
+        ],
+        "uri_template",
+        "resource template",
+    )
 }
 
 pub(super) fn build_openapi_tools() -> HashMap<String, Tool> {
@@ -986,29 +1124,26 @@ pub(super) async fn call_session_state_tool(
     Ok(CallToolResult::structured(result))
 }
 
-pub(super) async fn call_tool_transform_tool(
+pub(super) async fn call_tool_override_tool(
     store: &MCPStore,
     tool_name: &str,
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
-        TOOL_TRANSFORM_LIST_TOOL => {
-            let transforms = store
-                .list_tool_overrides()
-                .await
-                .map_err(map_store_error)?;
-            serde_json::json!({"transforms": transforms, "total": transforms.len()})
+        TOOL_OVERRIDE_LIST_TOOL => {
+            let overrides = store.list_tool_overrides().await.map_err(map_store_error)?;
+            serde_json::json!({"overrides": overrides, "total": overrides.len()})
         }
-        TOOL_TRANSFORM_GET_TOOL => {
+        TOOL_OVERRIDE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
-            let transform = store
+            let rule = store
                 .get_tool_override(instance_id, tool_name)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"transform": transform})
+            serde_json::json!({"override": rule})
         }
-        TOOL_TRANSFORM_SET_TOOL => {
+        TOOL_OVERRIDE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             let tool_name = required_argument_string(&arguments, "tool_name")?.to_string();
             let patch = serde_json::from_value::<ToolOverridePatch>(Value::Object(arguments))
@@ -1018,13 +1153,13 @@ pub(super) async fn call_tool_transform_tool(
                         None,
                     )
                 })?;
-            let transform = store
+            let rule = store
                 .set_tool_override(instance_id, &tool_name, patch)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"transform": transform})
+            serde_json::json!({"override": rule})
         }
-        TOOL_TRANSFORM_DELETE_TOOL => {
+        TOOL_OVERRIDE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
             store
@@ -1035,9 +1170,181 @@ pub(super) async fn call_tool_transform_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore tool transform 管理工具: {tool_name}"),
+                format!("未知 MCPStore tool override 管理工具: {tool_name}"),
                 None,
             ));
+        }
+    };
+    Ok(CallToolResult::structured(result))
+}
+
+pub(super) async fn call_prompt_override_tool(
+    store: &MCPStore,
+    tool_name: &str,
+    arguments: Map<String, Value>,
+) -> Result<CallToolResult, ErrorData> {
+    let result = match tool_name {
+        PROMPT_OVERRIDE_LIST_TOOL => {
+            let rules = store
+                .list_prompt_overrides()
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"overrides": rules, "total": rules.len()})
+        }
+        PROMPT_OVERRIDE_GET_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let name = required_argument_string(&arguments, "prompt_name")?;
+            let rule = store
+                .get_prompt_override(instance_id, name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"override": rule})
+        }
+        PROMPT_OVERRIDE_SET_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let name = required_argument_string(&arguments, "prompt_name")?.to_string();
+            let patch = serde_json::from_value::<PromptOverridePatch>(Value::Object(arguments))
+                .map_err(|error| {
+                    ErrorData::invalid_params(
+                        format!("Prompt override 参数反序列化失败: {error}"),
+                        None,
+                    )
+                })?;
+            let rule = store
+                .set_prompt_override(instance_id, &name, patch)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"override": rule})
+        }
+        PROMPT_OVERRIDE_DELETE_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let name = required_argument_string(&arguments, "prompt_name")?;
+            store
+                .delete_prompt_override(instance_id, name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok"})
+        }
+        _ => {
+            return Err(ErrorData::invalid_params(
+                format!("未知 MCPStore prompt override 管理工具: {tool_name}"),
+                None,
+            ))
+        }
+    };
+    Ok(CallToolResult::structured(result))
+}
+
+pub(super) async fn call_resource_override_tool(
+    store: &MCPStore,
+    tool_name: &str,
+    arguments: Map<String, Value>,
+) -> Result<CallToolResult, ErrorData> {
+    let result = match tool_name {
+        RESOURCE_OVERRIDE_LIST_TOOL => {
+            let rules = store
+                .list_resource_overrides()
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"overrides": rules, "total": rules.len()})
+        }
+        RESOURCE_OVERRIDE_GET_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let uri = required_argument_string(&arguments, "uri")?;
+            let rule = store
+                .get_resource_override(instance_id, uri)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"override": rule})
+        }
+        RESOURCE_OVERRIDE_SET_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let uri = required_argument_string(&arguments, "uri")?.to_string();
+            let patch = serde_json::from_value::<ResourceOverridePatch>(Value::Object(arguments))
+                .map_err(|error| {
+                ErrorData::invalid_params(
+                    format!("Resource override 参数反序列化失败: {error}"),
+                    None,
+                )
+            })?;
+            let rule = store
+                .set_resource_override(instance_id, &uri, patch)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"override": rule})
+        }
+        RESOURCE_OVERRIDE_DELETE_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let uri = required_argument_string(&arguments, "uri")?;
+            store
+                .delete_resource_override(instance_id, uri)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok"})
+        }
+        _ => {
+            return Err(ErrorData::invalid_params(
+                format!("未知 MCPStore resource override 管理工具: {tool_name}"),
+                None,
+            ))
+        }
+    };
+    Ok(CallToolResult::structured(result))
+}
+
+pub(super) async fn call_resource_template_override_tool(
+    store: &MCPStore,
+    tool_name: &str,
+    arguments: Map<String, Value>,
+) -> Result<CallToolResult, ErrorData> {
+    let result = match tool_name {
+        RESOURCE_TEMPLATE_OVERRIDE_LIST_TOOL => {
+            let rules = store
+                .list_resource_template_overrides()
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"overrides": rules, "total": rules.len()})
+        }
+        RESOURCE_TEMPLATE_OVERRIDE_GET_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let uri = required_argument_string(&arguments, "uri_template")?;
+            let rule = store
+                .get_resource_template_override(instance_id, uri)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"override": rule})
+        }
+        RESOURCE_TEMPLATE_OVERRIDE_SET_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let uri = required_argument_string(&arguments, "uri_template")?.to_string();
+            let patch =
+                serde_json::from_value::<ResourceTemplateOverridePatch>(Value::Object(arguments))
+                    .map_err(|error| {
+                    ErrorData::invalid_params(
+                        format!("Resource template override 参数反序列化失败: {error}"),
+                        None,
+                    )
+                })?;
+            let rule = store
+                .set_resource_template_override(instance_id, &uri, patch)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"override": rule})
+        }
+        RESOURCE_TEMPLATE_OVERRIDE_DELETE_TOOL => {
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let uri = required_argument_string(&arguments, "uri_template")?;
+            store
+                .delete_resource_template_override(instance_id, uri)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok"})
+        }
+        _ => {
+            return Err(ErrorData::invalid_params(
+                format!("未知 MCPStore resource template override 管理工具: {tool_name}"),
+                None,
+            ))
         }
     };
     Ok(CallToolResult::structured(result))
@@ -1290,7 +1597,6 @@ pub(super) fn optional_string_argument(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
 }
-
 
 pub(super) fn service_config_from_arguments(
     arguments: &Map<String, Value>,
