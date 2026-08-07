@@ -729,6 +729,8 @@ export function ServiceDetailView(props: {
                     tool={selectedTool}
                     toolArgs={toolArgs}
                     onToolArgChange={setToolArg}
+                    serviceName={service.service_name}
+                    scope={service.scope}
                   />
                 </ScrollPane>
               </div>
@@ -770,6 +772,7 @@ export function ServiceDetailView(props: {
                   selectedTemplate ? (
                     <ServiceResourceTemplateDetailPane
                       template={selectedTemplate}
+                      service={service}
                     />
                   ) : (
                     <PageEmpty
@@ -791,7 +794,7 @@ export function ServiceDetailView(props: {
                   />
                 )
               ) : selectedPrompt ? (
-                <ServicePromptDetailPane prompt={selectedPrompt} />
+                <ServicePromptDetailPane prompt={selectedPrompt} service={service} />
               ) : (
                 <PageEmpty
                   title={t("noPromptSelected")}

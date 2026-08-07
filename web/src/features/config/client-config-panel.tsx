@@ -24,7 +24,7 @@ function ConfigModule({
 }) {
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border/60 bg-muted/10 p-4">
-      <SectionHeading title={title} titleAs="h3" description={description} />
+      <SectionHeading title={title} titleAs="h2" description={description} />
       {children}
     </div>
   )
