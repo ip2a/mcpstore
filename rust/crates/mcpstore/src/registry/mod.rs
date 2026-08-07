@@ -15,7 +15,10 @@ pub mod service;
 mod tests;
 pub mod tool;
 
-pub use models::{ConfigRevision, ServiceDefinition, ServiceInstance, ServiceRegistry, ToolInfo};
+pub use models::{
+    AgentInfo, ConfigRevision, ScopeSummary, ServiceDefinition, ServiceInstance, ServiceRegistry,
+    ToolInfo,
+};
 
 impl ServiceRegistry {
     pub async fn clear(&self) {

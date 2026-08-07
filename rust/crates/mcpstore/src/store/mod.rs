@@ -40,7 +40,8 @@ pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) mod prelude {
     pub(crate) use crate::config_formats::{project_config, ConfigFormat};
-    pub(crate) use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
+    pub(crate) use crate::identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
+    pub(crate) use crate::registry::{AgentInfo, ScopeSummary};
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
         BackendKind, CacheHealthReport, CacheStorage, ConfigRevision, DiscoveredPrompt,

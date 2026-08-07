@@ -31,6 +31,40 @@ impl ScopeRef {
     }
 }
 
+/// 读视图 / 注册表作用域：在实例作用域 [`ScopeRef`] 之上加 `Root`。
+///
+/// `Root` 不是实例作用域——服务不会“声明在 root”，它只表示读聚合（store ∪ 所有 agent）。
+/// 因此 `Root` 仅用于列表 / 注册表 / 读视图；声明类操作仍走 [`ScopeRef`]。
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ScopeView {
+    Root,
+    Store,
+    Agent { agent_id: String },
+}
+
+impl ScopeView {
+    /// `Root` 没有对应的实例作用域；`Store` / `Agent` 返回对应 [`ScopeRef`]。
+    pub fn as_scope_ref(&self) -> Option<ScopeRef> {
+        match self {
+            ScopeView::Root => None,
+            ScopeView::Store => Some(ScopeRef::Store),
+            ScopeView::Agent { agent_id } => Some(ScopeRef::Agent {
+                agent_id: agent_id.clone(),
+            }),
+        }
+    }
+}
+
+impl From<ScopeRef> for ScopeView {
+    fn from(scope: ScopeRef) -> Self {
+        match scope {
+            ScopeRef::Store => ScopeView::Store,
+            ScopeRef::Agent { agent_id } => ScopeView::Agent { agent_id },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ServiceInstanceKey {
     pub service_name: String,
@@ -175,6 +209,49 @@ mod tests {
             })
             .unwrap(),
             serde_json::json!({ "type": "agent", "agent_id": "agent1" })
+        );
+    }
+
+    #[test]
+    fn scope_view_serialization_is_structured() {
+        assert_eq!(
+            serde_json::to_value(ScopeView::Root).unwrap(),
+            serde_json::json!({ "type": "root" })
+        );
+        assert_eq!(
+            serde_json::to_value(ScopeView::Store).unwrap(),
+            serde_json::json!({ "type": "store" })
+        );
+        assert_eq!(
+            serde_json::to_value(ScopeView::Agent {
+                agent_id: "agent1".to_string(),
+            })
+            .unwrap(),
+            serde_json::json!({ "type": "agent", "agent_id": "agent1" })
+        );
+    }
+
+    #[test]
+    fn scope_view_round_trips_with_scope_ref() {
+        assert_eq!(ScopeView::Root.as_scope_ref(), None);
+        assert_eq!(ScopeView::Store.as_scope_ref(), Some(ScopeRef::Store));
+        assert_eq!(
+            ScopeView::Agent {
+                agent_id: "a".to_string(),
+            }
+            .as_scope_ref(),
+            Some(ScopeRef::Agent {
+                agent_id: "a".to_string(),
+            })
+        );
+        assert_eq!(ScopeView::from(ScopeRef::Store), ScopeView::Store);
+        assert_eq!(
+            ScopeView::from(ScopeRef::Agent {
+                agent_id: "a".to_string(),
+            }),
+            ScopeView::Agent {
+                agent_id: "a".to_string(),
+            }
         );
     }
 }
