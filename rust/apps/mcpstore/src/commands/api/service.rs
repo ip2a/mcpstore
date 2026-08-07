@@ -658,17 +658,17 @@ pub(super) async fn service_clear_tool_policy(
     Ok(success("工具策略已清除", json!({ "policy": null })))
 }
 
-// ===== 工具转换规则（全局列表 + 按服务名+scope 管理）=====
+// ===== 组件覆盖规则（全局列表 + 按服务名+scope 管理）=====
 
 pub(super) async fn store_list_tool_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let transforms = state
+    let rules = state
         .store
         .list_tool_overrides()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "工具转换规则列表获取成功",
-        json!({ "transforms": transforms, "total": transforms.len() }),
+        "Tool 覆盖规则列表获取成功",
+        json!({ "overrides": rules, "total": rules.len() }),
     ))
 }
 
@@ -679,30 +679,33 @@ pub(super) async fn service_get_tool_override(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    let transform = state
+    let rule = state
         .store
         .get_tool_override(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("工具转换规则获取成功", json!({ "transform": transform })))
+    Ok(success(
+        "Tool 覆盖规则获取成功",
+        json!({ "override": rule }),
+    ))
 }
 
 pub(super) async fn service_set_tool_override(
     State(state): State<Arc<ApiState>>,
     Path((service_name, tool_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
-    Json(transform): Json<ToolOverridePatch>,
+    Json(patch): Json<ToolOverridePatch>,
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    let transform = state
+    let rule = state
         .store
-        .set_tool_override(instance_id, &tool_name, transform)
+        .set_tool_override(instance_id, &tool_name, patch)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "工具转换规则设置成功",
-        json!({ "transform": transform }),
+        "Tool 覆盖规则设置成功",
+        json!({ "override": rule }),
     ))
 }
 
@@ -718,7 +721,210 @@ pub(super) async fn service_delete_tool_override(
         .delete_tool_override(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("工具转换规则删除成功", json!({ "status": "ok" })))
+    Ok(success("Tool 覆盖规则删除成功", json!({ "status": "ok" })))
+}
+
+pub(super) async fn store_list_prompt_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let rules = state
+        .store
+        .list_prompt_overrides()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt 覆盖规则列表获取成功",
+        json!({ "overrides": rules, "total": rules.len() }),
+    ))
+}
+
+pub(super) async fn service_get_prompt_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, prompt_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_prompt_override(instance_id, &prompt_name)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt 覆盖规则获取成功",
+        json!({ "override": rule }),
+    ))
+}
+
+pub(super) async fn service_set_prompt_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, prompt_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+    Json(patch): Json<PromptOverridePatch>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_prompt_override(instance_id, &prompt_name, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt 覆盖规则设置成功",
+        json!({ "override": rule }),
+    ))
+}
+
+pub(super) async fn service_delete_prompt_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, prompt_name)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .delete_prompt_override(instance_id, &prompt_name)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Prompt 覆盖规则删除成功",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn store_list_resource_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let rules = state
+        .store
+        .list_resource_overrides()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource 覆盖规则列表获取成功",
+        json!({ "overrides": rules, "total": rules.len() }),
+    ))
+}
+
+pub(super) async fn service_get_resource_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, uri)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_resource_override(instance_id, &uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource 覆盖规则获取成功",
+        json!({ "override": rule }),
+    ))
+}
+
+pub(super) async fn service_set_resource_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, uri)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+    Json(patch): Json<ResourceOverridePatch>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_resource_override(instance_id, &uri, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource 覆盖规则设置成功",
+        json!({ "override": rule }),
+    ))
+}
+
+pub(super) async fn service_delete_resource_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, uri)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .delete_resource_override(instance_id, &uri)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Resource 覆盖规则删除成功",
+        json!({ "status": "ok" }),
+    ))
+}
+
+pub(super) async fn store_list_resource_template_overrides(
+    State(state): State<Arc<ApiState>>,
+) -> ApiResult {
+    let rules = state
+        .store
+        .list_resource_template_overrides()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "ResourceTemplate 覆盖规则列表获取成功",
+        json!({ "overrides": rules, "total": rules.len() }),
+    ))
+}
+
+pub(super) async fn service_get_resource_template_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, uri_template)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_resource_template_override(instance_id, &uri_template)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "ResourceTemplate 覆盖规则获取成功",
+        json!({ "override": rule }),
+    ))
+}
+
+pub(super) async fn service_set_resource_template_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, uri_template)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+    Json(patch): Json<ResourceTemplateOverridePatch>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_resource_template_override(instance_id, &uri_template, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "ResourceTemplate 覆盖规则设置成功",
+        json!({ "override": rule }),
+    ))
+}
+
+pub(super) async fn service_delete_resource_template_override(
+    State(state): State<Arc<ApiState>>,
+    Path((service_name, uri_template)): Path<(String, String)>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .delete_resource_template_override(instance_id, &uri_template)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "ResourceTemplate 覆盖规则删除成功",
+        json!({ "status": "ok" }),
+    ))
 }
 
 // ===== 参数补全（服务名 + scope 寻址）=====

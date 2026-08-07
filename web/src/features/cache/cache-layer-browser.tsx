@@ -47,7 +47,7 @@ const COLLECTION_TYPE_ICONS: Record<string, LucideIcon> = {
   session_context: ClockIcon,
   context_tool_visibility: KeyIcon,
   tool_preferences: WrenchIcon,
-  tool_transforms: WrenchIcon,
+  tool_overrides: WrenchIcon,
   openapi_import_context: UploadIcon,
   openapi_imports: UploadIcon,
   session_events: HistoryIcon,
