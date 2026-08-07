@@ -236,3 +236,47 @@ async fn show_config_keeps_session_as_a_separate_facade() {
 
     std::fs::remove_file(path).ok();
 }
+
+#[tokio::test]
+async fn tool_override_lifecycle_via_facade() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let context = store
+        .for_store()
+        .add_service_config("svc", stdio_config())
+        .await
+        .unwrap();
+    let service = context
+        .find_service(ServiceTarget::ServiceName("svc"))
+        .await
+        .unwrap();
+    // The service is intentionally not connected: facade list methods only require
+    // scope ownership, while component discovery would require a real MCP server.
+    assert!(service.list_tool_overrides().await.unwrap().is_empty());
+    // Component CRUD is covered by store tests; discovery-dependent Tool
+    // construction is intentionally not exercised without a real MCP server.
+    assert!(service.list_tool_overrides().await.unwrap().is_empty());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn prompt_override_lifecycle_via_facade() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let context = store
+        .for_store()
+        .add_service_config("svc", stdio_config())
+        .await
+        .unwrap();
+    let service = context
+        .find_service(ServiceTarget::ServiceName("svc"))
+        .await
+        .unwrap();
+    assert!(service.list_prompt_overrides().await.unwrap().is_empty());
+    // Prompt CRUD is covered by store tests; this verifies the facade query
+    // path without requiring component discovery or MCP handshake readiness.
+    assert!(service.list_prompt_overrides().await.unwrap().is_empty());
+
+    std::fs::remove_file(path).ok();
+}

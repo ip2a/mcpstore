@@ -7,6 +7,11 @@ use crate::config::{
     McpConfig, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
 };
 use crate::identity::{InstanceId, ScopeRef};
+use crate::overrides::{
+    PromptOverridePatch, PromptOverrideRule, ResourceOverridePatch, ResourceOverrideRule,
+    ResourceTemplateOverridePatch, ResourceTemplateOverrideRule, ToolOverridePatch,
+    ToolOverrideRule,
+};
 use crate::perspective::{resolve_tool, AvailableTool};
 use crate::state::ServiceState;
 use crate::store::{MCPStore, Result, ScopedToolEntry};
@@ -36,6 +41,27 @@ pub struct Tool {
     context: ScopeContext,
     instance_id: InstanceId,
     tool_name: String,
+}
+
+#[derive(Clone)]
+pub struct Prompt {
+    context: ScopeContext,
+    instance_id: InstanceId,
+    prompt_name: String,
+}
+
+#[derive(Clone)]
+pub struct Resource {
+    context: ScopeContext,
+    instance_id: InstanceId,
+    uri: String,
+}
+
+#[derive(Clone)]
+pub struct ResourceTemplate {
+    context: ScopeContext,
+    instance_id: InstanceId,
+    uri_template: String,
 }
 
 impl ScopeContext {
@@ -384,6 +410,107 @@ impl Service {
             .get_prompt_scoped(self.instance_id, prompt_name, arguments)
             .await
     }
+
+    pub async fn find_prompt(&self, prompt_name: &str) -> Result<Prompt> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        let found = self
+            .context
+            .store
+            .list_prompts_for_instance(self.instance_id)
+            .await?
+            .into_iter()
+            .any(|prompt| prompt.get("name").and_then(Value::as_str) == Some(prompt_name));
+        if !found {
+            return Err(StoreError::Other(format!(
+                "Prompt '{prompt_name}' not found in instance {}",
+                self.instance_id
+            )));
+        }
+        Prompt::new(
+            self.context.clone(),
+            self.instance_id,
+            prompt_name.to_string(),
+        )
+    }
+
+    pub async fn find_resource(&self, uri: &str) -> Result<Resource> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        let found = self
+            .context
+            .store
+            .list_resources_for_instance(self.instance_id)
+            .await?
+            .into_iter()
+            .any(|resource| resource.get("uri").and_then(Value::as_str) == Some(uri));
+        if !found {
+            return Err(StoreError::Other(format!(
+                "Resource '{uri}' not found in instance {}",
+                self.instance_id
+            )));
+        }
+        Resource::new(self.context.clone(), self.instance_id, uri.to_string())
+    }
+
+    pub async fn find_resource_template(&self, uri_template: &str) -> Result<ResourceTemplate> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        let found = self
+            .context
+            .store
+            .list_resource_templates_for_instance(self.instance_id)
+            .await?
+            .into_iter()
+            .any(|template| {
+                template.get("uriTemplate").and_then(Value::as_str) == Some(uri_template)
+                    || template.get("uri_template").and_then(Value::as_str) == Some(uri_template)
+            });
+        if !found {
+            return Err(StoreError::Other(format!(
+                "Resource template '{uri_template}' not found in instance {}",
+                self.instance_id
+            )));
+        }
+        ResourceTemplate::new(
+            self.context.clone(),
+            self.instance_id,
+            uri_template.to_string(),
+        )
+    }
+
+    pub async fn list_tool_overrides(&self) -> Result<Vec<ToolOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context.store.list_tool_overrides().await
+    }
+
+    pub async fn list_prompt_overrides(&self) -> Result<Vec<PromptOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context.store.list_prompt_overrides().await
+    }
+
+    pub async fn list_resource_overrides(&self) -> Result<Vec<ResourceOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context.store.list_resource_overrides().await
+    }
+
+    pub async fn list_resource_template_overrides(
+        &self,
+    ) -> Result<Vec<ResourceTemplateOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context.store.list_resource_template_overrides().await
+    }
 }
 
 impl Tool {
@@ -407,6 +534,56 @@ impl Tool {
             .await
     }
 
+    pub async fn set_override(&self, patch: ToolOverridePatch) -> Result<ToolOverrideRule> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .set_tool_override(self.instance_id, &self.tool_name, patch)
+            .await
+    }
+
+    pub async fn get_override(&self) -> Result<Option<ToolOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .get_tool_override(self.instance_id, &self.tool_name)
+            .await
+    }
+
+    pub async fn delete_override(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .delete_tool_override(self.instance_id, &self.tool_name)
+            .await
+    }
+
+    pub async fn enable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .enable_tool(self.instance_id, &self.tool_name)
+            .await
+    }
+
+    pub async fn disable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .disable_tool(self.instance_id, &self.tool_name)
+            .await
+    }
+
     async fn entry(&self) -> Result<ScopedToolEntry> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
@@ -418,6 +595,250 @@ impl Tool {
             .into_iter()
             .find(|entry| entry.tool_name == self.tool_name)
             .ok_or_else(|| StoreError::ServiceNotFound(self.tool_name.clone()))
+    }
+}
+
+impl Prompt {
+    fn new(context: ScopeContext, instance_id: InstanceId, prompt_name: String) -> Result<Self> {
+        Ok(Self {
+            context,
+            instance_id,
+            prompt_name,
+        })
+    }
+
+    pub async fn info(&self) -> Result<Value> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .list_prompts_for_instance(self.instance_id)
+            .await?
+            .into_iter()
+            .find(|prompt| prompt.get("name").and_then(Value::as_str) == Some(&self.prompt_name))
+            .ok_or_else(|| {
+                StoreError::Other(format!(
+                    "Prompt '{}' not found in instance {}",
+                    self.prompt_name, self.instance_id
+                ))
+            })
+    }
+
+    pub async fn get(&self, args: Value) -> Result<Value> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .get_prompt_scoped(self.instance_id, &self.prompt_name, args)
+            .await
+    }
+
+    pub async fn set_override(&self, patch: PromptOverridePatch) -> Result<PromptOverrideRule> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .set_prompt_override(self.instance_id, &self.prompt_name, patch)
+            .await
+    }
+    pub async fn get_override(&self) -> Result<Option<PromptOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .get_prompt_override(self.instance_id, &self.prompt_name)
+            .await
+    }
+    pub async fn delete_override(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .delete_prompt_override(self.instance_id, &self.prompt_name)
+            .await
+    }
+    pub async fn enable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .enable_prompt(self.instance_id, &self.prompt_name)
+            .await
+    }
+    pub async fn disable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .disable_prompt(self.instance_id, &self.prompt_name)
+            .await
+    }
+}
+
+impl Resource {
+    fn new(context: ScopeContext, instance_id: InstanceId, uri: String) -> Result<Self> {
+        Ok(Self {
+            context,
+            instance_id,
+            uri,
+        })
+    }
+    pub async fn info(&self) -> Result<Value> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .list_resources_for_instance(self.instance_id)
+            .await?
+            .into_iter()
+            .find(|resource| resource.get("uri").and_then(Value::as_str) == Some(&self.uri))
+            .ok_or_else(|| {
+                StoreError::Other(format!(
+                    "Resource '{}' not found in instance {}",
+                    self.uri, self.instance_id
+                ))
+            })
+    }
+    pub async fn read(&self) -> Result<Value> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .read_resource_scoped(self.instance_id, &self.uri)
+            .await
+    }
+    pub async fn set_override(&self, patch: ResourceOverridePatch) -> Result<ResourceOverrideRule> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .set_resource_override(self.instance_id, &self.uri, patch)
+            .await
+    }
+    pub async fn get_override(&self) -> Result<Option<ResourceOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .get_resource_override(self.instance_id, &self.uri)
+            .await
+    }
+    pub async fn delete_override(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .delete_resource_override(self.instance_id, &self.uri)
+            .await
+    }
+    pub async fn enable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .enable_resource(self.instance_id, &self.uri)
+            .await
+    }
+    pub async fn disable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .disable_resource(self.instance_id, &self.uri)
+            .await
+    }
+}
+
+impl ResourceTemplate {
+    fn new(context: ScopeContext, instance_id: InstanceId, uri_template: String) -> Result<Self> {
+        Ok(Self {
+            context,
+            instance_id,
+            uri_template,
+        })
+    }
+    pub async fn info(&self) -> Result<Value> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .list_resource_templates_for_instance(self.instance_id)
+            .await?
+            .into_iter()
+            .find(|template| {
+                template.get("uriTemplate").and_then(Value::as_str) == Some(&self.uri_template)
+                    || template.get("uri_template").and_then(Value::as_str)
+                        == Some(&self.uri_template)
+            })
+            .ok_or_else(|| {
+                StoreError::Other(format!(
+                    "Resource template '{}' not found in instance {}",
+                    self.uri_template, self.instance_id
+                ))
+            })
+    }
+    pub async fn set_override(
+        &self,
+        patch: ResourceTemplateOverridePatch,
+    ) -> Result<ResourceTemplateOverrideRule> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .set_resource_template_override(self.instance_id, &self.uri_template, patch)
+            .await
+    }
+    pub async fn get_override(&self) -> Result<Option<ResourceTemplateOverrideRule>> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .get_resource_template_override(self.instance_id, &self.uri_template)
+            .await
+    }
+    pub async fn delete_override(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .delete_resource_template_override(self.instance_id, &self.uri_template)
+            .await
+    }
+    pub async fn enable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .enable_resource_template(self.instance_id, &self.uri_template)
+            .await
+    }
+    pub async fn disable(&self) -> Result<()> {
+        self.context
+            .resolve_service(ServiceTarget::InstanceId(self.instance_id))
+            .await?;
+        self.context
+            .store
+            .disable_resource_template(self.instance_id, &self.uri_template)
+            .await
     }
 }
 
