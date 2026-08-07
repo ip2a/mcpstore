@@ -15,13 +15,13 @@ pub(crate) mod health;
 pub mod identity;
 pub mod openapi;
 pub mod openapi_runtime;
+pub mod overrides;
 pub mod perspective;
 pub mod registry;
 pub(crate) mod service;
 pub mod session;
 pub mod state;
 pub mod store;
-pub mod overrides;
 pub mod transport;
 
 // Facade re-exports: configuration
@@ -34,8 +34,8 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, CacheBackend, CacheConfig, ConfigManager,
-    McpAggregateConfig, McpConfig, RuntimeLogConfig, ServerConfig,
+    AppConfig, CacheBackend, CacheConfig, ConfigManager, McpAggregateConfig, McpConfig,
+    RuntimeLogConfig, ServerConfig,
 };
 
 // Facade re-exports: cache layer
@@ -103,11 +103,13 @@ pub use state::{
 
 // Facade re-exports: core store
 pub use core::{Result, StoreError};
+pub use overrides::{
+    ComponentKind, ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule,
+    ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,
+    ResourceTemplateOverrideRule, ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule,
+    ToolOverrideSafetyPolicy,
+};
 pub use store::{
     BackendKind, CacheStorage, MCPStore, OpenApiImportInput, OpenApiImportSource, SourceMode,
     StoreOptions, ToolVisibilityFilter,
-};
-pub use overrides::{
-    ComponentKind, ComponentOverrideCommon, ToolArgumentOverride, ToolOverridePatch,
-    ToolOverrideRule, ToolOverrideSafetyPolicy,
 };

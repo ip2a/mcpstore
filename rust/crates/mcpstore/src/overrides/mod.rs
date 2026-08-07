@@ -95,17 +95,30 @@ impl MCPStore {
         client_key: &str,
         raw_keys: &[String],
     ) -> Result<String> {
-        if kind != ComponentKind::Tool {
-            unimplemented!("non-tool overrides are not implemented in M1");
-        }
         if raw_keys.iter().any(|key| key == client_key) {
             return Ok(client_key.to_string());
         }
         for original in raw_keys {
-            if let Some(rule) = self.load_tool_override(instance_id, original).await? {
-                if rule.common.enabled.unwrap_or(true)
-                    && rule.common.display_name.as_deref() == Some(client_key)
-                {
+            let display_name_and_enabled = match kind {
+                ComponentKind::Tool => self
+                    .load_tool_override(instance_id, original)
+                    .await?
+                    .map(|r| (r.common.display_name, r.common.enabled)),
+                ComponentKind::Prompt => self
+                    .load_prompt_override(instance_id, original)
+                    .await?
+                    .map(|r| (r.common.display_name, r.common.enabled)),
+                ComponentKind::Resource => self
+                    .load_resource_override(instance_id, original)
+                    .await?
+                    .map(|r| (r.common.display_name, r.common.enabled)),
+                ComponentKind::ResourceTemplate => self
+                    .load_resource_template_override(instance_id, original)
+                    .await?
+                    .map(|r| (r.common.display_name, r.common.enabled)),
+            };
+            if let Some((display_name, enabled)) = display_name_and_enabled {
+                if enabled.unwrap_or(true) && display_name.as_deref() == Some(client_key) {
                     return Ok(original.clone());
                 }
             }
@@ -116,8 +129,15 @@ impl MCPStore {
     }
 }
 
+pub mod prompts;
+pub mod resources;
 pub mod tools;
 
+pub use prompts::{PromptOverridePatch, PromptOverrideRule};
+pub use resources::{
+    ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,
+    ResourceTemplateOverrideRule,
+};
 pub use tools::{
     ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule, ToolOverrideSafetyPolicy,
 };
