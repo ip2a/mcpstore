@@ -10,6 +10,7 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { ConfigDetailPane } from "@/features/config/config-view"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
+import { useScopesQuery } from "@/features/agents/queries"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
@@ -18,8 +19,8 @@ import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
 import { getAgentId } from "@/features/agents/model"
-import { type SelectedScope, useAgentScope } from "@/features/agents/use-agent-scope"
-import { type AgentItem, type ServiceInstance } from "@/lib/api"
+import { useAgentScope } from "@/features/agents/use-agent-scope"
+import { type AgentItem, type ScopeSummary, type ScopeView, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { getServiceEndpointLabel } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
@@ -52,18 +53,22 @@ export function AgentsView(props: {
   const configValue = configScopeId === "store" ? storeConfigQuery.data : configAgentId ? agentConfigQuery.data : null
   const configLoading = storeConfigQuery.isFetching || agentConfigQuery.isFetching
 
-  const selectedScope: SelectedScope = useMemo(
+  const scopesQuery = useScopesQuery()
+  const scopes = scopesQuery.data || []
+
+  const selectedScope: ScopeView = useMemo(
     () =>
-      selectedScopeId === STORE_SCOPE_ID
-        ? { type: "store" }
-        : { type: "agent", agentId: selectedScopeId },
+      selectedScopeId === "root"
+        ? { type: "root" }
+        : selectedScopeId === STORE_SCOPE_ID
+          ? { type: "store" }
+          : { type: "agent", agent_id: selectedScopeId },
     [selectedScopeId],
   )
 
   const {
     activeAgentId,
     addableServiceNames,
-    agentIds,
     loadAgentScope,
     loadingScopeServices,
     loadingScopeTools,
@@ -75,10 +80,8 @@ export function AgentsView(props: {
     scopeToolsError,
     scopeToolsErrorMessage,
     setScopeServiceName,
-    setSelectedAgentId,
-  } = useAgentScope({ agents: props.agents, busy: props.busy, selectedScope, services: props.services })
+  } = useAgentScope({ busy: props.busy, selectedScope, services: props.services })
 
-  const scopeCards = useMemo(() => [STORE_SCOPE_ID, ...agentIds] as ScopeCardId[], [agentIds])
   const storeServices = useMemo(
     () => props.services.filter((service) => service.scope.type === "store"),
     [props.services],
@@ -87,7 +90,11 @@ export function AgentsView(props: {
   const loadingScope = loadingScopeServices || loadingScopeTools
   const scopeError = scopeServicesError || scopeToolsError
   const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
-  const scopeTitle = selectedScopeId === STORE_SCOPE_ID ? t("store") : selectedScopeId
+  const scopeTitle = selectedScopeId === "root"
+    ? t("allServices")
+    : selectedScopeId === STORE_SCOPE_ID
+      ? t("store")
+      : selectedScopeId
 
   const previewService = useMemo(
     () => scopeServices.find((service) => service.instance_id === previewServiceId) || null,
@@ -131,28 +138,24 @@ export function AgentsView(props: {
   }
 
   function selectScope(scopeId: ScopeCardId) {
-    if (scopeId !== STORE_SCOPE_ID) setSelectedAgentId(scopeId)
-    setConfigScopeId(scopeId === STORE_SCOPE_ID ? scopeId : `agent:${scopeId}`)
+    setConfigScopeId(
+      scopeId === "root"
+        ? ALL_SCOPE_ID
+        : scopeId === STORE_SCOPE_ID
+          ? scopeId
+          : `agent:${scopeId}`,
+    )
     setSelectedScopeId(scopeId)
     setRightPaneView("scope")
   }
 
-  function scopeCardMeta(scopeId: ScopeCardId) {
-    if (scopeId === STORE_SCOPE_ID) {
-      const services = scopeId === selectedScopeId && rightPaneView === "scope" ? scopeServices.length : storeServices.length
-      const tools = scopeId === selectedScopeId && rightPaneView === "scope" ? scopeTools.length : 0
-      return t("agentServicesToolsCount", { services, tools })
-    }
-    const agent = props.agents.find((item) => getAgentId(item) === scopeId)
-    if (scopeId === selectedScopeId && rightPaneView === "scope") {
-      return t("agentServicesToolsCount", {
-        services: scopeServices.length,
-        tools: scopeTools.length,
-      })
-    }
+  function scopeCardMeta(summary: ScopeSummary) {
+    const scopeId =
+      summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
+    const isSelected = scopeId === selectedScopeId && rightPaneView === "scope"
     return t("agentServicesToolsCount", {
-      services: agent?.instance_ids.length || 0,
-      tools: 0,
+      services: isSelected ? scopeServices.length : summary.service_count,
+      tools: isSelected ? scopeTools.length : 0,
     })
   }
 
@@ -189,20 +192,32 @@ export function AgentsView(props: {
             <PageSkeleton />
           ) : (
             <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-              {scopeCards.map((scopeId) => (
-                <SelectableRowButton
-                  key={scopeId}
-                  meta={scopeCardMeta(scopeId)}
-                  onClick={() => selectScope(scopeId)}
-                  selected={scopeId === selectedScopeId && rightPaneView === "scope"}
-                  title={scopeId === STORE_SCOPE_ID ? t("store") : scopeId}
-                  trailing={
-                    scopeId === selectedScopeId && rightPaneView === "scope" ? (
-                      <Badge variant="outline">{t("active")}</Badge>
-                    ) : null
-                  }
-                />
-              ))}
+              {scopes.map((summary) => {
+                const scopeId =
+                  summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
+                const title =
+                  summary.scope.type === "root"
+                    ? t("allServices")
+                    : summary.scope.type === "store"
+                      ? t("store")
+                      : summary.scope.type === "agent"
+                        ? summary.scope.agent_id
+                        : scopeId
+                return (
+                  <SelectableRowButton
+                    key={scopeId}
+                    meta={scopeCardMeta(summary)}
+                    onClick={() => selectScope(scopeId)}
+                    selected={scopeId === selectedScopeId && rightPaneView === "scope"}
+                    title={title}
+                    trailing={
+                      scopeId === selectedScopeId && rightPaneView === "scope" ? (
+                        <Badge variant="outline">{t("active")}</Badge>
+                      ) : null
+                    }
+                  />
+                )
+              })}
             </ScrollPane>
           )}
         </div>
