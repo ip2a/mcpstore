@@ -6,8 +6,8 @@ use crate::cache::models::{
     ToolPreferenceState,
 };
 use crate::cache::CacheError;
-use crate::overrides::ToolOverrideRule;
 use crate::identity::{InstanceId, ScopeRef};
+use crate::overrides::ToolOverrideRule;
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::prelude::*;
