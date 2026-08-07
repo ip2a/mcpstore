@@ -82,8 +82,6 @@ pub struct DiagnosticsConfig {
     pub source_log: SourceLogConfig,
     #[serde(default)]
     pub runtime_log: RuntimeLogConfig,
-    #[serde(default)]
-    pub history: HistoryConfig,
 }
 
 impl Default for DiagnosticsConfig {
@@ -92,7 +90,6 @@ impl Default for DiagnosticsConfig {
             enabled: true,
             source_log: SourceLogConfig::default(),
             runtime_log: RuntimeLogConfig::default(),
-            history: HistoryConfig::default(),
         }
     }
 }
@@ -132,52 +129,6 @@ impl Default for RuntimeLogConfig {
             retention_days: None,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HistoryConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub storage: HistoryStorage,
-    #[serde(default = "default_history_max_records")]
-    pub max_records: usize,
-    #[serde(default = "default_history_max_size_bytes")]
-    pub max_size_bytes: u64,
-    #[serde(default)]
-    pub retention_days: Option<u64>,
-    #[serde(default)]
-    pub payload: HistoryPayload,
-}
-
-impl Default for HistoryConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            storage: HistoryStorage::Memory,
-            max_records: default_history_max_records(),
-            max_size_bytes: default_history_max_size_bytes(),
-            retention_days: None,
-            payload: HistoryPayload::Metadata,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum HistoryStorage {
-    #[default]
-    Memory,
-    Disk,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum HistoryPayload {
-    None,
-    #[default]
-    Metadata,
-    Full,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

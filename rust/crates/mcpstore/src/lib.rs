@@ -8,7 +8,6 @@ pub mod config;
 pub mod config_formats;
 pub(crate) mod control;
 pub mod core;
-pub mod diagnostics;
 pub mod event_reactor;
 pub mod events;
 pub mod facade;
@@ -35,8 +34,8 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, CacheBackend, CacheConfig, ConfigManager, HistoryConfig, HistoryPayload,
-    HistoryStorage, McpAggregateConfig, McpConfig, RuntimeLogConfig, ServerConfig,
+    AppConfig, CacheBackend, CacheConfig, ConfigManager,
+    McpAggregateConfig, McpConfig, RuntimeLogConfig, ServerConfig,
 };
 
 // Facade re-exports: cache layer
