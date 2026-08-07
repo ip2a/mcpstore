@@ -29,7 +29,7 @@ pub use crate::auth::{
     OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
 pub use app_schema::{
-    AppConfig, DiagnosticsConfig, HistoryConfig, HistoryPayload, HistoryStorage,
+    AppConfig, DiagnosticsConfig,
     McpAggregateConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, SourceLogConfig,
     UiConfig,
 };

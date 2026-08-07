@@ -1,11 +1,11 @@
-use std::{collections::HashMap, path::Path as FsPath, sync::Arc};
+use std::{path::Path as FsPath, sync::Arc};
 
 use axum::{
-    extract::{Query, State},
+    extract::State,
     Json,
 };
 use mcpstore::{
-    config::{ConfigError, HistoryPayload, HistoryStorage},
+    config::ConfigError,
     AppConfig,
 };
 use serde::Deserialize;
@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use super::{
     envelope::{success, ApiError, ApiResult},
-    parse::{cache_storage_label, parse_positive_usize},
+    parse::cache_storage_label,
     ApiState,
 };
 
@@ -35,7 +35,6 @@ struct UpdateServerRequest {
 struct UpdateDiagnosticsRequest {
     enabled: Option<bool>,
     runtime_log: Option<UpdateRuntimeLogRequest>,
-    history: Option<UpdateHistoryRequest>,
 }
 
 #[derive(Deserialize)]
@@ -43,16 +42,6 @@ struct UpdateRuntimeLogRequest {
     enabled: Option<bool>,
     max_size_bytes: Option<u64>,
     retention_days: Option<Option<u64>>,
-}
-
-#[derive(Deserialize)]
-struct UpdateHistoryRequest {
-    enabled: Option<bool>,
-    storage: Option<HistoryStorage>,
-    max_records: Option<usize>,
-    max_size_bytes: Option<u64>,
-    retention_days: Option<Option<u64>>,
-    payload: Option<HistoryPayload>,
 }
 
 pub(super) async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
@@ -133,50 +122,11 @@ pub(super) async fn update_settings(
                 config.diagnostics.runtime_log.retention_days = retention_days;
             }
         }
-        if let Some(history) = diagnostics.history {
-            if let Some(enabled) = history.enabled {
-                config.diagnostics.history.enabled = enabled && config.diagnostics.enabled;
-            }
-            if let Some(storage) = history.storage {
-                config.diagnostics.history.storage = storage;
-            }
-            if let Some(max_records) = history.max_records {
-                if max_records == 0 {
-                    return Err(ApiError::invalid_parameter(
-                        "调用历史条数上限必须大于 0",
-                        Some("diagnostics.history.max_records"),
-                    ));
-                }
-                config.diagnostics.history.max_records = max_records;
-            }
-            if let Some(max_size_bytes) = history.max_size_bytes {
-                if max_size_bytes == 0 {
-                    return Err(ApiError::invalid_parameter(
-                        "调用历史大小上限必须大于 0",
-                        Some("diagnostics.history.max_size_bytes"),
-                    ));
-                }
-                config.diagnostics.history.max_size_bytes = max_size_bytes;
-            }
-            if let Some(retention_days) = history.retention_days {
-                config.diagnostics.history.retention_days = retention_days;
-            }
-            if let Some(payload) = history.payload {
-                config.diagnostics.history.payload = payload;
-            }
-        }
     }
 
     config_manager
         .save_app_config(&config)
         .map_err(config_api_error)?;
-    state
-        .store
-        .update_history_config(mcpstore::config::HistoryConfig {
-            enabled: config.diagnostics.enabled && config.diagnostics.history.enabled,
-            ..config.diagnostics.history.clone()
-        })
-        .await;
 
     Ok(success("设置保存成功", settings_payload(&config)))
 }
@@ -223,14 +173,6 @@ fn settings_payload(config: &AppConfig) -> Value {
                 "max_size_bytes": config.diagnostics.runtime_log.max_size_bytes,
                 "retention_days": config.diagnostics.runtime_log.retention_days,
             },
-            "history": {
-                "enabled": config.diagnostics.history.enabled,
-                "storage": config.diagnostics.history.storage,
-                "max_records": config.diagnostics.history.max_records,
-                "max_size_bytes": config.diagnostics.history.max_size_bytes,
-                "retention_days": config.diagnostics.history.retention_days,
-                "payload": config.diagnostics.history.payload,
-            }
         },
     })
 }
@@ -281,30 +223,4 @@ fn config_api_error(error: ConfigError) -> ApiError {
 
 pub(super) fn config_io_api_error(error: std::io::Error) -> ApiError {
     ApiError::invalid_request(error.to_string())
-}
-
-pub(super) async fn tool_call_history(
-    State(state): State<Arc<ApiState>>,
-    Query(params): Query<HashMap<String, String>>,
-) -> ApiResult {
-    let count = params
-        .get("count")
-        .map(String::as_str)
-        .map(parse_positive_usize)
-        .transpose()?
-        .unwrap_or(100);
-    let records = state.store.tool_call_history(count).await;
-    Ok(success(
-        "工具调用历史获取成功",
-        json!({ "records": records, "total": records.len() }),
-    ))
-}
-
-pub(super) async fn clear_tool_call_history(State(state): State<Arc<ApiState>>) -> ApiResult {
-    state
-        .store
-        .clear_tool_call_history()
-        .await
-        .map_err(config_io_api_error)?;
-    Ok(success("工具调用历史已清空", json!({})))
 }

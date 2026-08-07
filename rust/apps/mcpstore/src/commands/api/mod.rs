@@ -164,11 +164,6 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/health", get(app::health))
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
-        .route("/history/tool-calls", get(app::tool_call_history))
-        .route(
-            "/history/tool-calls/clear",
-            post(app::clear_tool_call_history),
-        )
         // ===== agents / scopes =====
         .route("/agents/list", get(service::list_agents))
         .route("/scopes/list", get(service::scopes_list))

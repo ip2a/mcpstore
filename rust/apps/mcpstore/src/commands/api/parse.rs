@@ -70,12 +70,6 @@ pub(super) fn extract_prompt_args(payload: &Value) -> ApiResult<Value> {
     }
 }
 
-pub(super) fn parse_positive_usize(value: &str) -> ApiResult<usize> {
-    value
-        .parse::<usize>()
-        .map_err(|_| ApiError::invalid_parameter(format!("无效的正整数: {value}"), Some("count")))
-}
-
 pub(super) fn parse_cache_storage(value: &str) -> ApiResult<CacheStorage> {
     let backend = value.trim();
     if backend.is_empty() {
@@ -145,11 +139,5 @@ mod tests {
             parse_cache_storage("postgres").unwrap().as_str(),
             "postgres"
         );
-    }
-
-    #[test]
-    fn parse_positive_numbers_require_valid_integers() {
-        assert_eq!(parse_positive_usize("7").unwrap(), 7);
-        assert!(parse_positive_usize("oops").is_err());
     }
 }

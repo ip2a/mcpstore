@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use crate::diagnostics::ToolCallHistoryRecord;
 use crate::store::prelude::*;
 use crate::transport::{
     McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecution,
@@ -359,20 +358,6 @@ impl MCPStore {
                         true,
                     )
                     .await;
-                self.diagnostics
-                    .record_tool_call(ToolCallHistoryRecord {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        instance_id: context.instance_id.to_string(),
-                        service_name: context.service_name,
-                        scope: format!("{:?}", context.scope),
-                        tool_name: context.tool_name,
-                        status: status.to_string(),
-                        latency_ms,
-                        arguments: Some(context.arguments),
-                        error: None,
-                    })
-                    .await;
                 Ok(execution)
             }
             Err(error) => {
@@ -420,20 +405,6 @@ impl MCPStore {
                         ),
                         true,
                     )
-                    .await;
-                self.diagnostics
-                    .record_tool_call(ToolCallHistoryRecord {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        instance_id: context.instance_id.to_string(),
-                        service_name: context.service_name,
-                        scope: format!("{:?}", context.scope),
-                        tool_name: context.tool_name,
-                        status: status.to_string(),
-                        latency_ms,
-                        arguments: Some(context.arguments),
-                        error: Some(error.to_string()),
-                    })
                     .await;
                 Err(error)
             }
