@@ -1239,7 +1239,7 @@ impl PyMCPStore {
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.set_tool_override(instance_id, tool_name, patch))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_transform_rule")
+        serializable_to_py(py, &rule, "tool_override_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
@@ -1264,7 +1264,7 @@ impl PyMCPStore {
                 add_safety_policy,
             ))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_transform_rule")
+        serializable_to_py(py, &rule, "tool_override_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, parameter_mapping, new_tool_name=None))]
@@ -1298,7 +1298,7 @@ impl PyMCPStore {
                 &pairs,
             ))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_transform_rule")
+        serializable_to_py(py, &rule, "tool_override_rule")
     }
 
     #[pyo3(signature = (instance_id, tool_name, validation_rules, new_tool_name=None))]
@@ -1327,7 +1327,7 @@ impl PyMCPStore {
                 &pairs,
             ))
             .map_err(map_store_err)?;
-        serializable_to_py(py, &rule, "tool_transform_rule")
+        serializable_to_py(py, &rule, "tool_override_rule")
     }
 
     fn get_tool_override(
@@ -1341,7 +1341,7 @@ impl PyMCPStore {
             .block_on(self.inner.get_tool_override(instance_id, tool_name))
             .map_err(map_store_err)?;
         rule.as_ref()
-            .map(|rule| serializable_to_py(py, rule, "tool_transform_rule"))
+            .map(|rule| serializable_to_py(py, rule, "tool_override_rule"))
             .transpose()
     }
 
@@ -1351,7 +1351,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         rules
             .iter()
-            .map(|rule| serializable_to_py(py, rule, "tool_transform_rule"))
+            .map(|rule| serializable_to_py(py, rule, "tool_override_rule"))
             .collect()
     }
 

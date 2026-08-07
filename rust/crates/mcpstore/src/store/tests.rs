@@ -4673,7 +4673,7 @@ async fn install_registry_tools(
 }
 
 #[tokio::test]
-async fn tool_transform_rules_affect_only_the_addressed_instance_view() {
+async fn tool_override_rules_affect_only_the_addressed_instance_view() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -4737,7 +4737,7 @@ async fn tool_transform_rules_affect_only_the_addressed_instance_view() {
 }
 
 #[tokio::test]
-async fn rust_tool_transform_builders_create_instance_owned_rules() {
+async fn rust_tool_override_builders_create_instance_owned_rules() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -6576,7 +6576,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn tool_transform_and_disconnect_are_isolated_between_sibling_instances() {
+    async fn tool_override_and_disconnect_are_isolated_between_sibling_instances() {
         let base_url = spawn_openapi_auth_fixture().await;
         let store = MCPStore::setup_with_options(store_options(None)).unwrap();
         let spec = json!({
