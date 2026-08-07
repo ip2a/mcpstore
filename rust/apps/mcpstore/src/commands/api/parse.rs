@@ -1,4 +1,4 @@
-use mcpstore::{CacheStorage, ScopeRef};
+use mcpstore::{CacheStorage, ScopeRef, ScopeView};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -92,12 +92,36 @@ impl ScopeQuery {
     pub(super) fn into_scope_ref(self) -> ApiResult<ScopeRef> {
         parse_scope_ref(self.scope.as_deref(), self.agent_id.as_deref())
     }
+
+    /// 读视图作用域：root | store | agent（root = 聚合，仅用于读 / 列表）。
+    pub(super) fn into_scope_view(self) -> ApiResult<ScopeView> {
+        parse_scope_view(self.scope.as_deref(), self.agent_id.as_deref())
+    }
 }
 
 pub(super) fn parse_scope_ref(scope: Option<&str>, agent_id: Option<&str>) -> ApiResult<ScopeRef> {
     match scope.unwrap_or("store") {
         "store" => Ok(ScopeRef::Store),
         "agent" => Ok(ScopeRef::Agent {
+            agent_id: agent_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ApiError::missing_parameter("agent_id"))?
+                .to_string(),
+        }),
+        other => Err(ApiError::invalid_parameter(
+            format!("不支持的 scope: {other}"),
+            Some("scope"),
+        )),
+    }
+}
+
+/// 读视图作用域解析：`root` 聚合 / `store` / `agent`（agent 需带 `agent_id`）。
+pub(super) fn parse_scope_view(scope: Option<&str>, agent_id: Option<&str>) -> ApiResult<ScopeView> {
+    match scope.unwrap_or("store") {
+        "root" => Ok(ScopeView::Root),
+        "store" => Ok(ScopeView::Store),
+        "agent" => Ok(ScopeView::Agent {
             agent_id: agent_id
                 .map(str::trim)
                 .filter(|value| !value.is_empty())

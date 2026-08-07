@@ -20,7 +20,8 @@ use mcpstore::{
     },
     config::ScopeDescriptor,
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
-    OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ServerConfig, ToolTransformPatch,
+    OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ScopeView, ServerConfig,
+    ToolTransformPatch,
 };
 use serde_json::json;
 #[cfg(test)]
@@ -166,7 +167,11 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/v1/settings", put(app::update_settings))
         // ===== agents / scopes =====
         .route("/agents/list", get(service::list_agents))
+        .route("/agents/:agent_id", get(service::agent_info))
         .route("/scopes/list", get(service::scopes_list))
+        .route("/scopes/root", get(service::scope_info_root))
+        .route("/scopes/store", get(service::scope_info_store))
+        .route("/scopes/agents/:agent_id", get(service::scope_info_agent))
         .route(
             "/scopes/agents/:agent_id/config",
             get(service::agent_show_config),
