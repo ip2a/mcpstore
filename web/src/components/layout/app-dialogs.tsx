@@ -1,4 +1,4 @@
-import type { ResetTarget } from "@/features/config/types"
+import type { ResetTarget } from "@/features/config/config-view"
 import { ResetConfigDialog } from "@/features/config/reset-config-dialog"
 import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { DeleteServiceDialog } from "@/features/services/delete-service-dialog"

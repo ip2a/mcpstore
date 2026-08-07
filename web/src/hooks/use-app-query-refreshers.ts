@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import type { ResetTarget } from "@/features/config/types"
+import type { ResetTarget } from "@/features/config/config-view"
 import type { ServiceAddress } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
