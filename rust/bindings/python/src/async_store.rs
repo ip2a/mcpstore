@@ -5,7 +5,11 @@
 //! is exposed via `pyo3_async_runtimes::tokio::future_into_py`.
 
 use mcpstore::core::store::{MCPStore, StoreOptions};
-use mcpstore::{CreateSessionRequest, ScopeContext, Service, Tool};
+use mcpstore::{
+    CreateSessionRequest, Prompt, PromptOverridePatch, Resource, ResourceOverridePatch,
+    ResourceTemplate, ResourceTemplateOverridePatch, ScopeContext, Service, Tool,
+    ToolOverridePatch,
+};
 
 use pyo3::prelude::*;
 use std::sync::Arc;
@@ -35,6 +39,21 @@ pub struct PyAsyncService {
 #[pyclass(name = "AsyncTool")]
 pub struct PyAsyncTool {
     inner: Tool,
+}
+
+#[pyclass(name = "AsyncPrompt")]
+pub struct PyAsyncPrompt {
+    inner: Prompt,
+}
+
+#[pyclass(name = "AsyncResource")]
+pub struct PyAsyncResource {
+    inner: Resource,
+}
+
+#[pyclass(name = "AsyncResourceTemplate")]
+pub struct PyAsyncResourceTemplate {
+    inner: ResourceTemplate,
 }
 
 impl PyAsyncMCPStore {
@@ -600,6 +619,7 @@ impl PyAsyncScopeContext {
             Python::with_gil(|py| serializable_to_py(py, &result, "tool_call_result"))
         })
     }
+
 }
 
 #[pymethods]
@@ -776,6 +796,47 @@ impl PyAsyncService {
             Python::with_gil(|py| Py::new(py, PyAsyncTool { inner: tool }))
         })
     }
+
+    fn find_prompt<'a>(&self, py: Python<'a>, prompt_name: &str) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let prompt_name = prompt_name.to_string();
+        future_into_py(py, async move {
+            let prompt = inner.find_prompt(&prompt_name).await.map_err(map_store_err)?;
+            Python::with_gil(|py| Py::new(py, PyAsyncPrompt { inner: prompt }))
+        })
+    }
+    fn find_resource<'a>(&self, py: Python<'a>, uri: &str) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let uri = uri.to_string();
+        future_into_py(py, async move {
+            let resource = inner.find_resource(&uri).await.map_err(map_store_err)?;
+            Python::with_gil(|py| Py::new(py, PyAsyncResource { inner: resource }))
+        })
+    }
+    fn find_resource_template<'a>(&self, py: Python<'a>, uri_template: &str) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let uri_template = uri_template.to_string();
+        future_into_py(py, async move {
+            let template = inner.find_resource_template(&uri_template).await.map_err(map_store_err)?;
+            Python::with_gil(|py| Py::new(py, PyAsyncResourceTemplate { inner: template }))
+        })
+    }
+    fn list_tool_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move { let values = inner.list_tool_overrides().await.map_err(map_store_err)?; Python::with_gil(|py| serializable_to_py(py, &values, "Tool overrides")) })
+    }
+    fn list_prompt_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move { let values = inner.list_prompt_overrides().await.map_err(map_store_err)?; Python::with_gil(|py| serializable_to_py(py, &values, "Prompt overrides")) })
+    }
+    fn list_resource_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move { let values = inner.list_resource_overrides().await.map_err(map_store_err)?; Python::with_gil(|py| serializable_to_py(py, &values, "Resource overrides")) })
+    }
+    fn list_resource_template_overrides<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move { let values = inner.list_resource_template_overrides().await.map_err(map_store_err)?; Python::with_gil(|py| serializable_to_py(py, &values, "Resource template overrides")) })
+    }
 }
 
 #[pymethods]
@@ -807,4 +868,111 @@ impl PyAsyncTool {
             Python::with_gil(|py| serializable_to_py(py, &result, "tool_call_result"))
         })
     }
+
+    fn set_override<'a>(
+        &self,
+        py: Python<'a>,
+        patch: &Bound<'_, PyAny>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let patch = crate::py_value::py_to_serde_value(patch, "Tool override patch")?;
+        let patch = serde_json::from_value::<ToolOverridePatch>(patch)
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(format!("invalid patch: {error}")))?;
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let rule = inner.set_override(patch).await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &rule, "Tool override rule"))
+        })
+    }
+
+    fn get_override<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let rule = inner.get_override().await.map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &rule, "Tool override rule"))
+        })
+    }
+
+    fn delete_override<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            inner.delete_override().await.map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
+        })
+    }
+
+    fn enable<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            inner.enable().await.map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
+        })
+    }
+
+    fn disable<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            inner.disable().await.map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
+        })
+    }
 }
+
+macro_rules! async_override_methods {
+    ($ty:ident, $patch:ty, $label:literal, $extra:item) => {
+        #[pymethods]
+        impl $ty {
+            fn info<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+                let inner = self.inner.clone();
+                future_into_py(py, async move {
+                    let value = inner.info().await.map_err(map_store_err)?;
+                    Python::with_gil(|py| crate::py_value::serde_value_to_py(py, value))
+                })
+            }
+
+            fn set_override<'a>(&self, py: Python<'a>, patch: &Bound<'_, PyAny>) -> PyResult<Bound<'a, PyAny>> {
+                let patch = crate::py_value::py_to_serde_value(patch, concat!($label, " override patch"))?;
+                let patch = serde_json::from_value::<$patch>(patch).map_err(|error| pyo3::exceptions::PyValueError::new_err(format!("invalid patch: {error}")))?;
+                let inner = self.inner.clone();
+                future_into_py(py, async move {
+                    let rule = inner.set_override(patch).await.map_err(map_store_err)?;
+                    Python::with_gil(|py| serializable_to_py(py, &rule, concat!($label, " override rule")))
+                })
+            }
+
+            fn get_override<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+                let inner = self.inner.clone();
+                future_into_py(py, async move {
+                    let rule = inner.get_override().await.map_err(map_store_err)?;
+                    Python::with_gil(|py| serializable_to_py(py, &rule, concat!($label, " override rule")))
+                })
+            }
+
+            fn delete_override<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+                let inner = self.inner.clone();
+                future_into_py(py, async move { inner.delete_override().await.map_err(map_store_err)?; Ok(Python::with_gil(|py| py.None())) })
+            }
+            fn enable<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+                let inner = self.inner.clone();
+                future_into_py(py, async move { inner.enable().await.map_err(map_store_err)?; Ok(Python::with_gil(|py| py.None())) })
+            }
+            fn disable<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+                let inner = self.inner.clone();
+                future_into_py(py, async move { inner.disable().await.map_err(map_store_err)?; Ok(Python::with_gil(|py| py.None())) })
+            }
+            $extra
+        }
+    };
+}
+
+async_override_methods!(PyAsyncPrompt, PromptOverridePatch, "Prompt", fn get<'a>(&self, py: Python<'a>, args: &Bound<'_, PyAny>) -> PyResult<Bound<'a, PyAny>> {
+    let args = crate::py_value::py_to_serde_value(args, "Prompt arguments")?;
+    let inner = self.inner.clone();
+    future_into_py(py, async move { let value = inner.get(args).await.map_err(map_store_err)?; Python::with_gil(|py| crate::py_value::serde_value_to_py(py, value)) })
+});
+
+async_override_methods!(PyAsyncResource, ResourceOverridePatch, "Resource", fn read<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
+    let inner = self.inner.clone();
+    future_into_py(py, async move { let value = inner.read().await.map_err(map_store_err)?; Python::with_gil(|py| crate::py_value::serde_value_to_py(py, value)) })
+});
+
+async_override_methods!(PyAsyncResourceTemplate, ResourceTemplateOverridePatch, "Resource template", fn no_extra<'a>(&self, _py: Python<'a>) -> PyResult<()> { Ok(()) });

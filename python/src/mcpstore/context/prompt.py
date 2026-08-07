@@ -1,4 +1,4 @@
-"""Public Tool resource over the Rust facade."""
+"""Public Prompt resource over the Rust facade."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any, Dict, Optional
 from mcpstore.native.records import _record_value
 
 
-class Tool:
-    """A tool identified within one Rust-owned scope and service."""
+class Prompt:
+    """A prompt identified within one Rust-owned scope and service."""
 
     def __init__(self, native: Any):
         self._native = native
@@ -16,8 +16,8 @@ class Tool:
     def info(self) -> Dict[str, Any]:
         return _record_value(self._native.info())
 
-    def call(self, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return _record_value(self._native.call(args or {}))
+    def get(self, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return _record_value(self._native.get({} if arguments is None else arguments))
 
     def set_override(self, patch: Dict[str, Any]) -> Dict[str, Any]:
         return _record_value(self._native.set_override(patch))
@@ -35,4 +35,4 @@ class Tool:
         self._native.disable()
 
 
-__all__ = ["Tool"]
+__all__ = ["Prompt"]
