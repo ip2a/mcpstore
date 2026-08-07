@@ -10,6 +10,7 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { ConfigDetailPane } from "@/features/config/config-view"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
+import { ClientConfigPanel } from "@/features/config/client-config-panel"
 import { useScopesQuery } from "@/features/agents/queries"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
@@ -264,16 +265,8 @@ export function AgentsView(props: {
 
             <ScrollPane className="flex-1">
               <AgentWorkspaceOverview agents={props.agents} services={props.services} storeServices={storeServices} />
+              <ClientConfigPanel />
             </ScrollPane>
-            <section className="border-t pt-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-medium">{t("configuration")}</h2>
-                  <p className="text-xs text-muted-foreground">{t("allScopesDescription")}</p>
-                </div>
-              </div>
-              <p className="py-3 text-sm text-muted-foreground">{t("allScopesDescription")}</p>
-            </section>
           </>
         ) : (
           <>
