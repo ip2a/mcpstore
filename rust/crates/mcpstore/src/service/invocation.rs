@@ -209,7 +209,7 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         let requested_instance_id = instance_id;
         let (instance_id, tool_name, args) = self
-            .resolve_transformed_tool_call(requested_instance_id, tool_name, args)
+            .resolve_override_tool_call(requested_instance_id, tool_name, args)
             .await?;
         self.ensure_context_tool_allowed(instance_id, &tool_name)
             .await?;

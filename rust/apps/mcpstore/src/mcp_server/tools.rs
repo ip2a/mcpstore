@@ -994,7 +994,7 @@ pub(super) async fn call_tool_transform_tool(
     let result = match tool_name {
         TOOL_TRANSFORM_LIST_TOOL => {
             let transforms = store
-                .list_tool_transforms()
+                .list_tool_overrides()
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"transforms": transforms, "total": transforms.len()})
@@ -1003,7 +1003,7 @@ pub(super) async fn call_tool_transform_tool(
             let instance_id = required_instance_id_argument(&arguments)?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
             let transform = store
-                .get_tool_transform(instance_id, tool_name)
+                .get_tool_override(instance_id, tool_name)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"transform": transform})
@@ -1011,7 +1011,7 @@ pub(super) async fn call_tool_transform_tool(
         TOOL_TRANSFORM_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
             let tool_name = required_argument_string(&arguments, "tool_name")?.to_string();
-            let patch = serde_json::from_value::<ToolTransformPatch>(Value::Object(arguments))
+            let patch = serde_json::from_value::<ToolOverridePatch>(Value::Object(arguments))
                 .map_err(|error| {
                     ErrorData::invalid_params(
                         format!("工具转换规则参数反序列化失败: {error}"),
@@ -1019,7 +1019,7 @@ pub(super) async fn call_tool_transform_tool(
                     )
                 })?;
             let transform = store
-                .set_tool_transform(instance_id, &tool_name, patch)
+                .set_tool_override(instance_id, &tool_name, patch)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"transform": transform})
@@ -1028,7 +1028,7 @@ pub(super) async fn call_tool_transform_tool(
             let instance_id = required_instance_id_argument(&arguments)?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
             store
-                .delete_tool_transform(instance_id, tool_name)
+                .delete_tool_override(instance_id, tool_name)
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"status": "ok"})

@@ -3,9 +3,10 @@ use std::hash::{Hash, Hasher};
 use crate::cache::models::{
     ContextToolVisibilityState, InstanceToolRelation, ServiceDefinitionEntity,
     ServiceInstanceEntity, SessionServiceRelation, SessionToolVisibility, ToolEntity,
-    ToolPreferenceState, ToolTransformRule,
+    ToolPreferenceState,
 };
 use crate::cache::CacheError;
+use crate::overrides::ToolOverrideRule;
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
@@ -360,7 +361,7 @@ impl MCPStore {
                     as fn(&serde_json::Value, InstanceId) -> Result<bool>,
             ),
             ("tool_preferences", Self::tool_preference_matches_instance),
-            ("tool_transforms", Self::tool_transform_matches_instance),
+            ("tool_overrides", Self::tool_override_matches_instance),
         ] {
             for (key, value) in self.cache.get_all_states_async(state_type).await? {
                 if matches_instance(&value, instance_id)? {
@@ -395,12 +396,12 @@ impl MCPStore {
         Ok(state.instance_id == instance_id)
     }
 
-    fn tool_transform_matches_instance(
+    fn tool_override_matches_instance(
         value: &serde_json::Value,
         instance_id: InstanceId,
     ) -> Result<bool> {
-        let state: ToolTransformRule = serde_json::from_value(value.clone()).map_err(|error| {
-            StoreError::Other(format!("Tool transform deserialization failed: {error}"))
+        let state: ToolOverrideRule = serde_json::from_value(value.clone()).map_err(|error| {
+            StoreError::Other(format!("Tool override deserialization failed: {error}"))
         })?;
         Ok(state.instance_id == instance_id)
     }

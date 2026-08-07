@@ -21,7 +21,7 @@ use mcpstore::{
     config::ScopeDescriptor,
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, ScopeRef, ScopeView, ServerConfig,
-    ToolTransformPatch,
+    ToolOverridePatch,
 };
 use serde_json::json;
 #[cfg(test)]
@@ -279,12 +279,12 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
                 .put(service::service_set_tool_policy)
                 .delete(service::service_clear_tool_policy),
         )
-        .route("/tool_transforms", get(service::store_list_tool_transforms))
+        .route("/tool_transforms", get(service::store_list_tool_overrides))
         .route(
             "/services/:service_name/tool_transforms/:tool_name",
-            get(service::service_get_tool_transform)
-                .put(service::service_set_tool_transform)
-                .delete(service::service_delete_tool_transform),
+            get(service::service_get_tool_override)
+                .put(service::service_set_tool_override)
+                .delete(service::service_delete_tool_override),
         )
         .route(
             "/services/:service_name/completions",

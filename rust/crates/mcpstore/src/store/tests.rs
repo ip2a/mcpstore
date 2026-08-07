@@ -4681,10 +4681,10 @@ async fn tool_transform_rules_affect_only_the_addressed_instance_view() {
     install_registry_tools(&store, instance_id, vec![registry_tool("echo")]).await;
 
     let rule = store
-        .set_tool_transform(
+        .set_tool_override(
             instance_id,
             "echo",
-            crate::ToolTransformPatch::default()
+            crate::ToolOverridePatch::default()
                 .with_display_name("say")
                 .with_description("Send a message")
                 .rename_argument("message", "text")
@@ -4697,7 +4697,7 @@ async fn tool_transform_rules_affect_only_the_addressed_instance_view() {
     assert_eq!(rule.service_name, "svc");
     assert_eq!(rule.scope, store_scope());
     assert_eq!(rule.tool_name, "echo");
-    assert_eq!(rule.display_name.as_deref(), Some("say"));
+    assert_eq!(rule.common.display_name.as_deref(), Some("say"));
 
     let entries = store
         .list_tool_entries_for_instance(instance_id)
@@ -4715,20 +4715,20 @@ async fn tool_transform_rules_affect_only_the_addressed_instance_view() {
 
     assert_eq!(
         store
-            .get_tool_transform(instance_id, "say")
+            .get_tool_override(instance_id, "say")
             .await
             .unwrap()
             .unwrap()
             .tool_name,
         "echo"
     );
-    assert_eq!(store.list_tool_transforms().await.unwrap().len(), 1);
+    assert_eq!(store.list_tool_overrides().await.unwrap().len(), 1);
     store
-        .delete_tool_transform(instance_id, "say")
+        .delete_tool_override(instance_id, "say")
         .await
         .unwrap();
     assert!(store
-        .get_tool_transform(instance_id, "echo")
+        .get_tool_override(instance_id, "echo")
         .await
         .unwrap()
         .is_none());
@@ -4754,7 +4754,7 @@ async fn rust_tool_transform_builders_create_instance_owned_rules() {
     .await;
 
     let friendly = store
-        .create_llm_friendly_tool_transform(
+        .create_llm_friendly_tool_override(
             instance_id,
             "friendly",
             Some("friendly_simple"),
@@ -4765,7 +4765,7 @@ async fn rust_tool_transform_builders_create_instance_owned_rules() {
         .await
         .unwrap();
     assert_eq!(friendly.instance_id, instance_id);
-    assert!(friendly.tags.contains(&"llm-friendly".to_string()));
+    assert!(friendly.common.tags.contains(&"llm-friendly".to_string()));
     assert!(friendly
         .arguments
         .iter()
@@ -4773,7 +4773,7 @@ async fn rust_tool_transform_builders_create_instance_owned_rules() {
     assert!(friendly.safety_policy.is_some());
 
     let renamed = store
-        .create_parameter_renamed_tool_transform(
+        .create_parameter_renamed_tool_override(
             instance_id,
             "renamed",
             Some("renamed_simple"),
@@ -4785,7 +4785,7 @@ async fn rust_tool_transform_builders_create_instance_owned_rules() {
     assert_eq!(renamed.arguments[0].new_name.as_deref(), Some("text"));
 
     let validated = store
-        .create_validated_tool_transform(
+        .create_validated_tool_override(
             instance_id,
             "validated",
             None,
@@ -4797,11 +4797,11 @@ async fn rust_tool_transform_builders_create_instance_owned_rules() {
         .await
         .unwrap();
     assert_eq!(
-        validated.display_name.as_deref(),
+        validated.common.display_name.as_deref(),
         Some("validated_validated")
     );
     assert!(validated.arguments[0].validation_schema.is_some());
-    assert_eq!(store.list_tool_transforms().await.unwrap().len(), 3);
+    assert_eq!(store.list_tool_overrides().await.unwrap().len(), 3);
 
     std::fs::remove_file(path).ok();
 }
@@ -5692,7 +5692,7 @@ mod scoped_contract {
     use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
     use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
     use crate::registry::{ConfigRevision, ToolInfo};
-    use crate::{CreateSessionRequest, SessionToolSelection, ToolTransformPatch};
+    use crate::{CreateSessionRequest, SessionToolSelection, ToolOverridePatch};
 
     fn temp_config_path() -> String {
         std::env::temp_dir()
@@ -6652,10 +6652,10 @@ mod scoped_contract {
         store.connect_service(agent_1_id).await.unwrap();
         store.connect_service(agent_2_id).await.unwrap();
         store
-            .set_tool_transform(
+            .set_tool_override(
                 agent_1_id,
                 "echo",
-                ToolTransformPatch::default()
+                ToolOverridePatch::default()
                     .with_display_name("say")
                     .rename_argument("body", "payload"),
             )
@@ -6817,10 +6817,10 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .set_tool_transform(
+            .set_tool_override(
                 agent_1_id,
                 "agent-1-tool",
-                ToolTransformPatch::default().with_display_name("agent-1-renamed"),
+                ToolOverridePatch::default().with_display_name("agent-1-renamed"),
             )
             .await
             .unwrap();
@@ -6852,10 +6852,10 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .set_tool_transform(
+            .set_tool_override(
                 agent_2_id,
                 "agent-2-tool",
-                ToolTransformPatch::default().with_display_name("agent-2-renamed"),
+                ToolOverridePatch::default().with_display_name("agent-2-renamed"),
             )
             .await
             .unwrap();
@@ -6927,7 +6927,7 @@ mod scoped_contract {
                 "tool_preferences",
                 format!("agent:agent-1:{agent_1_id}:agent-1-tool"),
             ),
-            ("tool_transforms", format!("{agent_1_id}:agent-1-tool")),
+            ("tool_overrides", format!("{agent_1_id}:agent-1-tool")),
         ] {
             assert!(store
                 .cache()
@@ -6945,7 +6945,7 @@ mod scoped_contract {
                 "tool_preferences",
                 format!("agent:agent-2:{agent_2_id}:agent-2-tool"),
             ),
-            ("tool_transforms", format!("{agent_2_id}:agent-2-tool")),
+            ("tool_overrides", format!("{agent_2_id}:agent-2-tool")),
         ] {
             assert!(store
                 .cache()
@@ -7028,7 +7028,7 @@ mod scoped_contract {
             .is_none());
         assert!(store
             .cache()
-            .get_state("tool_transforms", &format!("{agent_1_id}:agent-1-tool"))
+            .get_state("tool_overrides", &format!("{agent_1_id}:agent-1-tool"))
             .await
             .unwrap()
             .is_none());
@@ -7130,7 +7130,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn tool_transforms_are_isolated_by_instance_id() {
+    async fn tool_overrides_are_isolated_by_instance_id() {
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
             store: None,
@@ -7151,10 +7151,10 @@ mod scoped_contract {
         install_tool(&store, agent_2_id, tool("echo")).await;
 
         let rule = store
-            .set_tool_transform(
+            .set_tool_override(
                 agent_1_id,
                 "echo",
-                ToolTransformPatch::default()
+                ToolOverridePatch::default()
                     .with_display_name("say")
                     .rename_argument("text", "message")
                     .hide_argument("debug", false),
@@ -7166,36 +7166,36 @@ mod scoped_contract {
         assert_eq!(rule.tool_name, "echo");
 
         assert!(store
-            .get_tool_transform(agent_1_id, "echo")
+            .get_tool_override(agent_1_id, "echo")
             .await
             .unwrap()
             .is_some());
         assert!(store
-            .get_tool_transform(agent_2_id, "echo")
+            .get_tool_override(agent_2_id, "echo")
             .await
             .unwrap()
             .is_none());
         assert!(store
             .cache()
-            .get_state("tool_transforms", &format!("{agent_1_id}:echo"))
+            .get_state("tool_overrides", &format!("{agent_1_id}:echo"))
             .await
             .unwrap()
             .is_some());
         assert!(store
             .cache()
-            .get_state("tool_transforms", &format!("{agent_2_id}:echo"))
+            .get_state("tool_overrides", &format!("{agent_2_id}:echo"))
             .await
             .unwrap()
             .is_none());
 
         let (_, resolved_name, transformed_args) = store
-            .resolve_transformed_tool_call(agent_1_id, "say", json!({"message": "hello"}))
+            .resolve_override_tool_call(agent_1_id, "say", json!({"message": "hello"}))
             .await
             .unwrap();
         assert_eq!(resolved_name, "echo");
         assert_eq!(transformed_args, json!({"text": "hello", "debug": false}));
         let (_, resolved_name, untouched_args) = store
-            .resolve_transformed_tool_call(agent_2_id, "echo", json!({"text": "hello"}))
+            .resolve_override_tool_call(agent_2_id, "echo", json!({"text": "hello"}))
             .await
             .unwrap();
         assert_eq!(resolved_name, "echo");

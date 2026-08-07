@@ -17,7 +17,7 @@ impl MCPStore {
         for tool in tools {
             let tool_name = tool.name.clone();
             let transformed = self
-                .apply_tool_transform(
+                .apply_tool_override(
                     instance_id,
                     &tool_name,
                     tool.name,
@@ -93,7 +93,7 @@ impl MCPStore {
         for tool in tools {
             let tool_name = tool.name.clone();
             let transformed = self
-                .apply_tool_transform(
+                .apply_tool_override(
                     instance_id,
                     &tool_name,
                     tool.name,
