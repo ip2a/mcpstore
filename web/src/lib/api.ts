@@ -112,6 +112,18 @@ export type ServiceAddress = {
   scope: ScopeRef;
 };
 
+/** 读视图作用域（文档 §17.2）：root 聚合 / store / agent。Root 是只读聚合，不能用于声明。 */
+export type ScopeView =
+  | { type: "root" }
+  | { type: "store" }
+  | { type: "agent"; agent_id: string };
+
+/** 作用域注册表条目（GET /scopes/list）。 */
+export type ScopeSummary = {
+  scope: ScopeView;
+  service_count: number;
+};
+
 export type ConfigRevision = {
   base_revision: number;
   scope_revision: number;
@@ -357,6 +369,7 @@ export type ClientConfigPlanPayload = {
 export {
   health,
   listServices,
+  listScopes,
   listAgents,
   listAgentServices,
   getServiceInstance,

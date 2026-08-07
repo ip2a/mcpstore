@@ -1,11 +1,18 @@
-import type { ScopeRef, ServiceAddress } from "@/lib/api"
+import type { ScopeRef, ScopeView, ServiceAddress } from "@/lib/api"
 
 function scopeSeg(scope: ScopeRef): string[] {
   return scope.type === "agent" ? ["agent", scope.agent_id] : ["store"]
 }
 
+function viewSeg(view: ScopeView): string[] {
+  return view.type === "agent" ? ["agent", view.agent_id] : [view.type]
+}
+
 export const queryKeys = {
   health: ["health"] as const,
+  scopes: ["scopes"] as const,
+  scopeServices: (view: ScopeView) =>
+    ["scopes", "services", ...viewSeg(view)] as const,
   instances: ["instances"] as const,
   instance: (addr: ServiceAddress) =>
     ["instances", addr.service_name, ...scopeSeg(addr.scope)] as const,

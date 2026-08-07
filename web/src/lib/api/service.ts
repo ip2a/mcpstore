@@ -7,6 +7,8 @@ import type {
   PromptInfo,
   ResourceInfo,
   ResourceTemplateInfo,
+  ScopeSummary,
+  ScopeView,
   ServiceAddress,
   ServiceInstance,
   ServiceState,
@@ -32,11 +34,23 @@ export async function health() {
   );
 }
 
-export async function listServices(): Promise<ServiceInstance[]> {
+export async function listServices(
+  view: ScopeView = { type: "store" },
+): Promise<ServiceInstance[]> {
+  const query =
+    view.type === "agent"
+      ? buildQuery({ scope: "agent", agent_id: view.agent_id })
+      : buildQuery({ scope: view.type });
   const data = await request<{ services: ServiceInstance[] }>(
-    "/services/list?scope=store",
+    `/services/list${query}`,
   );
   return data.services;
+}
+
+/** 作用域注册表（root + store + 各 agent，每项带 service_count）。文档 §17.3。 */
+export async function listScopes(): Promise<ScopeSummary[]> {
+  const data = await request<{ scopes: ScopeSummary[] }>("/scopes/list");
+  return data.scopes;
 }
 
 export async function listAgents(): Promise<AgentItem[]> {
