@@ -96,15 +96,15 @@ fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
 
 // ===== 列表类 =====
 
-/// `GET /services/list?scope=store|agent&agent_id=` —— 合并 store/agent 作用域的服务列表。
+/// `GET /services/list?scope=root|store|agent&agent_id=` —— 服务列表（root = 聚合全部作用域）。
 pub(super) async fn service_list_services(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ScopeQuery>,
 ) -> ApiResult {
-    let scope = query.into_scope_ref()?;
+    let view = query.into_scope_view()?;
     let services = state
         .store
-        .list_services_scoped(&scope)
+        .list_services_viewed(&view)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -127,6 +127,39 @@ pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult
     ))
 }
 
+/// `GET /scopes/root` · `GET /scopes/store` · `GET /scopes/agents/:agent_id` —— 单个作用域详情。
+pub(super) async fn scope_info_root(State(state): State<Arc<ApiState>>) -> ApiResult {
+    scope_info_for(&state, ScopeView::Root).await
+}
+
+pub(super) async fn scope_info_store(State(state): State<Arc<ApiState>>) -> ApiResult {
+    scope_info_for(&state, ScopeView::Store).await
+}
+
+pub(super) async fn scope_info_agent(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    scope_info_for(&state, ScopeView::Agent { agent_id }).await
+}
+
+async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
+    let scope = state
+        .store
+        .scope_info(&view)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "SCOPE_NOT_FOUND",
+                "作用域不存在".to_string(),
+                Some("scope"),
+                None,
+            )
+        })?;
+    Ok(success("作用域详情获取成功", json!(scope)))
+}
+
 /// `GET /agents/list` —— agent 列表（保留）。
 pub(super) async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult {
     let agents = state
@@ -138,6 +171,27 @@ pub(super) async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult
         "Agent 列表获取成功",
         json!({ "agents": agents, "total": agents.len() }),
     ))
+}
+
+/// `GET /agents/:agent_id` —— agent 详情（agent_id + 其下实例 id）。
+pub(super) async fn agent_info(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    let agent = state
+        .store
+        .find_agent(&agent_id)
+        .await
+        .map_err(ApiError::from_store)?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "AGENT_NOT_FOUND",
+                format!("Agent '{agent_id}' 不存在"),
+                Some("agent_id"),
+                None,
+            )
+        })?;
+    Ok(success("Agent 详情获取成功", json!(agent)))
 }
 
 // ===== 服务实例：信息 / 状态 / 生命周期（服务名 + scope 寻址）=====

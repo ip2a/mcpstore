@@ -979,6 +979,132 @@ async fn definition_and_scope_routes_are_explicit_and_isolated() {
 }
 
 #[tokio::test]
+async fn scope_registry_routes_expose_root_store_and_agents() {
+    let fixture_dir = unique_temp_dir_path("mcpstore-api-scope-registry");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    // demo 声明在 store + agent-a（两个不同实例）
+    client
+        .post(format!("{base_url}/services/demo"))
+        .json(&json!({
+            "command": "printf",
+            "args": ["store"],
+            "transport": "stdio",
+            "_mcpstore": {"scopes": {"store": {}}}
+        }))
+        .send()
+        .await
+        .unwrap();
+    client
+        .put(format!("{base_url}/services/demo/scopes/agents/agent-a"))
+        .json(&json!({"config": {"args": ["agent"]}}))
+        .send()
+        .await
+        .unwrap();
+
+    // /scopes/list：root + store + agent-a，每项带 service_count（不再派生自 /agents/list）
+    let scopes = client
+        .get(format!("{base_url}/scopes/list"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let entries = scopes["data"]["scopes"].as_array().unwrap();
+    assert_eq!(entries.len(), 3);
+    let count_for = |scope_type: &str| {
+        entries
+            .iter()
+            .find(|entry| entry["scope"]["type"] == scope_type)
+            .unwrap()["service_count"]
+            .as_u64()
+            .unwrap()
+    };
+    assert_eq!(count_for("root"), 2);
+    assert_eq!(count_for("store"), 1);
+    assert_eq!(count_for("agent"), 1);
+    let agent_entry = entries
+        .iter()
+        .find(|entry| entry["scope"]["type"] == "agent")
+        .unwrap();
+    assert_eq!(agent_entry["scope"]["agent_id"], "agent-a");
+
+    // /services/list?scope=root 聚合两个作用域（total=2），store 只有一个（total=1）
+    let root_services = client
+        .get(format!("{base_url}/services/list?scope=root"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(root_services["data"]["total"], 2);
+    let store_services = client
+        .get(format!("{base_url}/services/list?scope=store"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(store_services["data"]["total"], 1);
+
+    // scope 详情：root / store / agent
+    let root_info = client
+        .get(format!("{base_url}/scopes/root"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(root_info["data"]["scope"]["type"], "root");
+    assert_eq!(root_info["data"]["service_count"], 2);
+    let agent_scope = client
+        .get(format!("{base_url}/scopes/agents/agent-a"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(agent_scope["data"]["scope"]["type"], "agent");
+    assert_eq!(agent_scope["data"]["scope"]["agent_id"], "agent-a");
+
+    // agent 详情（find_agent）
+    let agent_info = client
+        .get(format!("{base_url}/agents/agent-a"))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(agent_info["data"]["agent_id"], "agent-a");
+    assert_eq!(
+        agent_info["data"]["instance_ids"].as_array().unwrap().len(),
+        1
+    );
+
+    // 未知 agent → 404
+    let unknown = client
+        .get(format!("{base_url}/agents/nope"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), axum::http::StatusCode::NOT_FOUND);
+
+    handle.abort();
+    std::fs::remove_dir_all(fixture_dir).ok();
+}
+
+#[tokio::test]
 async fn session_snapshot_routes_export_and_import_rust_core_state() {
     let source = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
