@@ -660,10 +660,10 @@ pub(super) async fn service_clear_tool_policy(
 
 // ===== 工具转换规则（全局列表 + 按服务名+scope 管理）=====
 
-pub(super) async fn store_list_tool_transforms(State(state): State<Arc<ApiState>>) -> ApiResult {
+pub(super) async fn store_list_tool_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
     let transforms = state
         .store
-        .list_tool_transforms()
+        .list_tool_overrides()
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -672,7 +672,7 @@ pub(super) async fn store_list_tool_transforms(State(state): State<Arc<ApiState>
     ))
 }
 
-pub(super) async fn service_get_tool_transform(
+pub(super) async fn service_get_tool_override(
     State(state): State<Arc<ApiState>>,
     Path((service_name, tool_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
@@ -681,23 +681,23 @@ pub(super) async fn service_get_tool_transform(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let transform = state
         .store
-        .get_tool_transform(instance_id, &tool_name)
+        .get_tool_override(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("工具转换规则获取成功", json!({ "transform": transform })))
 }
 
-pub(super) async fn service_set_tool_transform(
+pub(super) async fn service_set_tool_override(
     State(state): State<Arc<ApiState>>,
     Path((service_name, tool_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
-    Json(transform): Json<ToolTransformPatch>,
+    Json(transform): Json<ToolOverridePatch>,
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let transform = state
         .store
-        .set_tool_transform(instance_id, &tool_name, transform)
+        .set_tool_override(instance_id, &tool_name, transform)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
@@ -706,7 +706,7 @@ pub(super) async fn service_set_tool_transform(
     ))
 }
 
-pub(super) async fn service_delete_tool_transform(
+pub(super) async fn service_delete_tool_override(
     State(state): State<Arc<ApiState>>,
     Path((service_name, tool_name)): Path<(String, String)>,
     Query(query): Query<ScopeQuery>,
@@ -715,7 +715,7 @@ pub(super) async fn service_delete_tool_transform(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
-        .delete_tool_transform(instance_id, &tool_name)
+        .delete_tool_override(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("工具转换规则删除成功", json!({ "status": "ok" })))

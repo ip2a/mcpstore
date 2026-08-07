@@ -247,26 +247,7 @@ pub struct SessionContextState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolTransformRule {
-    pub instance_id: InstanceId,
-    pub service_name: String,
-    pub scope: ScopeRef,
-    pub tool_name: String,
-    pub display_name: Option<String>,
-    pub description: Option<String>,
-    #[serde(default)]
-    pub arguments: Vec<ToolArgumentTransform>,
-    #[serde(default)]
-    pub safety_policy: Option<ToolTransformSafetyPolicy>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    pub enabled: bool,
-    pub updated_at: i64,
-    pub version: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolArgumentTransform {
+pub struct ToolArgumentOverride {
     pub original_name: String,
     pub new_name: Option<String>,
     pub hidden: bool,
@@ -277,14 +258,14 @@ pub struct ToolArgumentTransform {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolTransformSafetyPolicy {
-    #[serde(default = "ToolTransformSafetyPolicy::default_reject_dangerous_argument_names")]
+pub struct ToolOverrideSafetyPolicy {
+    #[serde(default = "ToolOverrideSafetyPolicy::default_reject_dangerous_argument_names")]
     pub reject_dangerous_argument_names: bool,
-    #[serde(default = "ToolTransformSafetyPolicy::default_dangerous_argument_name_patterns")]
+    #[serde(default = "ToolOverrideSafetyPolicy::default_dangerous_argument_name_patterns")]
     pub dangerous_argument_name_patterns: Vec<String>,
 }
 
-impl Default for ToolTransformSafetyPolicy {
+impl Default for ToolOverrideSafetyPolicy {
     fn default() -> Self {
         Self {
             reject_dangerous_argument_names: Self::default_reject_dangerous_argument_names(),
@@ -293,7 +274,7 @@ impl Default for ToolTransformSafetyPolicy {
     }
 }
 
-impl ToolTransformSafetyPolicy {
+impl ToolOverrideSafetyPolicy {
     fn default_reject_dangerous_argument_names() -> bool {
         true
     }

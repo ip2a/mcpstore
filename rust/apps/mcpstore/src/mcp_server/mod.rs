@@ -10,7 +10,7 @@ use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
     events::{bus::EventHandler, Event},
     CacheStorage, ContentItem, InstanceId, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
-    OpenApiRefCachePolicy, ScopeRef, SourceMode, StoreError, StoreOptions, ToolTransformPatch,
+    OpenApiRefCachePolicy, ScopeRef, SourceMode, StoreError, StoreOptions, ToolOverridePatch,
 };
 use rmcp::{
     model::{

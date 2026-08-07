@@ -21,7 +21,7 @@ pub(crate) mod service;
 pub mod session;
 pub mod state;
 pub mod store;
-pub mod tool_transform;
+pub mod overrides;
 pub mod transport;
 
 // Facade re-exports: configuration
@@ -73,7 +73,7 @@ pub use registry::{
 pub use cache::models::{
     SessionContextState, SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation,
     SessionStateData, SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
-    ToolArgumentTransform, ToolPreferenceState, ToolTransformRule, ToolTransformSafetyPolicy,
+    ToolPreferenceState,
 };
 pub use session::{
     CreateSessionRequest, SessionBuilder, SessionCleanupReport, SessionContext,
@@ -107,4 +107,7 @@ pub use store::{
     BackendKind, CacheStorage, MCPStore, OpenApiImportInput, OpenApiImportSource, SourceMode,
     StoreOptions, ToolVisibilityFilter,
 };
-pub use tool_transform::ToolTransformPatch;
+pub use overrides::{
+    ComponentKind, ComponentOverrideCommon, ToolArgumentOverride, ToolOverridePatch,
+    ToolOverrideRule, ToolOverrideSafetyPolicy,
+};
