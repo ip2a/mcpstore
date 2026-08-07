@@ -7,13 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { applyClientConfig, getAggregateLaunch, getAggregateStatus, importClientServices, inspectClientConfig, planClientConfig, startAggregate, stopAggregate, undoClientConfig, type AggregateOptions, type AggregateStatus } from "@/lib/api"
+import { applyClientConfig, getAggregateLaunch, getAggregateStatus, importClientServices, inspectClientConfig, planClientConfig, startAggregate, stopAggregate, undoClientConfig, type AggregateOptions, type AggregateStatus, type ScopeRef } from "@/lib/api"
 
 const initialEntries = JSON.stringify([
   { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:1830/mcp" } },
 ], null, 2)
 
-export function ClientConfigPanel() {
+export function ClientConfigPanel({ scope: scopeProp }: { scope?: ScopeRef }) {
   const [client, setClient] = useState("codex")
   const [path, setPath] = useState("")
   const [entriesText, setEntriesText] = useState(initialEntries)
@@ -23,8 +23,16 @@ export function ClientConfigPanel() {
   const [result, setResult] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [transport, setTransport] = useState<"stdio" | "streamable-http">("streamable-http")
-  const [scope, setScope] = useState<"store" | "agent">("store")
-  const [agentId, setAgentId] = useState("")
+  const [scopeState, setScopeState] = useState<"store" | "agent">("store")
+  const [agentIdState, setAgentIdState] = useState("")
+  // 传入 scope 时锁定到该作用域（per-scope 模式，隐藏选择器）；不传则用内部选择器（全局模式）。
+  const locked = Boolean(scopeProp)
+  const scope: "store" | "agent" = scopeProp
+    ? scopeProp.type === "agent"
+      ? "agent"
+      : "store"
+    : scopeState
+  const agentId = scopeProp?.type === "agent" ? scopeProp.agent_id : agentIdState
   const [host, setHost] = useState("127.0.0.1")
   const [port, setPort] = useState("1830")
   const [pathValue, setPathValue] = useState("/mcp")
@@ -147,8 +155,10 @@ export function ClientConfigPanel() {
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <label className="grid gap-2"><Label>Aggregate transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
-        <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="store">Store</option><option value="agent">Agent</option></select></label>
-        {scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentId(event.target.value)} placeholder="agent-id" /></label> : null}
+        {!locked ? (
+          <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScopeState(event.target.value as typeof scopeState)}><option value="store">Store</option><option value="agent">Agent</option></select></label>
+        ) : null}
+        {!locked && scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentIdState(event.target.value)} placeholder="agent-id" /></label> : null}
         <label className="grid gap-2"><Label>Host</Label><Input value={host} onChange={(event) => setHost(event.target.value)} /></label>
         <label className="grid gap-2"><Label>HTTP port</Label><Input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} /></label>
         <label className="grid gap-2"><Label>Path</Label><Input value={pathValue} onChange={(event) => setPathValue(event.target.value)} /></label>
