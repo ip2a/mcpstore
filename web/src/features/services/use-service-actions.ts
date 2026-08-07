@@ -7,6 +7,7 @@ import {
   removeServiceScope,
   restartInstance,
   ApiError,
+  type ServiceAddress,
   type ServiceInstance,
 } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
@@ -22,14 +23,14 @@ export function useServiceActions({
   runAction,
   services,
 }: {
-  refreshInstanceQueries: (instanceId: string, scope: ServiceInstance["scope"]) => Promise<void>
+  refreshInstanceQueries: (addr: ServiceAddress) => Promise<void>
   runAction: RunAction
   services: ServiceInstance[]
 }) {
   const { t } = useI18n()
 
   function checkAllServices() {
-    return runAction("check:instances", () => Promise.all(services.map((service) => checkInstance(service.instance_id))))
+    return runAction("check:instances", () => Promise.all(services.map((service) => checkInstance(service))))
   }
 
   function connectServiceEntry(service: ServiceInstance) {
@@ -37,7 +38,7 @@ export function useServiceActions({
       `connect:${service.instance_id}`,
       async () => {
         try {
-          await connectInstance(service.instance_id)
+          await connectInstance(service)
         } catch (error) {
           if (error instanceof ApiError && error.code === "AUTH_REQUIRED") {
             toast.info(t("oauthConnectLoginRequired"))
@@ -45,23 +46,23 @@ export function useServiceActions({
           throw error
         }
       },
-      () => refreshInstanceQueries(service.instance_id, service.scope),
+      () => refreshInstanceQueries(service),
     )
   }
 
   function disconnectServiceEntry(service: ServiceInstance) {
     return runAction(
       `disconnect:${service.instance_id}`,
-      () => disconnectInstance(service.instance_id),
-      () => refreshInstanceQueries(service.instance_id, service.scope),
+      () => disconnectInstance(service),
+      () => refreshInstanceQueries(service),
     )
   }
 
   function restartServiceEntry(service: ServiceInstance) {
     return runAction(
       `restart:${service.instance_id}`,
-      () => restartInstance(service.instance_id),
-      () => refreshInstanceQueries(service.instance_id, service.scope),
+      () => restartInstance(service),
+      () => refreshInstanceQueries(service),
     )
   }
 
@@ -69,7 +70,7 @@ export function useServiceActions({
     return runAction(
       `delete:${service.instance_id}`,
       () => removeServiceScope(service.service_name, service.scope),
-      () => refreshInstanceQueries(service.instance_id, service.scope),
+      () => refreshInstanceQueries(service),
     )
   }
 

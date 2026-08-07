@@ -30,7 +30,7 @@ export function useToolDialogState() {
     const key = toolRunKey(service.instance_id, tool.name)
     setToolRunningKey(key)
     try {
-      const result = await callInstanceTool(service.instance_id, tool.name, args)
+      const result = await callInstanceTool(service, tool.name, args)
       setToolResult({
         tool,
         sourceLabel: buildSourceLabel(service),
@@ -53,7 +53,7 @@ export function useToolDialogState() {
       sourceLabel: buildSourceLabel(service),
       service,
       statusReport,
-      onRun: (args) => callInstanceTool(service.instance_id, tool.name, args),
+      onRun: (args) => callInstanceTool(service, tool.name, args),
     })
   }
 

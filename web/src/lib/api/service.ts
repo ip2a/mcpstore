@@ -1,51 +1,30 @@
-import { api, apiUrl, buildQuery, readJson, request } from "./client";
+import { apiUrl, buildQuery, readJson, request, scopeParams, scopeQuery } from "./client";
 import type {
-  AddServiceInput,
   AgentItem,
-  AuthFlow,
   AuthOperationResult,
-  AuthStatus,
   AuthStatusView,
-  AuthorizationStart,
   CacheBackend,
-  CacheReport,
-  ConfigFilePayload,
-  ConfigReport,
-  ConfigRevision,
-  DesiredState,
-  DiagnosticsSettingsPayload,
-  FailureInfo,
-  FailurePhase,
-  HealthState,
-  LogSettingsPayload,
-  McpServerCapabilities,
-  McpServerMetadata,
-  MetaPayload,
   PromptInfo,
-  ReadinessReason,
-  ReadinessStatus,
-  RecoveryState,
   ResourceInfo,
   ResourceTemplateInfo,
-  RuntimePhase,
-  ScopeDescriptor,
-  ScopeRef,
-  ServiceAuthState,
+  ServiceAddress,
   ServiceInstance,
-  ServiceLifecycleConfig,
-  ServiceRestartPolicy,
-  ServiceStartupPolicy,
   ServiceState,
-  SettingsPathsPayload,
-  SettingsPayload,
-  ToolAvailability,
   ToolInfo,
   ToolVisibilityFilter,
-  ToolsStatus,
-  UiLanguage,
-  UpdateServiceScopeInput,
-  UpdateSettingsPayload,
 } from "../api";
+
+/** 拼 `/services/:name<suffix>` + 作用域 query（+ 可选额外参数）。文档 §17。 */
+function svcPath(
+  addr: ServiceAddress,
+  suffix: string,
+  extra?: Record<string, string | number | boolean | null | undefined>,
+): string {
+  const base = `/services/${encodeURIComponent(addr.service_name)}${suffix}`;
+  return extra
+    ? `${base}${buildQuery({ ...scopeParams(addr.scope), ...extra })}`
+    : `${base}${scopeQuery(addr.scope)}`;
+}
 
 export async function health() {
   return readJson<{ status: string; backend: CacheBackend }>(
@@ -55,7 +34,7 @@ export async function health() {
 
 export async function listServices(): Promise<ServiceInstance[]> {
   const data = await request<{ services: ServiceInstance[] }>(
-    "/scopes/store/instances",
+    "/services/list?scope=store",
   );
   return data.services;
 }
@@ -69,156 +48,135 @@ export async function listAgentServices(
   agentId: string,
 ): Promise<ServiceInstance[]> {
   const data = await request<{ services: ServiceInstance[] }>(
-    `/scopes/agents/${encodeURIComponent(agentId)}/instances`,
+    `/services/list${buildQuery({ scope: "agent", agent_id: agentId })}`,
   );
   return data.services;
 }
 
 export async function getServiceInstance(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<ServiceInstance> {
-  return request(`/instances/${encodeURIComponent(instanceId)}`);
+  return request<ServiceInstance>(svcPath(addr, ""));
 }
 
 export async function getServiceState(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<ServiceState> {
-  return request(`/instances/${encodeURIComponent(instanceId)}/state`);
+  return request<ServiceState>(svcPath(addr, "/state"));
 }
 
 export async function getInstanceAuthStatus(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<AuthStatusView> {
-  const data = await request<{ auth: AuthStatusView }>(
-    `/instances/${encodeURIComponent(instanceId)}/auth`,
-  );
+  const data = await request<{ auth: AuthStatusView }>(svcPath(addr, "/auth"));
   return data.auth;
 }
 
 export async function startInstanceAuthorization(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<AuthOperationResult> {
-  return request(`/instances/${encodeURIComponent(instanceId)}/auth/start`, {
-    method: "POST",
-  });
+  return request(svcPath(addr, "/auth/start"), { method: "POST" });
 }
 
 export async function refreshInstanceAuthorization(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<AuthOperationResult> {
-  return request(`/instances/${encodeURIComponent(instanceId)}/auth/refresh`, {
-    method: "POST",
-  });
+  return request(svcPath(addr, "/auth/refresh"), { method: "POST" });
 }
 
 export async function logoutInstanceAuthorization(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<AuthOperationResult> {
-  return request(`/instances/${encodeURIComponent(instanceId)}/auth/logout`, {
-    method: "POST",
-  });
+  return request(svcPath(addr, "/auth/logout"), { method: "POST" });
 }
 
 export async function upgradeInstanceAuthorizationScope(
-  instanceId: string,
+  addr: ServiceAddress,
   requiredScope: string,
 ): Promise<AuthOperationResult> {
-  return request(
-    `/instances/${encodeURIComponent(instanceId)}/auth/scope-upgrade`,
-    {
-      method: "POST",
-      body: JSON.stringify({ required_scope: requiredScope }),
-    },
-  );
+  return request(svcPath(addr, "/auth/scope-upgrade"), {
+    method: "POST",
+    body: JSON.stringify({ required_scope: requiredScope }),
+  });
 }
 
 export async function listInstanceTools(
-  instanceId: string,
+  addr: ServiceAddress,
   filter: ToolVisibilityFilter = "available",
 ): Promise<ToolInfo[]> {
   const data = await request<{ tools: ToolInfo[] }>(
-    `/instances/${encodeURIComponent(instanceId)}/tools?filter=${filter}`,
+    svcPath(addr, "/tools/list", { filter }),
   );
   return data.tools;
 }
 
 export async function setInstanceToolPolicy(
-  instanceId: string,
+  addr: ServiceAddress,
   availableTools: string[],
 ) {
-  return request(`/instances/${encodeURIComponent(instanceId)}/tool-policy`, {
+  return request(svcPath(addr, "/tool-policy"), {
     method: "PUT",
     body: JSON.stringify({ available_tools: availableTools }),
   });
 }
 
-export async function clearInstanceToolPolicy(instanceId: string) {
-  return request(`/instances/${encodeURIComponent(instanceId)}/tool-policy`, {
-    method: "DELETE",
-  });
+export async function clearInstanceToolPolicy(addr: ServiceAddress) {
+  return request(svcPath(addr, "/tool-policy"), { method: "DELETE" });
 }
 
 export async function listInstanceResources(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<ResourceInfo[]> {
   const data = await request<{ resources: ResourceInfo[] }>(
-    `/instances/${encodeURIComponent(instanceId)}/resources`,
+    svcPath(addr, "/resources/list"),
   );
   return data.resources;
 }
 
 export async function listInstanceResourceTemplates(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<ResourceTemplateInfo[]> {
   const data = await request<{ resource_templates: ResourceTemplateInfo[] }>(
-    `/instances/${encodeURIComponent(instanceId)}/resource_templates`,
+    svcPath(addr, "/resources/templates"),
   );
   return data.resource_templates;
 }
 
 export async function listInstancePrompts(
-  instanceId: string,
+  addr: ServiceAddress,
 ): Promise<PromptInfo[]> {
   const data = await request<{ prompts: PromptInfo[] }>(
-    `/instances/${encodeURIComponent(instanceId)}/prompts`,
+    svcPath(addr, "/prompts/list"),
   );
   return data.prompts;
 }
 
-export async function readInstanceResource(instanceId: string, uri: string) {
-  return request(
-    `/instances/${encodeURIComponent(instanceId)}/read_resource${buildQuery({ uri })}`,
-  );
+export async function readInstanceResource(addr: ServiceAddress, uri: string) {
+  return request(svcPath(addr, "/resources/read", { uri }));
 }
 
-export async function checkInstance(instanceId: string) {
-  return request(`/instances/${encodeURIComponent(instanceId)}/check`);
+export async function checkInstance(addr: ServiceAddress) {
+  return request(svcPath(addr, "/check"));
 }
 
-export async function connectInstance(instanceId: string) {
-  return request(`/instances/${encodeURIComponent(instanceId)}/connect`, {
-    method: "POST",
-  });
+export async function connectInstance(addr: ServiceAddress) {
+  return request(svcPath(addr, "/connect"), { method: "POST" });
 }
 
-export async function disconnectInstance(instanceId: string) {
-  return request(`/instances/${encodeURIComponent(instanceId)}/disconnect`, {
-    method: "POST",
-  });
+export async function disconnectInstance(addr: ServiceAddress) {
+  return request(svcPath(addr, "/disconnect"), { method: "POST" });
 }
 
-export async function restartInstance(instanceId: string) {
-  return request(`/instances/${encodeURIComponent(instanceId)}/restart`, {
-    method: "POST",
-  });
+export async function restartInstance(addr: ServiceAddress) {
+  return request(svcPath(addr, "/restart"), { method: "POST" });
 }
 
 export async function callInstanceTool(
-  instanceId: string,
+  addr: ServiceAddress,
   toolName: string,
   args: Record<string, unknown>,
 ) {
-  return request(`/instances/${encodeURIComponent(instanceId)}/call`, {
+  return request(svcPath(addr, "/tools/call"), {
     method: "POST",
     body: JSON.stringify({ tool_name: toolName, args }),
   });

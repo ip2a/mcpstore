@@ -11,8 +11,8 @@ export type InstanceTool = {
 export function useInstanceToolsQueries(instances: ServiceInstance[], filter: ToolVisibilityFilter) {
   return useQueries({
     queries: instances.map((instance) => ({
-      queryKey: [...queryKeys.instanceTools(instance.instance_id), filter],
-      queryFn: () => listInstanceTools(instance.instance_id, filter),
+      queryKey: [...queryKeys.instanceTools(instance), filter],
+      queryFn: () => listInstanceTools(instance, filter),
     })),
   })
 }
@@ -31,8 +31,8 @@ export function useScopeToolCounts(agentIds: string[], storeServices: ServiceIns
   const instances = scopes.flatMap(({ id, services }) => services.map((service) => ({ id, service })))
   const toolQueries = useQueries({
     queries: instances.map(({ service }) => ({
-      queryKey: [...queryKeys.instanceTools(service.instance_id), "available"],
-      queryFn: () => listInstanceTools(service.instance_id, "available"),
+      queryKey: [...queryKeys.instanceTools(service), "available"],
+      queryFn: () => listInstanceTools(service, "available"),
     })),
   })
 

@@ -25,7 +25,7 @@ import { getServiceEndpointLabel } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
 
 type RightPaneView = "overview" | "scope"
-type ScopeCardId = "all" | "store" | string
+type ScopeCardId = "store" | string
 
 const ALL_SCOPE_ID = "all"
 const STORE_SCOPE_ID = "store"
@@ -36,7 +36,7 @@ export function AgentsView(props: {
   loading: boolean
   busy: string | null
   onDeclareScope: (agentId: string, serviceName: string) => void
-  onOpenService: (instanceId: string) => void
+  onOpenService: (service: ServiceInstance) => void
   onRefresh: () => void
   onRemoveScope: (agentId: string, serviceName: string) => void
 }) {
@@ -52,9 +52,9 @@ export function AgentsView(props: {
   const configValue = configScopeId === "store" ? storeConfigQuery.data : configAgentId ? agentConfigQuery.data : null
   const configLoading = storeConfigQuery.isFetching || agentConfigQuery.isFetching
 
-    const selectedScope: SelectedScope = useMemo(
+  const selectedScope: SelectedScope = useMemo(
     () =>
-      selectedScopeId === ALL_SCOPE_ID || selectedScopeId === STORE_SCOPE_ID
+      selectedScopeId === STORE_SCOPE_ID
         ? { type: "store" }
         : { type: "agent", agentId: selectedScopeId },
     [selectedScopeId],
@@ -78,7 +78,7 @@ export function AgentsView(props: {
     setSelectedAgentId,
   } = useAgentScope({ agents: props.agents, busy: props.busy, selectedScope, services: props.services })
 
-  const scopeCards = useMemo(() => [ALL_SCOPE_ID, STORE_SCOPE_ID, ...agentIds] as ScopeCardId[], [agentIds])
+  const scopeCards = useMemo(() => [STORE_SCOPE_ID, ...agentIds] as ScopeCardId[], [agentIds])
   const storeServices = useMemo(
     () => props.services.filter((service) => service.scope.type === "store"),
     [props.services],
@@ -87,7 +87,7 @@ export function AgentsView(props: {
   const loadingScope = loadingScopeServices || loadingScopeTools
   const scopeError = scopeServicesError || scopeToolsError
   const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
-  const scopeTitle = selectedScopeId === ALL_SCOPE_ID ? t("allScopes") : selectedScopeId === STORE_SCOPE_ID ? t("store") : selectedScopeId
+  const scopeTitle = selectedScopeId === STORE_SCOPE_ID ? t("store") : selectedScopeId
 
   const previewService = useMemo(
     () => scopeServices.find((service) => service.instance_id === previewServiceId) || null,
@@ -125,15 +125,19 @@ export function AgentsView(props: {
     }
   }, [props.agents, props.services.length, storeServices.length])
 
+  function showWorkspaceOverview() {
+    setConfigScopeId(ALL_SCOPE_ID)
+    setRightPaneView("overview")
+  }
+
   function selectScope(scopeId: ScopeCardId) {
-    if (scopeId !== ALL_SCOPE_ID && scopeId !== STORE_SCOPE_ID) setSelectedAgentId(scopeId)
-    setConfigScopeId(scopeId === ALL_SCOPE_ID || scopeId === STORE_SCOPE_ID ? scopeId : `agent:${scopeId}`)
+    if (scopeId !== STORE_SCOPE_ID) setSelectedAgentId(scopeId)
+    setConfigScopeId(scopeId === STORE_SCOPE_ID ? scopeId : `agent:${scopeId}`)
     setSelectedScopeId(scopeId)
-    setRightPaneView(scopeId === ALL_SCOPE_ID ? "overview" : "scope")
+    setRightPaneView("scope")
   }
 
   function scopeCardMeta(scopeId: ScopeCardId) {
-    if (scopeId === ALL_SCOPE_ID) return t("allScopesDescription")
     if (scopeId === STORE_SCOPE_ID) {
       const services = scopeId === selectedScopeId && rightPaneView === "scope" ? scopeServices.length : storeServices.length
       const tools = scopeId === selectedScopeId && rightPaneView === "scope" ? scopeTools.length : 0
@@ -164,7 +168,7 @@ export function AgentsView(props: {
             <p className="font-mono text-xs uppercase text-muted-foreground">{t("scope")}</p>
             <button
               type="button"
-              onClick={() => setRightPaneView("overview")}
+              onClick={showWorkspaceOverview}
               className={cn(
                 "mt-1 block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-lg font-semibold underline-offset-4 outline-none transition-opacity",
                 "hover:underline active:opacity-70",
@@ -191,7 +195,7 @@ export function AgentsView(props: {
                   meta={scopeCardMeta(scopeId)}
                   onClick={() => selectScope(scopeId)}
                   selected={scopeId === selectedScopeId && rightPaneView === "scope"}
-                  title={scopeId === ALL_SCOPE_ID ? t("allScopes") : scopeId === STORE_SCOPE_ID ? t("store") : scopeId}
+                  title={scopeId === STORE_SCOPE_ID ? t("store") : scopeId}
                   trailing={
                     scopeId === selectedScopeId && rightPaneView === "scope" ? (
                       <Badge variant="outline">{t("active")}</Badge>
@@ -411,9 +415,9 @@ export function AgentsView(props: {
               onOpenChange={(open) => {
                 if (!open) setPreviewServiceId(null)
               }}
-              onOpenService={(instanceId) => {
+              onOpenService={(service) => {
                 setPreviewServiceId(null)
-                props.onOpenService(instanceId)
+                props.onOpenService(service)
               }}
               onRemoveScope={
                 selectedScope.type === "agent" && activeAgentId
@@ -548,7 +552,7 @@ function ScopeServiceSheet({
 }: {
   busy: boolean
   onOpenChange: (open: boolean) => void
-  onOpenService: (instanceId: string) => void
+  onOpenService: (service: ServiceInstance) => void
   onRemoveScope?: (serviceName: string) => void
   open: boolean
   service: ServiceInstance | null
@@ -600,7 +604,7 @@ function ScopeServiceSheet({
         </dl>
 
         <div className="mt-auto flex flex-col gap-2 border-t p-4">
-          <Button onClick={() => onOpenService(service.instance_id)}>
+          <Button onClick={() => onOpenService(service)}>
             <LinkIcon data-icon="inline-start" />
             {t("view")} {t("service")}
           </Button>

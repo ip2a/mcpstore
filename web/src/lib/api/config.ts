@@ -1,4 +1,6 @@
-import { api, buildQuery, request } from "./client";
+// 本模块全部为 app 自有接口（聚合服务 spawn 本地子进程 + 读写本地编辑器配置），
+// 固定走 appRequest（本 app 进程），不随 core 后端切换 —— 见 接口文档 §附录C。
+import { appRequest as request, buildQuery } from "./client";
 import type {
   AddServiceInput,
   AgentItem,

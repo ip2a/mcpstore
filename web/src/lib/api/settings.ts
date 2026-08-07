@@ -1,4 +1,4 @@
-import { api, buildQuery, request } from "./client";
+import { appApi, buildQuery, request } from "./client";
 import type {
   AddServiceInput,
   AgentItem,
@@ -30,6 +30,7 @@ import type {
   RuntimePhase,
   ScopeDescriptor,
   ScopeRef,
+  ServiceAddress,
   ServiceAuthState,
   ServiceInstance,
   ServiceLifecycleConfig,
@@ -48,32 +49,42 @@ import type {
 } from "../api";
 
 export async function showConfig(
-  options: { format?: string; instanceId?: string } = {},
+  options: { format?: string; service?: ServiceAddress } = {},
 ): Promise<ConfigReport> {
   const format = options.format ?? "native";
+  const service = options.service;
   return request(
-    `/config${buildQuery({ format: format === "native" ? undefined : format, instance_id: options.instanceId })}`,
+    `/config${buildQuery({
+      format: format === "native" ? undefined : format,
+      service_name: service?.service_name,
+      scope: service?.scope.type === "agent" ? "agent" : "store",
+      agent_id:
+        service?.scope.type === "agent" ? service.scope.agent_id : undefined,
+    })}`,
   );
 }
 
 export async function showAgentConfig(
   agentId: string,
-  options: { format?: string; instanceId?: string } = {},
+  options: { format?: string; service?: ServiceAddress } = {},
 ): Promise<ConfigReport> {
   const format = options.format ?? "native";
   return request(
-    `/scopes/agents/${encodeURIComponent(agentId)}/config${buildQuery({ format: format === "native" ? undefined : format, instance_id: options.instanceId })}`,
+    `/scopes/agents/${encodeURIComponent(agentId)}/config${buildQuery({
+      format: format === "native" ? undefined : format,
+      service_name: options.service?.service_name,
+    })}`,
   );
 }
 
 export async function getMeta(): Promise<MetaPayload> {
-  return api<MetaPayload>("/v1/meta");
+  return appApi<MetaPayload>("/v1/meta");
 }
 
 export async function updateSettings(
   payload: UpdateSettingsPayload,
 ): Promise<SettingsPayload> {
-  return api<SettingsPayload>("/v1/settings", {
+  return appApi<SettingsPayload>("/v1/settings", {
     method: "PUT",
     body: JSON.stringify(payload),
   });

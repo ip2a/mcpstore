@@ -51,17 +51,17 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
   }, [instanceId, scopeInstances])
 
   async function setToolAvailability(instance: ServiceInstance, tool: { name: string }, available: boolean) {
-    const current = await listInstanceTools(instance.instance_id, "available")
+    const current = await listInstanceTools(instance, "available")
     const names = current
       .map((candidate) => candidate.name)
       .filter((name) => name !== tool.name)
     if (available) names.push(tool.name)
-    await setInstanceToolPolicy(instance.instance_id, names)
+    await setInstanceToolPolicy(instance, names)
     await loadTools()
   }
 
   async function clearToolPolicy(instance: ServiceInstance) {
-    await clearInstanceToolPolicy(instance.instance_id)
+    await clearInstanceToolPolicy(instance)
     await loadTools()
   }
 
@@ -98,7 +98,7 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
       tool,
       service: instance,
       sourceLabel: `${instance.service_name} · ${scopeLabel}`,
-      onRun: (args) => callInstanceTool(instance.instance_id, tool.name, args),
+      onRun: (args) => callInstanceTool(instance, tool.name, args),
     }
   }
 

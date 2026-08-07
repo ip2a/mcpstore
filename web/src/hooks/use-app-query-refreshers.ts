@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { ResetTarget } from "@/features/config/config-view"
-import type { ScopeRef } from "@/lib/api"
+import type { ServiceAddress } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 export function useAppQueryRefreshers() {
@@ -9,17 +9,17 @@ export function useAppQueryRefreshers() {
   const [cacheRevision, setCacheRevision] = useState(0)
   const [serviceDetailRevision, setServiceDetailRevision] = useState(0)
 
-  async function refreshInstanceQueries(instanceId: string, scope: ScopeRef) {
+  async function refreshInstanceQueries(addr: ServiceAddress) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.instances }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.instance(instanceId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.instanceStatus(instanceId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.instanceTools(instanceId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.instanceResources(instanceId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.instanceResourceTemplates(instanceId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.instancePrompts(instanceId) }),
-      scope.type === "agent"
-        ? queryClient.invalidateQueries({ queryKey: queryKeys.agentServices(scope.agent_id) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.instance(addr) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceStatus(addr) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceTools(addr) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceResources(addr) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instanceResourceTemplates(addr) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.instancePrompts(addr) }),
+      addr.scope.type === "agent"
+        ? queryClient.invalidateQueries({ queryKey: queryKeys.agentServices(addr.scope.agent_id) })
         : Promise.resolve(),
     ])
     setServiceDetailRevision((value) => value + 1)
