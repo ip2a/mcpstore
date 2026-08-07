@@ -1,35 +1,26 @@
 import { ClipboardIcon, EyeIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { SearchBox } from "@/components/shared/search-box"
-import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import {
-  ToolAnnotationsSection,
-  ToolInputSchemaSection,
-  ToolMetaSection,
-  ToolOutputSchemaSection,
-} from "@/components/shared/tool-capability-sections"
-import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
-import {
-  toolDetailSectionAside,
-  toolDetailSectionGrid,
-  toolDetailSectionLabel,
-} from "@/components/shared/tool-detail-section-layout"
+  ToolDetailDocBody,
+  ToolDetailDocHeader,
+  ToolPlaygroundAside,
+} from "@/components/shared/tool-detail-playground"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ToolsFilterDialog } from "@/features/tools/tools-filter-dialog"
+import { useToolArgsForm } from "@/features/tools/use-tool-args-form"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
 import { useI18n } from "@/lib/i18n-context"
 import { type AgentItem, type ServiceInstance, type ToolInfo } from "@/lib/api"
-import { getToolOutputSchema, getToolSchema, toolKey } from "@/lib/tool-info"
+import { serializeToolArgs } from "@/lib/tool-args"
+import { getToolSchema, toolKey } from "@/lib/tool-info"
 import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
 import { cn } from "@/lib/utils"
 
@@ -42,6 +33,7 @@ export function ToolsView(props: {
 }) {
   const { t } = useI18n()
   const {
+    activeFilterCount,
     agentId,
     agentIds,
     error,
@@ -60,26 +52,15 @@ export function ToolsView(props: {
     setScope,
     setSelectedToolKey,
     setInstanceId,
-    setToolAvailability,
     clearToolPolicy,
     setVisibilityFilter,
     visibilityFilter,
     visibleTools,
   } = useToolsRegistry({ agents: props.agents, services: props.services })
 
-  const sourceLabel = selectedTool
-    ? makeRunner(selectedTool).sourceLabel
-    : scope === "agent"
-      ? t("agentScopeLabel", { agentId: agentId || "-" })
-      : t("store")
-  const schema = selectedTool
-    ? (getToolSchema(selectedTool.tool) as { properties?: Record<string, unknown>; required?: string[] })
-    : null
-  const outputSchema = selectedTool
-    ? (getToolOutputSchema(selectedTool.tool) as { properties?: Record<string, unknown> })
-    : null
-  const paramCount = Object.keys(schema?.properties || {}).length
-  const outputCount = Object.keys(outputSchema?.properties || {}).length
+  const { values: toolArgs, setField: setToolArg, schema: toolArgsSchema } = useToolArgsForm(
+    selectedTool?.tool ?? null,
+  )
   const runningSelectedTool = Boolean(
     selectedTool && props.isToolRunning?.(selectedTool.instance.instance_id, selectedTool.tool.name),
   )
@@ -101,36 +82,32 @@ export function ToolsView(props: {
         </section>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pt-3">
-          <SectionHeading
-            title={t("toolList")}
-            titleAs="h2"
-            description={t("items", { count: visibleTools.length })}
-            descriptionPlacement="inline"
-            className="border-b-0 pb-0"
-          />
-          <div className="flex flex-wrap gap-2">
-            {(["available", "removed", "all"] as const).map((filter) => (
-              <Button
-                key={filter}
-                size="sm"
-                variant={visibilityFilter === filter ? "default" : "outline"}
-                onClick={() => setVisibilityFilter(filter)}
-              >
-                {filter[0].toUpperCase() + filter.slice(1)}
-              </Button>
-            ))}
-            {instanceId !== "all" ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  const instance = scopeInstances.find((item) => item.instance_id === instanceId)
-                  if (instance) void clearToolPolicy(instance)
-                }}
-              >
-                Clear policy
-              </Button>
-            ) : null}
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <h2 className="text-sm font-medium">{t("toolList")}</h2>
+            <ToolsFilterDialog
+              compact
+              activeFilterCount={activeFilterCount}
+              agentId={agentId}
+              agentIds={agentIds}
+              instanceId={instanceId}
+              onAgentIdChange={setAgentId}
+              onClearPolicy={
+                instanceId !== "all"
+                  ? () => {
+                      const instance = scopeInstances.find((item) => item.instance_id === instanceId)
+                      if (instance) void clearToolPolicy(instance)
+                    }
+                  : undefined
+              }
+              onInstanceIdChange={setInstanceId}
+              onQueryChange={setQuery}
+              onScopeChange={setScope}
+              onVisibilityFilterChange={setVisibilityFilter}
+              query={query}
+              scope={scope}
+              scopeInstances={scopeInstances}
+              visibilityFilter={visibilityFilter}
+            />
           </div>
           {error ? (
             <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
@@ -151,21 +128,9 @@ export function ToolsView(props: {
                     selected={key === selectedToolKey}
                     title={tool.name}
                     trailing={
-                      <div className="flex items-center gap-2">
-                        {itemSchema.required?.length ? <Badge variant="outline">{itemSchema.required.length}</Badge> : null}
-                        {visibilityFilter !== "all" ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void setToolAvailability(instance, tool, visibilityFilter === "removed")
-                            }}
-                          >
-                            {visibilityFilter === "removed" ? "Restore" : "Disable"}
-                          </Button>
-                        ) : null}
-                      </div>
+                      itemSchema.required?.length ? (
+                        <Badge variant="outline">{itemSchema.required.length}</Badge>
+                      ) : null
                     }
                   />
                 )
@@ -175,132 +140,63 @@ export function ToolsView(props: {
             <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
           )}
         </div>
-
-        <section className="mt-3 shrink-0 border-t pt-4">
-          <SectionHeading
-            title={t("filters")}
-            titleAs="h2"
-            description={t("matched", { count: visibleTools.length })}
-            className="border-b-0 pb-3"
-          />
-          <FieldGroup>
-            <Field>
-              <FieldLabel>{t("search")}</FieldLabel>
-              <SearchBox placeholder={t("searchTools")} value={query} onChange={setQuery} />
-            </Field>
-            <Field>
-              <FieldLabel>{t("scope")}</FieldLabel>
-              <Select value={scope} onValueChange={(value) => setScope(value as "store" | "agent")}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="store">{t("store")}</SelectItem>
-                    <SelectItem value="agent">{t("agent")}</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel>{t("agent")}</FieldLabel>
-              <Select
-                value={agentId || "none"}
-                onValueChange={(value) => setAgentId(value === "none" ? "" : value)}
-                disabled={scope !== "agent"}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="none">{t("noAgent")}</SelectItem>
-                    {agentIds.map((id) => (
-                      <SelectItem key={id} value={id}>
-                        {id}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel>{t("service")}</FieldLabel>
-              <Select value={instanceId} onValueChange={setInstanceId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="all">{t("allServices")}</SelectItem>
-                    {scopeInstances.map((service) => (
-                      <SelectItem key={service.instance_id} value={service.instance_id}>
-                        {service.scope.type === "store"
-                          ? `${service.service_name} · ${t("store")}`
-                          : `${service.service_name} · ${t("agent")} ${service.scope.agent_id}`}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-          </FieldGroup>
-        </section>
       </PanelCard>
 
       <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b pb-3">
-          <h2 className="min-w-fit truncate text-lg font-semibold">{t("toolList")}</h2>
-          <div className="min-w-52 flex-1">
-            <SearchBox placeholder={t("searchTools")} value={query} onChange={setQuery} />
-          </div>
-          <Button size="sm" variant="outline" onClick={loadTools} disabled={loading}>
-            <RefreshCwIcon data-icon="inline-start" />
-            {t("refresh")}
-          </Button>
-        </div>
+        <ToolPreviewHeader
+          loading={loading}
+          selectedTool={selectedTool?.tool ?? null}
+          runningTool={runningSelectedTool}
+          onRun={
+            selectedTool
+              ? () =>
+                  props.onRunTool({
+                    ...makeRunner(selectedTool),
+                    initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
+                  })
+              : undefined
+          }
+          onDetail={selectedTool ? () => props.onToolDetail(makeRunner(selectedTool)) : undefined}
+          onCopy={selectedTool ? () => void copyTool(selectedTool.tool) : undefined}
+          onRefresh={loadTools}
+        />
 
         {error ? (
           <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
         ) : loading && !visibleTools.length ? (
           <PageSkeleton />
-        ) : visibleTools.length ? (
-          <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-2">
-            {visibleTools.map(({ instance, tool }) => {
-              const key = toolKey(instance.instance_id, tool)
-              const itemSchema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
-              const itemParamCount = Object.keys(itemSchema.properties || {}).length
-              const scopeLabel = instance.scope.type === "store" ? t("store") : `${t("agent")} ${instance.scope.agent_id}`
-
-              return (
-                <SelectableRowButton
-                  key={key}
-                  meta={`${instance.service_name} · ${scopeLabel} · ${t("paramCount", { count: itemParamCount })}`}
-                  onClick={() => props.onToolDetail(makeRunner({ instance, tool }))}
-                  selected={false}
-                  title={tool.name}
-                  trailing={
-                    <div className="flex items-center gap-2">
-                      {itemSchema.required?.length ? <Badge variant="outline">{itemSchema.required.length}</Badge> : null}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          props.onToolDetail(makeRunner({ instance, tool }))
-                        }}
-                      >
-                        <EyeIcon data-icon="inline-start" />
-                        {t("details")}
-                      </Button>
-                    </div>
-                  }
+        ) : selectedTool ? (
+          <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)] grid-rows-1 gap-6 overflow-hidden">
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+              <ToolDetailDocHeader tool={selectedTool.tool} />
+              <ScrollPane className="min-h-0 flex-1">
+                <ToolDetailDocBody
+                  tool={selectedTool.tool}
+                  toolArgs={toolArgs}
+                  onToolArgChange={setToolArg}
                 />
-              )
-            })}
-          </ScrollPane>
+              </ScrollPane>
+            </div>
+            <ToolPlaygroundAside
+              tool={selectedTool.tool}
+              instanceId={selectedTool.instance.instance_id}
+              toolArgs={toolArgs}
+              toolArgsSchema={toolArgsSchema}
+              running={runningSelectedTool}
+              onRun={() =>
+                props.onRunTool({
+                  ...makeRunner(selectedTool),
+                  initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
+                })
+              }
+            />
+          </div>
         ) : (
-          <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
+          <PageEmpty
+            title={t("noToolSelected")}
+            description={t("noToolSelectedDescription")}
+            onRefresh={loadTools}
+          />
         )}
       </PanelCard>
     </TwoPanePage>
@@ -361,35 +257,6 @@ function ToolPreviewHeader({
           {t("refresh")}
         </Button>
       </div>
-    </div>
-  )
-}
-
-function ToolSummarySection({ sourceLabel, tool }: { sourceLabel: string; tool: ToolInfo }) {
-  return (
-    <section className="border-b pb-4">
-      <div className={toolDetailSectionGrid}>
-        <div className={toolDetailSectionAside}>
-          <h2 className={cn(toolDetailSectionLabel, "font-mono")} title={tool.name}>
-            {tool.name}
-          </h2>
-        </div>
-        <div className="flex flex-col items-end gap-2 text-right">
-          <Badge variant="secondary">{sourceLabel}</Badge>
-          <ToolDescriptionBlock description={tool.description} showLabel={false} />
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function ToolDetailPane({ tool }: { tool: ToolInfo }) {
-  return (
-    <div className="flex min-w-0 flex-col">
-      <ToolInputSchemaSection tool={tool} />
-      <ToolOutputSchemaSection tool={tool} />
-      <ToolAnnotationsSection tool={tool} />
-      <ToolMetaSection tool={tool} />
     </div>
   )
 }

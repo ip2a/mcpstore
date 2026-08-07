@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
 import { JsonBlock } from "@/components/shared/json-block"
@@ -7,17 +7,33 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { applyClientConfig, getAggregateLaunch, getAggregateStatus, importClientServices, inspectClientConfig, planClientConfig, startAggregate, stopAggregate, undoClientConfig, type AggregateOptions, type AggregateStatus, type ScopeRef } from "@/lib/api"
+import { applyClientConfig, getAggregateLaunch, getAggregateStatus, inspectClientConfig, planClientConfig, startAggregate, stopAggregate, undoClientConfig, type AggregateOptions, type AggregateStatus, type ScopeRef } from "@/lib/api"
 
 const initialEntries = JSON.stringify([
   { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:1830/mcp" } },
 ], null, 2)
 
+function ConfigModule({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode
+  description?: string
+  title: string
+}) {
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-border/60 bg-muted/10 p-4">
+      <SectionHeading title={title} titleAs="h3" description={description} />
+      {children}
+    </div>
+  )
+}
+
 export function ClientConfigPanel({ scope: scopeProp }: { scope?: ScopeRef }) {
   const [client, setClient] = useState("codex")
   const [path, setPath] = useState("")
   const [entriesText, setEntriesText] = useState(initialEntries)
-  const [importNamesText, setImportNamesText] = useState("[]")
   const [contentHash, setContentHash] = useState("")
   const [changeId, setChangeId] = useState("")
   const [result, setResult] = useState<unknown>(null)
@@ -42,12 +58,6 @@ export function ClientConfigPanel({ scope: scopeProp }: { scope?: ScopeRef }) {
   function entries() {
     const value = JSON.parse(entriesText)
     if (!Array.isArray(value)) throw new Error("Entries must be a JSON array")
-    return value
-  }
-
-  function importNames() {
-    const value = JSON.parse(importNamesText)
-    if (!Array.isArray(value) || value.some((name) => typeof name !== "string")) throw new Error("Import names must be a JSON string array")
     return value
   }
 
@@ -79,15 +89,6 @@ export function ClientConfigPanel({ scope: scopeProp }: { scope?: ScopeRef }) {
     } finally {
       setBusy(false)
     }
-  }
-
-  async function importSelected() {
-    setBusy(true)
-    try {
-      if (!window.confirm("Import the selected assistant services into MCPStore? Existing services will not be overwritten.")) return
-      setResult(await importClientServices(client, path, importNames()))
-    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
-    finally { setBusy(false) }
   }
 
   function aggregateOptions(): AggregateOptions {
@@ -135,62 +136,64 @@ export function ClientConfigPanel({ scope: scopeProp }: { scope?: ScopeRef }) {
   }, [transport, scope, agentId, host, port, pathValue])
 
   return (
-    <section className="mt-6 border-t pt-5">
+    <section className="mt-6 flex flex-col gap-4 border-t pt-5">
       <SectionHeading title="Programming assistant configuration" titleAs="h2" description="Inspect → preview → confirm → apply → undo" />
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+
+      <ConfigModule title="Client target" description="Select the assistant and its configuration file path.">
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="grid gap-2">
+            <Label>Client</Label>
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={client} onChange={(event) => { setClient(event.target.value); setContentHash("") }}>
+              <option value="codex">Codex</option>
+              <option value="claude_code">Claude Code</option>
+              <option value="opencode">OpenCode</option>
+              <option value="cursor">Cursor</option>
+              <option value="claude_desktop">Claude Desktop</option>
+            </select>
+          </label>
+          <label className="grid gap-2">
+            <Label>Exact configuration path</Label>
+            <Input value={path} onChange={(event) => { setPath(event.target.value); setContentHash("") }} placeholder="/Users/you/.codex/config.toml" />
+          </label>
+        </div>
+      </ConfigModule>
+
+      <ConfigModule title="Aggregate MCP service" description="Run or inspect the bundled HTTP endpoint for this scope.">
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="grid gap-2"><Label>Aggregate transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
+          {!locked ? (
+            <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScopeState(event.target.value as typeof scopeState)}><option value="store">Store</option><option value="agent">Agent</option></select></label>
+          ) : null}
+          {!locked && scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentIdState(event.target.value)} placeholder="agent-id" /></label> : null}
+          <label className="grid gap-2"><Label>Host</Label><Input value={host} onChange={(event) => setHost(event.target.value)} /></label>
+          <label className="grid gap-2"><Label>HTTP port</Label><Input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} /></label>
+          <label className="grid gap-2"><Label>Path</Label><Input value={pathValue} onChange={(event) => setPathValue(event.target.value)} /></label>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button disabled={busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())} onClick={() => void toggleAggregate("start")}>Start HTTP aggregate</Button>
+          <Button variant="outline" disabled={busy || !aggregateStatus?.running} onClick={() => void toggleAggregate("stop")}>Stop</Button>
+          <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
+          <Button variant="ghost" disabled={busy} onClick={() => void loadAggregateStatus()}>Refresh status</Button>
+          <span className="text-sm text-muted-foreground">Status: {aggregateStatus?.running ? `running${aggregateStatus.pid ? ` (#${aggregateStatus.pid})` : ""}` : "stopped"}</span>
+        </div>
+        {transport === "stdio" ? <p className="text-sm text-muted-foreground">stdio is started by the MCP client; use launch info and client configuration instead of the Web background control.</p> : null}
+        {aggregateStatus?.url ? <p className="break-all font-mono text-xs text-muted-foreground">{aggregateStatus.url}</p> : null}
+        {launch ? <JsonBlock value={launch} /> : null}
+      </ConfigModule>
+
+      <ConfigModule title="Apply configuration" description="Inspect → preview → confirm → apply → undo">
         <label className="grid gap-2">
-          <Label>Client</Label>
-          <select className="h-9 rounded-md border bg-background px-3 text-sm" value={client} onChange={(event) => { setClient(event.target.value); setContentHash("") }}>
-            <option value="codex">Codex</option>
-            <option value="claude_code">Claude Code</option>
-            <option value="opencode">OpenCode</option>
-            <option value="cursor">Cursor</option>
-            <option value="claude_desktop">Claude Desktop</option>
-          </select>
+          <Label>Entries</Label>
+          <Textarea className="min-h-40 font-mono text-xs" value={entriesText} onChange={(event) => { setEntriesText(event.target.value); setContentHash("") }} />
         </label>
-        <label className="grid gap-2">
-          <Label>Exact configuration path</Label>
-          <Input value={path} onChange={(event) => { setPath(event.target.value); setContentHash("") }} placeholder="/Users/you/.codex/config.toml" />
-        </label>
-      </div>
-      <div className="mt-4 grid gap-4 md:grid-cols-3">
-        <label className="grid gap-2"><Label>Aggregate transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
-        {!locked ? (
-          <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScopeState(event.target.value as typeof scopeState)}><option value="store">Store</option><option value="agent">Agent</option></select></label>
-        ) : null}
-        {!locked && scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentIdState(event.target.value)} placeholder="agent-id" /></label> : null}
-        <label className="grid gap-2"><Label>Host</Label><Input value={host} onChange={(event) => setHost(event.target.value)} /></label>
-        <label className="grid gap-2"><Label>HTTP port</Label><Input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} /></label>
-        <label className="grid gap-2"><Label>Path</Label><Input value={pathValue} onChange={(event) => setPathValue(event.target.value)} /></label>
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Button disabled={busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())} onClick={() => void toggleAggregate("start")}>Start HTTP aggregate</Button>
-        <Button variant="outline" disabled={busy || !aggregateStatus?.running} onClick={() => void toggleAggregate("stop")}>Stop</Button>
-        <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
-        <Button variant="ghost" disabled={busy} onClick={() => void loadAggregateStatus()}>Refresh status</Button>
-        <span className="text-sm text-muted-foreground">Status: {aggregateStatus?.running ? `running${aggregateStatus.pid ? ` (#${aggregateStatus.pid})` : ""}` : "stopped"}</span>
-      </div>
-      {transport === "stdio" ? <p className="mt-2 text-sm text-muted-foreground">stdio is started by the MCP client; use launch info and client configuration instead of the Web background control.</p> : null}
-      {aggregateStatus?.url ? <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{aggregateStatus.url}</p> : null}
-      {launch ? <div className="mt-3"><JsonBlock value={launch} /></div> : null}
-      <label className="mt-4 grid gap-2">
-        <Label>Services to import from assistant (JSON string array)</Label>
-        <Textarea className="min-h-16 font-mono text-xs" value={importNamesText} onChange={(event) => setImportNamesText(event.target.value)} placeholder='["my-server"]' />
-      </label>
-      <div className="mt-2">
-        <Button variant="outline" disabled={busy || !path} onClick={() => void importSelected()}>Import selected services</Button>
-      </div>
-      <label className="mt-4 grid gap-2">
-        <Label>Entries</Label>
-        <Textarea className="min-h-40 font-mono text-xs" value={entriesText} onChange={(event) => { setEntriesText(event.target.value); setContentHash("") }} />
-      </label>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button variant="outline" disabled={busy || !path} onClick={() => void run("inspect")}>Inspect</Button>
-        <Button variant="outline" disabled={busy || !path} onClick={() => void run("plan")}>Preview</Button>
-        <Button disabled={busy || !path || !contentHash} onClick={() => void run("apply")}>Apply</Button>
-        <Button variant="destructive" disabled={busy || !changeId} onClick={() => void run("undo")}>Undo</Button>
-      </div>
-      {result ? <div className="mt-4"><JsonBlock value={result} /></div> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={busy || !path} onClick={() => void run("inspect")}>Inspect</Button>
+          <Button variant="outline" disabled={busy || !path} onClick={() => void run("plan")}>Preview</Button>
+          <Button disabled={busy || !path || !contentHash} onClick={() => void run("apply")}>Apply</Button>
+          <Button variant="destructive" disabled={busy || !changeId} onClick={() => void run("undo")}>Undo</Button>
+        </div>
+        {result ? <JsonBlock value={result} /> : null}
+      </ConfigModule>
     </section>
   )
 }

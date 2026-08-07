@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useState } from "react"
-import { LinkIcon, PlusIcon, RefreshCwIcon, UnlinkIcon } from "lucide-react"
+import { EyeIcon, LinkIcon, PlusIcon, RefreshCwIcon, UnlinkIcon } from "lucide-react"
 
 import { EntityRow } from "@/components/shared/entity-row"
+import { JsonBlock } from "@/components/shared/json-block"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
-import { ConfigDetailPane } from "@/features/config/config-view"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
 import { ClientConfigPanel } from "@/features/config/client-config-panel"
 import { useScopesQuery } from "@/features/agents/queries"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
 import { getAgentId } from "@/features/agents/model"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
+import { isServiceConnected } from "@/features/services/service-display-status"
 import { type AgentItem, type ScopeSummary, type ScopeView, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { getServiceEndpointLabel } from "@/lib/service-info"
@@ -28,9 +29,41 @@ import { cn } from "@/lib/utils"
 
 type RightPaneView = "overview" | "scope"
 type ScopeCardId = "store" | string
+type ScopeConnectionStats = { services: number; connected: number; disconnected: number }
 
 const ALL_SCOPE_ID = "all"
 const STORE_SCOPE_ID = "store"
+
+function connectionStatsForServices(services: ServiceInstance[]): ScopeConnectionStats {
+  let connected = 0
+  for (const service of services) {
+    if (isServiceConnected(service.state)) connected += 1
+  }
+  return {
+    services: services.length,
+    connected,
+    disconnected: services.length - connected,
+  }
+}
+
+function scopeStatsFromServices(services: ServiceInstance[]) {
+  const storeServices = services.filter((service) => service.scope.type === "store")
+  const agents = new Map<string, ScopeConnectionStats>()
+  for (const service of services) {
+    if (service.scope.type !== "agent") continue
+    const agentId = service.scope.agent_id
+    const current = agents.get(agentId) || { services: 0, connected: 0, disconnected: 0 }
+    current.services += 1
+    if (isServiceConnected(service.state)) current.connected += 1
+    else current.disconnected += 1
+    agents.set(agentId, current)
+  }
+  return {
+    root: connectionStatsForServices(services),
+    store: connectionStatsForServices(storeServices),
+    agents,
+  }
+}
 
 export function AgentsView(props: {
   agents: AgentItem[]
@@ -88,11 +121,13 @@ export function AgentsView(props: {
     [props.services],
   )
 
+  const scopeStats = useMemo(() => scopeStatsFromServices(props.services), [props.services])
+
   const loadingScope = loadingScopeServices || loadingScopeTools
   const scopeError = scopeServicesError || scopeToolsError
   const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
   const scopeTitle = selectedScopeId === "root"
-    ? t("allServices")
+    ? "all"
     : selectedScopeId === STORE_SCOPE_ID
       ? t("store")
       : selectedScopeId
@@ -116,13 +151,12 @@ export function AgentsView(props: {
   }, [scopeTools])
 
   useEffect(() => {
-    if (configScopeId === "store") void storeConfigQuery.refetch()
-    if (configAgentId) void agentConfigQuery.refetch()
-  }, [configScopeId, configAgentId])
-
-  useEffect(() => {
     setPreviewServiceId(null)
   }, [selectedScopeId, rightPaneView])
+
+  function loadScopeConfig() {
+    void (configAgentId ? agentConfigQuery.refetch() : storeConfigQuery.refetch())
+  }
 
   const workspaceStats = useMemo(() => {
     const agentServiceCount = props.agents.reduce((sum, agent) => sum + agent.instance_ids.length, 0)
@@ -151,12 +185,20 @@ export function AgentsView(props: {
   }
 
   function scopeCardMeta(summary: ScopeSummary) {
-    const scopeId =
-      summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
-    const isSelected = scopeId === selectedScopeId && rightPaneView === "scope"
-    return t("agentServicesToolsCount", {
-      services: isSelected ? scopeServices.length : summary.service_count,
-      tools: isSelected ? scopeTools.length : 0,
+    const stats =
+      summary.scope.type === "root"
+        ? scopeStats.root
+        : summary.scope.type === "store"
+          ? scopeStats.store
+          : scopeStats.agents.get(summary.scope.agent_id) || {
+              services: 0,
+              connected: 0,
+              disconnected: 0,
+            }
+    return t("agentServicesConnectionCount", {
+      services: stats.services,
+      connected: stats.connected,
+      disconnected: stats.disconnected,
     })
   }
 
@@ -198,7 +240,7 @@ export function AgentsView(props: {
                   summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
                 const title =
                   summary.scope.type === "root"
-                    ? t("allServices")
+                    ? "all"
                     : summary.scope.type === "store"
                       ? t("store")
                       : summary.scope.type === "agent"
@@ -211,11 +253,6 @@ export function AgentsView(props: {
                     onClick={() => selectScope(scopeId)}
                     selected={scopeId === selectedScopeId && rightPaneView === "scope"}
                     title={title}
-                    trailing={
-                      scopeId === selectedScopeId && rightPaneView === "scope" ? (
-                        <Badge variant="outline">{t("active")}</Badge>
-                      ) : null
-                    }
                   />
                 )
               })}
@@ -281,21 +318,7 @@ export function AgentsView(props: {
               scopeTitle={scopeTitle}
             />
 
-            <MetricGrid columns="two">
-              <MetricTile
-                variant="compact"
-                label={t("services")}
-                value={String(scopeServices.length)}
-                hint={loadingScopeServices ? t("loading") : t("inScope", { count: scopeServices.length })}
-              />
-              <MetricTile
-                variant="compact"
-                label={t("tools")}
-                value={loadingScopeTools ? "-" : String(scopeTools.length)}
-                hint={loadingScopeTools ? t("loading") : t("toolsAvailable", { count: scopeTools.length })}
-              />
-            </MetricGrid>
-
+            <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-4">
             {scopeError ? (
               <PageError
                 title={t("agentScopeFailedToLoad")}
@@ -305,7 +328,7 @@ export function AgentsView(props: {
             ) : loadingScopeServices ? (
               <PageSkeleton />
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+              <div className="flex flex-col gap-3">
                 <SectionHeading
                   title={t("servicesInScope")}
                   titleAs="h2"
@@ -314,7 +337,6 @@ export function AgentsView(props: {
                   className="border-b-0 pb-0"
                 />
                 {scopeServices.length ? (
-                  <ScrollPane className="flex-1" innerClassName="block w-full min-w-0 pe-1">
                     <div className="border-t">
                       {scopeServices.map((service) => {
                         const selected = service.instance_id === previewServiceId
@@ -366,7 +388,6 @@ export function AgentsView(props: {
                         )
                       })}
                     </div>
-                  </ScrollPane>
                 ) : (
                   <PageEmpty
                     title={t("noServices")}
@@ -386,27 +407,44 @@ export function AgentsView(props: {
                   </p>
                 </div>
                 {configScopeId !== ALL_SCOPE_ID ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={configLoading}
-                    onClick={() => void (configAgentId ? agentConfigQuery.refetch() : storeConfigQuery.refetch())}
+                  <Dialog
+                    onOpenChange={(open) => {
+                      if (open) loadScopeConfig()
+                    }}
                   >
-                    <RefreshCwIcon data-icon="inline-start" />
-                    {t("refresh")}
-                  </Button>
+                    <DialogTrigger asChild>
+                      <Button size="sm" variant="outline">
+                        <EyeIcon data-icon="inline-start" />
+                        {t("view")}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-4 overflow-hidden sm:max-w-2xl">
+                      <DialogHeader className="shrink-0">
+                        <DialogTitle>{t("configuration")}</DialogTitle>
+                        <DialogDescription className="font-mono text-xs">
+                          {configAgentId ? `/config/agents/${configAgentId}` : "/config"}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="min-h-0 shrink overflow-hidden">
+                        {configLoading && !configValue ? (
+                          <PageSkeleton />
+                        ) : (
+                          <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />
+                        )}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 ) : null}
               </div>
               {configScopeId === ALL_SCOPE_ID ? (
                 <p className="py-3 text-sm text-muted-foreground">{t("allScopesDescription")}</p>
-              ) : (
-                <ConfigDetailPane loading={configLoading && !configValue} value={configValue || {}} />
-              )}
+              ) : null}
             </section>
 
             {(selectedScope.type === "store" || selectedScope.type === "agent") && (
               <ClientConfigPanel scope={selectedScope} />
             )}
+            </ScrollPane>
 
             {selectedScope.type === "agent" ? (
               <AddScopeServiceDialog
