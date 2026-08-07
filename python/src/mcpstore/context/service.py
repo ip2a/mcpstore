@@ -82,5 +82,32 @@ class Service:
 
         return Tool(self._native.find_tool(tool_name))
 
+    def find_prompt(self, prompt_name: str) -> "Prompt":
+        from .prompt import Prompt
+
+        return Prompt(self._native.find_prompt(prompt_name))
+
+    def find_resource(self, uri: str) -> "Resource":
+        from .resource import Resource
+
+        return Resource(self._native.find_resource(uri))
+
+    def find_resource_template(self, uri_template: str) -> "ResourceTemplate":
+        from .resource import ResourceTemplate
+
+        return ResourceTemplate(self._native.find_resource_template(uri_template))
+
+    def list_tool_overrides(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_tool_overrides())
+
+    def list_prompt_overrides(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_prompt_overrides())
+
+    def list_resource_overrides(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resource_overrides())
+
+    def list_resource_template_overrides(self) -> List[Dict[str, Any]]:
+        return _record_value(self._native.list_resource_template_overrides())
+
 
 __all__ = ["Service"]

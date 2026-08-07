@@ -19,5 +19,20 @@ class Tool:
     def call(self, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return _record_value(self._native.call(args or {}))
 
+    def set_override(self, patch: Dict[str, Any]) -> Dict[str, Any]:
+        return _record_value(self._native.set_override(patch))
+
+    def get_override(self) -> Optional[Dict[str, Any]]:
+        return _record_value(self._native.get_override())
+
+    def delete_override(self) -> None:
+        self._native.delete_override()
+
+    def enable(self) -> None:
+        self._native.enable()
+
+    def disable(self) -> None:
+        self._native.disable()
+
 
 __all__ = ["Tool"]

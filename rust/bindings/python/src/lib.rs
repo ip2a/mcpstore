@@ -23,10 +23,16 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<core_store::PyScopeContext>()?;
     m.add_class::<core_store::PyService>()?;
     m.add_class::<core_store::PyTool>()?;
+    m.add_class::<core_store::PyPrompt>()?;
+    m.add_class::<core_store::PyResource>()?;
+    m.add_class::<core_store::PyResourceTemplate>()?;
     m.add_class::<async_store::PyAsyncMCPStore>()?;
     m.add_class::<async_store::PyAsyncScopeContext>()?;
     m.add_class::<async_store::PyAsyncService>()?;
     m.add_class::<async_store::PyAsyncTool>()?;
+    m.add_class::<async_store::PyAsyncPrompt>()?;
+    m.add_class::<async_store::PyAsyncResource>()?;
+    m.add_class::<async_store::PyAsyncResourceTemplate>()?;
     m.add_class::<perspective::PyPerspectiveResolver>()?;
 
     Ok(())
