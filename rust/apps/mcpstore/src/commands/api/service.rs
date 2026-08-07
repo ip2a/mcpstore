@@ -113,25 +113,17 @@ pub(super) async fn service_list_services(
     ))
 }
 
-/// `GET /scopes/list` —— 作用域注册表：store 恒在 + 各 agent 作用域。
+/// `GET /scopes/list` —— 作用域注册表（root + store + 各 agent），每项带服务数。
 pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let agents = state
+    let scopes = state
         .store
-        .list_agents()
+        .list_scopes()
         .await
         .map_err(ApiError::from_store)?;
-    let agent_ids: Vec<String> = agents
-        .iter()
-        .filter_map(|agent| agent.get("agent_id").and_then(Value::as_str).map(str::to_string))
-        .collect();
+    let total = scopes.len();
     Ok(success(
         "作用域列表获取成功",
-        json!({
-            "store": true,
-            "agents": agent_ids,
-            "agent_count": agent_ids.len(),
-            "total": 1 + agent_ids.len(),
-        }),
+        json!({ "scopes": scopes, "total": total }),
     ))
 }
 

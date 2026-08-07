@@ -62,10 +62,12 @@ pub use event_reactor::{
 pub use facade::{ScopeContext, Service, ServiceTarget, Tool};
 
 // Facade re-exports: service instance identity
-pub use identity::{InstanceId, ScopeRef, ServiceInstanceKey};
+pub use identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
 
 // Facade re-exports: registry
-pub use registry::{ConfigRevision, ServiceDefinition, ServiceInstance, ToolInfo};
+pub use registry::{
+    AgentInfo, ConfigRevision, ScopeSummary, ServiceDefinition, ServiceInstance, ToolInfo,
+};
 
 // Facade re-exports: business sessions
 pub use cache::models::{

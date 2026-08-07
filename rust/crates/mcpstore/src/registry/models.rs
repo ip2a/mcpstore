@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use tokio::sync::RwLock;
 
 use crate::config::{ScopeDeclarations, ServiceLifecycleConfig};
-use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
+use crate::identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolInfo {
@@ -65,6 +65,23 @@ impl ServiceInstance {
         self.applied_config_revision
             .is_some_and(|applied| applied != self.config_revision)
     }
+}
+
+/// 作用域注册表条目（`list_scopes` / `scope_info` 返回）。
+///
+/// 把“作用域”当一等公民：每个 scope（root / store / agent）一个条目，
+/// 带它在运行时 registry 里的服务数。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScopeSummary {
+    pub scope: ScopeView,
+    pub service_count: usize,
+}
+
+/// Agent 实体（`find_agent` 返回）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInfo {
+    pub agent_id: String,
+    pub instance_ids: Vec<InstanceId>,
 }
 
 #[derive(Clone)]
