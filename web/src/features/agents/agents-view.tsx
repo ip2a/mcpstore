@@ -265,7 +265,6 @@ export function AgentsView(props: {
 
             <ScrollPane className="flex-1">
               <AgentWorkspaceOverview agents={props.agents} services={props.services} storeServices={storeServices} />
-              <ClientConfigPanel />
             </ScrollPane>
           </>
         ) : (
@@ -404,6 +403,10 @@ export function AgentsView(props: {
                 <ConfigDetailPane loading={configLoading && !configValue} value={configValue || {}} />
               )}
             </section>
+
+            {(selectedScope.type === "store" || selectedScope.type === "agent") && (
+              <ClientConfigPanel scope={selectedScope} />
+            )}
 
             {selectedScope.type === "agent" ? (
               <AddScopeServiceDialog
