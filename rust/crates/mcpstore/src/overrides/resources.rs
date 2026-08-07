@@ -1,4 +1,6 @@
-use crate::overrides::{apply_meta_override, is_override_enabled, ComponentOverrideCommon};
+use crate::overrides::{
+    apply_meta_override, is_override_enabled, ComponentKind, ComponentOverrideCommon,
+};
 use crate::store::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -111,7 +113,7 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 RESOURCE_OVERRIDES_STATE_TYPE,
-                &format!("{instance_id}:{uri}"),
+                &Self::component_override_key(instance_id, uri),
                 expected,
                 serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
             )
@@ -131,7 +133,7 @@ impl MCPStore {
         self.cache
             .delete_state(
                 RESOURCE_OVERRIDES_STATE_TYPE,
-                &format!("{instance_id}:{uri}"),
+                &Self::component_override_key(instance_id, uri),
             )
             .await
             .map_err(StoreError::from)
@@ -144,14 +146,12 @@ impl MCPStore {
         .await
     }
     pub async fn enable_resource(&self, i: InstanceId, u: &str) -> Result<()> {
-        self.set_resource_override(i, u, ResourceOverridePatch::default().enabled(true))
+        self.patch_component_enabled(ComponentKind::Resource, i, u, true)
             .await
-            .map(|_| ())
     }
     pub async fn disable_resource(&self, i: InstanceId, u: &str) -> Result<()> {
-        self.set_resource_override(i, u, ResourceOverridePatch::default().enabled(false))
+        self.patch_component_enabled(ComponentKind::Resource, i, u, false)
             .await
-            .map(|_| ())
     }
     pub(crate) async fn load_resource_override(
         &self,
@@ -199,7 +199,7 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
-                &format!("{i}:{u}"),
+                &Self::component_override_key(i, u),
                 expected,
                 serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
             )
@@ -217,7 +217,10 @@ impl MCPStore {
     pub async fn delete_resource_template_override(&self, i: InstanceId, u: &str) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
         self.cache
-            .delete_state(RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE, &format!("{i}:{u}"))
+            .delete_state(
+                RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
+                &Self::component_override_key(i, u),
+            )
             .await
             .map_err(StoreError::from)
     }
@@ -236,22 +239,12 @@ impl MCPStore {
         .await
     }
     pub async fn enable_resource_template(&self, i: InstanceId, u: &str) -> Result<()> {
-        self.set_resource_template_override(
-            i,
-            u,
-            ResourceTemplateOverridePatch::default().enabled(true),
-        )
-        .await
-        .map(|_| ())
+        self.patch_component_enabled(ComponentKind::ResourceTemplate, i, u, true)
+            .await
     }
     pub async fn disable_resource_template(&self, i: InstanceId, u: &str) -> Result<()> {
-        self.set_resource_template_override(
-            i,
-            u,
-            ResourceTemplateOverridePatch::default().enabled(false),
-        )
-        .await
-        .map(|_| ())
+        self.patch_component_enabled(ComponentKind::ResourceTemplate, i, u, false)
+            .await
     }
     pub(crate) async fn load_resource_template_override(
         &self,

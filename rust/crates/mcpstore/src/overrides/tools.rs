@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::overrides::ComponentOverrideCommon;
+use crate::overrides::{ComponentKind, ComponentOverrideCommon};
 pub type ToolArgumentOverride = crate::cache::models::ToolArgumentOverride;
 pub type ToolOverrideSafetyPolicy = crate::cache::models::ToolOverrideSafetyPolicy;
 use crate::openapi_runtime::validate_json_schema_value;
@@ -264,7 +264,7 @@ impl MCPStore {
         self.cache
             .delete_state(
                 TOOL_OVERRIDES_STATE_TYPE,
-                &Self::tool_override_key(instance_id, &original_tool_name),
+                &Self::component_override_key(instance_id, &original_tool_name),
             )
             .await?;
         Ok(())
@@ -396,7 +396,7 @@ impl MCPStore {
         self.cache
             .get_state(
                 TOOL_OVERRIDES_STATE_TYPE,
-                &Self::tool_override_key(instance_id, tool_name),
+                &Self::component_override_key(instance_id, tool_name),
             )
             .await?
             .map(|value| {
@@ -415,7 +415,7 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 TOOL_OVERRIDES_STATE_TYPE,
-                &Self::tool_override_key(rule.instance_id, &rule.tool_name),
+                &Self::component_override_key(rule.instance_id, &rule.tool_name),
                 expected_version,
                 serde_json::to_value(rule).map_err(|err| StoreError::Other(err.to_string()))?,
             )
@@ -423,8 +423,14 @@ impl MCPStore {
         Ok(())
     }
 
-    fn tool_override_key(instance_id: InstanceId, tool_name: &str) -> String {
-        format!("{instance_id}:{tool_name}")
+    pub async fn enable_tool(&self, instance_id: InstanceId, tool_name: &str) -> Result<()> {
+        self.patch_component_enabled(ComponentKind::Tool, instance_id, tool_name, true)
+            .await
+    }
+
+    pub async fn disable_tool(&self, instance_id: InstanceId, tool_name: &str) -> Result<()> {
+        self.patch_component_enabled(ComponentKind::Tool, instance_id, tool_name, false)
+            .await
     }
 
     fn validate_tool_override_patch(patch: &ToolOverridePatch) -> Result<()> {

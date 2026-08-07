@@ -7276,6 +7276,86 @@ mod scoped_contract {
 
         std::fs::remove_file(path).ok();
     }
+
+    #[tokio::test]
+    async fn component_enable_disable_preserves_override_fields() {
+        let path = temp_config_path();
+        let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
+        store
+            .add_service(
+                "svc",
+                native_config(ScopeDeclarations {
+                    store: Some(ScopeDescriptor::default()),
+                    agents: HashMap::new(),
+                }),
+            )
+            .await
+            .unwrap();
+        let id = store_instance_id("svc");
+        install_tool(&store, id, tool("echo")).await;
+        store
+            .set_prompt_override(
+                id,
+                "greet",
+                crate::PromptOverridePatch::default()
+                    .with_display_name("friendly-greet")
+                    .with_description("A friendly greeting"),
+            )
+            .await
+            .unwrap();
+        store.disable_prompt(id, "greet").await.unwrap();
+        let prompt = store
+            .get_prompt_override(id, "greet")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(prompt.common.enabled, Some(false));
+        assert_eq!(
+            prompt.common.display_name.as_deref(),
+            Some("friendly-greet")
+        );
+        assert_eq!(
+            prompt.common.description.as_deref(),
+            Some("A friendly greeting")
+        );
+        store.enable_prompt(id, "greet").await.unwrap();
+        let prompt = store
+            .get_prompt_override(id, "greet")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(prompt.common.enabled, Some(true));
+        assert_eq!(
+            prompt.common.display_name.as_deref(),
+            Some("friendly-greet")
+        );
+        assert_eq!(
+            prompt.common.description.as_deref(),
+            Some("A friendly greeting")
+        );
+        store
+            .set_tool_override(
+                id,
+                "echo",
+                ToolOverridePatch::default()
+                    .with_display_name("friendly-echo")
+                    .with_description("A friendly echo"),
+            )
+            .await
+            .unwrap();
+        store.disable_tool(id, "echo").await.unwrap();
+        let tool_rule = store.get_tool_override(id, "echo").await.unwrap().unwrap();
+        assert_eq!(tool_rule.common.enabled, Some(false));
+        assert_eq!(
+            tool_rule.common.display_name.as_deref(),
+            Some("friendly-echo")
+        );
+        assert_eq!(
+            tool_rule.common.description.as_deref(),
+            Some("A friendly echo")
+        );
+        std::fs::remove_file(path).ok();
+    }
 }
 
 #[tokio::test]
