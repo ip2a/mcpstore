@@ -74,9 +74,9 @@ run_external_web() {
   ensure_web_deps
 
   local api_host="${MCPSTORE_API_HOST:-127.0.0.1}"
-  local api_port="${MCPSTORE_API_PORT:-18200}"
+  local api_port="${MCPSTORE_API_PORT:-1820}"
   local vite_host="${MCPSTORE_VITE_HOST:-127.0.0.1}"
-  local vite_port="${MCPSTORE_VITE_PORT:-5174}"
+  local vite_port="${MCPSTORE_VITE_PORT:-1828}"
   local api_target="http://${api_host}:${api_port}"
   local api_pid=""
 
