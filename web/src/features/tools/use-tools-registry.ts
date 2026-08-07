@@ -16,6 +16,18 @@ import {
 } from "@/lib/api"
 import { toolKey } from "@/lib/tool-info"
 
+export function countActiveToolFilters(filters: {
+  instanceId: string
+  scope: "store" | "agent"
+  visibilityFilter: ToolVisibilityFilter
+}) {
+  let count = 0
+  if (filters.scope !== "store") count++
+  if (filters.instanceId !== "all") count++
+  if (filters.visibilityFilter !== "available") count++
+  return count
+}
+
 export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; services: ServiceInstance[] }) {
   const agentIds = agents.map(getAgentId).filter(Boolean)
   const [scope, setScope] = useState<"store" | "agent">("store")
@@ -102,7 +114,10 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
     }
   }
 
+  const activeFilterCount = countActiveToolFilters({ instanceId, scope, visibilityFilter })
+
   return {
+    activeFilterCount,
     agentId,
     agentIds,
     error: queryError,

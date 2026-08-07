@@ -51,7 +51,7 @@ fn start_local_server() -> Result<String> {
                 config_path: None,
                 source: mcpstore_cli::store_args::SourceArg::Local,
                 backend: None,
-                redis_url: None,
+                backend_url: None,
                 namespace: None,
             };
             let store = match build_store(&store_args) {
@@ -67,7 +67,7 @@ fn start_local_server() -> Result<String> {
             }
             let listener = tokio::net::TcpListener::from_std(std_listener)
                 .expect("desktop listener should convert");
-            let app = mcpstore_cli::commands::web::router(Arc::new(store));
+            let app = mcpstore_cli::commands::web::router(store);
             if let Err(error) = axum::serve(listener, app).await {
                 eprintln!("mcpstore desktop server stopped: {error}");
             }

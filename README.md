@@ -21,125 +21,172 @@
 ![GitHub stars](https://img.shields.io/github/stars/ip2a/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/ip2a/mcpstore) ![GitHub license](https://img.shields.io/github/license/ip2a/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore)
 
 
-
 [English](README_en.md) | [简体中文](README_zh.md)
 
 
-[文档](https://ip2a.github.io/mcpstore/) | [快速使用](###简单示例)
+[文档](https://ip2a.github.io/mcpstore/) | [快速使用](#简单示例)
 
 </div>
 
 ### mcpstore 是什么？
 
-开发者最佳的mcp管理包 快速维护mcp服务并应用
+mcpstore 是一个基于 Rust 构建的 MCP 管理平台，覆盖 MCP 服务的配置、运行、调用与生命周期管理，并提供可复用的 SDK、命令行工具（CLI）以及 App/Web 应用等多种使用方式。
 
 ### 快速开始
 
+#### SDK
+
+##### Python（PyPI Lib）
+
 ```bash
 pip install mcpstore
+# 或：uv add mcpstore
 ```
 
-### Rust-first 架构
-
-当前 `mcpstore` 以 Rust 作为唯一真实运行时：
-
-- `mcpstore api` 由 Rust 二进制直接启动完整 HTTP API 服务
-- `mcpstore mcp-server` 由 Rust 二进制直接暴露 MCP Server，支持 `stdio` 和 `streamable-http`
-- Python 包主要提供 PyO3 store facade、稳定的 Python SDK 入口，以及 Python 生态 adapter
-
-如果你只想把 `mcpstore` 当成独立服务使用，优先直接调用 Rust CLI：
+##### Rust Lib
 
 ```bash
-mcpstore api --config-path ./mcp.json --port 18200
-mcpstore mcp-server --config-path ./mcp.json
-mcpstore mcp-server --config-path ./mcp.json --transport streamable-http --port 18300 --path /mcp
+cargo add mcpstore
 ```
+
+#### CLI
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/ip2a/mcpstore/main/install.sh | bash
+
+# 或使用 npm（macOS / Linux / Windows）
+npm install -g mcpstore
+```
+
+#### App
+
+从 [GitHub Releases](https://github.com/ip2a/mcpstore/releases) 下载对应平台的发行版。
+
+### App 功能
+
+#### 会话管理
+
+统一查看和管理 MCP 会话，掌握当前连接状态与运行情况。
+
+> 截图：`docs/assets/images/app-sessions.png`
+
+#### 会话转移
+
+在不同 Agent 或工作区之间转移会话，保持上下文连续。
+
+> 截图：`docs/assets/images/app-session-transfer.png`
+
+#### 技能管理
+
+集中管理可用工具和技能，按需配置 Agent 的能力范围。
+
+> 截图：`docs/assets/images/app-skills.png`
+
+#### Agent 管理
+
+创建和管理不同 Agent，为每个 Agent 配置独立的服务与工具。
+
+> 截图：`docs/assets/images/app-agents.png`
+
+### CLI 使用
+
+通过 CLI 管理 MCP 服务、查看运行状态，并为 Agent 提供命令行工作流。
+
+### SDK 使用
+
+通过 Python SDK 或 Rust Lib 将 mcpstore 集成到自己的应用中。
 
 ### 简单示例
 
-一切的开始：初始化一个store 
+初始化 `store`：
 
 ```python
 from mcpstore import MCPStore
+
 store = MCPStore.setup_store()
 ```
 
-现在你获得了一个 `store`，利用`store`去使用你的MCP服务，`store` 会维护和管理这些 MCP 服务。
+通过 `store.for_store()` 管理全局作用域内的 MCP 服务和工具。
 
-#### 给store添加第一个服务
+#### 添加第一个服务
 
 ```python
-#在上面的代码下面加入
-store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://example.com/mcp"}}})
-store.for_store().wait_service("mcpstore_wiki")
+store.for_store().add_service({
+    "mcpServers": {
+        "mcpstore_wiki": {
+            "url": "https://example.com/mcp"
+        }
+    }
+}).wait_service("mcpstore_wiki")
 ```
 
-`add_service`方法支持多种mcp服务配置格式，。`wait_service`用来等待服务就绪。
+`add_service` 接受 MCP 服务配置；`wait_service` 等待指定服务就绪。
 
-#### 将mcp适配转为langchain需要的对象
+#### 转换为 LangChain 工具
 
 ```python
-#在上面的代码下面加入
 tools = store.for_store().for_langchain().list_tools()
 print("loaded langchain tools:", len(tools))
 ```
 
-轻松将mcp服务转为langchain可以直接使用的tools列表
+适配器从 `store.for_store()` 读取工具，并转换为对应框架使用的对象。
 
 ##### 框架适配
 
-积极支持更多的框架
-
-| 已支持框架 | 获取工具 |
+| 框架 | 获取工具 |
 | --- | --- |
 | LangChain | `tools = store.for_store().for_langchain().list_tools()` |
 | LangGraph | `tools = store.for_store().for_langgraph().list_tools()` |
+| OpenAI | `tools = store.for_store().for_openai().list_tools()` |
 | AutoGen | `tools = store.for_store().for_autogen().list_tools()` |
 | CrewAI | `tools = store.for_store().for_crewai().list_tools()` |
 | LlamaIndex | `tools = store.for_store().for_llamaindex().list_tools()` |
+| Semantic Kernel | `tools = store.for_store().for_semantic_kernel().list_tools()` |
 
-#### 代码中使用 以langchain为例
+#### 在 LangChain 中使用
 
 ```python
-#添加上面的代码
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
+
 llm = ChatOpenAI(
-    temperature=0, 
+    temperature=0,
     model="your-model",
     api_key="sk-*****",
-    base_url="https://api.xxx.com"
+    base_url="https://api.xxx.com",
 )
-agent = create_agent(model=llm, tools=tools, system_prompt="你是一个助手，回答的时候带上表情")
-events = agent.invoke({"messages": [{"role": "user", "content": "mcpstore怎么添加服务？"}]})
+agent = create_agent(model=llm, tools=tools, system_prompt="你是一个助手")
+events = agent.invoke({
+    "messages": [{"role": "user", "content": "mcpstore 怎么添加服务？"}]
+})
 print(events)
 ```
-如你所见。这里的langchain的agent可以正常的调用你通过`sotre`管理的mcp服务了。
 
-
+这里的 `tools` 由 `store.for_store()` 提供。
 
 
 #### 为 Agent 分组
 
-使用 `for_agent(agent_id)`  实现分组
+使用 `for_agent(agent_id)` 为不同 Agent 建立独立作用域：
 
 ```python
-#不同的agent需要不同的mcp的集合
+store.for_agent("agent1").add_service({
+    "name": "mcpstore_wiki",
+    "url": "https://example.com/mcp",
+})
 
-agent_id1 = "agent1"
-store.for_agent(agent_id1).add_service({"name": "mcpstore_wiki", "url": "https://example.com/mcp"})
+store.for_agent("agent2").add_service({
+    "name": "gitodo",
+    "command": "uvx",
+    "args": ["gitodo"],
+})
 
-agent_id2 = "agent2"
-store.for_agent(agent_id2).add_service({"name": "gitodo", "command": "uvx", "args": ["gitodo"]})
-
-agent1_tools = store.for_agent(agent_id1).list_tools()
-
-agent2_tools = store.for_agent(agent_id2).list_tools()
+agent1_tools = store.for_agent("agent1").list_tools()
+agent2_tools = store.for_agent("agent2").list_tools()
 ```
 
-`store.for_agent(agent_id)` 与 `store.for_store()` 镜像大部分函数接口， `agent` 的分组是 `store` 的逻辑子集。
-
-通过为不同 `agent` 隔离mcp服务，避免上下文过长,并由 `sotre` 统一维护。
+`store.for_agent(agent_id)` 与 `store.for_store()` 提供相同的操作，服务和工具按 Agent 作用域隔离。
 
 #### Rust API 与 MCP Server
 
@@ -147,103 +194,83 @@ agent2_tools = store.for_agent(agent_id2).list_tools()
 
 ```bash
 # 启动 Rust HTTP API
-mcpstore api --config-path ./mcp.json --host 127.0.0.1 --port 18200
+mcpstore api --config-path ./mcp.json --host 127.0.0.1 --port 1820
 
 # 以 stdio 启动 Rust MCP Server
-mcpstore mcp-server --config-path ./mcp.json
+mcpstore mcp --config-path ./mcp.json
 
 # 以 streamable-http 启动 Rust MCP Server
-mcpstore mcp-server --config-path ./mcp.json --transport streamable-http --host 127.0.0.1 --port 18300 --path /mcp
+mcpstore mcp --config-path ./mcp.json --transport streamable-http --host 127.0.0.1 --port 1830 --path /mcp
 ```
 
-Python 侧已不再提供嵌入式 API server；请直接使用 Rust CLI 启动服务。
-
-
+Python SDK 不再启动嵌入式 API server；需要对外提供服务时，请使用 Rust CLI。
 
 
 #### 常用接口
 
-| 动作          | 命令示例                                                                                   |
-|-------------|----------------------------------------------------------------------------------------|
-| 定位服务        | `store.for_store().find_service("service_name")`                                       |
-| 更新服务        | `store.for_store().update_service("service_name", new_config)`                         |
-| 增量更新        | `store.for_store().patch_service("service_name", {"headers": {"X-API-Key": "..."}})`   |
-| 删除服务        | `store.for_store().delete_service("service_name")`                                     |
-| 重启服务        | `store.for_store().restart_service("service_name")`                                    |
-| 断开服务        | `store.for_store().disconnect_service("service_name")`                                 |
-| 健康检查        | `store.for_store().check_services()`                                                   |
-| 查看配置        | `store.for_store().show_config()`                                                      |
-| 服务详情        | `store.for_store().service_info("service_name")`                                   |
-| 等待就绪        | `store.for_store().wait_service("service_name", timeout=30)`                           |
-| 列出agent     | `store.for_store().list_agents()` |
-| 列出服务        | `store.for_store().list_services()` |
-| 列出工具        | `store.for_store().list_tools()` |
-| 列出资源        | `store.for_store().list_resources()` |
-| 读取资源        | `store.for_store().read_resource("resource://uri")` |
-| 列出 Prompts   | `store.for_store().list_prompts()` |
-| 获取 Prompt    | `store.for_store().get_prompt("prompt_name", {"k": "v"})` |
-| 执行工具 | `store.for_store().call_tool("tool_name", {"k": "v"})` |
+以下示例使用完整调用链：
 
-#### 数据源热拔插和共享
+| 动作 | 示例 |
+| --- | --- |
+| 添加服务 | `store.for_store().add_service(config)` |
+| 定位服务 | `store.for_store().find_service("service_name")` |
+| 查看服务信息 | `store.for_store().find_service("service_name").info()` |
+| 查看服务状态 | `store.for_store().find_service("service_name").state()` |
+| 更新服务 | `store.for_store().update_service("service_name", new_config)` |
+| 增量更新 | `store.for_store().patch_service("service_name", updates)` |
+| 等待就绪 | `store.for_store().wait_service("service_name", timeout=30)` |
+| 重启服务 | `store.for_store().restart_service("service_name")` |
+| 断开服务 | `store.for_store().disconnect_service("service_name")` |
+| 删除服务 | `store.for_store().remove_service(service_name="service_name")` |
+| 列出服务 | `store.for_store().list_services()` |
+| 列出工具 | `store.for_store().list_tools()` |
+| 列出当前作用域资源 | `store.for_store().list_resources()` |
+| 列出当前作用域资源模板 | `store.for_store().list_resource_templates()` |
+| 读取指定服务资源 | `store.for_store().find_service("service_name").read_resource("resource://uri")` |
+| 列出当前作用域 Prompts | `store.for_store().list_prompts()` |
+| 获取指定服务 Prompt | `store.for_store().find_service("service_name").get_prompt("prompt_name", {"k": "v"})` |
+| 调用工具 | `store.for_store().find_tool("tool_name").call({"k": "v"})` |
+| 查看配置 | `store.for_store().show_config()` |
+| 列出 Agent | `store.list_agents()` |
 
-支持使用 KV 数据库作为共享缓存后端(如redis)，用于跨进程/多实例共享服务与工具 
+#### 数据源共享
 
-```bash
-pip install mcpstore[redis]
-#或直接 单独 pip install redis
-#或者其他 pyvk 支持的数据库
-```
+可以使用 Redis 等 KV 后端，在多个进程或实例之间共享服务与工具数据。
 
-##### 快速使用
+##### Redis 示例
 
 ```python
 from mcpstore import MCPStore
 from mcpstore.config import RedisConfig
+
 redis_config = RedisConfig(
     host="127.0.0.1",
     port=6379,
     password=None,
-    namespace="demo_namespace"  # 隔离前缀，防冲突
+    namespace="demo_namespace",
 )
 store = MCPStore.setup_store(cache=redis_config)
-
 ```
-在 `cache` 定义好数据库配置的情况下，所有的数据将由数据保存，也就意味着不同实例的 `store` 只要可以访问到该数据库，就可以共享mcp服务数据以及协同.
 
-也就意味着，你可以通过分布式的方式管理你的mcp服务，在资源受限的环境下可以共享使用由 `store` 维护好的mcp服务。
-
-你可以在资源充足的环境启动 `RedisConfig` 配置过的 `store`。
-
-然后在若干个资源首先的环境下，可以通过 `only_db` 的方式，放弃管理和维护mcp服务，所有的对mcp服务的操作会以事件的形式通知被共享的环境去维护 `store` 和进程。
+使用相同后端和 `namespace` 的实例可以共享数据。若当前进程只使用共享数据源、不维护本地服务实例，可设置 `only_db=True`：
 
 ```python
 from mcpstore import MCPStore
 from mcpstore.config import RedisConfig
 
 redis_config = RedisConfig(
-  host="127.0.0.1",
-  port=6379,
-  password=None,
-  namespace="demo_namespace" #使用相同的命名空间来隔离同一个数据库里的不同键  
+    host="127.0.0.1",
+    port=6379,
+    password=None,
+    namespace="demo_namespace",
 )
-store = MCPStore.setup_store(cache=redis_config, only_db=True) #这里配置only_db 
-store.for_store().list_services()
+store = MCPStore.setup_store(cache=redis_config, only_db=True)
+services = store.for_store().list_services()
 ```
-更多细节参考 `setup_store` 配置见文档
 
-### API 与 MCP 服务
+### Docker 部署
 
-当前版本已经内置 Rust API 与 Rust MCP Server：
-
-- `mcpstore api`：启动完整 HTTP API 服务
-- `mcpstore mcp-server`：启动 MCP Server
-
-因此，对外服务能力应优先理解为 Rust-first；Python 不再承载独立的 API / MCP 核心实现。
-
-
-### docker部署 
-
-提供了一些 `docker` 的配置方便大家尝试，本项目的初衷是做一个更方便好用的 `mcp` 管理的包，并不偏向于完成一个项目的构建，所以项目设计的可能不太完善和成熟，欢迎大家提出意见谢谢
+仓库提供 Docker 配置，可用于本地试用和部署。
 
 
 ## Star History
@@ -256,4 +283,4 @@ store.for_store().list_services()
 
 ---
 
-McpStore 仍在高频更新中，欢迎反馈与建议。
+欢迎通过 Issues 提交问题与建议。
