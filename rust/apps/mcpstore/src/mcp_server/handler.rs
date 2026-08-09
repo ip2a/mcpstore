@@ -421,24 +421,42 @@ impl ServerHandler for McpStoreServer {
                 .map(Into::into);
             }
             if is_tool_override_tool {
-                return call_tool_override_tool(&store, &tool_name, arguments)
+                return call_tool_override_tool(&store, &tool_name, &scope, instance_id, arguments)
                     .await
                     .map(Into::into);
             }
             if is_prompt_override_tool {
-                return call_prompt_override_tool(&store, &tool_name, arguments)
-                    .await
-                    .map(Into::into);
+                return call_prompt_override_tool(
+                    &store,
+                    &tool_name,
+                    &scope,
+                    instance_id,
+                    arguments,
+                )
+                .await
+                .map(Into::into);
             }
             if is_resource_override_tool {
                 if tool_name.starts_with("mcpstore_resource_template_override_") {
-                    return call_resource_template_override_tool(&store, &tool_name, arguments)
-                        .await
-                        .map(Into::into);
-                }
-                return call_resource_override_tool(&store, &tool_name, arguments)
+                    return call_resource_template_override_tool(
+                        &store,
+                        &tool_name,
+                        &scope,
+                        instance_id,
+                        arguments,
+                    )
                     .await
                     .map(Into::into);
+                }
+                return call_resource_override_tool(
+                    &store,
+                    &tool_name,
+                    &scope,
+                    instance_id,
+                    arguments,
+                )
+                .await
+                .map(Into::into);
             }
             if is_openapi_tool {
                 return call_openapi_tool(&store, &tool_name, arguments)

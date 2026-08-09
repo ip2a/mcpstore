@@ -419,35 +419,38 @@ impl MCPStore {
         value: &serde_json::Value,
         instance_id: InstanceId,
     ) -> Result<bool> {
-        Self::weak_override_matches_instance(value, instance_id, "prompt")
+        Self::weak_override_matches_instance(value, instance_id)
     }
 
     fn resource_override_matches_instance(
         value: &serde_json::Value,
         instance_id: InstanceId,
     ) -> Result<bool> {
-        Self::weak_override_matches_instance(value, instance_id, "resource")
+        Self::weak_override_matches_instance(value, instance_id)
     }
 
     fn resource_template_override_matches_instance(
         value: &serde_json::Value,
         instance_id: InstanceId,
     ) -> Result<bool> {
-        Self::weak_override_matches_instance(value, instance_id, "resource template")
+        Self::weak_override_matches_instance(value, instance_id)
     }
 
     fn weak_override_matches_instance(
         value: &serde_json::Value,
         instance_id: InstanceId,
-        label: &str,
     ) -> Result<bool> {
-        let value_id = value
+        let Some(value_id) = value
             .get("instance_id")
             .and_then(serde_json::Value::as_str)
             .and_then(|value| value.parse::<InstanceId>().ok())
-            .ok_or_else(|| {
-                StoreError::Other(format!("{label} override missing valid instance_id"))
-            })?;
+        else {
+            // These three override state types intentionally use a weak
+            // ownership check.  A corrupt unrelated entry must not prevent
+            // the rest of instance removal from being cleaned up; without a
+            // valid owner it is deterministically treated as not owned.
+            return Ok(false);
+        };
         Ok(value_id == instance_id)
     }
 
@@ -488,5 +491,44 @@ impl MCPStore {
             .unwrap_or_default()
             .hash(&mut hasher);
         format!("{:016x}", hasher.finish())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::ServiceInstanceKey;
+
+    #[test]
+    fn malformed_weak_override_entries_are_ignored() {
+        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
+
+        assert!(!MCPStore::prompt_override_matches_instance(
+            &serde_json::json!({"instance_id": "not-an-instance-id"}),
+            instance_id,
+        )
+        .unwrap());
+        assert!(!MCPStore::resource_override_matches_instance(
+            &serde_json::json!({"unexpected": true}),
+            instance_id,
+        )
+        .unwrap());
+        assert!(!MCPStore::resource_template_override_matches_instance(
+            &serde_json::json!({"instance_id": null}),
+            instance_id,
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn weak_override_entries_with_valid_owner_are_removed() {
+        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
+        let value = serde_json::json!({"instance_id": instance_id.to_string()});
+
+        assert!(MCPStore::prompt_override_matches_instance(&value, instance_id).unwrap());
+        assert!(MCPStore::resource_override_matches_instance(&value, instance_id).unwrap());
+        assert!(
+            MCPStore::resource_template_override_matches_instance(&value, instance_id).unwrap()
+        );
     }
 }

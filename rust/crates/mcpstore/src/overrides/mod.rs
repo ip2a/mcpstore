@@ -98,12 +98,19 @@ impl MCPStore {
         enabled: bool,
     ) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
+        self.validate_component_key(kind, instance_id, original_key)
+            .await?;
         let key = Self::component_override_key(instance_id, original_key);
-        for attempt in 0..2 {
+        for attempt in 0..8 {
             let Some(value) = self.cache.get_state(kind.state_type(), &key).await? else {
-                self.dispatch_set_enabled_when_no_rule(kind, instance_id, original_key, enabled)
-                    .await?;
-                return Ok(());
+                match self
+                    .dispatch_set_enabled_when_no_rule(kind, instance_id, original_key, enabled)
+                    .await
+                {
+                    Ok(()) => return Ok(()),
+                    Err(StoreError::Cache(crate::cache::CacheError::Conflict(_))) => continue,
+                    Err(error) => return Err(error),
+                }
             };
             let mut obj = match value {
                 Value::Object(map) => map,
@@ -129,7 +136,7 @@ impl MCPStore {
                 .await
             {
                 Ok(()) => return Ok(()),
-                Err(crate::cache::CacheError::Conflict(_)) if attempt == 0 => continue,
+                Err(crate::cache::CacheError::Conflict(_)) if attempt < 7 => continue,
                 Err(crate::cache::CacheError::Conflict(_)) => {
                     return Err(StoreError::Other(format!(
                         "{kind:?} override concurrent modification, retry exhausted"
@@ -139,6 +146,81 @@ impl MCPStore {
             }
         }
         unreachable!()
+    }
+
+    pub(crate) async fn validate_component_key(
+        &self,
+        kind: ComponentKind,
+        instance_id: InstanceId,
+        key: &str,
+    ) -> Result<()> {
+        let exists = match kind {
+            ComponentKind::Tool => self
+                .require_instance(instance_id)
+                .await?
+                .tools
+                .iter()
+                .any(|tool| tool.name == key),
+            ComponentKind::Prompt => self
+                .list_prompts(instance_id)
+                .await?
+                .iter()
+                .any(|v| v.name == key),
+            ComponentKind::Resource => self
+                .list_resources(instance_id)
+                .await?
+                .iter()
+                .any(|v| v.uri == key),
+            ComponentKind::ResourceTemplate => self
+                .list_resource_templates(instance_id)
+                .await?
+                .iter()
+                .any(|v| v.uri_template == key),
+        };
+        if exists {
+            Ok(())
+        } else {
+            Err(StoreError::Other(format!(
+                "{kind:?} '{key}' not found in instance '{instance_id}'"
+            )))
+        }
+    }
+
+    pub(crate) async fn resolve_component_override_key(
+        &self,
+        kind: ComponentKind,
+        instance_id: InstanceId,
+        client_key: &str,
+    ) -> Result<String> {
+        let raw_keys: Vec<String> = match kind {
+            ComponentKind::Tool => self
+                .require_instance(instance_id)
+                .await?
+                .tools
+                .into_iter()
+                .map(|tool| tool.name)
+                .collect(),
+            ComponentKind::Prompt => self
+                .list_prompts(instance_id)
+                .await?
+                .into_iter()
+                .map(|v| v.name)
+                .collect(),
+            ComponentKind::Resource => self
+                .list_resources(instance_id)
+                .await?
+                .into_iter()
+                .map(|v| v.uri)
+                .collect(),
+            ComponentKind::ResourceTemplate => self
+                .list_resource_templates(instance_id)
+                .await?
+                .into_iter()
+                .map(|v| v.uri_template)
+                .collect(),
+        };
+        self.ensure_original_key_for_component(kind, instance_id, client_key, &raw_keys)
+            .await
     }
 
     pub(crate) fn component_override_key(instance_id: InstanceId, original_key: &str) -> String {

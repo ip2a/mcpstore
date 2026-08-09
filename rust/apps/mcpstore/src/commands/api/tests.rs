@@ -182,8 +182,7 @@ async fn spawn_test_api_with_state(
     let addr = listener.local_addr().unwrap();
     let state = Arc::new(ApiState {
         store,
-        client_changes: Arc::new(Mutex::new(HashMap::new())),
-        aggregate_process: Arc::new(Mutex::new(None)),
+        mcp_hub_process: Arc::new(Mutex::new(None)),
     });
     let app = router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {
@@ -210,7 +209,7 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
 
     let status: Value = client
         .get(format!(
-            "{base_url}/aggregate/status?transport=streamable-http&port=1830"
+            "{base_url}/mcp-hub/status?transport=streamable-http&port=1830"
         ))
         .send()
         .await
@@ -223,7 +222,7 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
     assert_eq!(status["data"]["url"], "http://127.0.0.1:1830/mcp");
 
     let start = client
-        .post(format!("{base_url}/aggregate/start?transport=stdio"))
+        .post(format!("{base_url}/mcp-hub/start?transport=stdio"))
         .send()
         .await
         .unwrap();
@@ -233,7 +232,7 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
 }
 
 #[tokio::test]
-async fn client_config_routes_preserve_secrets_and_require_expected_hash_for_undo() {
+async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     let path = unique_temp_dir_path("client-config-api").with_extension("json");
     let secret = "api-secret-do-not-return";
     std::fs::write(
@@ -280,88 +279,6 @@ async fn client_config_routes_preserve_secrets_and_require_expected_hash_for_und
         )
         .await
         .unwrap();
-    let entry = json!({
-        "name": "aggregate",
-        "kind": "aggregate_stdio",
-        "config": {"command": "mcpstore", "args": ["mcp"]}
-    });
-
-    let inspect = client
-        .post(format!("{base_url}/client-config/inspect"))
-        .json(&json!({"client": "claude_code", "path": path}))
-        .send()
-        .await
-        .unwrap();
-    assert!(inspect.status().is_success());
-    let inspect_body = inspect.text().await.unwrap();
-    assert!(inspect_body.contains("existing"));
-    assert!(!inspect_body.contains(secret));
-    assert!(!inspect_body.contains("Bearer header-secret"));
-
-    let inspection: Value = serde_json::from_str(&inspect_body).unwrap();
-    let hash = inspection["data"]["content_hash"].as_str().unwrap();
-
-    let plan = client
-        .post(format!("{base_url}/client-config/plan"))
-        .json(&json!({
-            "client": "claude_code",
-            "path": path,
-            "entries": [entry]
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert!(plan.status().is_success());
-    let plan_body = plan.text().await.unwrap();
-    assert!(plan_body.contains("new"));
-    assert!(!plan_body.contains(secret));
-    assert!(!plan_body.contains("Bearer header-secret"));
-
-    let stale_apply = client
-        .post(format!("{base_url}/client-config/apply"))
-        .json(&json!({
-            "client": "claude_code",
-            "path": path,
-            "expected_hash": "stale-hash",
-            "entries": [entry]
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(stale_apply.status(), axum::http::StatusCode::BAD_REQUEST);
-
-    let apply = client
-        .post(format!("{base_url}/client-config/apply"))
-        .json(&json!({
-            "client": "claude_code",
-            "path": path,
-            "expected_hash": hash,
-            "entries": [entry]
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert!(apply.status().is_success());
-    let apply_payload: Value = apply.json().await.unwrap();
-    let change_id = apply_payload["data"]["change_id"].as_str().unwrap();
-
-    let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(written["mcpServers"]["aggregate"]["command"], "mcpstore");
-    assert_eq!(written["mcpServers"]["unrelated"]["enabled"], true);
-    assert_eq!(written["otherSettings"]["keep"], true);
-    assert_eq!(written["mcpServers"]["existing"]["env"]["TOKEN"], secret);
-
-    let undo = client
-        .post(format!("{base_url}/client-config/undo"))
-        .json(&json!({"change_id": change_id}))
-        .send()
-        .await
-        .unwrap();
-    assert!(undo.status().is_success());
-    let restored: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert!(restored["mcpServers"].get("aggregate").is_none());
-    assert_eq!(restored["mcpServers"]["existing"]["env"]["TOKEN"], secret);
-
     let partial_import = client
         .post(format!("{base_url}/client-config/import"))
         .json(&json!({
@@ -404,23 +321,9 @@ async fn client_config_routes_preserve_secrets_and_require_expected_hash_for_und
     assert_eq!(imported["command"], "node");
     assert_eq!(imported["env"]["TOKEN"], secret);
 
-    let unknown = client
-        .post(format!("{base_url}/client-config/undo"))
-        .json(&json!({"change_id": "missing-change"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(unknown.status(), axum::http::StatusCode::NOT_FOUND);
-    let unknown_body = unknown.text().await.unwrap();
-    assert!(unknown_body.contains("CHANGE_NOT_FOUND"));
-
     handle.abort();
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&store_path);
-    let _ = std::fs::remove_file(path.with_file_name(format!(
-        ".{}.mcpstore.lock",
-        path.file_name().unwrap().to_string_lossy()
-    )));
 }
 
 #[tokio::test]
@@ -487,9 +390,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
     assert!(!callback_body.contains("sensitive-state"));
 
     let empty_secret = client
-        .post(format!(
-            "{base_url}/services/demo/auth/client-secret"
-        ))
+        .post(format!("{base_url}/services/demo/auth/client-secret"))
         .json(&json!({"client_secret": ""}))
         .send()
         .await
@@ -500,9 +401,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
     assert!(!secret_body.contains("client_secret"));
 
     let empty_key = client
-        .post(format!(
-            "{base_url}/services/demo/auth/private-key"
-        ))
+        .post(format!("{base_url}/services/demo/auth/private-key"))
         .json(&json!({"private_key_pem": ""}))
         .send()
         .await
@@ -1288,9 +1187,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
     assert_eq!(removed["data"]["total"], 1);
 
     let invalid = client
-        .get(format!(
-            "{base_url}/services/demo/tools/list?filter=hidden"
-        ))
+        .get(format!("{base_url}/services/demo/tools/list?filter=hidden"))
         .send()
         .await
         .unwrap();
@@ -1332,9 +1229,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
     let base_url = format!("http://{addr}");
 
     let set_override = client
-        .put(format!(
-            "{base_url}/services/demo/tool_overrides/echo"
-        ))
+        .put(format!("{base_url}/services/demo/tool_overrides/echo"))
         .json(&json!({
             "display_name": "say",
             "description": "Say text with a stable hidden debug flag.",
@@ -1379,9 +1274,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
     assert_eq!(tool["input_schema"]["required"], json!(["message"]));
 
     let get_override = client
-        .get(format!(
-            "{base_url}/services/demo/tool_overrides/echo"
-        ))
+        .get(format!("{base_url}/services/demo/tool_overrides/echo"))
         .send()
         .await
         .unwrap();
@@ -1399,9 +1292,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
     assert_eq!(list_payload["data"]["total"], 1);
 
     let delete_transform = client
-        .delete(format!(
-            "{base_url}/services/demo/tool_overrides/echo"
-        ))
+        .delete(format!("{base_url}/services/demo/tool_overrides/echo"))
         .send()
         .await
         .unwrap();
@@ -1418,6 +1309,46 @@ async fn store_routes_manage_rust_core_tool_overrides() {
         list_tools_after_delete_payload["data"]["tools"][0]["name"],
         "echo"
     );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        backend: Some(CacheStorage::memory()),
+        redis_url: None,
+        namespace: Some(unique_namespace()),
+    })
+    .unwrap();
+    seed_db_service(&store).await;
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    // Query encoding keeps ?, #, spaces, and encoded slashes opaque to routing.
+    let uri = "fixture%3A%2F%2Fdocs%2Fread%3Fx%3Dhello%20world%23fragment%2Fencoded";
+    let resource = client
+        .get(format!(
+            "{base_url}/services/demo/resource_overrides?scope=store&uri={uri}"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert!(resource.status().is_success());
+    assert!(resource.json::<Value>().await.unwrap()["data"]["override"].is_null());
+
+    let template = client
+        .get(format!(
+            "{base_url}/services/demo/resource_template_overrides?scope=store&uri_template={uri}"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert!(template.status().is_success());
+    assert!(template.json::<Value>().await.unwrap()["data"]["override"].is_null());
 
     handle.abort();
 }

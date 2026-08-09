@@ -90,13 +90,22 @@ impl MCPStore {
     ) -> Result<ResourceOverrideRule> {
         self.refresh_from_db_if_needed().await?;
         let instance = self.require_instance(instance_id).await?;
-        let loaded = self.load_resource_override(instance_id, uri).await?;
+        let raw_uris = self
+            .list_resources(instance_id)
+            .await?
+            .into_iter()
+            .map(|resource| resource.uri)
+            .collect::<Vec<_>>();
+        let uri = self
+            .ensure_original_key_for_component(ComponentKind::Resource, instance_id, uri, &raw_uris)
+            .await?;
+        let loaded = self.load_resource_override(instance_id, &uri).await?;
         let expected = loaded.as_ref().map(|r| r.version);
         let mut rule = loaded.unwrap_or(ResourceOverrideRule {
             instance_id,
             service_name: instance.service_name.clone(),
             scope: instance.scope.clone(),
-            uri: uri.into(),
+            uri: uri.clone(),
             common: ComponentOverrideCommon::default(),
             mime_type: None,
             updated_at: 0,
@@ -104,7 +113,7 @@ impl MCPStore {
         });
         rule.service_name = instance.service_name;
         rule.scope = instance.scope;
-        rule.uri = uri.into();
+        rule.uri = uri.clone();
         rule.common = patch.common;
         rule.common.display_name = rule.common.display_name.filter(|v| !v.trim().is_empty());
         rule.mime_type = patch.mime_type;
@@ -113,7 +122,7 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 RESOURCE_OVERRIDES_STATE_TYPE,
-                &Self::component_override_key(instance_id, uri),
+                &Self::component_override_key(instance_id, &uri),
                 expected,
                 serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
             )
@@ -176,13 +185,27 @@ impl MCPStore {
     ) -> Result<ResourceTemplateOverrideRule> {
         self.refresh_from_db_if_needed().await?;
         let instance = self.require_instance(i).await?;
-        let loaded = self.load_resource_template_override(i, u).await?;
+        let raw_templates = self
+            .list_resource_templates(i)
+            .await?
+            .into_iter()
+            .map(|template| template.uri_template)
+            .collect::<Vec<_>>();
+        let u = self
+            .ensure_original_key_for_component(
+                ComponentKind::ResourceTemplate,
+                i,
+                u,
+                &raw_templates,
+            )
+            .await?;
+        let loaded = self.load_resource_template_override(i, &u).await?;
         let expected = loaded.as_ref().map(|r| r.version);
         let mut rule = loaded.unwrap_or(ResourceTemplateOverrideRule {
             instance_id: i,
             service_name: instance.service_name.clone(),
             scope: instance.scope.clone(),
-            uri_template: u.into(),
+            uri_template: u.clone(),
             common: ComponentOverrideCommon::default(),
             mime_type: None,
             updated_at: 0,
@@ -190,7 +213,7 @@ impl MCPStore {
         });
         rule.service_name = instance.service_name;
         rule.scope = instance.scope;
-        rule.uri_template = u.into();
+        rule.uri_template = u.clone();
         rule.common = patch.common;
         rule.common.display_name = rule.common.display_name.filter(|v| !v.trim().is_empty());
         rule.mime_type = patch.mime_type;
@@ -199,7 +222,7 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
-                &Self::component_override_key(i, u),
+                &Self::component_override_key(i, &u),
                 expected,
                 serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
             )

@@ -37,6 +37,22 @@ pub(super) struct ServiceReadResourceQuery {
     uri: String,
 }
 
+/// `GET|PUT|DELETE /services/{name}/resource_overrides?scope=&uri=`.
+#[derive(Deserialize)]
+pub(super) struct ResourceOverrideQuery {
+    #[serde(flatten)]
+    scope: ScopeQuery,
+    uri: String,
+}
+
+/// `GET|PUT|DELETE /services/{name}/resource_template_overrides?scope=&uri_template=`.
+#[derive(Deserialize)]
+pub(super) struct ResourceTemplateOverrideQuery {
+    #[serde(flatten)]
+    scope: ScopeQuery,
+    uri_template: String,
+}
+
 /// `GET /tools/list?service_name=&scope=&filter=` —— 顶层工具列表。
 #[derive(Deserialize)]
 pub(super) struct ToolsListQuery {
@@ -805,10 +821,11 @@ pub(super) async fn store_list_resource_overrides(State(state): State<Arc<ApiSta
 
 pub(super) async fn service_get_resource_override(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, uri)): Path<(String, String)>,
-    Query(query): Query<ScopeQuery>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceOverrideQuery>,
 ) -> ApiResult {
-    let scope = query.into_scope_ref()?;
+    let uri = query.uri;
+    let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
@@ -823,11 +840,12 @@ pub(super) async fn service_get_resource_override(
 
 pub(super) async fn service_set_resource_override(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, uri)): Path<(String, String)>,
-    Query(query): Query<ScopeQuery>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceOverrideQuery>,
     Json(patch): Json<ResourceOverridePatch>,
 ) -> ApiResult {
-    let scope = query.into_scope_ref()?;
+    let uri = query.uri;
+    let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
@@ -842,10 +860,11 @@ pub(super) async fn service_set_resource_override(
 
 pub(super) async fn service_delete_resource_override(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, uri)): Path<(String, String)>,
-    Query(query): Query<ScopeQuery>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceOverrideQuery>,
 ) -> ApiResult {
-    let scope = query.into_scope_ref()?;
+    let uri = query.uri;
+    let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store
@@ -874,10 +893,11 @@ pub(super) async fn store_list_resource_template_overrides(
 
 pub(super) async fn service_get_resource_template_override(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, uri_template)): Path<(String, String)>,
-    Query(query): Query<ScopeQuery>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceTemplateOverrideQuery>,
 ) -> ApiResult {
-    let scope = query.into_scope_ref()?;
+    let uri_template = query.uri_template;
+    let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
@@ -892,11 +912,12 @@ pub(super) async fn service_get_resource_template_override(
 
 pub(super) async fn service_set_resource_template_override(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, uri_template)): Path<(String, String)>,
-    Query(query): Query<ScopeQuery>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceTemplateOverrideQuery>,
     Json(patch): Json<ResourceTemplateOverridePatch>,
 ) -> ApiResult {
-    let scope = query.into_scope_ref()?;
+    let uri_template = query.uri_template;
+    let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     let rule = state
         .store
@@ -911,10 +932,11 @@ pub(super) async fn service_set_resource_template_override(
 
 pub(super) async fn service_delete_resource_template_override(
     State(state): State<Arc<ApiState>>,
-    Path((service_name, uri_template)): Path<(String, String)>,
-    Query(query): Query<ScopeQuery>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ResourceTemplateOverrideQuery>,
 ) -> ApiResult {
-    let scope = query.into_scope_ref()?;
+    let uri_template = query.uri_template;
+    let scope = query.scope.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     state
         .store

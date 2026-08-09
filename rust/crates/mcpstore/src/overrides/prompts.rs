@@ -57,20 +57,34 @@ impl MCPStore {
     ) -> Result<PromptOverrideRule> {
         self.refresh_from_db_if_needed().await?;
         let instance = self.require_instance(instance_id).await?;
-        let loaded = self.load_prompt_override(instance_id, prompt_name).await?;
+        let raw_names = self
+            .list_prompts(instance_id)
+            .await?
+            .into_iter()
+            .map(|prompt| prompt.name)
+            .collect::<Vec<_>>();
+        let prompt_name = self
+            .ensure_original_key_for_component(
+                ComponentKind::Prompt,
+                instance_id,
+                prompt_name,
+                &raw_names,
+            )
+            .await?;
+        let loaded = self.load_prompt_override(instance_id, &prompt_name).await?;
         let expected_version = loaded.as_ref().map(|rule| rule.version);
         let mut rule = loaded.unwrap_or_else(|| PromptOverrideRule {
             instance_id,
             service_name: instance.service_name.clone(),
             scope: instance.scope.clone(),
-            prompt_name: prompt_name.into(),
+            prompt_name: prompt_name.clone(),
             common: ComponentOverrideCommon::default(),
             updated_at: 0,
             version: 0,
         });
         rule.service_name = instance.service_name;
         rule.scope = instance.scope;
-        rule.prompt_name = prompt_name.into();
+        rule.prompt_name = prompt_name.clone();
         rule.common = patch.common;
         rule.common.display_name = rule.common.display_name.filter(|v| !v.trim().is_empty());
         rule.updated_at = Self::now_timestamp();
@@ -78,7 +92,7 @@ impl MCPStore {
         self.cache
             .compare_and_put_state(
                 PROMPT_OVERRIDES_STATE_TYPE,
-                &Self::component_override_key(instance_id, prompt_name),
+                &Self::component_override_key(instance_id, &prompt_name),
                 expected_version,
                 serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
             )

@@ -13,11 +13,7 @@ use axum::{
 };
 use clap::Args;
 use mcpstore::{
-    client_config::{
-        apply_config_change, import_selected_services, inspect_client_config, plan_add_entries,
-        ClientConfigInspection, ClientEntryKind, ClientEntryPlan, ClientEntrySpec,
-        ClientEntryStatus, ClientKind, ConfigChangeReceipt,
-    },
+    client_config::{import_selected_services, inspect_client_config, ClientKind},
     config::ScopeDescriptor,
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
@@ -68,16 +64,15 @@ pub struct ApiArgs {
 #[derive(Clone)]
 pub struct ApiState {
     store: Arc<MCPStore>,
-    client_changes: Arc<Mutex<HashMap<String, ConfigChangeReceipt>>>,
-    aggregate_process: Arc<Mutex<Option<AggregateProcess>>>,
+    mcp_hub_process: Arc<Mutex<Option<McpHubProcess>>>,
 }
 
-struct AggregateProcess {
+struct McpHubProcess {
     child: Child,
     descriptor: McpServerLaunchDescriptor,
 }
 
-impl Drop for AggregateProcess {
+impl Drop for McpHubProcess {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
     }
@@ -143,8 +138,7 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
 pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     let state = Arc::new(ApiState {
         store,
-        client_changes: Arc::new(Mutex::new(HashMap::new())),
-        aggregate_process: Arc::new(Mutex::new(None)),
+        mcp_hub_process: Arc::new(Mutex::new(None)),
     });
     if !state.store.is_db_source() {
         let store = state.store.clone();
@@ -313,7 +307,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             get(service::store_list_resource_overrides),
         )
         .route(
-            "/services/:service_name/resource_overrides/*uri",
+            "/services/:service_name/resource_overrides",
             get(service::service_get_resource_override)
                 .put(service::service_set_resource_override)
                 .delete(service::service_delete_resource_override),
@@ -323,7 +317,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             get(service::store_list_resource_template_overrides),
         )
         .route(
-            "/services/:service_name/resource_template_overrides/*uri_template",
+            "/services/:service_name/resource_template_overrides",
             get(service::service_get_resource_template_override)
                 .put(service::service_set_resource_template_override)
                 .delete(service::service_delete_resource_template_override),
@@ -394,18 +388,11 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         // ===== 配置 / 编程助手 / 聚合 / 缓存（app 专用，非 core）=====
         .route("/config", get(service::store_show_config))
         .route("/config/reset", post(service::store_reset_config))
-        .route(
-            "/client-config/inspect",
-            post(client::client_config_inspect),
-        )
-        .route("/client-config/plan", post(client::client_config_plan))
-        .route("/client-config/apply", post(client::client_config_apply))
-        .route("/client-config/undo", post(client::client_config_undo))
         .route("/client-config/import", post(client::client_config_import))
-        .route("/aggregate/launch", get(client::aggregate_launch))
-        .route("/aggregate/status", get(client::aggregate_status))
-        .route("/aggregate/start", post(client::aggregate_start))
-        .route("/aggregate/stop", post(client::aggregate_stop))
+        .route("/mcp-hub/descriptor", get(client::mcp_hub_descriptor))
+        .route("/mcp-hub/status", get(client::mcp_hub_status))
+        .route("/mcp-hub/start", post(client::mcp_hub_start))
+        .route("/mcp-hub/stop", post(client::mcp_hub_stop))
         .route("/cache/health", get(cache::health))
         .route("/cache/inspect", get(cache::inspect))
         .route("/cache/switch", post(cache::switch))

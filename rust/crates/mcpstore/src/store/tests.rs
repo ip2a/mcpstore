@@ -7293,46 +7293,26 @@ mod scoped_contract {
             .unwrap();
         let id = store_instance_id("svc");
         install_tool(&store, id, tool("echo")).await;
-        store
-            .set_prompt_override(
+        assert!(store
+            .set_prompt_override(id, "phantom", crate::PromptOverridePatch::default())
+            .await
+            .is_err());
+        assert!(store
+            .set_resource_override(
                 id,
-                "greet",
-                crate::PromptOverridePatch::default()
-                    .with_display_name("friendly-greet")
-                    .with_description("A friendly greeting"),
+                "phantom://resource",
+                crate::ResourceOverridePatch::default()
             )
             .await
-            .unwrap();
-        store.disable_prompt(id, "greet").await.unwrap();
-        let prompt = store
-            .get_prompt_override(id, "greet")
+            .is_err());
+        assert!(store
+            .set_resource_template_override(
+                id,
+                "phantom://{value}",
+                crate::ResourceTemplateOverridePatch::default()
+            )
             .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(prompt.common.enabled, Some(false));
-        assert_eq!(
-            prompt.common.display_name.as_deref(),
-            Some("friendly-greet")
-        );
-        assert_eq!(
-            prompt.common.description.as_deref(),
-            Some("A friendly greeting")
-        );
-        store.enable_prompt(id, "greet").await.unwrap();
-        let prompt = store
-            .get_prompt_override(id, "greet")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(prompt.common.enabled, Some(true));
-        assert_eq!(
-            prompt.common.display_name.as_deref(),
-            Some("friendly-greet")
-        );
-        assert_eq!(
-            prompt.common.description.as_deref(),
-            Some("A friendly greeting")
-        );
+            .is_err());
         store
             .set_tool_override(
                 id,
@@ -7350,6 +7330,14 @@ mod scoped_contract {
             tool_rule.common.display_name.as_deref(),
             Some("friendly-echo")
         );
+
+        let (enable, disable) = tokio::join!(
+            store.enable_tool(id, "echo"),
+            store.disable_tool(id, "echo")
+        );
+        enable.unwrap();
+        disable.unwrap();
+        assert!(store.get_tool_override(id, "echo").await.unwrap().is_some());
         assert_eq!(
             tool_rule.common.description.as_deref(),
             Some("A friendly echo")

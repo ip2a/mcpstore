@@ -274,6 +274,28 @@ mod tests {
     }
 
     #[test]
+    fn component_override_schemas_match_component_fields() {
+        let tool = tool_override_schema(&[]);
+        assert!(tool["properties"].get("arguments").is_some());
+        assert!(tool["properties"].get("safety_policy").is_some());
+        assert!(tool["properties"].get("meta").is_some());
+
+        let prompt = build_prompt_override_tools();
+        let prompt_schema = &prompt[PROMPT_OVERRIDE_SET_TOOL].input_schema;
+        assert!(prompt_schema["properties"].get("mime_type").is_none());
+        assert!(prompt_schema["properties"].get("arguments").is_none());
+
+        for tools in [
+            build_resource_override_tools(),
+            build_resource_template_override_tools(),
+        ] {
+            let schema = &tools.values().next().expect("override tool").input_schema;
+            assert!(schema["properties"].get("mime_type").is_some());
+            assert_eq!(schema["additionalProperties"], Value::Bool(false));
+        }
+    }
+
+    #[test]
     fn http_path_normalization_is_stable() {
         assert_eq!(normalize_http_path(""), "/mcp");
         assert_eq!(normalize_http_path("custom/"), "/custom");
