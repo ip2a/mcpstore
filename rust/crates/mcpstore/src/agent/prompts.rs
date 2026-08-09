@@ -54,6 +54,15 @@ impl MCPStore {
                 &raw_names,
             )
             .await?;
+        if self
+            .load_prompt_override(instance_id, &original)
+            .await?
+            .is_some_and(|rule| rule.common.enabled == Some(false))
+        {
+            return Err(crate::StoreError::Other(format!(
+                "Prompt '{prompt_name}' is disabled in instance '{instance_id}'"
+            )));
+        }
         self.get_prompt(instance_id, &original, arguments).await
     }
 }

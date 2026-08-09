@@ -216,14 +216,14 @@ pub(super) fn tool_override_schema(required: &[&str]) -> Map<String, Value> {
     properties.insert(
         "display_name".to_string(),
         serde_json::json!({
-            "type": "string",
+            "type": ["string", "null"],
             "description": "Optional display name exposed on scoped agent/tool surfaces."
         }),
     );
     properties.insert(
         "description".to_string(),
         serde_json::json!({
-            "type": "string",
+            "type": ["string", "null"],
             "description": "Optional description override exposed on scoped agent/tool surfaces."
         }),
     );
@@ -235,10 +235,11 @@ pub(super) fn tool_override_schema(required: &[&str]) -> Map<String, Value> {
                 "type": "object",
                 "properties": {
                     "original_name": {"type": "string"},
-                    "new_name": {"type": "string"},
+                    "new_name": {"type": ["string", "null"]},
                     "hidden": {"type": "boolean"},
                     "default_value": {},
-                    "description": {"type": "string"}
+                    "description": {"type": ["string", "null"]},
+                    "validation_schema": {}
                 },
                 "required": ["original_name", "hidden"],
                 "additionalProperties": false
@@ -251,8 +252,20 @@ pub(super) fn tool_override_schema(required: &[&str]) -> Map<String, Value> {
     );
     properties.insert(
         "enabled".to_string(),
-        serde_json::json!({"type": "boolean"}),
+        serde_json::json!({"type": ["boolean", "null"]}),
     );
+    properties.insert(
+        "safety_policy".to_string(),
+        serde_json::json!({
+            "type": ["object", "null"],
+            "properties": {
+                "reject_dangerous_argument_names": {"type": "boolean"},
+                "dangerous_argument_name_patterns": {"type": "array", "items": {"type": "string"}}
+            },
+            "additionalProperties": false
+        }),
+    );
+    add_common_override_properties(&mut properties);
 
     let mut schema = Map::new();
     schema.insert("type".to_string(), Value::String("object".to_string()));
@@ -333,26 +346,13 @@ fn component_override_schema(component_field: &str, required: &[&str]) -> Map<St
         component_field.to_string(),
         serde_json::json!({"type": "string"}),
     );
-    properties.insert(
-        "display_name".to_string(),
-        serde_json::json!({"type": "string"}),
-    );
-    properties.insert(
-        "description".to_string(),
-        serde_json::json!({"type": "string"}),
-    );
-    properties.insert(
-        "mime_type".to_string(),
-        serde_json::json!({"type": "string"}),
-    );
-    properties.insert(
-        "tags".to_string(),
-        serde_json::json!({"type": "array", "items": {"type": "string"}}),
-    );
-    properties.insert(
-        "enabled".to_string(),
-        serde_json::json!({"type": "boolean"}),
-    );
+    add_common_override_properties(&mut properties);
+    if component_field == "uri" || component_field == "uri_template" {
+        properties.insert(
+            "mime_type".to_string(),
+            serde_json::json!({"type": ["string", "null"]}),
+        );
+    }
     let mut schema = Map::new();
     schema.insert("type".to_string(), Value::String("object".to_string()));
     schema.insert("properties".to_string(), Value::Object(properties));
@@ -369,6 +369,27 @@ fn component_override_schema(component_field: &str, required: &[&str]) -> Map<St
         );
     }
     schema
+}
+
+fn add_common_override_properties(properties: &mut Map<String, Value>) {
+    properties.insert(
+        "display_name".to_string(),
+        serde_json::json!({"type": ["string", "null"]}),
+    );
+    properties.insert(
+        "description".to_string(),
+        serde_json::json!({"type": ["string", "null"]}),
+    );
+    properties.insert("meta".to_string(), serde_json::json!({}));
+    properties.insert("annotations".to_string(), serde_json::json!({}));
+    properties.insert(
+        "tags".to_string(),
+        serde_json::json!({"type": "array", "items": {"type": "string"}}),
+    );
+    properties.insert(
+        "enabled".to_string(),
+        serde_json::json!({"type": ["boolean", "null"]}),
+    );
 }
 
 pub(super) fn build_prompt_override_tools() -> HashMap<String, Tool> {
@@ -1127,15 +1148,27 @@ pub(super) async fn call_session_state_tool(
 pub(super) async fn call_tool_override_tool(
     store: &MCPStore,
     tool_name: &str,
+    scope: &ScopeRef,
+    configured_instance: Option<InstanceId>,
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
         TOOL_OVERRIDE_LIST_TOOL => {
-            let overrides = store.list_tool_overrides().await.map_err(map_store_error)?;
+            let overrides = store
+                .list_tool_overrides()
+                .await
+                .map_err(map_store_error)?
+                .into_iter()
+                .filter(|rule| {
+                    rule.scope == *scope
+                        && configured_instance.is_none_or(|id| rule.instance_id == id)
+                })
+                .collect::<Vec<_>>();
             serde_json::json!({"overrides": overrides, "total": overrides.len()})
         }
         TOOL_OVERRIDE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
             let rule = store
                 .get_tool_override(instance_id, tool_name)
@@ -1145,6 +1178,7 @@ pub(super) async fn call_tool_override_tool(
         }
         TOOL_OVERRIDE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let tool_name = required_argument_string(&arguments, "tool_name")?.to_string();
             let patch = serde_json::from_value::<ToolOverridePatch>(Value::Object(arguments))
                 .map_err(|error| {
@@ -1161,6 +1195,7 @@ pub(super) async fn call_tool_override_tool(
         }
         TOOL_OVERRIDE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let tool_name = required_argument_string(&arguments, "tool_name")?;
             store
                 .delete_tool_override(instance_id, tool_name)
@@ -1181,6 +1216,8 @@ pub(super) async fn call_tool_override_tool(
 pub(super) async fn call_prompt_override_tool(
     store: &MCPStore,
     tool_name: &str,
+    scope: &ScopeRef,
+    configured_instance: Option<InstanceId>,
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
@@ -1188,11 +1225,18 @@ pub(super) async fn call_prompt_override_tool(
             let rules = store
                 .list_prompt_overrides()
                 .await
-                .map_err(map_store_error)?;
+                .map_err(map_store_error)?
+                .into_iter()
+                .filter(|rule| {
+                    rule.scope == *scope
+                        && configured_instance.is_none_or(|id| rule.instance_id == id)
+                })
+                .collect::<Vec<_>>();
             serde_json::json!({"overrides": rules, "total": rules.len()})
         }
         PROMPT_OVERRIDE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let name = required_argument_string(&arguments, "prompt_name")?;
             let rule = store
                 .get_prompt_override(instance_id, name)
@@ -1202,6 +1246,7 @@ pub(super) async fn call_prompt_override_tool(
         }
         PROMPT_OVERRIDE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let name = required_argument_string(&arguments, "prompt_name")?.to_string();
             let patch = serde_json::from_value::<PromptOverridePatch>(Value::Object(arguments))
                 .map_err(|error| {
@@ -1218,6 +1263,7 @@ pub(super) async fn call_prompt_override_tool(
         }
         PROMPT_OVERRIDE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let name = required_argument_string(&arguments, "prompt_name")?;
             store
                 .delete_prompt_override(instance_id, name)
@@ -1238,6 +1284,8 @@ pub(super) async fn call_prompt_override_tool(
 pub(super) async fn call_resource_override_tool(
     store: &MCPStore,
     tool_name: &str,
+    scope: &ScopeRef,
+    configured_instance: Option<InstanceId>,
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
@@ -1245,11 +1293,18 @@ pub(super) async fn call_resource_override_tool(
             let rules = store
                 .list_resource_overrides()
                 .await
-                .map_err(map_store_error)?;
+                .map_err(map_store_error)?
+                .into_iter()
+                .filter(|rule| {
+                    rule.scope == *scope
+                        && configured_instance.is_none_or(|id| rule.instance_id == id)
+                })
+                .collect::<Vec<_>>();
             serde_json::json!({"overrides": rules, "total": rules.len()})
         }
         RESOURCE_OVERRIDE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri")?;
             let rule = store
                 .get_resource_override(instance_id, uri)
@@ -1259,6 +1314,7 @@ pub(super) async fn call_resource_override_tool(
         }
         RESOURCE_OVERRIDE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri")?.to_string();
             let patch = serde_json::from_value::<ResourceOverridePatch>(Value::Object(arguments))
                 .map_err(|error| {
@@ -1275,6 +1331,7 @@ pub(super) async fn call_resource_override_tool(
         }
         RESOURCE_OVERRIDE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri")?;
             store
                 .delete_resource_override(instance_id, uri)
@@ -1295,6 +1352,8 @@ pub(super) async fn call_resource_override_tool(
 pub(super) async fn call_resource_template_override_tool(
     store: &MCPStore,
     tool_name: &str,
+    scope: &ScopeRef,
+    configured_instance: Option<InstanceId>,
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
@@ -1302,11 +1361,18 @@ pub(super) async fn call_resource_template_override_tool(
             let rules = store
                 .list_resource_template_overrides()
                 .await
-                .map_err(map_store_error)?;
+                .map_err(map_store_error)?
+                .into_iter()
+                .filter(|rule| {
+                    rule.scope == *scope
+                        && configured_instance.is_none_or(|id| rule.instance_id == id)
+                })
+                .collect::<Vec<_>>();
             serde_json::json!({"overrides": rules, "total": rules.len()})
         }
         RESOURCE_TEMPLATE_OVERRIDE_GET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri_template")?;
             let rule = store
                 .get_resource_template_override(instance_id, uri)
@@ -1316,6 +1382,7 @@ pub(super) async fn call_resource_template_override_tool(
         }
         RESOURCE_TEMPLATE_OVERRIDE_SET_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri_template")?.to_string();
             let patch =
                 serde_json::from_value::<ResourceTemplateOverridePatch>(Value::Object(arguments))
@@ -1333,6 +1400,7 @@ pub(super) async fn call_resource_template_override_tool(
         }
         RESOURCE_TEMPLATE_OVERRIDE_DELETE_TOOL => {
             let instance_id = required_instance_id_argument(&arguments)?;
+            authorize_override_instance(store, scope, configured_instance, instance_id).await?;
             let uri = required_argument_string(&arguments, "uri_template")?;
             store
                 .delete_resource_template_override(instance_id, uri)
@@ -1348,6 +1416,30 @@ pub(super) async fn call_resource_template_override_tool(
         }
     };
     Ok(CallToolResult::structured(result))
+}
+
+async fn authorize_override_instance(
+    store: &MCPStore,
+    scope: &ScopeRef,
+    configured_instance: Option<InstanceId>,
+    instance_id: InstanceId,
+) -> Result<(), ErrorData> {
+    if configured_instance.is_some_and(|allowed| allowed != instance_id) {
+        return Err(ErrorData::invalid_params(
+            format!("instance_id {instance_id} is outside this MCP server's configured instance"),
+            None,
+        ));
+    }
+    let instance = store.find_instance(instance_id).await.ok_or_else(|| {
+        ErrorData::invalid_params(format!("Instance {instance_id} not found"), None)
+    })?;
+    if instance.scope != *scope {
+        return Err(ErrorData::invalid_params(
+            format!("instance_id {instance_id} is outside this MCP server's configured scope"),
+            None,
+        ));
+    }
+    Ok(())
 }
 
 pub(super) async fn call_openapi_tool(

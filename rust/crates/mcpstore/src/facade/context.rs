@@ -486,21 +486,42 @@ impl Service {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
-        self.context.store.list_tool_overrides().await
+        Ok(self
+            .context
+            .store
+            .list_tool_overrides()
+            .await?
+            .into_iter()
+            .filter(|rule| rule.instance_id == self.instance_id)
+            .collect())
     }
 
     pub async fn list_prompt_overrides(&self) -> Result<Vec<PromptOverrideRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
-        self.context.store.list_prompt_overrides().await
+        Ok(self
+            .context
+            .store
+            .list_prompt_overrides()
+            .await?
+            .into_iter()
+            .filter(|rule| rule.instance_id == self.instance_id)
+            .collect())
     }
 
     pub async fn list_resource_overrides(&self) -> Result<Vec<ResourceOverrideRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
-        self.context.store.list_resource_overrides().await
+        Ok(self
+            .context
+            .store
+            .list_resource_overrides()
+            .await?
+            .into_iter()
+            .filter(|rule| rule.instance_id == self.instance_id)
+            .collect())
     }
 
     pub async fn list_resource_template_overrides(
@@ -509,7 +530,14 @@ impl Service {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
-        self.context.store.list_resource_template_overrides().await
+        Ok(self
+            .context
+            .store
+            .list_resource_template_overrides()
+            .await?
+            .into_iter()
+            .filter(|rule| rule.instance_id == self.instance_id)
+            .collect())
     }
 }
 
@@ -639,45 +667,90 @@ impl Prompt {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Prompt,
+                self.instance_id,
+                &self.prompt_name,
+            )
+            .await?;
         self.context
             .store
-            .set_prompt_override(self.instance_id, &self.prompt_name, patch)
+            .set_prompt_override(self.instance_id, &key, patch)
             .await
     }
     pub async fn get_override(&self) -> Result<Option<PromptOverrideRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Prompt,
+                self.instance_id,
+                &self.prompt_name,
+            )
+            .await?;
         self.context
             .store
-            .get_prompt_override(self.instance_id, &self.prompt_name)
+            .get_prompt_override(self.instance_id, &key)
             .await
     }
     pub async fn delete_override(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Prompt,
+                self.instance_id,
+                &self.prompt_name,
+            )
+            .await?;
         self.context
             .store
-            .delete_prompt_override(self.instance_id, &self.prompt_name)
+            .delete_prompt_override(self.instance_id, &key)
             .await
     }
     pub async fn enable(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Prompt,
+                self.instance_id,
+                &self.prompt_name,
+            )
+            .await?;
         self.context
             .store
-            .enable_prompt(self.instance_id, &self.prompt_name)
+            .enable_prompt(self.instance_id, &key)
             .await
     }
     pub async fn disable(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Prompt,
+                self.instance_id,
+                &self.prompt_name,
+            )
+            .await?;
         self.context
             .store
-            .disable_prompt(self.instance_id, &self.prompt_name)
+            .disable_prompt(self.instance_id, &key)
             .await
     }
 }
@@ -720,45 +793,90 @@ impl Resource {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Resource,
+                self.instance_id,
+                &self.uri,
+            )
+            .await?;
         self.context
             .store
-            .set_resource_override(self.instance_id, &self.uri, patch)
+            .set_resource_override(self.instance_id, &key, patch)
             .await
     }
     pub async fn get_override(&self) -> Result<Option<ResourceOverrideRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Resource,
+                self.instance_id,
+                &self.uri,
+            )
+            .await?;
         self.context
             .store
-            .get_resource_override(self.instance_id, &self.uri)
+            .get_resource_override(self.instance_id, &key)
             .await
     }
     pub async fn delete_override(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Resource,
+                self.instance_id,
+                &self.uri,
+            )
+            .await?;
         self.context
             .store
-            .delete_resource_override(self.instance_id, &self.uri)
+            .delete_resource_override(self.instance_id, &key)
             .await
     }
     pub async fn enable(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Resource,
+                self.instance_id,
+                &self.uri,
+            )
+            .await?;
         self.context
             .store
-            .enable_resource(self.instance_id, &self.uri)
+            .enable_resource(self.instance_id, &key)
             .await
     }
     pub async fn disable(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::Resource,
+                self.instance_id,
+                &self.uri,
+            )
+            .await?;
         self.context
             .store
-            .disable_resource(self.instance_id, &self.uri)
+            .disable_resource(self.instance_id, &key)
             .await
     }
 }
@@ -799,45 +917,90 @@ impl ResourceTemplate {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::ResourceTemplate,
+                self.instance_id,
+                &self.uri_template,
+            )
+            .await?;
         self.context
             .store
-            .set_resource_template_override(self.instance_id, &self.uri_template, patch)
+            .set_resource_template_override(self.instance_id, &key, patch)
             .await
     }
     pub async fn get_override(&self) -> Result<Option<ResourceTemplateOverrideRule>> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::ResourceTemplate,
+                self.instance_id,
+                &self.uri_template,
+            )
+            .await?;
         self.context
             .store
-            .get_resource_template_override(self.instance_id, &self.uri_template)
+            .get_resource_template_override(self.instance_id, &key)
             .await
     }
     pub async fn delete_override(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::ResourceTemplate,
+                self.instance_id,
+                &self.uri_template,
+            )
+            .await?;
         self.context
             .store
-            .delete_resource_template_override(self.instance_id, &self.uri_template)
+            .delete_resource_template_override(self.instance_id, &key)
             .await
     }
     pub async fn enable(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::ResourceTemplate,
+                self.instance_id,
+                &self.uri_template,
+            )
+            .await?;
         self.context
             .store
-            .enable_resource_template(self.instance_id, &self.uri_template)
+            .enable_resource_template(self.instance_id, &key)
             .await
     }
     pub async fn disable(&self) -> Result<()> {
         self.context
             .resolve_service(ServiceTarget::InstanceId(self.instance_id))
             .await?;
+        let key = self
+            .context
+            .store
+            .resolve_component_override_key(
+                crate::overrides::ComponentKind::ResourceTemplate,
+                self.instance_id,
+                &self.uri_template,
+            )
+            .await?;
         self.context
             .store
-            .disable_resource_template(self.instance_id, &self.uri_template)
+            .disable_resource_template(self.instance_id, &key)
             .await
     }
 }

@@ -78,6 +78,29 @@ impl MCPStore {
         uri: &str,
     ) -> Result<serde_json::Value> {
         self.require_instance(instance_id).await?;
-        self.read_resource(instance_id, uri).await
+        let raw_uris: Vec<String> = self
+            .list_resources(instance_id)
+            .await?
+            .into_iter()
+            .map(|resource| resource.uri)
+            .collect();
+        let original = self
+            .ensure_original_key_for_component(
+                crate::overrides::ComponentKind::Resource,
+                instance_id,
+                uri,
+                &raw_uris,
+            )
+            .await?;
+        if self
+            .load_resource_override(instance_id, &original)
+            .await?
+            .is_some_and(|rule| rule.common.enabled == Some(false))
+        {
+            return Err(crate::StoreError::Other(format!(
+                "Resource '{uri}' is disabled in instance '{instance_id}'"
+            )));
+        }
+        self.read_resource(instance_id, &original).await
     }
 }
