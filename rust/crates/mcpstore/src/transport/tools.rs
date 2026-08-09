@@ -45,7 +45,7 @@ impl McpConnection {
         arguments: serde_json::Value,
     ) -> Result<ToolCallResult> {
         match self
-            .start_tool_call(tool_name, arguments, McpExecutionOptions::default())
+            .start_tool_call(tool_name, arguments, None, McpExecutionOptions::default())
             .await?
             .wait()
             .await?

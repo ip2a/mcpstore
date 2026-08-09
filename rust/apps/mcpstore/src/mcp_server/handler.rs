@@ -4,8 +4,9 @@ use super::catalog::{
 };
 use super::tools::{
     build_cache_tools, build_openapi_tools, build_prompt_override_tools,
-    build_resource_override_tools, build_resource_template_override_tools, build_service_tools,
-    build_session_state_tools, build_tool_override_tools, deserialize_item, deserialize_items,
+    build_resource_override_tools, build_resource_template_override_tools, build_search_tools,
+    build_service_tools, build_session_state_tools, build_tool_override_tools, deserialize_item,
+    deserialize_items,
 };
 use super::tools::{
     call_cache_tool, call_openapi_tool, call_prompt_override_tool, call_resource_override_tool,
@@ -28,6 +29,7 @@ impl McpStoreServer {
         expose_openapi_tools: bool,
         expose_service_tools: bool,
         expose_cache_tools: bool,
+        expose_search_tools: bool,
     ) -> Result<Self, BoxErr> {
         connect_target_instances(&store, &scope, instance_id).await?;
         if let Some(session_key) = session_key.as_deref() {
@@ -73,6 +75,11 @@ impl McpStoreServer {
         } else {
             HashMap::new()
         };
+        let search_tools = if expose_search_tools {
+            build_search_tools()
+        } else {
+            HashMap::new()
+        };
         for tool_name in session_state_tools
             .keys()
             .chain(tool_override_tools.keys())
@@ -81,6 +88,7 @@ impl McpStoreServer {
             .chain(openapi_tools.keys())
             .chain(service_tools.keys())
             .chain(cache_tools.keys())
+            .chain(search_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(format!(
@@ -100,6 +108,7 @@ impl McpStoreServer {
         tools.extend(openapi_tools.values().cloned());
         tools.extend(service_tools.values().cloned());
         tools.extend(cache_tools.values().cloned());
+        tools.extend(search_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
 
         let scope_label = match &scope {
@@ -129,6 +138,7 @@ impl McpStoreServer {
             openapi_tools: Arc::new(openapi_tools),
             service_tools: Arc::new(service_tools),
             cache_tools: Arc::new(cache_tools),
+            search_tools: Arc::new(search_tools),
             tools: Arc::new(tools),
         })
     }
@@ -163,6 +173,7 @@ impl McpStoreServer {
             .chain(self.openapi_tools.keys())
             .chain(self.service_tools.keys())
             .chain(self.cache_tools.keys())
+            .chain(self.search_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(ErrorData::internal_error(
@@ -185,8 +196,27 @@ impl McpStoreServer {
         tools.extend(self.openapi_tools.values().cloned());
         tools.extend(self.service_tools.values().cloned());
         tools.extend(self.cache_tools.values().cloned());
+        tools.extend(self.search_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(tools)
+    }
+
+    async fn call_search_tool(
+        &self,
+        arguments: Map<String, Value>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let query = arguments
+            .get("query")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let top_k = arguments.get("top_k").and_then(Value::as_u64).unwrap_or(10) as usize;
+        let tools = self.current_tools().await?;
+        let hits = super::search::search_tools(&tools, &query, top_k);
+        let payload = serde_json::to_value(&hits).map_err(|error| {
+            ErrorData::internal_error(format!("search result serialization failed: {error}"), None)
+        })?;
+        Ok(CallToolResult::structured(payload))
     }
 }
 
@@ -253,6 +283,7 @@ impl ServerHandler for McpStoreServer {
             .or_else(|| self.openapi_tools.get(name).cloned())
             .or_else(|| self.service_tools.get(name).cloned())
             .or_else(|| self.cache_tools.get(name).cloned())
+            .or_else(|| self.search_tools.get(name).cloned())
     }
 
     fn list_resources(
@@ -402,6 +433,7 @@ impl ServerHandler for McpStoreServer {
         let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
         let is_service_tool = self.service_tools.contains_key(tool_name.as_str());
         let is_cache_tool = self.cache_tools.contains_key(tool_name.as_str());
+        let is_search_tool = self.search_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let instance_id = self.instance_id;
@@ -473,6 +505,9 @@ impl ServerHandler for McpStoreServer {
                     .await
                     .map(Into::into);
             }
+            if is_search_tool {
+                return self.call_search_tool(arguments).await.map(Into::into);
+            }
 
             let (args, session_key) = extract_business_session_key(
                 meta.as_ref(),
@@ -491,10 +526,28 @@ impl ServerHandler for McpStoreServer {
                     .remove(tool_name.as_str()))
             }
             .ok_or_else(|| ErrorData::invalid_params(format!("未知工具: {tool_name}"), None))?;
-            let result = store
-                .call_tool(binding.instance_id, &binding.tool_name, args)
+            let result = match store
+                .start_tool_execution(
+                    binding.instance_id,
+                    &binding.tool_name,
+                    args,
+                    meta.clone(),
+                    McpExecutionOptions::default(),
+                )
                 .await
-                .map_err(map_store_error)?;
+                .map_err(map_store_error)?
+                .wait()
+                .await
+                .map_err(map_store_error)?
+            {
+                McpToolExecution::Immediate { result } => result,
+                McpToolExecution::Task { .. } => {
+                    return Err(ErrorData::internal_error(
+                        "aggregate tool call unexpectedly returned a task".to_string(),
+                        None,
+                    ));
+                }
+            };
 
             let mut content = Vec::with_capacity(result.content.len());
             for item in result.content {

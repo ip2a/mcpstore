@@ -141,11 +141,13 @@ impl McpConnection {
         &self,
         tool_name: &str,
         arguments: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpToolExecutionHandle> {
         self.require_tools()?;
-        let params = CallToolRequestParams::new(tool_name.to_string())
+        let mut params = CallToolRequestParams::new(tool_name.to_string())
             .with_arguments(arguments_object(arguments));
+        params.meta = meta;
         self.start_tool_request(params, options, false, "tool call")
             .await
     }
@@ -691,6 +693,21 @@ mod tests {
                     std::future::pending::<()>().await;
                     unreachable!()
                 }
+                "echo_meta" => {
+                    // rmcp routes wire `_meta` into RequestContext.meta on the
+                    // server side; echo the traceparent back so callers can
+                    // prove their _meta reached the downstream server.
+                    let traceparent = context
+                        .meta
+                        .get("traceparent")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
+                    Ok(CallToolResponse::Complete(CallToolResult::success(vec![
+                        rmcp::model::ContentBlock::text(
+                            serde_json::json!({ "traceparent": traceparent }).to_string(),
+                        ),
+                    ])))
+                }
                 _ => Ok(CallToolResponse::Complete(CallToolResult::success(
                     Vec::new(),
                 ))),
@@ -761,6 +778,7 @@ mod tests {
             .start_tool_call(
                 "progress",
                 serde_json::json!({}),
+                None,
                 McpExecutionOptions::default(),
             )
             .await
@@ -769,6 +787,7 @@ mod tests {
             .start_tool_call(
                 "progress",
                 serde_json::json!({}),
+                None,
                 McpExecutionOptions::default(),
             )
             .await
@@ -804,6 +823,7 @@ mod tests {
             .start_tool_call(
                 "steady_progress",
                 serde_json::json!({}),
+                None,
                 McpExecutionOptions::default()
                     .with_idle_timeout(Duration::from_millis(35))
                     .with_max_total_timeout(Duration::from_millis(250)),
@@ -826,6 +846,7 @@ mod tests {
             .start_tool_call(
                 "blocked",
                 serde_json::json!({}),
+                None,
                 McpExecutionOptions::default().with_idle_timeout(Duration::from_millis(40)),
             )
             .await
@@ -850,6 +871,7 @@ mod tests {
             .start_tool_call(
                 "endless_progress",
                 serde_json::json!({}),
+                None,
                 McpExecutionOptions::default()
                     .with_idle_timeout(Duration::from_millis(30))
                     .with_max_total_timeout(Duration::from_millis(80)),
@@ -877,6 +899,7 @@ mod tests {
             .start_tool_call(
                 "never",
                 serde_json::json!({}),
+                None,
                 McpExecutionOptions::default(),
             )
             .await
@@ -905,6 +928,7 @@ mod tests {
             .start_tool_call(
                 "blocked",
                 serde_json::json!({}),
+                None,
                 McpExecutionOptions::default(),
             )
             .await
@@ -923,6 +947,65 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), state.cancelled.notified())
             .await
             .unwrap();
+
+        connection.disconnect().await.unwrap();
+        server.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn request_meta_is_passed_through_to_the_downstream_server() {
+        let (mut connection, server, _) = connect_fixture("execution-meta", "meta").await;
+        let trace_id = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        let meta: rmcp::model::RequestMetaObject =
+            serde_json::from_value(serde_json::json!({ "traceparent": trace_id })).unwrap();
+        let execution = connection
+            .start_tool_call(
+                "echo_meta",
+                serde_json::json!({}),
+                Some(meta),
+                McpExecutionOptions::default(),
+            )
+            .await
+            .unwrap()
+            .wait()
+            .await
+            .unwrap();
+        let McpToolExecution::Immediate { result } = execution else {
+            panic!("echo_meta must return an immediate result");
+        };
+        let text = match result.content.first() {
+            Some(crate::transport::ContentItem::Text { text, .. }) => text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        };
+        assert!(
+            text.contains(trace_id),
+            "downstream must receive the traceparent via _meta: {text}"
+        );
+
+        // Without _meta the downstream sees no traceparent.
+        let execution = connection
+            .start_tool_call(
+                "echo_meta",
+                serde_json::json!({}),
+                None,
+                McpExecutionOptions::default(),
+            )
+            .await
+            .unwrap()
+            .wait()
+            .await
+            .unwrap();
+        let McpToolExecution::Immediate { result } = execution else {
+            panic!("echo_meta must return an immediate result");
+        };
+        let text = match result.content.first() {
+            Some(crate::transport::ContentItem::Text { text, .. }) => text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        };
+        assert!(
+            !text.contains(trace_id),
+            "no _meta must reach the downstream: {text}"
+        );
 
         connection.disconnect().await.unwrap();
         server.cancel().await.unwrap();

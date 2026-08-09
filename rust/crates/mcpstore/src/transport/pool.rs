@@ -138,13 +138,14 @@ impl ConnectionPool {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpToolExecutionHandle> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
-        conn.start_tool_task(tool_name, args, options).await
+        conn.start_tool_task(tool_name, args, meta, options).await
     }
 
     pub async fn call_tool_task(
@@ -154,7 +155,13 @@ impl ConnectionPool {
         args: serde_json::Value,
     ) -> Result<McpToolExecution> {
         let execution = self
-            .start_task_tool_execution(instance_id, tool_name, args, McpExecutionOptions::default())
+            .start_task_tool_execution(
+                instance_id,
+                tool_name,
+                args,
+                None,
+                McpExecutionOptions::default(),
+            )
             .await?
             .wait()
             .await?;
@@ -261,13 +268,14 @@ impl ConnectionPool {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpToolExecutionHandle> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
             TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
         })?;
-        conn.start_tool_call(tool_name, args, options).await
+        conn.start_tool_call(tool_name, args, meta, options).await
     }
 
     pub async fn call_tool(
@@ -277,7 +285,13 @@ impl ConnectionPool {
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
         match self
-            .start_tool_execution(instance_id, tool_name, args, McpExecutionOptions::default())
+            .start_tool_execution(
+                instance_id,
+                tool_name,
+                args,
+                None,
+                McpExecutionOptions::default(),
+            )
             .await?
             .wait()
             .await?

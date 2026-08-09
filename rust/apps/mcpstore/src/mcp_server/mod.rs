@@ -9,10 +9,10 @@ use std::sync::{
 use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
     events::{bus::EventHandler, Event},
-    CacheStorage, ContentItem, InstanceId, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
-    OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
-    ResourceTemplateOverridePatch, ScopeRef, SourceMode, StoreError, StoreOptions,
-    ToolOverridePatch,
+    CacheStorage, ContentItem, InstanceId, MCPStore, McpExecutionOptions, McpToolExecution,
+    OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch,
+    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef, SourceMode, StoreError,
+    StoreOptions, ToolOverridePatch,
 };
 use rmcp::{
     model::{
@@ -75,6 +75,7 @@ pub struct McpServerOptions {
     pub expose_openapi_tools: bool,
     pub expose_service_tools: bool,
     pub expose_cache_tools: bool,
+    pub expose_search_tools: bool,
 }
 
 impl Default for McpServerOptions {
@@ -99,6 +100,7 @@ impl Default for McpServerOptions {
             expose_openapi_tools: false,
             expose_service_tools: false,
             expose_cache_tools: false,
+            expose_search_tools: false,
         }
     }
 }
@@ -205,6 +207,7 @@ const SERVICE_WAIT_TOOL: &str = "mcpstore_instance_wait";
 const CACHE_HEALTH_TOOL: &str = "mcpstore_cache_health";
 const CACHE_INSPECT_TOOL: &str = "mcpstore_cache_inspect";
 const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
+const SEARCH_TOOL: &str = "mcpstore_search_tools";
 
 #[derive(Clone)]
 struct ToolBinding {
@@ -260,11 +263,13 @@ struct McpStoreServer {
     openapi_tools: Arc<HashMap<String, Tool>>,
     service_tools: Arc<HashMap<String, Tool>>,
     cache_tools: Arc<HashMap<String, Tool>>,
+    search_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
 }
 
 mod catalog;
 mod handler;
+mod search;
 mod tests;
 mod tools;
 mod transport;

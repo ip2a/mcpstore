@@ -169,12 +169,14 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
         self.start_tool_execution_inner(
             instance_id,
             tool_name,
             args,
+            meta,
             ToolExecutionMode::Immediate,
             options,
         )
@@ -186,12 +188,14 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
         self.start_tool_execution_inner(
             instance_id,
             tool_name,
             args,
+            meta,
             ToolExecutionMode::Task,
             options,
         )
@@ -203,6 +207,7 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
         mode: ToolExecutionMode,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
@@ -255,12 +260,12 @@ impl MCPStore {
         let started = match mode {
             ToolExecutionMode::Task => {
                 self.pool
-                    .start_task_tool_execution(instance_id, &tool_name, args, options)
+                    .start_task_tool_execution(instance_id, &tool_name, args, meta, options)
                     .await
             }
             ToolExecutionMode::Immediate => {
                 self.pool
-                    .start_tool_execution(instance_id, &tool_name, args, options)
+                    .start_tool_execution(instance_id, &tool_name, args, meta, options)
                     .await
             }
         };
@@ -288,7 +293,13 @@ impl MCPStore {
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
         match self
-            .start_tool_execution(instance_id, tool_name, args, McpExecutionOptions::default())
+            .start_tool_execution(
+                instance_id,
+                tool_name,
+                args,
+                None,
+                McpExecutionOptions::default(),
+            )
             .await?
             .wait()
             .await?

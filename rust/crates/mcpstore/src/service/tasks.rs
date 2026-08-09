@@ -12,7 +12,7 @@ impl MCPStore {
         args: serde_json::Value,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
-        self.start_task_tool_execution(instance_id, tool_name, args, options)
+        self.start_task_tool_execution(instance_id, tool_name, args, None, options)
             .await
     }
 

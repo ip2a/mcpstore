@@ -711,6 +711,18 @@ pub(super) fn service_tool(
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
 
+pub(super) fn build_search_tools() -> HashMap<String, Tool> {
+    [cache_tool(
+        SEARCH_TOOL,
+        "Search visible MCPStore tools by keyword (BM25). Returns up to top_k matching tool names with relevance scores; call a returned name with a normal tool call. Prefer this over scanning the full tool list when the catalog is large.",
+        search_schema(),
+        true,
+    )]
+    .into_iter()
+    .map(|tool| (tool.name.as_ref().to_string(), tool))
+    .collect()
+}
+
 pub(super) fn cache_tool(
     name: &'static str,
     description: &'static str,
@@ -895,6 +907,27 @@ pub(super) fn cache_switch_schema() -> Map<String, Value> {
         Value::Array(vec![Value::String("backend".to_string())]),
     );
     schema
+}
+
+pub(super) fn search_schema() -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "query".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Keyword query. Lowercased and split on non-alphanumeric runs; matched against tool name (highest weight), description, and input_schema property names/descriptions via BM25."
+        }),
+    );
+    properties.insert(
+        "top_k".to_string(),
+        serde_json::json!({
+            "type": "integer",
+            "minimum": 1,
+            "default": 10,
+            "description": "Maximum number of matches to return. Defaults to 10."
+        }),
+    );
+    object_schema(properties, &["query"])
 }
 
 pub(super) async fn call_service_tool(
