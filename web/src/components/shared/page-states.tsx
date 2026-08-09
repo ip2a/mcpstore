@@ -1,4 +1,4 @@
-import { FolderSearchIcon, RefreshCwIcon } from "lucide-react"
+import { FolderSearchIcon, RefreshCwIcon, ServerOffIcon } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -44,14 +44,18 @@ export function PageError({ title, message, onRefresh }: { title: string; messag
   const { t } = useI18n()
 
   return (
-    <Alert variant="destructive" className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
+    <Alert className="border-border/80 bg-muted/30 text-foreground shadow-none [&>svg]:text-muted-foreground">
+      <ServerOffIcon />
+      <div className="flex min-w-0 flex-col gap-1">
         <AlertTitle>{title}</AlertTitle>
-        <AlertDescription>{message}</AlertDescription>
+        <AlertDescription className="text-muted-foreground">
+          <span>暂时无法获取数据，请确认后端服务已启动。</span>
+          <span className="text-xs text-muted-foreground/70">{message}</span>
+        </AlertDescription>
       </div>
       {onRefresh ? (
-        <div>
-          <Button variant="outline" onClick={onRefresh}>
+        <div className="mt-1">
+          <Button variant="outline" size="sm" onClick={onRefresh}>
             <RefreshCwIcon data-icon="inline-start" />
             {t("refresh")}
           </Button>

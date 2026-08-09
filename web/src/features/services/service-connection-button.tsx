@@ -44,11 +44,12 @@ export function ServiceConnectionButton({
   const running = isServiceRunning(state)
   const starting = isServiceStarting(state, busy, instanceId)
   const disconnecting = isServiceDisconnecting(busy, instanceId)
+  const instanceConnectionBusy = busy === `connect:${instanceId}` || busy === `disconnect:${instanceId}`
   const buttonClassName = cn(size === "sm" && CONNECTION_BUTTON_WIDTH_CLASS, className)
 
   if (running) {
     return (
-      <Button variant={variant} size={size} className={buttonClassName} onClick={onDisconnect} disabled={Boolean(busy)}>
+      <Button variant={variant} size={size} className={buttonClassName} onClick={onDisconnect} disabled={disconnecting}>
         {disconnecting ? <Spinner data-icon="inline-start" /> : <UnlinkIcon data-icon="inline-start" />}
         {disconnecting ? t("disconnecting") : t("disconnect")}
       </Button>
@@ -65,7 +66,7 @@ export function ServiceConnectionButton({
   }
 
   return (
-    <Button variant={variant} size={size} className={buttonClassName} onClick={onConnect} disabled={Boolean(busy)}>
+    <Button variant={variant} size={size} className={buttonClassName} onClick={onConnect} disabled={instanceConnectionBusy}>
       <LinkIcon data-icon="inline-start" />
       {t("connect")}
     </Button>

@@ -13,7 +13,6 @@ import { MetricGrid, MetricTile } from "@/components/shared/metric-grid";
 import { PageEmpty, PageError } from "@/components/shared/page-states";
 import { PanelCard } from "@/components/shared/panel-card";
 import { ScrollPane } from "@/components/shared/scroll-pane";
-import { SearchBox } from "@/components/shared/search-box";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { SelectableRowButton } from "@/components/shared/selectable-row-button";
 import {
@@ -38,6 +37,7 @@ import {
   useServiceStatusQuery,
 } from "@/features/services/queries";
 import { ServiceAuthPanel } from "@/features/services/service-auth-panel";
+import { ServiceConnectionButton } from "@/features/services/service-connection-button";
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
 import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args";
 import { getToolSchema, toolKey } from "@/lib/tool-info";
@@ -100,11 +100,12 @@ export function ServicePreviewHeader({
   templateCount,
   promptCount,
   onRefresh,
+  onConnect,
+  onDisconnect,
+  busy,
   onRun,
   runningTool,
   onDetail,
-  toolSearchQuery,
-  onToolSearchQueryChange,
 }: {
   rightPaneView: RightPaneView;
   activeTab: CatalogTab;
@@ -120,11 +121,12 @@ export function ServicePreviewHeader({
   templateCount: number;
   promptCount: number;
   onRefresh: () => void;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  busy: string | null;
   onRun?: () => void;
   runningTool?: boolean;
   onDetail?: () => void;
-  toolSearchQuery: string;
-  onToolSearchQueryChange: (value: string) => void;
 }) {
   const { t } = useI18n();
   const title =
@@ -188,19 +190,12 @@ export function ServicePreviewHeader({
     <div className="flex flex-wrap items-center gap-3 border-b pb-2">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {showToolHeader ? (
-          <>
-            <h2
-              className="shrink-0 truncate font-mono text-sm font-medium"
-              title={selectedTool!.name}
-            >
-              {selectedTool!.name}
-            </h2>
-            <SearchBox
-              placeholder={t("searchTools")}
-              value={toolSearchQuery}
-              onChange={onToolSearchQueryChange}
-            />
-          </>
+          <h2
+            className="shrink-0 truncate font-mono text-sm font-medium"
+            title={selectedTool!.name}
+          >
+            {selectedTool!.name}
+          </h2>
         ) : (
           <div className="flex min-w-0 flex-col gap-1">
             <strong
@@ -213,6 +208,15 @@ export function ServicePreviewHeader({
         )}
       </div>
       <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        {rightPaneView === "service" ? (
+          <ServiceConnectionButton
+            busy={busy}
+            instanceId={service.instance_id}
+            state={service.state}
+            onConnect={onConnect}
+            onDisconnect={onDisconnect}
+          />
+        ) : null}
         {rightPaneView === "catalog" && activeTab === "tools" && onRun ? (
           <Button size="sm" onClick={onRun} disabled={runningTool}>
             {runningTool ? (

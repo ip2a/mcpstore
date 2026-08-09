@@ -1,4 +1,4 @@
-// 本模块全部为 app 自有接口（聚合服务 spawn 本地子进程 + 读写本地编辑器配置），
+// 本模块全部为 app 自有接口（聚合服务 spawn 本地子进程 + 读取并导入本地编辑器配置），
 // 固定走 appRequest（本 app 进程），不随 core 后端切换 —— 见 接口文档 §附录C。
 import { appRequest as request, buildQuery } from "./client";
 import type {
@@ -49,7 +49,7 @@ import type {
   UpdateSettingsPayload,
 } from "../api";
 
-export type AggregateOptions = {
+export type McpHubOptions = {
   scope?: "store" | "agent";
   agentId?: string;
   transport: "stdio" | "streamable-http";
@@ -60,7 +60,7 @@ export type AggregateOptions = {
   sessionKey?: string;
 };
 
-export type AggregateStatus = {
+export type McpHubStatus = {
   running: boolean;
   pid: number | null;
   background_supported: boolean;
@@ -73,7 +73,7 @@ export type AggregateStatus = {
   args: string[];
 };
 
-function aggregateQuery(options: AggregateOptions) {
+function mcpHubQuery(options: McpHubOptions) {
   return buildQuery({
     scope: options.scope,
     agent_id: options.agentId,
@@ -86,100 +86,29 @@ function aggregateQuery(options: AggregateOptions) {
   });
 }
 
-export async function getAggregateLaunch(options: AggregateOptions) {
+export async function getMcpHubDescriptor(options: McpHubOptions) {
   return request<{
     transport: string;
     command: string | null;
     args: string[];
     url: string | null;
-  }>(`/aggregate/launch${aggregateQuery(options)}`);
+  }>(`/mcp-hub/descriptor${mcpHubQuery(options)}`);
 }
 
-export async function getAggregateStatus(options: AggregateOptions) {
-  return request<AggregateStatus>(`/aggregate/status${aggregateQuery(options)}`);
+export async function getMcpHubStatus(options: McpHubOptions) {
+  return request<McpHubStatus>(`/mcp-hub/status${mcpHubQuery(options)}`);
 }
 
-export async function startAggregate(options: AggregateOptions) {
+export async function startMcpHub(options: McpHubOptions) {
   return request<{ running: boolean; pid: number | null; transport: string; url: string | null }>(
-    `/aggregate/start${aggregateQuery(options)}`,
+    `/mcp-hub/start${mcpHubQuery(options)}`,
     { method: "POST" },
   );
 }
 
-export async function stopAggregate() {
-  return request<{ running: boolean; pid?: number | null }>("/aggregate/stop", {
+export async function stopMcpHub() {
+  return request<{ running: boolean; pid?: number | null }>("/mcp-hub/stop", {
     method: "POST",
-  });
-}
-
-type ClientConfigInspectPayload = {
-  client: string;
-  path: string;
-  format: string;
-  content_hash: string;
-  services: Array<{ name: string; fields: string[] }>;
-  unsupported_fields: string[];
-};
-
-type ClientConfigPlanPayload = {
-  client: string;
-  path: string;
-  content_hash: string;
-  plans: Array<{
-    name: string;
-    kind: string;
-    status: string;
-    fields: string[];
-    unsupported_fields: string[];
-  }>;
-};
-
-export async function inspectClientConfig(
-  client: string,
-  path: string,
-): Promise<ClientConfigInspectPayload> {
-  return request("/client-config/inspect", {
-    method: "POST",
-    body: JSON.stringify({ client, path }),
-  });
-}
-
-export async function planClientConfig(
-  client: string,
-  path: string,
-  entries: unknown[],
-): Promise<ClientConfigPlanPayload> {
-  return request("/client-config/plan", {
-    method: "POST",
-    body: JSON.stringify({ client, path, entries }),
-  });
-}
-
-export async function applyClientConfig(
-  client: string,
-  path: string,
-  expectedHash: string,
-  entries: unknown[],
-) {
-  return request<{
-    changed: boolean;
-    change_id?: string;
-    plans: ClientConfigPlanPayload["plans"];
-  }>("/client-config/apply", {
-    method: "POST",
-    body: JSON.stringify({
-      client,
-      path,
-      expected_hash: expectedHash,
-      entries,
-    }),
-  });
-}
-
-export async function undoClientConfig(changeId: string) {
-  return request<{ changed: boolean }>("/client-config/undo", {
-    method: "POST",
-    body: JSON.stringify({ change_id: changeId }),
   });
 }
 

@@ -11,7 +11,7 @@ export function apiUrl(path: string) {
 
 /**
  * App 自有接口 base（固定指向本 app 进程，不随 core 后端切换）。
- * 用于 v1/meta、v1/settings、client-config、aggregate —— 见 接口文档 §附录C。
+ * 用于 v1/meta、v1/settings、client-config、mcp-hub —— 见 接口文档 §附录C。
  */
 export function appApiUrl(path: string) {
   return `${getAppApiBase()}${path}`;

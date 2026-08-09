@@ -166,6 +166,7 @@ export type ToolVisibilityFilter = "all" | "available" | "removed";
 
 export type ToolInfo = {
   name: string;
+  original_name?: string;
   title?: string | null;
   description: string;
   input_schema: unknown;
@@ -377,28 +378,6 @@ export type UpdateServiceScopeInput = {
   handshakeMode?: HandshakeMode;
 };
 
-export type ClientConfigInspectPayload = {
-  client: string;
-  path: string;
-  format: string;
-  content_hash: string;
-  services: Array<{ name: string; fields: string[] }>;
-  unsupported_fields: string[];
-};
-
-export type ClientConfigPlanPayload = {
-  client: string;
-  path: string;
-  content_hash: string;
-  plans: Array<{
-    name: string;
-    kind: string;
-    status: string;
-    fields: string[];
-    unsupported_fields: string[];
-  }>;
-};
-
 export {
   health,
   listServices,
@@ -426,17 +405,13 @@ export {
   callInstanceTool,
 } from "./api/service";
 export {
-  getAggregateLaunch,
-  getAggregateStatus,
-  startAggregate,
-  stopAggregate,
-  inspectClientConfig,
-  planClientConfig,
-  applyClientConfig,
-  undoClientConfig,
+  getMcpHubDescriptor,
+  getMcpHubStatus,
+  startMcpHub,
+  stopMcpHub,
   importClientServices,
-  type AggregateOptions,
-  type AggregateStatus,
+  type McpHubOptions,
+  type McpHubStatus,
 } from "./api/config";
 export {
   showConfig,
