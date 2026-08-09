@@ -11,7 +11,6 @@ import {
   ToolPlaygroundAside,
 } from "@/components/shared/tool-detail-playground"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { ToolsFilterDialog } from "@/features/tools/tools-filter-dialog"
@@ -117,7 +116,7 @@ export function ToolsView(props: {
             <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
               {visibleTools.map(({ instance, tool }) => {
                 const key = toolKey(instance.instance_id, tool)
-                const itemSchema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
+                const itemSchema = getToolSchema(tool) as { properties?: Record<string, unknown> }
                 const itemParamCount = Object.keys(itemSchema.properties || {}).length
                 const scopeLabel = instance.scope.type === "store" ? t("store") : `${t("agent")} ${instance.scope.agent_id}`
                 return (
@@ -127,11 +126,6 @@ export function ToolsView(props: {
                     onClick={() => setSelectedToolKey(key)}
                     selected={key === selectedToolKey}
                     title={tool.name}
-                    trailing={
-                      itemSchema.required?.length ? (
-                        <Badge variant="outline">{itemSchema.required.length}</Badge>
-                      ) : null
-                    }
                   />
                 )
               })}
@@ -168,7 +162,7 @@ export function ToolsView(props: {
         ) : selectedTool ? (
           <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)] grid-rows-1 gap-6 overflow-hidden">
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ToolDetailDocHeader tool={selectedTool.tool} />
+              <ToolDetailDocHeader tool={selectedTool.tool} serviceState={selectedTool.instance.state} />
               <ScrollPane className="min-h-0 flex-1">
                 <ToolDetailDocBody
                   tool={selectedTool.tool}

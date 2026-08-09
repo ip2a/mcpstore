@@ -5,7 +5,6 @@ export type SectionId = "general" | "backend" | "diagnostics" | "config" | "abou
 
 export type SettingsDraft = {
   language: UiLanguage
-  default_backup_dir: string
   server: {
     port: number
     web_port: number
@@ -29,7 +28,6 @@ export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
 export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
   return {
     language: settings?.language || "auto",
-    default_backup_dir: typeof settings?.default_backup_dir === "string" ? settings.default_backup_dir : "./backups",
     server: {
       port: settings?.server?.port || 1820,
       web_port: settings?.server?.web_port || 1828,
@@ -46,7 +44,6 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
 export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
   return {
     language: draft.language,
-    default_backup_dir: draft.default_backup_dir || "./backups",
     server: draft.server,
     diagnostics: {
       enabled: draft.diagnostics.enabled,

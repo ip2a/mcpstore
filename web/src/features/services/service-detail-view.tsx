@@ -14,7 +14,6 @@ import { MetricGrid, MetricTile } from "@/components/shared/metric-grid";
 import { PageEmpty, PageError } from "@/components/shared/page-states";
 import { PanelCard } from "@/components/shared/panel-card";
 import { ScrollPane } from "@/components/shared/scroll-pane";
-import { SearchBox } from "@/components/shared/search-box";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { SelectableRowButton } from "@/components/shared/selectable-row-button";
 import {
@@ -42,7 +41,7 @@ import { ServiceAuthPanel } from "@/features/services/service-auth-panel";
 import { ServiceStatusActionsDialog } from "@/features/services/service-status-actions-dialog";
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
 import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args";
-import { getToolSchema, toolKey } from "@/lib/tool-info";
+import { getOriginalToolName, getToolSchema, toolKey } from "@/lib/tool-info";
 import {
   getResourceTemplateAnnotations,
   getResourceTemplateMeta,
@@ -122,7 +121,6 @@ export function ServiceDetailView(props: {
     null,
   );
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
-  const [toolSearchQuery, setToolSearchQuery] = useState("");
   const detailQuery = useServiceDetailQuery(props.service);
   const statusQuery = useServiceStatusQuery(props.service);
   const resourcesQuery = useServiceResourcesQuery(props.service);
@@ -146,13 +144,6 @@ export function ServiceDetailView(props: {
   const service = detail || props.service;
   const endpoint = service.url || service.command || "-";
   const tools = service.tools || [];
-  const filteredTools = useMemo(() => {
-    const query = toolSearchQuery.trim().toLowerCase();
-    if (!query) return tools;
-    return tools.filter((tool) =>
-      `${tool.name} ${tool.description || ""}`.toLowerCase().includes(query),
-    );
-  }, [toolSearchQuery, tools]);
   const resources = resourcesQuery.data || [];
   const resourceTemplates = resourceTemplatesQuery.data || [];
   const prompts = promptsQuery.data || [];
@@ -297,7 +288,6 @@ export function ServiceDetailView(props: {
 
   useEffect(() => {
     setRightPaneView("service");
-    setToolSearchQuery("");
     setResourceSubTab("items");
   }, [props.service.instance_id]);
 
@@ -354,7 +344,7 @@ export function ServiceDetailView(props: {
             }}
             className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
           >
-            <CatalogTabsList>
+            <CatalogTabsList variant="line">
               <CatalogTabTrigger
                 value="tools"
                 label={t("tools")}
@@ -379,17 +369,16 @@ export function ServiceDetailView(props: {
               <SectionHeading
                 title={t("toolList")}
                 titleAs="h2"
-                description={t("itemsCount", { count: filteredTools.length })}
+                description={t("itemsCount", { count: tools.length })}
                 descriptionPlacement="inline"
                 className="border-b-0 pb-0"
               />
               {tools.length ? (
-                filteredTools.length ? (
-                  <ScrollPane
+                <ScrollPane
                     className="flex-1"
                     innerClassName="flex flex-col gap-2"
                   >
-                    {filteredTools.map((tool) => {
+                    {tools.map((tool) => {
                       const key = toolKey(service.instance_id, tool);
                       const schema = getToolSchema(tool) as {
                         properties?: Record<string, unknown>;
@@ -423,13 +412,6 @@ export function ServiceDetailView(props: {
                       );
                     })}
                   </ScrollPane>
-                ) : (
-                  <PageEmpty
-                    title={t("noMatchingTools")}
-                    description={t("noMatchingToolsDescription")}
-                    onRefresh={refreshCurrentView}
-                  />
-                )
               ) : (
                 <PageEmpty
                   title={t("noToolsFound")}
@@ -637,6 +619,9 @@ export function ServiceDetailView(props: {
             templateCount={resourceTemplates.length}
             promptCount={prompts.length}
             onRefresh={refreshCurrentView}
+            onConnect={props.onConnect}
+            onDisconnect={props.onDisconnect}
+            busy={props.busy}
             onRun={
               rightPaneView === "catalog" &&
               activeTab === "tools" &&
@@ -656,8 +641,6 @@ export function ServiceDetailView(props: {
                 ? () => props.onToolDetail(selectedTool, service, statusReport)
                 : undefined
             }
-            toolSearchQuery={toolSearchQuery}
-            onToolSearchQueryChange={setToolSearchQuery}
           />
           {rightPaneView === "service" ? (
             <MetricGrid columns="four">
@@ -731,6 +714,7 @@ export function ServiceDetailView(props: {
                     onToolArgChange={setToolArg}
                     serviceName={service.service_name}
                     scope={service.scope}
+                    originalToolName={getOriginalToolName(selectedTool)}
                   />
                 </ScrollPane>
               </div>

@@ -4,14 +4,18 @@ import { toast } from "sonner"
 import { JsonBlock } from "@/components/shared/json-block"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { applyClientConfig, getAggregateLaunch, getAggregateStatus, inspectClientConfig, planClientConfig, startAggregate, stopAggregate, undoClientConfig, type AggregateOptions, type AggregateStatus, type ScopeRef } from "@/lib/api"
-
-const initialEntries = JSON.stringify([
-  { name: "mcpstore", kind: "aggregate_http", config: { url: "http://127.0.0.1:1830/mcp" } },
-], null, 2)
+import { getMcpHubDescriptor, getMcpHubStatus, startMcpHub, stopMcpHub, type McpHubOptions, type McpHubStatus, type ScopeRef } from "@/lib/api"
 
 function ConfigModule({
   children,
@@ -30,13 +34,7 @@ function ConfigModule({
   )
 }
 
-export function ClientConfigPanel({ scope: scopeProp }: { scope?: ScopeRef }) {
-  const [client, setClient] = useState("codex")
-  const [path, setPath] = useState("")
-  const [entriesText, setEntriesText] = useState(initialEntries)
-  const [contentHash, setContentHash] = useState("")
-  const [changeId, setChangeId] = useState("")
-  const [result, setResult] = useState<unknown>(null)
+export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { scope?: ScopeRef; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const [busy, setBusy] = useState(false)
   const [transport, setTransport] = useState<"stdio" | "streamable-http">("streamable-http")
   const [scopeState, setScopeState] = useState<"store" | "agent">("store")
@@ -53,147 +51,94 @@ export function ClientConfigPanel({ scope: scopeProp }: { scope?: ScopeRef }) {
   const [port, setPort] = useState("1830")
   const [pathValue, setPathValue] = useState("/mcp")
   const [launch, setLaunch] = useState<unknown>(null)
-  const [aggregateStatus, setAggregateStatus] = useState<AggregateStatus | null>(null)
+  const [mcpHubOpen, setMcpHubOpen] = useState(false)
+  const [mcpHubStatus, setMcpHubStatus] = useState<McpHubStatus | null>(null)
 
-  function entries() {
-    const value = JSON.parse(entriesText)
-    if (!Array.isArray(value)) throw new Error("Entries must be a JSON array")
-    return value
-  }
-
-  async function run(action: "inspect" | "plan" | "apply" | "undo") {
-    setBusy(true)
-    try {
-      if (action === "inspect") {
-        const value = await inspectClientConfig(client, path)
-        setContentHash(value.content_hash)
-        setResult(value)
-      } else if (action === "plan") {
-        const value = await planClientConfig(client, path, entries())
-        setContentHash(value.content_hash)
-        setResult(value)
-      } else if (action === "apply") {
-        if (!contentHash) throw new Error("Inspect or preview the current file first")
-        if (!window.confirm("Apply this configuration plan? A backup will be created.")) return
-        const value = await applyClientConfig(client, path, contentHash, entries())
-        setChangeId(value.change_id ?? "")
-        setResult(value)
-      } else if (action === "undo") {
-        const value = await undoClientConfig(changeId)
-        setChangeId("")
-        setContentHash("")
-        setResult(value)
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function aggregateOptions(): AggregateOptions {
+  function mcpHubOptions(): McpHubOptions {
     const parsedPort = Number(port)
     if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) throw new Error("Port must be between 1 and 65535")
     if (scope === "agent" && !agentId.trim()) throw new Error("Agent ID is required for agent scope")
     return { transport, scope, agentId: scope === "agent" ? agentId.trim() : undefined, host, port: parsedPort, path: pathValue }
   }
 
-  async function loadAggregateStatus() {
-    try { setAggregateStatus(await getAggregateStatus(aggregateOptions())) }
+  async function loadMcpHubStatus() {
+    try { setMcpHubStatus(await getMcpHubStatus(mcpHubOptions())) }
     catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
   }
 
   async function loadLaunch() {
     setBusy(true)
     try {
-      const options = aggregateOptions()
-      setLaunch(await getAggregateLaunch(options))
-      setAggregateStatus(await getAggregateStatus(options))
+      const options = mcpHubOptions()
+      setLaunch(await getMcpHubDescriptor(options))
+      setMcpHubStatus(await getMcpHubStatus(options))
     } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
     finally { setBusy(false) }
   }
 
-  async function toggleAggregate(action: "start" | "stop") {
+  async function toggleMcpHub(action: "start" | "stop") {
     setBusy(true)
     try {
-      const options = aggregateOptions()
-      if (action === "start") await startAggregate(options)
-      else await stopAggregate()
-      await loadAggregateStatus()
-      toast.success(action === "start" ? "Aggregate MCP service started" : "Aggregate MCP service stopped")
+      const options = mcpHubOptions()
+      if (action === "start") await startMcpHub(options)
+      else await stopMcpHub()
+      await loadMcpHubStatus()
+      toast.success(action === "start" ? "MCP Hub Service started" : "MCP Hub Service stopped")
     } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
     finally { setBusy(false) }
   }
 
   useEffect(() => {
     if (scope === "agent" && !agentId.trim()) {
-      setAggregateStatus(null)
+      setMcpHubStatus(null)
       return
     }
-    void loadAggregateStatus()
-    const timer = window.setInterval(() => void loadAggregateStatus(), 5000)
+    void loadMcpHubStatus()
+    const timer = window.setInterval(() => void loadMcpHubStatus(), 5000)
     return () => window.clearInterval(timer)
   }, [transport, scope, agentId, host, port, pathValue])
 
   return (
-    <section className="mt-6 flex flex-col gap-4 border-t pt-5">
-      <SectionHeading title="Programming assistant configuration" titleAs="h2" description="Inspect → preview → confirm → apply → undo" />
+    <section className={open !== undefined ? "hidden" : "mt-6 flex flex-col gap-4 border-t pt-5"}>
+      <SectionHeading title="Programming assistant configuration" titleAs="h2" />
 
-      <ConfigModule title="Client target" description="Select the assistant and its configuration file path.">
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2">
-            <Label>Client</Label>
-            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={client} onChange={(event) => { setClient(event.target.value); setContentHash("") }}>
-              <option value="codex">Codex</option>
-              <option value="claude_code">Claude Code</option>
-              <option value="opencode">OpenCode</option>
-              <option value="cursor">Cursor</option>
-              <option value="claude_desktop">Claude Desktop</option>
-            </select>
-          </label>
-          <label className="grid gap-2">
-            <Label>Exact configuration path</Label>
-            <Input value={path} onChange={(event) => { setPath(event.target.value); setContentHash("") }} placeholder="/Users/you/.codex/config.toml" />
-          </label>
-        </div>
-      </ConfigModule>
+      <div className="flex min-w-0 items-baseline justify-between gap-4 border-b py-3">
+        <span className="shrink-0 text-sm text-muted-foreground">作用域聚合mcp</span>
+        <Dialog open={open ?? mcpHubOpen} onOpenChange={onOpenChange ?? setMcpHubOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" className="h-8 min-w-28 justify-between">
+              <span>{mcpHubStatus?.running ? "running" : "stopped"}</span>
+              <span className="text-xs text-muted-foreground">配置</span>
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[min(720px,calc(100vh-2rem))] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>作用域聚合mcp</DialogTitle>
+              <DialogDescription>Run or inspect the bundled HTTP endpoint for this scope.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="grid gap-2"><Label>MCP Hub transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
+              {!locked ? <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScopeState(event.target.value as typeof scopeState)}><option value="store">Store</option><option value="agent">Agent</option></select></label> : null}
+              {!locked && scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentIdState(event.target.value)} placeholder="agent-id" /></label> : null}
+              <label className="grid gap-2"><Label>Host</Label><Input value={host} onChange={(event) => setHost(event.target.value)} /></label>
+              <label className="grid gap-2"><Label>HTTP port</Label><Input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} /></label>
+              <label className="grid gap-2"><Label>Path</Label><Input value={pathValue} onChange={(event) => setPathValue(event.target.value)} /></label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button disabled={busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())} onClick={() => void toggleMcpHub("start")}>Start MCP Hub</Button>
+              <Button variant="outline" disabled={busy || !mcpHubStatus?.running} onClick={() => void toggleMcpHub("stop")}>Stop</Button>
+              <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
+              <Button variant="ghost" disabled={busy} onClick={() => void loadMcpHubStatus()}>Refresh status</Button>
+              <span className="text-sm text-muted-foreground">Status: {mcpHubStatus?.running ? `running${mcpHubStatus.pid ? ` (#${mcpHubStatus.pid})` : ""}` : "stopped"}</span>
+            </div>
+            {transport === "stdio" ? <p className="text-sm text-muted-foreground">stdio is started by the MCP client; use launch info and client configuration instead of the Web background control.</p> : null}
+            {mcpHubStatus?.url ? <p className="break-all font-mono text-xs text-muted-foreground">{mcpHubStatus.url}</p> : null}
+            {launch ? <JsonBlock value={launch} /> : null}
+            <DialogFooter showCloseButton />
+          </DialogContent>
+        </Dialog>
+      </div>
 
-      <ConfigModule title="Aggregate MCP service" description="Run or inspect the bundled HTTP endpoint for this scope.">
-        <div className="grid gap-4 md:grid-cols-3">
-          <label className="grid gap-2"><Label>Aggregate transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
-          {!locked ? (
-            <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScopeState(event.target.value as typeof scopeState)}><option value="store">Store</option><option value="agent">Agent</option></select></label>
-          ) : null}
-          {!locked && scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentIdState(event.target.value)} placeholder="agent-id" /></label> : null}
-          <label className="grid gap-2"><Label>Host</Label><Input value={host} onChange={(event) => setHost(event.target.value)} /></label>
-          <label className="grid gap-2"><Label>HTTP port</Label><Input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} /></label>
-          <label className="grid gap-2"><Label>Path</Label><Input value={pathValue} onChange={(event) => setPathValue(event.target.value)} /></label>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button disabled={busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())} onClick={() => void toggleAggregate("start")}>Start HTTP aggregate</Button>
-          <Button variant="outline" disabled={busy || !aggregateStatus?.running} onClick={() => void toggleAggregate("stop")}>Stop</Button>
-          <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
-          <Button variant="ghost" disabled={busy} onClick={() => void loadAggregateStatus()}>Refresh status</Button>
-          <span className="text-sm text-muted-foreground">Status: {aggregateStatus?.running ? `running${aggregateStatus.pid ? ` (#${aggregateStatus.pid})` : ""}` : "stopped"}</span>
-        </div>
-        {transport === "stdio" ? <p className="text-sm text-muted-foreground">stdio is started by the MCP client; use launch info and client configuration instead of the Web background control.</p> : null}
-        {aggregateStatus?.url ? <p className="break-all font-mono text-xs text-muted-foreground">{aggregateStatus.url}</p> : null}
-        {launch ? <JsonBlock value={launch} /> : null}
-      </ConfigModule>
-
-      <ConfigModule title="Apply configuration" description="Inspect → preview → confirm → apply → undo">
-        <label className="grid gap-2">
-          <Label>Entries</Label>
-          <Textarea className="min-h-40 font-mono text-xs" value={entriesText} onChange={(event) => { setEntriesText(event.target.value); setContentHash("") }} />
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" disabled={busy || !path} onClick={() => void run("inspect")}>Inspect</Button>
-          <Button variant="outline" disabled={busy || !path} onClick={() => void run("plan")}>Preview</Button>
-          <Button disabled={busy || !path || !contentHash} onClick={() => void run("apply")}>Apply</Button>
-          <Button variant="destructive" disabled={busy || !changeId} onClick={() => void run("undo")}>Undo</Button>
-        </div>
-        {result ? <JsonBlock value={result} /> : null}
-      </ConfigModule>
     </section>
   )
 }

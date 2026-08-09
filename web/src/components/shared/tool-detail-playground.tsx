@@ -24,11 +24,12 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { TypographyH2, TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
-import type { ScopeRef, ToolInfo } from "@/lib/api"
+import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
+import type { ScopeRef, ServiceState, ToolInfo } from "@/lib/api"
 import { OverrideEditor } from "@/features/overrides/override-editor"
 import { buildSchemaExampleValue, buildToolCliCommand } from "@/lib/tool-schema-preview"
 import { serializeToolArgs, type ToolSchema, getMissingRequiredArgs } from "@/lib/tool-args"
-import { getToolOutputSchema, getToolSchema, extractToolDescriptionDocs } from "@/lib/tool-info"
+import { getOriginalToolName, getToolOutputSchema, getToolSchema, extractToolDescriptionDocs } from "@/lib/tool-info"
 import { cn } from "@/lib/utils"
 
 type SchemaField = Record<string, unknown>
@@ -92,10 +93,21 @@ function useToolPlaygroundData({
   }
 }
 
-export function ToolDetailDocHeader({ tool, className }: { tool: ToolInfo; className?: string }) {
+export function ToolDetailDocHeader({
+  tool,
+  serviceState,
+  className,
+}: {
+  tool: ToolInfo
+  serviceState?: ServiceState | null
+  className?: string
+}) {
   return (
     <header className={cn("shrink-0 space-y-3 border-b pb-4", className)}>
-      <TypographyH2 className="border-b-0 pb-0 break-words font-mono text-xl">{tool.name}</TypographyH2>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">{tool.name}</TypographyH2>
+        {serviceState ? <ServiceStatusBadge state={serviceState} /> : null}
+      </div>
       <ToolDescriptionBlock
         description={tool.description}
         showLabel={false}
@@ -113,6 +125,7 @@ export function ToolDetailDocBody({
   className,
   serviceName,
   scope,
+  originalToolName,
 }: {
   tool: ToolInfo
   toolArgs: Record<string, unknown>
@@ -120,6 +133,7 @@ export function ToolDetailDocBody({
   className?: string
   serviceName?: string
   scope?: ScopeRef
+  originalToolName?: string
 }) {
   const { t } = useI18n()
   const { proseInputParams, proseOutputParams, proseReturnSummary } = extractToolDescriptionDocs(tool.description || "")
@@ -176,7 +190,7 @@ export function ToolDetailDocBody({
 
       <ToolAnnotationsSection tool={tool} />
       <ToolMetaSection tool={tool} />
-      {serviceName && scope ? <OverrideEditor kind="tool" serviceName={serviceName} componentKey={tool.name} scope={scope} /> : null}
+      {serviceName && scope ? <OverrideEditor kind="tool" serviceName={serviceName} componentKey={originalToolName || getOriginalToolName(tool)} scope={scope} /> : null}
     </div>
   )
 }

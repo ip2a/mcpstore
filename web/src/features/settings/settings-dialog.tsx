@@ -4,7 +4,6 @@ import { AlertCircleIcon, RefreshCwIcon, SaveIcon, SettingsIcon } from "lucide-r
 import { toast } from "sonner"
 
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
-import { PathText } from "@/components/shared/path-text"
 import { WorkspaceIdentity } from "@/components/shared/workspace-identity"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -34,7 +33,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const error = metaQuery.error instanceof Error ? metaQuery.error.message : ""
   const saving = settingsMutation.isPending
 
-  const settingsPaths = meta?.settings_paths
   const configFile = meta?.config_file
   const configContent = useMemo(() => configFile?.content || "", [configFile?.content])
 
@@ -73,7 +71,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex h-[min(78vh,640px)] !w-[94vw] !max-w-[94vw] flex-col gap-0 p-0 sm:!w-[84vw] sm:!max-w-[84vw]">
+      <DialogContent className="flex h-[min(78vh,640px)] !w-[94vw] !max-w-[94vw] flex-col gap-0 p-0 sm:!w-[72vw] sm:!max-w-[72vw]">
         <DialogHeader className="border-b px-4 py-3 sm:px-5">
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="size-4" />
@@ -131,22 +129,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                           </Select>
                         </Field>
 
-                        <Field orientation="responsive">
-                          <FieldContent>
-                            <FieldTitle>{t("defaultBackupDir")}</FieldTitle>
-                            <FieldDescription>
-                              <PathText value={settingsPaths?.backup_dir_resolved} fallback={t("backupDirMissing")} wrap="all" />
-                            </FieldDescription>
-                          </FieldContent>
-                          <InputGroup className="max-w-xl">
-                            {settingsPaths?.backup_dir_base ? (
-                              <InputGroupAddon align="inline-start" className="max-w-48 truncate">
-                                <PathText value={settingsPaths.backup_dir_base} wrap="truncate" />
-                              </InputGroupAddon>
-                            ) : null}
-                            <InputGroupInput value={draft.default_backup_dir} onChange={(event) => patchDraft({ default_backup_dir: event.target.value })} placeholder="./backups" />
-                          </InputGroup>
-                        </Field>
+
                       </FieldGroup>
                     </section>
                   ) : null}
@@ -326,11 +309,11 @@ function BackendSection({ draft, patchDraft }: { draft: SettingsDraft | null; pa
         {draft ? (
           <>
             <Field orientation="responsive">
-              <FieldContent><FieldTitle>后端端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
+              <FieldContent><FieldTitle>默认后端启动端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
               <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
             </Field>
             <Field orientation="responsive">
-              <FieldContent><FieldTitle>前端端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
+              <FieldContent><FieldTitle>默认前端启动端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
               <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
             </Field>
           </>

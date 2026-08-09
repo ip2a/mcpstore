@@ -16,6 +16,10 @@ export function getToolAnnotations(tool: ToolInfo) {
   return tool.annotations ?? null
 }
 
+export function getOriginalToolName(tool: ToolInfo) {
+  return tool.original_name || tool.name
+}
+
 export function hasJsonContent(value: unknown) {
   if (value === null || value === undefined) return false
   if (Array.isArray(value)) return value.length > 0

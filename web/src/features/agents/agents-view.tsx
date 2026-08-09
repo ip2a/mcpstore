@@ -16,7 +16,7 @@ import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
 import { getAgentId } from "@/features/agents/model"
@@ -81,6 +81,8 @@ export function AgentsView(props: {
   const [addScopeDialogOpen, setAddScopeDialogOpen] = useState(false)
   const [previewServiceId, setPreviewServiceId] = useState<string | null>(null)
   const [configScopeId, setConfigScopeId] = useState(ALL_SCOPE_ID)
+  const [configDialogOpen, setConfigDialogOpen] = useState(false)
+  const [mcpHubDialogOpen, setMcpHubDialogOpen] = useState(false)
   const storeConfigQuery = useStoreConfigQuery()
   const configAgentId = configScopeId.startsWith("agent:") ? configScopeId.slice(6) : ""
   const agentConfigQuery = useAgentConfigQuery(configAgentId)
@@ -198,7 +200,6 @@ export function AgentsView(props: {
     return t("agentServicesConnectionCount", {
       services: stats.services,
       connected: stats.connected,
-      disconnected: stats.disconnected,
     })
   }
 
@@ -311,12 +312,31 @@ export function AgentsView(props: {
               canAddService={selectedScope.type === "agent" && addableServiceNames.length > 0}
               loading={props.loading || loadingScope}
               onAddService={() => setAddScopeDialogOpen(true)}
+              onDetails={() => {
+                loadScopeConfig()
+                setConfigDialogOpen(true)
+              }}
+              onHub={() => setMcpHubDialogOpen(true)}
               onRefresh={() => {
                 void props.onRefresh()
                 void loadAgentScope()
               }}
               scopeTitle={scopeTitle}
             />
+
+            <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+              <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-4 overflow-hidden sm:max-w-2xl">
+                <DialogHeader className="shrink-0">
+                  <DialogTitle>{t("configuration")}</DialogTitle>
+                  <DialogDescription className="font-mono text-xs">
+                    {configAgentId ? `/config/agents/${configAgentId}` : "/config"}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="min-h-0 shrink overflow-hidden">
+                  {configLoading && !configValue ? <PageSkeleton /> : <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />}
+                </div>
+              </DialogContent>
+            </Dialog>
 
             <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-4">
             {scopeError ? (
@@ -398,51 +418,8 @@ export function AgentsView(props: {
               </div>
             )}
 
-            <section className="border-t pt-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-medium">{t("configuration")}</h2>
-                  <p className="text-xs text-muted-foreground">
-                    {configScopeId === ALL_SCOPE_ID ? t("allScopesDescription") : configAgentId ? `/config/agents/${configAgentId}` : "/config"}
-                  </p>
-                </div>
-                {configScopeId !== ALL_SCOPE_ID ? (
-                  <Dialog
-                    onOpenChange={(open) => {
-                      if (open) loadScopeConfig()
-                    }}
-                  >
-                    <DialogTrigger asChild>
-                      <Button size="sm" variant="outline">
-                        <EyeIcon data-icon="inline-start" />
-                        {t("view")}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-4 overflow-hidden sm:max-w-2xl">
-                      <DialogHeader className="shrink-0">
-                        <DialogTitle>{t("configuration")}</DialogTitle>
-                        <DialogDescription className="font-mono text-xs">
-                          {configAgentId ? `/config/agents/${configAgentId}` : "/config"}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="min-h-0 shrink overflow-hidden">
-                        {configLoading && !configValue ? (
-                          <PageSkeleton />
-                        ) : (
-                          <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                ) : null}
-              </div>
-              {configScopeId === ALL_SCOPE_ID ? (
-                <p className="py-3 text-sm text-muted-foreground">{t("allScopesDescription")}</p>
-              ) : null}
-            </section>
-
             {(selectedScope.type === "store" || selectedScope.type === "agent") && (
-              <ClientConfigPanel scope={selectedScope} />
+              <ClientConfigPanel scope={selectedScope} open={mcpHubDialogOpen} onOpenChange={setMcpHubDialogOpen} />
             )}
             </ScrollPane>
 
@@ -557,6 +534,8 @@ function AgentPreviewHeader({
   canAddService,
   loading,
   onAddService,
+  onDetails,
+  onHub,
   onRefresh,
   scopeTitle,
 }: {
@@ -564,6 +543,8 @@ function AgentPreviewHeader({
   canAddService: boolean
   loading: boolean
   onAddService: () => void
+  onDetails: () => void
+  onHub: () => void
   onRefresh: () => void
   scopeTitle: string
 }) {
@@ -581,6 +562,13 @@ function AgentPreviewHeader({
             {t("assignService")}
           </Button>
         ) : null}
+        <Button size="sm" variant="outline" onClick={onHub} disabled={loading}>
+          HUB
+        </Button>
+        <Button size="sm" variant="outline" onClick={onDetails} disabled={loading}>
+          <EyeIcon data-icon="inline-start" />
+          详情
+        </Button>
         <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
           <RefreshCwIcon data-icon="inline-start" />
           {t("refresh")}

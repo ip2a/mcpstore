@@ -1,11 +1,11 @@
-import { ActivityIcon, DatabaseIcon } from "lucide-react"
+import { ActivityIcon } from "lucide-react"
 import { useRef, type ComponentRef } from "react"
 
 import { HomeHero } from "@/components/home-hero"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { SearchBox } from "@/components/shared/search-box"
+import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
 import { Button } from "@/components/ui/button"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
@@ -70,10 +70,11 @@ export function ServicesView(props: {
 
       <PanelCard className="min-h-0">
         <div className="@container shrink-0">
-          <div className="grid w-full min-w-0 grid-cols-1 items-center gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto_auto_auto] @min-[42rem]:justify-end">
-            <div className="min-w-0 @min-[28rem]:col-span-2 @min-[42rem]:col-span-1">
-              <SearchBox placeholder={t("searchServices")} value={query} onChange={setQuery} />
-            </div>
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+            <label htmlFor="service-list-search" className="shrink-0 text-sm font-medium">
+              {t("serviceList")}
+            </label>
+            <CollapsibleSearchBox id="service-list-search" placeholder={t("searchServices")} value={query} onChange={setQuery} />
             <ServicesFilterDialog
               activeFilterCount={activeFilterCount}
               agentFilter={agentFilter}
@@ -86,10 +87,6 @@ export function ServicesView(props: {
               sortBy={sortBy}
               statusFilter={statusFilter}
             />
-            <Button variant="outline" onClick={props.onCache}>
-              <DatabaseIcon data-icon="inline-start" />
-              {t("cache")}
-            </Button>
             <Button variant="outline" onClick={props.onCheck} disabled={Boolean(props.busy)}>
               <ActivityIcon data-icon="inline-start" />
               {t("inspect")}
