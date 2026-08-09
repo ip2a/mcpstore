@@ -349,13 +349,6 @@ export function AgentsView(props: {
               <PageSkeleton />
             ) : (
               <div className="flex flex-col gap-3">
-                <SectionHeading
-                  title={t("servicesInScope")}
-                  titleAs="h2"
-                  description={t("items", { count: scopeServices.length })}
-                  descriptionPlacement="inline"
-                  className="border-b-0 pb-0"
-                />
                 {scopeServices.length ? (
                     <div className="border-t">
                       {scopeServices.map((service) => {

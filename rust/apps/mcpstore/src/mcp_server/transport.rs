@@ -18,6 +18,7 @@ pub async fn run(args: McpServerOptions) -> Result<(), BoxErr> {
         args.expose_openapi_tools,
         args.expose_service_tools,
         args.expose_cache_tools,
+        args.expose_search_tools,
     )
     .await?;
     match args.transport {

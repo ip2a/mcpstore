@@ -2602,6 +2602,7 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
             instance_id,
             "rejectItem",
             serde_json::json!({"body": {"sku": "sku-1"}}),
+            None,
             crate::transport::McpExecutionOptions::default(),
         )
         .await

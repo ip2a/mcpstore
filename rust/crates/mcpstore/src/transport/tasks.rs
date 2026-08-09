@@ -79,6 +79,7 @@ impl McpConnection {
         &self,
         tool_name: &str,
         arguments: Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<crate::transport::McpToolExecutionHandle> {
         self.require_capability("io.modelcontextprotocol/tasks", |info| {
@@ -88,7 +89,9 @@ impl McpConnection {
             Value::Object(map) => map,
             _ => serde_json::Map::new(),
         };
-        let params = CallToolRequestParams::new(tool_name.to_string()).with_arguments(arguments);
+        let mut params =
+            CallToolRequestParams::new(tool_name.to_string()).with_arguments(arguments);
+        params.meta = meta;
         self.start_tool_request(params, options, true, "task tool call")
             .await
     }
@@ -98,7 +101,7 @@ impl McpConnection {
         tool_name: &str,
         arguments: Value,
     ) -> Result<McpToolExecution> {
-        self.start_tool_task(tool_name, arguments, McpExecutionOptions::default())
+        self.start_tool_task(tool_name, arguments, None, McpExecutionOptions::default())
             .await?
             .wait()
             .await

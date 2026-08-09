@@ -637,7 +637,7 @@ mod tests {
         async fn call_tool(
             &self,
             request: CallToolRequestParams,
-            _context: RequestContext<RoleServer>,
+            context: RequestContext<RoleServer>,
         ) -> Result<CallToolResponse, rmcp::ErrorData> {
             if request.name.as_ref() != "elicitation" {
                 return Ok(CallToolResult::success(Vec::new()).into());
@@ -669,7 +669,19 @@ mod tests {
                     None,
                 ));
             }
-            Ok(CallToolResult::success(Vec::new()).into())
+            // Echo the traceparent that survived the MRTR retry (params.clone
+            // on the client must keep _meta) so the test can assert it.
+            let traceparent = context
+                .meta
+                .get("traceparent")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            Ok(
+                CallToolResult::success(vec![rmcp::model::ContentBlock::text(
+                    serde_json::json!({ "traceparent": traceparent }).to_string(),
+                )])
+                .into(),
+            )
         }
 
         async fn list_resources(
@@ -812,10 +824,14 @@ mod tests {
         let server = server_start.await.unwrap();
         let mut connection =
             crate::transport::client::McpConnection::from_test_client(instance_id, client, handler);
+        let trace_id = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        let meta: rmcp::model::RequestMetaObject =
+            serde_json::from_value(json!({ "traceparent": trace_id })).unwrap();
         let response = connection
             .start_tool_call(
                 "elicitation",
                 json!({}),
+                Some(meta),
                 crate::transport::McpExecutionOptions::default(),
             )
             .await
@@ -823,10 +839,21 @@ mod tests {
         let request = session.next_request().await.unwrap();
         assert_eq!(request.instance_id(), instance_id);
         request.accept(Some(json!({"confirmed": true}))).unwrap();
-        assert!(matches!(
-            response.wait().await.unwrap(),
-            crate::transport::McpToolExecution::Immediate { .. }
-        ));
+        let crate::transport::McpToolExecution::Immediate { result } =
+            response.wait().await.unwrap()
+        else {
+            panic!("elicitation retry must complete immediately");
+        };
+        // The traceparent must survive the MRTR retry (params.clone on the
+        // client keeps _meta across the input_required round-trip).
+        let text = match result.content.first() {
+            Some(crate::transport::ContentItem::Text { text, .. }) => text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        };
+        assert!(
+            text.contains(trace_id),
+            "traceparent must survive the MRTR retry: {text}"
+        );
 
         connection.disconnect().await.unwrap();
         server.cancel().await.unwrap();

@@ -785,6 +785,126 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
 }
 
 #[tokio::test]
+async fn mcp_server_exposes_search_meta_tool_when_flag_is_set() -> TestResult {
+    run_test_with_timeout(
+        "mcp_server_exposes_search_meta_tool_when_flag_is_set",
+        mcp_server_exposes_search_meta_tool_when_flag_is_set_inner(),
+    )
+    .await
+}
+
+async fn mcp_server_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult {
+    let repo_root = repo_root();
+    let temp_dir = unique_temp_dir();
+    let config_path = temp_dir.join("mcp.json");
+    let pythonpath = format!(
+        "{}:{}",
+        repo_root.join("python/src").display(),
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
+    );
+    let fixture = fixture_script();
+
+    let add_args = vec![
+        "add".to_string(),
+        "demo".to_string(),
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+        "--transport".to_string(),
+        "stdio".to_string(),
+        "--env".to_string(),
+        format!("PYTHONPATH={pythonpath}"),
+        "--".to_string(),
+        "python3".to_string(),
+        fixture.display().to_string(),
+    ];
+    let add_stdout = assert_success(&run_cli(&add_args), "add");
+    assert!(add_stdout.contains("[Success] Service added: demo"));
+
+    let (transport, stderr) =
+        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
+            cmd.arg("mcp")
+                .arg("--config-path")
+                .arg(config_path.display().to_string())
+                .arg("--expose-search-tools")
+                .current_dir(rust_root());
+        }))
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    let mut stderr = stderr.expect("stderr must be piped");
+    let stderr_task = tokio::spawn(async move {
+        let mut buffer = String::new();
+        stderr.read_to_string(&mut buffer).await?;
+        Ok::<_, std::io::Error>(buffer)
+    });
+
+    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
+        Ok(client) => client,
+        Err(error) => {
+            let stderr_output = stderr_task.await??;
+            return Err(format!("mcp 握手失败: {error}; stderr:\n{stderr_output}").into());
+        }
+    };
+
+    // The search meta-tool surfaces alongside the downstream tool only when the
+    // flag is on (other tests assert it is absent by default).
+    let tools = client.list_all_tools().await?;
+    let tool_names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
+    assert!(tool_names.contains(&"demo__greet".to_string()));
+    assert!(tool_names.contains(&"mcpstore_search_tools".to_string()));
+
+    // Searching for "greet" returns the downstream tool; searching for nonsense
+    // returns nothing.
+    let hit = client
+        .call_tool(
+            CallToolRequestParams::new("mcpstore_search_tools").with_arguments(
+                serde_json::json!({"query": "greet", "top_k": 5})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ),
+        )
+        .await?;
+    let hit_text = hit
+        .content
+        .first()
+        .and_then(ContentBlock::as_text)
+        .map(|t| t.text.as_str().to_string())
+        .expect("search result must be text");
+    assert!(
+        hit_text.contains("demo__greet"),
+        "search for 'greet' must surface demo__greet: {hit_text}"
+    );
+
+    let miss = client
+        .call_tool(
+            CallToolRequestParams::new("mcpstore_search_tools").with_arguments(
+                serde_json::json!({"query": "zzzznotoolsmatchthis"})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ),
+        )
+        .await?;
+    let miss_text = miss
+        .content
+        .first()
+        .and_then(ContentBlock::as_text)
+        .map(|t| t.text.as_str().to_string())
+        .expect("search result must be text");
+    assert!(
+        !miss_text.contains("demo__greet"),
+        "search for unrelated term must not surface demo__greet: {miss_text}"
+    );
+
+    client.cancel().await?;
+    let _ = stderr_task.await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn mcp_server_command_exposes_agent_scope_over_stdio() -> TestResult {
     run_test_with_timeout(
         "mcp_server_command_exposes_agent_scope_over_stdio",

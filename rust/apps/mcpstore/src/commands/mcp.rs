@@ -1238,7 +1238,7 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
         .await
         .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
     let mut execution = store
-        .start_tool_execution(instance_id, &a.tool_name, args, options)
+        .start_tool_execution(instance_id, &a.tool_name, args, None, options)
         .await
         .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
     emit_call_started(a.output, &a.tool_name, &execution)?;

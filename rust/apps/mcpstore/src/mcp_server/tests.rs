@@ -77,6 +77,7 @@ mod tests {
             openapi_tools: Arc::new(HashMap::new()),
             service_tools: Arc::new(HashMap::new()),
             cache_tools: Arc::new(HashMap::new()),
+            search_tools: Arc::new(HashMap::new()),
             tools: Arc::new(Vec::new()),
         };
         let client_handler = NotificationClient::default();
