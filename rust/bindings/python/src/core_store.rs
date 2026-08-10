@@ -739,17 +739,34 @@ impl PyMCPStore {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (config_path=None, source_mode=None, store=None, namespace=None))]
+    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None))]
     fn setup_with_options(
         config_path: Option<String>,
         source_mode: Option<String>,
         store: Option<String>,
+        store_config: Option<String>,
         namespace: Option<String>,
     ) -> PyResult<Self> {
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
             source_mode: parse_source_mode(source_mode.as_deref())?,
-            store: store.map(|name| mcpstore::JsonStoreConfig::new(name, serde_json::json!({}))),
+            store: store
+                .map(|name| {
+                    let config = store_config
+                        .as_deref()
+                        .map(serde_json::from_str)
+                        .transpose()
+                        .map_err(|error| {
+                            pyo3::exceptions::PyValueError::new_err(format!(
+                                "Store configuration: {error}"
+                            ))
+                        })?
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    Ok::<mcpstore::JsonStoreConfig, PyErr>(mcpstore::JsonStoreConfig::new(
+                        name, config,
+                    ))
+                })
+                .transpose()?,
             namespace,
         })
         .map_err(map_store_err)?;

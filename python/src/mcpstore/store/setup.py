@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 from typing import Any, Dict, Optional
 from urllib.parse import quote
@@ -37,7 +38,13 @@ def setup_backend(backend_cls: type, config_path: Optional[str], cache_config: A
     path = os.fspath(config_path) if config_path is not None else None
     cache = normalize_cache_config(cache_config)
     store, config, namespace = cache_options(cache)
-    rust_store = rust_mod.MCPStore.setup_with_options(path, "db" if only_db else "local", store, namespace)
+    rust_store = rust_mod.MCPStore.setup_with_options(
+        path,
+        "db" if only_db else "local",
+        store,
+        json.dumps(config, separators=(",", ":")),
+        namespace,
+    )
     store = backend_cls(rust_store)
     store._config_path = path
     store._cache_config = cache
