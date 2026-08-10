@@ -62,12 +62,21 @@ impl MCPStore {
         let online = target_handle.capabilities.change_feed;
 
         if online {
-            let source = self
-                .event_backend
-                .read()
-                .await
-                .clone()
-                .ok_or_else(|| StoreError::Other("source Store has no ChangeFeed".into()))?;
+            let source = match self.event_backend.read().await.clone() {
+                Some(source) => source,
+                None => {
+                    let current = self.store_config.read().await;
+                    let handle = openkeyv::factory::open_store(current.to_openkeyv_config())
+                        .await
+                        .map_err(|e| StoreError::Other(format!("source Store: {e}")))?;
+                    EventBackend::from_store(handle)
+                }
+            };
+            crate::cache::CacheLayerManager::clear_namespace(
+                target_live_store.as_ref(),
+                &namespace,
+            )
+            .await?;
             let (report, mut changes) = openkeyv::copy_snapshot_with_feed(
                 source.cap(),
                 &target_handle,
