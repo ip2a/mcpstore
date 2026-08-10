@@ -6,7 +6,7 @@ impl MCPStore {
         Ok(serde_json::json!({
             "schema_version": crate::cache::layer::CACHE_SCHEMA_VERSION,
             "namespace": report.namespace,
-            "backend": report.backend,
+            "store": report.store,
             "entities": report.entities,
             "relations": report.relations,
             "states": report.states,
@@ -19,7 +19,7 @@ impl MCPStore {
         let snapshot = self.cache.snapshot().await?;
         Ok(CacheHealthReport {
             namespace,
-            backend: self.current_store_name().await,
+            store: self.current_store_name().await,
             entities: snapshot.entities.keys().cloned().collect(),
             relations: snapshot.relations.keys().cloned().collect(),
             states: snapshot.states.keys().cloned().collect(),

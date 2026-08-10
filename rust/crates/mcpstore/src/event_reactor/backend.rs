@@ -9,56 +9,24 @@ use std::sync::Arc;
 
 use openkeyv::{
     AsyncChangeFeed, AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys,
-    AsyncKeyValue, Revision, RevisionedValue, Value,
+    AsyncKeyValue, Revision, RevisionedValue, StoreHandle, Value,
 };
 
 /// Aggregate of the openkeyv capabilities the reactor needs. Object-safe
 /// (every supertrait is `#[async_trait]` with `Send + Sync` and no generics).
-pub trait EventBackendCap:
-    AsyncKeyValue
-    + AsyncCompareAndSwap
-    + AsyncEnumerateKeys
-    + AsyncEnumerateCollections
-    + AsyncChangeFeed
-    + Send
-    + Sync
-{
-}
-
-impl<T> EventBackendCap for T where
-    T: AsyncKeyValue
-        + AsyncCompareAndSwap
-        + AsyncEnumerateKeys
-        + AsyncEnumerateCollections
-        + AsyncChangeFeed
-        + Send
-        + Sync
-{
-}
-
 /// Shared event-capable backend. Cheap to clone (one `Arc` bump).
 #[derive(Clone)]
-pub struct EventBackend(Arc<dyn EventBackendCap>);
+pub struct EventBackend(Arc<StoreHandle>);
 
 impl EventBackend {
     /// Wrap an existing store handle (e.g. share the cache layer's `MemoryStore`).
-    pub fn from_memory<S>(store: S) -> Self
-    where
-        S: EventBackendCap + 'static,
-    {
+    pub fn from_store(store: StoreHandle) -> Self {
         Self(Arc::new(store))
     }
 
-    /// Construct a Redis backend, connecting to the given URL.
-    #[cfg(feature = "redis")]
-    pub async fn from_redis_url(url: &str) -> openkeyv::Result<Self> {
-        let store = openkeyv::store::redis::RedisStore::new(url).await?;
-        Ok(Self(Arc::new(store)))
-    }
-
     /// Access the underlying capability object (for ad-hoc trait queries).
-    pub fn cap(&self) -> &Arc<dyn EventBackendCap> {
-        &self.0
+    pub fn cap(&self) -> &StoreHandle {
+        self.0.as_ref()
     }
 }
 
