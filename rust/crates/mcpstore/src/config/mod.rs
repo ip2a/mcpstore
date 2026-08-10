@@ -32,7 +32,7 @@ pub use app_schema::{
     AppConfig, DiagnosticsConfig, McpAggregateConfig, RuntimeLogConfig, ServerSettings,
     ServiceDefaultsConfig, SourceLogConfig, UiConfig,
 };
-pub use cache_schema::{CacheBackend, CacheConfig};
+pub use cache_schema::CacheConfig;
 pub use health_schema::HealthCheckConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;

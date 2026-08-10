@@ -21,7 +21,7 @@ pub(super) async fn page_home(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let agent_filter = params.get("agent").cloned().unwrap_or_default();
-    let cache_storage = store.current_cache_storage().await;
+    let cache_storage = store.current_store_name().await;
     let cache_storage_label = cache_storage.as_str();
     let source_label = if store.is_db_source() { "db" } else { "local" };
 
@@ -92,7 +92,7 @@ pub(super) async fn page_home(
             div.heading-actions {
                 a.button.button-primary href="/add" { "Add Service" }
                 a.button.button-ghost href="/" { "Refresh" }
-                button.button type="button" data-modal="/modal/switch-cache-storage" { "Data hot migration" }
+                button.button type="button" data-modal="/modal/switch-store" { "Data hot migration" }
             }
         }
 

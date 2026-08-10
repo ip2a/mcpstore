@@ -12,7 +12,7 @@ use crate::registry::{ConfigRevision, ServiceDefinition, ServiceInstance};
 use crate::state::{
     AuthState, DesiredState, HealthMetrics, HealthState, RuntimePhase, ServiceStateEvent,
 };
-use crate::store::{CacheStorage, MCPStore, StoreOptions};
+use crate::store::{JsonStoreConfig, MCPStore, StoreOptions};
 
 fn store_instance_id() -> crate::identity::InstanceId {
     ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id()
@@ -176,7 +176,7 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
 #[tokio::test]
 async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        backend: Some(CacheStorage::memory()),
+        store: Some(JsonStoreConfig::memory()),
         namespace: Some("cache-instance-status-upsert".to_string()),
         ..StoreOptions::default()
     })

@@ -4,7 +4,7 @@ use axum::{
 };
 use maud::html;
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
-use mcpstore::{CacheStorage, InstanceId, MCPStore, ScopeRef};
+use mcpstore::{InstanceId, JsonStoreConfig, MCPStore, ScopeRef};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
@@ -70,7 +70,7 @@ pub(super) async fn action_remove(
     }
 }
 
-pub(super) async fn action_switch_cache_storage(
+pub(super) async fn action_swap_store(
     State(store): State<Arc<MCPStore>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -85,10 +85,10 @@ pub(super) async fn action_switch_cache_storage(
         )
         .into_response();
     } else {
-        CacheStorage::new(target, None)
+        JsonStoreConfig::new(target, serde_json::json!({}))
     };
     let had_reactor = store.has_reactor().await;
-    match store.switch_cache_storage(cache_storage, None, None).await {
+    match store.swap_store(&cache_storage).await {
         Ok(_) => {
             if had_reactor {
                 if let Err(error) = store.restart_control_reactor().await {
@@ -105,10 +105,8 @@ pub(super) async fn action_switch_cache_storage(
     }
 }
 
-pub(super) async fn modal_switch_cache_storage(
-    State(store): State<Arc<MCPStore>>,
-) -> impl IntoResponse {
-    let cache_storage = store.current_cache_storage().await;
+pub(super) async fn modal_swap_store(State(store): State<Arc<MCPStore>>) -> impl IntoResponse {
+    let cache_storage = store.current_store_name().await;
     let current_label = cache_storage.as_str();
     let content = html! {
         dialog open {
@@ -120,7 +118,7 @@ pub(super) async fn modal_switch_cache_storage(
                     }
                     button.button.button-ghost type="button" onclick="closeModal()" { "Close" }
                 }
-                form.modal-form method="get" action="/action/switch-cache-storage" {
+                form.modal-form method="get" action="/action/switch-store" {
                     div.field {
                         label for="field-target" { "Target cache storage" }
                         select id="field-target" name="target" {

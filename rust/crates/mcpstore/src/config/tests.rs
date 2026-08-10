@@ -278,8 +278,8 @@ fn test_app_config_roundtrip() {
     let mgr = ConfigManager::with_path(dir.join("mcp.json"));
 
     let mut config = AppConfig::default();
-    config.cache.backend = CacheBackend::redis();
-    config.cache.url = Some("redis://127.0.0.1/".to_string());
+    config.cache.store = "redis".to_string();
+    config.cache.config = serde_json::json!({"url": "redis://127.0.0.1/"});
     config.server.log_level = "debug".to_string();
     config.server.url_prefix = "/demo".to_string();
     config.mcp_aggregate.transport = "streamable-http".to_string();
@@ -291,7 +291,7 @@ fn test_app_config_roundtrip() {
 
     mgr.save_app_config(&config).unwrap();
     let loaded = mgr.load_app_config().unwrap();
-    assert_eq!(loaded.cache.backend, CacheBackend::redis());
+    assert_eq!(loaded.cache.store, "redis");
     assert_eq!(loaded.cache.namespace, "mcpstore");
     assert_eq!(loaded.server.log_level, "debug");
     assert_eq!(loaded.server.url_prefix, "/demo");
@@ -383,8 +383,8 @@ fn test_init_splits_mcp_json_and_app_toml() {
     assert!(!mcp_raw.contains("cache"));
 
     let app_config = mgr.load_app_config().unwrap();
-    assert_eq!(app_config.cache.backend, CacheBackend::redis());
-    assert_eq!(app_config.cache.url.as_deref(), Some("redis://127.0.0.1/"));
+    assert_eq!(app_config.cache.store, "redis");
+    assert_eq!(app_config.cache.config["url"], "redis://127.0.0.1/");
 
     std::fs::remove_dir_all(&dir).ok();
 }

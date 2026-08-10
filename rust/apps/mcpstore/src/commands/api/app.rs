@@ -1,19 +1,12 @@
 use std::{path::Path as FsPath, sync::Arc};
 
-use axum::{
-    extract::State,
-    Json,
-};
-use mcpstore::{
-    config::ConfigError,
-    AppConfig,
-};
+use axum::{extract::State, Json};
+use mcpstore::{config::ConfigError, AppConfig};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{
     envelope::{success, ApiError, ApiResult},
-    parse::cache_storage_label,
     ApiState,
 };
 
@@ -47,7 +40,7 @@ struct UpdateRuntimeLogRequest {
 pub(super) async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "backend": cache_storage_label(state.store.current_cache_storage().await),
+        "store": state.store.current_store_name().await,
     }))
 }
 

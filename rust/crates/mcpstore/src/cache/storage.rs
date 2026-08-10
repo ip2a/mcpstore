@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
-use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
-
-use crate::cache::openkeyv_store::{OpenKeyvCacheStore, OpenKeyvStoreApi};
 use crate::cache::redis::LazyRedisStore;
 use crate::cache::Result;
+use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
 
 #[async_trait::async_trait]
 pub(crate) trait CacheStore: Send + Sync {
@@ -28,19 +26,43 @@ pub(crate) trait CacheStore: Send + Sync {
 }
 
 pub(crate) fn memory_cache_store() -> Arc<dyn CacheStore> {
-    let inner: Arc<dyn OpenKeyvStoreApi> = Arc::new(OpenKeyvMemoryStore::new());
-    Arc::new(OpenKeyvCacheStore::new(inner))
+    let store = Arc::new(OpenKeyvMemoryStore::new());
+    let handle = openkeyv::StoreHandle::with_capabilities(
+        store.clone(),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store),
+    );
+    Arc::new(crate::cache::live_store::LiveStore::from_handle(handle))
 }
 
 /// Like `memory_cache_store`, but also returns the underlying MemoryStore
 /// handle (sharing the same `Arc<MemoryClient>`) for use by EventReactor.
 pub(crate) fn memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore) {
     let inner = OpenKeyvMemoryStore::new();
-    let api: Arc<dyn OpenKeyvStoreApi> = Arc::new(inner.clone());
-    (Arc::new(OpenKeyvCacheStore::new(api)), inner)
+    let store = Arc::new(inner.clone());
+    let handle = openkeyv::StoreHandle::with_capabilities(
+        store.clone(),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store),
+    );
+    (
+        Arc::new(crate::cache::live_store::LiveStore::from_handle(handle)),
+        inner,
+    )
 }
 
 pub(crate) fn redis_cache_store(redis_url: &str) -> Arc<dyn CacheStore> {
-    let api: Arc<dyn OpenKeyvStoreApi> = Arc::new(LazyRedisStore::new(redis_url));
-    Arc::new(OpenKeyvCacheStore::new(api))
+    let store = Arc::new(LazyRedisStore::new(redis_url));
+    let handle = openkeyv::StoreHandle::with_capabilities(
+        store.clone(),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store),
+        None,
+    );
+    Arc::new(crate::cache::live_store::LiveStore::from_handle(handle))
 }

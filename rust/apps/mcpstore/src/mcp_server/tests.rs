@@ -4,7 +4,7 @@ mod tests {
     use super::super::tools::*;
     use super::super::transport::normalize_http_path;
     use super::super::*;
-    use mcpstore::{events::types::EventKind, CacheStorage, ServiceInstanceKey};
+    use mcpstore::{events::types::EventKind, JsonStoreConfig, ServiceInstanceKey};
     use rmcp::{
         model::{ProtocolVersion, ServerNotification, SubscriptionFilter},
         service::ClientLifecycleMode,
@@ -57,7 +57,7 @@ mod tests {
     #[tokio::test]
     async fn aggregate_server_forwards_scoped_tool_list_changes() {
         let store = MCPStore::setup_with_options(StoreOptions {
-            backend: Some(CacheStorage::memory()),
+            store: Some(JsonStoreConfig::memory()),
             ..StoreOptions::default()
         })
         .unwrap();

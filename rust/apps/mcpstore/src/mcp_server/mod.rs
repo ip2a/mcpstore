@@ -9,7 +9,7 @@ use std::sync::{
 use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
     events::{bus::EventHandler, Event},
-    CacheStorage, ContentItem, InstanceId, MCPStore, McpExecutionOptions, McpToolExecution,
+    ContentItem, InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpToolExecution,
     OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch,
     ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef, SourceMode, StoreError,
     StoreOptions, ToolOverridePatch,
@@ -58,8 +58,7 @@ pub type BoxErr = Box<dyn std::error::Error>;
 pub struct McpServerOptions {
     pub config_path: Option<String>,
     pub source_mode: SourceMode,
-    pub backend: Option<CacheStorage>,
-    pub redis_url: Option<String>,
+    pub store: Option<JsonStoreConfig>,
     pub namespace: Option<String>,
     pub scope: ScopeRef,
     pub instance_id: Option<InstanceId>,
@@ -83,8 +82,7 @@ impl Default for McpServerOptions {
         Self {
             config_path: None,
             source_mode: SourceMode::Local,
-            backend: None,
-            redis_url: None,
+            store: None,
             namespace: None,
             scope: ScopeRef::Store,
             instance_id: None,
@@ -158,8 +156,7 @@ impl McpServerOptions {
         StoreOptions {
             config_path: self.config_path.clone(),
             source_mode: self.source_mode,
-            backend: self.backend.clone(),
-            redis_url: self.redis_url.clone(),
+            store: self.store.clone(),
             namespace: self.namespace.clone(),
         }
     }

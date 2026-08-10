@@ -601,19 +601,19 @@ pub(super) fn build_cache_tools() -> HashMap<String, Tool> {
     [
         cache_tool(
             CACHE_HEALTH_TOOL,
-            "Read MCPStore cache backend health and collection coverage from Rust core.",
+            "Read MCPStore cache health and collection coverage from Rust core.",
             empty_object_schema(),
             true,
         ),
         cache_tool(
             CACHE_INSPECT_TOOL,
-            "Inspect MCPStore cache backend state, counts, collections, and request metrics from Rust core.",
+            "Inspect MCPStore cache state, counts, collections, and request metrics from Rust core.",
             empty_object_schema(),
             true,
         ),
         cache_tool(
             CACHE_SWITCH_TOOL,
-            "Switch the MCPStore cache backend and migrate existing Rust core state into the target backend.",
+            "Switch the MCPStore store and migrate existing Rust core state into the target store.",
             cache_switch_schema(),
             false,
         ),
@@ -876,35 +876,27 @@ pub(super) fn service_wait_schema() -> Map<String, Value> {
 pub(super) fn cache_switch_schema() -> Map<String, Value> {
     let mut properties = Map::new();
     properties.insert(
-        "backend".to_string(),
+        "store".to_string(),
         serde_json::json!({
             "type": "string",
             "enum": ["memory", "redis"],
-            "description": "Target MCPStore cache backend. Redis backends require redis_url unless the store already has one."
+            "description": "Target MCPStore store name."
         }),
     );
     properties.insert(
-        "redis_url".to_string(),
+        "config".to_string(),
         serde_json::json!({
-            "type": "string",
-            "description": "Optional Redis URL for redis backend."
+            "type": "object",
+            "description": "Target store configuration."
         }),
     );
-    properties.insert(
-        "namespace".to_string(),
-        serde_json::json!({
-            "type": "string",
-            "description": "Optional target namespace. Use the same namespace to share state across processes."
-        }),
-    );
-
     let mut schema = Map::new();
     schema.insert("type".to_string(), Value::String("object".to_string()));
     schema.insert("properties".to_string(), Value::Object(properties));
     schema.insert("additionalProperties".to_string(), Value::Bool(false));
     schema.insert(
         "required".to_string(),
-        Value::Array(vec![Value::String("backend".to_string())]),
+        Value::Array(vec![Value::String("store".to_string())]),
     );
     schema
 }
@@ -1630,16 +1622,14 @@ pub(super) async fn call_cache_tool(
             serde_json::json!({"inspect": inspect})
         }
         CACHE_SWITCH_TOOL => {
-            let backend = required_argument_string(&arguments, "backend")?;
-            let storage = parse_cache_storage_argument(backend)?;
-            let backend_label = storage.as_str().to_string();
-            let redis_url = optional_string_argument(&arguments, "redis_url");
-            let namespace = optional_string_argument(&arguments, "namespace");
+            let store_name = required_argument_string(&arguments, "store")?;
+            let config = arguments
+                .get("config")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
             let had_reactor = store.has_reactor().await;
-            let snapshot = store
-                .switch_cache_storage(storage, redis_url, namespace)
-                .await
-                .map_err(map_store_error)?;
+            let config = mcpstore::JsonStoreConfig::new(store_name, config);
+            let snapshot = store.swap_store(&config).await.map_err(map_store_error)?;
             if had_reactor {
                 store
                     .restart_control_reactor()
@@ -1647,8 +1637,7 @@ pub(super) async fn call_cache_tool(
                     .map_err(map_store_error)?;
             }
             serde_json::json!({
-                "backend": backend_label,
-                "namespace": store.namespace(),
+                "store": store_name,
                 "snapshot": snapshot,
             })
         }
@@ -1711,18 +1700,6 @@ pub(super) fn required_instance_id_argument(
         .map_err(|error| ErrorData::invalid_params(format!("instance_id 参数无效: {error}"), None))
 }
 
-pub(super) fn optional_string_argument(
-    arguments: &Map<String, Value>,
-    field: &str,
-) -> Option<String> {
-    arguments
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
 pub(super) fn service_config_from_arguments(
     arguments: &Map<String, Value>,
 ) -> Result<ServerConfig, ErrorData> {
@@ -1744,14 +1721,6 @@ pub(super) fn service_scope_descriptor_from_arguments(
     serde_json::from_value(descriptor).map_err(|error| {
         ErrorData::invalid_params(format!("服务作用域描述解析失败: {error}"), None)
     })
-}
-
-pub(super) fn parse_cache_storage_argument(value: &str) -> Result<CacheStorage, ErrorData> {
-    let backend = value.trim();
-    if backend.is_empty() {
-        return Err(ErrorData::invalid_params("cache backend 不能为空", None));
-    }
-    Ok(CacheStorage::new(backend, None))
 }
 
 pub(super) fn openapi_import_options_from_arguments(

@@ -407,7 +407,10 @@ pub(super) async fn session_set_state(
         .set_session_state(&session_key, &payload.key, payload.value)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session state 设置成功", json!({ "state": session_state })))
+    Ok(success(
+        "Session state 设置成功",
+        json!({ "state": session_state }),
+    ))
 }
 
 /// `POST /sessions/state/delete` —— body: `{ session_key, key }`
@@ -423,7 +426,10 @@ pub(super) async fn session_delete_state(
         .delete_session_state(&session_key, &payload.key)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session state 删除成功", json!({ "state": session_state })))
+    Ok(success(
+        "Session state 删除成功",
+        json!({ "state": session_state }),
+    ))
 }
 
 /// `POST /sessions/state/clear` —— body: `{ session_key }`
@@ -439,5 +445,8 @@ pub(super) async fn session_clear_state(
         .clear_session_state(&session_key)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session state 清理成功", json!({ "state": session_state })))
+    Ok(success(
+        "Session state 清理成功",
+        json!({ "state": session_state }),
+    ))
 }

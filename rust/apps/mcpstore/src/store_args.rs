@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::{CacheStorage, MCPStore, SourceMode, StoreOptions};
+use mcpstore::{JsonStoreConfig, MCPStore, SourceMode, StoreOptions};
 
 use crate::BoxErr;
 
@@ -31,30 +31,21 @@ pub struct StoreSourceArgs {
     pub source: SourceArg,
     #[arg(
         long,
-        help = "OpenKeyv backend name: memory, redis, valkey, postgres, sqlite, ..."
+        help = "Store name: memory, redis, valkey, postgres, sqlite, ..."
     )]
-    pub backend: Option<String>,
-    #[arg(
-        long = "url",
-        visible_alias = "redis-url",
-        help = "OpenKeyv backend connection URL"
-    )]
-    pub backend_url: Option<String>,
+    pub store: Option<String>,
+    #[arg(long = "store-config", help = "Store configuration JSON file")]
+    pub store_config: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
 }
 
 impl StoreSourceArgs {
     pub fn to_store_options(&self) -> StoreOptions {
-        let backend = self
-            .backend
+        let store = self
+            .store
             .as_ref()
-            .map(|backend| CacheStorage::new(backend, self.backend_url.clone()))
-            .or_else(|| {
-                self.backend_url
-                    .as_ref()
-                    .map(|url| CacheStorage::openkeyv("redis", url))
-            });
+            .map(|store| JsonStoreConfig::new(store, serde_json::json!({})));
 
         StoreOptions {
             config_path: self.config_path.clone(),
@@ -62,8 +53,7 @@ impl StoreSourceArgs {
                 SourceArg::Local => SourceMode::Local,
                 SourceArg::Db => SourceMode::Db,
             },
-            backend,
-            redis_url: self.backend_url.clone(),
+            store,
             namespace: self.namespace.clone(),
         }
     }

@@ -34,8 +34,8 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, CacheBackend, CacheConfig, ConfigManager, McpAggregateConfig, McpConfig,
-    RuntimeLogConfig, ServerConfig,
+    AppConfig, CacheConfig, ConfigManager, McpAggregateConfig, McpConfig, RuntimeLogConfig,
+    ServerConfig,
 };
 
 // Facade re-exports: cache layer
@@ -109,7 +109,8 @@ pub use overrides::{
     ResourceTemplateOverrideRule, ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule,
     ToolOverrideSafetyPolicy,
 };
+pub use store::swap::SwapResult;
 pub use store::{
-    BackendKind, CacheStorage, MCPStore, OpenApiImportInput, OpenApiImportSource, SourceMode,
-    StoreOptions, ToolVisibilityFilter,
+    JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
+    RedisStoreConfig, SourceMode, StoreConfig, StoreOptions, ToolVisibilityFilter,
 };
