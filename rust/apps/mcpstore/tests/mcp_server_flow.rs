@@ -527,8 +527,10 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
     let store_args = [
         "--config-path",
         config_path_arg.as_str(),
-        "--redis-url",
-        redis_url.as_str(),
+        "--store",
+        "redis",
+        "--store-config",
+        &format!(r#"{{"url":"{}"}}"#, redis_url),
         "--namespace",
         namespace.as_str(),
     ];

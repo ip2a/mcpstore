@@ -584,7 +584,7 @@ mod tests {
             "--store",
             "redis",
             "--store-config",
-            "redis://127.0.0.1:6379/0",
+            r#"{"url":"redis://127.0.0.1:6379/0"}"#,
             "--namespace",
             "demo",
         ])
@@ -596,7 +596,7 @@ mod tests {
                 assert_eq!(args.store.store.as_deref(), Some("redis"));
                 assert_eq!(
                     args.store.store_config.as_deref(),
-                    Some("redis://127.0.0.1:6379/0")
+                    Some(r#"{"url":"redis://127.0.0.1:6379/0"}"#)
                 );
                 assert_eq!(args.store.namespace.as_deref(), Some("demo"));
             }
