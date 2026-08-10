@@ -1,9 +1,12 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::cache::live_store::LiveStore;
 use crate::cache::CacheStore;
+use crate::event_reactor::EventBackend;
 use crate::store::prelude::*;
 use crate::store::store_config::{JsonStoreConfig, StoreConfig};
+use openkeyv::{AsyncKeyValue, MigrationOptions};
 
 /// Result of a successful `swap_store` operation.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -51,35 +54,84 @@ impl MCPStore {
         let target_name = config.store_name().to_string();
         let namespace = self.namespace();
 
-        let target_live_store: Arc<dyn CacheStore> =
-            Arc::new(LiveStore::from_handle(target_handle));
+        let target_live_store = Arc::new(LiveStore::from_handle(target_handle));
+        let target_handle = target_live_store.handle();
+        let target_event_backend = EventBackend::from_store(target_handle.clone());
+        let mut copied = 0;
+        let mut replayed = 0;
+        let online = target_handle.capabilities.change_feed;
 
-        // Freeze writes through the cache route before taking the final snapshot.
-        // The snapshot method only reads the underlying store and does not acquire
-        // this route, so the write lock remains held throughout copy and cutover.
-        let _route = self.cache.route.write().await;
-        let snapshot = self.cache.snapshot().await?;
+        if online {
+            let source = self
+                .event_backend
+                .read()
+                .await
+                .clone()
+                .ok_or_else(|| StoreError::Other("source Store has no ChangeFeed".into()))?;
+            let (report, mut changes) = openkeyv::copy_snapshot_with_feed(
+                source.cap(),
+                &target_handle,
+                &MigrationOptions::default(),
+            )
+            .await
+            .map_err(|e| StoreError::Other(format!("Store migration: {e}")))?;
+            copied = report.copied;
 
-        crate::cache::CacheLayerManager::clear_namespace(target_live_store.as_ref(), &namespace)
+            let _route = self.cache.route.write().await;
+            let barrier_collection = "__mcpstore_migration";
+            let barrier_key = format!("{}-{}", std::process::id(), uuid::Uuid::new_v4());
+            source
+                .cap()
+                .put(
+                    &barrier_key,
+                    openkeyv::Value::utf8("cutover"),
+                    Some(barrier_collection),
+                    None,
+                )
+                .await
+                .map_err(|e| StoreError::Other(format!("migration barrier: {e}")))?;
+            loop {
+                let change = tokio::time::timeout(Duration::from_secs(10), changes.recv())
+                    .await
+                    .map_err(|_| StoreError::Other("migration ChangeFeed timeout".into()))?
+                    .map_err(|e| StoreError::Other(format!("migration ChangeFeed: {e}")))?
+                    .ok_or_else(|| StoreError::Other("migration ChangeFeed ended".into()))?;
+                if change.collection == barrier_collection && change.key == barrier_key {
+                    break;
+                }
+                openkeyv::apply_change(
+                    source.cap(),
+                    &target_handle,
+                    &change,
+                    &MigrationOptions::default(),
+                )
+                .await
+                .map_err(|e| StoreError::Other(format!("migration replay: {e}")))?;
+                replayed += 1;
+            }
+        } else {
+            let _route = self.cache.route.write().await;
+            let snapshot = self.cache.snapshot().await?;
+            crate::cache::CacheLayerManager::clear_namespace(
+                target_live_store.as_ref(),
+                &namespace,
+            )
             .await?;
-        let mut copied: u64 = 0;
-
-        // Restore snapshot into target.
-        let layers = [
-            ("entity", &snapshot.entities),
-            ("relations", &snapshot.relations),
-            ("state", &snapshot.states),
-            ("event", &snapshot.events),
-        ];
-        for (layer, data) in &layers {
-            for (suffix, entries) in *data {
-                let collection = format!("{namespace}:{layer}:{suffix}");
-                for (key, value) in entries {
-                    target_live_store
-                        .put(key, value.clone(), &collection)
-                        .await
-                        .map_err(|e| StoreError::from(e))?;
-                    copied += 1;
+            let layers = [
+                ("entity", &snapshot.entities),
+                ("relations", &snapshot.relations),
+                ("state", &snapshot.states),
+                ("event", &snapshot.events),
+            ];
+            for (layer, data) in &layers {
+                for (suffix, entries) in *data {
+                    let collection = format!("{namespace}:{layer}:{suffix}");
+                    for (key, value) in entries {
+                        target_live_store
+                            .put(key, value.clone(), &collection)
+                            .await?;
+                        copied += 1;
+                    }
                 }
             }
         }
@@ -90,15 +142,16 @@ impl MCPStore {
 
         // Update metadata.
         *self.store_config.write().await =
-            JsonStoreConfig::new(config.store_name(), serde_json::json!({}));
+            JsonStoreConfig::new(config.store_name(), config.to_openkeyv_config().config);
+        *self.event_backend.write().await = online.then_some(target_event_backend);
 
         Ok(SwapResult {
             source_store: source_name,
             target_store: target_name,
             copied,
-            replayed: 0,
+            replayed,
             verified: true,
-            online: false,
+            online,
             pause_ms: 0,
         })
     }

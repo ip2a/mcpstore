@@ -4543,7 +4543,7 @@ async fn event_history_and_cache_health_are_reported() {
 
     store.add_service("svc", stdio_config()).await.unwrap();
     let health = store.cache_health_check().await.unwrap();
-    assert_eq!(health["backend"], serde_json::json!("memory"));
+    assert_eq!(health["store"], serde_json::json!("memory"));
     assert!(health["entities"]
         .as_array()
         .unwrap()
@@ -7602,6 +7602,75 @@ mod control_reactor_tests {
             .unwrap();
         assert!(entity_b.is_some(), "service svc-b must survive swap");
 
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
+    async fn swap_store_uses_online_feed_for_memory_store() {
+        let path = temp_config_path();
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: Some(path.clone()),
+            source_mode: SourceMode::Local,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some("online-swap".to_string()),
+        })
+        .unwrap();
+        store
+            .add_service("online-svc", stdio_config())
+            .await
+            .unwrap();
+
+        let target = crate::store::store_config::MemoryStoreConfig;
+        let result = store.swap_store(&target).await.unwrap();
+
+        assert!(result.verified);
+        assert!(result.online);
+        assert!(store
+            .cache()
+            .get_entity("service_definitions", "online-svc")
+            .await
+            .unwrap()
+            .is_some());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
+    async fn swap_store_memory_to_redis_db9_and_back() {
+        let Ok(url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+            return;
+        };
+        let path = temp_config_path();
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: Some(path.clone()),
+            source_mode: SourceMode::Local,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some(format!("swap-db9-{}", uuid::Uuid::new_v4())),
+        })
+        .unwrap();
+        store
+            .add_service("redis-svc", stdio_config())
+            .await
+            .unwrap();
+
+        let target = RedisStoreConfig::new(url);
+        let result = store.swap_store(&target).await.unwrap();
+        assert!(result.verified);
+        assert!(result.online);
+        assert!(store
+            .cache()
+            .get_entity("service_definitions", "redis-svc")
+            .await
+            .unwrap()
+            .is_some());
+
+        let result = store.swap_store(&MemoryStoreConfig).await.unwrap();
+        assert!(result.verified);
+        assert!(store
+            .cache()
+            .get_entity("service_definitions", "redis-svc")
+            .await
+            .unwrap()
+            .is_some());
         std::fs::remove_file(path).ok();
     }
 }

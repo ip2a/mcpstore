@@ -23,4 +23,4 @@ pub(crate) mod storage;
 pub use layer::{CacheError, CacheLayerManager, CacheSnapshot, Result};
 pub use metrics::CacheRequestMetricsSnapshot;
 
-pub(crate) use storage::{memory_cache_store, redis_cache_store, CacheStore};
+pub(crate) use storage::{memory_cache_store, redis_store, CacheStore};

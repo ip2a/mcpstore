@@ -7,7 +7,7 @@ use crate::registry::{ConfigRevision, ServiceDefinition};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheHealthReport {
     pub namespace: String,
-    pub backend: String,
+    pub store: String,
     pub entities: Vec<String>,
     pub relations: Vec<String>,
     pub states: Vec<String>,

@@ -116,7 +116,14 @@ impl MCPStore {
         let (cache_store, event_backend) = match store_name.as_str() {
             "memory" => {
                 let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
-                (store, Some(EventBackend::from_memory(mem)))
+                let handle = openkeyv::StoreHandle::with_capabilities(
+                    std::sync::Arc::new(mem.clone()),
+                    Some(std::sync::Arc::new(mem.clone())),
+                    Some(std::sync::Arc::new(mem.clone())),
+                    Some(std::sync::Arc::new(mem.clone())),
+                    Some(std::sync::Arc::new(mem)),
+                );
+                (store, Some(EventBackend::from_store(handle)))
             }
             "redis" => {
                 let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
@@ -220,9 +227,12 @@ impl MCPStore {
                             .get("url")
                             .and_then(|v| v.as_str())
                             .unwrap_or("redis://127.0.0.1/");
-                        let b = EventBackend::from_redis_url(&url)
-                            .await
-                            .map_err(|e| StoreError::Other(format!("redis event Store: {e}")))?;
+                        let handle = openkeyv::factory::open_store(openkeyv::StoreConfig::redis(
+                            serde_json::json!({"url": url}),
+                        ))
+                        .await
+                        .map_err(|e| StoreError::Other(format!("event Store: {e}")))?;
+                        let b = EventBackend::from_store(handle);
                         *self.event_backend.write().await = Some(b.clone());
                         b
                     }

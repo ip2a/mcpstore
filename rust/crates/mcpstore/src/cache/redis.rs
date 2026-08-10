@@ -7,7 +7,7 @@ use openkeyv::{
 use tokio::sync::OnceCell;
 
 /// Lazily-connected Redis store that fulfils the cache's aggregate trait.
-/// Built on first use so `redis_cache_store(url)` stays synchronous.
+/// Built on first use so Store creation stays synchronous.
 pub(in crate::cache) struct LazyRedisStore {
     inner: OnceCell<Arc<OpenKeyvRedisInner>>,
     url: String,

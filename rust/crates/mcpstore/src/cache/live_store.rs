@@ -20,6 +20,10 @@ impl LiveStore {
         Self { handle }
     }
 
+    pub(crate) fn handle(&self) -> StoreHandle {
+        self.handle.clone()
+    }
+
     fn cas(&self) -> Result<&Arc<dyn AsyncCompareAndSwap>> {
         self.handle
             .compare_and_swap
