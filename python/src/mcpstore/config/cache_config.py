@@ -5,14 +5,7 @@ Non-sensitive configuration is loaded from MCPStoreConfig, sensitive from enviro
 """
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Literal
-
-
-class CacheType(Enum):
-    """Cache type enumeration."""
-    MEMORY = "memory"
-    REDIS = "redis"
+from typing import Any, Optional
 
 
 @dataclass
@@ -23,23 +16,23 @@ class BaseCacheConfig:
 
 
 @dataclass
-class OpenKeyvConfig(BaseCacheConfig):
-    """Configuration for any OpenKeyv backend compiled into the Rust core."""
+class StoreConfig(BaseCacheConfig):
+    """Base configuration for one concrete Store."""
 
-    backend: str = "memory"
-    url: Optional[str] = None
+    store: str = "memory"
+    config: dict[str, Any] | None = None
     namespace: Optional[str] = None
 
     @property
-    def cache_type(self) -> str:
-        return self.backend.strip().lower()
+    def store_name(self) -> str:
+        return self.store.strip().lower()
 
     def __post_init__(self) -> None:
-        self.backend = self.backend.strip().lower()
-        if not self.backend:
-            raise ValueError("OpenKeyv backend name cannot be empty")
-        if self.backend != "memory" and not self.url:
-            raise ValueError(f"OpenKeyv backend {self.backend!r} requires a URL")
+        self.store = self.store.strip().lower()
+        if not self.store:
+            raise ValueError("Store name cannot be empty")
+        if self.config is None:
+            self.config = {}
 
 
 @dataclass
@@ -47,7 +40,7 @@ class MemoryConfig(BaseCacheConfig):
     """Memory cache configuration."""
     max_size: Optional[int] = None
     cleanup_interval: int = 300
-    cache_type: Literal[CacheType.MEMORY] = CacheType.MEMORY
+    store: str = "memory"
 
 
 
@@ -72,7 +65,7 @@ class RedisConfig(BaseCacheConfig):
 
     allow_partial: bool = False
 
-    cache_type: Literal[CacheType.REDIS] = CacheType.REDIS
+    store: str = "redis"
 
     def __post_init__(self):
         """Validate configuration parameters."""

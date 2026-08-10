@@ -9,70 +9,35 @@ from urllib.parse import quote
 
 
 def normalize_cache_config(cache_config: Any) -> Any:
-    if cache_config is None or hasattr(cache_config, "cache_type"):
+    if cache_config is None or hasattr(cache_config, "store_name"):
         return cache_config
     if isinstance(cache_config, str):
-        from mcpstore.config import OpenKeyvConfig
+        from mcpstore.config import StoreConfig
 
-        return OpenKeyvConfig(backend=cache_config)
+        return StoreConfig(store=cache_config)
     if isinstance(cache_config, dict):
-        raw_type = cache_config.get(
-            "backend", cache_config.get("type", cache_config.get("cache_type"))
-        )
-        cache_type = str(getattr(raw_type, "value", raw_type) or "").strip().lower()
-        if not cache_type:
-            raise ValueError("OpenKeyv backend name cannot be empty")
+        store = str(cache_config.get("store", "memory")).strip().lower()
         options = dict(cache_config)
-        options.pop("backend", None)
-        options.pop("type", None)
-        options.pop("cache_type", None)
-        configs = {"memory": "MemoryConfig", "redis": "RedisConfig"}
-        config_name = configs.get(cache_type)
-        if config_name:
-            from mcpstore import config as config_module
-            return getattr(config_module, config_name)(**options)
-        from mcpstore.config import OpenKeyvConfig
-
-        return OpenKeyvConfig(backend=cache_type, **options)
+        options.pop("store", None)
+        from mcpstore.config import StoreConfig
+        return StoreConfig(store=store, config=options)
     return cache_config
 
 
-def redis_url(cache_config: Any) -> Optional[str]:
-    url = getattr(cache_config, "url", None)
-    if url:
-        return str(url)
-    host = getattr(cache_config, "host", None)
-    if not host:
-        return None
-    port = getattr(cache_config, "port", None) or 6379
-    db = getattr(cache_config, "db", None) or 0
-    password = getattr(cache_config, "password", None)
-    auth = f":{quote(str(password), safe='')}@" if password else ""
-    return f"redis://{auth}{host}:{port}/{db}"
-
-
-def cache_options(cache_config: Any) -> tuple[Optional[str], Optional[str], Optional[str]]:
+def cache_options(cache_config: Any) -> tuple[Optional[str], Optional[dict[str, Any]], Optional[str]]:
     if cache_config is None:
         return None, None, None
-    raw_type = getattr(cache_config, "cache_type", None)
-    cache_type = getattr(raw_type, "value", raw_type)
-    backend = str(cache_type).strip().lower()
-    if not backend:
-        raise ValueError("OpenKeyv backend name cannot be empty")
-    url = redis_url(cache_config)
-    if backend != "memory" and not url:
-        raise ValueError(f"OpenKeyv backend {backend!r} requires a URL")
-    return backend, url, getattr(cache_config, "namespace", None)
+    store = getattr(cache_config, "store_name", "memory")
+    config = getattr(cache_config, "config", None) or {}
+    return store, config, getattr(cache_config, "namespace", None)
 
 
 def setup_backend(backend_cls: type, config_path: Optional[str], cache_config: Any, only_db: bool):
     rust_mod = importlib.import_module("mcpstore._rust")
     path = os.fspath(config_path) if config_path is not None else None
     cache = normalize_cache_config(cache_config)
-    backend, redis, namespace = cache_options(cache)
-    rust_store = rust_mod.MCPStore.setup_with_options(
-        path, "db" if only_db else "local", backend, redis, namespace
-    )
+    store, config, namespace = cache_options(cache)
+    rust_store = rust_mod.MCPStore.setup_with_options(path, "db" if only_db else "local", store, namespace)
     store = backend_cls(rust_store)
     store._config_path = path
     store._cache_config = cache
@@ -174,11 +139,10 @@ class StoreSetupManager:
             raise ValueError(f"Rust core 当前不支持 cache_mode={cache_mode!r}")
 
         if mode == "shared":
-            cache_type_value = getattr(cache, "cache_type", None)
-            cache_type = getattr(cache_type_value, "value", cache_type_value)
-            if not cache_type or str(cache_type).lower() == "memory":
+            store_name = getattr(cache, "store_name", None)
+            if not store_name or str(store_name).lower() == "memory":
                 raise ValueError(
-                    "cache_mode='shared' requires a non-memory OpenKeyv backend"
+                    "cache_mode='shared' requires a Store that is shared across processes"
                 )
 
         resolved_only_db = False if mode == "local" else only_db or mode == "shared"

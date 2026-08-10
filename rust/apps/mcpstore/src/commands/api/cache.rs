@@ -1,20 +1,18 @@
 use std::sync::Arc;
 
 use axum::{extract::State, Json};
-use mcpstore::MCPStore;
+use mcpstore::{JsonStoreConfig, MCPStore};
 use serde::Deserialize;
 
 use super::{
     envelope::{success, ApiError, ApiResult},
-    parse::parse_cache_storage,
     ApiState,
 };
 
 #[derive(Deserialize)]
 pub(super) struct CacheSwitchRequest {
-    backend: String,
-    redis_url: Option<String>,
-    namespace: Option<String>,
+    store: String,
+    config: serde_json::Value,
 }
 
 /// Start an EventReactor that processes control_requests via push-based
@@ -53,10 +51,10 @@ pub(super) async fn switch(
     State(state): State<Arc<ApiState>>,
     Json(payload): Json<CacheSwitchRequest>,
 ) -> ApiResult {
-    let cache_storage = parse_cache_storage(&payload.backend)?;
+    let config = JsonStoreConfig::new(&payload.store, payload.config);
     let snapshot = state
         .store
-        .switch_cache_storage(cache_storage, payload.redis_url, payload.namespace)
+        .swap_store(&config)
         .await
         .map_err(ApiError::from_store)?;
     if !state.store.is_db_source() {

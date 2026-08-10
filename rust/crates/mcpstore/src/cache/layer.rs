@@ -46,14 +46,14 @@ const CACHE_SCHEMA_KEY: &str = "current";
 
 /// Central cache manager with four logical layers over a single openkeyv store.
 pub struct CacheLayerManager {
-    pub(in crate::cache) route: AsyncRwLock<()>,
-    pub(in crate::cache) store: AsyncRwLock<Arc<dyn CacheStore>>,
-    pub(in crate::cache) namespace: SyncRwLock<String>,
-    pub(in crate::cache) last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
-    pub(in crate::cache) last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
-    pub(in crate::cache) metrics: CacheRequestMetrics,
-    pub(in crate::cache) log_interval: Duration,
-    pub(in crate::cache) schema_ready: OnceCell<()>,
+    pub(crate) route: AsyncRwLock<()>,
+    pub(crate) store: AsyncRwLock<Arc<dyn CacheStore>>,
+    pub(crate) namespace: SyncRwLock<String>,
+    pub(crate) last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
+    pub(crate) last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
+    pub(crate) metrics: CacheRequestMetrics,
+    pub(crate) log_interval: Duration,
+    pub(crate) schema_ready: OnceCell<()>,
 }
 
 impl CacheLayerManager {
@@ -225,10 +225,7 @@ impl CacheLayerManager {
             .map(|_| ())
     }
 
-    pub(in crate::cache) async fn clear_namespace(
-        store: &dyn CacheStore,
-        namespace: &str,
-    ) -> Result<()> {
+    pub(crate) async fn clear_namespace(store: &dyn CacheStore, namespace: &str) -> Result<()> {
         let prefix = format!("{namespace}:");
         for collection in store.collections().await? {
             if !collection.starts_with(&prefix) {

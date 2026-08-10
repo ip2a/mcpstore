@@ -42,7 +42,7 @@ pub fn run(
         .or_else(|| Locale::from_config_value(&app_config.ui.language))
         .unwrap_or_default();
     let cache_storage_label =
-        rt.block_on(async { store.current_cache_storage().await.as_str().to_string() });
+        rt.block_on(async { store.current_store_name().await.as_str().to_string() });
     let namespace = store.namespace();
     let config_path = store.config_manager().mcp_path().display().to_string();
     let mcp_aggregate_transport = app_config.mcp_aggregate.transport.clone();

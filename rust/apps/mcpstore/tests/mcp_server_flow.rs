@@ -18,7 +18,7 @@ use rmcp::{
 use tokio::io::AsyncReadExt;
 
 use mcpstore::{
-    CacheStorage, CreateSessionRequest, MCPStore, ScopeRef, ServiceInstanceKey,
+    CreateSessionRequest, JsonStoreConfig, MCPStore, ScopeRef, ServiceInstanceKey,
     SessionToolSelection, StoreOptions,
 };
 
@@ -549,8 +549,7 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
 
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(config_path_arg.clone()),
-        backend: Some(CacheStorage::redis()),
-        redis_url: Some(redis_url.clone()),
+        store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
         ..StoreOptions::default()
     })?;

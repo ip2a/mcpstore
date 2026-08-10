@@ -35,7 +35,7 @@ class RustStoreBackend:
     _cache_options = staticmethod(setup_module.cache_options)
 
     namespace = configuration.namespace
-    current_backend = configuration.current_backend
+    current_store = configuration.current_store
     load_from_config = configuration.load_from_config
     add_service = configuration.add_service
     declare_service_scope = configuration.declare_service_scope
@@ -83,7 +83,7 @@ class RustStoreBackend:
     cache_inspect = cache_ops.cache_inspect
     reset_cache_request_metrics = cache_ops.reset_cache_request_metrics
     find_cache = cache_ops.find_cache
-    switch_cache = cache_ops.switch_cache
+    swap_store = cache_ops.swap_store
 
     def for_store(self) -> StoreContext:
         return StoreContext(self._inner.for_store())

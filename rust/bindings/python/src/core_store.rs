@@ -3,15 +3,15 @@
 use mcpstore::config::ScopeDescriptor;
 use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
-use mcpstore::core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
+use mcpstore::core::store::{MCPStore, SourceMode, StoreOptions};
 use mcpstore::{
     cache::models::SessionScope, InstanceId, McpConfig, ScopeContext, ScopeRef, Service,
     ServiceTarget, StoreError, Tool,
 };
 use mcpstore::{
-    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionRetryPolicy,
-    PromptOverridePatch, ResourceOverridePatch, ResourceTemplateOverridePatch,
-    SessionToolSelection, ToolOverridePatch, ToolVisibilityFilter,
+    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, PromptOverridePatch,
+    ResourceOverridePatch, ResourceTemplateOverridePatch, SessionRetryPolicy, SessionToolSelection,
+    ToolOverridePatch, ToolVisibilityFilter,
 };
 use pyo3::prelude::*;
 use std::str::FromStr;
@@ -98,13 +98,6 @@ pub(crate) fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMod
     }
 }
 
-pub(crate) fn parse_backend(backend: Option<&str>) -> PyResult<Option<BackendKind>> {
-    match backend {
-        Some(backend) => Ok(Some(BackendKind::new(backend, None))),
-        None => Ok(None),
-    }
-}
-
 fn parse_tool_visibility_filter(filter: Option<&str>) -> PyResult<ToolVisibilityFilter> {
     match filter.unwrap_or("available") {
         "all" => Ok(ToolVisibilityFilter::All),
@@ -131,10 +124,6 @@ fn parse_config_format(format: Option<&str>) -> PyResult<ConfigFormat> {
         .unwrap_or("native")
         .parse()
         .map_err(|err: StoreError| pyo3::exceptions::PyValueError::new_err(err.to_string()))
-}
-
-fn backend_as_str(backend: &BackendKind) -> &str {
-    backend.as_str()
 }
 
 pub(crate) fn py_to_server_config(
@@ -634,13 +623,10 @@ impl PyTool {
     }
 
     fn set_override(&self, py: Python<'_>, patch: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        let patch: ToolOverridePatch = serde_json::from_value(py_to_serde_value(
-            patch,
-            "Tool override patch",
-        )?)
-        .map_err(|error| {
-            pyo3::exceptions::PyValueError::new_err(format!("invalid patch: {error}"))
-        })?;
+        let patch: ToolOverridePatch =
+            serde_json::from_value(py_to_serde_value(patch, "Tool override patch")?).map_err(
+                |error| pyo3::exceptions::PyValueError::new_err(format!("invalid patch: {error}")),
+            )?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.set_override(patch))
             .map_err(map_store_err)?;
@@ -711,16 +697,37 @@ macro_rules! sync_component_override_methods {
     };
 }
 
-sync_component_override_methods!(PyPrompt, PromptOverridePatch, "Prompt", fn get(&self, py: Python<'_>, args: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    let args = py_to_serde_value(args, "Prompt arguments")?;
-    let value = pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.get(args)).map_err(map_store_err)?;
-    serde_value_to_py(py, value)
-});
-sync_component_override_methods!(PyResource, ResourceOverridePatch, "Resource", fn read(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-    let value = pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.read()).map_err(map_store_err)?;
-    serde_value_to_py(py, value)
-});
-sync_component_override_methods!(PyResourceTemplate, ResourceTemplateOverridePatch, "Resource template", fn no_extra(&self) -> PyResult<()> { Ok(()) });
+sync_component_override_methods!(
+    PyPrompt,
+    PromptOverridePatch,
+    "Prompt",
+    fn get(&self, py: Python<'_>, args: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let args = py_to_serde_value(args, "Prompt arguments")?;
+        let value = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get(args))
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, value)
+    }
+);
+sync_component_override_methods!(
+    PyResource,
+    ResourceOverridePatch,
+    "Resource",
+    fn read(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let value = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.read())
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, value)
+    }
+);
+sync_component_override_methods!(
+    PyResourceTemplate,
+    ResourceTemplateOverridePatch,
+    "Resource template",
+    fn no_extra(&self) -> PyResult<()> {
+        Ok(())
+    }
+);
 
 #[pymethods]
 impl PyMCPStore {
@@ -732,19 +739,17 @@ impl PyMCPStore {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (config_path=None, source_mode=None, backend=None, redis_url=None, namespace=None))]
+    #[pyo3(signature = (config_path=None, source_mode=None, store=None, namespace=None))]
     fn setup_with_options(
         config_path: Option<String>,
         source_mode: Option<String>,
-        backend: Option<String>,
-        redis_url: Option<String>,
+        store: Option<String>,
         namespace: Option<String>,
     ) -> PyResult<Self> {
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
             source_mode: parse_source_mode(source_mode.as_deref())?,
-            backend: parse_backend(backend.as_deref())?,
-            redis_url,
+            store: store.map(|name| mcpstore::JsonStoreConfig::new(name, serde_json::json!({}))),
             namespace,
         })
         .map_err(map_store_err)?;
@@ -755,10 +760,8 @@ impl PyMCPStore {
         self.inner.namespace()
     }
 
-    fn current_backend(&self) -> String {
-        let backend =
-            pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.current_backend());
-        backend_as_str(&backend).to_string()
+    fn current_store(&self) -> String {
+        pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.current_store_name())
     }
 
     fn for_store(&self) -> PyScopeContext {
@@ -2365,21 +2368,20 @@ impl PyMCPStore {
         )
     }
 
-    #[pyo3(signature = (backend, redis_url=None, namespace=None))]
-    fn switch_cache_storage(
+    #[pyo3(signature = (store, config=None))]
+    fn swap_store(
         &self,
         py: Python<'_>,
-        backend: &str,
-        redis_url: Option<String>,
-        namespace: Option<String>,
+        store: &str,
+        config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
-        let backend = parse_backend(Some(backend))?
-            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("backend is required"))?;
+        let config_value = match config {
+            Some(value) if !value.is_none() => py_to_serde_value(value, "Store configuration")?,
+            _ => serde_json::json!({}),
+        };
+        let config = mcpstore::JsonStoreConfig::new(store, config_value);
         let snapshot = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .switch_cache_storage(backend, redis_url, namespace),
-            )
+            .block_on(self.inner.swap_store(&config))
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,
@@ -2423,9 +2425,9 @@ impl PyMCPStore {
 
     fn __repr__(&self) -> String {
         format!(
-            "MCPStore(namespace='{}', backend='{}')",
+            "MCPStore(namespace='{}', store='{}')",
             self.namespace(),
-            self.current_backend()
+            self.current_store()
         )
     }
 }

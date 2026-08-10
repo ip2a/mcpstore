@@ -8,9 +8,9 @@ pub(crate) mod inspect;
 pub(crate) mod layer;
 #[cfg(test)]
 mod layer_tests;
+pub(crate) mod live_store;
 pub(crate) mod metrics;
 pub mod models;
-pub(crate) mod openkeyv_store;
 pub(crate) mod redis;
 pub(crate) mod relation;
 pub(crate) mod runtime;

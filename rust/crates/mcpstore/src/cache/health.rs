@@ -19,7 +19,7 @@ impl MCPStore {
         let snapshot = self.cache.snapshot().await?;
         Ok(CacheHealthReport {
             namespace,
-            backend: self.current_cache_storage().await.as_str().to_string(),
+            backend: self.current_store_name().await,
             entities: snapshot.entities.keys().cloned().collect(),
             relations: snapshot.relations.keys().cloned().collect(),
             states: snapshot.states.keys().cloned().collect(),

@@ -134,7 +134,7 @@ impl MCPStore {
         collections.dedup();
 
         Ok(serde_json::json!({
-            "backend": self.current_cache_storage().await.as_str(),
+            "store": self.current_store_name().await,
             "namespace": namespace,
             "scope": "store",
             "request_metrics": self.cache.request_metrics_snapshot(),

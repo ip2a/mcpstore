@@ -44,7 +44,7 @@ pub enum Commands {
     Resource(commands::protocol::ResourceArgs),
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
-    MigrateBackend(commands::mcp::MigrateBackendArgs),
+    MigrateStore(commands::mcp::MigrateStoreArgs),
     #[command(name = "mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
     #[command(visible_alias = "ui")]
@@ -100,7 +100,7 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Resource(args) => commands::protocol::run_resource(args).await,
             Commands::Prompt(args) => commands::protocol::run_prompt(args).await,
             Commands::Complete(args) => commands::protocol::complete(args).await,
-            Commands::MigrateBackend(args) => commands::mcp::migrate_backend(args).await,
+            Commands::MigrateStore(args) => commands::mcp::migrate_store(args).await,
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
             Commands::Web(args) => commands::web::run(args).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
@@ -581,9 +581,9 @@ mod tests {
             "list",
             "--source",
             "db",
-            "--backend",
+            "--store",
             "redis",
-            "--redis-url",
+            "--store-config",
             "redis://127.0.0.1:6379/0",
             "--namespace",
             "demo",
@@ -593,9 +593,9 @@ mod tests {
         match cli.command {
             Commands::List(args) => {
                 assert_eq!(args.store.source, crate::store_args::SourceArg::Db);
-                assert_eq!(args.store.backend.as_deref(), Some("redis"));
+                assert_eq!(args.store.store.as_deref(), Some("redis"));
                 assert_eq!(
-                    args.store.backend_url.as_deref(),
+                    args.store.store_config.as_deref(),
                     Some("redis://127.0.0.1:6379/0")
                 );
                 assert_eq!(args.store.namespace.as_deref(), Some("demo"));
@@ -605,26 +605,29 @@ mod tests {
     }
 
     #[test]
-    fn parses_migrate_backend_command() {
+    fn parses_migrate_store_command() {
         let cli = Cli::try_parse_from([
             "mcpstore",
-            "migrate-backend",
+            "migrate-store",
             "--source",
             "local",
-            "--target-backend",
+            "--target-store",
             "redis",
-            "--target-redis-url",
+            "--target-config",
             "redis://127.0.0.1:6379/0",
         ])
         .unwrap();
 
         match cli.command {
-            Commands::MigrateBackend(args) => {
+            Commands::MigrateStore(args) => {
                 assert_eq!(args.store.source, crate::store_args::SourceArg::Local);
-                assert_eq!(args.target_cache_storage, "redis");
-                assert_eq!(args.target_url.as_deref(), Some("redis://127.0.0.1:6379/0"));
+                assert_eq!(args.target_store, "redis");
+                assert_eq!(
+                    args.target_config.as_deref(),
+                    Some("redis://127.0.0.1:6379/0")
+                );
             }
-            _ => panic!("Expected to parse as migrate-backend command"),
+            _ => panic!("Expected to parse as migrate-store command"),
         }
     }
 

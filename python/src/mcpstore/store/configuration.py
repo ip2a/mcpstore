@@ -16,8 +16,8 @@ from mcpstore.native.records import (
 def namespace(backend) -> str:
     return str(backend._inner.namespace())
 
-def current_backend(backend) -> str:
-    return str(backend._inner.current_backend())
+def current_store(store) -> str:
+    return str(store._inner.current_store())
 
 def load_from_config(backend) -> None:
     backend._inner.load_from_config()

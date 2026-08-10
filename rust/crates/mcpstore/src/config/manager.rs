@@ -7,7 +7,7 @@ use super::app_validation::validate_app_config;
 use super::examples::example_services;
 use super::flatten::flatten_config_value;
 use super::resolver;
-use super::{AppConfig, CacheBackend, CacheConfig, ConfigError, McpConfig, Result};
+use super::{AppConfig, CacheConfig, ConfigError, McpConfig, Result};
 
 pub struct ConfigManager {
     mcp_path: PathBuf,
@@ -145,8 +145,8 @@ impl ConfigManager {
         let mut app_config = AppConfig::default();
         if let Some(redis_url) = redis_url {
             app_config.cache = CacheConfig {
-                backend: CacheBackend::redis(),
-                url: Some(redis_url),
+                store: "redis".to_string(),
+                config: serde_json::json!({"url": redis_url}),
                 namespace: "mcpstore".to_string(),
             };
         }

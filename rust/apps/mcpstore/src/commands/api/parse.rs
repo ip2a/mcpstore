@@ -1,4 +1,4 @@
-use mcpstore::{CacheStorage, ScopeRef, ScopeView};
+use mcpstore::{ScopeRef, ScopeView};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -19,10 +19,6 @@ pub(super) fn normalize_prefix(prefix: &str) -> String {
         normalized.pop();
     }
     normalized
-}
-
-pub(super) fn cache_storage_label(cache_storage: CacheStorage) -> String {
-    cache_storage.as_str().to_string()
 }
 
 pub(super) fn extract_tool_name(payload: &Value) -> ApiResult<String> {
@@ -70,17 +66,6 @@ pub(super) fn extract_prompt_args(payload: &Value) -> ApiResult<Value> {
     }
 }
 
-pub(super) fn parse_cache_storage(value: &str) -> ApiResult<CacheStorage> {
-    let backend = value.trim();
-    if backend.is_empty() {
-        return Err(ApiError::invalid_parameter(
-            "backend 不能为空",
-            Some("backend"),
-        ));
-    }
-    Ok(CacheStorage::new(backend, None))
-}
-
 /// Query 参数里的作用域标识：`?scope=store|agent&agent_id=...`，`scope` 缺省为 `store`。
 #[derive(Deserialize)]
 pub(super) struct ScopeQuery {
@@ -117,7 +102,10 @@ pub(super) fn parse_scope_ref(scope: Option<&str>, agent_id: Option<&str>) -> Ap
 }
 
 /// 读视图作用域解析：`root` 聚合 / `store` / `agent`（agent 需带 `agent_id`）。
-pub(super) fn parse_scope_view(scope: Option<&str>, agent_id: Option<&str>) -> ApiResult<ScopeView> {
+pub(super) fn parse_scope_view(
+    scope: Option<&str>,
+    agent_id: Option<&str>,
+) -> ApiResult<ScopeView> {
     match scope.unwrap_or("store") {
         "root" => Ok(ScopeView::Root),
         "store" => Ok(ScopeView::Store),
@@ -153,15 +141,5 @@ mod tests {
         let error = extract_tool_args(&json!({ "args": [] })).unwrap_err();
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
         assert_eq!(error.code, "INVALID_PARAMETER");
-    }
-
-    #[test]
-    fn parse_cache_storage_supports_known_values() {
-        assert_eq!(parse_cache_storage("memory").unwrap().as_str(), "memory");
-        assert_eq!(parse_cache_storage("redis").unwrap().as_str(), "redis");
-        assert_eq!(
-            parse_cache_storage("postgres").unwrap().as_str(),
-            "postgres"
-        );
     }
 }

@@ -23,8 +23,6 @@ pub enum ConfigAction {
         force: bool,
         #[arg(long, default_value_t = false)]
         with_examples: bool,
-        #[arg(long)]
-        redis_url: Option<String>,
     },
     Path {
         #[arg(long)]
@@ -54,8 +52,7 @@ pub async fn run(action: ConfigAction) -> std::result::Result<(), Box<dyn std::e
             path,
             force,
             with_examples,
-            redis_url,
-        } => init(path, force, with_examples, redis_url),
+        } => init(path, force, with_examples),
         ConfigAction::Path { path } => show_path(path),
         ConfigAction::AddExamples { path } => add_examples(path),
         ConfigAction::ImportClient {
@@ -122,9 +119,9 @@ fn show(path: Option<String>) -> std::result::Result<(), Box<dyn std::error::Err
     println!("Created by: {}", app_config.created_by);
 
     println!("\nCache:");
-    println!("  Backend: {}", app_config.cache.backend);
+    println!("  Store: {}", app_config.cache.store);
     println!("  Namespace: {}", app_config.cache.namespace);
-    if let Some(url) = &app_config.cache.url {
+    if let Some(url) = app_config.cache.config.get("url").and_then(|v| v.as_str()) {
         println!("  Backend URL: {}", url);
     }
 
@@ -182,7 +179,6 @@ fn init(
     path: Option<String>,
     force: bool,
     with_examples: bool,
-    redis_url: Option<String>,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let m = mgr(path);
     if (m.exists() || m.app_config_exists()) && !force {
@@ -194,7 +190,7 @@ fn init(
         eprintln!("Use --force to overwrite");
         return Ok(());
     }
-    m.init(with_examples, redis_url)?;
+    m.init(with_examples, None)?;
     println!(
         "[Success] MCP config initialized: {}",
         m.mcp_path().display()

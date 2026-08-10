@@ -20,6 +20,8 @@ mod openapi;
 mod options;
 pub(crate) mod payload;
 mod runtime;
+pub mod store_config;
+pub mod swap;
 mod tool_changes;
 use runtime::StoreRuntimeConfig;
 
@@ -32,7 +34,8 @@ pub use crate::openapi::{
     OpenApiImportOptions, OpenApiImportResult,
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
-pub use options::{BackendKind, CacheStorage, SourceMode, StoreOptions};
+pub use options::{SourceMode, StoreOptions};
+pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
 pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
@@ -44,11 +47,11 @@ pub(crate) mod prelude {
     pub(crate) use crate::registry::{AgentInfo, ScopeSummary};
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
-        BackendKind, CacheHealthReport, CacheStorage, ConfigRevision, DiscoveredPrompt,
-        DiscoveredResource, DiscoveredResourceTemplate, Event, MCPStore, OpenApiImportContextState,
-        Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition,
-        ServiceInstance, SourceMode, StartupPolicy, StoreError, ToolChangeServiceResult,
-        ToolChangeSummary, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
+        CacheHealthReport, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
+        DiscoveredResourceTemplate, Event, MCPStore, OpenApiImportContextState, Result,
+        ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition, ServiceInstance,
+        SourceMode, StartupPolicy, StoreError, ToolChangeServiceResult, ToolChangeSummary,
+        CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
     };
 }
 
@@ -58,8 +61,7 @@ pub struct MCPStore {
     pub(crate) source_mode: SourceMode,
     pub(crate) runtime_config: StoreRuntimeConfig,
     pub(crate) supervisor: Option<std::sync::Arc<crate::health::supervisor::InstanceSupervisor>>,
-    pub(crate) cache_storage: tokio::sync::RwLock<CacheStorage>,
-    pub(crate) redis_url: tokio::sync::RwLock<Option<String>>,
+    pub(crate) store_config: tokio::sync::RwLock<JsonStoreConfig>,
     pub(crate) namespace: SyncRwLock<String>,
     pub(crate) registry: ServiceRegistry,
     pub(crate) pool: ConnectionPool,
@@ -97,28 +99,27 @@ impl MCPStore {
             .namespace
             .clone()
             .unwrap_or_else(|| app_config.cache.namespace.clone());
-        let cache_storage = options
-            .backend
-            .clone()
-            .unwrap_or_else(|| CacheStorage::new(app_config.cache.backend.as_str(), None))
-            .with_fallback_url(
-                options
-                    .redis_url
-                    .clone()
-                    .or_else(|| app_config.cache.url.clone()),
-            );
-        let redis_url = options
-            .redis_url
-            .clone()
-            .or_else(|| app_config.cache.url.clone())
-            .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
-        let (cache_store, event_backend) = match cache_storage.as_str() {
+        let store_config = options.store.clone().unwrap_or_else(|| {
+            JsonStoreConfig::new(
+                app_config.cache.store.as_str(),
+                app_config.cache.config.clone(),
+            )
+        });
+        let store_name = store_config.store_name().to_string();
+        let redis_url = app_config
+            .cache
+            .config
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("redis://127.0.0.1/")
+            .to_string();
+        let (cache_store, event_backend) = match store_name.as_str() {
             "memory" => {
                 let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
                 (store, Some(EventBackend::from_memory(mem)))
             }
             "redis" => {
-                let store = Self::build_cache_store(&cache_storage, &redis_url, &namespace)?;
+                let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
                 (store, None) // Redis EventBackend created lazily in setup_event_reactor
             }
             backend => {
@@ -157,8 +158,7 @@ impl MCPStore {
             source_mode: options.source_mode,
             runtime_config,
             supervisor,
-            cache_storage: tokio::sync::RwLock::new(cache_storage),
-            redis_url: tokio::sync::RwLock::new(Some(redis_url)),
+            store_config: tokio::sync::RwLock::new(store_config),
             namespace: SyncRwLock::new(namespace.clone()),
             registry,
             pool,
@@ -212,18 +212,17 @@ impl MCPStore {
             Some(b) => b,
             None => {
                 // Redis: construct now (was deferred because it's async).
-                let storage = self.cache_storage.read().await.clone();
-                match storage.as_str() {
+                let storage = self.store_config.read().await;
+                match storage.store_name() {
                     "redis" => {
-                        let url = self
-                            .redis_url
-                            .read()
-                            .await
-                            .clone()
-                            .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
+                        let url = storage
+                            .config
+                            .get("url")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("redis://127.0.0.1/");
                         let b = EventBackend::from_redis_url(&url)
                             .await
-                            .map_err(|e| StoreError::Other(format!("redis event backend: {e}")))?;
+                            .map_err(|e| StoreError::Other(format!("redis event Store: {e}")))?;
                         *self.event_backend.write().await = Some(b.clone());
                         b
                     }

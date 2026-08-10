@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::{CacheStorage, ConfigManager, InstanceId, ScopeRef, SourceMode};
+use mcpstore::{ConfigManager, InstanceId, JsonStoreConfig, ScopeRef, SourceMode};
 
 use crate::mcp_server::{
     McpServerOptions as CoreMcpServerOptions, McpServerTransport as CoreMcpServerTransport,
@@ -102,7 +102,7 @@ pub struct McpServerArgs {
     pub expose_service_tools: bool,
     #[arg(
         long,
-        help = "Expose MCPStore cache backend management tools. Disabled by default."
+        help = "Expose MCPStore cache management tools. Disabled by default."
     )]
     pub expose_cache_tools: bool,
     #[arg(
@@ -141,16 +141,15 @@ impl McpServerArgs {
         };
         let port = self.port.unwrap_or(app_config.mcp_aggregate.port);
 
-        let backend = self
+        let store = self
             .store
-            .backend
+            .store
             .as_ref()
-            .map(|backend| CacheStorage::new(backend, self.store.backend_url.clone()))
+            .map(|store| JsonStoreConfig::new(store, serde_json::json!({})))
             .or_else(|| {
-                self.store
-                    .backend_url
-                    .as_ref()
-                    .map(|url| CacheStorage::openkeyv("redis", url))
+                self.store.store_config.as_ref().map(|config| {
+                    JsonStoreConfig::new("redis", serde_json::json!({"config": config}))
+                })
             });
         Ok(CoreMcpServerOptions {
             config_path: self.store.config_path.clone(),
@@ -158,8 +157,7 @@ impl McpServerArgs {
                 crate::store_args::SourceArg::Local => SourceMode::Local,
                 crate::store_args::SourceArg::Db => SourceMode::Db,
             },
-            backend,
-            redis_url: self.store.backend_url.clone(),
+            store,
             namespace: self.store.namespace.clone(),
             scope,
             instance_id: self.instance_id,
@@ -199,8 +197,8 @@ mod tests {
             store: StoreSourceArgs {
                 config_path: None,
                 source: SourceArg::Local,
-                backend: None,
-                backend_url: None,
+                store: None,
+                store_config: None,
                 namespace: None,
             },
             scope: Scope::Store,

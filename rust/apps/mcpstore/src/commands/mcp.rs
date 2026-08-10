@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
 
 use mcpstore::{
-    CacheStorage, InstanceId, MCPStore, McpExecutionOptions, McpServerCapabilities,
+    InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpServerCapabilities,
     McpServerMetadata, McpStoreExecutionUpdate, McpToolExecution, ScopeRef, StoreError,
     ToolCallResult,
 };
@@ -1181,17 +1181,13 @@ pub struct CallToolArgs {
 }
 
 #[derive(Args)]
-pub struct MigrateBackendArgs {
+pub struct MigrateStoreArgs {
     #[command(flatten)]
     pub store: StoreSourceArgs,
-    #[arg(long = "target-backend", help = "Target OpenKeyv backend name")]
-    pub target_cache_storage: String,
-    #[arg(
-        long = "target-url",
-        visible_alias = "target-redis-url",
-        help = "Target OpenKeyv backend connection URL"
-    )]
-    pub target_url: Option<String>,
+    #[arg(long = "target-store", help = "Target store name")]
+    pub target_store: String,
+    #[arg(long = "target-config", help = "Target store configuration")]
+    pub target_config: Option<String>,
 }
 
 pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
@@ -1845,22 +1841,16 @@ fn emit_call_value(output: OutputFormat, value: Value) -> Result<(), CliError> {
     Ok(())
 }
 
-pub async fn migrate_backend(a: MigrateBackendArgs) -> std::result::Result<(), BoxErr> {
+pub async fn migrate_store(a: MigrateStoreArgs) -> std::result::Result<(), BoxErr> {
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
 
-    let target_cache_storage = CacheStorage::new(a.target_cache_storage, a.target_url.clone());
-    let snapshot = store
-        .switch_cache_storage(target_cache_storage.clone(), a.target_url, None)
-        .await?;
-    let total_entries: usize = snapshot.entities.values().map(HashMap::len).sum::<usize>()
-        + snapshot.relations.values().map(HashMap::len).sum::<usize>()
-        + snapshot.states.values().map(HashMap::len).sum::<usize>()
-        + snapshot.events.values().map(HashMap::len).sum::<usize>();
+    let target_config = JsonStoreConfig::new(&a.target_store, json!({"config": a.target_config}));
+    let result = store.swap_store(&target_config).await?;
 
     println!(
-        "[Success] Cache storage hot migration completed: target={:?} entries={}",
-        target_cache_storage, total_entries
+        "[Success] Cache storage hot migration completed: target={} entries={}",
+        result.target_store, result.copied
     );
     Ok(())
 }
