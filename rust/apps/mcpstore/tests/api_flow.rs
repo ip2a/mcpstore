@@ -491,8 +491,10 @@ async fn api_processes_share_session_state_through_redis_backend(
             &port_a.to_string(),
             "--source",
             "db",
-            "--redis-url",
-            &redis_url,
+            "--store",
+            "redis",
+            "--store-config",
+            &format!(r#"{{"url":"{redis_url}"}}"#),
             "--namespace",
             &namespace,
         ])
@@ -507,8 +509,10 @@ async fn api_processes_share_session_state_through_redis_backend(
             &port_b.to_string(),
             "--source",
             "db",
-            "--redis-url",
-            &redis_url,
+            "--store",
+            "redis",
+            "--store-config",
+            &format!(r#"{{"url":"{redis_url}"}}"#),
             "--namespace",
             &namespace,
         ])
@@ -541,7 +545,7 @@ async fn api_processes_share_session_state_through_redis_backend(
     let health_a = client.get(format!("{base_a}/health")).send().await?;
     assert!(health_a.status().is_success());
     let health_a_payload = health_a.json::<Value>().await?;
-    assert_eq!(health_a_payload["backend"], "redis");
+    assert_eq!(health_a_payload["store"], "redis");
 
     let create = client
         .post(format!("{base_a}/sessions/create"))
@@ -631,7 +635,7 @@ async fn api_cache_switch_migrates_session_state_to_shared_redis_backend(
             &port_a.to_string(),
             "--source",
             "db",
-            "--backend",
+            "--store",
             "memory",
         ])
         .await?,
@@ -653,7 +657,7 @@ async fn api_cache_switch_migrates_session_state_to_shared_redis_backend(
     let health_a = client.get(format!("{base_a}/health")).send().await?;
     assert!(health_a.status().is_success());
     let health_a_payload = health_a.json::<Value>().await?;
-    assert_eq!(health_a_payload["backend"], "memory");
+    assert_eq!(health_a_payload["store"], "memory");
 
     let create = client
         .post(format!("{base_a}/sessions/create"))
@@ -685,9 +689,8 @@ async fn api_cache_switch_migrates_session_state_to_shared_redis_backend(
     let switch = client
         .post(format!("{base_a}/cache/switch"))
         .json(&json!({
-            "backend": "redis",
-            "redis_url": redis_url,
-            "namespace": namespace,
+            "store": "redis",
+            "config": {"url": redis_url},
         }))
         .send()
         .await?;
@@ -698,7 +701,7 @@ async fn api_cache_switch_migrates_session_state_to_shared_redis_backend(
     let health_after_switch = client.get(format!("{base_a}/health")).send().await?;
     assert!(health_after_switch.status().is_success());
     let health_after_switch_payload = health_after_switch.json::<Value>().await?;
-    assert_eq!(health_after_switch_payload["backend"], "redis");
+    assert_eq!(health_after_switch_payload["store"], "redis");
 
     let mut api_b = Some(
         spawn_api_process(&[
@@ -709,8 +712,10 @@ async fn api_cache_switch_migrates_session_state_to_shared_redis_backend(
             &port_b.to_string(),
             "--source",
             "db",
-            "--redis-url",
-            &redis_url,
+            "--store",
+            "redis",
+            "--store-config",
+            &format!(r#"{{"url":"{redis_url}"}}"#),
             "--namespace",
             &namespace,
         ])

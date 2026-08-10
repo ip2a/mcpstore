@@ -34,7 +34,7 @@ pub struct StoreSourceArgs {
         help = "Store name: memory, redis, valkey, postgres, sqlite, ..."
     )]
     pub store: Option<String>,
-    #[arg(long = "store-config", help = "Store configuration JSON file")]
+    #[arg(long = "store-config", help = "Store configuration JSON object")]
     pub store_config: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
@@ -42,10 +42,17 @@ pub struct StoreSourceArgs {
 
 impl StoreSourceArgs {
     pub fn to_store_options(&self) -> StoreOptions {
+        let config = self
+            .store_config
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .expect("--store-config must be a valid JSON object")
+            .unwrap_or_else(|| serde_json::json!({}));
         let store = self
             .store
             .as_ref()
-            .map(|store| JsonStoreConfig::new(store, serde_json::json!({})));
+            .map(|store| JsonStoreConfig::new(store, config));
 
         StoreOptions {
             config_path: self.config_path.clone(),
