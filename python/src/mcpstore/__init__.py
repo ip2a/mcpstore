@@ -39,21 +39,17 @@ def __getattr__(name: str):
         return SessionContext
 
     # Cache config classes
-    if name in ("MemoryConfig", "StoreConfig", "FileConfig", "RedisConfig"):
-        from mcpstore.config import (
-            MemoryConfig,
-            StoreConfig,
-            FileConfig,
-            RedisConfig,
-        )
+    if name in {
+        "MemoryConfig", "StoreConfig", "FileConfig", "RedisConfig",
+        "ValkeyConfig", "MemcachedConfig", "SqliteConfig", "PostgresConfig",
+        "DuckDBConfig", "RocksDBConfig", "DiskConfig", "S3Config",
+        "DynamoDBConfig", "MongoDBConfig", "FileTreeConfig",
+    }:
+        from mcpstore import config as _config
 
-        globals().update({
-            "MemoryConfig": MemoryConfig,
-            "StoreConfig": StoreConfig,
-            "FileConfig": FileConfig,
-            "RedisConfig": RedisConfig,
-        })
-        return globals()[name]
+        value = getattr(_config, name)
+        globals()[name] = value
+        return value
 
     if name == "PerspectiveResolver":
         from mcpstore._rust import PerspectiveResolver
@@ -148,6 +144,17 @@ __all__ = [
     "StoreConfig",
     "FileConfig",
     "RedisConfig",
+    "ValkeyConfig",
+    "MemcachedConfig",
+    "SqliteConfig",
+    "PostgresConfig",
+    "DuckDBConfig",
+    "RocksDBConfig",
+    "DiskConfig",
+    "S3Config",
+    "DynamoDBConfig",
+    "MongoDBConfig",
+    "FileTreeConfig",
 
     # Utilities
     "PerspectiveResolver",
