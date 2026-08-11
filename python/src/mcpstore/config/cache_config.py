@@ -42,7 +42,36 @@ class MemoryConfig(BaseCacheConfig):
     cleanup_interval: int = 300
     store: str = "memory"
 
+    @property
+    def store_name(self) -> str:
+        return "memory"
 
+    @property
+    def config(self) -> dict[str, Any]:
+        return {}
+
+
+
+
+@dataclass
+class FileConfig(BaseCacheConfig):
+    """Local file source for service definitions (e.g. mcp.json).
+
+    The file is the *definition source* and is forwarded to the Rust core via
+    ``config_path``.  The runtime Store that backs the cache is in-process
+    memory; OpenKeyv has no ``file`` store capable of the CAS/ChangeFeed
+    capabilities MCPStore requires.
+    """
+    path: Optional[str] = None
+    namespace: Optional[str] = None
+
+    @property
+    def store_name(self) -> str:
+        return "memory"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {}
 
 
 @dataclass
@@ -66,6 +95,22 @@ class RedisConfig(BaseCacheConfig):
     allow_partial: bool = False
 
     store: str = "redis"
+
+    @property
+    def store_name(self) -> str:
+        return "redis"
+
+    @property
+    def redis_url(self) -> str:
+        if self.url:
+            return self.url
+        if self.password:
+            return f"redis://:{self.password}@{self.host}:{self.port or 6379}/{self.db or 0}"
+        return f"redis://{self.host}:{self.port or 6379}/{self.db or 0}"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"url": self.redis_url}
 
     def __post_init__(self):
         """Validate configuration parameters."""

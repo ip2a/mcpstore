@@ -4,7 +4,7 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn remove_service(&self, service_name: &str) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServiceRemoveRequested",
@@ -55,7 +55,7 @@ impl MCPStore {
                 "Use scope APIs to modify _mcpstore metadata or declarations".to_string(),
             ));
         }
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServiceUpdateRequested",
@@ -116,7 +116,7 @@ impl MCPStore {
             ));
         }
 
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServicePatchRequested",

@@ -95,7 +95,7 @@ impl MCPStore {
         instance_id: InstanceId,
         tools: &[ToolInfo],
     ) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return Ok(());
         }
 

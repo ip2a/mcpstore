@@ -3,7 +3,7 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn disconnect_service(&self, instance_id: InstanceId) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServiceDisconnectRequested",
@@ -82,7 +82,7 @@ impl MCPStore {
     }
 
     pub async fn restart_service(&self, instance_id: InstanceId) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServiceRestartRequested",

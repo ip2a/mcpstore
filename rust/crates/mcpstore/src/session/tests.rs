@@ -1,5 +1,5 @@
 use super::*;
-use crate::{JsonStoreConfig, StoreOptions, ToolVisibilityFilter};
+use crate::{JsonStoreConfig, NodeMode, StoreOptions, ToolVisibilityFilter};
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -181,6 +181,7 @@ async fn redis_backend_shares_session_state_between_store_instances_when_availab
     let first = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(first_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
     })
@@ -188,6 +189,7 @@ async fn redis_backend_shares_session_state_between_store_instances_when_availab
     let second = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(second_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
     })
@@ -288,6 +290,7 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
     let first = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(first_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
     })
@@ -295,6 +298,7 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
     let second = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(second_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
     })
@@ -500,6 +504,7 @@ async fn redis_backend_shares_session_context_state_between_store_instances_when
     let first = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(first_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
     })
@@ -507,6 +512,7 @@ async fn redis_backend_shares_session_context_state_between_store_instances_when
     let second = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(second_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
     })
@@ -566,6 +572,7 @@ async fn redis_backend_rejects_stale_session_cas_write_when_available() {
     let first = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(first_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
     })
@@ -573,6 +580,7 @@ async fn redis_backend_rejects_stale_session_cas_write_when_available() {
     let second = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(second_path.clone()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
     })

@@ -12,7 +12,7 @@ impl MCPStore {
             .get(instance_id)
             .await?
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
-        if self.is_db_source() || self.is_openapi_virtual_instance(instance_id).await? {
+        if self.is_data_plane() || self.is_openapi_virtual_instance(instance_id).await? {
             return Ok(current);
         }
 
@@ -62,7 +62,7 @@ impl MCPStore {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        if self.is_db_source() {
+        if self.is_data_plane() {
             return self
                 .state_manager
                 .get(instance_id)
@@ -140,7 +140,7 @@ impl MCPStore {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        if self.is_db_source() {
+        if self.is_data_plane() {
             return self
                 .state_manager
                 .get(instance_id)

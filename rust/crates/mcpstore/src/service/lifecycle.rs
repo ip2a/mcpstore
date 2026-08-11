@@ -2,7 +2,7 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn add_service(&self, service_name: &str, mut config: ServerConfig) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServiceAddRequested",
