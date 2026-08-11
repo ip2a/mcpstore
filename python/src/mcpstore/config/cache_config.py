@@ -142,6 +142,251 @@ class RedisConfig(BaseCacheConfig):
 
 
 
+
+
+@dataclass
+class ValkeyConfig(BaseCacheConfig):
+    """Valkey Store source. Fields aligned with OpenKeyv factory.rs."""
+    url: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "valkey"
+
+    @property
+    def store_name(self) -> str:
+        return "valkey"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        if self.url is not None:
+            result["url"] = self.url
+        return result
+
+    def __post_init__(self) -> None:
+        if not self.store:
+            raise ValueError("store name cannot be empty")
+
+
+@dataclass
+class MemcachedConfig(BaseCacheConfig):
+    """Memcached Store source. ``url`` is required by OpenKeyv factory.rs."""
+    url: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "memcached"
+
+    @property
+    def store_name(self) -> str:
+        return "memcached"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"url": self.url}
+
+    def __post_init__(self) -> None:
+        if not self.url:
+            raise ValueError("Memcached configuration requires 'url'")
+
+
+@dataclass
+class SqliteConfig(BaseCacheConfig):
+    """SQLite Store source."""
+    path: Optional[str] = None
+    table: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "sqlite"
+
+    @property
+    def store_name(self) -> str:
+        return "sqlite"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        if self.path is not None:
+            result["path"] = self.path
+        if self.table is not None:
+            result["table"] = self.table
+        return result
+
+    def __post_init__(self) -> None:
+        if not self.store:
+            raise ValueError("store name cannot be empty")
+
+
+@dataclass
+class PostgresConfig(BaseCacheConfig):
+    """Postgres Store source. ``url`` is required by OpenKeyv factory.rs."""
+    url: Optional[str] = None
+    table: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "postgres"
+
+    @property
+    def store_name(self) -> str:
+        return "postgres"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"url": self.url}
+        if self.table is not None:
+            result["table"] = self.table
+        return result
+
+    def __post_init__(self) -> None:
+        if not self.url:
+            raise ValueError("Postgres configuration requires 'url'")
+
+
+@dataclass
+class DuckDBConfig(BaseCacheConfig):
+    """DuckDB Store source."""
+    path: Optional[str] = None
+    table: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "duckdb"
+
+    @property
+    def store_name(self) -> str:
+        return "duckdb"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        if self.path is not None:
+            result["path"] = self.path
+        if self.table is not None:
+            result["table"] = self.table
+        return result
+
+    def __post_init__(self) -> None:
+        if not self.store:
+            raise ValueError("store name cannot be empty")
+
+
+@dataclass
+class RocksDBConfig(BaseCacheConfig):
+    """RocksDB Store source. ``path`` is required by OpenKeyv factory.rs."""
+    path: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "rocksdb"
+
+    @property
+    def store_name(self) -> str:
+        return "rocksdb"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"path": self.path}
+
+    def __post_init__(self) -> None:
+        if not self.path:
+            raise ValueError("RocksDB configuration requires 'path'")
+
+
+@dataclass
+class DiskConfig(BaseCacheConfig):
+    """Disk Store source. ``path`` is required by OpenKeyv factory.rs."""
+    path: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "disk"
+
+    @property
+    def store_name(self) -> str:
+        return "disk"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"path": self.path}
+
+    def __post_init__(self) -> None:
+        if not self.path:
+            raise ValueError("Disk configuration requires 'path'")
+
+
+@dataclass
+class S3Config(BaseCacheConfig):
+    """S3 Store source. ``bucket`` is required by OpenKeyv factory.rs."""
+    bucket: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "s3"
+
+    @property
+    def store_name(self) -> str:
+        return "s3"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"bucket": self.bucket}
+
+    def __post_init__(self) -> None:
+        if not self.bucket:
+            raise ValueError("S3 configuration requires 'bucket'")
+
+
+@dataclass
+class DynamoDBConfig(BaseCacheConfig):
+    """DynamoDB Store source. ``table`` is required by OpenKeyv factory.rs."""
+    table: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "dynamodb"
+
+    @property
+    def store_name(self) -> str:
+        return "dynamodb"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"table": self.table}
+
+    def __post_init__(self) -> None:
+        if not self.table:
+            raise ValueError("DynamoDB configuration requires 'table'")
+
+
+@dataclass
+class MongoDBConfig(BaseCacheConfig):
+    """MongoDB Store source. ``url`` is required by OpenKeyv factory.rs."""
+    url: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "mongodb"
+
+    @property
+    def store_name(self) -> str:
+        return "mongodb"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"url": self.url}
+
+    def __post_init__(self) -> None:
+        if not self.url:
+            raise ValueError("MongoDB configuration requires 'url'")
+
+
+@dataclass
+class FileTreeConfig(BaseCacheConfig):
+    """FileTree Store source. ``path`` is required by OpenKeyv factory.rs.
+
+    Note: FileTree is a basic Store without CAS/ChangeFeed capabilities; it
+    cannot back an MCPStore runtime. Provided for source-declaration parity.
+    """
+    path: Optional[str] = None
+    namespace: Optional[str] = None
+    store: str = "filetree"
+
+    @property
+    def store_name(self) -> str:
+        return "filetree"
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return {"path": self.path}
+
+    def __post_init__(self) -> None:
+        if not self.path:
+            raise ValueError("FileTree configuration requires 'path'")
+
+
 def get_namespace(config: object, default: str = "mcpstore") -> str:
     """Return the configured cache namespace, or the MCPStore default."""
     return getattr(config, "namespace", None) or default
