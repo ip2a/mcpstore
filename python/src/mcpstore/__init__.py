@@ -39,16 +39,18 @@ def __getattr__(name: str):
         return SessionContext
 
     # Cache config classes
-    if name in ("MemoryConfig", "StoreConfig", "RedisConfig"):
+    if name in ("MemoryConfig", "StoreConfig", "FileConfig", "RedisConfig"):
         from mcpstore.config import (
             MemoryConfig,
             StoreConfig,
+            FileConfig,
             RedisConfig,
         )
 
         globals().update({
             "MemoryConfig": MemoryConfig,
             "StoreConfig": StoreConfig,
+            "FileConfig": FileConfig,
             "RedisConfig": RedisConfig,
         })
         return globals()[name]
@@ -144,6 +146,7 @@ __all__ = [
     # Cache Config
     "MemoryConfig",
     "StoreConfig",
+    "FileConfig",
     "RedisConfig",
 
     # Utilities

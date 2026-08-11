@@ -79,7 +79,7 @@ impl MCPStore {
     }
 
     pub async fn reset_config(&self) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request("StoreResetRequested", serde_json::json!({}))
                 .await;
@@ -121,7 +121,7 @@ impl MCPStore {
     }
 
     pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request("ScopeResetRequested", serde_json::json!({ "scope": scope }))
                 .await;
@@ -182,7 +182,7 @@ impl MCPStore {
     }
 
     pub async fn load_from_config(&self) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self.load_from_db().await;
         }
 

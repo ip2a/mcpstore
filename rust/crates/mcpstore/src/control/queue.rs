@@ -5,7 +5,7 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn process_control_requests(&self) -> Result<usize> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return Ok(0);
         }
 
@@ -88,7 +88,7 @@ impl MCPStore {
             request_type: request_type.to_string(),
             dedup_key: request::dedup_key(request_type, &payload),
             payload,
-            source: "onlydb".to_string(),
+            source: if self.is_data_plane() { "data_plane" } else { "control_plane" }.to_string(),
             created_at,
             trace_id: event_id.clone(),
             status: ControlRequestStatus::Queued,
@@ -107,7 +107,7 @@ impl MCPStore {
                     request_type,
                     serde_json::json!({
                         "id": event_id,
-                        "source": "onlydb",
+                        "source": if self.is_data_plane() { "data_plane" } else { "control_plane" },
                         "queued": true,
                     }),
                 ),

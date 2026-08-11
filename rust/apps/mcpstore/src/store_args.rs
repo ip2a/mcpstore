@@ -60,6 +60,7 @@ impl StoreSourceArgs {
                 SourceArg::Local => SourceMode::Local,
                 SourceArg::Db => SourceMode::Db,
             },
+            node_mode: mcpstore::NodeMode::ControlPlane,
             store,
             namespace: self.namespace.clone(),
         }

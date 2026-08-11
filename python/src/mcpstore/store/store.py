@@ -15,24 +15,38 @@ class RustStoreBackend:
 
     def __init__(self, rust_store: Any):
         self._inner = rust_store
-        self._config_path: Optional[str] = None
-        self._cache_config: Any = None
-        self._only_db = False
+        self._source_mode: Optional[str] = None   # "local" | "db"
+        self._node_mode: Optional[str] = None     # "control_plane" | "data_plane"
 
+    # ------------------------------------------------------------------
+    # Setup entry point
+    # ------------------------------------------------------------------
     @classmethod
-    def setup(cls, config_path: Optional[str] = None, cache_config: Any = None, only_db: bool = False):
-        return setup_module.setup_backend(cls, config_path, cache_config, only_db)
+    def setup(cls, source: Any, source_mode: str, node_mode: str):
+        """Construct the Rust-backed store from resolved source + modes."""
+        return setup_module.setup_backend(cls, source, source_mode, node_mode)
 
     @staticmethod
-    def setup_store(mcpjson_path: str | None = None, debug: bool | str = False,
-                    cache: Any = None, static_config: Optional[Dict[str, Any]] = None,
-                    cache_mode: str = "auto", only_db: bool = False, **kwargs: Any):
+    def setup_store(source: Any, mode: Optional[str] = None, *,
+                    debug: bool | str = False,
+                    static_config: Optional[Dict[str, Any]] = None, **kwargs: Any):
+        """Public entry point. Delegates to StoreSetupManager."""
         from mcpstore.store.setup import StoreSetupManager
-        return StoreSetupManager.setup_store(mcpjson_path, debug, cache, static_config, cache_mode, only_db, **kwargs)
+        return StoreSetupManager.setup_store(
+            source=source, mode=mode, debug=debug,
+            static_config=static_config, **kwargs,
+        )
 
-    _normalize_cache_config = staticmethod(setup_module.normalize_cache_config)
-    _redis_url = staticmethod(setup_module.redis_url)
-    _cache_options = staticmethod(setup_module.cache_options)
+    # ------------------------------------------------------------------
+    # Metadata
+    # ------------------------------------------------------------------
+    @property
+    def source_mode(self) -> Optional[str]:
+        return self._source_mode
+
+    @property
+    def node_mode(self) -> Optional[str]:
+        return self._node_mode
 
     namespace = configuration.namespace
     current_store = configuration.current_store

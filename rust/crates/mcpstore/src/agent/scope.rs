@@ -13,7 +13,7 @@ impl MCPStore {
     ) -> Result<InstanceId> {
         let instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             self.queue_control_request(
                 "ServiceScopeDeclareRequested",
                 serde_json::json!({
@@ -119,7 +119,7 @@ impl MCPStore {
     }
 
     pub async fn remove_service_scope(&self, service_name: &str, scope: &ScopeRef) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServiceScopeRemoveRequested",

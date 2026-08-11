@@ -111,6 +111,6 @@ pub use overrides::{
 };
 pub use store::swap::SwapResult;
 pub use store::{
-    JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
+    JsonStoreConfig, MCPStore, MemoryStoreConfig, NodeMode, OpenApiImportInput, OpenApiImportSource,
     RedisStoreConfig, SourceMode, StoreConfig, StoreOptions, ToolVisibilityFilter,
 };

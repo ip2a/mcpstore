@@ -15,7 +15,7 @@ impl MCPStore {
         }
         let instance_ids = [instance_id];
 
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             for instance_id in &instance_ids {
                 self.queue_control_request(
                     "ServiceRefreshToolsRequested",

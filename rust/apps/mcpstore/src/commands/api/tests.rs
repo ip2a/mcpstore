@@ -5,7 +5,7 @@ use mcpstore::{
     },
     config::{McpStoreExtension, ScopeDeclarations},
     registry::ConfigRevision,
-    JsonStoreConfig, ServiceInstanceKey, SourceMode, StoreOptions,
+    JsonStoreConfig, NodeMode, ServiceInstanceKey, SourceMode, StoreOptions,
 };
 use std::{
     collections::HashMap,
@@ -198,6 +198,7 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -259,6 +260,7 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(store_path.to_string_lossy().into_owned()),
         source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -329,6 +331,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -416,6 +419,7 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -597,6 +601,7 @@ async fn third_party_config_export_requires_service_name() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1003,6 +1008,7 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
     let source = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1068,6 +1074,7 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
     let target = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1122,6 +1129,7 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1210,6 +1218,7 @@ async fn store_routes_manage_rust_core_tool_overrides() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1309,6 +1318,7 @@ async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1348,6 +1358,7 @@ async fn store_routes_manage_rust_core_openapi_imports() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1484,6 +1495,7 @@ async fn store_route_bundles_openapi_without_importing() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })
@@ -1562,6 +1574,7 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
         source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
     })

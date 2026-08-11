@@ -3,7 +3,7 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn connect_service(&self, instance_id: InstanceId) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.is_data_plane() {
             return self
                 .queue_control_request(
                     "ServiceConnectRequested",

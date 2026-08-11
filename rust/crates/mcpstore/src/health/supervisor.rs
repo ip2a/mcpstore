@@ -256,7 +256,7 @@ impl InstanceSupervisor {
 
         if assessment.health == HealthState::Unhealthy {
             if let Some(store) = self.store.get().and_then(Weak::upgrade) {
-                if !store.is_db_source()
+                if !store.is_data_plane()
                     && store.registry.find_instance(instance_id).await.is_some()
                 {
                     if let Err(error) = store.pool.disconnect(instance_id).await {

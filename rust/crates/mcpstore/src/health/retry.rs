@@ -7,7 +7,7 @@ impl MCPStore {
         instance_id: InstanceId,
         error: String,
     ) -> Result<ServiceState> {
-        if self.is_db_source() {
+        if self.is_data_plane() {
             return self
                 .state_manager
                 .get(instance_id)

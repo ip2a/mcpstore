@@ -34,7 +34,7 @@ pub use crate::openapi::{
     OpenApiImportOptions, OpenApiImportResult,
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
-pub use options::{SourceMode, StoreOptions};
+pub use options::{NodeMode, SourceMode, StoreOptions};
 pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
@@ -59,6 +59,7 @@ pub struct MCPStore {
     pub(crate) auth_coordinator: crate::auth::AuthCoordinator,
     pub(crate) config_manager: ConfigManager,
     pub(crate) source_mode: SourceMode,
+    pub(crate) node_mode: NodeMode,
     pub(crate) runtime_config: StoreRuntimeConfig,
     pub(crate) supervisor: Option<std::sync::Arc<crate::health::supervisor::InstanceSupervisor>>,
     pub(crate) store_config: tokio::sync::RwLock<JsonStoreConfig>,
@@ -149,7 +150,7 @@ impl MCPStore {
             event_bus.clone(),
             cache.clone(),
         );
-        let supervisor = (options.source_mode == SourceMode::Local).then(|| {
+        let supervisor = (options.node_mode == NodeMode::ControlPlane).then(|| {
             std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
                 runtime_config.supervisor_policy,
                 state_manager.clone(),
@@ -163,6 +164,7 @@ impl MCPStore {
             auth_coordinator: auth_coordinator.clone(),
             config_manager,
             source_mode: options.source_mode,
+            node_mode: options.node_mode,
             runtime_config,
             supervisor,
             store_config: tokio::sync::RwLock::new(store_config),
@@ -203,6 +205,14 @@ impl MCPStore {
 
     pub fn source_mode(&self) -> SourceMode {
         self.source_mode
+    }
+
+    pub fn node_mode(&self) -> NodeMode {
+        self.node_mode
+    }
+
+    pub fn is_data_plane(&self) -> bool {
+        self.node_mode == NodeMode::DataPlane
     }
 
     pub fn is_db_source(&self) -> bool {

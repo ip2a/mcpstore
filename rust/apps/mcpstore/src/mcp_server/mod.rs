@@ -156,6 +156,7 @@ impl McpServerOptions {
         StoreOptions {
             config_path: self.config_path.clone(),
             source_mode: self.source_mode,
+            node_mode: mcpstore::NodeMode::ControlPlane,
             store: self.store.clone(),
             namespace: self.namespace.clone(),
         }

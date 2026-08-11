@@ -8,6 +8,7 @@ def __getattr__(name: str):
         "CacheType",
         "MemoryConfig",
         "StoreConfig",
+        "FileConfig",
         "RedisConfig",
         "get_namespace",
     }:
@@ -32,6 +33,7 @@ __all__ = [
     "CacheType",
     "MemoryConfig",
     "StoreConfig",
+    "FileConfig",
     "RedisConfig",
     "get_namespace",
 ]

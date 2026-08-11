@@ -3,7 +3,7 @@
 use mcpstore::config::ScopeDescriptor;
 use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
-use mcpstore::core::store::{MCPStore, SourceMode, StoreOptions};
+use mcpstore::core::store::{MCPStore, NodeMode, SourceMode, StoreOptions};
 use mcpstore::{
     cache::models::SessionScope, InstanceId, McpConfig, ScopeContext, ScopeRef, Service,
     ServiceTarget, StoreError, Tool,
@@ -94,6 +94,16 @@ pub(crate) fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMod
         Some("local") | None => Ok(SourceMode::Local),
         Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Unsupported source_mode: {other}"
+        ))),
+    }
+}
+
+pub(crate) fn parse_node_mode(node_mode: Option<&str>) -> PyResult<NodeMode> {
+    match node_mode {
+        Some("control_plane") | None => Ok(NodeMode::ControlPlane),
+        Some("data_plane") => Ok(NodeMode::DataPlane),
+        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unsupported node_mode: {other}, expected `control_plane` or `data_plane`"
         ))),
     }
 }
@@ -739,17 +749,19 @@ impl PyMCPStore {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None))]
+    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None, node_mode=None))]
     fn setup_with_options(
         config_path: Option<String>,
         source_mode: Option<String>,
         store: Option<String>,
         store_config: Option<String>,
         namespace: Option<String>,
+        node_mode: Option<String>,
     ) -> PyResult<Self> {
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
             source_mode: parse_source_mode(source_mode.as_deref())?,
+            node_mode: parse_node_mode(node_mode.as_deref())?,
             store: store
                 .map(|name| {
                     let config = store_config
