@@ -7751,4 +7751,33 @@ mod control_reactor_tests {
             .is_some());
         std::fs::remove_file(path).ok();
     }
+
+    #[tokio::test]
+    async fn node_mode_supervisor_visibility() {
+        // C5: control_plane builds supervisor; data_plane does not.
+        let cp_path = temp_config_path();
+        let cp_store = MCPStore::setup_with_options(StoreOptions {
+            config_path: Some(cp_path.clone()),
+            source_mode: SourceMode::Local,
+            node_mode: NodeMode::ControlPlane,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some(format!("c5-cp-{}", uuid::Uuid::new_v4())),
+        })
+        .unwrap();
+        assert!(cp_store.supervisor.is_some(), "control_plane must build supervisor");
+
+        let dp_path = temp_config_path();
+        let dp_store = MCPStore::setup_with_options(StoreOptions {
+            config_path: Some(dp_path.clone()),
+            source_mode: SourceMode::Local,
+            node_mode: NodeMode::DataPlane,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some(format!("c5-dp-{}", uuid::Uuid::new_v4())),
+        })
+        .unwrap();
+        assert!(dp_store.supervisor.is_none(), "data_plane must NOT build supervisor");
+
+        std::fs::remove_file(cp_path).ok();
+        std::fs::remove_file(dp_path).ok();
+    }
 }
