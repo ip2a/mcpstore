@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, call
 
 from mcpstore import AgentContext, MCPStore, Service, SessionContext, StoreContext, Tool, _rust
+from mcpstore.config import FileConfig
 from mcpstore.store import RustStoreBackend
 
 
@@ -59,7 +60,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store = MCPStore.setup_store(source=FileConfig(path=config_path))
             self.assertIsInstance(store.for_store(), StoreContext)
             self.assertIsInstance(store.for_agent("agent-a"), AgentContext)
             self.assertIsInstance(store.create_session("session-a"), SessionContext)
@@ -101,7 +102,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = RustStoreBackend.setup(str(config_path), cache_config="memory")
+            store = RustStoreBackend.setup(FileConfig(path=str(config_path)), "local", "control_plane")
             store.add_service(
                 "gitodo",
                 {"command": "command-that-must-not-run", "args": [], "_mcpstore": {"scopes": {"store": {}, "agents": {"agent1": {}}}}},
@@ -115,7 +116,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store = MCPStore.setup_store(source=FileConfig(path=config_path))
             store_context = store.for_store().add_service_config("store-only", {"command": "command-that-must-not-run", "args": []})
             agent_context = store.for_agent("agent-a").add_service_config("agent-only", {"command": "command-that-must-not-run", "args": []})
             self.assertEqual(set(store_context.show_config()["mcpServers"]), {"store-only"})
@@ -127,7 +128,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store = MCPStore.setup_store(source=FileConfig(path=config_path))
             context = store.for_agent("agent-a")
             context = context.add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             self.assertIsInstance(context, AgentContext)
@@ -144,7 +145,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            context = _rust.MCPStore.setup_with_options(str(config_path), backend="memory").for_store()
+            context = _rust.MCPStore.setup_with_options(str(config_path), 'local', 'memory', '{}', None, None).for_store()
             context = context.add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             self.assertEqual(context.scope(), {"type": "store"})
             service = context.find_service(service_name="svc")
@@ -156,7 +157,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store = MCPStore.setup_store(source=FileConfig(path=config_path))
             store_context = store.for_store().add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             agent_context = store.for_agent("agent-a").add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             store_service = store_context.find_service(service_name="svc")
@@ -174,7 +175,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store = MCPStore.setup_store(source=FileConfig(path=config_path))
             context = store.for_agent("agent-a").add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             service = context.find_service(service_name="svc")
             service = service.patch_service({"headers": {"X-Service": "yes"}})
@@ -195,7 +196,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
             json_path.write_text('{"mcpServers": {"from-json-file": {"command": "command-that-must-not-run"}}}', encoding="utf-8")
             toml_path.write_text('[mcpServers.from-toml-file]\ncommand = "command-that-must-not-run"\n', encoding="utf-8")
-            context = _rust.MCPStore.setup_with_options(str(config_path), backend="memory").for_store()
+            context = _rust.MCPStore.setup_with_options(str(config_path), 'local', 'memory', '{}', None, None).for_store()
             for config in (
                 {"mcpServers": {"document": {"command": "command-that-must-not-run"}}},
                 {"name": "single", "command": "command-that-must-not-run"},
@@ -214,7 +215,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = RustStoreBackend.setup(str(config_path), cache_config="memory")
+            store = RustStoreBackend.setup(FileConfig(path=str(config_path)), "local", "control_plane")
             context = store.for_agent("agent-a").add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             service = context.list_services()[0]
             self.assertIsInstance(context, AgentContext)
@@ -227,7 +228,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = MCPStore.setup_store(config_path=config_path, cache_mode="local")
+            store = MCPStore.setup_store(source=FileConfig(path=config_path))
             store.for_agent("agent-a").add_service_config("svc-a", {"command": "command-that-must-not-run", "args": []})
             store.for_agent("agent-b").add_service_config("svc-b", {"command": "command-that-must-not-run", "args": []})
 
