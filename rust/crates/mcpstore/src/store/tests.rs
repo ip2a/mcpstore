@@ -7766,10 +7766,11 @@ mod control_reactor_tests {
         .unwrap();
         assert!(cp_store.supervisor.is_some(), "control_plane must build supervisor");
 
-        let dp_path = temp_config_path();
+        // DataPlane requires a shared (Db) source. Use SourceMode::Db with a
+        // memory backend to simulate this in-process.
         let dp_store = MCPStore::setup_with_options(StoreOptions {
-            config_path: Some(dp_path.clone()),
-            source_mode: SourceMode::Local,
+            config_path: Some(temp_config_path()),
+            source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("c5-dp-{}", uuid::Uuid::new_v4())),
@@ -7778,6 +7779,5 @@ mod control_reactor_tests {
         assert!(dp_store.supervisor.is_none(), "data_plane must NOT build supervisor");
 
         std::fs::remove_file(cp_path).ok();
-        std::fs::remove_file(dp_path).ok();
     }
 }

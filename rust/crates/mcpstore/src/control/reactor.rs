@@ -19,7 +19,13 @@ fn hostname() -> std::io::Result<String> {
 
 impl MCPStore {
     pub async fn restart_control_reactor(self: &Arc<Self>) -> Result<()> {
-        self.process_control_requests().await?;
+        // Do NOT call process_control_requests() here. The old backlog scanner
+        // bypassed the reactor's distributed claim mechanism, so multiple
+        // control-plane nodes starting simultaneously would duplicate-execute
+        // queued requests. The reactor itself subscribes from the saved cursor
+        // (or Beginning for first start) and processes every change through the
+        // claim + execution-store guard, which is safe under concurrency.
+
         // Use hostname+pid for a stable-ish identity that avoids collisions
         // across hosts (PID alone can clash between machines). Falls back to
         // pid if hostname is unavailable.
