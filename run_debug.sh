@@ -5,6 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MCPSTORE_MANIFEST="$ROOT_DIR/rust/apps/mcpstore/Cargo.toml"
 TAURI_MANIFEST="$ROOT_DIR/desktop/tauri/Cargo.toml"
 WEB_DIR="$ROOT_DIR/web"
+PYTHON_DIR="$ROOT_DIR/python"
+PYTHON_VENV="$PYTHON_DIR/.venv"
+PYTHON_BIN="$PYTHON_VENV/bin/python"
+PYTHON_MATURIN="$PYTHON_VENV/bin/maturin"
 
 for bin_dir in /usr/local/bin /opt/homebrew/bin; do
   if [ -d "$bin_dir" ] && [[ ":$PATH:" != *":$bin_dir:"* ]]; then
@@ -22,6 +26,8 @@ mcpstore debug menu
 4) 本地运行内置 Web (mcpstore web)
 5) Python API demo (FastAPI, demos/python_api)
 6) 清理构建产物
+7) 构建并安装最新本地 mcpstore 到 python/.venv
+8) 从 python/.venv 卸载 mcpstore
 0) 退出
 MENU
 }
@@ -146,21 +152,69 @@ run_python_demo() {
   local demo_dir="$ROOT_DIR/demos/python_api"
   local demo_host="${MCPSTORE_DEMO_HOST:-127.0.0.1}"
   local demo_port="${MCPSTORE_DEMO_PORT:-18201}"
-  local venv_python="$ROOT_DIR/python/.venv/bin/python"
 
   if [ ! -f "$demo_dir/app.py" ]; then
     echo "[Demo] 找不到 $demo_dir/app.py" >&2
     exit 1
   fi
-  if [ ! -x "$venv_python" ]; then
-    echo "[Demo] 找不到 uv 虚拟环境: $venv_python" >&2
+  if [ ! -x "$PYTHON_BIN" ]; then
+    echo "[Demo] 找不到 uv 虚拟环境: $PYTHON_BIN" >&2
     echo "       请先在 python/ 目录执行 uv sync" >&2
     exit 1
   fi
 
   echo "[Demo] 启动 FastAPI demo: http://${demo_host}:${demo_port}/"
   echo "[Demo] API 文档:         http://${demo_host}:${demo_port}/docs"
-  (cd "$demo_dir" && "$venv_python" -m uvicorn app:app --reload --host "$demo_host" --port "$demo_port")
+  (cd "$demo_dir" && "$PYTHON_BIN" -m uvicorn app:app --reload --host "$demo_host" --port "$demo_port")
+}
+
+install_python_package() {
+  require_cmd uv
+  if [ ! -x "$PYTHON_BIN" ] || [ ! -x "$PYTHON_MATURIN" ]; then
+    echo "[Python] 找不到 $PYTHON_VENV；请先在 python/ 目录执行 uv sync" >&2
+    return 1
+  fi
+
+  local wheel_dir wheel
+  wheel_dir="$(mktemp -d)"
+  echo "[Python] 构建当前 Rust binding 和 Python wheel..."
+  if ! (cd "$PYTHON_DIR" && "$PYTHON_MATURIN" build --interpreter "$PYTHON_BIN" --out "$wheel_dir"); then
+    rm -rf "$wheel_dir"
+    return 1
+  fi
+
+  wheel="$(find "$wheel_dir" -type f -name 'mcpstore-*.whl' -print -quit)"
+  if [ -z "$wheel" ]; then
+    echo "[Python] 构建完成但没有找到 mcpstore wheel" >&2
+    rm -rf "$wheel_dir"
+    return 1
+  fi
+
+  echo "[Python] 安装到 $PYTHON_VENV..."
+  if ! uv pip install --python "$PYTHON_BIN" --force-reinstall "$wheel"; then
+    rm -rf "$wheel_dir"
+    return 1
+  fi
+  rm -rf "$wheel_dir"
+
+  "$PYTHON_BIN" - <<'PY'
+import mcpstore
+import mcpstore._rust as rust
+
+print(f"[Python] mcpstore: {mcpstore.__file__}")
+print(f"[Python] Rust 扩展: {rust.__file__}")
+PY
+}
+
+uninstall_python_package() {
+  require_cmd uv
+  if [ ! -x "$PYTHON_BIN" ]; then
+    echo "[Python] 找不到 uv 虚拟环境: $PYTHON_BIN" >&2
+    return 1
+  fi
+
+  echo "[Python] 从 $PYTHON_VENV 卸载 mcpstore..."
+  uv pip uninstall --python "$PYTHON_BIN" mcpstore
 }
 
 clean_artifacts() {
@@ -193,6 +247,8 @@ main() {
       4) run_embedded_web ;;
       5) run_python_demo ;;
       6) clean_artifacts ;;
+      7) install_python_package ;;
+      8) uninstall_python_package ;;
       0) exit 0 ;;
       *) echo "未知选项: $choice" ;;
     esac
