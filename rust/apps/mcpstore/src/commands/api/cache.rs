@@ -57,7 +57,7 @@ pub(super) async fn switch(
         .swap_store(&config)
         .await
         .map_err(ApiError::from_store)?;
-    if !state.store.is_db_source() {
+    if !state.store.is_data_plane() {
         spawn_control_reactor(state.store.clone());
     }
     let snapshot = serde_json::to_value(snapshot)

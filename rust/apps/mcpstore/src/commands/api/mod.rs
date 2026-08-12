@@ -140,7 +140,7 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
         store,
         mcp_hub_process: Arc::new(Mutex::new(None)),
     });
-    if !state.store.is_db_source() {
+    if !state.store.is_data_plane() {
         let store = state.store.clone();
         tokio::spawn(async move {
             if let Err(error) = store.restart_control_reactor().await {
