@@ -42,11 +42,8 @@ def _resolve_source_mode(source: Any) -> str:
     return "db"
 
 
-def _resolve_node_mode(mode: Optional[str], source_mode: str) -> str:
-    """Resolve user-facing mode to a concrete node mode.
-
-    Default: file/local source -> control_plane, remote store -> data_plane.
-    """
+def _resolve_node_mode(mode: Optional[str]) -> str:
+    """Resolve user-facing mode; nodes are control-plane unless explicitly configured."""
     if mode is not None:
         resolved = mode.strip().lower()
         if resolved not in _VALID_MODES:
@@ -54,7 +51,7 @@ def _resolve_node_mode(mode: Optional[str], source_mode: str) -> str:
                 f"mode must be one of {_VALID_MODES}, got: {mode!r}"
             )
         return resolved
-    return "data_plane" if source_mode == "db" else "control_plane"
+    return "control_plane"
 
 
 def _extract_file_path(source: Any) -> Optional[str]:
@@ -98,6 +95,8 @@ def setup_backend(
     store._source_mode = source_mode
     store._node_mode = node_mode
     store.load_from_config()
+    if node_mode == "control_plane":
+        store.restart_control_reactor()
     return store
 
 
@@ -106,7 +105,7 @@ class StoreSetupManager:
 
     @staticmethod
     def setup_store(
-        source: Any,
+        source: Any = None,
         mode: Optional[str] = None,
         *,
         debug: bool | str = False,
@@ -118,14 +117,14 @@ class StoreSetupManager:
         Parameters
         ----------
         source:
-            The data source config.  Its type decides where definitions come
-            from: ``FileConfig`` -> local file, ``RedisConfig`` -> remote DB,
-            ``MemoryConfig`` -> in-process, etc.
+            The data source config. Defaults to ``FileConfig()``, which uses
+            the standard local ``mcp.json`` path. Its type decides where
+            definitions come from: ``FileConfig`` -> local file,
+            ``RedisConfig`` -> remote DB, ``MemoryConfig`` -> in-process, etc.
         mode:
-            Node role: ``"control_plane"`` (default for local sources) maintains
-            clients/supervisor and executes writes directly; ``"data_plane"``
-            (default for remote stores) does not maintain clients and queues
-            writes for a control_plane node to consume.
+            Node role: ``"control_plane"`` by default. Pass
+            ``"data_plane"`` explicitly for a node that does not maintain
+            clients and queues writes for a control-plane node to consume.
         """
         from mcpstore.config.config import LoggingConfig
 
@@ -135,8 +134,13 @@ class StoreSetupManager:
             unsupported = ", ".join(sorted(kwargs))
             raise ValueError(f"setup_store 不支持参数: {unsupported}")
 
+        if source is None:
+            from mcpstore.config import FileConfig
+
+            source = FileConfig()
+
         source_mode = _resolve_source_mode(source)
-        node_mode = _resolve_node_mode(mode, source_mode)
+        node_mode = _resolve_node_mode(mode)
 
         from mcpstore.store.store import MCPStore as PyMCPStore
         store = PyMCPStore.setup(source=source, source_mode=source_mode, node_mode=node_mode)
