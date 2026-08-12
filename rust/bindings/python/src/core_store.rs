@@ -906,6 +906,15 @@ impl PyMCPStore {
             .map_err(map_store_err)
     }
 
+    /// Start (or restart) the EventReactor that consumes `control_requests`
+    /// via push-based ChangeFeed. Only meaningful on a control-plane node;
+    /// a data-plane node has no reactor to run.
+    fn restart_control_reactor(&self) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.restart_control_reactor())
+            .map_err(map_store_err)
+    }
+
     #[pyo3(signature = (name, spec_url, options=None))]
     fn import_openapi_service(
         &self,

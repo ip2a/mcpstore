@@ -27,7 +27,7 @@ class RustStoreBackend:
         return setup_module.setup_backend(cls, source, source_mode, node_mode)
 
     @staticmethod
-    def setup_store(source: Any, mode: Optional[str] = None, *,
+    def setup_store(source: Any = None, mode: Optional[str] = None, *,
                     debug: bool | str = False,
                     static_config: Optional[Dict[str, Any]] = None, **kwargs: Any):
         """Public entry point. Delegates to StoreSetupManager."""
