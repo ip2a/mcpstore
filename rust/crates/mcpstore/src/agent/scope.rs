@@ -118,7 +118,7 @@ impl MCPStore {
         Ok(instance_id)
     }
 
-    pub async fn remove_service_scope(&self, service_name: &str, scope: &ScopeRef) -> Result<()> {
+    pub async fn remove_service_scope(&self, service_name: &str, scope: &ScopeRef) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request(
@@ -166,7 +166,7 @@ impl MCPStore {
         self.sync_definition_projection(service_name, &server, chrono::Utc::now().timestamp())
             .await?;
         self.cache_instance_removed(instance_id).await?;
-        Ok(())
+        Ok(String::new())
     }
 
     pub async fn list_scope_instances(&self, scope: &ScopeRef) -> Result<Vec<ServiceInstance>> {

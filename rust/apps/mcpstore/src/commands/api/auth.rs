@@ -331,5 +331,6 @@ pub(super) async fn reconnect_authorized_service(
         .store
         .connect_service(instance_id)
         .await
+        .map(|_| ())
         .map_err(ApiError::from_store)
 }

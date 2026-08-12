@@ -386,7 +386,7 @@ pub(super) async fn action_add_exec(
             scopes,
             ..McpStoreExtension::default()
         });
-        store.add_service(&name, config).await
+        store.add_service(&name, config).await.map(|_| ())
     };
 
     if let Err(error) = result {

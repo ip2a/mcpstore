@@ -3,7 +3,7 @@ use serde_json::Value;
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn remove_service(&self, service_name: &str) -> Result<()> {
+    pub async fn remove_service(&self, service_name: &str) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request(
@@ -46,10 +46,10 @@ impl MCPStore {
                 true,
             )
             .await;
-        Ok(())
+        Ok(String::new())
     }
 
-    pub async fn update_service(&self, service_name: &str, mut config: ServerConfig) -> Result<()> {
+    pub async fn update_service(&self, service_name: &str, mut config: ServerConfig) -> Result<String> {
         if config.mcpstore.is_some() {
             return Err(StoreError::Other(
                 "Use scope APIs to modify _mcpstore metadata or declarations".to_string(),
@@ -104,9 +104,10 @@ impl MCPStore {
         }
         self.register_configured_definition(service_name, &config)
             .await
+            .map(|_| String::new())
     }
 
-    pub async fn patch_service(&self, service_name: &str, updates: Value) -> Result<()> {
+    pub async fn patch_service(&self, service_name: &str, updates: Value) -> Result<String> {
         let updates = updates.as_object().ok_or_else(|| {
             StoreError::Other("Service base config patch must be a JSON object".to_string())
         })?;

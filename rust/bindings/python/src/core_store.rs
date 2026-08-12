@@ -806,7 +806,7 @@ impl PyMCPStore {
     }
 
     /// Add a service definition. Native configs declare scopes in `_mcpstore.scopes`.
-    fn add_service(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn add_service(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<String> {
         let config = py_to_server_config(config, "Service config")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.add_service(service_name, config))
@@ -832,7 +832,7 @@ impl PyMCPStore {
     }
 
     /// Remove exactly one service scope and its runtime instance.
-    fn remove_service_scope(&self, service_name: &str, scope: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn remove_service_scope(&self, service_name: &str, scope: &Bound<'_, PyAny>) -> PyResult<String> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service_scope(service_name, &scope))
@@ -840,7 +840,7 @@ impl PyMCPStore {
     }
 
     /// Patch only base MCP fields; `_mcpstore` must be changed through scope APIs.
-    fn patch_service(&self, service_name: &str, base_updates: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn patch_service(&self, service_name: &str, base_updates: &Bound<'_, PyAny>) -> PyResult<String> {
         let base_updates = py_to_serde_value(base_updates, "Service base config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.patch_service(service_name, base_updates))
@@ -851,27 +851,27 @@ impl PyMCPStore {
     ///
     /// Configs containing `_mcpstore` are rejected. Use `declare_service_scope`
     /// or `remove_service_scope` for scope changes.
-    fn update_service(&self, service_name: &str, base_config: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn update_service(&self, service_name: &str, base_config: &Bound<'_, PyAny>) -> PyResult<String> {
         let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.update_service(service_name, base_config))
             .map_err(map_store_err)
     }
 
-    fn remove_service(&self, service_name: &str) -> PyResult<()> {
+    fn remove_service(&self, service_name: &str) -> PyResult<String> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service(service_name))
             .map_err(map_store_err)
     }
 
-    fn connect_service(&self, instance_id: &str) -> PyResult<()> {
+    fn connect_service(&self, instance_id: &str) -> PyResult<String> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.connect_service(instance_id))
             .map_err(map_store_err)
     }
 
-    fn disconnect_service(&self, instance_id: &str) -> PyResult<()> {
+    fn disconnect_service(&self, instance_id: &str) -> PyResult<String> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.disconnect_service(instance_id))
@@ -893,7 +893,7 @@ impl PyMCPStore {
         serializable_to_py(py, &report, "event_capability_report")
     }
 
-    fn restart_service(&self, instance_id: &str) -> PyResult<()> {
+    fn restart_service(&self, instance_id: &str) -> PyResult<String> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.restart_service(instance_id))
@@ -2431,13 +2431,13 @@ impl PyMCPStore {
         )
     }
 
-    fn reset_config(&self) -> PyResult<()> {
+    fn reset_config(&self) -> PyResult<String> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_config())
             .map_err(map_store_err)
     }
 
-    fn reset_scope(&self, scope: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn reset_scope(&self, scope: &Bound<'_, PyAny>) -> PyResult<String> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_scope(&scope))

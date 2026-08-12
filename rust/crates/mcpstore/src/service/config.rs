@@ -78,7 +78,7 @@ impl MCPStore {
         self.show_scope_config(&scope).await
     }
 
-    pub async fn reset_config(&self) -> Result<()> {
+    pub async fn reset_config(&self) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request("StoreResetRequested", serde_json::json!({}))
@@ -117,10 +117,10 @@ impl MCPStore {
                 self.cache.delete_event(&event_type, key).await?;
             }
         }
-        Ok(())
+        Ok(String::new())
     }
 
-    pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<()> {
+    pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request("ScopeResetRequested", serde_json::json!({ "scope": scope }))
@@ -178,7 +178,7 @@ impl MCPStore {
         for instance_id in instance_ids {
             self.cache_instance_removed(instance_id).await?;
         }
-        Ok(())
+        Ok(String::new())
     }
 
     pub async fn load_from_config(&self) -> Result<()> {

@@ -2,7 +2,7 @@ use crate::state::{HealthMetrics, HealthState, RecoveryState, RuntimePhase, Serv
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn connect_service(&self, instance_id: InstanceId) -> Result<()> {
+    pub async fn connect_service(&self, instance_id: InstanceId) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request(
@@ -14,7 +14,7 @@ impl MCPStore {
         if self.registry.find_instance(instance_id).await.is_none() {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
-        self.connect_service_internal(instance_id, false).await
+        self.connect_service_internal(instance_id, false).await.map(|_| String::new())
     }
 
     pub(crate) async fn connect_service_internal(
