@@ -182,7 +182,7 @@ impl MCPStore {
     }
 
     pub async fn load_from_config(&self) -> Result<()> {
-        if self.is_data_plane() {
+        if self.is_data_plane() || self.source_mode == SourceMode::Db {
             return self.load_from_db().await;
         }
 
