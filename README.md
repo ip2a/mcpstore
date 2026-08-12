@@ -249,10 +249,10 @@ redis_config = RedisConfig(
     password=None,
     namespace="demo_namespace",
 )
-store = MCPStore.setup_store(cache=redis_config)
+store = MCPStore.setup_store(source=redis_config)
 ```
 
-使用相同后端和 `namespace` 的实例可以共享数据。若当前进程只使用共享数据源、不维护本地服务实例，可设置 `only_db=True`：
+使用相同后端和 `namespace` 的实例可以共享数据。若当前进程只使用共享数据源、不维护本地服务实例，可设置 `mode="data_plane"`：
 
 ```python
 from mcpstore import MCPStore
@@ -264,7 +264,7 @@ redis_config = RedisConfig(
     password=None,
     namespace="demo_namespace",
 )
-store = MCPStore.setup_store(cache=redis_config, only_db=True)
+store = MCPStore.setup_store(source=redis_config, mode="data_plane")
 services = store.for_store().list_services()
 ```
 
