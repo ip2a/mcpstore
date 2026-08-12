@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::{ConfigManager, InstanceId, JsonStoreConfig, ScopeRef, SourceMode};
+use mcpstore::{ConfigManager, InstanceId, ScopeRef};
 
 use crate::mcp_server::{
     McpServerOptions as CoreMcpServerOptions, McpServerTransport as CoreMcpServerTransport,
@@ -141,24 +141,12 @@ impl McpServerArgs {
         };
         let port = self.port.unwrap_or(app_config.mcp_aggregate.port);
 
-        let store = self
-            .store
-            .store
-            .as_ref()
-            .map(|store| JsonStoreConfig::new(store, serde_json::json!({})))
-            .or_else(|| {
-                self.store.store_config.as_ref().map(|config| {
-                    JsonStoreConfig::new("redis", serde_json::json!({"config": config}))
-                })
-            });
+        let store_options = self.store.to_store_options();
         Ok(CoreMcpServerOptions {
-            config_path: self.store.config_path.clone(),
-            source_mode: match self.store.source {
-                crate::store_args::SourceArg::Local => SourceMode::Local,
-                crate::store_args::SourceArg::Db => SourceMode::Db,
-            },
-            store,
-            namespace: self.store.namespace.clone(),
+            config_path: store_options.config_path,
+            source_mode: store_options.source_mode,
+            store: store_options.store,
+            namespace: store_options.namespace,
             scope,
             instance_id: self.instance_id,
             transport: transport.to_core(),
@@ -237,5 +225,19 @@ mod tests {
         let options = args.to_core_options(&config).unwrap();
         assert_eq!(options.transport, CoreMcpServerTransport::Stdio);
         assert_eq!(options.port, 19500);
+    }
+
+    #[test]
+    fn cli_store_config_is_forwarded_to_core_options() {
+        let mut args = default_args();
+        args.store.store = Some("redis".to_string());
+        args.store.store_config = Some(r#"{"url":"redis://example/8"}"#.to_string());
+
+        let options = args
+            .to_core_options(&mcpstore::AppConfig::default())
+            .unwrap();
+        let store = options.store.unwrap();
+        assert_eq!(store.store, "redis");
+        assert_eq!(store.config["url"], "redis://example/8");
     }
 }

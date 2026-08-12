@@ -637,6 +637,8 @@ async fn api_cache_switch_migrates_session_state_to_shared_redis_backend(
             "db",
             "--store",
             "memory",
+            "--namespace",
+            &namespace,
         ])
         .await?,
     );
