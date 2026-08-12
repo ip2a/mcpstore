@@ -225,35 +225,42 @@ impl MCPStore {
     /// the backend was created during construction (sharing the cache layer's
     /// MemoryStore). For Redis, it connects now (async) to the same Redis URL.
     pub async fn setup_event_reactor(&self, config: ReactorConfig) -> Result<()> {
-        let backend = match self.event_backend.read().await.clone() {
-            Some(b) => b,
-            None => {
-                // Redis: construct now (was deferred because it's async).
-                let storage = self.store_config.read().await;
-                match storage.store_name() {
-                    "redis" => {
-                        let url = storage
-                            .config
-                            .get("url")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("redis://127.0.0.1/");
-                        let handle = openkeyv::factory::open_store(openkeyv::StoreConfig::redis(
-                            serde_json::json!({"url": url}),
-                        ))
-                        .await
-                        .map_err(|e| StoreError::Other(format!("event Store: {e}")))?;
-                        let b = EventBackend::from_store(handle);
-                        *self.event_backend.write().await = Some(b.clone());
-                        b
-                    }
-                    backend => {
-                        return Err(StoreError::Other(format!(
-                            "OpenKeyv backend '{backend}' does not provide ChangeFeed support"
-                        )));
-                    }
+        // Fast path: backend already initialized. Drop the read guard before
+        // potentially taking the write guard below to avoid RwLock upgrade deadlock.
+        if let Some(b) = self.event_backend.read().await.clone() {
+            let reactor = std::sync::Arc::new(
+                EventReactor::new(b, config).with_event_bus(self.event_bus.clone()),
+            );
+            *self.event_reactor.write().await = Some(reactor);
+            return Ok(());
+        }
+
+        // Slow path: build the backend (Redis needs async connect), then write.
+        let backend = {
+            let storage = self.store_config.read().await;
+            match storage.store_name() {
+                "redis" => {
+                    let url = storage
+                        .config
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("redis://127.0.0.1/");
+                    let handle = openkeyv::factory::open_store(openkeyv::StoreConfig::redis(
+                        serde_json::json!({"url": url}),
+                    ))
+                    .await
+                    .map_err(|e| StoreError::Other(format!("event Store: {e}")))?;
+                    EventBackend::from_store(handle)
+                }
+                backend => {
+                    return Err(StoreError::Other(format!(
+                        "OpenKeyv backend '{backend}' does not provide ChangeFeed support"
+                    )));
                 }
             }
         };
+        *self.event_backend.write().await = Some(backend.clone());
+
         let reactor = std::sync::Arc::new(
             EventReactor::new(backend, config).with_event_bus(self.event_bus.clone()),
         );
