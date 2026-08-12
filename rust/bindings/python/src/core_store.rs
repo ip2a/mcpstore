@@ -58,7 +58,7 @@ pub(crate) fn map_store_err(err: StoreError) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
 }
 
-fn parse_openapi_import_options(
+pub(crate) fn parse_openapi_import_options(
     options: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<OpenApiImportOptions> {
     let Some(options) = options else {
@@ -73,7 +73,7 @@ fn parse_openapi_import_options(
     })
 }
 
-fn parse_openapi_bundle_options(
+pub(crate) fn parse_openapi_bundle_options(
     options: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<OpenApiBundleOptions> {
     let Some(options) = options else {

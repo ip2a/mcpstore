@@ -7,16 +7,17 @@
 use mcpstore::core::store::{MCPStore, StoreOptions};
 use mcpstore::{
     CreateSessionRequest, Prompt, PromptOverridePatch, Resource, ResourceOverridePatch,
-    ResourceTemplate, ResourceTemplateOverridePatch, ScopeContext, Service, Tool,
-    ToolOverridePatch,
+    ResourceTemplate, ResourceTemplateOverridePatch, ScopeContext, Service, SessionRetryPolicy,
+    Tool, ToolOverridePatch,
 };
 
 use pyo3::prelude::*;
 use std::sync::Arc;
 
 use crate::core_store::{
-    duration_from_seconds, facade_service_target, map_store_err, parse_session_scope,
-    parse_node_mode, parse_source_mode, py_to_add_service_config, py_to_server_config, serializable_to_py,
+    duration_from_seconds, facade_service_target, map_store_err, parse_openapi_import_options,
+    parse_session_scope, parse_node_mode, parse_source_mode, py_to_add_service_config,
+    py_to_server_config, serializable_to_py,
 };
 use pyo3_async_runtimes::tokio::future_into_py;
 
@@ -332,6 +333,617 @@ impl PyAsyncMCPStore {
                 .await
                 .map_err(map_store_err)?;
             Python::with_gil(|py| serializable_to_py(py, &result, "tool_call_result"))
+        })
+    }
+
+    #[pyo3(signature = (session_id, scope=None, agent_id=None))]
+    fn find_session<'a>(
+        &self,
+        py: Python<'a>,
+        session_id: &str,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let scope = parse_session_scope(scope.as_deref())?;
+        let session_id = session_id.to_string();
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let session = inner
+                .find_session(scope, agent_id.as_deref(), &session_id)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| match session {
+                Some(session) => serializable_to_py(py, &session, "session_entity"),
+                None => Ok(py.None()),
+            })
+        })
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn list_sessions<'a>(
+        &self,
+        py: Python<'a>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let scope = match scope {
+            Some(value) => Some(parse_session_scope(Some(value.as_str()))?),
+            None => None,
+        };
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let sessions = inner
+                .list_sessions(scope, agent_id.as_deref())
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serde_list(py, &sessions))
+        })
+    }
+
+    fn get_session_status<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        future_into_py(py, async move {
+            let status = inner
+                .get_session_status(&session_key)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| match status {
+                Some(status) => serializable_to_py(py, &status, "session_status"),
+                None => Ok(py.None()),
+            })
+        })
+    }
+
+    fn get_session_state_value<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+        key: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let value = inner
+                .get_session_state_value(&session_key, &key)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| {
+                crate::py_value::serde_value_to_py(py, value.unwrap_or(serde_json::Value::Null))
+            })
+        })
+    }
+
+    fn list_session_state<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .list_session_state(&session_key)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &state, "session_state"))
+        })
+    }
+
+    fn set_session_state<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+        key: &str,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let value = crate::py_value::py_to_serde_value(value, "Session state value")?;
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .set_session_state(&session_key, &key, value)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &state, "session_state"))
+        })
+    }
+
+    #[pyo3(signature = (session_key, key, value, max_attempts=3, delay_millis=0))]
+    fn set_session_state_with_retry<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+        key: &str,
+        value: &Bound<'_, PyAny>,
+        max_attempts: usize,
+        delay_millis: u64,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let value = crate::py_value::py_to_serde_value(value, "Session state value")?;
+        let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .set_session_state_with_retry(&session_key, &key, value, policy)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &state, "session_state"))
+        })
+    }
+
+    fn delete_session_state<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+        key: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .delete_session_state(&session_key, &key)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &state, "session_state"))
+        })
+    }
+
+    #[pyo3(signature = (session_key, key, max_attempts=3, delay_millis=0))]
+    fn delete_session_state_with_retry<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+        key: &str,
+        max_attempts: usize,
+        delay_millis: u64,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .delete_session_state_with_retry(&session_key, &key, policy)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &state, "session_state"))
+        })
+    }
+
+    fn clear_session_state<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .clear_session_state(&session_key)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &state, "session_state"))
+        })
+    }
+
+    fn update_session_metadata<'a>(
+        &self,
+        py: Python<'a>,
+        session_key: &str,
+        metadata: &Bound<'_, PyAny>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let metadata = crate::py_value::py_to_serde_value(metadata, "Session metadata")?;
+        let inner = self.inner.clone();
+        let session_key = session_key.to_string();
+        future_into_py(py, async move {
+            let session = inner
+                .update_session_metadata(&session_key, metadata)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &session, "session_entity"))
+        })
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None, reason=None))]
+    fn close_sessions<'a>(
+        &self,
+        py: Python<'a>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+        reason: Option<String>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let scope = match scope {
+            Some(value) => Some(parse_session_scope(Some(value.as_str()))?),
+            None => None,
+        };
+        let inner = self.inner.clone();
+        future_into_py(py, async move {
+            let statuses = inner
+                .close_sessions(scope, agent_id.as_deref(), reason)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serde_list(py, &statuses))
+        })
+    }
+
+    fn set_tool_override<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+        transform: &Bound<'_, PyAny>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let value = crate::py_value::py_to_serde_value(transform, "Tool transform")?;
+        let patch: ToolOverridePatch = serde_json::from_value(value).map_err(|err| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Tool transform conversion failed: {err}"
+            ))
+        })?;
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        future_into_py(py, async move {
+            let rule = inner
+                .set_tool_override(instance_id, &tool_name, patch)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+        })
+    }
+
+    fn get_tool_override<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        future_into_py(py, async move {
+            let rule = inner
+                .get_tool_override(instance_id, &tool_name)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| match rule {
+                Some(rule) => serializable_to_py(py, &rule, "tool_override_rule"),
+                None => Ok(py.None()),
+            })
+        })
+    }
+
+    fn delete_tool_override<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        future_into_py(py, async move {
+            inner
+                .delete_tool_override(instance_id, &tool_name)
+                .await
+                .map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
+        })
+    }
+
+    #[pyo3(signature = (instance_id, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
+    fn create_llm_friendly_tool_override<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+        friendly_name: Option<&str>,
+        description: Option<&str>,
+        hide_technical_params: bool,
+        add_safety_policy: bool,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        let friendly_name = friendly_name.map(str::to_string);
+        let description = description.map(str::to_string);
+        future_into_py(py, async move {
+            let rule = inner
+                .create_llm_friendly_tool_override(
+                    instance_id,
+                    &tool_name,
+                    friendly_name.as_deref(),
+                    description.as_deref(),
+                    hide_technical_params,
+                    add_safety_policy,
+                )
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+        })
+    }
+
+    #[pyo3(signature = (instance_id, tool_name, parameter_mapping, new_tool_name=None))]
+    fn create_parameter_renamed_tool_override<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+        parameter_mapping: &Bound<'_, PyAny>,
+        new_tool_name: Option<&str>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let value = crate::py_value::py_to_serde_value(parameter_mapping, "Parameter mapping")?;
+        let mapping = value.as_object().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("Parameter mapping must be a dictionary")
+        })?;
+        let mut pairs = Vec::with_capacity(mapping.len());
+        for (original, renamed) in mapping {
+            let Some(renamed) = renamed.as_str() else {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Parameter mapping values must be strings",
+                ));
+            };
+            pairs.push((original.clone(), renamed.to_string()));
+        }
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        let new_tool_name = new_tool_name.map(str::to_string);
+        future_into_py(py, async move {
+            let pair_refs: Vec<(&str, &str)> = pairs
+                .iter()
+                .map(|(original, renamed)| (original.as_str(), renamed.as_str()))
+                .collect();
+            let rule = inner
+                .create_parameter_renamed_tool_override(
+                    instance_id,
+                    &tool_name,
+                    new_tool_name.as_deref(),
+                    &pair_refs,
+                )
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+        })
+    }
+
+    #[pyo3(signature = (instance_id, tool_name, validation_rules, new_tool_name=None))]
+    fn create_validated_tool_override<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+        validation_rules: &Bound<'_, PyAny>,
+        new_tool_name: Option<&str>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let value = crate::py_value::py_to_serde_value(validation_rules, "Validation rules")?;
+        let rules = value.as_object().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("Validation rules must be a dictionary")
+        })?;
+        let pairs: Vec<(String, serde_json::Value)> = rules
+            .iter()
+            .map(|(param, schema)| (param.clone(), schema.clone()))
+            .collect();
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        let new_tool_name = new_tool_name.map(str::to_string);
+        future_into_py(py, async move {
+            let pair_refs: Vec<(&str, serde_json::Value)> = pairs
+                .iter()
+                .map(|(param, schema)| (param.as_str(), schema.clone()))
+                .collect();
+            let rule = inner
+                .create_validated_tool_override(
+                    instance_id,
+                    &tool_name,
+                    new_tool_name.as_deref(),
+                    &pair_refs,
+                )
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &rule, "tool_override_rule"))
+        })
+    }
+
+    fn get_tool_preferences<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .get_tool_preferences(instance_id, &tool_name)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| match state {
+                Some(state) => serializable_to_py(py, &state, "tool_preference_state"),
+                None => Ok(py.None()),
+            })
+        })
+    }
+
+    #[pyo3(signature = (instance_id, tool_name, key, default_value=None))]
+    fn get_tool_preference<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+        key: &str,
+        default_value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let default_value = default_value.map(|value| value.clone().unbind());
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let value = inner
+                .get_tool_preference(instance_id, &tool_name, &key)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| match value {
+                Some(value) => crate::py_value::serde_value_to_py(py, value),
+                None => match default_value {
+                    Some(value) => Ok(value),
+                    None => Ok(py.None()),
+                },
+            })
+        })
+    }
+
+    #[pyo3(signature = (instance_id, tool_name, key, value))]
+    fn set_tool_preference<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+        key: &str,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let value = crate::py_value::py_to_serde_value(value, "Tool preference value")?;
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .set_tool_preference(instance_id, &tool_name, &key, value)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| serializable_to_py(py, &state, "tool_preference_state"))
+        })
+    }
+
+    #[pyo3(signature = (instance_id, tool_name, key))]
+    fn clear_tool_preference<'a>(
+        &self,
+        py: Python<'a>,
+        instance_id: &str,
+        tool_name: &str,
+        key: &str,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let inner = self.inner.clone();
+        let tool_name = tool_name.to_string();
+        let key = key.to_string();
+        future_into_py(py, async move {
+            let state = inner
+                .clear_tool_preference(instance_id, &tool_name, &key)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| match state {
+                Some(state) => serializable_to_py(py, &state, "tool_preference_state"),
+                None => Ok(py.None()),
+            })
+        })
+    }
+
+    #[pyo3(signature = (name, spec_url, options=None))]
+    fn import_openapi_service<'a>(
+        &self,
+        py: Python<'a>,
+        name: &str,
+        spec_url: &str,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let options = parse_openapi_import_options(options)?;
+        let inner = self.inner.clone();
+        let name = name.to_string();
+        let spec_url = spec_url.to_string();
+        future_into_py(py, async move {
+            let result = inner
+                .import_openapi_service_with_options(&name, &spec_url, options)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| {
+                crate::py_value::serde_value_to_py(
+                    py,
+                    serde_json::to_value(result).map_err(|err| {
+                        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "OpenAPI import result conversion failed: {err}"
+                        ))
+                    })?,
+                )
+            })
+        })
+    }
+
+    #[pyo3(signature = (name, spec_url, spec, options=None))]
+    fn import_openapi_service_from_spec<'a>(
+        &self,
+        py: Python<'a>,
+        name: &str,
+        spec_url: &str,
+        spec: &Bound<'_, PyAny>,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let spec = crate::py_value::py_to_serde_value(spec, "OpenAPI spec")?;
+        let options = parse_openapi_import_options(options)?;
+        let inner = self.inner.clone();
+        let name = name.to_string();
+        let spec_url = spec_url.to_string();
+        future_into_py(py, async move {
+            let result = inner
+                .import_openapi_service_from_spec_with_options(&name, &spec_url, spec, options)
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| {
+                crate::py_value::serde_value_to_py(
+                    py,
+                    serde_json::to_value(result).map_err(|err| {
+                        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "OpenAPI import result conversion failed: {err}"
+                        ))
+                    })?,
+                )
+            })
+        })
+    }
+
+    #[pyo3(signature = (name, spec_url, spec_text, options=None))]
+    fn import_openapi_service_from_spec_text<'a>(
+        &self,
+        py: Python<'a>,
+        name: &str,
+        spec_url: &str,
+        spec_text: &str,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let options = parse_openapi_import_options(options)?;
+        let inner = self.inner.clone();
+        let name = name.to_string();
+        let spec_url = spec_url.to_string();
+        let spec_text = spec_text.to_string();
+        future_into_py(py, async move {
+            let result = inner
+                .import_openapi_service_from_spec_text_with_options(
+                    &name, &spec_url, &spec_text, options,
+                )
+                .await
+                .map_err(map_store_err)?;
+            Python::with_gil(|py| {
+                crate::py_value::serde_value_to_py(
+                    py,
+                    serde_json::to_value(result).map_err(|err| {
+                        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "OpenAPI import result conversion failed: {err}"
+                        ))
+                    })?,
+                )
+            })
         })
     }
 }
