@@ -1511,7 +1511,7 @@ impl TuiApp {
         let service_label = name;
 
         self.status_message = match connect_result {
-            Some(Ok(())) => {
+            Some(Ok(_)) => {
                 format!("[成功] 已添加并连接服务 {service_label} (transport={transport})")
             }
             Some(Err(error)) => {

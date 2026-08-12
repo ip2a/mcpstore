@@ -79,8 +79,12 @@ impl ScopeContext {
 
     pub async fn reset_config(&self) -> Result<bool> {
         match self.scope {
-            ScopeRef::Store => self.store.reset_config().await?,
-            ScopeRef::Agent { .. } => self.store.reset_scope(&self.scope).await?,
+            ScopeRef::Store => {
+                self.store.reset_config().await?;
+            }
+            ScopeRef::Agent { .. } => {
+                self.store.reset_scope(&self.scope).await?;
+            }
         }
         Ok(true)
     }

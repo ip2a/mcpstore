@@ -79,7 +79,7 @@ impl MCPStore {
         &self,
         request_type: &str,
         payload: serde_json::Value,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let created_at = chrono::Utc::now().timestamp_millis();
         let sequence = CONTROL_EVENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let event_id = format!("{request_type}:{created_at}:{sequence}");
@@ -114,6 +114,6 @@ impl MCPStore {
                 true,
             )
             .await;
-        Ok(())
+        Ok(event_id)
     }
 }

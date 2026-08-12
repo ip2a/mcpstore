@@ -1008,7 +1008,9 @@ pub async fn update(a: UpdateArgs) -> std::result::Result<(), BoxErr> {
         &header_map,
     )?;
     match a.scope.to_ref(a.agent.as_deref())? {
-        ScopeRef::Store => store.update_service(&a.name, config).await?,
+        ScopeRef::Store => {
+            store.update_service(&a.name, config).await?;
+        }
         scope @ ScopeRef::Agent { .. } => {
             store
                 .declare_service_scope(

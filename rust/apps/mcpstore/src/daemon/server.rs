@@ -220,10 +220,10 @@ async fn handle_add_service(store: &MCPStore, params: Value) -> DaemonResponse {
             .await
             .map(|_| ())
     } else {
-        store.add_service(&name, config).await
+        store.add_service(&name, config).await.map(|_| ())
     };
     match result {
-        Ok(()) => DaemonResponse::ok(Some(json!({"service_name": name, "scope": scope}))),
+        Ok(_) => DaemonResponse::ok(Some(json!({"service_name": name, "scope": scope}))),
         Err(error) => DaemonResponse::err(error.to_string()),
     }
 }
@@ -235,7 +235,7 @@ async fn handle_remove_service_scope(store: &MCPStore, params: Value) -> DaemonR
         Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
     };
     match store.remove_service_scope(&service_name, &scope).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({
+        Ok(_) => DaemonResponse::ok(Some(json!({
             "service_name": service_name,
             "scope": scope,
         }))),
@@ -273,7 +273,7 @@ async fn handle_connect_service(store: &MCPStore, params: Value) -> DaemonRespon
         Err(response) => return response,
     };
     match store.connect_service(instance_id).await {
-        Ok(()) => {
+        Ok(_) => {
             let tools = store
                 .list_tool_entries_for_instance_with_filter(
                     instance_id,
@@ -302,7 +302,7 @@ async fn handle_disconnect_service(store: &MCPStore, params: Value) -> DaemonRes
         Err(response) => return response,
     };
     match store.disconnect_service(instance_id).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
+        Ok(_) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
@@ -313,7 +313,7 @@ async fn handle_restart_service(store: &MCPStore, params: Value) -> DaemonRespon
         Err(response) => return response,
     };
     match store.restart_service(instance_id).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
+        Ok(_) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
@@ -618,7 +618,7 @@ async fn reconnect_authorized_service(
     instance_id: InstanceId,
 ) -> mcpstore::Result<()> {
     store.disconnect_service(instance_id).await.ok();
-    store.connect_service(instance_id).await
+    store.connect_service(instance_id).await.map(|_| ())
 }
 
 async fn handle_list_agents(store: &MCPStore, _params: Value) -> DaemonResponse {
@@ -637,7 +637,7 @@ async fn handle_show_config(store: &MCPStore, _params: Value) -> DaemonResponse 
 
 async fn handle_reset_config(store: &MCPStore, _params: Value) -> DaemonResponse {
     match store.reset_config().await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"status": "ok"}))),
+        Ok(_) => DaemonResponse::ok(Some(json!({"status": "ok"}))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }

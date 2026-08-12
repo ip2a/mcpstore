@@ -2,7 +2,7 @@ use crate::state::{FailureInfo, FailurePhase, ServiceStateEvent};
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn disconnect_service(&self, instance_id: InstanceId) -> Result<()> {
+    pub async fn disconnect_service(&self, instance_id: InstanceId) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request(
@@ -30,11 +30,12 @@ impl MCPStore {
                 .write()
                 .await
                 .remove(&instance_id);
-            Ok(())
+            Ok(String::new())
         } else {
             self.pool
                 .disconnect(instance_id)
                 .await
+                .map(|_| String::new())
                 .map_err(StoreError::from)
         };
         if let Err(error) = stop_result {
@@ -78,10 +79,10 @@ impl MCPStore {
             instance_id,
             instance.service_name
         );
-        Ok(())
+        Ok(String::new())
     }
 
-    pub async fn restart_service(&self, instance_id: InstanceId) -> Result<()> {
+    pub async fn restart_service(&self, instance_id: InstanceId) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request(
@@ -95,6 +96,8 @@ impl MCPStore {
             return Err(StoreError::ServiceNotFound(instance_id.to_string()));
         }
         self.disconnect_service(instance_id).await?;
-        self.connect_service_internal(instance_id, false).await
+        self.connect_service_internal(instance_id, false)
+            .await
+            .map(|_| String::new())
     }
 }

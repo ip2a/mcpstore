@@ -749,7 +749,7 @@ async fn reconnect_authorized_service(
     instance_id: InstanceId,
 ) -> mcpstore::Result<()> {
     store.disconnect_service(instance_id).await.ok();
-    store.connect_service(instance_id).await
+    store.connect_service(instance_id).await.map(|_| ())
 }
 
 fn required_scope(requested: Option<String>, auth: &AuthStatusView) -> Result<String, BoxErr> {
