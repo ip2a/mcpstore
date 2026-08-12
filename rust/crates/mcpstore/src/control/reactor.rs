@@ -6,12 +6,29 @@ use crate::control::request::{ControlRequest, ControlRequestStatus};
 use crate::event_reactor::{ChangeContext, ReactionContext, ReactionOutcome, ReactorConfig, Rule};
 use crate::store::prelude::*;
 
+/// Best-effort hostname lookup (avoids pulling in a crate for this).
+fn hostname() -> std::io::Result<String> {
+    std::fs::read_to_string("/etc/hostname")
+        .map(|s| s.trim().to_string())
+        .or_else(|_| {
+            std::env::var("HOSTNAME")
+                .or_else(|_| std::env::var("COMPUTERNAME"))
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "no hostname env"))
+        })
+}
+
 impl MCPStore {
     pub async fn restart_control_reactor(self: &Arc<Self>) -> Result<()> {
         self.process_control_requests().await?;
+        // Use hostname+pid for a stable-ish identity that avoids collisions
+        // across hosts (PID alone can clash between machines). Falls back to
+        // pid if hostname is unavailable.
+        let host = hostname().unwrap_or_else(|_| "unknown".to_string());
+        let pid = std::process::id();
+        let identity = format!("control-{host}-{pid}");
         let config = ReactorConfig {
-            subscriber_id: format!("api-control-{}", std::process::id()),
-            owner_id: format!("api-control-{}", std::process::id()),
+            subscriber_id: identity.clone(),
+            owner_id: identity,
             namespace: self.namespace(),
             ..Default::default()
         };
