@@ -48,6 +48,10 @@ class RustStoreBackend:
     def node_mode(self) -> Optional[str]:
         return self._node_mode
 
+    def restart_control_reactor(self) -> None:
+        """Start the control-plane EventReactor that consumes queued control requests."""
+        self._inner.restart_control_reactor()
+
     namespace = configuration.namespace
     current_store = configuration.current_store
     load_from_config = configuration.load_from_config
