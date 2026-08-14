@@ -1,25 +1,36 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { AlertCircleIcon, RefreshCwIcon, SaveIcon, SettingsIcon } from "lucide-react"
+import { ActivityIcon, AlertCircleIcon, ChevronRightIcon, FileTextIcon, InfoIcon, NetworkIcon, PencilIcon, PlusIcon, RefreshCwIcon, SaveIcon, SettingsIcon, SlidersHorizontalIcon, Trash2Icon, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { WorkspaceIdentity } from "@/components/shared/workspace-identity"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
-import { payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
+import { payloadFromDraft, sections, settingsDraft, type ConnectionDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
-import { getApiBase, setApiBase } from "@/lib/api/backend"
+import { getApiBase, resolveActiveConnectionUrl, setApiBase, setConnections } from "@/lib/api/backend"
 import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/query-keys"
+
+const sectionIcons: Record<SectionId, LucideIcon> = {
+  general: SlidersHorizontalIcon,
+  connection: NetworkIcon,
+  diagnostics: ActivityIcon,
+  config: FileTextIcon,
+  about: InfoIcon,
+}
+
+const compactInputGroupClass = "w-20 shrink-0 !w-20"
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { setLanguageOverride, t } = useI18n()
@@ -51,9 +62,18 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft) return
+    const activeUrl = resolveActiveConnectionUrl(draft.connections, draft.activeConnectionId)
+    const apiBaseChanged = activeUrl.trim() !== getApiBase()
     try {
       await settingsMutation.mutateAsync(payloadFromDraft(draft))
       setLanguageOverride(draft.language)
+      setConnections(draft.connections)
+      if (apiBaseChanged) {
+        setApiBase(activeUrl)
+        toast.success(t("coreBackendApplied"))
+        window.location.reload()
+        return
+      }
       toast.success(t("saved"))
       await queryClient.invalidateQueries({ queryKey: queryKeys.meta })
       onOpenChange(false)
@@ -77,35 +97,39 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             <SettingsIcon className="size-4" />
             {t("settings")}
           </DialogTitle>
+          <DialogDescription>{t("settingsDescription")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid min-h-0 flex-1 grid-cols-[144px_minmax(0,1fr)]">
           <nav className="flex flex-col gap-1 border-r p-3" aria-label={t("settingsNav")}>
-            {sections.map((item) => (
-              <Button
-                key={item.id}
-                type="button"
-                variant={section === item.id ? "secondary" : "ghost"}
-                className="justify-start"
-                onClick={() => setSection(item.id)}
-              >
-                {t(item.labelKey)}
-              </Button>
-            ))}
+            {sections.map((item) => {
+              const Icon = sectionIcons[item.id]
+              return (
+                <Button
+                  key={item.id}
+                  type="button"
+                  variant={section === item.id ? "secondary" : "ghost"}
+                  className="justify-start"
+                  onClick={() => setSection(item.id)}
+                >
+                  <Icon data-icon="inline-start" />
+                  {t(item.labelKey)}
+                </Button>
+              )
+            })}
           </nav>
 
           <ScrollArea className="min-h-0">
             <div className="p-4 sm:p-5">
-              {section === "backend" && draft ? (
-                <DialogForm id="settings-form" onSubmit={onSubmit}>
-                  <BackendSection draft={draft} patchDraft={patchDraft} />
-                </DialogForm>
-              ) : null}
-              {section !== "backend" && loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
-              {section !== "backend" && error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
+              {loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
+              {error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
 
-              {!loading && !error && draft && section !== "backend" ? (
+              {!loading && !error && draft ? (
                 <DialogForm id="settings-form" onSubmit={onSubmit}>
+                  {section === "connection" ? (
+                    <ConnectionSection draft={draft} patchDraft={patchDraft} />
+                  ) : null}
+
                   {section === "general" ? (
                     <section className="flex flex-col gap-5">
                       <SectionHead title={t("general")} />
@@ -128,9 +152,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             </SelectContent>
                           </Select>
                         </Field>
-
-
                       </FieldGroup>
+
+                      <SectionHead title={t("coreBackend")} />
+                      <BackendFields draft={draft} patchDraft={patchDraft} />
                     </section>
                   ) : null}
 
@@ -161,7 +186,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             <FieldTitle>{t("runtimeLogMaxSize")}</FieldTitle>
                             <FieldDescription>{t("runtimeLogMaxSizeDescription")}</FieldDescription>
                           </FieldContent>
-                          <InputGroup className="w-32">
+                          <InputGroup className={compactInputGroupClass}>
                             <InputGroupInput
                               inputMode="decimal"
                               value={String(draft.diagnostics.runtime_max_size_bytes / 1024 / 1024).replace(/\.0$/, "")}
@@ -175,7 +200,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             <FieldTitle>{t("runtimeLogRetentionDays")}</FieldTitle>
                             <FieldDescription>{t("unlimited")}</FieldDescription>
                           </FieldContent>
-                          <InputGroup className="w-32">
+                          <InputGroup className={compactInputGroupClass}>
                             <InputGroupInput
                               inputMode="numeric"
                               placeholder={t("unlimitedPlaceholder")}
@@ -288,52 +313,280 @@ function SettingsError({ message, onRetry }: { message: string; onRetry: () => v
   )
 }
 
-function BackendSection({ draft, patchDraft }: { draft: SettingsDraft | null; patchDraft: (patch: Partial<SettingsDraft>) => void }) {
-  const { t } = useI18n()
-  const [url, setUrl] = useState(getApiBase())
+function BackendFields({ draft, patchDraft }: { draft: SettingsDraft; patchDraft: (patch: Partial<SettingsDraft>) => void }) {
+  return (
+    <FieldGroup>
+      <Field orientation="responsive">
+        <FieldContent><FieldTitle>默认后端启动端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
+        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+      </Field>
+      <Field orientation="responsive">
+        <FieldContent><FieldTitle>默认前端启动端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
+        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+      </Field>
+    </FieldGroup>
+  )
+}
 
-  function apply() {
-    setApiBase(url)
-    toast.success(t("coreBackendApplied"))
-    window.location.reload()
+function formatConnectionLabel(base: string): string {
+  try {
+    const url = base.startsWith("http://") || base.startsWith("https://") ? new URL(base) : new URL(base, window.location.origin)
+    const host = url.port ? `${url.hostname}:${url.port}` : url.hostname
+    return `HTTP (${host}${url.pathname !== "/" ? url.pathname : ""})`
+  } catch {
+    return `HTTP (${base})`
+  }
+}
+
+function formatLatency(ms: number): string {
+  if (ms < 1) return `${Math.max(1, Math.round(ms * 1000))}μs`
+  return `${Math.round(ms)}ms`
+}
+
+async function measureConnectionLatency(url: string): Promise<number | null> {
+  const start = performance.now()
+  try {
+    const response = await fetch(`${url.replace(/\/$/, "")}/health`)
+    return response.ok ? performance.now() - start : null
+  } catch {
+    return null
+  }
+}
+
+function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchDraft: (patch: Partial<SettingsDraft>) => void }) {
+  const { t } = useI18n()
+  const [addingOpen, setAddingOpen] = useState(false)
+  const [pendingUrl, setPendingUrl] = useState("")
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editUrl, setEditUrl] = useState("")
+  const [latencies, setLatencies] = useState<Record<string, number | null>>({})
+  const [checking, setChecking] = useState<Record<string, boolean>>({})
+
+  async function refreshLatency(id: string, url: string, options?: { notify?: boolean }) {
+    setChecking((current) => ({ ...current, [id]: true }))
+    const latency = await measureConnectionLatency(url)
+    setLatencies((current) => ({ ...current, [id]: latency }))
+    setChecking((current) => ({ ...current, [id]: false }))
+    if (options?.notify) {
+      if (latency != null) toast.success(t("connectionRefreshOk", { latency: formatLatency(latency) }))
+      else toast.error(t("connectionRefreshFailed"))
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function measureAll() {
+      await Promise.all(
+        draft.connections.map(async (connection) => {
+          if (cancelled) return
+          await refreshLatency(connection.id, connection.url)
+        }),
+      )
+    }
+
+    void measureAll()
+    const timer = window.setInterval(() => void measureAll(), 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [draft.connections])
+
+  function addConnection() {
+    const url = pendingUrl.trim()
+    if (!url) return
+    const connection: ConnectionDraft = { id: crypto.randomUUID(), url }
+    patchDraft({ connections: [...draft.connections, connection] })
+    setPendingUrl("")
+    setAddingOpen(false)
+  }
+
+  function saveEdit() {
+    if (!editingId) return
+    const url = editUrl.trim()
+    if (!url) return
+    patchDraft({
+      connections: draft.connections.map((connection) =>
+        connection.id === editingId ? { ...connection, url } : connection,
+      ),
+    })
+    setEditingId(null)
+    setEditUrl("")
+  }
+
+  function removeConnection(id: string) {
+    if (draft.connections.length <= 1) return
+    const next = draft.connections.filter((connection) => connection.id !== id)
+    patchDraft({
+      connections: next,
+      activeConnectionId: draft.activeConnectionId === id ? next[0].id : draft.activeConnectionId,
+    })
+    if (editingId === id) {
+      setEditingId(null)
+      setEditUrl("")
+    }
+    toast.success(t("connectionDeleted"))
+  }
+
+  function toggleEdit(connection: ConnectionDraft) {
+    if (editingId === connection.id) {
+      setEditingId(null)
+      setEditUrl("")
+      return
+    }
+    startEdit(connection)
+  }
+
+  function startEdit(connection: ConnectionDraft) {
+    setEditingId(connection.id)
+    setEditUrl(connection.url)
+    setAddingOpen(false)
   }
 
   return (
     <section className="flex flex-col gap-5">
-      <SectionHead title={t("coreBackend")} description="分别配置 mcpstore 自身的启动参数，以及它要连接的数据与操作后端。" />
-      <FieldGroup>
-        <div className="flex flex-col gap-1">
-          <h4 className="text-sm font-medium">mcpstore 启动配置</h4>
-          <p className="text-sm text-muted-foreground">控制 mcpstore 内置服务和 Web 界面的监听端口。</p>
+      <SectionHead title={t("connection")} description={t("connectionDescription")} />
+
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-muted-foreground">{t("connection")}</p>
+        <div className="flex flex-col gap-2">
+          {draft.connections.map((connection) => {
+            const isActive = connection.id === draft.activeConnectionId
+            const isEditing = editingId === connection.id
+            const canDelete = draft.connections.length > 1
+            const isChecking = checking[connection.id] === true
+
+            return (
+              <div key={connection.id} className="flex flex-col gap-2">
+                <div
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-md border px-3 py-2.5",
+                    isActive && "border-primary/40 bg-primary/5",
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left text-sm"
+                    onClick={() => patchDraft({ activeConnectionId: connection.id })}
+                  >
+                    {formatConnectionLabel(connection.url)}
+                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {isChecking && latencies[connection.id] == null
+                        ? "…"
+                        : latencies[connection.id] != null
+                          ? formatLatency(latencies[connection.id]!)
+                          : "-"}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("refresh")}
+                      disabled={isChecking}
+                      onClick={() => void refreshLatency(connection.id, connection.url, { notify: true })}
+                    >
+                      <RefreshCwIcon className={cn("size-3.5", isChecking && "animate-spin")} />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={isEditing ? "secondary" : "ghost"}
+                      size="icon-sm"
+                      aria-label={t("edit")}
+                      aria-pressed={isEditing}
+                      onClick={() => toggleEdit(connection)}
+                    >
+                      <PencilIcon className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("delete")}
+                      disabled={!canDelete}
+                      title={!canDelete ? t("connectionDeleteLastHint") : undefined}
+                      onClick={() => removeConnection(connection.id)}
+                    >
+                      <Trash2Icon className={cn("size-3.5", canDelete ? "text-destructive" : "text-muted-foreground")} />
+                    </Button>
+                  </div>
+                </div>
+
+                {isEditing ? (
+                  <Collapsible open onOpenChange={(open) => !open && setEditingId(null)}>
+                    <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-out data-[state=open]:animate-in">
+                      <div className="rounded-md border px-3 py-3">
+                        <p className="mb-2 text-xs text-muted-foreground">{t("edit")}</p>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <InputGroup className="min-w-0 flex-1">
+                            <InputGroupInput
+                              value={editUrl}
+                              onChange={(event) => setEditUrl(event.target.value)}
+                              placeholder={t("coreBackendUrlPlaceholder")}
+                            />
+                          </InputGroup>
+                          <div className="flex gap-2">
+                            <Button type="button" size="sm" onClick={saveEdit}>
+                              {t("save")}
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => setEditingId(null)}>
+                              {t("cancel")}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
-        {draft ? (
-          <>
-            <Field orientation="responsive">
-              <FieldContent><FieldTitle>默认后端启动端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
-              <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
-            </Field>
-            <Field orientation="responsive">
-              <FieldContent><FieldTitle>默认前端启动端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
-              <InputGroup className="w-32"><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
-            </Field>
-          </>
+      </div>
+
+      <Collapsible open={addingOpen} onOpenChange={setAddingOpen}>
+        {!addingOpen ? (
+          <Button type="button" variant="outline" className="w-fit" onClick={() => setAddingOpen(true)}>
+            <PlusIcon data-icon="inline-start" />
+            {t("connectionAdd")}
+          </Button>
         ) : null}
-      </FieldGroup>
-      <Separator />
-      <FieldGroup>
-        <div className="flex flex-col gap-1">
-          <h4 className="text-sm font-medium">mcpstore 使用的后端</h4>
-          <p className="text-sm text-muted-foreground">配置数据源与操作接口地址；修改后刷新生效。</p>
-        </div>
-        <Field orientation="responsive">
-          <FieldContent><FieldTitle>{t("coreBackendUrlLabel")}</FieldTitle><FieldDescription>{t("coreBackendDescription")}</FieldDescription></FieldContent>
-          <InputGroup className="max-w-xl"><InputGroupInput value={url} onChange={(event) => setUrl(event.target.value)} placeholder={t("coreBackendUrlPlaceholder")} /></InputGroup>
-        </Field>
-      </FieldGroup>
-      <Button type="button" className="w-fit" onClick={apply}>
-        <RefreshCwIcon data-icon="inline-start" />
-        {t("coreBackendApply")}
-      </Button>
+        <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-out data-[state=open]:animate-in">
+          <div className="rounded-md border">
+            <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-muted/50">
+              <ChevronRightIcon className={cn("size-4 shrink-0 text-muted-foreground transition-transform", addingOpen && "rotate-90")} />
+              {t("connectionPending")}
+            </CollapsibleTrigger>
+            <div className="flex flex-col gap-3 border-t px-3 py-3 sm:flex-row sm:items-center">
+              <InputGroup className="min-w-0 flex-1">
+                <InputGroupInput
+                  value={pendingUrl}
+                  onChange={(event) => setPendingUrl(event.target.value)}
+                  placeholder={t("coreBackendUrlPlaceholder")}
+                />
+              </InputGroup>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" onClick={addConnection} disabled={!pendingUrl.trim()}>
+                  {t("add")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPendingUrl("")
+                    setAddingOpen(false)
+                  }}
+                >
+                  {t("cancel")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   )
 }

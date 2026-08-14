@@ -7,7 +7,59 @@
  */
 
 const STORAGE_KEY = "mcpstore:api-base";
+const CONNECTIONS_KEY = "mcpstore:connections";
 const DEFAULT_API_BASE = "/api";
+
+export type StoredConnection = {
+  id: string;
+  url: string;
+};
+
+function createConnection(url: string): StoredConnection {
+  return { id: crypto.randomUUID(), url };
+}
+
+function defaultConnections(): StoredConnection[] {
+  return [createConnection(DEFAULT_API_BASE)];
+}
+
+export function getConnections(): StoredConnection[] {
+  try {
+    const raw = localStorage.getItem(CONNECTIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as StoredConnection[];
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((item) => item?.id && item?.url)) {
+        return parsed;
+      }
+    }
+  } catch {
+    // fall through to migration
+  }
+
+  const migrated = [createConnection(getApiBase())];
+  setConnections(migrated);
+  return migrated;
+}
+
+export function setConnections(connections: StoredConnection[]): void {
+  try {
+    const list = connections.length > 0 ? connections : defaultConnections();
+    localStorage.setItem(CONNECTIONS_KEY, JSON.stringify(list));
+  } catch {
+    // ignore storage errors (private mode, quota, etc.)
+  }
+}
+
+export function resolveActiveConnectionUrl(
+  connections: StoredConnection[],
+  activeId: string,
+): string {
+  return (
+    connections.find((item) => item.id === activeId)?.url ??
+    connections[0]?.url ??
+    DEFAULT_API_BASE
+  );
+}
 
 export function getApiBase(): string {
   try {
