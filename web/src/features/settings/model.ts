@@ -1,10 +1,15 @@
 import type { SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/api"
+import { getApiBase, getConnections, type StoredConnection } from "@/lib/api/backend"
 import type { I18nKey } from "@/lib/i18n-core"
 
-export type SectionId = "general" | "backend" | "diagnostics" | "config" | "about"
+export type SectionId = "general" | "connection" | "diagnostics" | "config" | "about"
+
+export type ConnectionDraft = StoredConnection
 
 export type SettingsDraft = {
   language: UiLanguage
+  connections: ConnectionDraft[]
+  activeConnectionId: string
   server: {
     port: number
     web_port: number
@@ -19,15 +24,21 @@ export type SettingsDraft = {
 
 export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
   { id: "general", labelKey: "general" },
-  { id: "backend", labelKey: "coreBackend" },
+  { id: "connection", labelKey: "connection" },
   { id: "diagnostics", labelKey: "diagnostics" },
   { id: "config", labelKey: "configFile" },
   { id: "about", labelKey: "about" },
 ]
 
 export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
+  const connections = getConnections()
+  const apiBase = getApiBase()
+  const active = connections.find((item) => item.url === apiBase) ?? connections[0]
+
   return {
     language: settings?.language || "auto",
+    connections,
+    activeConnectionId: active?.id ?? connections[0]?.id ?? "",
     server: {
       port: settings?.server?.port || 1820,
       web_port: settings?.server?.web_port || 1828,

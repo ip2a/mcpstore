@@ -129,7 +129,7 @@ export function AgentsView(props: {
   const scopeError = scopeServicesError || scopeToolsError
   const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
   const scopeTitle = selectedScopeId === "root"
-    ? "all"
+    ? t("global")
     : selectedScopeId === STORE_SCOPE_ID
       ? t("store")
       : selectedScopeId
@@ -241,7 +241,7 @@ export function AgentsView(props: {
                   summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
                 const title =
                   summary.scope.type === "root"
-                    ? "all"
+                    ? t("global")
                     : summary.scope.type === "store"
                       ? t("store")
                       : summary.scope.type === "agent"
