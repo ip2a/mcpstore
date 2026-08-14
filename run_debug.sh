@@ -28,6 +28,7 @@ mcpstore debug menu
 6) 清理构建产物
 7) 构建并安装最新本地 mcpstore 到 python/.venv
 8) 从 python/.venv 卸载 mcpstore
+9) 强制重建并重装 mcpstore（清缓存全量编译）
 0) 退出
 MENU
 }
@@ -168,16 +169,10 @@ run_python_demo() {
   (cd "$demo_dir" && "$PYTHON_BIN" -m uvicorn app:app --reload --host "$demo_host" --port "$demo_port")
 }
 
-install_python_package() {
-  require_cmd uv
-  if [ ! -x "$PYTHON_BIN" ] || [ ! -x "$PYTHON_MATURIN" ]; then
-    echo "[Python] 找不到 $PYTHON_VENV；请先在 python/ 目录执行 uv sync" >&2
-    return 1
-  fi
-
+build_and_install_wheel() {
   local wheel_dir wheel
   wheel_dir="$(mktemp -d)"
-  echo "[Python] 构建当前 Rust binding 和 Python wheel..."
+  echo "[Python] 构建 Rust binding 和 Python wheel..."
   if ! (cd "$PYTHON_DIR" && "$PYTHON_MATURIN" build --interpreter "$PYTHON_BIN" --out "$wheel_dir"); then
     rm -rf "$wheel_dir"
     return 1
@@ -196,14 +191,70 @@ install_python_package() {
     return 1
   fi
   rm -rf "$wheel_dir"
+}
 
+verify_python_install() {
   "$PYTHON_BIN" - <<'PY'
 import mcpstore
 import mcpstore._rust as rust
+import sys
 
 print(f"[Python] mcpstore: {mcpstore.__file__}")
 print(f"[Python] Rust 扩展: {rust.__file__}")
+print(f"[Python] restart_control_reactor 可用: {hasattr(rust.MCPStore, 'restart_control_reactor')}")
+if "python/src" in mcpstore.__file__:
+    print("[Python] ⚠️ 仍加载自源码树 python/src，不是 wheel")
+    print(f"[Python] 作怪的 sys.path 条目: {[p for p in sys.path if 'python/src' in p]}")
+    print("[Python] 检查是否有 editable .pth 残留或 PYTHONPATH 环境变量")
 PY
+}
+
+install_python_package() {
+  require_cmd uv
+  if [ ! -x "$PYTHON_BIN" ] || [ ! -x "$PYTHON_MATURIN" ]; then
+    echo "[Python] 找不到 $PYTHON_VENV；请先在 python/ 目录执行 uv sync" >&2
+    return 1
+  fi
+  build_and_install_wheel
+  verify_python_install
+}
+
+force_reinstall_python_package() {
+  require_cmd uv
+  require_cmd cargo
+  if [ ! -x "$PYTHON_BIN" ] || [ ! -x "$PYTHON_MATURIN" ]; then
+    echo "[Python] 找不到 $PYTHON_VENV；请先在 python/ 目录执行 uv sync" >&2
+    return 1
+  fi
+
+  echo "[Python] 卸载现有 mcpstore..."
+  uv pip uninstall --python "$PYTHON_BIN" mcpstore >/dev/null 2>&1 || true
+
+  echo "[Python] 清理 editable 安装残留（.pth / finder / 旧目录）..."
+  "$PYTHON_BIN" - <<'PY'
+import glob, os, shutil, site
+sp = site.getsitepackages()[0]
+removed = 0
+for pattern in ("__editable__*mcpstore*", "__editable___mcpstore*",
+                "*mcpstore*.pth", "_mcpstore*"):
+    for path in glob.glob(os.path.join(sp, pattern)):
+        try:
+            os.remove(path)
+            removed += 1
+        except OSError:
+            pass
+pkg = os.path.join(sp, "mcpstore")
+if os.path.isdir(pkg):
+    shutil.rmtree(pkg, ignore_errors=True)
+    removed += 1
+print(f"[Python] 清理 {removed} 项残留")
+PY
+
+  echo "[Rust] 清理 target 缓存（强制全量重编译，下次 Rust 构建也会变慢）..."
+  cargo clean --manifest-path "$ROOT_DIR/rust/Cargo.toml"
+
+  build_and_install_wheel
+  verify_python_install
 }
 
 uninstall_python_package() {
@@ -249,6 +300,7 @@ main() {
       6) clean_artifacts ;;
       7) install_python_package ;;
       8) uninstall_python_package ;;
+      9) force_reinstall_python_package ;;
       0) exit 0 ;;
       *) echo "未知选项: $choice" ;;
     esac
