@@ -26,7 +26,7 @@ impl MCPStore {
             return Ok(instance_id);
         }
 
-        let mut config = self.config_manager.load_or_empty()?;
+        let mut config = self.show_config_entry().await?;
         let server = config
             .mcp_servers
             .get_mut(service_name)
@@ -61,7 +61,9 @@ impl MCPStore {
         }
 
         let server = server.clone();
-        self.config_manager.save(&config)?;
+        if self.source_mode == SourceMode::Local {
+            self.config_manager.save(&config)?;
+        }
 
         let effective_config = server.effective_config(scope).map_err(StoreError::Other)?;
         let transport = effective_config
@@ -131,7 +133,7 @@ impl MCPStore {
                 .await;
         }
 
-        let mut config = self.config_manager.load_or_empty()?;
+        let mut config = self.show_config_entry().await?;
         let server = config
             .mcp_servers
             .get_mut(service_name)
@@ -152,7 +154,9 @@ impl MCPStore {
         }
 
         let server = server.clone();
-        self.config_manager.save(&config)?;
+        if self.source_mode == SourceMode::Local {
+            self.config_manager.save(&config)?;
+        }
 
         let instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();

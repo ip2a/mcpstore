@@ -7113,6 +7113,59 @@ mod scoped_contract {
     }
 
     #[tokio::test]
+    async fn db_source_scope_writes_use_definition_projection() {
+        let config_path = temp_config_path();
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: Some(config_path.clone()),
+            source_mode: SourceMode::Db,
+            node_mode: NodeMode::ControlPlane,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some(format!("scope-write-db-{}", uuid::Uuid::new_v4())),
+        })
+        .unwrap();
+        store
+            .add_service("alpha", native_config(ScopeDeclarations::store_only()))
+            .await
+            .unwrap();
+        store
+            .add_service("beta", native_config(ScopeDeclarations::store_only()))
+            .await
+            .unwrap();
+        assert!(!std::path::Path::new(&config_path).exists());
+
+        let scope = agent_scope("agent-1");
+        let alpha_id = store
+            .declare_service_scope(
+                "alpha",
+                &scope,
+                descriptor(json!({"env": {"AGENT": "one"}})),
+            )
+            .await
+            .unwrap();
+        let beta_id = store
+            .declare_service_scope("beta", &scope, ScopeDescriptor::default())
+            .await
+            .unwrap();
+        assert!(store.find_instance(alpha_id).await.is_some());
+        assert!(store.find_instance(beta_id).await.is_some());
+
+        store.remove_service_scope("alpha", &scope).await.unwrap();
+        assert!(store.find_instance(alpha_id).await.is_none());
+        assert!(store.find_instance(beta_id).await.is_some());
+
+        store.reset_scope(&scope).await.unwrap();
+        store.load_from_db().await.unwrap();
+        for service_name in ["alpha", "beta"] {
+            let definition = store.registry.find_definition(service_name).await.unwrap();
+            assert!(definition.scopes.store.is_some());
+            assert!(!definition.scopes.agents.contains_key("agent-1"));
+        }
+        assert!(store.find_instance(alpha_id).await.is_none());
+        assert!(store.find_instance(beta_id).await.is_none());
+        assert!(!std::path::Path::new(&config_path).exists());
+    }
+
+    #[tokio::test]
     async fn tool_overrides_are_isolated_by_instance_id() {
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
