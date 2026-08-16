@@ -127,7 +127,7 @@ impl MCPStore {
                 .await;
         }
 
-        let mut config = self.config_manager.load_or_empty()?;
+        let mut config = self.show_config_entry().await?;
         let mut removed = Vec::new();
         let mut changed_definitions = Vec::new();
         for (service_name, server) in &mut config.mcp_servers {
@@ -154,7 +154,9 @@ impl MCPStore {
                 changed_definitions.push((service_name.clone(), server.clone()));
             }
         }
-        self.config_manager.save(&config)?;
+        if self.source_mode == SourceMode::Local {
+            self.config_manager.save(&config)?;
+        }
 
         let instance_ids = removed
             .into_iter()
