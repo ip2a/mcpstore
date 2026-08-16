@@ -6,10 +6,11 @@ from typing import Any, Dict
 
 from pydantic import BaseModel, TypeAdapter
 
-from mcpstore.core.models import ScopeDescriptor, ScopeRef
+from mcpstore.core.models import ScopeDescriptor, ScopeRef, ScopeView
 
 
 _SCOPE_ADAPTER: TypeAdapter[ScopeRef] = TypeAdapter(ScopeRef)
+_SCOPE_VIEW_ADAPTER: TypeAdapter[ScopeView] = TypeAdapter(ScopeView)
 
 
 def _record_value(value: Any) -> Any:
@@ -44,6 +45,11 @@ def _scope_payload(scope: ScopeRef | Dict[str, Any]) -> Dict[str, Any]:
     return _SCOPE_ADAPTER.dump_python(validated, mode="json")
 
 
+def _scope_view_payload(view: ScopeView | Dict[str, Any]) -> Dict[str, Any]:
+    validated = _SCOPE_VIEW_ADAPTER.validate_python(view)
+    return _SCOPE_VIEW_ADAPTER.dump_python(validated, mode="json")
+
+
 def _descriptor_payload(
     descriptor: ScopeDescriptor | Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -57,4 +63,5 @@ __all__ = [
     "_dict_payload",
     "_record_value",
     "_scope_payload",
+    "_scope_view_payload",
 ]

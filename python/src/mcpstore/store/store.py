@@ -64,10 +64,16 @@ class RustStoreBackend:
     get_definition_config = configuration.get_definition_config
     get_effective_config = configuration.get_effective_config
     show_config = configuration.show_config
+    show_scope_config = configuration.show_scope_config
     reset_config = configuration.reset_config
+    reset_scope = configuration.reset_scope
 
     list_instances = instances.list_instances
     list_agents = instances.list_agents
+    list_scopes = instances.list_scopes
+    scope_info = instances.scope_info
+    find_agent = instances.find_agent
+    list_services_viewed = instances.list_services_viewed
     list_instances_scoped = instances.list_instances_scoped
     find_instance = instances.find_instance
     instance_info = instances.instance_info
