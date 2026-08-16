@@ -64,8 +64,8 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             self.assertIsInstance(store.for_store(), StoreContext)
             self.assertIsInstance(store.for_agent("agent-a"), AgentContext)
             self.assertIsInstance(store.create_session("session-a"), SessionContext)
-            self.assertFalse(hasattr(store, "reset_scope"))
-            self.assertFalse(hasattr(store, "show_scope_config"))
+            self.assertTrue(hasattr(store, "reset_scope"))
+            self.assertTrue(hasattr(store, "show_scope_config"))
             self.assertTrue(Service)
             self.assertTrue(Tool)
             for class_name, methods in {

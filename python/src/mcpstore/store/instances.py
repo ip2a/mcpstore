@@ -4,14 +4,32 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from mcpstore.core.models import ScopeRef
-from mcpstore.native.records import _record_value, _scope_payload
+from mcpstore.core.models import ScopeRef, ScopeView
+from mcpstore.native.records import _record_value, _scope_payload, _scope_view_payload
 
 def list_instances(backend) -> List[Dict[str, Any]]:
     return _record_value(backend._inner.list_instances())
 
 def list_agents(backend) -> List[Dict[str, Any]]:
     return _record_value(backend._inner.list_agents())
+
+def list_scopes(backend) -> List[Dict[str, Any]]:
+    return _record_value(backend._inner.list_scopes())
+
+def scope_info(
+    backend,
+    view: ScopeView | Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    return _record_value(backend._inner.scope_info(_scope_view_payload(view)))
+
+def find_agent(backend, agent_id: str) -> Optional[Dict[str, Any]]:
+    return _record_value(backend._inner.find_agent(agent_id))
+
+def list_services_viewed(
+    backend,
+    view: ScopeView | Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    return _record_value(backend._inner.list_services_viewed(_scope_view_payload(view)))
 
 def list_instances_scoped(
     backend,

@@ -5,7 +5,7 @@ use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
 use mcpstore::core::store::{MCPStore, NodeMode, SourceMode, StoreOptions};
 use mcpstore::{
-    cache::models::SessionScope, InstanceId, McpConfig, ScopeContext, ScopeRef, Service,
+    cache::models::SessionScope, InstanceId, McpConfig, ScopeContext, ScopeRef, ScopeView, Service,
     ServiceTarget, StoreError, Tool,
 };
 use mcpstore::{
@@ -170,6 +170,13 @@ fn py_to_scope_ref(value: &Bound<'_, PyAny>) -> PyResult<ScopeRef> {
     let value = py_to_serde_value(value, "scope")?;
     serde_json::from_value(value)
         .map_err(|err| pyo3::exceptions::PyValueError::new_err(format!("Invalid scope: {err}")))
+}
+
+fn py_to_scope_view(value: &Bound<'_, PyAny>) -> PyResult<ScopeView> {
+    let value = py_to_serde_value(value, "scope view")?;
+    serde_json::from_value(value).map_err(|err| {
+        pyo3::exceptions::PyValueError::new_err(format!("Invalid scope view: {err}"))
+    })
 }
 
 fn py_to_scope_descriptor(value: &Bound<'_, PyAny>) -> PyResult<ScopeDescriptor> {
@@ -832,7 +839,11 @@ impl PyMCPStore {
     }
 
     /// Remove exactly one service scope and its runtime instance.
-    fn remove_service_scope(&self, service_name: &str, scope: &Bound<'_, PyAny>) -> PyResult<String> {
+    fn remove_service_scope(
+        &self,
+        service_name: &str,
+        scope: &Bound<'_, PyAny>,
+    ) -> PyResult<String> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service_scope(service_name, &scope))
@@ -840,7 +851,11 @@ impl PyMCPStore {
     }
 
     /// Patch only base MCP fields; `_mcpstore` must be changed through scope APIs.
-    fn patch_service(&self, service_name: &str, base_updates: &Bound<'_, PyAny>) -> PyResult<String> {
+    fn patch_service(
+        &self,
+        service_name: &str,
+        base_updates: &Bound<'_, PyAny>,
+    ) -> PyResult<String> {
         let base_updates = py_to_serde_value(base_updates, "Service base config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.patch_service(service_name, base_updates))
@@ -851,7 +866,11 @@ impl PyMCPStore {
     ///
     /// Configs containing `_mcpstore` are rejected. Use `declare_service_scope`
     /// or `remove_service_scope` for scope changes.
-    fn update_service(&self, service_name: &str, base_config: &Bound<'_, PyAny>) -> PyResult<String> {
+    fn update_service(
+        &self,
+        service_name: &str,
+        base_config: &Bound<'_, PyAny>,
+    ) -> PyResult<String> {
         let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.update_service(service_name, base_config))
@@ -1215,6 +1234,52 @@ impl PyMCPStore {
         services
             .iter()
             .map(|service| serializable_to_py(py, service, "service"))
+            .collect()
+    }
+
+    fn list_scopes(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let scopes = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_scopes())
+            .map_err(map_store_err)?;
+        scopes
+            .iter()
+            .map(|scope| serializable_to_py(py, scope, "scope summary"))
+            .collect()
+    }
+
+    fn scope_info(&self, py: Python<'_>, view: &Bound<'_, PyAny>) -> PyResult<Option<Py<PyAny>>> {
+        let view = py_to_scope_view(view)?;
+        let scope = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.scope_info(&view))
+            .map_err(map_store_err)?;
+        scope
+            .as_ref()
+            .map(|scope| serializable_to_py(py, scope, "scope summary"))
+            .transpose()
+    }
+
+    fn find_agent(&self, py: Python<'_>, agent_id: &str) -> PyResult<Option<Py<PyAny>>> {
+        let agent = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_agent(agent_id))
+            .map_err(map_store_err)?;
+        agent
+            .as_ref()
+            .map(|agent| serializable_to_py(py, agent, "agent info"))
+            .transpose()
+    }
+
+    fn list_services_viewed(
+        &self,
+        py: Python<'_>,
+        view: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let view = py_to_scope_view(view)?;
+        let services = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_services_viewed(&view))
+            .map_err(map_store_err)?;
+        services
+            .into_iter()
+            .map(|service| serde_value_to_py(py, service))
             .collect()
     }
 

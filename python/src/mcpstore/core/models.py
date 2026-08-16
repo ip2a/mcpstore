@@ -14,6 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ===== Scope =====
 
+class RootScope(BaseModel):
+    type: Literal["root"] = "root"
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class StoreScope(BaseModel):
     type: Literal["store"] = "store"
 
@@ -28,6 +34,9 @@ class AgentScope(BaseModel):
 
 
 ScopeRef = Annotated[Union[StoreScope, AgentScope], Field(discriminator="type")]
+ScopeView = Annotated[
+    Union[RootScope, StoreScope, AgentScope], Field(discriminator="type")
+]
 
 
 class ScopeDescriptor(BaseModel):

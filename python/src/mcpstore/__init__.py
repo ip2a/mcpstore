@@ -87,6 +87,8 @@ def __getattr__(name: str):
         "ServiceConfigUnion",
         "ScopeDescriptor",
         "ScopeRef",
+        "ScopeView",
+        "RootScope",
         "StoreScope",
         "AgentScope",
         "URLServiceConfig",
@@ -171,9 +173,11 @@ __all__ = [
     "CommandServiceConfig",
     "MCPServerConfig",
     "ServiceConfigUnion",
+    "RootScope",
     "StoreScope",
     "AgentScope",
     "ScopeRef",
+    "ScopeView",
     "ScopeDescriptor",
 
     # Adapter Utilities
