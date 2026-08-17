@@ -37,7 +37,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 crossterm = "0.28"
 ratatui = { version = "0.29", features = ["crossterm"] }
 
-mcpstore = { path = "../../crates/mcpstore" }
+mcpstore = { path = "../../crates/mcpstore", default-features = false, features = ["light", "redis", "valkey"] }
 chrono = { workspace = true }
 rmcp = { workspace = true }
 url = "2"
