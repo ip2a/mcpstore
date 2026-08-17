@@ -1,6 +1,6 @@
 {
   "name": "mcpstore",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "MCPStore CLI entry package; loads a prebuilt binary per platform",
   "license": "MIT",
   "repository": {
@@ -15,11 +15,11 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "mcpstore-bin-darwin-arm64": "2.0.5",
-    "mcpstore-bin-darwin-x64": "2.0.5",
-    "mcpstore-bin-linux-x64-gnu": "2.0.5",
-    "mcpstore-bin-linux-arm64-gnu": "2.0.5",
-    "mcpstore-bin-win32-x64-msvc": "2.0.5"
+    "mcpstore-bin-darwin-arm64": "2.0.6",
+    "mcpstore-bin-darwin-x64": "2.0.6",
+    "mcpstore-bin-linux-x64-gnu": "2.0.6",
+    "mcpstore-bin-linux-arm64-gnu": "2.0.6",
+    "mcpstore-bin-win32-x64-msvc": "2.0.6"
   },
   "keywords": [
     "cli",
