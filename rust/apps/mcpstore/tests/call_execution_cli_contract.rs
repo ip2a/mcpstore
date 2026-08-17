@@ -55,6 +55,9 @@ impl Fixture {
                             "MCP_EXECUTION_MARKER": marker,
                         },
                         "transport": "stdio",
+                        // rmcp Auto fallback is incomplete before 3.13; keep this
+                        // contract fixture on the legacy handshake until then.
+                        "_mcpstore": { "scopes": { "store": {} }, "handshake_mode": "initialize" },
                     }
                 }
             }))
