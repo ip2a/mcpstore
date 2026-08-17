@@ -61,7 +61,7 @@ npm install -g mcpstore
 
 #### App
 
-从 [GitHub Releases](https://github.com/ip2a/mcpstore/releases) 下载对应平台的发行版。
+从 [GitHub Releases](https://github.com/ip2a/mcpstore/releases) 下载发行版。
 
 ### App 功能
 
