@@ -16,16 +16,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Validate release metadata
         shell: bash
-        run: python3 scripts/release_preflight.py
+        run: python3 scripts/release_preflight.py --require-tag
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -35,10 +35,10 @@ jobs:
         shell: bash
         run: |
           version="$(python3 - <<'PY'
-          import tomllib
-          from pathlib import Path
-          cargo = tomllib.loads(Path("rust/crates/mcpstore/Cargo.toml").read_text(encoding="utf-8"))
-          print(cargo["package"]["version"])
+          import sys
+          sys.path.insert(0, "scripts")
+          from release_version import read_canonical_version
+          print(read_canonical_version())
           PY
           )"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"

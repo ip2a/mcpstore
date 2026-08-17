@@ -358,6 +358,15 @@ run_pre_release_work() {
   fi
   echo "[ok] Windows CLI 默认依赖图不包含 openssl-sys"
 
+  tree_output="$(cargo tree --manifest-path "$cargo_manifest" \
+    -p mcpstore_python --target x86_64-pc-windows-msvc -i openssl-src -e features 2>&1 || true)"
+  if ! grep -q 'openssl-src v' <<<"$tree_output"; then
+    echo "$tree_output" >&2
+    echo "[Release] Python memcached 未启用 vendored OpenSSL" >&2
+    return 1
+  fi
+  echo "[ok] Python memcached 使用 vendored OpenSSL"
+
   echo "[Release] 4/6 构建并执行 Smoke Test ..."
   cargo build --manifest-path "$cargo_manifest" -p mcpstore-cli --bin mcpstore
   "$smoke_script" "$binary"
@@ -368,18 +377,7 @@ run_pre_release_work() {
   fi
 
   echo "[Release] 5/6 提交发布改动 ..."
-  git -C "$ROOT_DIR" add -- \
-    run_debug.sh \
-    scripts/smoke_test.sh \
-    rust/Cargo.toml \
-    rust/Cargo.lock \
-    rust/apps/mcpstore/Cargo.toml \
-    python/pyproject.toml \
-    python/src/mcpstore/__init__.py \
-    desktop/tauri/Cargo.toml \
-    desktop/tauri/tauri.conf.json \
-    web/package.json \
-    npm/packages/*/package.json
+  git -C "$ROOT_DIR" add -A
   if git -C "$ROOT_DIR" diff --cached --quiet; then
     echo "[Release] 没有待提交改动，使用当前 HEAD 创建标签"
   else
