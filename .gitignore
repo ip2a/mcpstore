@@ -11,8 +11,6 @@
 # Source directories allowlisted for Git.
 !desktop/
 !desktop/**
-!docs/
-!docs/**
 !i18n/
 !i18n/**
 !npm/
@@ -39,7 +37,6 @@
 !README_*.md
 !**/README.md
 !**/README_*.md
-!docs/docs/**/*.md
 
 # Common local/build output (kept explicit for readability).
 .DS_Store
