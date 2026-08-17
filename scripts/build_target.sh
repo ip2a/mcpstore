@@ -18,7 +18,7 @@ DST_BIN="${DST_DIR}/${ARTIFACT_BINARY}"
 
 echo "[run] Building mcpstore target=${TARGET_TRIPLE}"
 export CARGO_TARGET_DIR="${REPO_ROOT}/rust/target"
-cargo build --release --target "${TARGET_TRIPLE}" --manifest-path "${REPO_ROOT}/rust/Cargo.toml" --bin mcpstore
+cargo build --release --target "${TARGET_TRIPLE}" --manifest-path "${REPO_ROOT}/rust/Cargo.toml" -p mcpstore-cli --bin mcpstore
 
 if [ ! -f "${SRC_BIN}" ]; then
   echo "[error] Build artifact not found: ${SRC_BIN}"
