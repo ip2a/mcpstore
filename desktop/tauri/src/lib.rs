@@ -50,8 +50,8 @@ fn start_local_server() -> Result<String> {
             let store_args = StoreSourceArgs {
                 config_path: None,
                 source: mcpstore_cli::store_args::SourceArg::Local,
-                backend: None,
-                backend_url: None,
+                store: None,
+                store_config: None,
                 namespace: None,
             };
             let store = match build_store(&store_args) {

@@ -2,48 +2,28 @@
 from __future__ import annotations
 
 import argparse
-import json
-import re
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-
-def replace_version(path: Path, pattern: str, replacement: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
-    if count != 1:
-        raise SystemExit(f"[error] Could not update version in {path.relative_to(ROOT)}")
-    path.write_text(updated, encoding="utf-8")
+from release_version import sync_version
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Synchronize MCPStore release versions")
+    parser = argparse.ArgumentParser(
+        description="Synchronize MCPStore release versions across Rust, Python, npm, desktop, and web",
+    )
     parser.add_argument("version", help="Version without leading v")
     args = parser.parse_args()
-    version = args.version.lstrip("v")
 
-    replace_version(ROOT / "rust" / "Cargo.toml", r'^version\s*=\s*"[^"]+"', f'version = "{version}"')
-    replace_version(ROOT / "python" / "pyproject.toml", r'^version\s*=\s*"[^"]+"', f'version = "{version}"')
-    replace_version(
-        ROOT / "python" / "src" / "mcpstore" / "__init__.py",
-        r'^__version__\s*=\s*"[^"]+"',
-        f'__version__ = "{version}"',
-    )
-
-    main_package = ROOT / "npm" / "packages" / "mcpstore" / "package.json"
-    main_data = json.loads(main_package.read_text(encoding="utf-8"))
-    main_data["version"] = version
-    for dep in main_data.get("optionalDependencies", {}):
-        main_data["optionalDependencies"][dep] = version
-    main_package.write_text(json.dumps(main_data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-
-    for package_path in sorted((ROOT / "npm" / "packages").glob("mcpstore-bin-*/package.json")):
-        data = json.loads(package_path.read_text(encoding="utf-8"))
-        data["version"] = version
-        package_path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-
-    print(f"[ok] synchronized version {version}")
+    changed = sync_version(args.version)
+    if changed:
+        print(f"[ok] synchronized version {args.version.lstrip('v')} in {len(changed)} file(s):")
+        for path in changed:
+            print(f"  - {path}")
+    else:
+        print(f"[ok] version {args.version.lstrip('v')} already synchronized")
 
 
 if __name__ == "__main__":
