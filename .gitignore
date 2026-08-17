@@ -1,0 +1,70 @@
+# Local policy: ignore everything unless explicitly allowlisted below.
+*
+
+# Keep this policy file local; do not commit it.
+.gitignore
+
+# Repository metadata/workflows.
+!.github/
+!.github/**
+
+# Source directories allowlisted for Git.
+!desktop/
+!desktop/**
+!docs/
+!docs/**
+!i18n/
+!i18n/**
+!npm/
+!npm/**
+!python/
+!python/**
+!rust/
+!rust/**
+!scripts/
+!scripts/**
+!web/
+!web/**
+
+# Root files allowlisted for Git.
+!/LICENSE
+!/README.md
+!/README_*.md
+!/install.sh
+!/platforms.toml
+!/run_debug.sh
+
+# Markdown is documentation-only unless it is a README.
+!README.md
+!README_*.md
+!**/README.md
+!**/README_*.md
+!docs/docs/**/*.md
+
+# Common local/build output (kept explicit for readability).
+.DS_Store
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+*.dll
+*.pyd
+target/
+dist/
+web/node_modules/
+web/dist/
+docs/.venv/
+docs/site/
+release-assets/
+npm/packages/*/bin/
+*.tgz
+.obsidian/
+.specstory/
+.vscode/
+
+# Local secrets and generated output for uploadable demos.
+/demos/**/.env
+/demos/**/logs/
+
+# Local example fixtures are intentionally not Git-managed for now.
+/python/example_local/
