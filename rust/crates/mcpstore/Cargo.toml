@@ -44,8 +44,8 @@ jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 [features]
 default = ["light", "redis", "memcached", "valkey"]
 
-# Backend passthrough — enable the openkeyv feature for each store type.
-# 默认档对齐 openkeyv: light + redis + memcached + valkey
+# Backend passthrough: enable the openkeyv feature for each store type.
+# The default feature set matches openkeyv: light + redis + memcached + valkey
 light     = ["openkeyv/light"]
 disk      = ["openkeyv/disk"]
 redis     = ["openkeyv/redis"]

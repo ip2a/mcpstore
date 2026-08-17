@@ -28,9 +28,9 @@ classifiers = [
 "Homepage" = "https://github.com/ip2a/mcpstore"
 "Bug Tracker" = "https://github.com/ip2a/mcpstore/issues"
 
-# 重型后端 extras（binary wheel 不含；需源码编译安装）:
+# Heavy backend extras are excluded from binary wheels and require installation from source:
 #   pip install mcpstore[postgres] --no-binary mcpstore
-# 编译时自动透传对应 cargo feature
+# The corresponding Cargo features are enabled automatically at build time.
 [project.optional-dependencies]
 postgres = []
 mongodb = []
@@ -58,8 +58,8 @@ exclude = ["*test*"]
 manifest-path = "../rust/bindings/python/Cargo.toml"
 python-source = "src"
 module-name = "mcpstore._rust"
-# 钉死 default：light + redis + memcached + valkey（对齐 openkeyv）
-# 重型后端走源码编译: pip install mcpstore --no-binary mcpstore
+# Pin the default features to match openkeyv: light + redis + memcached + valkey
+# Heavy backends require installation from source: pip install mcpstore --no-binary mcpstore
 features = ["light", "redis", "memcached", "valkey"]
 
 
