@@ -79,7 +79,7 @@ pub fn is_daemon_running() -> bool {
     let Ok(pid_str) = std::fs::read_to_string(&pid_path) else {
         return false;
     };
-    let Ok(pid) = pid_str.trim().parse::<u32>() else {
+    let Ok(_pid) = pid_str.trim().parse::<u32>() else {
         return false;
     };
     // Check if process exists (send signal 0)
@@ -88,7 +88,7 @@ pub fn is_daemon_running() -> bool {
         use std::process::Command;
         Command::new("kill")
             .arg("-0")
-            .arg(pid.to_string())
+            .arg(_pid.to_string())
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)

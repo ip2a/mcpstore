@@ -32,7 +32,7 @@ pub async fn stop() -> Result<(), BoxErr> {
 
     let pid_path = default_pid_path();
     let pid_str = std::fs::read_to_string(&pid_path)?;
-    let pid: u32 = pid_str.trim().parse()?;
+    let _pid: u32 = pid_str.trim().parse()?;
 
     // Try graceful stop via socket first.
     match crate::daemon::client::call_daemon("stop_daemon", json!({})).await {
@@ -46,9 +46,9 @@ pub async fn stop() -> Result<(), BoxErr> {
                 use std::process::Command;
                 Command::new("kill")
                     .arg("-TERM")
-                    .arg(pid.to_string())
+                    .arg(_pid.to_string())
                     .status()?;
-                println!("[Success] Daemon killed (pid={}).", pid);
+                println!("[Success] Daemon killed (pid={}).", _pid);
             }
             #[cfg(not(unix))]
             {
