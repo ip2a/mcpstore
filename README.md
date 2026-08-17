@@ -277,7 +277,7 @@ services = store.for_store().list_services()
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ip2a/mcpstore&type=Date)](https://star-history.com/#ip2a/mcpstore&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=ip2a/mcpstore&type=Date)](https://star-history.dera.page/#ip2a/mcpstore&Date)
 
 </div>
 
