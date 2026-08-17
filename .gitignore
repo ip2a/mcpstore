@@ -65,3 +65,4 @@ npm/packages/*/bin/
 
 # Local example fixtures are intentionally not Git-managed for now.
 /python/example_local/
+web/REFACTOR_PLAN.md

@@ -88,7 +88,12 @@ impl MCPStore {
             request_type: request_type.to_string(),
             dedup_key: request::dedup_key(request_type, &payload),
             payload,
-            source: if self.is_data_plane() { "data_plane" } else { "control_plane" }.to_string(),
+            source: if self.is_data_plane() {
+                "data_plane"
+            } else {
+                "control_plane"
+            }
+            .to_string(),
             created_at,
             trace_id: event_id.clone(),
             status: ControlRequestStatus::Queued,
