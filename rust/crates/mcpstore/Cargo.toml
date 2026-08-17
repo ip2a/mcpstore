@@ -2,7 +2,7 @@
 name = "mcpstore"
 version.workspace = true
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.85"
 authors = ["ooooofish <ooooofish@126.com>"]
 license = "MIT"
 repository = "https://github.com/ip2a/mcpstore"
@@ -26,7 +26,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rmcp = { workspace = true }
 
 # Cache backends
-openkeyv = { path = "/Volumes/data0/data4work/2026_4/openkeyv/rust/crates/openkeyv", default-features = false, features = ["json"] }
+openkeyv = { version = "0.1.5", default-features = false, features = ["json"] }
 http = "1"
 iri-string = "0.7.12"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }

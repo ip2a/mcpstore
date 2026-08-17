@@ -29,6 +29,7 @@ mcpstore debug menu
 7) 构建并安装最新本地 mcpstore 到 python/.venv
 8) 从 python/.venv 卸载 mcpstore
 9) 强制重建并重装 mcpstore（清缓存全量编译）
+10) 发版前工作
 0) 退出
 MENU
 }
@@ -282,6 +283,62 @@ clean_artifacts() {
   rm -rf "$WEB_DIR/dist"
 }
 
+read_current_release_version() {
+  python3 - <<PY
+import sys
+sys.path.insert(0, "${ROOT_DIR}/scripts")
+from release_version import read_canonical_version
+print(read_canonical_version())
+PY
+}
+
+run_pre_release_work() {
+  require_cmd python3
+
+  local sync_script="$ROOT_DIR/scripts/sync_version.py"
+  local preflight_script="$ROOT_DIR/scripts/release_preflight.py"
+  local current new_version
+
+  if [ ! -f "$sync_script" ] || [ ! -f "$preflight_script" ]; then
+    echo "[Release] 找不到版本同步脚本（scripts/sync_version.py / release_preflight.py）" >&2
+    return 1
+  fi
+
+  current="$(read_current_release_version)"
+  echo
+  echo "[Release] 发版前工作"
+  echo "[Release] 当前版本: ${current}"
+  printf '[Release] 输入新版本: '
+  if ! read -r new_version; then
+    echo
+    return 1
+  fi
+
+  new_version="${new_version#v}"
+  new_version="${new_version// /}"
+  if [ -z "$new_version" ]; then
+    echo "[Release] 版本号不能为空" >&2
+    return 1
+  fi
+
+  if ! [[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+    echo "[Release] 版本号格式无效: ${new_version}" >&2
+    echo "[Release] 期望 semver，例如 2.0.1 或 2.0.1-rc.1" >&2
+    return 1
+  fi
+
+  if [ "$new_version" = "$current" ]; then
+    echo "[Release] 新版本与当前版本相同，跳过写入"
+  else
+    echo "[Release] 同步 ${current} -> ${new_version} ..."
+    python3 "$sync_script" "$new_version"
+  fi
+
+  echo "[Release] 校验发布元数据..."
+  python3 "$preflight_script"
+  echo "[Release] 完成。请检查 git diff，确认后提交版本变更。"
+}
+
 main() {
   while true; do
     print_menu
@@ -301,6 +358,7 @@ main() {
       7) install_python_package ;;
       8) uninstall_python_package ;;
       9) force_reinstall_python_package ;;
+      10) run_pre_release_work ;;
       0) exit 0 ;;
       *) echo "未知选项: $choice" ;;
     esac

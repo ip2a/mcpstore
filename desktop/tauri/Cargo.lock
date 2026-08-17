@@ -3516,7 +3516,9 @@ dependencies = [
 
 [[package]]
 name = "openkeyv"
-version = "0.4.4"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "565929e227e7f5ed293b657bbbc4ae2b621599a73f2319ac70020b29adf33369"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3529,6 +3531,7 @@ dependencies = [
  "keyring",
  "memcache",
  "redis",
+ "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
