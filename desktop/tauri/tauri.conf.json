@@ -1,7 +1,7 @@
 {
   "$schema": "../.schema/tauri-config-schema.json",
   "productName": "mcpstore",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "identifier": "com.mcpstore.desktop",
   "app": {
     "windows": [],

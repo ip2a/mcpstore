@@ -42,10 +42,10 @@ zeroize = { version = "1", features = ["derive"] }
 jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 
 [features]
-default = ["light", "redis", "memcached", "valkey"]
+default = ["light", "redis", "valkey"]
 
 # Backend passthrough: enable the openkeyv feature for each store type.
-# The default feature set matches openkeyv: light + redis + memcached + valkey
+# Keep memcached opt-in because memcache enables native OpenSSL by default.
 light     = ["openkeyv/light"]
 disk      = ["openkeyv/disk"]
 redis     = ["openkeyv/redis"]
