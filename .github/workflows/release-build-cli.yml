@@ -90,15 +90,14 @@ jobs:
         if: matrix.platform_id != 'darwin'
         shell: bash
         run: |
-          cd "dist/${{ matrix.platform_id }}"
-          shasum -a 256 "${{ matrix.artifact_binary }}" > SHA256SUMS
+          python -c 'from pathlib import Path; from scripts.prepare_github_release_assets import sha256; p = Path(__import__("sys").argv[1]); (p.parent / "SHA256SUMS").write_text(f"{sha256(p)}  {p.name}\n", encoding="utf-8")' "dist/${{ matrix.platform_id }}/${{ matrix.artifact_binary }}"
 
       - name: Generate checksums on macOS
         if: matrix.platform_id == 'darwin'
         shell: bash
         run: |
-          (cd dist/darwin-arm64 && shasum -a 256 mcpstore > SHA256SUMS)
-          (cd dist/darwin-x64 && shasum -a 256 mcpstore > SHA256SUMS)
+          python -c 'from pathlib import Path; from scripts.prepare_github_release_assets import sha256; p = Path(__import__("sys").argv[1]); (p.parent / "SHA256SUMS").write_text(f"{sha256(p)}  {p.name}\n", encoding="utf-8")' dist/darwin-arm64/mcpstore
+          python -c 'from pathlib import Path; from scripts.prepare_github_release_assets import sha256; p = Path(__import__("sys").argv[1]); (p.parent / "SHA256SUMS").write_text(f"{sha256(p)}  {p.name}\n", encoding="utf-8")' dist/darwin-x64/mcpstore
 
       - name: Upload build artifact
         if: matrix.platform_id != 'darwin'
