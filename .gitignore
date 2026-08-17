@@ -59,10 +59,6 @@ npm/packages/*/bin/
 .specstory/
 .vscode/
 
-# Local secrets and generated output for uploadable demos.
-/demos/**/.env
-/demos/**/logs/
-
 # Local example fixtures are intentionally not Git-managed for now.
 /python/example_local/
 web/REFACTOR_PLAN.md
