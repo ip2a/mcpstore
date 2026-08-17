@@ -120,7 +120,11 @@ impl MCPStore {
         Ok(instance_id)
     }
 
-    pub async fn remove_service_scope(&self, service_name: &str, scope: &ScopeRef) -> Result<String> {
+    pub async fn remove_service_scope(
+        &self,
+        service_name: &str,
+        scope: &ScopeRef,
+    ) -> Result<String> {
         if self.is_data_plane() {
             return self
                 .queue_control_request(

@@ -7542,7 +7542,7 @@ mod control_reactor_tests {
             MCPStore::setup_with_options(StoreOptions {
                 config_path: Some(path.clone()),
                 source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
+                node_mode: NodeMode::ControlPlane,
                 store: Some(JsonStoreConfig::memory()),
                 namespace: Some("test-control-reactor".to_string()),
             })
@@ -7630,7 +7630,7 @@ mod control_reactor_tests {
             MCPStore::setup_with_options(StoreOptions {
                 config_path: Some(path.clone()),
                 source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
+                node_mode: NodeMode::ControlPlane,
                 store: Some(JsonStoreConfig::memory()),
                 namespace: Some("test-control-reactor-skip".to_string()),
             })
@@ -7817,7 +7817,10 @@ mod control_reactor_tests {
             namespace: Some(format!("c5-cp-{}", uuid::Uuid::new_v4())),
         })
         .unwrap();
-        assert!(cp_store.supervisor.is_some(), "control_plane must build supervisor");
+        assert!(
+            cp_store.supervisor.is_some(),
+            "control_plane must build supervisor"
+        );
 
         // DataPlane requires a shared (Db) source. Use SourceMode::Db with a
         // memory backend to simulate this in-process.
@@ -7829,7 +7832,10 @@ mod control_reactor_tests {
             namespace: Some(format!("c5-dp-{}", uuid::Uuid::new_v4())),
         })
         .unwrap();
-        assert!(dp_store.supervisor.is_none(), "data_plane must NOT build supervisor");
+        assert!(
+            dp_store.supervisor.is_none(),
+            "data_plane must NOT build supervisor"
+        );
 
         std::fs::remove_file(cp_path).ok();
     }

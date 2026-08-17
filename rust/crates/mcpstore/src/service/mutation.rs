@@ -49,7 +49,11 @@ impl MCPStore {
         Ok(String::new())
     }
 
-    pub async fn update_service(&self, service_name: &str, mut config: ServerConfig) -> Result<String> {
+    pub async fn update_service(
+        &self,
+        service_name: &str,
+        mut config: ServerConfig,
+    ) -> Result<String> {
         if config.mcpstore.is_some() {
             return Err(StoreError::Other(
                 "Use scope APIs to modify _mcpstore metadata or declarations".to_string(),
