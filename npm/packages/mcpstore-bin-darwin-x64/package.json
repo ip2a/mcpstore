@@ -1,13 +1,20 @@
 {
   "name": "mcpstore-bin-darwin-x64",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "MCPStore CLI platform package for macOS x64",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ip2a/mcpstore"
   },
-  "os": ["darwin"],
-  "cpu": ["x64"],
-  "files": ["bin", "README.md"]
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin",
+    "README.md"
+  ]
 }
