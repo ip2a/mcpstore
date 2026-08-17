@@ -16,4 +16,7 @@ fi
 echo "[run] ${BIN} --version"
 "${BIN}" --version
 
+echo "[run] ${BIN} mcp-server --help"
+"${BIN}" mcp-server --help >/dev/null
+
 echo "[ok] Smoke test passed: ${BIN}"
