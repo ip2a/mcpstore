@@ -29,7 +29,7 @@ mcpstore debug menu
 7) 构建并安装最新本地 mcpstore 到 python/.venv
 8) 从 python/.venv 卸载 mcpstore
 9) 强制重建并重装 mcpstore（清缓存全量编译）
-10) 发版前工作
+10) 发布前处理
 0) 退出
 MENU
 }
@@ -294,21 +294,34 @@ PY
 
 run_pre_release_work() {
   require_cmd python3
+  require_cmd cargo
+  require_cmd git
 
   local sync_script="$ROOT_DIR/scripts/sync_version.py"
   local preflight_script="$ROOT_DIR/scripts/release_preflight.py"
-  local current new_version
+  local smoke_script="$ROOT_DIR/scripts/smoke_test.sh"
+  local cargo_manifest="$ROOT_DIR/rust/Cargo.toml"
+  local binary="$ROOT_DIR/rust/target/debug/mcpstore"
+  local current new_version tag branch tree_output actual_version
 
-  if [ ! -f "$sync_script" ] || [ ! -f "$preflight_script" ]; then
-    echo "[Release] 找不到版本同步脚本（scripts/sync_version.py / release_preflight.py）" >&2
+  for path in "$sync_script" "$preflight_script" "$smoke_script" "$cargo_manifest"; do
+    if [ ! -f "$path" ]; then
+      echo "[Release] 找不到必需文件: $path" >&2
+      return 1
+    fi
+  done
+
+  branch="$(git -C "$ROOT_DIR" branch --show-current)"
+  if [ "$branch" != "main" ]; then
+    echo "[Release] 当前分支是 ${branch:-detached HEAD}，请在 main 分支执行" >&2
     return 1
   fi
 
   current="$(read_current_release_version)"
   echo
-  echo "[Release] 发版前工作"
+  echo "[Release] 发布前处理"
   echo "[Release] 当前版本: ${current}"
-  printf '[Release] 输入新版本: '
+  printf '[Release] 输入发布版本号: '
   if ! read -r new_version; then
     echo
     return 1
@@ -316,27 +329,71 @@ run_pre_release_work() {
 
   new_version="${new_version#v}"
   new_version="${new_version// /}"
-  if [ -z "$new_version" ]; then
-    echo "[Release] 版本号不能为空" >&2
-    return 1
-  fi
-
   if ! [[ "$new_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-    echo "[Release] 版本号格式无效: ${new_version}" >&2
-    echo "[Release] 期望 semver，例如 2.0.1 或 2.0.1-rc.1" >&2
+    echo "[Release] 版本号格式无效: ${new_version:-<空>}" >&2
+    echo "[Release] 期望 semver，例如 2.0.4 或 2.0.4-rc.1" >&2
     return 1
   fi
 
-  if [ "$new_version" = "$current" ]; then
-    echo "[Release] 新版本与当前版本相同，跳过写入"
-  else
-    echo "[Release] 同步 ${current} -> ${new_version} ..."
-    python3 "$sync_script" "$new_version"
+  tag="v${new_version}"
+  if git -C "$ROOT_DIR" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+    echo "[Release] 标签已存在: $tag" >&2
+    return 1
   fi
 
-  echo "[Release] 校验发布元数据..."
+  echo "[Release] 1/6 同步版本 ${current} -> ${new_version} ..."
+  python3 "$sync_script" "$new_version"
+
+  echo "[Release] 2/6 更新 Cargo.lock 并检查 CLI ..."
+  cargo check --manifest-path "$cargo_manifest" -p mcpstore-cli --bin mcpstore
+
+  echo "[Release] 3/6 校验发布元数据和 Windows 依赖图 ..."
   python3 "$preflight_script"
-  echo "[Release] 完成。请检查 git diff，确认后提交版本变更。"
+  tree_output="$(cargo tree --manifest-path "$cargo_manifest" \
+    -p mcpstore-cli --target x86_64-pc-windows-msvc -i openssl-sys -e features 2>&1 || true)"
+  if grep -q 'openssl-sys v' <<<"$tree_output"; then
+    echo "$tree_output" >&2
+    echo "[Release] Windows CLI 依赖图仍包含 openssl-sys" >&2
+    return 1
+  fi
+  echo "[ok] Windows CLI 默认依赖图不包含 openssl-sys"
+
+  echo "[Release] 4/6 构建并执行 Smoke Test ..."
+  cargo build --manifest-path "$cargo_manifest" -p mcpstore-cli --bin mcpstore
+  "$smoke_script" "$binary"
+  actual_version="$("$binary" --version | awk '{print $2}')"
+  if [ "$actual_version" != "$new_version" ]; then
+    echo "[Release] 二进制版本不匹配: 期望 $new_version，实际 $actual_version" >&2
+    return 1
+  fi
+
+  echo "[Release] 5/6 提交发布改动 ..."
+  git -C "$ROOT_DIR" add -- \
+    run_debug.sh \
+    scripts/smoke_test.sh \
+    rust/Cargo.toml \
+    rust/Cargo.lock \
+    rust/apps/mcpstore/Cargo.toml \
+    python/pyproject.toml \
+    python/src/mcpstore/__init__.py \
+    desktop/tauri/Cargo.toml \
+    desktop/tauri/tauri.conf.json \
+    web/package.json \
+    npm/packages/*/package.json
+  if git -C "$ROOT_DIR" diff --cached --quiet; then
+    echo "[Release] 没有待提交改动，使用当前 HEAD 创建标签"
+  else
+    git -C "$ROOT_DIR" diff --cached --check
+    git -C "$ROOT_DIR" commit -m "chore: prepare release $tag"
+  fi
+
+  echo "[Release] 6/6 创建标签 $tag ..."
+  git -C "$ROOT_DIR" tag "$tag"
+
+  echo
+  echo "[Release] 发布前处理完成。请执行："
+  echo "  git push origin main"
+  echo "  git push origin $tag"
 }
 
 main() {
