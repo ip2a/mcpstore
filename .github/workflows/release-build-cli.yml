@@ -46,16 +46,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Validate release metadata
         shell: bash
-        run: python scripts/release_preflight.py
+        run: python scripts/release_preflight.py --require-tag
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload build artifact
         if: matrix.platform_id != 'darwin'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: mcpstore-${{ matrix.platform_id }}
           path: dist/${{ matrix.platform_id }}/*
@@ -109,7 +109,7 @@ jobs:
 
       - name: Upload macOS arm64 artifact
         if: matrix.platform_id == 'darwin'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: mcpstore-darwin-arm64
           path: dist/darwin-arm64/*
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload macOS x64 artifact
         if: matrix.platform_id == 'darwin'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: mcpstore-darwin-x64
           path: dist/darwin-x64/*
@@ -137,15 +137,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Validate release metadata
-        run: python scripts/release_preflight.py
+        run: python scripts/release_preflight.py --require-tag
 
       - name: Download build artifacts
         shell: bash

@@ -3676,7 +3676,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore"
-version = "2.0.7"
+version = "2.0.8"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3708,7 +3708,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore-cli"
-version = "2.0.7"
+version = "2.0.8"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -3734,9 +3734,10 @@ dependencies = [
 
 [[package]]
 name = "mcpstore_python"
-version = "2.0.7"
+version = "2.0.8"
 dependencies = [
  "mcpstore",
+ "openssl",
  "pyo3",
  "pyo3-async-runtimes",
  "rmcp",

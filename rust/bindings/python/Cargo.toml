@@ -27,10 +27,11 @@ rmcp = { workspace = true }
 
 # Unified crate
 mcpstore = { path = "../../crates/mcpstore", default-features = false }
+openssl = { version = "0.10", optional = true, features = ["vendored"] }
 
 [features]
 default = ["light", "redis", "memcached", "valkey"]
 light = ["mcpstore/light"]
 redis = ["mcpstore/redis"]
-memcached = ["mcpstore/memcached"]
+memcached = ["mcpstore/memcached", "dep:openssl"]
 valkey = ["mcpstore/valkey"]
