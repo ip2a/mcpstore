@@ -156,7 +156,13 @@ impl MCPStore {
             cache.clone(),
             event_bus.clone(),
         ));
+        #[cfg(not(test))]
         let auth_coordinator = crate::auth::AuthCoordinator::new(state_manager.clone())?;
+        #[cfg(test)]
+        let auth_coordinator = crate::auth::AuthCoordinator::for_tests(
+            crate::auth::test_support::test_keyring(),
+            state_manager.clone(),
+        )?;
         let pool = ConnectionPool::new(
             auth_coordinator.clone(),
             registry.clone(),
