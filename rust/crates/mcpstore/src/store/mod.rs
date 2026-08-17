@@ -92,14 +92,15 @@ impl MCPStore {
         // Local source + DataPlane is an invalid combination: queued control
         // requests would be written to a local in-process store that no other
         // node can consume. The user almost certainly meant ControlPlane.
-        if options.source_mode == SourceMode::Local
-            && options.node_mode == NodeMode::DataPlane
-        {
-            return Err(StoreError::Other(concat!(
-                "Local source (file/memory) cannot be combined with DataPlane mode. ",
-                "DataPlane requires a shared remote store (e.g. Redis) so that ",
-                "control requests are visible to a ControlPlane consumer."
-            ).to_string()));
+        if options.source_mode == SourceMode::Local && options.node_mode == NodeMode::DataPlane {
+            return Err(StoreError::Other(
+                concat!(
+                    "Local source (file/memory) cannot be combined with DataPlane mode. ",
+                    "DataPlane requires a shared remote store (e.g. Redis) so that ",
+                    "control requests are visible to a ControlPlane consumer."
+                )
+                .to_string(),
+            ));
         }
 
         let config_manager = match options.config_path.as_deref() {

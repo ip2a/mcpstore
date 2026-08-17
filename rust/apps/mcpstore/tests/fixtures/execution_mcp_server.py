@@ -208,7 +208,19 @@ def handle(message):
                 entry["event"].set()
                 return
 
-    if method == "server/discover":
+    if method == "initialize":
+        respond(
+            request_id,
+            {
+                "protocolVersion": params.get("protocolVersion"),
+                "capabilities": {
+                    "tools": {"listChanged": False},
+                    "extensions": {"io.modelcontextprotocol/tasks": {}},
+                },
+                "serverInfo": {"name": "execution-cli-fixture", "version": "1.0.0"},
+            },
+        )
+    elif method == "server/discover":
         metadata = params.get("_meta") or {}
         if metadata.get("io.modelcontextprotocol/protocolVersion") != PROTOCOL_VERSION:
             raise ValueError("unsupported MCP protocol version")
