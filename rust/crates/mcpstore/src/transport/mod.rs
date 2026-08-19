@@ -1,3 +1,11 @@
+//! Transport layer: connections to MCP services (stdio and streamable-http).
+//!
+//! Logging conventions: subscriber output shows tracing targets, so never
+//! hand-write prefixes like `[TRANSPORT]` in messages — filter by target
+//! (e.g. `RUST_LOG=mcpstore::transport::http=debug`) instead. New logs on
+//! connection paths carry `service` / `instance_id` fields so failures are
+//! greppable.
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
