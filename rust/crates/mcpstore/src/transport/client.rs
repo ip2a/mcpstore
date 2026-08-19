@@ -89,20 +89,34 @@ impl McpConnection {
         &mut self,
         supervisor: Option<Arc<InstanceSupervisor>>,
     ) -> Result<()> {
-        let transport_type = self.config.infer_transport();
+        let transport_type = self.config.infer_transport().to_owned();
         tracing::info!(
-            "[TRANSPORT] Connecting to service {} (transport={})",
+            "Connecting to service {} (transport={})",
             self.name,
             transport_type
         );
 
-        match transport_type {
+        let result = match transport_type.as_str() {
             "stdio" => self.connect_stdio(supervisor).await,
             "streamable-http" | "http" => self.connect_http().await,
             other => Err(TransportError::ConnectionFailed(format!(
                 "Unsupported transport type: {other}"
             ))),
+        };
+        if let Err(error) = &result {
+            // The transport layer logs the failure detail; this line exists so
+            // failures can be found by service or instance. Auth outcomes are
+            // a normal login flow, not a connection failure, so they stay out.
+            if matches!(error, TransportError::ConnectionFailed(_)) {
+                tracing::warn!(
+                    service = %self.name,
+                    transport = transport_type,
+                    instance_id = %self.instance_id,
+                    "connect failed"
+                );
+            }
         }
+        result
     }
 
     async fn connect_stdio(&mut self, supervisor: Option<Arc<InstanceSupervisor>>) -> Result<()> {
@@ -114,7 +128,7 @@ impl McpConnection {
             supervisor,
         )
         .await?;
-        tracing::info!("[TRANSPORT] stdio connected: {}", self.name);
+        tracing::info!("stdio connected: {}", self.name);
         self.client = Some(ActiveClient::Stdio(client));
         self.stdio_process = Some(process);
         Ok(())
@@ -129,7 +143,7 @@ impl McpConnection {
             self.handler.clone(),
         )
         .await?;
-        tracing::info!("[TRANSPORT] HTTP connected: {}", self.name);
+        tracing::info!("HTTP connected: {}", self.name);
         self.client = Some(ActiveClient::Http(client));
         Ok(())
     }
