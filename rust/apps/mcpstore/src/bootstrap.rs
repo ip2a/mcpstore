@@ -35,7 +35,7 @@ pub fn init_tracing(default_directive: &str) {
         tracing_subscriber::fmt()
             .with_writer(std::io::stderr)
             .with_env_filter(env_filter(default_directive))
-            .with_target(false)
+            .with_target(true)
             .init();
     });
 }
@@ -45,7 +45,7 @@ pub fn init_tracing_silent(default_directive: &str) {
         tracing_subscriber::fmt()
             .with_writer(std::io::sink)
             .with_env_filter(env_filter(default_directive))
-            .with_target(false)
+            .with_target(true)
             .init();
     });
 }
@@ -66,7 +66,7 @@ pub fn init_tracing_with_file(
         tracing_subscriber::fmt()
             .with_writer(writer)
             .with_env_filter(env_filter(default_directive))
-            .with_target(false)
+            .with_target(true)
             .init();
     });
     Ok(())
@@ -102,12 +102,17 @@ pub fn init_tracing_from_config_with_path(
         });
 
     if enabled {
-        let _ = init_tracing_with_file(
+        if let Err(error) = init_tracing_with_file(
             &format!("mcpstore={}", level),
             log_path,
             max_size_bytes,
             retention_days,
-        );
+        ) {
+            // The subscriber is not installed yet, so report via stderr directly
+            // instead of losing diagnostics silently.
+            eprintln!("mcpstore: file logging unavailable ({error}); falling back to stderr");
+            init_tracing(&format!("mcpstore={}", level));
+        }
     } else {
         init_tracing("mcpstore=info");
     }
@@ -268,5 +273,93 @@ mod tests {
         assert!(!output.contains("token exchange response"));
         assert!(output.contains("oauth lifecycle advanced"));
         assert!(output.contains("ordinary debug remains enabled"));
+    }
+
+    #[test]
+    fn rotating_writer_creates_backup_when_exceeds_max_size() {
+        use tracing_subscriber::fmt::MakeWriter as _;
+
+        let dir =
+            std::env::temp_dir().join(format!("mcpstore-rotate-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log_path = dir.join("mcpstore.log");
+        let writer = super::RotatingWriter::new(log_path.clone(), 64).unwrap();
+
+        let mut first = writer.make_writer();
+        first.write_all(&[b'a'; 96]).unwrap();
+        drop(first);
+
+        // Rotation is checked before each write, so the second write is what
+        // moves the oversized file to the backup.
+        let mut second = writer.make_writer();
+        second.write_all(b"after rotation").unwrap();
+        drop(second);
+
+        let backup = log_path.with_extension("log.1");
+        assert!(backup.exists(), "rotated backup should exist");
+        assert_eq!(
+            std::fs::metadata(&backup).unwrap().len(),
+            96,
+            "backup should hold the oversized content"
+        );
+        assert_eq!(
+            std::fs::read(&log_path).unwrap(),
+            b"after rotation".to_vec(),
+            "main file should restart empty after rotation"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn cleanup_old_logs_removes_expired_files() {
+        let dir =
+            std::env::temp_dir().join(format!("mcpstore-cleanup-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let current = dir.join("mcpstore.log");
+        std::fs::write(&current, "current").unwrap();
+        let expired = dir.join("mcpstore.log.1");
+        std::fs::write(&expired, "expired").unwrap();
+        let unrelated = dir.join("other-service.log.1");
+        std::fs::write(&unrelated, "keep me").unwrap();
+
+        // retention_days = 0 makes the cutoff "now": any file whose mtime was
+        // set strictly before this call counts as expired, which covers the
+        // files written just above.
+        super::cleanup_old_logs(&dir, &current, Some(0)).unwrap();
+
+        assert!(current.exists(), "current log is never removed");
+        assert!(!expired.exists(), "expired rotation should be deleted");
+        assert!(
+            unrelated.exists(),
+            "files not sharing the log prefix are untouched"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn init_tracing_with_file_falls_back_to_stderr_when_path_unavailable() {
+        let dir = std::env::temp_dir().join(format!(
+            "mcpstore-init-fallback-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A regular file where a directory is required makes create_dir_all
+        // fail regardless of platform or privileges.
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, b"file").unwrap();
+        let log_path = blocker.join("nested").join("mcpstore.log");
+
+        // Must not panic; init falls back to the stderr subscriber after the
+        // eprintln above explains why file logging is off.
+        super::init_tracing_from_config_with_path(None, log_path.clone());
+
+        assert!(
+            !log_path.exists(),
+            "log file must not be created at an unavailable path"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
