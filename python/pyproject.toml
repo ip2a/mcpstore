@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "mcpstore"
-version = "2.0.8"
+version = "2.0.9"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Operating System :: OS Independent",
 ]
 
 [project.urls]

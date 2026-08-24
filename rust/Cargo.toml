@@ -7,9 +7,9 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "2.0.8"
+version = "2.0.9"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["ooooofish <ooooofish@126.com>"]
 license = "MIT"
 repository = "https://github.com/ip2a/mcpstore"
@@ -33,7 +33,7 @@ colored = "3.0"
 tabled = "0.18"
 
 # MCP protocol
-rmcp = { version = "=3.1.0", features = ["auth", "auth-client-credentials-jwt", "client", "elicitation", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
+rmcp = { version = "=3.1.3", features = ["auth", "auth-client-credentials-jwt", "client", "elicitation", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
 
 
 # Python binding
