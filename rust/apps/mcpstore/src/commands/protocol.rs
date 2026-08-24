@@ -3,7 +3,7 @@ use mcpstore::{InstanceId, McpCompletionReference, McpCompletionRequest};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
+use crate::error::{attach_instance, OutputFormat};
 use crate::{
     commands::mcp::parse_instance_id,
     store_args::{build_store, StoreSourceArgs},
@@ -130,7 +130,7 @@ pub async fn complete(args: CompleteArgs) -> Result<(), BoxErr> {
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute_resource(args: ResourceArgs) -> Result<(), CliError> {
+async fn execute_resource(args: ResourceArgs) -> mcpstore::Result<()> {
     match args.action {
         ResourceAction::List(args) => execute_resource_list(args).await,
         ResourceAction::Templates(args) => execute_resource_templates(args).await,
@@ -138,36 +138,31 @@ async fn execute_resource(args: ResourceArgs) -> Result<(), CliError> {
     }
 }
 
-async fn execute_resource_list(args: ProtocolInstanceArgs) -> Result<(), CliError> {
+async fn execute_resource_list(args: ProtocolInstanceArgs) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::CommandFailed,
-            error.to_string(),
+        attach_instance(
+            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+            instance_id,
         )
-        .with("instance_id", instance_id.to_string())
     })?;
-    store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    let resources = store.list_resources(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    let resources = store
+        .list_resources(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let total = resources.len();
     let value = json!({
         "event": "resource.listed",
@@ -182,39 +177,31 @@ async fn execute_resource_list(args: ProtocolInstanceArgs) -> Result<(), CliErro
     )
 }
 
-async fn execute_resource_templates(args: ProtocolInstanceArgs) -> Result<(), CliError> {
+async fn execute_resource_templates(args: ProtocolInstanceArgs) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::CommandFailed,
-            error.to_string(),
+        attach_instance(
+            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+            instance_id,
         )
-        .with("instance_id", instance_id.to_string())
     })?;
-    store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let templates = store
         .list_resource_templates(instance_id)
         .await
-        .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol)
-                .with("instance_id", instance_id.to_string())
-        })?;
+        .map_err(|error| attach_instance(error, instance_id))?;
     let total = templates.len();
     let value = json!({
         "event": "resource.templates_listed",
@@ -229,48 +216,40 @@ async fn execute_resource_templates(args: ProtocolInstanceArgs) -> Result<(), Cl
     )
 }
 
-async fn execute_resource_read(args: ResourceReadArgs) -> Result<(), CliError> {
+async fn execute_resource_read(args: ResourceReadArgs) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
     if args.uri.trim().is_empty() {
-        return Err(CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
-            "resource URI must not be empty",
-        )
-        .with("instance_id", instance_id.to_string()));
+        return Err(attach_instance(
+            mcpstore::Error::new(
+                mcpstore::error::FailureCode::InvalidInput,
+                "resource URI must not be empty",
+            ),
+            instance_id,
+        ));
     }
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::CommandFailed,
-            error.to_string(),
+        attach_instance(
+            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+            instance_id,
         )
-        .with("instance_id", instance_id.to_string())
     })?;
-    store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let resource = store
         .read_resource(instance_id, &args.uri)
         .await
-        .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol)
-                .with("instance_id", instance_id.to_string())
-        })?;
+        .map_err(|error| attach_instance(error, instance_id))?;
     let value = json!({
         "event": "resource.read",
         "instance_id": instance_id,
@@ -280,43 +259,38 @@ async fn execute_resource_read(args: ResourceReadArgs) -> Result<(), CliError> {
     emit(args.output.output, value["resource"].to_string(), value)
 }
 
-async fn execute_prompt(args: PromptArgs) -> Result<(), CliError> {
+async fn execute_prompt(args: PromptArgs) -> mcpstore::Result<()> {
     match args.action {
         PromptAction::List(args) => execute_prompt_list(args).await,
         PromptAction::Get(args) => execute_prompt_get(args).await,
     }
 }
 
-async fn execute_prompt_list(args: ProtocolInstanceArgs) -> Result<(), CliError> {
+async fn execute_prompt_list(args: ProtocolInstanceArgs) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::CommandFailed,
-            error.to_string(),
+        attach_instance(
+            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+            instance_id,
         )
-        .with("instance_id", instance_id.to_string())
     })?;
-    store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    let prompts = store.list_prompts(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    let prompts = store
+        .list_prompts(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let total = prompts.len();
     let value = json!({
         "event": "prompt.listed",
@@ -331,12 +305,10 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs) -> Result<(), CliError>
     )
 }
 
-async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), CliError> {
+async fn execute_prompt_get(args: PromptGetArgs) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
@@ -347,38 +319,32 @@ async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), CliError> {
         "prompt arguments",
     )?;
     if args.prompt_name.trim().is_empty() {
-        return Err(CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
-            "prompt name must not be empty",
-        )
-        .with("instance_id", instance_id.to_string()));
+        return Err(attach_instance(
+            mcpstore::Error::new(
+                mcpstore::error::FailureCode::InvalidInput,
+                "prompt name must not be empty",
+            ),
+            instance_id,
+        ));
     }
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::CommandFailed,
-            error.to_string(),
+        attach_instance(
+            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+            instance_id,
         )
-        .with("instance_id", instance_id.to_string())
     })?;
-    store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let prompt = store
         .get_prompt(instance_id, &args.prompt_name, arguments)
         .await
-        .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol)
-                .with("instance_id", instance_id.to_string())
-        })?;
+        .map_err(|error| attach_instance(error, instance_id))?;
     let value = json!({
         "event": "prompt.get",
         "instance_id": instance_id,
@@ -388,33 +354,31 @@ async fn execute_prompt_get(args: PromptGetArgs) -> Result<(), CliError> {
     emit(args.output.output, value["prompt"].to_string(), value)
 }
 
-async fn execute_complete(args: CompleteArgs) -> Result<(), CliError> {
+async fn execute_complete(args: CompleteArgs) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
     if args.reference.trim().is_empty() || args.argument_name.trim().is_empty() {
-        return Err(CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::InvalidInput,
-            "reference and argument-name must not be empty",
-        )
-        .with("instance_id", instance_id.to_string()));
+        return Err(attach_instance(
+            mcpstore::Error::new(
+                mcpstore::error::FailureCode::InvalidInput,
+                "reference and argument-name must not be empty",
+            ),
+            instance_id,
+        ));
     }
     let context =
         serde_json::from_str::<HashMap<String, String>>(&args.context).map_err(|error| {
-            CliError::new(
-                args.output.output,
-                Domain::Protocol,
-                ErrorCode::InvalidInput,
-                format!("completion context must be a JSON object with string values: {error}"),
+            attach_instance(
+                mcpstore::Error::new(
+                    mcpstore::error::FailureCode::InvalidInput,
+                    format!("completion context must be a JSON object with string values: {error}"),
+                ),
+                instance_id,
             )
-            .with("instance_id", instance_id.to_string())
         })?;
     let reference = match args.reference_kind {
         CompletionReferenceKind::Prompt => McpCompletionReference::Prompt {
@@ -431,29 +395,23 @@ async fn execute_complete(args: CompleteArgs) -> Result<(), CliError> {
         context,
     };
     let store = build_store(&args.store).map_err(|error| {
-        CliError::new(
-            args.output.output,
-            Domain::Protocol,
-            ErrorCode::CommandFailed,
-            error.to_string(),
+        attach_instance(
+            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+            instance_id,
         )
-        .with("instance_id", instance_id.to_string())
     })?;
-    store.load_from_source().await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
-    store.connect_service(instance_id).await.map_err(|error| {
-        CliError::from_store(&error, args.output.output, Domain::Protocol)
-            .with("instance_id", instance_id.to_string())
-    })?;
+    store
+        .load_from_source()
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    store
+        .connect_service(instance_id)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let completion = store
         .complete_mcp_argument(instance_id, request)
         .await
-        .map_err(|error| {
-            CliError::from_store(&error, args.output.output, Domain::Protocol)
-                .with("instance_id", instance_id.to_string())
-        })?;
+        .map_err(|error| attach_instance(error, instance_id))?;
     let value = json!({
         "event": "completion.completed",
         "instance_id": instance_id,
@@ -464,14 +422,14 @@ async fn execute_complete(args: CompleteArgs) -> Result<(), CliError> {
 
 fn parse_object(
     input: &str,
-    format: OutputFormat,
+    _format: OutputFormat,
     instance_id: Option<InstanceId>,
     name: &str,
-) -> Result<Value, CliError> {
+) -> mcpstore::Result<Value> {
     let make_error = |message: String| {
-        let err = CliError::new(format, Domain::Protocol, ErrorCode::InvalidInput, message);
+        let err = mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, message);
         match instance_id {
-            Some(id) => err.with("instance_id", id.to_string()),
+            Some(id) => attach_instance(err, id),
             None => err,
         }
     };
@@ -530,7 +488,7 @@ fn format_prompt_list(
     output
 }
 
-fn emit(format: OutputFormat, human: String, value: Value) -> Result<(), CliError> {
+fn emit(format: OutputFormat, human: String, value: Value) -> mcpstore::Result<()> {
     let encoded = match format {
         OutputFormat::Human => {
             println!("{human}");
@@ -540,12 +498,7 @@ fn emit(format: OutputFormat, human: String, value: Value) -> Result<(), CliErro
         OutputFormat::Jsonl => serde_json::to_string(&value),
     }
     .map_err(|error| {
-        CliError::new(
-            format,
-            Domain::Protocol,
-            ErrorCode::CommandFailed,
-            error.to_string(),
-        )
+        mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
     })?;
     println!("{encoded}");
     Ok(())
@@ -554,11 +507,12 @@ fn emit(format: OutputFormat, human: String, value: Value) -> Result<(), CliErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mcpstore::error::FailureCode;
 
     #[test]
     fn object_parser_rejects_non_object() {
         let error = parse_object("[]", OutputFormat::Jsonl, None, "arguments").unwrap_err();
-        assert_eq!(error.code(), ErrorCode::InvalidInput);
-        assert_eq!(error.exit_code(), 2);
+        assert_eq!(error.code(), FailureCode::InvalidInput);
+        assert_eq!(crate::error::exit_code(error.code()), 2);
     }
 }

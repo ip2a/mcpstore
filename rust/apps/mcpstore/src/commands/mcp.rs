@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
-use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
+use crate::error::{attach_tool, OutputFormat};
 
 use mcpstore::{
     InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpServerCapabilities,
@@ -429,41 +429,19 @@ pub struct GetArgs {
 
 pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::InvalidInput,
-            e.to_string(),
-        )
+        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
-    let store = build_store(&a.store).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::CommandFailed,
-            e.to_string(),
-        )
-    })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
-    let payload = store
-        .service_info_scoped(instance_id)
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+        .map_err(resolve_error)?;
+    let store = build_store(&a.store)
+        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
+    store.load_from_source().await?;
+    let payload = store.service_info_scoped(instance_id).await?;
     match a.output {
         OutputFormat::Human => {
             let json = serde_json::to_string_pretty(&payload).map_err(|e| {
-                CliError::new(
-                    a.output,
-                    Domain::Service,
-                    ErrorCode::CommandFailed,
-                    e.to_string(),
-                )
+                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string())
             })?;
             println!("{json}");
         }
@@ -520,21 +498,14 @@ pub struct ConnectArgs {
 
 pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::InvalidInput,
-            e.to_string(),
-        )
+        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
+        .map_err(resolve_error)?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id});
-        let result = crate::daemon::client::call_daemon("connect_service", params)
-            .await
-            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
+        let result = crate::daemon::client::call_daemon("connect_service", params).await?;
         let tools_count = result
             .get("tools_count")
             .and_then(|v| v.as_u64())
@@ -567,22 +538,10 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::CommandFailed,
-            e.to_string(),
-        )
-    })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
-    store
-        .connect_service(instance_id)
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    let store = build_store(&a.store)
+        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
+    store.load_from_source().await?;
+    store.connect_service(instance_id).await?;
     let tools = store
         .list_tool_entries_for_instance_with_filter(
             instance_id,
@@ -590,10 +549,7 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
         )
         .await
         .unwrap_or_default();
-    let metadata = store
-        .mcp_server_metadata(instance_id)
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    let metadata = store.mcp_server_metadata(instance_id).await?;
     match a.output {
         OutputFormat::Human => {
             println!(
@@ -637,21 +593,14 @@ pub struct DisconnectArgs {
 
 pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::InvalidInput,
-            e.to_string(),
-        )
+        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
+        .map_err(resolve_error)?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id});
-        crate::daemon::client::call_daemon("disconnect_service", params)
-            .await
-            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
+        crate::daemon::client::call_daemon("disconnect_service", params).await?;
         match a.output {
             OutputFormat::Human => {
                 println!("[Success] Disconnected: {}", instance_id);
@@ -665,22 +614,10 @@ pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::CommandFailed,
-            e.to_string(),
-        )
-    })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
-    store
-        .disconnect_service(instance_id)
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    let store = build_store(&a.store)
+        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
+    store.load_from_source().await?;
+    store.disconnect_service(instance_id).await?;
     match a.output {
         OutputFormat::Human => {
             println!("[Success] Disconnected: {}", instance_id);
@@ -711,21 +648,14 @@ pub struct RestartArgs {
 
 pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::InvalidInput,
-            e.to_string(),
-        )
+        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
+        .map_err(resolve_error)?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id});
-        crate::daemon::client::call_daemon("restart_service", params)
-            .await
-            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
+        crate::daemon::client::call_daemon("restart_service", params).await?;
         match a.output {
             OutputFormat::Human => {
                 println!("[Success] Restarted: {}", instance_id);
@@ -739,22 +669,10 @@ pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::CommandFailed,
-            e.to_string(),
-        )
-    })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
-    store
-        .restart_service(instance_id)
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    let store = build_store(&a.store)
+        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
+    store.load_from_source().await?;
+    store.restart_service(instance_id).await?;
     match a.output {
         OutputFormat::Human => {
             println!("[Success] Restarted: {}", instance_id);
@@ -792,23 +710,17 @@ pub struct CheckArgs {
 
 pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::InvalidInput,
-            e.to_string(),
-        )
+        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
+        .map_err(resolve_error)?;
     let (ready, label) = if crate::daemon::client::daemon_socket_exists() {
         let result = crate::daemon::client::call_daemon(
             "check_service",
             json!({ "instance_id": instance_id }),
         )
-        .await
-        .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
+        .await?;
         let readiness = result
             .pointer("/state/readiness/status")
             .and_then(Value::as_str)
@@ -823,21 +735,10 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
         )
     } else {
         let store = build_store(&a.store).map_err(|e| {
-            CliError::new(
-                a.output,
-                Domain::Service,
-                ErrorCode::CommandFailed,
-                e.to_string(),
-            )
+            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string())
         })?;
-        store
-            .load_from_source()
-            .await
-            .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
-        let status = store
-            .service_state_entry(instance_id)
-            .await
-            .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+        store.load_from_source().await?;
+        let status = store.service_state_entry(instance_id).await?;
         (
             status.readiness.status == mcpstore::ReadinessStatus::Ready,
             format!(
@@ -889,21 +790,14 @@ pub struct WaitArgs {
 
 pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::InvalidInput,
-            e.to_string(),
-        )
+        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Service))?;
+        .map_err(resolve_error)?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"instance_id": instance_id, "timeout": a.timeout});
-        let result = crate::daemon::client::call_daemon("wait_service", params)
-            .await
-            .map_err(|e| CliError::from_daemon(e, a.output, Domain::Service))?;
+        let result = crate::daemon::client::call_daemon("wait_service", params).await?;
         let readiness = result
             .pointer("/state/readiness/status")
             .and_then(|v| v.as_str())
@@ -925,26 +819,13 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store).map_err(|e| {
-        CliError::new(
-            a.output,
-            Domain::Service,
-            ErrorCode::CommandFailed,
-            e.to_string(),
-        )
-    })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
-    store
-        .connect_service(instance_id)
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+    let store = build_store(&a.store)
+        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
+    store.load_from_source().await?;
+    store.connect_service(instance_id).await?;
     let status = store
         .wait_instance_ready(instance_id, std::time::Duration::from_secs(a.timeout))
-        .await
-        .map_err(|e| CliError::from_store(&e, a.output, Domain::Service))?;
+        .await?;
     match a.output {
         OutputFormat::Human => {
             println!(
@@ -1114,17 +995,13 @@ fn tool_summary_value(tool: Value, include_schema: bool) -> Value {
     summary
 }
 
-/// Build a `CliError` from an `Error`, tagged for the `call` command
-/// (execution domain) with instance/tool context attached.
+/// Attach instance/tool context to a store error from the `call` command.
 fn call_error_from_store(
     error: mcpstore::Error,
-    format: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
-) -> CliError {
-    CliError::from_store(&error, format, Domain::Execution)
-        .with("instance_id", instance_id.to_string())
-        .with("tool_name", tool_name)
+) -> mcpstore::Error {
+    attach_tool(error, instance_id, tool_name)
 }
 
 #[derive(Args)]
@@ -1197,28 +1074,31 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
+async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
     parse_arguments_json_object(&a.arguments, a.output)?;
     if crate::daemon::client::daemon_socket_exists() {
         return run_call_via_daemon(a).await;
     }
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
-        CliError::new_execution(a.output, ErrorCode::InvalidInput, error.to_string())
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Execution))?;
+        .map_err(resolve_error)?;
     let store = build_store(&a.store).map_err(|error| {
-        CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string())
+        mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
-        CliError::new_execution(a.output, ErrorCode::CommandFailed, error.to_string())
+        mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
     })?;
 
     store
         .connect_service(instance_id)
         .await
-        .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
+        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
     let schema = load_tool_input_schema(&store, instance_id, &a.tool_name, a.output).await?;
     let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
 
@@ -1233,11 +1113,11 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
     let mut elicitation = store
         .open_elicitation_session(instance_id, a.elicitation.session_options())
         .await
-        .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
+        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
     let mut execution = store
         .start_tool_execution(instance_id, &a.tool_name, args, None, options)
         .await
-        .map_err(|error| call_error_from_store(error, a.output, instance_id, &a.tool_name))?;
+        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
     emit_call_started(a.output, &a.tool_name, &execution)?;
 
     let mut cancellation_requested = false;
@@ -1267,7 +1147,6 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
                                 settle_execution_after_elicitation_error(&mut execution).await;
                                 return Err(call_elicitation_error(
                                     error,
-                                    a.output,
                                     instance_id,
                                     &a.tool_name,
                                 ));
@@ -1278,13 +1157,7 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
                     continue;
                 }
                 signal = tokio::signal::ctrl_c() => {
-                    signal.map_err(|error| CliError::for_call(
-                        a.output,
-                        ErrorCode::CommandFailed,
-                        format!("failed to listen for Ctrl+C: {error}"),
-                        instance_id,
-                        &a.tool_name,
-                    ))?;
+                    signal.map_err(|error| attach_tool(mcpstore::Error::new(mcpstore::error::FailureCode::Internal, format!("failed to listen for Ctrl+C: {error}")), instance_id, &a.tool_name))?;
                     if execution.cancel("cancelled by user (Ctrl+C)") {
                         cancellation_requested = true;
                         emit_call_cancellation_requested(a.output, instance_id, &a.tool_name)?;
@@ -1299,16 +1172,16 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
                 emit_call_progress(a.output, &a.tool_name, &progress)?;
             }
             Some(McpStoreExecutionUpdate::Finished(result)) => {
-                let execution = result.map_err(|error| {
-                    call_error_from_store(error, a.output, instance_id, &a.tool_name)
-                })?;
+                let execution = result
+                    .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
                 return finish_call_execution(a.output, instance_id, &a.tool_name, execution);
             }
             None => {
-                return Err(CliError::for_call(
-                    a.output,
-                    ErrorCode::ProtocolFailed,
-                    "tool execution ended without a result",
+                return Err(attach_tool(
+                    mcpstore::Error::new(
+                        mcpstore::error::FailureCode::ToolFailed,
+                        "tool execution ended without a result",
+                    ),
                     instance_id,
                     &a.tool_name,
                 ));
@@ -1319,17 +1192,24 @@ async fn execute_call_tool(a: CallToolArgs) -> Result<(), CliError> {
 
 fn call_elicitation_error(
     error: ElicitationCommandError,
-    output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
-) -> CliError {
+) -> mcpstore::Error {
     let code = match error.kind() {
-        ElicitationErrorKind::InputRequired => ErrorCode::ElicitationInputRequired,
-        ElicitationErrorKind::Cancelled => ErrorCode::ElicitationCancelled,
-        ElicitationErrorKind::TimedOut => ErrorCode::ElicitationTimedOut,
-        ElicitationErrorKind::InvalidResponse => ErrorCode::ElicitationInvalidResponse,
+        ElicitationErrorKind::InputRequired => {
+            mcpstore::error::FailureCode::ElicitationInputRequired
+        }
+        ElicitationErrorKind::Cancelled => mcpstore::error::FailureCode::ElicitationCancelled,
+        ElicitationErrorKind::TimedOut => mcpstore::error::FailureCode::ElicitationTimedOut,
+        ElicitationErrorKind::InvalidResponse => {
+            mcpstore::error::FailureCode::ElicitationInvalidResponse
+        }
     };
-    CliError::for_call(output, code, error.message(), instance_id, tool_name)
+    attach_tool(
+        mcpstore::Error::new(code, error.message()),
+        instance_id,
+        tool_name,
+    )
 }
 
 /// Resolve a call target to an instance ID. UUIDs are used directly; any other
@@ -1393,7 +1273,7 @@ async fn resolve_target(
         let response =
             crate::daemon::client::call_daemon("list_services", json!({ "scope": scope }))
                 .await
-                .map_err(ResolveError::Backend)?;
+                .map_err(|error| ResolveError::Backend(error.to_string()))?;
         let instance_id = response
             .get("services")
             .and_then(Value::as_array)
@@ -1434,20 +1314,20 @@ async fn resolve_target(
     })
 }
 
-fn resolve_err_to_cli_err(e: ResolveError, output: OutputFormat, domain: Domain) -> CliError {
+fn resolve_error(e: ResolveError) -> mcpstore::Error {
     let code = match &e {
-        ResolveError::NotFound { .. } => ErrorCode::ServiceNotFound,
-        ResolveError::Backend(_) => ErrorCode::CommandFailed,
+        ResolveError::NotFound { .. } => mcpstore::error::FailureCode::ServiceNotFound,
+        ResolveError::Backend(_) => mcpstore::error::FailureCode::Internal,
     };
-    CliError::new(output, domain, code, e.to_string())
+    mcpstore::Error::new(code, e.to_string())
 }
 
 /// Load the target tool's input schema through the daemon's `list_tools`.
 async fn load_tool_input_schema_daemon(
     instance_id: InstanceId,
     tool_name: &str,
-    output: OutputFormat,
-) -> Result<Option<Value>, CliError> {
+    _output: OutputFormat,
+) -> mcpstore::Result<Option<Value>> {
     if let Some(cached) = crate::schema_cache::load(&instance_id.to_string()) {
         if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
             return Ok(Some(schema));
@@ -1455,8 +1335,7 @@ async fn load_tool_input_schema_daemon(
     }
     let response =
         crate::daemon::client::call_daemon("list_tools", json!({ "instance_id": instance_id }))
-            .await
-            .map_err(|error| CliError::new_execution(output, ErrorCode::CommandFailed, error))?;
+            .await?;
     let tools = response
         .get("tools")
         .and_then(Value::as_array)
@@ -1473,25 +1352,26 @@ async fn load_tool_input_schema_daemon(
 /// CLI invocations. The daemon speaks request/response, so streaming progress,
 /// elicitation, per-call timeouts, and cancellation apply only to the local path
 /// used when no daemon is running.
-async fn run_call_via_daemon(a: CallToolArgs) -> Result<(), CliError> {
+async fn run_call_via_daemon(a: CallToolArgs) -> mcpstore::Result<()> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
-        CliError::new_execution(a.output, ErrorCode::InvalidInput, error.to_string())
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
+            error.to_string(),
+        )
     })?;
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
-        .map_err(|e| resolve_err_to_cli_err(e, a.output, Domain::Execution))?;
+        .map_err(resolve_error)?;
     let schema = load_tool_input_schema_daemon(instance_id, &a.tool_name, a.output).await?;
     let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
     let value = crate::daemon::client::call_daemon(
         "call_tool",
         json!({ "instance_id": instance_id, "tool_name": a.tool_name, "args": args }),
     )
-    .await
-    .map_err(|error| CliError::new_execution(a.output, ErrorCode::CommandFailed, error))?;
+    .await?;
     let result: ToolCallResult = serde_json::from_value(value).map_err(|error| {
-        CliError::new_execution(
-            a.output,
-            ErrorCode::ProtocolFailed,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::ToolFailed,
             format!("daemon returned a malformed tool result: {error}"),
         )
     })?;
@@ -1505,8 +1385,8 @@ async fn load_tool_input_schema(
     store: &MCPStore,
     instance_id: InstanceId,
     tool_name: &str,
-    output: OutputFormat,
-) -> Result<Option<Value>, CliError> {
+    _output: OutputFormat,
+) -> mcpstore::Result<Option<Value>> {
     if let Some(cached) = crate::schema_cache::load(&instance_id.to_string()) {
         if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
             return Ok(Some(schema));
@@ -1518,7 +1398,7 @@ async fn load_tool_input_schema(
             mcpstore::ToolVisibilityFilter::Available,
         )
         .await
-        .map_err(|error| call_error_from_store(error, output, instance_id, tool_name))?;
+        .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
     let tools_json: Vec<Value> = entries
         .iter()
         .map(|e| json!({ "name": e.tool_name, "schema": e.input_schema }))
@@ -1538,16 +1418,15 @@ fn build_call_arguments(
     arguments_json: &str,
     schema: Option<&Value>,
     output: OutputFormat,
-) -> Result<Value, CliError> {
+) -> mcpstore::Result<Value> {
     let mut object = parse_arguments_json_object(arguments_json, output)?;
     let (keyed, positional) = split_argument_tokens(raw_args);
     for (key, raw_value) in keyed {
         object.insert(key, coerce_value(&raw_value));
     }
     if !positional.is_empty() {
-        return Err(CliError::new_execution(
-            output,
-            ErrorCode::InvalidInput,
+        return Err(mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             "positional arguments are not supported; pass them as key:value or key=value",
         ));
     }
@@ -1559,20 +1438,18 @@ fn build_call_arguments(
 
 fn parse_arguments_json_object(
     arguments_json: &str,
-    output: OutputFormat,
-) -> Result<Map<String, Value>, CliError> {
+    _output: OutputFormat,
+) -> mcpstore::Result<Map<String, Value>> {
     let value: Value = serde_json::from_str(arguments_json).map_err(|error| {
-        CliError::new_execution(
-            output,
-            ErrorCode::InvalidInput,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             format!("invalid --arguments JSON: {error}"),
         )
     })?;
     match value {
         Value::Object(map) => Ok(map),
-        _ => Err(CliError::new_execution(
-            output,
-            ErrorCode::InvalidInput,
+        _ => Err(mcpstore::Error::new(
+            mcpstore::error::FailureCode::InvalidInput,
             "--arguments must be a JSON object",
         )),
     }
@@ -1618,8 +1495,8 @@ fn coerce_value(raw: &str) -> Value {
 fn apply_tool_schema(
     object: &mut Map<String, Value>,
     schema: &Value,
-    output: OutputFormat,
-) -> Result<(), CliError> {
+    _output: OutputFormat,
+) -> mcpstore::Result<()> {
     let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) else {
         return Ok(());
     };
@@ -1639,9 +1516,8 @@ fn apply_tool_schema(
             .filter(|key| !object.contains_key(*key))
             .collect();
         if !missing.is_empty() {
-            return Err(CliError::new_execution(
-                output,
-                ErrorCode::InvalidInput,
+            return Err(mcpstore::Error::new(
+                mcpstore::error::FailureCode::InvalidInput,
                 format!("missing required argument(s): {}", missing.join(", ")),
             ));
         }
@@ -1679,7 +1555,7 @@ fn emit_call_started(
     output: OutputFormat,
     tool_name: &str,
     execution: &mcpstore::McpStoreToolExecutionHandle<'_>,
-) -> Result<(), CliError> {
+) -> mcpstore::Result<()> {
     if output != OutputFormat::Jsonl {
         return Ok(());
     }
@@ -1700,7 +1576,7 @@ fn emit_call_progress(
     output: OutputFormat,
     tool_name: &str,
     progress: &mcpstore::McpExecutionProgress,
-) -> Result<(), CliError> {
+) -> mcpstore::Result<()> {
     match output {
         OutputFormat::Human => {
             let amount = progress.total.map_or_else(
@@ -1734,7 +1610,7 @@ fn emit_call_cancellation_requested(
     output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
-) -> Result<(), CliError> {
+) -> mcpstore::Result<()> {
     match output {
         OutputFormat::Human => {
             eprintln!("[Cancellation requested] {tool_name}");
@@ -1757,12 +1633,13 @@ fn finish_call_execution(
     instance_id: InstanceId,
     tool_name: &str,
     execution: McpToolExecution,
-) -> Result<(), CliError> {
+) -> mcpstore::Result<()> {
     let McpToolExecution::Immediate { result } = execution else {
-        return Err(CliError::for_call(
-            output,
-            ErrorCode::ProtocolFailed,
-            "tool call unexpectedly returned a task",
+        return Err(attach_tool(
+            mcpstore::Error::new(
+                mcpstore::error::FailureCode::ToolFailed,
+                "tool call unexpectedly returned a task",
+            ),
             instance_id,
             tool_name,
         ));
@@ -1777,12 +1654,13 @@ fn emit_call_result(
     instance_id: InstanceId,
     tool_name: &str,
     result: &ToolCallResult,
-) -> Result<(), CliError> {
+) -> mcpstore::Result<()> {
     if result.is_error {
-        return Err(CliError::for_call(
-            output,
-            ErrorCode::ToolFailed,
-            tool_error_message(result),
+        return Err(attach_tool(
+            mcpstore::Error::new(
+                mcpstore::error::FailureCode::ToolFailed,
+                tool_error_message(result),
+            ),
             instance_id,
             tool_name,
         ));
@@ -1835,16 +1713,15 @@ fn tool_error_message(result: &ToolCallResult) -> String {
         .unwrap_or_else(|| "tool returned an error result".to_string())
 }
 
-fn emit_call_value(output: OutputFormat, value: Value) -> Result<(), CliError> {
+fn emit_call_value(output: OutputFormat, value: Value) -> mcpstore::Result<()> {
     let encoded = match output {
         OutputFormat::Human => Ok(value.to_string()),
         OutputFormat::Json => serde_json::to_string_pretty(&value),
         OutputFormat::Jsonl => serde_json::to_string(&value),
     }
     .map_err(|error| {
-        CliError::new_execution(
-            output,
-            ErrorCode::CommandFailed,
+        mcpstore::Error::new(
+            mcpstore::error::FailureCode::Internal,
             format!("failed to encode call output: {error}"),
         )
     })?;
@@ -2135,49 +2012,47 @@ mod tests {
             1
         );
         let error = parse_arguments_json_object("[]", OutputFormat::Jsonl).unwrap_err();
-        assert_eq!(error.code(), ErrorCode::InvalidInput);
-        assert_eq!(error.exit_code(), 2);
-        let value: Value = serde_json::from_str(&error.to_string()).unwrap();
-        assert_eq!(value["event"], "execution.failed");
+        assert_eq!(error.code(), FailureCode::InvalidInput);
+        assert_eq!(crate::error::exit_code(error.code()), 2);
+        let value: Value =
+            serde_json::from_str(&crate::error::render(&error, OutputFormat::Json)).unwrap();
         assert_eq!(value["error"]["code"], "invalid_input");
+        assert!(value.get("event").is_none());
     }
 
     #[test]
-    fn execution_store_errors_have_stable_codes_and_events() {
+    fn call_errors_keep_their_failure_codes() {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
-        for (error, code, exit_code, event) in [
+        for (error, code, exit) in [
             (
                 Error::new(
                     FailureCode::CallCancelled,
                     "MCP request cancelled: cancelled",
                 ),
-                ErrorCode::Cancelled,
-                30,
-                "execution.cancelled",
+                FailureCode::CallCancelled,
+                44,
             ),
             (
                 Error::new(FailureCode::CallTimedOut, "MCP request timed out after 1s"),
-                ErrorCode::TimedOut,
-                31,
-                "execution.timed_out",
+                FailureCode::CallTimedOut,
+                43,
             ),
             (
                 Error::new(
                     FailureCode::CallDisconnected,
                     format!("MCP request disconnected for service instance {instance_id}"),
                 ),
-                ErrorCode::Disconnected,
-                32,
-                "execution.failed",
+                FailureCode::CallDisconnected,
+                45,
             ),
         ] {
-            let error = CliError::from_store(&error, OutputFormat::Jsonl, Domain::Execution)
-                .with("instance_id", instance_id.to_string())
-                .with("tool_name", "long_tool");
+            let error = attach_tool(error, instance_id, "long_tool");
             assert_eq!(error.code(), code);
-            assert_eq!(error.exit_code(), exit_code);
-            let v: Value = serde_json::from_str(&error.to_string()).unwrap();
-            assert_eq!(v["event"], event);
+            assert_eq!(crate::error::exit_code(error.code()), exit);
+            let v: Value =
+                serde_json::from_str(&crate::error::render(&error, OutputFormat::Json)).unwrap();
+            assert!(v.get("event").is_none());
+            assert_eq!(v["error"]["code"], code.as_str());
         }
     }
 
@@ -2404,12 +2279,11 @@ mod tests {
 
     #[test]
     fn call_error_human_output_includes_hint() {
-        let error = CliError::new_execution(
-            OutputFormat::Human,
-            ErrorCode::ServiceNotFound,
+        let error = mcpstore::Error::new(
+            mcpstore::error::FailureCode::ServiceNotFound,
             "service not found: github".to_string(),
         );
-        let rendered = error.to_string();
+        let rendered = crate::error::render(&error, OutputFormat::Human);
         assert!(rendered.contains("service_not_found"), "{rendered}");
         assert!(rendered.contains("hint:"), "{rendered}");
         assert!(rendered.contains("mcpstore list"), "{rendered}");

@@ -388,7 +388,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         axum::http::StatusCode::INTERNAL_SERVER_ERROR
     );
     let callback_body = callback.text().await.unwrap();
-    assert!(callback_body.contains("AUTHENTICATION_ERROR"));
+    assert!(callback_body.contains("auth_failed"));
     assert!(!callback_body.contains("sensitive-code"));
     assert!(!callback_body.contains("sensitive-state"));
 
@@ -400,7 +400,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         .unwrap();
     assert_eq!(empty_secret.status(), axum::http::StatusCode::BAD_REQUEST);
     let secret_body = empty_secret.text().await.unwrap();
-    assert!(secret_body.contains("CONFIG_INVALID"));
+    assert!(secret_body.contains("config_invalid"));
     assert!(!secret_body.contains("client_secret"));
 
     let empty_key = client
@@ -411,7 +411,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         .unwrap();
     assert_eq!(empty_key.status(), axum::http::StatusCode::BAD_REQUEST);
     let key_body = empty_key.text().await.unwrap();
-    assert!(key_body.contains("CONFIG_INVALID"));
+    assert!(key_body.contains("config_invalid"));
     assert!(!key_body.contains("private_key_pem"));
 
     handle.abort();
@@ -577,7 +577,7 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
         .unwrap();
     assert_eq!(closed_tools.status(), axum::http::StatusCode::CONFLICT);
     let closed_payload = closed_tools.json::<Value>().await.unwrap();
-    assert_eq!(closed_payload["errors"][0]["code"], "SESSION_NOT_ACTIVE");
+    assert_eq!(closed_payload["errors"][0]["code"], "session_not_active");
 
     let closed_set_state = client
         .post(format!("{base_url}/sessions/state/set"))
@@ -593,7 +593,7 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
     let closed_set_state_payload = closed_set_state.json::<Value>().await.unwrap();
     assert_eq!(
         closed_set_state_payload["errors"][0]["code"],
-        "SESSION_NOT_ACTIVE"
+        "session_not_active"
     );
 
     handle.abort();
@@ -635,10 +635,7 @@ async fn third_party_config_export_requires_service_name() {
         axum::http::StatusCode::BAD_REQUEST
     );
     let missing_payload = missing_instance.json::<Value>().await.unwrap();
-    assert_eq!(
-        missing_payload["errors"][0]["code"],
-        json!("MISSING_PARAMETER")
-    );
+    assert_eq!(missing_payload["errors"][0]["code"], json!("invalid_input"));
 
     let claude = client
         .get(format!(

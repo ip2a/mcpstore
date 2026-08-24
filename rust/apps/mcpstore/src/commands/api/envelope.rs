@@ -5,9 +5,8 @@ use axum::{
 };
 use chrono::Utc;
 use mcpstore::error::{Error, FailureCode};
-use mcpstore::ErrorContext;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 const API_VERSION: &str = "1.0.0";
 
@@ -49,14 +48,14 @@ pub(super) struct ApiError {
 impl ApiError {
     fn new(
         status: StatusCode,
-        code: impl Into<String>,
+        code: FailureCode,
         message: impl Into<String>,
         field: Option<&str>,
         details: Option<Value>,
     ) -> Self {
         Self {
             status,
-            code: code.into(),
+            code: code.as_str().to_string(),
             message: message.into(),
             field: field.map(ToString::to_string),
             details,
@@ -66,7 +65,7 @@ impl ApiError {
     pub(super) fn missing_parameter(field: &'static str) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "MISSING_PARAMETER",
+            FailureCode::InvalidInput,
             format!("缺少 {field}"),
             Some(field),
             None,
@@ -76,7 +75,7 @@ impl ApiError {
     pub(super) fn invalid_parameter(message: impl Into<String>, field: Option<&str>) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "INVALID_PARAMETER",
+            FailureCode::InvalidInput,
             message,
             field,
             None,
@@ -86,7 +85,7 @@ impl ApiError {
     pub(super) fn invalid_request(message: impl Into<String>) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
-            "INVALID_REQUEST",
+            FailureCode::InvalidInput,
             message,
             None,
             None,
@@ -94,7 +93,7 @@ impl ApiError {
     }
 
     pub(super) fn not_found(
-        code: impl Into<String>,
+        code: FailureCode,
         message: impl Into<String>,
         field: Option<&str>,
         details: Option<Value>,
@@ -103,128 +102,50 @@ impl ApiError {
     }
 
     pub(super) fn from_store(error: Error) -> Self {
-        match error.code() {
-            FailureCode::ConnectionAuthRequired => Self::new(
-                StatusCode::UNAUTHORIZED,
-                "AUTH_REQUIRED",
-                error.message().to_string(),
-                None,
-                serde_json::to_value(error.context()).ok(),
-            ),
-            FailureCode::ConnectionScope => Self::new(
-                StatusCode::FORBIDDEN,
-                "AUTH_INSUFFICIENT_SCOPE",
-                "OAuth 授权范围不足，需要升级授权",
-                None,
-                Some(json!({
-                    "instance_id": match error.context() {
-                        ErrorContext::Scope { instance_id, .. } => json!(instance_id),
-                        _ => serde_json::Value::Null,
-                    },
-                    "required_scope": match error.context() {
-                        ErrorContext::Scope { required_scope, .. } => json!(required_scope),
-                        _ => serde_json::Value::Null,
-                    },
-                })),
-            ),
-            FailureCode::CapabilityUnsupported => Self::new(
-                StatusCode::CONFLICT,
-                "MCP_CAPABILITY_UNSUPPORTED",
-                format!("远端 MCP 服务不支持 capability（{}）", error.message()),
-                None,
-                Some(json!({ "message": error.message() })),
-            ),
-            FailureCode::InvalidInput => Self::new(
-                StatusCode::BAD_REQUEST,
-                "MCP_INVALID_INPUT",
-                error.message().to_string(),
-                None,
-                None,
-            ),
-            FailureCode::ServiceNotFound => Self::new(
-                StatusCode::NOT_FOUND,
-                "SERVICE_NOT_FOUND",
-                format!("服务不存在: {}", error.message()),
-                Some("service_name"),
-                None,
-            ),
-            FailureCode::ToolNotAvailable => Self::new(
-                StatusCode::FORBIDDEN,
-                "TOOL_NOT_AVAILABLE",
-                error.message().to_string(),
-                Some("tool_name"),
-                Some(match error.context() {
-                    ErrorContext::Tool {
-                        instance_id,
-                        tool_name,
-                    } => json!({ "instance_id": instance_id, "tool_name": tool_name }),
-                    _ => serde_json::Value::Null,
-                }),
-            ),
-            FailureCode::SecureStorageUnavailable => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "SECURE_STORAGE_UNAVAILABLE",
-                "安全凭证存储不可用",
-                None,
-                None,
-            ),
-            FailureCode::OauthProviderFailed => Self::new(
-                StatusCode::BAD_GATEWAY,
-                "OAUTH_PROVIDER_FAILED",
-                "OAuth 提供方操作失败",
-                None,
-                None,
-            ),
-            FailureCode::ConfigInvalid => Self::new(
-                StatusCode::BAD_REQUEST,
-                "CONFIG_INVALID",
-                error.message().to_string(),
-                None,
-                None,
-            ),
-            FailureCode::AuthFailed => Self::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "AUTHENTICATION_ERROR",
-                error.message().to_string(),
-                None,
-                Some(json!({ "error_type": "AuthError" })),
-            ),
-            FailureCode::SessionNotFound => Self::new(
-                StatusCode::NOT_FOUND,
-                "SESSION_NOT_FOUND",
-                error.message().to_string(),
-                Some("session_key"),
-                None,
-            ),
-            FailureCode::SessionNotActive => Self::new(
-                StatusCode::CONFLICT,
-                "SESSION_NOT_ACTIVE",
-                error.message().to_string(),
-                Some("session_key"),
-                None,
-            ),
-            FailureCode::TaskStateFailed => Self::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                error.message().to_string(),
-                None,
-                Some(json!({ "error_type": "CacheError" })),
-            ),
-            FailureCode::Internal => Self::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                error.message().to_string(),
-                None,
-                None,
-            ),
-            _ => Self::new(
-                StatusCode::BAD_GATEWAY,
-                "SERVICE_OPERATION_FAILED",
-                error.to_string(),
-                None,
-                None,
-            ),
+        Self::new(
+            http_status(error.code()),
+            error.code(),
+            error.message().to_string(),
+            None,
+            serde_json::to_value(error.context()).ok(),
+        )
+    }
+}
+
+/// Failure code → HTTP status, the single mapping used by the API layer.
+pub(super) fn http_status(code: FailureCode) -> StatusCode {
+    use FailureCode as Code;
+    use StatusCode as Http;
+    match code {
+        Code::InvalidInput | Code::ConfigInvalid | Code::ConnectionUnsupported => Http::BAD_REQUEST,
+        Code::ServiceNotFound
+        | Code::TaskNotFound
+        | Code::SessionNotFound
+        | Code::ToolNotAvailable => Http::NOT_FOUND,
+        Code::ConnectionAuthRequired => Http::UNAUTHORIZED,
+        Code::ConnectionScope => Http::FORBIDDEN,
+        Code::CallCancelled
+        | Code::CapabilityUnsupported
+        | Code::TaskNotCancellable
+        | Code::ElicitationCancelled
+        | Code::SessionNotActive => Http::CONFLICT,
+        Code::ElicitationInputRequired => StatusCode::from_u16(428).unwrap_or(Http::CONFLICT),
+        Code::ConnectionTimedOut | Code::CallTimedOut | Code::ElicitationTimedOut => {
+            Http::GATEWAY_TIMEOUT
         }
+        Code::ServiceUnavailable
+        | Code::HealthCheckFailed
+        | Code::ProbeTimedOut
+        | Code::ToolSyncFailed
+        | Code::OpenapiRequestFailed => Http::SERVICE_UNAVAILABLE,
+        Code::AuthFailed
+        | Code::SecureStorageUnavailable
+        | Code::TaskStateFailed
+        | Code::StopFailed
+        | Code::Internal => Http::INTERNAL_SERVER_ERROR,
+        // connection_*, handshake_*, not_connected, tool_failed, call_disconnected,
+        // task_unavailable, task_failed, oauth_provider_failed
+        _ => Http::BAD_GATEWAY,
     }
 }
 
@@ -275,11 +196,11 @@ fn api_meta() -> ApiMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mcpstore::error::{Error, ErrorContext, FailureCode};
+    use mcpstore::error::ErrorContext;
     use mcpstore::InstanceId;
 
     #[test]
-    fn insufficient_scope_maps_to_http_403_with_stable_error_code() {
+    fn insufficient_scope_maps_to_http_403_with_failure_code() {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
         let error = ApiError::from_store(
             Error::new(FailureCode::ConnectionScope, "insufficient OAuth scope").with_context(
@@ -291,7 +212,7 @@ mod tests {
         );
 
         assert_eq!(error.status, StatusCode::FORBIDDEN);
-        assert_eq!(error.code, "AUTH_INSUFFICIENT_SCOPE");
+        assert_eq!(error.code, "connection_scope");
         assert_eq!(
             error
                 .details
@@ -303,26 +224,24 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_capability_maps_to_http_409_with_stable_error_code() {
-        let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
-        let error = ApiError::from_store(
-            Error::new(
-                FailureCode::CapabilityUnsupported,
-                "MCP service instance does not support capability completions",
-            )
-            .with_context(ErrorContext::Service {
-                instance_id,
-                service_name: String::new(),
-            }),
-        );
+    fn unsupported_capability_maps_to_http_409_with_failure_code() {
+        let error = ApiError::from_store(Error::new(
+            FailureCode::CapabilityUnsupported,
+            "MCP service instance does not support capability completions",
+        ));
 
         assert_eq!(error.status, StatusCode::CONFLICT);
-        assert_eq!(error.code, "MCP_CAPABILITY_UNSUPPORTED");
-        assert!(error
-            .details
-            .as_ref()
-            .and_then(|details| details.get("message"))
-            .and_then(Value::as_str)
-            .is_some_and(|message| message.contains("completions")));
+        assert_eq!(error.code, "capability_unsupported");
+    }
+
+    #[test]
+    fn every_failure_code_has_an_http_status() {
+        for code in FailureCode::ALL {
+            let status = http_status(code);
+            assert!(
+                (400..=599).contains(&status.as_u16()),
+                "{code} mapped to {status}"
+            );
+        }
     }
 }

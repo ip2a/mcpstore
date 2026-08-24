@@ -1,3 +1,4 @@
+use mcpstore::error::{Error, ErrorContext, FailureCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -38,6 +39,38 @@ impl DaemonRequest {
     }
 }
 
+/// Structured error carried on the daemon wire protocol.
+/// Mirrors `mcpstore::Error` (code + context); the source chain is not
+/// serializable and stays daemon-side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonError {
+    pub code: FailureCode,
+    pub message: String,
+    pub context: ErrorContext,
+}
+
+impl DaemonError {
+    pub fn new(code: FailureCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            context: ErrorContext::None,
+        }
+    }
+
+    pub fn from_error(error: &Error) -> Self {
+        Self {
+            code: error.code(),
+            message: error.message().to_string(),
+            context: error.context().clone(),
+        }
+    }
+
+    pub fn into_error(self) -> Error {
+        Error::new(self.code, self.message).with_context(self.context)
+    }
+}
+
 /// A response sent from the daemon back to the CLI client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonResponse {
@@ -45,7 +78,7 @@ pub struct DaemonResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<DaemonError>,
 }
 
 impl DaemonResponse {
@@ -57,11 +90,11 @@ impl DaemonResponse {
         }
     }
 
-    pub fn err(message: impl Into<String>) -> Self {
+    pub fn err(error: impl Into<DaemonError>) -> Self {
         Self {
             success: false,
             data: None,
-            error: Some(message.into()),
+            error: Some(error.into()),
         }
     }
 
