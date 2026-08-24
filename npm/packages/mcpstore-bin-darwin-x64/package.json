@@ -1,6 +1,6 @@
 {
   "name": "mcpstore-bin-darwin-x64",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "MCPStore CLI platform package for macOS x64",
   "license": "MIT",
   "repository": {
