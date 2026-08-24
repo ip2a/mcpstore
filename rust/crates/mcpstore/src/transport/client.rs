@@ -17,6 +17,16 @@ use std::sync::Arc;
 
 pub(super) type McpClient = RunningService<RoleClient, McpStoreClientHandler>;
 
+fn ping_method_not_found(error: &rmcp::service::ServiceError) -> bool {
+    matches!(
+        error,
+        rmcp::service::ServiceError::McpError(rmcp::model::ErrorData {
+            code: rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+            ..
+        })
+    )
+}
+
 enum ActiveClient {
     Stdio(McpClient),
     Http(McpClient),
@@ -206,14 +216,21 @@ impl McpConnection {
 
     pub async fn ping(&self, timeout: std::time::Duration) -> Result<()> {
         let client = self.get_client()?;
-        tokio::time::timeout(
+        let result = tokio::time::timeout(
             timeout,
             client.send_request(ClientRequest::PingRequest(PingRequest::default())),
         )
         .await
-        .map_err(|_| TransportError::RequestTimedOut { timeout })?
-        .map_err(|error| TransportError::Protocol(format!("MCP ping failed: {error}")))?;
-        Ok(())
+        .map_err(|_| TransportError::RequestTimedOut { timeout })?;
+        match result {
+            Ok(_) => Ok(()),
+            // A correlated JSON-RPC error proves the transport and server are
+            // alive. Some deployed servers do not implement optional ping.
+            Err(error) if ping_method_not_found(&error) => Ok(()),
+            Err(error) => Err(TransportError::Protocol(format!(
+                "MCP ping failed: {error}"
+            ))),
+        }
     }
 
     pub(in crate::transport) fn get_client(&self) -> Result<&McpClient> {
@@ -248,6 +265,16 @@ impl McpConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ping_method_not_found_means_server_responded() {
+        let error = rmcp::service::ServiceError::McpError(rmcp::model::ErrorData::new(
+            rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+            "method not found: ping",
+            None,
+        ));
+        assert!(ping_method_not_found(&error));
+    }
     use crate::events::EventBus;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
     use crate::registry::ServiceRegistry;

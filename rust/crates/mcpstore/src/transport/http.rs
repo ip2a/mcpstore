@@ -37,10 +37,18 @@ pub(super) async fn connect(
     let mut custom_headers = std::collections::HashMap::new();
     for (key, value) in &config.headers {
         let header_name = ::http::HeaderName::from_bytes(key.as_bytes()).map_err(|err| {
-            connect_failed(name, url, format!("Invalid HTTP header name '{key}': {err}"))
+            connect_failed(
+                name,
+                url,
+                format!("Invalid HTTP header name '{key}': {err}"),
+            )
         })?;
         let header_value = ::http::HeaderValue::from_str(value).map_err(|err| {
-            connect_failed(name, url, format!("Invalid HTTP header value '{value}': {err}"))
+            connect_failed(
+                name,
+                url,
+                format!("Invalid HTTP header value '{value}': {err}"),
+            )
         })?;
         custom_headers.insert(header_name, header_value);
     }
@@ -71,7 +79,11 @@ pub(super) async fn connect(
             ),
         })?;
     let http_client = reqwest::Client::builder().build().map_err(|error| {
-        connect_failed(name, url, format!("HTTP client initialization failed: {error}"))
+        connect_failed(
+            name,
+            url,
+            format!("HTTP client initialization failed: {error}"),
+        )
     })?;
     let oauth_client = McpStoreOAuthClient::new(
         http_client,
