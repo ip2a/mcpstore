@@ -6,8 +6,8 @@ use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::stdio::StdioProcess;
+use crate::error::{Error, ErrorContext, FailureCode, Result};
 use crate::transport::{http as http_transport, stdio as stdio_transport};
-use crate::transport::{Result, TransportError};
 
 pub use crate::transport::pool::ConnectionPool;
 
@@ -109,15 +109,16 @@ impl McpConnection {
         let result = match transport_type.as_str() {
             "stdio" => self.connect_stdio(supervisor).await,
             "streamable-http" | "http" => self.connect_http().await,
-            other => Err(TransportError::ConnectionFailed(format!(
-                "Unsupported transport type: {other}"
-            ))),
+            other => Err(Error::new(
+                FailureCode::ConnectionUnsupported,
+                format!("Unsupported transport type: {other}"),
+            )),
         };
         if let Err(error) = &result {
             // The transport layer logs the failure detail; this line exists so
             // failures can be found by service or instance. Auth outcomes are
             // a normal login flow, not a connection failure, so they stay out.
-            if matches!(error, TransportError::ConnectionFailed(_)) {
+            if matches!(error.code().category(), crate::error::FailureCategory::Connection | crate::error::FailureCategory::Handshake) {
                 tracing::warn!(
                     service = %self.name,
                     transport = transport_type,
@@ -188,8 +189,15 @@ impl McpConnection {
     ) -> Result<crate::transport::McpElicitationSession> {
         self.handler
             .open_elicitation_session(options)
-            .map_err(|()| TransportError::ElicitationSessionActive {
-                instance_id: self.instance_id,
+            .map_err(|()| {
+                Error::new(
+                    FailureCode::ElicitationInvalidResponse,
+                    format!("an elicitation session is already active for service instance {}", self.instance_id),
+                )
+                .with_context(ErrorContext::Service {
+                    instance_id: self.instance_id,
+                    service_name: self.name.clone(),
+                })
             })
     }
 
@@ -207,10 +215,10 @@ impl McpConnection {
 
     pub(in crate::transport) fn peer_info(&self) -> Result<Arc<ServerPeerInfo>> {
         self.get_client()?.peer_info().ok_or_else(|| {
-            TransportError::Protocol(format!(
-                "MCP handshake metadata unavailable for {}",
-                self.name
-            ))
+            Error::new(
+                FailureCode::HandshakeFailed,
+                format!("MCP handshake metadata unavailable for {}", self.name),
+            )
         })
     }
 
@@ -221,15 +229,21 @@ impl McpConnection {
             client.send_request(ClientRequest::PingRequest(PingRequest::default())),
         )
         .await
-        .map_err(|_| TransportError::RequestTimedOut { timeout })?;
+        .map_err(|_| {
+            Error::new(
+                FailureCode::CallTimedOut,
+                format!("MCP request timed out after {timeout:?}"),
+            )
+        })?;
         match result {
             Ok(_) => Ok(()),
             // A correlated JSON-RPC error proves the transport and server are
             // alive. Some deployed servers do not implement optional ping.
             Err(error) if ping_method_not_found(&error) => Ok(()),
-            Err(error) => Err(TransportError::Protocol(format!(
-                "MCP ping failed: {error}"
-            ))),
+            Err(error) => Err(Error::new(
+                FailureCode::ToolFailed,
+                format!("MCP ping failed: {error}"),
+            )),
         }
     }
 
@@ -237,26 +251,39 @@ impl McpConnection {
         match &self.client {
             Some(ActiveClient::Stdio(c)) => Ok(c),
             Some(ActiveClient::Http(c)) => Ok(c),
-            None => Err(TransportError::NotConnected(self.name.clone())),
+            None => Err(Error::new(
+                FailureCode::NotConnected,
+                format!("Not connected: {}", self.name),
+            )),
         }
     }
 
-    pub(in crate::transport) async fn classify_client_failure(
-        &self,
-        fallback: TransportError,
-    ) -> TransportError {
+    pub(in crate::transport) async fn classify_client_failure(&self, fallback: Error) -> Error {
         if self.config.auth.is_none() {
             return fallback;
         }
         match self.auth_coordinator.status(self.instance_id).await {
-            AuthStatus::Unauthenticated => TransportError::AuthRequired(
-                self.auth_coordinator
-                    .auth_required(self.instance_id, &self.config.auth),
-            ),
-            AuthStatus::ScopeUpgradeRequired => TransportError::InsufficientScope {
-                instance_id: self.instance_id,
-                required_scope: self.auth_coordinator.required_scope(self.instance_id).await,
-            },
+            AuthStatus::Unauthenticated => {
+                let required = self
+                    .auth_coordinator
+                    .auth_required(self.instance_id, &self.config.auth);
+                Error::new(FailureCode::ConnectionAuthRequired, required.to_string())
+                    .with_context(ErrorContext::Auth { required })
+            }
+            AuthStatus::ScopeUpgradeRequired => {
+                let required_scope = self.auth_coordinator.required_scope(self.instance_id).await;
+                Error::new(
+                    FailureCode::ConnectionScope,
+                    format!(
+                        "insufficient OAuth scope for service instance {}, required: {required_scope:?}",
+                        self.instance_id
+                    ),
+                )
+                .with_context(ErrorContext::Scope {
+                    instance_id: self.instance_id,
+                    required_scope,
+                })
+            }
             _ => fallback,
         }
     }
@@ -302,11 +329,8 @@ mod tests {
 
         let error = connection.connect(None).await.unwrap_err();
 
-        assert!(matches!(
-            error,
-            TransportError::ConnectionFailed(message)
-                if message == "Unsupported transport type: sse"
-        ));
+        assert_eq!(error.code(), FailureCode::ConnectionUnsupported);
+        assert_eq!(error.message(), "Unsupported transport type: sse");
         assert!(!connection.is_connected());
     }
 }

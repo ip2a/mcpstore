@@ -344,7 +344,7 @@ mod tests {
             _instance_id: InstanceId,
             _kind: ProbeKind,
             _timeout: std::time::Duration,
-        ) -> crate::transport::Result<()> {
+        ) -> crate::error::Result<()> {
             Ok(())
         }
     }

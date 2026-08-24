@@ -16,7 +16,9 @@ use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
 use crate::transport::content::content_item_from_rmcp;
 use crate::transport::handler::McpStoreClientHandler;
-use crate::transport::{McpTask, McpToolExecution, Result, ToolCallResult, TransportError};
+use crate::error::{Error, FailureCode};
+use crate::transport::{McpTask, McpToolExecution, ToolCallResult};
+use crate::error::Result;
 
 const EXECUTION_UPDATE_BUFFER: usize = 64;
 
@@ -122,8 +124,9 @@ impl McpToolExecutionHandle {
                 return result;
             }
         }
-        Err(TransportError::Protocol(
-            "tool execution ended without a result".to_string(),
+        Err(Error::new(
+            FailureCode::ToolFailed,
+            "tool execution ended without a result",
         ))
     }
 }
@@ -268,9 +271,10 @@ async fn drive_tool_request(
             return execution_from_response(response, accepts_task, operation);
         };
         if round + 1 == DEFAULT_MRTR_MAX_ROUNDS {
-            return Err(TransportError::Protocol(format!(
-                "{operation} exceeded {DEFAULT_MRTR_MAX_ROUNDS} MRTR input rounds"
-            )));
+            return Err(Error::new(
+                FailureCode::ToolFailed,
+                format!("{operation} exceeded {DEFAULT_MRTR_MAX_ROUNDS} MRTR input rounds"),
+            ));
         }
 
         let mut input = Box::pin(prepare_input_required_retry(
@@ -283,7 +287,13 @@ async fn drive_tool_request(
         let (input_responses, request_state) = tokio::select! {
             result = &mut input => result?,
             reason = &mut cancellation, if cancellation_open => {
-                return Err(TransportError::RequestCancelled { reason: reason.ok().flatten() });
+                return Err(Error::new(
+                    FailureCode::CallCancelled,
+                    format!(
+                        "MCP request cancelled{}",
+                        reason.ok().flatten().map(|r| format!(": {r}")).unwrap_or_default()
+                    ),
+                ));
             }
         };
         params.input_responses = input_responses;
@@ -433,9 +443,10 @@ async fn prepare_input_required_retry(
         .as_ref()
         .is_some_and(|requests| !requests.is_empty());
     if !had_input_requests && result.request_state.is_none() {
-        return Err(TransportError::Protocol(format!(
-            "{operation} returned input_required without inputRequests or requestState"
-        )));
+        return Err(Error::new(
+            FailureCode::ToolFailed,
+            format!("{operation} returned input_required without inputRequests or requestState"),
+        ));
     }
 
     let mut responses = InputResponses::new();
@@ -466,9 +477,10 @@ async fn fulfill_input_request(
     operation: &str,
 ) -> Result<serde_json::Value> {
     let InputRequest::Elicitation(request) = request else {
-        return Err(TransportError::Protocol(format!(
-            "{operation} requested an MRTR input capability MCPStore did not declare"
-        )));
+        return Err(Error::new(
+            FailureCode::ToolFailed,
+            format!("{operation} requested an MRTR input capability MCPStore did not declare"),
+        ));
     };
     let mut request = ServerRequest::ElicitRequest(request);
     let mut context =
@@ -482,14 +494,16 @@ async fn fulfill_input_request(
         .create_elicitation(request.params, context)
         .await
         .map_err(|error| {
-            TransportError::Protocol(format!(
-                "{operation} failed to fulfill MRTR input {key}: {error}"
-            ))
+            Error::new(
+                FailureCode::ToolFailed,
+                format!("{operation} failed to fulfill MRTR input {key}: {error}"),
+            )
         })?;
     serde_json::to_value(response).map_err(|error| {
-        TransportError::Protocol(format!(
-            "{operation} failed to serialize MRTR input {key}: {error}"
-        ))
+        Error::new(
+            FailureCode::ToolFailed,
+            format!("{operation} failed to serialize MRTR input {key}: {error}"),
+        )
     })
 }
 
@@ -515,9 +529,10 @@ fn execution_from_response(
         ServerResult::CreateTaskResult(result) if accepts_task => Ok(McpToolExecution::Task {
             task: McpTask::from(result.task),
         }),
-        _ => Err(TransportError::Protocol(format!(
-            "{operation} returned an unexpected response"
-        ))),
+        _ => Err(Error::new(
+            FailureCode::ToolFailed,
+            format!("{operation} returned an unexpected response"),
+        )),
     }
 }
 
@@ -525,17 +540,34 @@ pub(crate) fn map_service_error(
     instance_id: InstanceId,
     operation: &str,
     error: rmcp::ServiceError,
-) -> TransportError {
+) -> Error {
     match error {
-        rmcp::ServiceError::Cancelled { reason } => TransportError::RequestCancelled { reason },
-        rmcp::ServiceError::Timeout { timeout } => TransportError::RequestTimedOut { timeout },
+        rmcp::ServiceError::Cancelled { reason } => Error::new(
+            FailureCode::CallCancelled,
+            format!(
+                "MCP request cancelled{}",
+                reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default()
+            ),
+        ),
+        rmcp::ServiceError::Timeout { timeout } => Error::new(
+            FailureCode::CallTimedOut,
+            format!("MCP request timed out after {timeout:?}"),
+        ),
         rmcp::ServiceError::TransportClosed | rmcp::ServiceError::TransportSend(_) => {
-            TransportError::RequestDisconnected { instance_id }
+            Error::new(
+                FailureCode::CallDisconnected,
+                format!("MCP request disconnected for service instance {instance_id}"),
+            )
+            .with_context(crate::error::ErrorContext::Service {
+                instance_id,
+                service_name: String::new(),
+            })
         }
-        rmcp::ServiceError::UnexpectedResponse => {
-            TransportError::Protocol(format!("{operation} returned an unexpected response"))
-        }
-        error => TransportError::ToolCallFailed(format!("{operation} failed: {error}")),
+        rmcp::ServiceError::UnexpectedResponse => Error::new(
+            FailureCode::ToolFailed,
+            format!("{operation} returned an unexpected response"),
+        ),
+        error => Error::new(FailureCode::ToolFailed, format!("{operation} failed: {error}")),
     }
 }
 
@@ -543,24 +575,35 @@ async fn classify_auth_failure(
     instance_id: InstanceId,
     auth_coordinator: &AuthCoordinator,
     auth: &AuthConfig,
-    fallback: TransportError,
-) -> TransportError {
+    fallback: Error,
+) -> Error {
     if auth.is_none()
         || matches!(
-            fallback,
-            TransportError::RequestCancelled { .. } | TransportError::RequestTimedOut { .. }
+            fallback.code(),
+            FailureCode::CallCancelled | FailureCode::CallTimedOut
         )
     {
         return fallback;
     }
     match auth_coordinator.status(instance_id).await {
         AuthStatus::Unauthenticated => {
-            TransportError::AuthRequired(auth_coordinator.auth_required(instance_id, auth))
+            let required = auth_coordinator.auth_required(instance_id, auth);
+            Error::new(FailureCode::ConnectionAuthRequired, required.to_string())
+                .with_context(crate::error::ErrorContext::Auth { required })
         }
-        AuthStatus::ScopeUpgradeRequired => TransportError::InsufficientScope {
-            instance_id,
-            required_scope: auth_coordinator.required_scope(instance_id).await,
-        },
+        AuthStatus::ScopeUpgradeRequired => {
+            let required_scope = auth_coordinator.required_scope(instance_id).await;
+            Error::new(
+                FailureCode::ConnectionScope,
+                format!(
+                    "insufficient OAuth scope for service instance {instance_id}, required: {required_scope:?}"
+                ),
+            )
+            .with_context(crate::error::ErrorContext::Scope {
+                instance_id,
+                required_scope,
+            })
+        }
         _ => fallback,
     }
 }
@@ -763,8 +806,9 @@ mod tests {
         }
         (
             progress,
-            Err(TransportError::Protocol(
-                "fixture execution ended without a result".to_string(),
+            Err(Error::new(
+                FailureCode::ToolFailed,
+                "fixture execution ended without a result",
             )),
         )
     }
@@ -855,7 +899,7 @@ mod tests {
             .await
             .unwrap();
         let error = handle.wait().await.unwrap_err();
-        assert!(matches!(error, TransportError::RequestTimedOut { .. }));
+        assert_eq!(error.code(), FailureCode::CallTimedOut);
         tokio::time::timeout(Duration::from_secs(1), state.cancelled.notified())
             .await
             .unwrap();
@@ -882,7 +926,7 @@ mod tests {
             .await
             .unwrap();
         let error = handle.wait().await.unwrap_err();
-        assert!(matches!(error, TransportError::RequestTimedOut { .. }));
+        assert_eq!(error.code(), FailureCode::CallTimedOut);
         tokio::time::timeout(Duration::from_secs(1), state.cancelled.notified())
             .await
             .unwrap();
@@ -912,11 +956,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap_err();
-        assert!(matches!(
-            error,
-            TransportError::RequestDisconnected { instance_id }
-                if instance_id == connection.instance_id()
-        ));
+        assert_eq!(error.code(), FailureCode::CallDisconnected);
+        assert!(error
+            .message()
+            .contains(&connection.instance_id().to_string()));
 
         connection.disconnect().await.unwrap();
     }
@@ -938,12 +981,8 @@ mod tests {
             .unwrap();
         assert!(handle.cancel("user interrupt"));
         let error = handle.wait().await.unwrap_err();
-        assert!(matches!(
-            error,
-            TransportError::RequestCancelled {
-                reason: Some(ref reason)
-            } if reason == "user interrupt"
-        ));
+        assert_eq!(error.code(), FailureCode::CallCancelled);
+        assert_eq!(error.message(), "MCP request cancelled: user interrupt");
         tokio::time::timeout(Duration::from_secs(1), state.cancelled.notified())
             .await
             .unwrap();

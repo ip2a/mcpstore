@@ -6,11 +6,11 @@ use std::sync::{
 };
 
 use crate::config::ServerConfig;
+use crate::error::{Error, FailureCode};
 use crate::health::supervisor::InstanceSupervisor;
 use crate::identity::InstanceId;
 use crate::transport::client::McpClient;
 use crate::transport::handler::McpStoreClientHandler;
-use crate::transport::{Result, TransportError};
 
 use rmcp::transport::async_rw::AsyncRwTransport;
 use rmcp::RoleClient;
@@ -47,9 +47,12 @@ pub(super) async fn connect(
     handler: McpStoreClientHandler,
     instance_id: InstanceId,
     supervisor: Option<Arc<InstanceSupervisor>>,
-) -> Result<(McpClient, StdioProcess)> {
+) -> crate::error::Result<(McpClient, StdioProcess)> {
     let command = config.command.as_deref().ok_or_else(|| {
-        TransportError::ConnectionFailed(format!("Service {name} missing command field"))
+        Error::new(
+            FailureCode::ConnectionUnsupported,
+            format!("Service {name} missing command field"),
+        )
     })?;
 
     let mut cmd = tokio::process::Command::new(command);
@@ -65,13 +68,23 @@ pub(super) async fn connect(
         .stderr(std::process::Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|err| {
-        TransportError::ConnectionFailed(format!("Failed to spawn child process: {err}"))
+        Error::new(
+            FailureCode::ConnectionSpawnFailed,
+            format!("Failed to spawn child process: {err}"),
+        )
+        .with_source(err)
     })?;
     let stdout = child.stdout.take().ok_or_else(|| {
-        TransportError::ConnectionFailed(format!("stdio child for {name} has no stdout"))
+        Error::new(
+            FailureCode::ConnectionSpawnFailed,
+            format!("stdio child for {name} has no stdout"),
+        )
     })?;
     let stdin = child.stdin.take().ok_or_else(|| {
-        TransportError::ConnectionFailed(format!("stdio child for {name} has no stdin"))
+        Error::new(
+            FailureCode::ConnectionSpawnFailed,
+            format!("stdio child for {name} has no stdin"),
+        )
     })?;
     let stderr = child.stderr.take();
 
@@ -183,7 +196,14 @@ pub(super) async fn connect(
                     tail.join("\n")
                 );
             }
-            return Err(TransportError::ConnectionFailed(detail));
+            // Preserve rmcp's structured classification (fallback-eligible
+            // handshake codes survive); swap only the message for the
+            // user-facing detail with the child's stderr tail.
+            let classified = crate::transport::handshake_error(
+                config.handshake_mode(),
+                err,
+            );
+            return Err(Error::new(classified.code(), detail).with_context(classified.context().clone()));
         }
     };
 

@@ -8,7 +8,7 @@
 //! `context` carries per-command fields (instance_id, tool_name, task_id).
 
 use clap::ValueEnum;
-use mcpstore::transport::TransportError;
+use mcpstore::error::FailureCode;
 use mcpstore::StoreError;
 use serde_json::{json, Map, Value};
 
@@ -154,29 +154,32 @@ impl ErrorCode {
             StoreError::ToolNotAvailable { .. } => Self::InvalidInput,
             StoreError::ServiceNotFound(_) => Self::ServiceNotFound,
             StoreError::Auth(_) => Self::AuthenticationRequired,
-            StoreError::Transport(error) => match error {
-                TransportError::InvalidInput(_) => Self::InvalidInput,
-                TransportError::AuthRequired(_) | TransportError::InsufficientScope { .. } => {
-                    Self::AuthenticationRequired
+            StoreError::Transport(error) => match error.code() {
+                FailureCode::InvalidInput => Self::InvalidInput,
+                FailureCode::ConnectionAuthRequired
+                | FailureCode::ConnectionScope
+                | FailureCode::AuthFailed
+                | FailureCode::OauthProviderFailed
+                | FailureCode::SecureStorageUnavailable => Self::AuthenticationRequired,
+                FailureCode::CapabilityUnsupported => Self::CapabilityUnsupported,
+                FailureCode::CallCancelled => Self::Cancelled,
+                FailureCode::CallTimedOut => Self::TimedOut,
+                FailureCode::CallDisconnected => Self::Disconnected,
+                FailureCode::TaskNotFound => Self::TaskNotFound,
+                FailureCode::TaskStateFailed => Self::TaskStateFailed,
+                FailureCode::ElicitationInputRequired => Self::ElicitationInputRequired,
+                FailureCode::ElicitationCancelled => Self::ElicitationCancelled,
+                FailureCode::ElicitationTimedOut => Self::ElicitationTimedOut,
+                FailureCode::ElicitationInvalidResponse => Self::ElicitationInvalidResponse,
+                FailureCode::ToolFailed | FailureCode::TaskFailed | FailureCode::TaskUnavailable => {
+                    match domain {
+                        Domain::Task => Self::CommandFailed,
+                        _ => Self::ToolFailed,
+                    }
                 }
-                TransportError::CapabilityUnsupported { .. } => Self::CapabilityUnsupported,
-                TransportError::RequestCancelled { .. } => Self::Cancelled,
-                TransportError::RequestTimedOut { .. } => Self::TimedOut,
-                TransportError::RequestDisconnected { .. } => Self::Disconnected,
-                TransportError::ConnectionFailed(_)
-                | TransportError::NotConnected(_)
-                | TransportError::Io(_) => Self::ConnectionFailed,
-                TransportError::ToolCallFailed(_) => match domain {
-                    Domain::Task => Self::CommandFailed,
-                    _ => Self::ToolFailed,
-                },
-                TransportError::Protocol(_) => match domain {
-                    Domain::Task => Self::TaskProtocolFailed,
-                    _ => Self::ProtocolFailed,
-                },
-                TransportError::ElicitationSessionActive { .. } => Self::ElicitationInvalidResponse,
-                TransportError::TaskNotFound { .. } => Self::TaskNotFound,
-                TransportError::TaskState(_) => Self::TaskStateFailed,
+                FailureCode::ConfigInvalid | FailureCode::ConnectionUnsupported => Self::InvalidInput,
+                FailureCode::SessionNotFound | FailureCode::SessionNotActive => Self::CommandFailed,
+                _ => Self::ConnectionFailed,
             },
             StoreError::Cache(_) => Self::TaskStateFailed,
             StoreError::Config(_) | StoreError::State(_) | StoreError::Other(_) => {

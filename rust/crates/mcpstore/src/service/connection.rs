@@ -334,7 +334,8 @@ impl MCPStore {
                 self.pool.list_tools(instance_id).await
             }
             Ok(Some(_)) => Ok(Vec::new()),
-            Ok(None) => Err(crate::transport::TransportError::NotConnected(
+            Ok(None) => Err(crate::error::Error::new(
+                crate::error::FailureCode::NotConnected,
                 instance_id.to_string(),
             )),
             Err(error) => Err(error),

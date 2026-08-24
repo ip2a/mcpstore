@@ -8,7 +8,7 @@ pub enum StoreError {
     #[error("Config error: {0}")]
     Config(#[from] crate::config::ConfigError),
     #[error("Transport error: {0}")]
-    Transport(#[from] crate::transport::TransportError),
+    Transport(#[from] crate::error::Error),
     #[error("Cache error: {0}")]
     Cache(#[from] crate::cache::CacheError),
     #[error("Service state error: {0}")]

@@ -1,7 +1,8 @@
 use crate::service::McpStoreToolExecutionHandle;
 use crate::store::prelude::*;
+use crate::error::{Error, ErrorContext, FailureCode};
 use crate::transport::{
-    McpExecutionOptions, McpTask, McpTaskRecord, McpToolExecution, TransportError,
+    McpExecutionOptions, McpTask, McpTaskRecord, McpToolExecution,
 };
 
 impl MCPStore {
@@ -93,10 +94,16 @@ impl MCPStore {
         self.require_instance(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
             return Err(StoreError::Transport(
-                TransportError::CapabilityUnsupported {
+                Error::new(
+                    FailureCode::CapabilityUnsupported,
+                    format!(
+                        "MCP service instance {instance_id} does not support capability tasks"
+                    ),
+                )
+                .with_context(ErrorContext::Service {
                     instance_id,
-                    capability: "tasks",
-                },
+                    service_name: String::new(),
+                }),
             ));
         }
         Ok(())
