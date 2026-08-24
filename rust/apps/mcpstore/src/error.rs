@@ -94,13 +94,15 @@ pub fn render(error: &Error, format: OutputFormat) -> String {
                     "retryable": error.retryable(),
                 },
             });
-            if let (Some(object), Ok(context)) = (
-                payload.as_object_mut(),
-                serde_json::to_value(error.context()),
-            ) {
-                if let Some(context) = context.as_object() {
-                    for (key, value) in context {
-                        object.insert(key.clone(), value.clone());
+            if !matches!(error.context(), ErrorContext::None) {
+                if let (Some(object), Ok(context)) = (
+                    payload.as_object_mut(),
+                    serde_json::to_value(error.context()),
+                ) {
+                    if let Some(context) = context.as_object() {
+                        for (key, value) in context {
+                            object.insert(key.clone(), value.clone());
+                        }
                     }
                 }
             }

@@ -492,6 +492,14 @@ mod tests {
         assert_eq!(info.message, "refused");
     }
 
+    fn persisted_failure_info_with_unknown_code_deserializes_as_internal() {
+        let info: FailureInfo = serde_json::from_str(
+            r#"{"phase":"Recovery","code":"some_future_code","retryable":false,"message":"x","since":1}"#,
+        )
+        .unwrap();
+        assert_eq!(info.code, crate::error::FailureCode::Internal);
+    }
+
     fn service_becomes_ready_only_after_transport_health_and_tools() {
         let mut state = state(DesiredState::Running);
         state.apply(ServiceStateEvent::StartRequested, 2).unwrap();
