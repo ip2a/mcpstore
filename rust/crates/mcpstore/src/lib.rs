@@ -8,6 +8,7 @@ pub mod config;
 pub mod config_formats;
 pub(crate) mod control;
 pub mod core;
+pub mod error;
 pub mod event_reactor;
 pub mod events;
 pub mod facade;
@@ -100,6 +101,9 @@ pub use state::{
     ServiceStateEvent, ServiceStateManager, ServiceStateManagerError, ToolAvailability,
     ToolStateItem, ToolsState, ToolsStatus,
 };
+
+// Facade re-exports: unified errors
+pub use error::{Error, ErrorContext, FailureCategory, FailureCode, RecoveryPolicy};
 
 // Facade re-exports: core store
 pub use core::{Result, StoreError};
