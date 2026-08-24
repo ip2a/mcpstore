@@ -8,17 +8,16 @@ use crate::health::supervisor::InstanceSupervisor;
 
 use crate::auth::AuthCoordinator;
 use crate::config::ServerConfig;
+use crate::error::Result;
+use crate::error::{Error, FailureCode};
 use crate::events::EventBus;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
-use crate::error::{Error, FailureCode};
 use crate::transport::client::McpConnection;
-use crate::error::Result;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
     McpCompletion, McpCompletionRequest, McpExecutionOptions, McpServerMetadata, McpTask,
-    McpTaskRecord, McpToolExecution, McpToolExecutionHandle, TaskStateStore,
-    ToolCallResult,
+    McpTaskRecord, McpToolExecution, McpToolExecutionHandle, TaskStateStore, ToolCallResult,
 };
 
 pub struct ConnectionPool {
@@ -92,9 +91,9 @@ impl ConnectionPool {
             let mut conns = self.connections.write().await;
             let conn = conns.get_mut(&instance_id).ok_or_else(|| {
                 Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
+                    FailureCode::NotConnected,
+                    format!("Service instance not found: {instance_id}"),
+                )
             })?;
             if conn.is_connected() {
                 true
@@ -194,9 +193,9 @@ impl ConnectionPool {
             let conns = self.connections.read().await;
             let conn = conns.get(&instance_id).ok_or_else(|| {
                 Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
+                    FailureCode::NotConnected,
+                    format!("Service instance not found: {instance_id}"),
+                )
             })?;
             conn.get_task(task_id).await?
         };
@@ -213,9 +212,9 @@ impl ConnectionPool {
             let conns = self.connections.read().await;
             let conn = conns.get(&instance_id).ok_or_else(|| {
                 Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
+                    FailureCode::NotConnected,
+                    format!("Service instance not found: {instance_id}"),
+                )
             })?;
             conn.get_task_result(task_id).await
         };
@@ -230,9 +229,9 @@ impl ConnectionPool {
             let conns = self.connections.read().await;
             let conn = conns.get(&instance_id).ok_or_else(|| {
                 Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
+                    FailureCode::NotConnected,
+                    format!("Service instance not found: {instance_id}"),
+                )
             })?;
             conn.cancel_task(task_id).await
         };
@@ -503,12 +502,7 @@ impl ConnectionPool {
             .map_err(|error| Error::new(FailureCode::TaskStateFailed, error.to_string()))
     }
 
-    async fn record_task_error(
-        &self,
-        instance_id: InstanceId,
-        task_id: &str,
-        error: &Error,
-    ) {
+    async fn record_task_error(&self, instance_id: InstanceId, task_id: &str, error: &Error) {
         if let Err(state_error) = self
             .task_state
             .record_error(instance_id, task_id, error.to_string())

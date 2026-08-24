@@ -105,9 +105,10 @@ impl MCPStore {
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
         if self.registry.find_definition(name).await.is_some() {
-            return Err(StoreError::Other(format!(
-                "Service definition already exists: {name}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Service definition already exists: {name}"),
+            ));
         }
 
         let client = openapi_http_client(options.fetch_timeout_millis)?;
@@ -124,7 +125,10 @@ impl MCPStore {
             .await?;
         let now = chrono::Utc::now().timestamp();
         let value = serde_json::to_value(&result).map_err(|err| {
-            StoreError::Other(format!("OpenAPI import result serialization failed: {err}"))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI import result serialization failed: {err}"),
+            )
         })?;
         self.cache.put_state("openapi_imports", name, value).await?;
         let context = OpenApiImportContextState {
@@ -137,9 +141,10 @@ impl MCPStore {
                 OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                 OPENAPI_IMPORT_CONTEXT_KEY,
                 serde_json::to_value(context).map_err(|err| {
-                    StoreError::Other(format!(
-                        "OpenAPI import context serialization failed: {err}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI import context serialization failed: {err}"),
+                    )
                 })?,
             )
             .await?;
@@ -329,7 +334,10 @@ impl MCPStore {
         };
         let config_value = openapi_config_value(&config, options)?;
         let base_config = config_value.as_object().cloned().ok_or_else(|| {
-            StoreError::Other("OpenAPI service config must serialize as an object".to_string())
+            Error::new(
+                FailureCode::Internal,
+                "OpenAPI service config must serialize as an object".to_string(),
+            )
         })?;
         let scopes = ScopeDeclarations::store_only();
         let definition = ServiceDefinition {
@@ -372,9 +380,10 @@ impl MCPStore {
             return Ok(None);
         };
         serde_json::from_value(value).map(Some).map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI import result deserialization failed: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI import result deserialization failed: {err}"),
+            )
         })
     }
 
@@ -383,9 +392,10 @@ impl MCPStore {
         let mut imports: Vec<OpenApiImportResult> = Vec::with_capacity(values.len());
         for value in values.into_values() {
             imports.push(serde_json::from_value(value).map_err(|err| {
-                StoreError::Other(format!(
-                    "OpenAPI import result deserialization failed: {err}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI import result deserialization failed: {err}"),
+                )
             })?);
         }
         imports.sort_by(|left, right| left.service_name.cmp(&right.service_name));
@@ -404,9 +414,10 @@ impl MCPStore {
             return Ok(None);
         };
         let context: OpenApiImportContextState = serde_json::from_value(value).map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI import context deserialization failed: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI import context deserialization failed: {err}"),
+            )
         })?;
         self.get_openapi_import(&context.last_service_name).await
     }
@@ -424,9 +435,10 @@ impl MCPStore {
             return Ok(());
         };
         let context: OpenApiImportContextState = serde_json::from_value(value).map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI import context deserialization failed: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI import context deserialization failed: {err}"),
+            )
         })?;
         if context.last_service_name == name {
             self.cache
@@ -446,7 +458,10 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<OpenApiImportOptions> {
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         let applied_config = self
             .applied_openapi_configs
@@ -455,15 +470,17 @@ impl MCPStore {
             .get(&instance_id)
             .cloned()
             .ok_or_else(|| {
-                StoreError::Other(format!(
-                    "OpenAPI instance {instance_id} has no applied runtime config"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI instance {instance_id} has no applied runtime config"),
+                )
             })?;
         let config_value = serde_json::Value::Object(applied_config);
         let config: ServerConfig = serde_json::from_value(config_value.clone()).map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI instance config deserialization failed for {instance_id}: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI instance config deserialization failed for {instance_id}: {err}"),
+            )
         })?;
         let auth = config_value
             .get("openapi_auth")
@@ -490,7 +507,12 @@ fn openapi_http_client(timeout_millis: u64) -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(Duration::from_millis(timeout_millis.max(1)))
         .build()
-        .map_err(|err| StoreError::Other(format!("OpenAPI HTTP client creation failed: {err}")))
+        .map_err(|err| {
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI HTTP client creation failed: {err}"),
+            )
+        })
 }
 
 async fn bundle_openapi_external_refs(
@@ -541,12 +563,27 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
             .get(spec_url)
             .send()
             .await
-            .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
+            .map_err(|err| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI spec fetch failed: {err}"),
+                )
+            })?
             .error_for_status()
-            .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
+            .map_err(|err| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI spec fetch failed: {err}"),
+                )
+            })?
             .text()
             .await
-            .map_err(|err| StoreError::Other(format!("OpenAPI spec body read failed: {err}")));
+            .map_err(|err| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI spec body read failed: {err}"),
+                )
+            });
     }
 
     if spec_url.starts_with("file://") || reqwest::Url::parse(spec_url).is_err() {
@@ -554,9 +591,10 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
         return read_openapi_document_file(&path, spec_url);
     }
 
-    Err(StoreError::Other(format!(
-        "Unsupported OpenAPI spec URL: {spec_url}"
-    )))
+    Err(Error::new(
+        FailureCode::Internal,
+        format!("Unsupported OpenAPI spec URL: {spec_url}"),
+    ))
 }
 
 struct OpenApiExternalRefResolver<'a> {
@@ -631,20 +669,27 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         bundle: serde_json::Value,
     ) -> Result<OpenApiBundleArtifact> {
         let mut urls = self.loaded_documents.into_inner().map_err(|_| {
-            StoreError::Other("OpenAPI bundle document list lock poisoned".to_string())
+            Error::new(
+                FailureCode::Internal,
+                "OpenAPI bundle document list lock poisoned".to_string(),
+            )
         })?;
         urls.sort();
         urls.dedup();
         let document_metadata = self.document_metadata.into_inner().map_err(|_| {
-            StoreError::Other("OpenAPI bundle document metadata lock poisoned".to_string())
+            Error::new(
+                FailureCode::Internal,
+                "OpenAPI bundle document metadata lock poisoned".to_string(),
+            )
         })?;
         let documents = urls
             .into_iter()
             .map(|url| {
                 let metadata = document_metadata.get(&url).cloned().ok_or_else(|| {
-                    StoreError::Other(format!(
-                        "OpenAPI bundle document metadata missing for {url}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI bundle document metadata missing for {url}"),
+                    )
                 })?;
                 Ok(OpenApiBundleDocument {
                     role: if url == root_document {
@@ -660,10 +705,16 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             })
             .collect::<Result<Vec<_>>>()?;
         let dependencies = self.dependencies.into_inner().map_err(|_| {
-            StoreError::Other("OpenAPI bundle dependency list lock poisoned".to_string())
+            Error::new(
+                FailureCode::Internal,
+                "OpenAPI bundle dependency list lock poisoned".to_string(),
+            )
         })?;
         let diagnostics = self.diagnostics.into_inner().map_err(|_| {
-            StoreError::Other("OpenAPI bundle diagnostics lock poisoned".to_string())
+            Error::new(
+                FailureCode::Internal,
+                "OpenAPI bundle diagnostics lock poisoned".to_string(),
+            )
         })?;
         Ok(OpenApiBundleArtifact {
             spec_url,
@@ -683,7 +734,8 @@ impl<'a> OpenApiExternalRefResolver<'a> {
     ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value>> + Send + 'a>> {
         Box::pin(async move {
             if depth > MAX_EXTERNAL_REF_DEPTH {
-                return Err(StoreError::Other(
+                return Err(Error::new(
+                    FailureCode::Internal,
                     "OpenAPI external $ref resolution exceeded maximum depth".to_string(),
                 ));
             }
@@ -775,10 +827,13 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         if ref_stack.iter().any(|item| item == &ref_key) {
             let mut cycle = ref_stack;
             cycle.push(ref_key);
-            return Err(StoreError::Other(format!(
-                "OpenAPI external $ref cycle detected: {}",
-                cycle.join(" -> ")
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                    "OpenAPI external $ref cycle detected: {}",
+                    cycle.join(" -> ")
+                ),
+            ));
         }
 
         let mut next_stack = ref_stack;
@@ -789,9 +844,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             .await?;
         let target = if let Some(pointer) = pointer {
             bundled.pointer(&pointer).cloned().ok_or_else(|| {
-                StoreError::Other(format!(
-                    "OpenAPI external $ref target not found: {reference}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI external $ref target not found: {reference}"),
+                )
             })?
         } else {
             bundled.clone()
@@ -804,7 +860,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             .documents
             .lock()
             .map_err(|_| {
-                StoreError::Other("OpenAPI external $ref cache lock poisoned".to_string())
+                Error::new(
+                    FailureCode::Internal,
+                    "OpenAPI external $ref cache lock poisoned".to_string(),
+                )
             })?
             .get(target_url)
         {
@@ -844,9 +903,12 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             {
                 OpenApiHttpDocumentFetch::NotModified => {
                     let cached = cached_http_document.as_ref().ok_or_else(|| {
-                        StoreError::Other(format!(
+                        Error::new(
+                            FailureCode::Internal,
+                            format!(
                             "OpenAPI external $ref cache missing for 304 response: {target_url}"
-                        ))
+                        ),
+                        )
                     })?;
                     self.refresh_cached_http_document(target_url, cached)
                         .await?;
@@ -884,14 +946,16 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         } else if let Some(document_text) = file_document_text {
             document_text
         } else {
-            return Err(StoreError::Other(format!(
-                "Unsupported OpenAPI external $ref URL: {target_url}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Unsupported OpenAPI external $ref URL: {target_url}"),
+            ));
         };
         let document = parse_openapi_spec_text(&document_text).map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI external $ref document decode failed for {target_url}: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI external $ref document decode failed for {target_url}: {err}"),
+            )
         })?;
         let metadata = file_metadata
             .clone()
@@ -901,13 +965,19 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         self.record_document(target_url, document.clone())?;
         if is_http_url(target_url) && self.ref_cache.is_enabled() {
             let response = http_response.as_ref().ok_or_else(|| {
-                StoreError::Other(format!("OpenAPI HTTP response missing for {target_url}"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI HTTP response missing for {target_url}"),
+                )
             })?;
             self.store_cached_http_document(target_url, &document, &metadata, response)
                 .await?;
         } else if let Some(path) = &file_path {
             let fingerprint = file_fingerprint.as_ref().ok_or_else(|| {
-                StoreError::Other(format!("OpenAPI file fingerprint missing for {target_url}"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI file fingerprint missing for {target_url}"),
+                )
             })?;
             if self.ref_cache.is_enabled() {
                 self.store_cached_file_document(
@@ -938,17 +1008,19 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             }
         }
         let response = request.send().await.map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI external $ref fetch failed for {target_url}: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI external $ref fetch failed for {target_url}: {err}"),
+            )
         })?;
         if response.status() == reqwest::StatusCode::NOT_MODIFIED {
             return Ok(OpenApiHttpDocumentFetch::NotModified);
         }
         let response = response.error_for_status().map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI external $ref fetch failed for {target_url}: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI external $ref fetch failed for {target_url}: {err}"),
+            )
         })?;
         let etag = response
             .headers()
@@ -961,9 +1033,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             .and_then(|value| value.to_str().ok())
             .map(ToString::to_string);
         let text = response.text().await.map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI external $ref body read failed for {target_url}: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI external $ref body read failed for {target_url}: {err}"),
+            )
         })?;
         Ok(OpenApiHttpDocumentFetch::Modified(
             OpenApiHttpDocumentResponse {
@@ -1214,7 +1287,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         self.dependencies
             .lock()
             .map_err(|_| {
-                StoreError::Other("OpenAPI bundle dependency list lock poisoned".to_string())
+                Error::new(
+                    FailureCode::Internal,
+                    "OpenAPI bundle dependency list lock poisoned".to_string(),
+                )
             })?
             .push(OpenApiBundleDependency {
                 source_document: document_label(source_document),
@@ -1229,7 +1305,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         self.loaded_documents
             .lock()
             .map_err(|_| {
-                StoreError::Other("OpenAPI bundle document list lock poisoned".to_string())
+                Error::new(
+                    FailureCode::Internal,
+                    "OpenAPI bundle document list lock poisoned".to_string(),
+                )
             })?
             .push(target_url.to_string());
         Ok(())
@@ -1243,7 +1322,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         self.document_metadata
             .lock()
             .map_err(|_| {
-                StoreError::Other("OpenAPI bundle document metadata lock poisoned".to_string())
+                Error::new(
+                    FailureCode::Internal,
+                    "OpenAPI bundle document metadata lock poisoned".to_string(),
+                )
             })?
             .insert(target_url.to_string(), metadata);
         Ok(())
@@ -1253,7 +1335,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         self.documents
             .lock()
             .map_err(|_| {
-                StoreError::Other("OpenAPI external $ref cache lock poisoned".to_string())
+                Error::new(
+                    FailureCode::Internal,
+                    "OpenAPI external $ref cache lock poisoned".to_string(),
+                )
             })?
             .insert(target_url.to_string(), document);
         Ok(())
@@ -1274,9 +1359,10 @@ fn document_metadata_from_value(
     value: &serde_json::Value,
 ) -> Result<OpenApiBundleDocumentMetadata> {
     let bytes = serde_json::to_vec(value).map_err(|err| {
-        StoreError::Other(format!(
-            "OpenAPI bundle document metadata serialization failed: {err}"
-        ))
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI bundle document metadata serialization failed: {err}"),
+        )
     })?;
     Ok(document_metadata_from_bytes(&bytes))
 }
@@ -1290,26 +1376,30 @@ fn document_metadata_from_bytes(bytes: &[u8]) -> OpenApiBundleDocumentMetadata {
 
 fn file_document_fingerprint(path: &Path, label: &str) -> Result<OpenApiFileDocumentFingerprint> {
     let metadata = std::fs::metadata(path).map_err(|err| {
-        StoreError::Other(format!(
-            "OpenAPI file metadata read failed for {label}: {err}"
-        ))
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI file metadata read failed for {label}: {err}"),
+        )
     })?;
     let modified = metadata.modified().map_err(|err| {
-        StoreError::Other(format!(
-            "OpenAPI file modified time read failed for {label}: {err}"
-        ))
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI file modified time read failed for {label}: {err}"),
+        )
     })?;
     let duration = modified
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|err| {
-            StoreError::Other(format!(
-                "OpenAPI file modified time is before Unix epoch for {label}: {err}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI file modified time is before Unix epoch for {label}: {err}"),
+            )
         })?;
     let millis = i64::try_from(duration.as_millis()).map_err(|_| {
-        StoreError::Other(format!(
-            "OpenAPI file modified time is too large for {label}"
-        ))
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI file modified time is too large for {label}"),
+        )
     })?;
     Ok(OpenApiFileDocumentFingerprint {
         file_size: metadata.len(),
@@ -1326,9 +1416,10 @@ fn split_external_ref(document_url: &str, reference: &str) -> Result<(String, Op
     } else if target.starts_with("file://") || Path::new(target).is_absolute() {
         normalize_file_document_target(target)?
     } else if reqwest::Url::parse(target).is_ok() {
-        return Err(StoreError::Other(format!(
-            "Unsupported OpenAPI external $ref URL: {reference}"
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("Unsupported OpenAPI external $ref URL: {reference}"),
+        ));
     } else {
         join_external_ref_target(document_url, target, reference)?
     };
@@ -1337,9 +1428,10 @@ fn split_external_ref(document_url: &str, reference: &str) -> Result<(String, Op
     } else if fragment.starts_with('/') {
         Some(fragment.to_string())
     } else {
-        return Err(StoreError::Other(format!(
-            "Invalid OpenAPI external $ref fragment: {reference}"
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("Invalid OpenAPI external $ref fragment: {reference}"),
+        ));
     };
     Ok((target_url, pointer))
 }
@@ -1354,9 +1446,10 @@ fn normalize_document_target(document_url: &str) -> Result<String> {
     } else if document_url.starts_with("file://") || reqwest::Url::parse(document_url).is_err() {
         normalize_file_document_target(document_url)
     } else {
-        Err(StoreError::Other(format!(
-            "Unsupported OpenAPI external $ref URL: {document_url}"
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!("Unsupported OpenAPI external $ref URL: {document_url}"),
+        ))
     }
 }
 
@@ -1368,24 +1461,25 @@ fn join_external_ref_target(document_url: &str, target: &str, reference: &str) -
     if let Ok(base) = reqwest::Url::parse(document_url) {
         match base.scheme() {
             "http" | "https" => base.join(target).map(|url| url.to_string()).map_err(|err| {
-                StoreError::Other(format!("Invalid OpenAPI external $ref {reference}: {err}"))
+                Error::new(FailureCode::Internal, format!("Invalid OpenAPI external $ref {reference}: {err}"))
             }),
             "file" => {
                 let joined = base.join(target).map_err(|err| {
-                    StoreError::Other(format!("Invalid OpenAPI external $ref {reference}: {err}"))
+                    Error::new(FailureCode::Internal, format!("Invalid OpenAPI external $ref {reference}: {err}"))
                 })?;
                 normalize_file_document_target(joined.as_str())
             }
-            _ => Err(StoreError::Other(format!(
+            _ => Err(Error::new(FailureCode::Internal, format!(
                 "OpenAPI relative external $ref requires an absolute HTTP(S) or file spec_url: {reference}"
             ))),
         }
     } else {
         let base_path = absolute_path(Path::new(document_url))?;
         let base_dir = base_path.parent().ok_or_else(|| {
-            StoreError::Other(format!(
-                "OpenAPI relative external $ref has no parent document path: {reference}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI relative external $ref has no parent document path: {reference}"),
+            )
         })?;
         file_url_from_path(&base_dir.join(target))
     }
@@ -1399,15 +1493,23 @@ fn normalize_file_document_target(target: &str) -> Result<String> {
 fn path_from_file_target(target: &str) -> Result<PathBuf> {
     if target.starts_with("file://") {
         let url = reqwest::Url::parse(target).map_err(|err| {
-            StoreError::Other(format!("Invalid OpenAPI file URL {target}: {err}"))
+            Error::new(
+                FailureCode::Internal,
+                format!("Invalid OpenAPI file URL {target}: {err}"),
+            )
         })?;
         if url.scheme() != "file" {
-            return Err(StoreError::Other(format!(
-                "Unsupported OpenAPI file URL: {target}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Unsupported OpenAPI file URL: {target}"),
+            ));
         }
-        url.to_file_path()
-            .map_err(|_| StoreError::Other(format!("Invalid OpenAPI file URL path: {target}")))
+        url.to_file_path().map_err(|_| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Invalid OpenAPI file URL path: {target}"),
+            )
+        })
     } else {
         absolute_path(Path::new(target))
     }
@@ -1419,7 +1521,12 @@ fn absolute_path(path: &Path) -> Result<PathBuf> {
     } else {
         std::env::current_dir()
             .map(|current_dir| current_dir.join(path))
-            .map_err(|err| StoreError::Other(format!("OpenAPI current dir read failed: {err}")))
+            .map_err(|err| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI current dir read failed: {err}"),
+                )
+            })
     }
 }
 
@@ -1428,13 +1535,20 @@ fn file_url_from_path(path: &Path) -> Result<String> {
     reqwest::Url::from_file_path(&absolute)
         .map(|url| url.to_string())
         .map_err(|_| {
-            StoreError::Other(format!("Invalid OpenAPI file path: {}", absolute.display()))
+            Error::new(
+                FailureCode::Internal,
+                format!("Invalid OpenAPI file path: {}", absolute.display()),
+            )
         })
 }
 
 fn read_openapi_document_file(path: &Path, label: &str) -> Result<String> {
-    std::fs::read_to_string(path)
-        .map_err(|err| StoreError::Other(format!("OpenAPI file read failed for {label}: {err}")))
+    std::fs::read_to_string(path).map_err(|err| {
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI file read failed for {label}: {err}"),
+        )
+    })
 }
 
 fn openapi_config_value(
@@ -1442,9 +1556,10 @@ fn openapi_config_value(
     options: &OpenApiImportOptions,
 ) -> Result<serde_json::Value> {
     let mut value = serde_json::to_value(config).map_err(|err| {
-        StoreError::Other(format!(
-            "OpenAPI service config serialization failed: {err}"
-        ))
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI service config serialization failed: {err}"),
+        )
     })?;
     if !options.auth.is_empty() {
         if let Some(object) = value.as_object_mut() {

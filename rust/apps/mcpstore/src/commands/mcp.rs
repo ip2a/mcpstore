@@ -11,8 +11,7 @@ use crate::error::{CliError, Domain, ErrorCode, OutputFormat};
 
 use mcpstore::{
     InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpServerCapabilities,
-    McpServerMetadata, McpStoreExecutionUpdate, McpToolExecution, ScopeRef, StoreError,
-    ToolCallResult,
+    McpServerMetadata, McpStoreExecutionUpdate, McpToolExecution, ScopeRef, ToolCallResult,
 };
 
 use crate::{
@@ -1115,10 +1114,10 @@ fn tool_summary_value(tool: Value, include_schema: bool) -> Value {
     summary
 }
 
-/// Build a `CliError` from a `StoreError`, tagged for the `call` command
+/// Build a `CliError` from an `Error`, tagged for the `call` command
 /// (execution domain) with instance/tool context attached.
 fn call_error_from_store(
-    error: StoreError,
+    error: mcpstore::Error,
     format: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
@@ -2157,10 +2156,7 @@ mod tests {
                 "execution.cancelled",
             ),
             (
-                Error::new(
-                    FailureCode::CallTimedOut,
-                    "MCP request timed out after 1s",
-                ),
+                Error::new(FailureCode::CallTimedOut, "MCP request timed out after 1s"),
                 ErrorCode::TimedOut,
                 31,
                 "execution.timed_out",
@@ -2175,13 +2171,9 @@ mod tests {
                 "execution.failed",
             ),
         ] {
-            let error = CliError::from_store(
-                &StoreError::Transport(error),
-                OutputFormat::Jsonl,
-                Domain::Execution,
-            )
-            .with("instance_id", instance_id.to_string())
-            .with("tool_name", "long_tool");
+            let error = CliError::from_store(&error, OutputFormat::Jsonl, Domain::Execution)
+                .with("instance_id", instance_id.to_string())
+                .with("tool_name", "long_tool");
             assert_eq!(error.code(), code);
             assert_eq!(error.exit_code(), exit_code);
             let v: Value = serde_json::from_str(&error.to_string()).unwrap();

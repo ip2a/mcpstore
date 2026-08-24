@@ -106,7 +106,7 @@ pub use state::{
 pub use error::{Error, ErrorContext, FailureCategory, FailureCode, RecoveryPolicy};
 
 // Facade re-exports: core store
-pub use core::{Result, StoreError};
+pub use error::Result;
 pub use overrides::{
     ComponentKind, ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule,
     ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,

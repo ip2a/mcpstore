@@ -199,11 +199,10 @@ pub(super) async fn connect(
             // Preserve rmcp's structured classification (fallback-eligible
             // handshake codes survive); swap only the message for the
             // user-facing detail with the child's stderr tail.
-            let classified = crate::transport::handshake_error(
-                config.handshake_mode(),
-                err,
+            let classified = crate::transport::handshake_error(config.handshake_mode(), err);
+            return Err(
+                Error::new(classified.code(), detail).with_context(classified.context().clone())
             );
-            return Err(Error::new(classified.code(), detail).with_context(classified.context().clone()));
         }
     };
 

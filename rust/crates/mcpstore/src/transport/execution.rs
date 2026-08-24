@@ -12,13 +12,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::auth::{AuthConfig, AuthCoordinator, AuthStatus};
+use crate::error::Result;
+use crate::error::{Error, FailureCode};
 use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
 use crate::transport::content::content_item_from_rmcp;
 use crate::transport::handler::McpStoreClientHandler;
-use crate::error::{Error, FailureCode};
 use crate::transport::{McpTask, McpToolExecution, ToolCallResult};
-use crate::error::Result;
 
 const EXECUTION_UPDATE_BUFFER: usize = 64;
 
@@ -546,28 +546,32 @@ pub(crate) fn map_service_error(
             FailureCode::CallCancelled,
             format!(
                 "MCP request cancelled{}",
-                reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default()
+                reason
+                    .as_ref()
+                    .map(|r| format!(": {r}"))
+                    .unwrap_or_default()
             ),
         ),
         rmcp::ServiceError::Timeout { timeout } => Error::new(
             FailureCode::CallTimedOut,
             format!("MCP request timed out after {timeout:?}"),
         ),
-        rmcp::ServiceError::TransportClosed | rmcp::ServiceError::TransportSend(_) => {
-            Error::new(
-                FailureCode::CallDisconnected,
-                format!("MCP request disconnected for service instance {instance_id}"),
-            )
-            .with_context(crate::error::ErrorContext::Service {
-                instance_id,
-                service_name: String::new(),
-            })
-        }
+        rmcp::ServiceError::TransportClosed | rmcp::ServiceError::TransportSend(_) => Error::new(
+            FailureCode::CallDisconnected,
+            format!("MCP request disconnected for service instance {instance_id}"),
+        )
+        .with_context(crate::error::ErrorContext::Service {
+            instance_id,
+            service_name: String::new(),
+        }),
         rmcp::ServiceError::UnexpectedResponse => Error::new(
             FailureCode::ToolFailed,
             format!("{operation} returned an unexpected response"),
         ),
-        error => Error::new(FailureCode::ToolFailed, format!("{operation} failed: {error}")),
+        error => Error::new(
+            FailureCode::ToolFailed,
+            format!("{operation} failed: {error}"),
+        ),
     }
 }
 

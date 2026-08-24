@@ -5,9 +5,9 @@ use rmcp::model::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::transport::client::McpConnection;
-use crate::error::{Error, ErrorContext, FailureCode};
 use crate::error::Result;
+use crate::error::{Error, ErrorContext, FailureCode};
+use crate::transport::client::McpConnection;
 use crate::transport::{McpExecutionOptions, ToolCallResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -160,7 +160,10 @@ impl McpConnection {
     }
 
     fn protocol_error(&self, operation: &str, error: rmcp::ServiceError) -> Error {
-        Error::new(FailureCode::TaskFailed, format!("{operation} failed: {error}"))
+        Error::new(
+            FailureCode::TaskFailed,
+            format!("{operation} failed: {error}"),
+        )
     }
 
     fn task_protocol_error(

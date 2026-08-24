@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{Result, StoreError};
+use crate::{Error, FailureCode, Result};
 
 const MAX_LOCAL_REF_DEPTH: usize = 32;
 pub const DEFAULT_OPENAPI_REF_CACHE_TTL_SECONDS: u32 = 300;
@@ -232,7 +232,7 @@ pub fn parse_openapi_spec_text(spec_text: &str) -> Result<Value> {
     serde_json::from_str::<Value>(spec_text)
         .or_else(|json_err| {
             serde_yaml_ng::from_str::<Value>(spec_text).map_err(|yaml_err| {
-                StoreError::Other(format!(
+                Error::new(FailureCode::Internal, format!(
                     "OpenAPI spec must be valid JSON or YAML: JSON error: {json_err}; YAML error: {yaml_err}"
                 ))
             })
@@ -241,7 +241,7 @@ pub fn parse_openapi_spec_text(spec_text: &str) -> Result<Value> {
             if value.is_object() {
                 Ok(value)
             } else {
-                Err(StoreError::Other(
+                Err(Error::new(FailureCode::Internal,
                     "OpenAPI spec must parse to a JSON/YAML object".to_string(),
                 ))
             }
@@ -313,7 +313,12 @@ fn analyze_endpoints(spec: &Value) -> Result<Vec<OpenApiEndpoint>> {
     let paths = spec
         .get("paths")
         .and_then(Value::as_object)
-        .ok_or_else(|| StoreError::Other("OpenAPI spec missing object field: paths".to_string()))?;
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                "OpenAPI spec missing object field: paths".to_string(),
+            )
+        })?;
     let mut endpoints = Vec::new();
     for (path, path_item) in paths {
         let Some(operations) = path_item.as_object() else {
@@ -329,9 +334,10 @@ fn analyze_endpoints(spec: &Value) -> Result<Vec<OpenApiEndpoint>> {
                 continue;
             }
             let operation = operation.as_object().ok_or_else(|| {
-                StoreError::Other(format!(
-                    "OpenAPI operation must be an object: {method_upper} {path}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI operation must be an object: {method_upper} {path}"),
+                )
             })?;
             let security_defined = operation.contains_key("security");
             let operation_parameters = resolve_parameter_list(spec, operation.get("parameters"))?;
@@ -434,7 +440,8 @@ fn resolve_map_values(spec: &Value, values: &Map<String, Value>) -> Result<Map<S
 
 fn resolve_local_refs(spec: &Value, value: &Value, depth: usize) -> Result<Value> {
     if depth > MAX_LOCAL_REF_DEPTH {
-        return Err(StoreError::Other(
+        return Err(Error::new(
+            FailureCode::Internal,
             "OpenAPI local $ref resolution exceeded maximum depth".to_string(),
         ));
     }
@@ -468,17 +475,22 @@ fn resolve_local_refs(spec: &Value, value: &Value, depth: usize) -> Result<Value
 
 fn resolve_local_ref(spec: &Value, reference: &str, depth: usize) -> Result<Value> {
     let Some(pointer) = reference.strip_prefix('#') else {
-        return Err(StoreError::Other(format!(
-            "Unsupported OpenAPI $ref outside current document: {reference}"
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("Unsupported OpenAPI $ref outside current document: {reference}"),
+        ));
     };
     if !pointer.starts_with('/') {
-        return Err(StoreError::Other(format!(
-            "Invalid OpenAPI local $ref: {reference}"
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("Invalid OpenAPI local $ref: {reference}"),
+        ));
     }
     let target = spec.pointer(pointer).ok_or_else(|| {
-        StoreError::Other(format!("OpenAPI local $ref target not found: {reference}"))
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI local $ref target not found: {reference}"),
+        )
     })?;
     resolve_local_refs(spec, target, depth)
 }

@@ -1716,7 +1716,7 @@ impl TuiApp {
                 let state = self.store.service_state_entry(service.instance_id).await?;
                 summaries.push(ServiceSummary::new(service, state));
             }
-            Ok::<_, mcpstore::StoreError>(summaries)
+            Ok::<_, mcpstore::Error>(summaries)
         })?;
         self.apply_filter();
         self.apply_tool_filter();

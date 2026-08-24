@@ -9,6 +9,6 @@ impl MCPStore {
         self.registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))
     }
 }

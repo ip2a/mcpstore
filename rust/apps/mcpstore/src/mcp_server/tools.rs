@@ -1846,7 +1846,7 @@ pub(super) fn read_required_object(
         .ok_or_else(|| format!("工具元数据缺少对象字段: {field}").into())
 }
 
-pub(super) fn map_store_error(error: StoreError) -> ErrorData {
+pub(super) fn map_store_error(error: mcpstore::Error) -> ErrorData {
     ErrorData::internal_error(error.to_string(), None)
 }
 

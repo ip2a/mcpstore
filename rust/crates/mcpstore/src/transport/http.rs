@@ -99,11 +99,10 @@ pub(super) async fn connect(
         .prepare_http_authorization(instance_id, url, &server_config.auth)
         .await
         .map_err(|error| match error {
-            AuthError::Required(required) => Error::new(
-                FailureCode::ConnectionAuthRequired,
-                required.to_string(),
-            )
-            .with_context(ErrorContext::Auth { required }),
+            AuthError::Required(required) => {
+                Error::new(FailureCode::ConnectionAuthRequired, required.to_string())
+                    .with_context(ErrorContext::Auth { required })
+            }
             other => connect_failed(
                 instance_id,
                 name,

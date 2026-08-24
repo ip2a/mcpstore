@@ -1,6 +1,6 @@
+use crate::error::Result;
 use crate::identity::InstanceId;
 use crate::transport::client::ConnectionPool;
-use crate::error::Result;
 use async_trait::async_trait;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

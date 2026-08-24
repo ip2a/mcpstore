@@ -81,9 +81,10 @@ impl MCPStore {
             .await
             .is_none()
         {
-            return Err(StoreError::Other(format!(
-                "Tool '{tool_name}' not found in service instance '{instance_id}'"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Tool '{tool_name}' not found in service instance '{instance_id}'"),
+            ));
         }
         let context_key = match &instance.scope {
             ScopeRef::Store => Self::build_session_context_key(&SessionScope::Store, None)?,
@@ -112,7 +113,8 @@ impl MCPStore {
 
     fn validate_tool_preference_key(key: &str) -> Result<()> {
         if key.trim().is_empty() {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "Tool preference key cannot be empty".to_string(),
             ));
         }
@@ -125,7 +127,10 @@ impl MCPStore {
             .await?
             .map(|value| {
                 serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!("Tool preferences deserialization failed: {error}"))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Tool preferences deserialization failed: {error}"),
+                    )
                 })
             })
             .transpose()
@@ -157,7 +162,7 @@ impl MCPStore {
             state.updated_at = now;
             state.version += 1;
             let value = serde_json::to_value(&state)
-                .map_err(|error| StoreError::Other(error.to_string()))?;
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
             match self
                 .cache
                 .compare_and_put_state(
@@ -170,10 +175,10 @@ impl MCPStore {
             {
                 Ok(()) => return Ok(state),
                 Err(CacheError::Conflict(_)) => continue,
-                Err(error) => return Err(StoreError::Cache(error)),
+                Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(StoreError::Cache(CacheError::Conflict(format!(
+        Err(Error::from(CacheError::Conflict(format!(
             "tool preferences conflict after retries: state_key={}",
             target.state_key
         ))))

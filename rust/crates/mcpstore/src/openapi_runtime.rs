@@ -2,7 +2,7 @@ use crate::openapi::{
     OpenApiComponent, OpenApiComponentType, OpenApiImportOptions, OpenApiImportResult,
 };
 use crate::transport::{ContentItem, ToolCallResult};
-use crate::{Result, StoreError};
+use crate::{Error, FailureCode, Result};
 use base64::Engine;
 use iri_string::types::{IriReferenceStr, IriStr, UriReferenceStr};
 use serde_json::{Map, Value};
@@ -90,7 +90,12 @@ pub async fn call_openapi_tool(
         .find(|component| {
             component.name == tool_name && component.component_type == OpenApiComponentType::Tool
         })
-        .ok_or_else(|| StoreError::Other(format!("OpenAPI tool not found: {tool_name}")))?;
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI tool not found: {tool_name}"),
+            )
+        })?;
     let response = execute_component(import, component, args, options).await?;
     let is_error = !response.status.is_success();
     let content = if is_error {
@@ -125,14 +130,22 @@ pub async fn read_openapi_resource(
                     OpenApiComponentType::Resource | OpenApiComponentType::ResourceTemplate
                 )
         })
-        .ok_or_else(|| StoreError::Other(format!("OpenAPI resource not found: {uri}")))?;
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI resource not found: {uri}"),
+            )
+        })?;
     let response = execute_component(import, component, Value::Object(args), options).await?;
     if !response.status.is_success() {
-        return Err(StoreError::Other(format!(
-            "OpenAPI resource request failed with status {}: {}",
-            response.status,
-            response_error_text(response.status, response.mime_type, response.body)
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "OpenAPI resource request failed with status {}: {}",
+                response.status,
+                response_error_text(response.status, response.mime_type, response.body)
+            ),
+        ));
     }
     Ok(serde_json::json!({
         "contents": [response_resource_content(uri.to_string(), response.mime_type, response.body)]
@@ -184,14 +197,22 @@ fn parse_resource_uri(
     uri: &str,
 ) -> Result<(String, Map<String, Value>)> {
     let prefix = format!("openapi://{}/", import.service_name);
-    let rest = uri
-        .strip_prefix(&prefix)
-        .ok_or_else(|| StoreError::Other(format!("Invalid OpenAPI resource URI: {uri}")))?;
+    let rest = uri.strip_prefix(&prefix).ok_or_else(|| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Invalid OpenAPI resource URI: {uri}"),
+        )
+    })?;
     let mut segments = rest.split('/');
     let component_name = segments
         .next()
         .filter(|segment| !segment.is_empty())
-        .ok_or_else(|| StoreError::Other(format!("Invalid OpenAPI resource URI: {uri}")))?
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Invalid OpenAPI resource URI: {uri}"),
+            )
+        })?
         .to_string();
     let Some(component) = import
         .components
@@ -206,18 +227,24 @@ fn parse_resource_uri(
     match component.component_type {
         OpenApiComponentType::ResourceTemplate => {
             if provided_segments.len() != required_path_params.len() {
-                return Err(StoreError::Other(format!(
-                    "Invalid OpenAPI resource URI {uri}: expected {} path parameter(s), got {}",
-                    required_path_params.len(),
-                    provided_segments.len()
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Invalid OpenAPI resource URI {uri}: expected {} path parameter(s), got {}",
+                        required_path_params.len(),
+                        provided_segments.len()
+                    ),
+                ));
             }
         }
         OpenApiComponentType::Resource => {
             if !provided_segments.is_empty() {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
                     "Invalid OpenAPI resource URI {uri}: resource does not accept path parameters"
-                )));
+                ),
+                ));
             }
         }
         OpenApiComponentType::Tool => {}
@@ -237,10 +264,10 @@ async fn execute_component(
     options: &OpenApiImportOptions,
 ) -> Result<OpenApiHttpResponse> {
     if import.base_url.is_empty() {
-        return Err(StoreError::Other(format!(
-            "OpenAPI service has no base URL: {}",
-            import.service_name
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI service has no base URL: {}", import.service_name),
+        ));
     }
 
     let args = args.as_object().cloned().unwrap_or_default();
@@ -290,15 +317,23 @@ async fn execute_component(
     let url = build_url(&import.base_url, &path, &query)?;
     let method =
         reqwest::Method::from_bytes(component.endpoint.method.as_bytes()).map_err(|err| {
-            StoreError::Other(format!(
-                "Unsupported OpenAPI method {}: {err}",
-                component.endpoint.method
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!(
+                    "Unsupported OpenAPI method {}: {err}",
+                    component.endpoint.method
+                ),
+            )
         })?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(options.timeout_millis.max(1)))
         .build()
-        .map_err(|err| StoreError::Other(format!("OpenAPI HTTP client creation failed: {err}")))?;
+        .map_err(|err| {
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI HTTP client creation failed: {err}"),
+            )
+        })?;
     let mut request = client.request(method, url);
     for (name, value) in request_headers {
         request = request.header(name, value);
@@ -307,10 +342,12 @@ async fn execute_component(
         request = apply_request_body(request, component, body).await?;
     }
 
-    let response = request
-        .send()
-        .await
-        .map_err(|err| StoreError::Other(format!("OpenAPI request failed: {err}")))?;
+    let response = request.send().await.map_err(|err| {
+        Error::new(
+            FailureCode::Internal,
+            format!("OpenAPI request failed: {err}"),
+        )
+    })?;
     let status = response.status();
     let mime_type = response
         .headers()
@@ -323,21 +360,29 @@ async fn execute_component(
             response
                 .bytes()
                 .await
-                .map_err(|err| StoreError::Other(format!("OpenAPI response read failed: {err}")))?
+                .map_err(|err| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI response read failed: {err}"),
+                    )
+                })?
                 .to_vec(),
         )
     } else {
-        let text = response
-            .text()
-            .await
-            .map_err(|err| StoreError::Other(format!("OpenAPI response read failed: {err}")))?;
+        let text = response.text().await.map_err(|err| {
+            Error::new(
+                FailureCode::Internal,
+                format!("OpenAPI response read failed: {err}"),
+            )
+        })?;
         if is_json_mime_type(&mime_type) {
             match serde_json::from_str(&text) {
                 Ok(body) => OpenApiResponseBody::Json(body),
                 Err(err) if status.is_success() => {
-                    return Err(StoreError::Other(format!(
-                        "OpenAPI JSON response decode failed: {err}"
-                    )));
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI JSON response decode failed: {err}"),
+                    ));
                 }
                 Err(_) => OpenApiResponseBody::Text(text),
             }
@@ -397,11 +442,14 @@ fn validate_required_arguments(
     if missing.is_empty() {
         Ok(())
     } else {
-        Err(StoreError::Other(format!(
-            "Missing required OpenAPI argument(s) for {}: {}",
-            component.name,
-            missing.join(", ")
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "Missing required OpenAPI argument(s) for {}: {}",
+                component.name,
+                missing.join(", ")
+            ),
+        ))
     }
 }
 
@@ -430,11 +478,14 @@ fn validate_input_schema(component: &OpenApiComponent, args: &Map<String, Value>
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(StoreError::Other(format!(
-            "Invalid OpenAPI argument(s) for {}: {}",
-            component.name,
-            errors.join(", ")
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "Invalid OpenAPI argument(s) for {}: {}",
+                component.name,
+                errors.join(", ")
+            ),
+        ))
     }
 }
 
@@ -1043,10 +1094,13 @@ async fn apply_request_body(
         "text/plain" => Ok(request
             .header(reqwest::header::CONTENT_TYPE, "text/plain")
             .body(argument_as_string(body))),
-        other => Err(StoreError::Other(format!(
-            "Unsupported OpenAPI request body media type for {}: {other}",
-            component.name
-        ))),
+        other => Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "Unsupported OpenAPI request body media type for {}: {other}",
+                component.name
+            ),
+        )),
     }
 }
 
@@ -1213,11 +1267,14 @@ fn validate_response_schema(
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(StoreError::Other(format!(
-            "Invalid OpenAPI response for {}: {}",
-            component.name,
-            errors.join(", ")
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "Invalid OpenAPI response for {}: {}",
+                component.name,
+                errors.join(", ")
+            ),
+        ))
     }
 }
 
@@ -1406,7 +1463,8 @@ fn media_type_has_binary_schema(media: &Value) -> bool {
 
 fn body_as_fields(body: &Value) -> Result<Vec<(String, String)>> {
     let Some(object) = body.as_object() else {
-        return Err(StoreError::Other(
+        return Err(Error::new(
+            FailureCode::Internal,
             "OpenAPI form request body must be an object".to_string(),
         ));
     };
@@ -1421,7 +1479,8 @@ async fn multipart_form(
     body: &Value,
 ) -> Result<reqwest::multipart::Form> {
     let Some(object) = body.as_object() else {
-        return Err(StoreError::Other(
+        return Err(Error::new(
+            FailureCode::Internal,
             "OpenAPI multipart request body must be an object".to_string(),
         ));
     };
@@ -1438,10 +1497,13 @@ async fn multipart_form(
             Some(MultipartBinaryField::FileArray)
         ) {
             let Some(files) = value.as_array() else {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
                     "OpenAPI multipart binary field for {}.{name} must be an array of file objects",
                     component.name
-                )));
+                ),
+                ));
             };
             for file in files {
                 form = form.part(
@@ -1497,7 +1559,7 @@ async fn multipart_file_part(
     value: &Value,
 ) -> Result<reqwest::multipart::Part> {
     let Some(object) = value.as_object() else {
-        return Err(StoreError::Other(format!(
+        return Err(Error::new(FailureCode::Internal, format!(
             "OpenAPI multipart binary field for {}.{field_name} must be an object with bytes or path",
             component.name
         )));
@@ -1505,7 +1567,7 @@ async fn multipart_file_part(
     let bytes_value = object.get("bytes");
     let path_value = object.get("path");
     if bytes_value.is_some() == path_value.is_some() {
-        return Err(StoreError::Other(format!(
+        return Err(Error::new(FailureCode::Internal, format!(
             "OpenAPI multipart binary field for {}.{field_name} must provide exactly one of bytes or path",
             component.name
         )));
@@ -1513,15 +1575,18 @@ async fn multipart_file_part(
 
     let (bytes, derived_filename) = if let Some(value) = bytes_value {
         let encoded = value.as_str().ok_or_else(|| {
-            StoreError::Other(format!(
+            Error::new(
+                FailureCode::Internal,
+                format!(
                 "OpenAPI multipart binary field for {}.{field_name} bytes must be a base64 string",
                 component.name
-            ))
+            ),
+            )
         })?;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .map_err(|err| {
-                StoreError::Other(format!(
+                Error::new(FailureCode::Internal, format!(
                     "OpenAPI multipart binary field for {}.{field_name} bytes is not valid base64: {err}",
                     component.name
                 ))
@@ -1529,13 +1594,16 @@ async fn multipart_file_part(
         (bytes, None)
     } else {
         let path = path_value.and_then(Value::as_str).ok_or_else(|| {
-            StoreError::Other(format!(
-                "OpenAPI multipart binary field for {}.{field_name} path must be a string",
-                component.name
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!(
+                    "OpenAPI multipart binary field for {}.{field_name} path must be a string",
+                    component.name
+                ),
+            )
         })?;
         let bytes = tokio::fs::read(path).await.map_err(|err| {
-            StoreError::Other(format!(
+            Error::new(FailureCode::Internal, format!(
                 "OpenAPI multipart binary field for {}.{field_name} could not read path {path}: {err}",
                 component.name
             ))
@@ -1556,7 +1624,7 @@ async fn multipart_file_part(
     let mut part = reqwest::multipart::Part::bytes(bytes).file_name(filename);
     if let Some(mime_type) = file_mime_type(object) {
         part = part.mime_str(mime_type).map_err(|err| {
-            StoreError::Other(format!(
+            Error::new(FailureCode::Internal, format!(
                 "OpenAPI multipart binary field for {}.{field_name} has invalid mimeType {mime_type}: {err}",
                 component.name
             ))
@@ -1654,10 +1722,13 @@ fn apply_security(
     } else {
         unsupported.join("; ")
     };
-    Err(StoreError::Other(format!(
-        "OpenAPI security requirement not satisfied for {}: {reason}",
-        component.name
-    )))
+    Err(Error::new(
+        FailureCode::Internal,
+        format!(
+            "OpenAPI security requirement not satisfied for {}: {reason}",
+            component.name
+        ),
+    ))
 }
 
 fn effective_security<'a>(
@@ -1847,9 +1918,10 @@ fn serialize_query_parameter(
             allow_reserved,
         )),
         "deepObject" => serialize_deep_object_query_parameter(name, value, explode, allow_reserved),
-        other => Err(StoreError::Other(format!(
-            "Unsupported OpenAPI query parameter style for {name}: {other}"
-        ))),
+        other => Err(Error::new(
+            FailureCode::Internal,
+            format!("Unsupported OpenAPI query parameter style for {name}: {other}"),
+        )),
     }
 }
 
@@ -1860,19 +1932,22 @@ fn serialize_deep_object_query_parameter(
     allow_reserved: bool,
 ) -> Result<Vec<QueryParameter>> {
     if !explode {
-        return Err(StoreError::Other(format!(
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!(
             "Unsupported OpenAPI query parameter style for {name}: deepObject requires explode=true"
-        )));
+        ),
+        ));
     }
     let Some(object) = value.as_object() else {
-        return Err(StoreError::Other(format!(
+        return Err(Error::new(FailureCode::Internal, format!(
             "Unsupported OpenAPI query parameter style for {name}: deepObject requires an object value"
         )));
     };
     let mut parameters = Vec::with_capacity(object.len());
     for (key, value) in object {
         if matches!(value, Value::Array(_) | Value::Object(_)) {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(FailureCode::Internal, format!(
                 "Unsupported OpenAPI query parameter style for {name}: deepObject nested value {key} must be a scalar"
             )));
         }
@@ -1933,9 +2008,10 @@ fn serialize_path_parameter(parameter: &Map<String, Value>, value: &Value) -> Re
         "simple" => Ok(serialize_simple_path_parameter(value, explode)),
         "label" => Ok(serialize_label_path_parameter(value, explode)),
         "matrix" => Ok(serialize_matrix_path_parameter(name, value, explode)),
-        other => Err(StoreError::Other(format!(
-            "Unsupported OpenAPI path parameter style for {name}: {other}"
-        ))),
+        other => Err(Error::new(
+            FailureCode::Internal,
+            format!("Unsupported OpenAPI path parameter style for {name}: {other}"),
+        )),
     }
 }
 
@@ -1955,9 +2031,10 @@ fn serialize_header_parameter(parameter: &Map<String, Value>, value: &Value) -> 
 
     match style {
         "simple" => Ok(serialize_simple_parameter(value, explode)),
-        other => Err(StoreError::Other(format!(
-            "Unsupported OpenAPI header parameter style for {name}: {other}"
-        ))),
+        other => Err(Error::new(
+            FailureCode::Internal,
+            format!("Unsupported OpenAPI header parameter style for {name}: {other}"),
+        )),
     }
 }
 
@@ -2090,7 +2167,12 @@ fn build_url(base_url: &str, path: &str, query: &[QueryParameter]) -> Result<Str
     append_query_string(&mut url, query);
     reqwest::Url::parse(&url)
         .map(|url| url.to_string())
-        .map_err(|err| StoreError::Other(format!("Invalid OpenAPI request URL {url}: {err}")))
+        .map_err(|err| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Invalid OpenAPI request URL {url}: {err}"),
+            )
+        })
 }
 
 fn append_query_string(url: &mut String, query: &[QueryParameter]) {
@@ -2271,24 +2353,43 @@ fn percent_decode(value: &str) -> Result<String> {
     let mut iter = value.as_bytes().iter().copied();
     while let Some(byte) = iter.next() {
         if byte == b'%' {
-            let hi = iter
-                .next()
-                .ok_or_else(|| StoreError::Other(format!("Invalid percent encoding: {value}")))?;
-            let lo = iter
-                .next()
-                .ok_or_else(|| StoreError::Other(format!("Invalid percent encoding: {value}")))?;
+            let hi = iter.next().ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Invalid percent encoding: {value}"),
+                )
+            })?;
+            let lo = iter.next().ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Invalid percent encoding: {value}"),
+                )
+            })?;
             let hex = [hi, lo];
             let decoded = u8::from_str_radix(
-                std::str::from_utf8(&hex)
-                    .map_err(|err| StoreError::Other(format!("Invalid percent encoding: {err}")))?,
+                std::str::from_utf8(&hex).map_err(|err| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Invalid percent encoding: {err}"),
+                    )
+                })?,
                 16,
             )
-            .map_err(|err| StoreError::Other(format!("Invalid percent encoding: {err}")))?;
+            .map_err(|err| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Invalid percent encoding: {err}"),
+                )
+            })?;
             bytes.push(decoded);
         } else {
             bytes.push(byte);
         }
     }
-    String::from_utf8(bytes)
-        .map_err(|err| StoreError::Other(format!("Invalid UTF-8 in resource URI: {err}")))
+    String::from_utf8(bytes).map_err(|err| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Invalid UTF-8 in resource URI: {err}"),
+        )
+    })
 }

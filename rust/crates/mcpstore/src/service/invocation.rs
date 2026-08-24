@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-use crate::store::prelude::*;
 use crate::error::{Error, ErrorContext, FailureCode};
+use crate::store::prelude::*;
 use crate::transport::{
     McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecution,
     McpToolExecutionHandle, ToolCallResult,
@@ -134,9 +134,7 @@ impl<'a> McpStoreToolExecutionHandle<'a> {
                     .take()
                     .expect("transport execution context must exist until completion");
                 Some(McpStoreExecutionUpdate::Finished(
-                    self.store
-                        .finish_tool_execution(context, result.map_err(StoreError::Transport))
-                        .await,
+                    self.store.finish_tool_execution(context, result).await,
                 ))
             }
             None => {
@@ -146,9 +144,7 @@ impl<'a> McpStoreToolExecutionHandle<'a> {
                     "tool execution ended without a result",
                 );
                 Some(McpStoreExecutionUpdate::Finished(
-                    self.store
-                        .finish_tool_execution(context, Err(StoreError::Transport(error)))
-                        .await,
+                    self.store.finish_tool_execution(context, Err(error)).await,
                 ))
             }
         }
@@ -160,10 +156,10 @@ impl<'a> McpStoreToolExecutionHandle<'a> {
                 return result;
             }
         }
-        Err(StoreError::Transport(Error::new(
+        Err(Error::new(
             FailureCode::ToolFailed,
             "tool execution ended without a result",
-        )))
+        ))
     }
 }
 
@@ -227,21 +223,17 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let is_openapi_virtual = self.is_openapi_virtual_instance(instance_id).await?;
         if matches!(mode, ToolExecutionMode::Task) && is_openapi_virtual {
-            return Err(StoreError::Transport(
-                Error::new(
-                    FailureCode::CapabilityUnsupported,
-                    format!(
-                        "MCP service instance {instance_id} does not support capability tasks"
-                    ),
-                )
-                .with_context(ErrorContext::Service {
-                    instance_id,
-                    service_name: String::new(),
-                }),
-            ));
+            return Err(Error::new(
+                FailureCode::CapabilityUnsupported,
+                format!("MCP service instance {instance_id} does not support capability tasks"),
+            )
+            .with_context(ErrorContext::Service {
+                instance_id,
+                service_name: String::new(),
+            }));
         }
         let context = ToolExecutionContext {
             instance_id,
@@ -284,9 +276,7 @@ impl MCPStore {
                 self, handle, context,
             )),
             Err(error) => {
-                let result = self
-                    .finish_tool_execution(context, Err(StoreError::Transport(error)))
-                    .await;
+                let result = self.finish_tool_execution(context, Err(error)).await;
                 Ok(McpStoreToolExecutionHandle::ready(
                     self,
                     instance_id,
@@ -315,10 +305,10 @@ impl MCPStore {
             .await?
         {
             McpToolExecution::Immediate { result } => Ok(result),
-            McpToolExecution::Task { .. } => Err(StoreError::Transport(Error::new(
+            McpToolExecution::Task { .. } => Err(Error::new(
                 FailureCode::ToolFailed,
                 "tool call unexpectedly returned a task",
-            ))),
+            )),
         }
     }
 
@@ -393,21 +383,12 @@ impl MCPStore {
                     .await?;
                     "error"
                 } else {
-                    match &error {
-                        StoreError::Transport(transport_error) => {
-                            if execution_failure_impairs_connection(transport_error) {
-                                self.pool.disconnect(context.instance_id).await.ok();
-                                self.record_transport_failure(
-                                    context.instance_id,
-                                    transport_error,
-                                    "Tool call failed",
-                                )
-                                .await?;
-                            }
-                            execution_failure_status(transport_error)
-                        }
-                        _ => "error",
+                    if execution_failure_impairs_connection(&error) {
+                        self.pool.disconnect(context.instance_id).await.ok();
+                        self.record_failure(context.instance_id, "Tool call failed", &error)
+                            .await?;
                     }
+                    execution_failure_status(&error)
                 };
                 self.event_bus
                     .publish(
@@ -443,14 +424,15 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let import = self
             .get_openapi_import(&instance.service_name)
             .await?
             .ok_or_else(|| {
-                StoreError::Other(format!(
-                    "OpenAPI import not found for instance {instance_id}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenAPI import not found for instance {instance_id}"),
+                )
             })?;
         let options = self
             .openapi_runtime_options_for_instance(instance_id)
@@ -531,10 +513,7 @@ mod tests {
             "disconnected"
         );
         assert_eq!(
-            execution_failure_status(&Error::new(
-                FailureCode::ToolFailed,
-                "bad response"
-            )),
+            execution_failure_status(&Error::new(FailureCode::ToolFailed, "bad response")),
             "error"
         );
     }

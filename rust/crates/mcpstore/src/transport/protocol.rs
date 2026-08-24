@@ -9,11 +9,11 @@ use rmcp::service::{Peer, PeerRequestOptions, RoleClient};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::error::Result;
+use crate::error::{Error, ErrorContext, FailureCode};
 use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
 use crate::transport::execution::map_service_error;
-use crate::error::{Error, ErrorContext, FailureCode};
-use crate::error::Result;
 
 #[cfg(not(test))]
 const PROTOCOL_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);

@@ -12,7 +12,10 @@ impl MCPStore {
                 .await;
         }
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         self.connect_service_internal(instance_id, false)
             .await
@@ -28,13 +31,12 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         if self.is_openapi_virtual_instance(instance_id).await? {
-            let state = self
-                .state_manager
-                .get(instance_id)
-                .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            let state =
+                self.state_manager.get(instance_id).await?.ok_or_else(|| {
+                    Error::new(FailureCode::ServiceNotFound, instance_id.to_string())
+                })?;
             if automatic_retry && state.phase == RuntimePhase::Running {
                 return Ok(());
             }
@@ -46,9 +48,12 @@ impl MCPStore {
                             attempt: match state.recovery {
                                 RecoveryState::Waiting { attempt, .. } => attempt,
                                 _ => {
-                                    return Err(StoreError::Other(format!(
+                                    return Err(Error::new(
+                                        FailureCode::Internal,
+                                        format!(
                                         "Service instance has no scheduled recovery: {instance_id}"
-                                    )));
+                                    ),
+                                    ));
                                 }
                             },
                         },
@@ -68,9 +73,10 @@ impl MCPStore {
                 .get_openapi_import(&instance.service_name)
                 .await?
                 .ok_or_else(|| {
-                    StoreError::Other(format!(
-                        "OpenAPI import not found for instance {instance_id}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI import not found for instance {instance_id}"),
+                    )
                 })?;
             let tools = crate::openapi_runtime::openapi_tool_infos(&import);
             let tool_count = tools.len();
@@ -128,7 +134,7 @@ impl MCPStore {
             .state_manager
             .get(instance_id)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let now = Self::now_timestamp_f64();
         if automatic_retry && self.pool.is_connected(instance_id).await {
             if service_state.phase != RuntimePhase::Running {
@@ -144,12 +150,13 @@ impl MCPStore {
         }
         if automatic_retry {
             if Self::retry_exhausted(&service_state, now) {
-                return Err(StoreError::Other(format!(
-                    "Service instance automatic retry exhausted: {instance_id}"
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("Service instance automatic retry exhausted: {instance_id}"),
+                ));
             }
             if let Some(retry_in_secs) = Self::retry_wait_seconds(&service_state, now) {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(FailureCode::Internal, format!(
                     "Service instance reconnect backoff active: {instance_id}, retry_in={retry_in_secs}s"
                 )));
             }
@@ -226,7 +233,7 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
 
         let connect_timeout = std::time::Duration::from_secs(
             self.runtime_config
@@ -237,9 +244,12 @@ impl MCPStore {
         let mut transport_config: ServerConfig =
             serde_json::from_value(serde_json::Value::Object(instance.effective_config.clone()))
                 .map_err(|error| {
-                    StoreError::Other(format!(
+                    Error::new(
+                        FailureCode::Internal,
+                        format!(
                         "Effective config for instance {instance_id} cannot be decoded: {error}"
-                    ))
+                    ),
+                    )
                 })?;
         // effective_config strips _mcpstore, but the transport needs the
         // definition-level handshake_mode to pick the right lifecycle mode.
@@ -256,30 +266,18 @@ impl MCPStore {
         let connect_result: Result<()> =
             match tokio::time::timeout(connect_timeout, self.pool.connect(instance_id)).await {
                 Ok(result) => result.map_err(Into::into),
-                Err(_) => Err(StoreError::Other(format!(
-                    "Service instance connection timed out: {instance_id}, timeout={}s",
-                    self.runtime_config.connect_timeout_secs
-                ))),
+                Err(_) => Err(Error::new(
+                    FailureCode::ConnectionTimedOut,
+                    format!(
+                        "service instance connection timed out: {instance_id}, timeout={}s",
+                        self.runtime_config.connect_timeout_secs
+                    ),
+                )),
             };
         if let Err(error) = connect_result {
             self.pool.disconnect(instance_id).await.ok();
-            match &error {
-                StoreError::Transport(transport_error) => {
-                    self.record_transport_failure(
-                        instance_id,
-                        transport_error,
-                        "Connection failed",
-                    )
-                    .await?;
-                }
-                _ => {
-                    self.record_instance_failure(
-                        instance_id,
-                        format!("Connection failed: {error}"),
-                    )
-                    .await?;
-                }
-            }
+            self.record_failure(instance_id, "Connection failed", &error)
+                .await?;
             return Err(error);
         }
         self.state_manager
@@ -300,11 +298,13 @@ impl MCPStore {
                 {
                     super::super::health::supervisor::StartupOutcome::Healthy => {}
                     super::super::health::supervisor::StartupOutcome::TimedOut => {
-                        let error = "Startup probe timed out".to_string();
-                        self.record_instance_failure(instance_id, error).await?;
-                        return Err(StoreError::Other(format!(
-                            "Service instance startup probe timed out: {instance_id}"
-                        )));
+                        let error = Error::new(
+                            FailureCode::ProbeTimedOut,
+                            format!("service instance startup probe timed out: {instance_id}"),
+                        );
+                        self.record_failure(instance_id, "Startup probe", &error)
+                            .await?;
+                        return Err(error);
                     }
                 }
             }
@@ -344,9 +344,9 @@ impl MCPStore {
             Ok(tools) => tools,
             Err(error) => {
                 self.pool.disconnect(instance_id).await.ok();
-                self.record_transport_failure(instance_id, &error, "Tool discovery failed")
+                self.record_failure(instance_id, "Tool discovery failed", &error)
                     .await?;
-                return Err(error.into());
+                return Err(error);
             }
         };
         let tool_infos: Vec<crate::registry::ToolInfo> =

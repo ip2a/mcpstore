@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 
 use crate::py_value::{py_to_serde_value, serde_value_to_py};
 
-fn map_err(err: mcpstore::StoreError) -> PyErr {
+fn map_err(err: mcpstore::Error) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(err.to_string())
 }
 

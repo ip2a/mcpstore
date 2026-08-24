@@ -1,12 +1,12 @@
 use crate::auth::{AuthCoordinator, AuthStatus};
 use crate::config::ServerConfig;
+use crate::error::{Error, ErrorContext, FailureCode, Result};
 use crate::events::EventBus;
 use crate::health::supervisor::InstanceSupervisor;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::stdio::StdioProcess;
-use crate::error::{Error, ErrorContext, FailureCode, Result};
 use crate::transport::{http as http_transport, stdio as stdio_transport};
 
 pub use crate::transport::pool::ConnectionPool;
@@ -118,7 +118,11 @@ impl McpConnection {
             // The transport layer logs the failure detail; this line exists so
             // failures can be found by service or instance. Auth outcomes are
             // a normal login flow, not a connection failure, so they stay out.
-            if matches!(error.code().category(), crate::error::FailureCategory::Connection | crate::error::FailureCategory::Handshake) {
+            if matches!(
+                error.code().category(),
+                crate::error::FailureCategory::Connection
+                    | crate::error::FailureCategory::Handshake
+            ) {
                 tracing::warn!(
                     service = %self.name,
                     transport = transport_type,
@@ -192,7 +196,10 @@ impl McpConnection {
             .map_err(|()| {
                 Error::new(
                     FailureCode::ElicitationInvalidResponse,
-                    format!("an elicitation session is already active for service instance {}", self.instance_id),
+                    format!(
+                        "an elicitation session is already active for service instance {}",
+                        self.instance_id
+                    ),
                 )
                 .with_context(ErrorContext::Service {
                     instance_id: self.instance_id,

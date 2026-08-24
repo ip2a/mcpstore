@@ -1,9 +1,9 @@
 use crate::config::ServerConfig;
-use crate::core::{Result, StoreError};
+use crate::error::Result;
+use crate::error::{Error, FailureCode};
 use crate::identity::InstanceId;
 use crate::state::ServiceStateEvent;
 use crate::store::MCPStore;
-use crate::error::{Error, FailureCode};
 
 use super::{
     AuthRequired, AuthStatus, AuthStatusView, AuthorizationStart, ClientSecret, PrivateKey,
@@ -86,7 +86,7 @@ impl MCPStore {
         required_scope: &str,
     ) -> Result<AuthorizationStart> {
         if required_scope.trim().is_empty() {
-            return Err(StoreError::Auth(super::AuthError::InvalidConfig(
+            return Err(Error::from(super::AuthError::InvalidConfig(
                 "required_scope must not be empty".to_string(),
             )));
         }
@@ -104,7 +104,7 @@ impl MCPStore {
         secret: String,
     ) -> Result<()> {
         if secret.is_empty() {
-            return Err(StoreError::Auth(super::AuthError::InvalidConfig(
+            return Err(Error::from(super::AuthError::InvalidConfig(
                 "client secret must not be empty".to_string(),
             )));
         }
@@ -127,7 +127,7 @@ impl MCPStore {
         private_key: Vec<u8>,
     ) -> Result<()> {
         if private_key.is_empty() {
-            return Err(StoreError::Auth(super::AuthError::InvalidConfig(
+            return Err(Error::from(super::AuthError::InvalidConfig(
                 "private key must not be empty".to_string(),
             )));
         }
@@ -163,7 +163,10 @@ impl MCPStore {
 
     async fn ensure_instance_exists(&self, instance_id: InstanceId) -> Result<()> {
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         Ok(())
     }
@@ -176,24 +179,26 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         serde_json::from_value(serde_json::Value::Object(instance.effective_config)).map_err(|_| {
-            StoreError::Auth(super::AuthError::InvalidConfig(
+            Error::from(super::AuthError::InvalidConfig(
                 "effective service authentication config cannot be decoded".to_string(),
             ))
         })
     }
 
-    pub(crate) async fn record_transport_failure(
+    pub(crate) async fn record_failure(
         &self,
         instance_id: InstanceId,
-        error: &Error,
         context: &str,
+        error: &Error,
     ) -> Result<()> {
         match error.code() {
             FailureCode::ConnectionAuthRequired => {
                 if let crate::error::ErrorContext::Auth { required } = error.context() {
-                    return self.mark_instance_auth_required(instance_id, &required.clone()).await;
+                    return self
+                        .mark_instance_auth_required(instance_id, &required.clone())
+                        .await;
                 }
             }
             FailureCode::ConnectionScope => {
@@ -204,7 +209,11 @@ impl MCPStore {
                     _ => None,
                 };
                 return self
-                    .mark_instance_scope_upgrade_required(instance_id, instance_id, required_scope.as_deref())
+                    .mark_instance_scope_upgrade_required(
+                        instance_id,
+                        instance_id,
+                        required_scope.as_deref(),
+                    )
                     .await;
             }
             _ => {}
@@ -222,7 +231,7 @@ impl MCPStore {
         required_scope: Option<&str>,
     ) -> Result<()> {
         if error_instance_id != instance_id {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(FailureCode::Internal, format!(
                 "Scope requirement instance mismatch: expected {instance_id}, received {error_instance_id}"
             )));
         }
@@ -230,7 +239,7 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
 
         self.auth_coordinator
             .mark_scope_upgrade_required(instance_id, required_scope)
@@ -267,16 +276,19 @@ impl MCPStore {
         required: &AuthRequired,
     ) -> Result<()> {
         if required.instance_id != instance_id {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
                 "Authentication requirement instance mismatch: expected {instance_id}, received {}",
                 required.instance_id
-            )));
+            ),
+            ));
         }
         let instance = self
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
 
         self.auth_coordinator
             .set_status(instance_id, AuthStatus::Unauthenticated)
@@ -311,7 +323,7 @@ impl MCPStore {
 
 fn required_auth_base_url(instance_id: InstanceId, config: &ServerConfig) -> Result<&str> {
     config.url.as_deref().ok_or_else(|| {
-        StoreError::Auth(super::AuthError::InvalidConfig(format!(
+        Error::from(super::AuthError::InvalidConfig(format!(
             "OAuth service instance {instance_id} requires a URL"
         )))
     })
@@ -323,14 +335,17 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
 
         let server_config: ServerConfig =
             serde_json::from_value(serde_json::Value::Object(instance.effective_config.clone()))
                 .map_err(|error| {
-                    StoreError::Other(format!(
+                    Error::new(
+                        FailureCode::Internal,
+                        format!(
                         "Effective config for instance {instance_id} cannot be decoded: {error}"
-                    ))
+                    ),
+                    )
                 })?;
 
         if !server_config.auth.is_none() {
@@ -355,7 +370,7 @@ impl MCPStore {
             return Ok(());
         }
 
-        Err(StoreError::Auth(super::AuthError::InvalidConfig(
+        Err(Error::from(super::AuthError::InvalidConfig(
             "OAuth is required; configure auth.client_id or auth.client_metadata_url".to_string(),
         )))
     }

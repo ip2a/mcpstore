@@ -11,7 +11,7 @@ impl MCPStore {
             .state_manager
             .get(instance_id)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         if self.is_data_plane() || self.is_openapi_virtual_instance(instance_id).await? {
             return Ok(current);
         }
@@ -35,7 +35,7 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let timeout = std::time::Duration::from_secs_f64(
             self.runtime_config
                 .ping_timeout_for_transport(instance.transport.as_str())
@@ -60,14 +60,17 @@ impl MCPStore {
         error: Option<String>,
     ) -> Result<ServiceState> {
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         if self.is_data_plane() {
             return self
                 .state_manager
                 .get(instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
         let now = Self::now_timestamp();
@@ -138,14 +141,17 @@ impl MCPStore {
         error: Option<String>,
     ) -> Result<ServiceState> {
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         if self.is_data_plane() {
             return self
                 .state_manager
                 .get(instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
         if let Some(supervisor) = &self.supervisor {
@@ -164,7 +170,7 @@ impl MCPStore {
                 .state_manager
                 .get(instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
         let health = if ok {

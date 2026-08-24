@@ -12,7 +12,7 @@ impl MCPStore {
                 .state_manager
                 .get(instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
         self.mark_instance_retryable_failure(instance_id, error)
             .await
@@ -81,7 +81,7 @@ impl MCPStore {
             .state_manager
             .get(instance_id)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let attempts = match current.recovery {
             RecoveryState::Waiting { attempt, .. }
             | RecoveryState::Probing { attempt, .. }
