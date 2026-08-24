@@ -23,6 +23,9 @@ jobs:
       - name: Check Rust workspace
         run: cargo check --workspace --manifest-path rust/Cargo.toml
 
+      - name: Check Rust workspace (light feature only)
+        run: cargo check -p mcpstore --no-default-features --features light --manifest-path rust/Cargo.toml
+
       - name: Test Rust workspace
         run: cargo test --workspace --manifest-path rust/Cargo.toml
 
