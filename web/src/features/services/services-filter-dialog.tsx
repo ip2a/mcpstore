@@ -37,7 +37,7 @@ export function ServicesFilterDialog(props: {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" size="sm">
           <ListFilterIcon data-icon="inline-start" />
           {t("filter")}
           {props.activeFilterCount > 0 ? (

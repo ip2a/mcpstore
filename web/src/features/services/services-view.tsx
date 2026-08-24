@@ -57,7 +57,7 @@ export function ServicesView(props: {
   })
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden">
       <HomeHero
         backend={props.backend}
         stats={{
@@ -68,32 +68,30 @@ export function ServicesView(props: {
         }}
       />
 
-      <PanelCard className="min-h-0">
-        <div className="@container shrink-0">
-          <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
-            <label htmlFor="service-list-search" className="shrink-0 text-sm font-medium">
-              {t("serviceList")}
-            </label>
-            <CollapsibleSearchBox id="service-list-search" placeholder={t("searchServices")} value={query} onChange={setQuery} />
-            <ServicesFilterDialog
-              activeFilterCount={activeFilterCount}
-              agentFilter={agentFilter}
-              agentIds={agentIds}
-              onAgentFilterChange={setAgentFilter}
-              onScopeFilterChange={setScopeFilter}
-              onSortByChange={setSortBy}
-              onStatusFilterChange={setStatusFilter}
-              scopeFilter={scopeFilter}
-              sortBy={sortBy}
-              statusFilter={statusFilter}
-            />
-            <Button variant="outline" onClick={props.onCheck} disabled={Boolean(props.busy)}>
-              <ActivityIcon data-icon="inline-start" />
-              {t("inspect")}
-            </Button>
-          </div>
+      <PanelCard className="min-h-0 gap-0 p-0">
+        <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
+          <label htmlFor="service-list-search" className="shrink-0 text-sm font-medium">
+            {t("serviceList")}
+          </label>
+          <CollapsibleSearchBox id="service-list-search" placeholder={t("searchServices")} value={query} onChange={setQuery} />
+          <ServicesFilterDialog
+            activeFilterCount={activeFilterCount}
+            agentFilter={agentFilter}
+            agentIds={agentIds}
+            onAgentFilterChange={setAgentFilter}
+            onScopeFilterChange={setScopeFilter}
+            onSortByChange={setSortBy}
+            onStatusFilterChange={setStatusFilter}
+            scopeFilter={scopeFilter}
+            sortBy={sortBy}
+            statusFilter={statusFilter}
+          />
+          <Button variant="outline" size="sm" onClick={props.onCheck} disabled={Boolean(props.busy)}>
+            <ActivityIcon data-icon="inline-start" />
+            {t("inspect")}
+          </Button>
         </div>
-        <ScrollPane ref={listScrollRef} className="min-h-0 flex-1">
+        <ScrollPane ref={listScrollRef} className="min-h-0 flex-1 px-4 py-2">
           {props.error ? (
             <PageError title={t("dashboardFailedToLoad")} message={props.error} onRefresh={props.onRefresh} />
           ) : props.loading && props.services.length === 0 ? (

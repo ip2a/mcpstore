@@ -11,7 +11,7 @@ type ScrollPaneProps = ComponentProps<typeof ScrollArea> & {
 export const ScrollPane = forwardRef<React.ComponentRef<typeof ScrollArea>, ScrollPaneProps>(
   function ScrollPane({ className, innerClassName, children, ...props }, ref) {
     return (
-      <ScrollArea ref={ref} className={cn("min-h-0", className)} {...props}>
+      <ScrollArea ref={ref} className={cn("min-h-0 overflow-hidden", className)} {...props}>
         <div className={cn("block w-full min-w-0 pe-1", innerClassName)}>{children}</div>
       </ScrollArea>
     )

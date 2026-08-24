@@ -84,6 +84,7 @@ export function CodeBlockBody({
   fill = false,
   bare = false,
   nativeScroll = false,
+  scrollable = true,
   ...props
 }: ComponentProps<"div"> & {
   variant?: CodeBlockVariant
@@ -91,8 +92,23 @@ export function CodeBlockBody({
   fill?: boolean
   bare?: boolean
   nativeScroll?: boolean
+  scrollable?: boolean
 }) {
   const styles = variantStyles[variant]
+
+  if (!scrollable) {
+    return (
+      <div
+        data-slot="code-block-body"
+        className={cn("relative", styles.body, className)}
+        {...props}
+      >
+        <pre className={cn("overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap", styles.code)}>
+          {children}
+        </pre>
+      </div>
+    )
+  }
 
   if (bare) {
     return (
