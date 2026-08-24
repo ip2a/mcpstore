@@ -385,10 +385,9 @@ impl MCPStore {
                 } else {
                     if execution_failure_impairs_connection(&error) {
                         self.pool.disconnect(context.instance_id).await.ok();
-                        self.record_failure(context.instance_id, "Tool call failed", &error)
-                            .await?;
+                        self.record_failure(context.instance_id, &error).await?;
                     }
-                    execution_failure_status(&error)
+                    error.code().as_str()
                 };
                 self.event_bus
                     .publish(
@@ -452,15 +451,6 @@ fn execution_failure_impairs_connection(error: &Error) -> bool {
     )
 }
 
-fn execution_failure_status(error: &Error) -> &'static str {
-    match error.code() {
-        FailureCode::CallCancelled => "cancelled",
-        FailureCode::CallTimedOut => "timed_out",
-        FailureCode::CallDisconnected => "disconnected",
-        _ => "error",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,34 +477,5 @@ mod tests {
             FailureCode::CallDisconnected,
             "MCP request disconnected",
         )));
-    }
-
-    #[test]
-    fn execution_failure_status_uses_codes() {
-        assert_eq!(
-            execution_failure_status(&Error::new(
-                FailureCode::CallCancelled,
-                "MCP request cancelled"
-            )),
-            "cancelled"
-        );
-        assert_eq!(
-            execution_failure_status(&Error::new(
-                FailureCode::CallTimedOut,
-                "MCP request timed out after 30s"
-            )),
-            "timed_out"
-        );
-        assert_eq!(
-            execution_failure_status(&Error::new(
-                FailureCode::CallDisconnected,
-                "MCP request disconnected"
-            )),
-            "disconnected"
-        );
-        assert_eq!(
-            execution_failure_status(&Error::new(FailureCode::ToolFailed, "bad response")),
-            "error"
-        );
     }
 }

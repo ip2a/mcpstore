@@ -23,7 +23,10 @@ impl MCPStore {
                 return self
                     .mark_instance_retryable_failure(
                         instance_id,
-                        "Transport is not connected".to_string(),
+                        &crate::error::Error::new(
+                            crate::error::FailureCode::NotConnected,
+                            "transport is not connected",
+                        ),
                     )
                     .await;
             }
@@ -87,7 +90,7 @@ impl MCPStore {
                     metrics: HealthMetrics::default(),
                     failure: error.map(|message| FailureInfo {
                         phase: FailurePhase::Health,
-                        code: "openapi_request_failed".to_string(),
+                        code: crate::error::FailureCode::OpenapiRequestFailed,
                         retryable: true,
                         message,
                         since: now,
@@ -199,7 +202,7 @@ impl MCPStore {
                     },
                     failure: error.map(|message| FailureInfo {
                         phase: FailurePhase::Health,
-                        code: "health_observation_failed".to_string(),
+                        code: crate::error::FailureCode::HealthCheckFailed,
                         retryable: true,
                         message,
                         since: now,

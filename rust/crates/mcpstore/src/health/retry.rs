@@ -5,7 +5,7 @@ impl MCPStore {
     pub(crate) async fn record_instance_failure(
         &self,
         instance_id: InstanceId,
-        error: String,
+        error: &Error,
     ) -> Result<ServiceState> {
         if self.is_data_plane() {
             return self
@@ -73,7 +73,7 @@ impl MCPStore {
     pub(crate) async fn mark_instance_retryable_failure(
         &self,
         instance_id: InstanceId,
-        error: String,
+        error: &Error,
     ) -> Result<ServiceState> {
         let now = Self::now_timestamp();
         let now_f64 = now as f64;
@@ -100,13 +100,9 @@ impl MCPStore {
             .restart_policy
             .should_restart_after_failure(attempts as i32)
             && now_f64 < hard_deadline;
-        let failure = FailureInfo {
-            phase: FailurePhase::Recovery,
-            code: "service_unavailable".to_string(),
-            retryable: should_restart,
-            message: error,
-            since: now,
-        };
+        let mut failure = FailureInfo::from_error(FailurePhase::Recovery, error);
+        failure.retryable = should_restart;
+        failure.since = now;
 
         let failed = self
             .state_manager

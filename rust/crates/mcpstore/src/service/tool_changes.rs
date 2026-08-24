@@ -207,7 +207,7 @@ impl MCPStore {
                         instance_id,
                         ServiceStateEvent::ToolSyncFailed(FailureInfo {
                             phase: FailurePhase::Tools,
-                            code: "tool_sync_failed".to_string(),
+                            code: crate::error::FailureCode::ToolSyncFailed,
                             retryable: true,
                             message: error.to_string(),
                             since: Self::now_timestamp(),
