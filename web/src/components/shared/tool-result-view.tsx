@@ -65,7 +65,7 @@ function TextBlock({ text, isError }: { text: string; isError?: boolean }) {
       </CodeBlockHeader>
       <CodeBlockBody
         variant="response"
-        maxHeight="min(60dvh, 32rem)"
+        scrollable={false}
         className={cn(isError && "bg-destructive/5")}
       >
         {text}
