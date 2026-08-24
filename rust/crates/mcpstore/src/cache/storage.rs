@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+#[cfg(feature = "redis")]
 use crate::cache::redis::LazyRedisStore;
 use crate::cache::Result;
 use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
@@ -55,6 +56,7 @@ pub(crate) fn memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyv
     )
 }
 
+#[cfg(feature = "redis")]
 pub(crate) fn redis_store(redis_address: &str) -> Arc<dyn CacheStore> {
     let store = Arc::new(LazyRedisStore::new(redis_address));
     let handle = openkeyv::StoreHandle::with_capabilities(

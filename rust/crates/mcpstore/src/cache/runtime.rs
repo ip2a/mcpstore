@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::cache::{memory_cache_store, redis_store, CacheStore};
+use crate::cache::{memory_cache_store, CacheStore};
+#[cfg(feature = "redis")]
+use crate::cache::redis_store;
 use crate::store::prelude::*;
 use crate::store::{JsonStoreConfig, StoreConfig};
 
@@ -12,6 +14,7 @@ impl MCPStore {
     ) -> Result<Arc<dyn CacheStore>> {
         match store_config.store_name() {
             "memory" => Ok(memory_cache_store()),
+            #[cfg(feature = "redis")]
             "redis" => Ok(redis_store(
                 store_config
                     .config
