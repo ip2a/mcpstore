@@ -276,8 +276,7 @@ impl MCPStore {
             };
         if let Err(error) = connect_result {
             self.pool.disconnect(instance_id).await.ok();
-            self.record_failure(instance_id, "Connection failed", &error)
-                .await?;
+            self.record_failure(instance_id, &error).await?;
             return Err(error);
         }
         self.state_manager
@@ -302,8 +301,7 @@ impl MCPStore {
                             FailureCode::ProbeTimedOut,
                             format!("service instance startup probe timed out: {instance_id}"),
                         );
-                        self.record_failure(instance_id, "Startup probe", &error)
-                            .await?;
+                        self.record_failure(instance_id, &error).await?;
                         return Err(error);
                     }
                 }
@@ -344,8 +342,7 @@ impl MCPStore {
             Ok(tools) => tools,
             Err(error) => {
                 self.pool.disconnect(instance_id).await.ok();
-                self.record_failure(instance_id, "Tool discovery failed", &error)
-                    .await?;
+                self.record_failure(instance_id, &error).await?;
                 return Err(error);
             }
         };

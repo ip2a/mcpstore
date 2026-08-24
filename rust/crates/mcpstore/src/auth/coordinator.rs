@@ -99,7 +99,7 @@ impl AuthCoordinator {
     pub async fn set_status(&self, instance_id: InstanceId, status: AuthStatus) {
         let failure = (status == AuthStatus::Error).then(|| FailureInfo {
             phase: FailurePhase::Auth,
-            code: "authentication_failed".to_string(),
+            code: crate::error::FailureCode::AuthFailed,
             retryable: true,
             message: "authentication failed".to_string(),
             since: chrono::Utc::now().timestamp(),

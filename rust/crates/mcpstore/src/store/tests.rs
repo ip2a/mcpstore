@@ -1108,7 +1108,10 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
     assert_eq!(state.health, crate::state::HealthState::Healthy);
     let unchanged = db
-        .record_instance_failure(instance_id, "must stay read-only".to_string())
+        .record_instance_failure(
+            instance_id,
+            &crate::error::Error::new(crate::error::FailureCode::Internal, "must stay read-only"),
+        )
         .await
         .unwrap();
     assert_eq!(unchanged, state);
@@ -5427,10 +5430,7 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
     )
     .with_context(crate::error::ErrorContext::Auth { required });
 
-    store
-        .record_failure(instance_id, "Connection failed", &error)
-        .await
-        .unwrap();
+    store.record_failure(instance_id, &error).await.unwrap();
 
     let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
@@ -5469,10 +5469,7 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
         required_scope: Some("resources.read tools.call".to_string()),
     });
 
-    store
-        .record_failure(instance_id, "Connection failed", &error)
-        .await
-        .unwrap();
+    store.record_failure(instance_id, &error).await.unwrap();
 
     let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);

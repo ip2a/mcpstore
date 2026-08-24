@@ -190,7 +190,6 @@ impl MCPStore {
     pub(crate) async fn record_failure(
         &self,
         instance_id: InstanceId,
-        context: &str,
         error: &Error,
     ) -> Result<()> {
         match error.code() {
@@ -219,8 +218,7 @@ impl MCPStore {
             _ => {}
         }
 
-        self.record_instance_failure(instance_id, format!("{context}: {error}"))
-            .await?;
+        self.record_instance_failure(instance_id, error).await?;
         Ok(())
     }
 

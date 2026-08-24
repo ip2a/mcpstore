@@ -44,7 +44,7 @@ impl MCPStore {
                     instance_id,
                     ServiceStateEvent::StopFailed(FailureInfo {
                         phase: FailurePhase::Transport,
-                        code: "transport_stop_failed".to_string(),
+                        code: crate::error::FailureCode::StopFailed,
                         retryable: true,
                         message: error.to_string(),
                         since: Self::now_timestamp(),
