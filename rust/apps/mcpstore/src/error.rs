@@ -2,14 +2,13 @@
 //!
 //! Before this module the taxonomy lived in triplicate (`CallCommandError`,
 //! `TaskCommandError`, `ProtocolCommandError`) and service commands had none —
-//! they leaked `StoreError`/`String` as generic exit-1 failures. `CliError`
-//! centralizes classification (`StoreError` → `ErrorCode` → exit code / label /
+//! they leaked generic `String` errors as exit-1 failures. `CliError`
+//! centralizes classification (`Error` → `ErrorCode` → exit code / label /
 //! hint) once, while `Domain` keeps each command family's `event` prefix and
 //! `context` carries per-command fields (instance_id, tool_name, task_id).
 
 use clap::ValueEnum;
-use mcpstore::error::FailureCode;
-use mcpstore::StoreError;
+use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
 
 /// Machine/human output format, shared by all commands that emit results.
@@ -146,45 +145,40 @@ impl ErrorCode {
         }
     }
 
-    /// The single, authoritative `StoreError` classifier. Domain-aware: the task
-    /// command family collapses ToolCallFailed and Protocol to match its historical
+    /// The single, authoritative failure-code classifier. Domain-aware: the task
+    /// command family collapses ToolFailed/TaskFailed to match its historical
     /// exit codes (1 and 25, not 33 and 34).
-    pub fn from_store(error: &StoreError, domain: Domain) -> Self {
-        match error {
-            StoreError::ToolNotAvailable { .. } => Self::InvalidInput,
-            StoreError::ServiceNotFound(_) => Self::ServiceNotFound,
-            StoreError::Auth(_) => Self::AuthenticationRequired,
-            StoreError::Transport(error) => match error.code() {
-                FailureCode::InvalidInput => Self::InvalidInput,
-                FailureCode::ConnectionAuthRequired
-                | FailureCode::ConnectionScope
-                | FailureCode::AuthFailed
-                | FailureCode::OauthProviderFailed
-                | FailureCode::SecureStorageUnavailable => Self::AuthenticationRequired,
-                FailureCode::CapabilityUnsupported => Self::CapabilityUnsupported,
-                FailureCode::CallCancelled => Self::Cancelled,
-                FailureCode::CallTimedOut => Self::TimedOut,
-                FailureCode::CallDisconnected => Self::Disconnected,
-                FailureCode::TaskNotFound => Self::TaskNotFound,
-                FailureCode::TaskStateFailed => Self::TaskStateFailed,
-                FailureCode::ElicitationInputRequired => Self::ElicitationInputRequired,
-                FailureCode::ElicitationCancelled => Self::ElicitationCancelled,
-                FailureCode::ElicitationTimedOut => Self::ElicitationTimedOut,
-                FailureCode::ElicitationInvalidResponse => Self::ElicitationInvalidResponse,
-                FailureCode::ToolFailed | FailureCode::TaskFailed | FailureCode::TaskUnavailable => {
-                    match domain {
-                        Domain::Task => Self::CommandFailed,
-                        _ => Self::ToolFailed,
-                    }
+    pub fn from_store(error: &Error, domain: Domain) -> Self {
+        match error.code() {
+            FailureCode::ToolNotAvailable => Self::InvalidInput,
+            FailureCode::ServiceNotFound => Self::ServiceNotFound,
+            FailureCode::ConnectionAuthRequired
+            | FailureCode::ConnectionScope
+            | FailureCode::AuthFailed
+            | FailureCode::OauthProviderFailed
+            | FailureCode::SecureStorageUnavailable => Self::AuthenticationRequired,
+            FailureCode::CapabilityUnsupported => Self::CapabilityUnsupported,
+            FailureCode::CallCancelled => Self::Cancelled,
+            FailureCode::CallTimedOut => Self::TimedOut,
+            FailureCode::CallDisconnected => Self::Disconnected,
+            FailureCode::TaskNotFound => Self::TaskNotFound,
+            FailureCode::TaskStateFailed => Self::TaskStateFailed,
+            FailureCode::ElicitationInputRequired => Self::ElicitationInputRequired,
+            FailureCode::ElicitationCancelled => Self::ElicitationCancelled,
+            FailureCode::ElicitationTimedOut => Self::ElicitationTimedOut,
+            FailureCode::ElicitationInvalidResponse => Self::ElicitationInvalidResponse,
+            FailureCode::ToolFailed | FailureCode::TaskFailed | FailureCode::TaskUnavailable => {
+                match domain {
+                    Domain::Task => Self::CommandFailed,
+                    _ => Self::ToolFailed,
                 }
-                FailureCode::ConfigInvalid | FailureCode::ConnectionUnsupported => Self::InvalidInput,
-                FailureCode::SessionNotFound | FailureCode::SessionNotActive => Self::CommandFailed,
-                _ => Self::ConnectionFailed,
-            },
-            StoreError::Cache(_) => Self::TaskStateFailed,
-            StoreError::Config(_) | StoreError::State(_) | StoreError::Other(_) => {
-                Self::CommandFailed
             }
+            FailureCode::InvalidInput
+            | FailureCode::ConfigInvalid
+            | FailureCode::ConnectionUnsupported => Self::InvalidInput,
+            FailureCode::SessionNotFound | FailureCode::SessionNotActive => Self::CommandFailed,
+            FailureCode::Internal => Self::CommandFailed,
+            _ => Self::ConnectionFailed,
         }
     }
 
@@ -254,8 +248,8 @@ impl CliError {
             .with("tool_name", tool_name.into())
     }
 
-    /// Classify a `StoreError` into a `CliError` for the given command family.
-    pub fn from_store(error: &StoreError, format: OutputFormat, domain: Domain) -> Self {
+    /// Classify an `Error` into a `CliError` for the given command family.
+    pub fn from_store(error: &Error, format: OutputFormat, domain: Domain) -> Self {
         Self::new(
             format,
             domain,

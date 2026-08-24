@@ -11,7 +11,10 @@ impl MCPStore {
     ) -> Result<ToolChangeSummary> {
         self.refresh_from_db_if_needed().await?;
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         let instance_ids = [instance_id];
 
@@ -108,7 +111,10 @@ impl MCPStore {
     ) -> Result<ToolChangeServiceResult> {
         self.refresh_from_db_if_needed().await?;
         let Some(instance) = self.registry.find_instance(instance_id).await else {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         };
         self.state_manager
             .dispatch(
@@ -145,7 +151,7 @@ impl MCPStore {
                 .registry
                 .find_instance(instance_id)
                 .await
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
             updated.tools = tool_infos;
             let service_name = updated.service_name.clone();
             self.registry.register_instance(updated).await;

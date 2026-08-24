@@ -4919,13 +4919,13 @@ async fn context_tool_visibility_filters_tools_per_instance() {
         .unwrap();
     assert!(matches!(
         store.ensure_context_tool_allowed(instance_id, "beta").await,
-        Err(StoreError::ToolNotAvailable { .. })
+        Err(error) if error.code() == crate::error::FailureCode::ToolNotAvailable
     ));
     assert!(matches!(
         store
             .call_tool(instance_id, "beta", serde_json::json!({}))
             .await,
-        Err(StoreError::ToolNotAvailable { .. })
+        Err(error) if error.code() == crate::error::FailureCode::ToolNotAvailable
     ));
 
     let stale_state = store
@@ -5060,7 +5060,7 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
         .unwrap_err();
     assert!(matches!(
         &err,
-        StoreError::Transport(error) if error.code().category()
+        error if error.code().category()
             == crate::error::FailureCategory::Connection
     ));
     let state = store
@@ -5074,11 +5074,14 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
         .await
         .unwrap();
 
-    assert!(err.to_string().contains("connection_") || matches!(
-        &err,
-        StoreError::Transport(error) if error.code().category()
-            == crate::error::FailureCategory::Connection
-    ));
+    assert!(
+        err.to_string().contains("connection_")
+            || matches!(
+                &err,
+                error if error.code().category()
+                    == crate::error::FailureCategory::Connection
+            )
+    );
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
     assert_eq!(state.health, crate::state::HealthState::Unhealthy);
     assert!(matches!(
@@ -5145,7 +5148,7 @@ async fn connect_service_times_out_hanging_stdio_startup() {
         .unwrap();
 
     assert!(
-        err.contains("Service instance connection timed out"),
+        err.contains("service instance connection timed out"),
         "{err}"
     );
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
@@ -5425,7 +5428,7 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
     .with_context(crate::error::ErrorContext::Auth { required });
 
     store
-        .record_transport_failure(instance_id, &error, "Connection failed")
+        .record_failure(instance_id, "Connection failed", &error)
         .await
         .unwrap();
 
@@ -5467,7 +5470,7 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
     });
 
     store
-        .record_transport_failure(instance_id, &error, "Connection failed")
+        .record_failure(instance_id, "Connection failed", &error)
         .await
         .unwrap();
 
@@ -7433,10 +7436,11 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     let instance_id = store_instance_id("protected");
 
     let error = store.connect_service(instance_id).await.unwrap_err();
-    let StoreError::Transport(transport_error) = error else {
-        panic!("expected transport error");
-    };
-    assert_eq!(transport_error.code(), crate::error::FailureCode::ConnectionAuthRequired);
+    let transport_error = error;
+    assert_eq!(
+        transport_error.code(),
+        crate::error::FailureCode::ConnectionAuthRequired
+    );
     let crate::error::ErrorContext::Auth { required } = transport_error.context() else {
         panic!("expected auth context");
     };

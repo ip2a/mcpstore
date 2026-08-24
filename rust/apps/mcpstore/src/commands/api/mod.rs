@@ -89,17 +89,20 @@ async fn resolve_instance(
         .store
         .instance_id_for_scope(service_name, scope)
         .await
-        .map_err(|error| match error {
-            mcpstore::StoreError::Other(_) => ApiError::not_found(
-                "SERVICE_SCOPE_NOT_FOUND",
-                format!("服务 {service_name} 未在该作用域声明"),
-                Some("service_name"),
-                Some(json!({
-                    "service_name": service_name,
-                    "scope": serde_json::to_value(scope).unwrap_or(serde_json::Value::Null),
-                })),
-            ),
-            other => ApiError::from_store(other),
+        .map_err(|error| {
+            if error.code() == mcpstore::error::FailureCode::ServiceNotFound {
+                ApiError::not_found(
+                    "SERVICE_SCOPE_NOT_FOUND",
+                    format!("服务 {service_name} 未在该作用域声明"),
+                    Some("service_name"),
+                    Some(json!({
+                        "service_name": service_name,
+                        "scope": serde_json::to_value(scope).unwrap_or(serde_json::Value::Null),
+                    })),
+                )
+            } else {
+                ApiError::from_store(error)
+            }
         })
 }
 

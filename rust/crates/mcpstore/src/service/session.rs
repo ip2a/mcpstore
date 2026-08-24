@@ -16,7 +16,7 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         self.state_manager
             .dispatch(
                 instance_id,
@@ -36,7 +36,7 @@ impl MCPStore {
                 .disconnect(instance_id)
                 .await
                 .map(|_| String::new())
-                .map_err(StoreError::from)
+                .map_err(Error::from)
         };
         if let Err(error) = stop_result {
             self.state_manager
@@ -93,7 +93,10 @@ impl MCPStore {
         }
 
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         self.disconnect_service(instance_id).await?;
         self.connect_service_internal(instance_id, false)

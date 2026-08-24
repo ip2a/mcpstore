@@ -279,9 +279,10 @@ impl MCPStore {
             .await?
         {
             let rule: ToolOverrideRule = serde_json::from_value(value).map_err(|err| {
-                StoreError::Other(format!(
-                    "Tool override deserialization failed for {key}: {err}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool override deserialization failed for {key}: {err}"),
+                )
             })?;
             rules.push(rule);
         }
@@ -372,9 +373,10 @@ impl MCPStore {
                 }
             }
         }
-        Err(StoreError::Other(format!(
-            "Tool '{tool_name}' not found in instance '{instance_id}'"
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!("Tool '{tool_name}' not found in instance '{instance_id}'"),
+        ))
     }
 
     async fn load_enabled_tool_override(
@@ -401,7 +403,10 @@ impl MCPStore {
             .await?
             .map(|value| {
                 serde_json::from_value(value).map_err(|err| {
-                    StoreError::Other(format!("Tool override deserialization failed: {err}"))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Tool override deserialization failed: {err}"),
+                    )
                 })
             })
             .transpose()
@@ -417,7 +422,8 @@ impl MCPStore {
                 TOOL_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(rule.instance_id, &rule.tool_name),
                 expected_version,
-                serde_json::to_value(rule).map_err(|err| StoreError::Other(err.to_string()))?,
+                serde_json::to_value(rule)
+                    .map_err(|err| Error::new(FailureCode::Internal, err.to_string()))?,
             )
             .await?;
         Ok(())
@@ -438,33 +444,42 @@ impl MCPStore {
         let mut exposed_names = HashSet::new();
         for arg in &patch.arguments {
             if arg.original_name.trim().is_empty() {
-                return Err(StoreError::Other(
+                return Err(Error::new(
+                    FailureCode::Internal,
                     "Tool override argument original_name cannot be empty".to_string(),
                 ));
             }
             if !original_names.insert(arg.original_name.clone()) {
-                return Err(StoreError::Other(format!(
-                    "Duplicate tool argument_override argument: {}",
-                    arg.original_name
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Duplicate tool argument_override argument: {}",
+                        arg.original_name
+                    ),
+                ));
             }
             if let Some(new_name) = arg.new_name.as_deref() {
                 if new_name.trim().is_empty() {
-                    return Err(StoreError::Other(
+                    return Err(Error::new(
+                        FailureCode::Internal,
                         "Tool override argument new_name cannot be empty".to_string(),
                     ));
                 }
                 if !arg.hidden && !exposed_names.insert(new_name.to_string()) {
-                    return Err(StoreError::Other(format!(
-                        "Duplicate exposed tool argument: {new_name}"
-                    )));
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!("Duplicate exposed tool argument: {new_name}"),
+                    ));
                 }
             }
             if matches!(arg.validation_schema.as_ref(), Some(schema) if !schema.is_object()) {
-                return Err(StoreError::Other(format!(
-                    "Tool override validation_schema for {} must be a JSON object",
-                    arg.original_name
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Tool override validation_schema for {} must be a JSON object",
+                        arg.original_name
+                    ),
+                ));
             }
         }
         if let Some(policy) = patch.safety_policy.as_ref() {
@@ -480,7 +495,8 @@ impl MCPStore {
                 .iter()
                 .any(|pattern| pattern.trim().is_empty())
         {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "Tool override safety policy patterns cannot be empty".to_string(),
             ));
         }
@@ -617,10 +633,10 @@ impl MCPStore {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(StoreError::Other(format!(
-                "Tool override validation failed: {}",
-                errors.join("; ")
-            )))
+            Err(Error::new(
+                FailureCode::Internal,
+                format!("Tool override validation failed: {}", errors.join("; ")),
+            ))
         }
     }
 
@@ -635,7 +651,8 @@ impl MCPStore {
             return Ok(());
         }
         let serde_json::Value::Object(input) = args else {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "Tool override safety policy requires object arguments".to_string(),
             ));
         };
@@ -646,7 +663,7 @@ impl MCPStore {
                 .iter()
                 .find(|pattern| normalized.contains(&pattern.to_lowercase()))
             {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(FailureCode::Internal, format!(
                     "Tool override safety policy rejected argument '{argument_name}' matching '{pattern}'"
                 )));
             }

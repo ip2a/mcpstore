@@ -22,14 +22,14 @@ impl MCPStore {
     async fn enrich_service(&self, instance: ServiceInstance) -> Result<serde_json::Value> {
         let tool_count = instance.tools.len();
         let state = self.service_state_entry(instance.instance_id).await?;
-        let mut value =
-            serde_json::to_value(instance).map_err(|error| StoreError::Other(error.to_string()))?;
+        let mut value = serde_json::to_value(instance)
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             object.insert(
                 "state".to_string(),
                 serde_json::to_value(state)
-                    .map_err(|error| StoreError::Other(error.to_string()))?,
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             );
         }
         Ok(value)
@@ -58,21 +58,21 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let tool_count = instance.tools.len();
-        let mut value =
-            serde_json::to_value(instance).map_err(|error| StoreError::Other(error.to_string()))?;
+        let mut value = serde_json::to_value(instance)
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             object.insert(
                 "state".to_string(),
                 serde_json::to_value(self.service_state_entry(instance_id).await?)
-                    .map_err(|error| StoreError::Other(error.to_string()))?,
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             );
             object.insert(
                 "mcp".to_string(),
                 serde_json::to_value(self.mcp_server_metadata(instance_id).await?)
-                    .map_err(|error| StoreError::Other(error.to_string()))?,
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             );
         }
         Ok(value)

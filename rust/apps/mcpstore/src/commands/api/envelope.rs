@@ -4,7 +4,8 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use mcpstore::StoreError;
+use mcpstore::error::{Error, FailureCode};
+use mcpstore::ErrorContext;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -101,177 +102,125 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, code, message, field, details)
     }
 
-    pub(super) fn from_store(error: StoreError) -> Self {
-        match error {
-            StoreError::Auth(mcpstore::AuthError::Required(required)) => Self::new(
+    pub(super) fn from_store(error: Error) -> Self {
+        match error.code() {
+            FailureCode::ConnectionAuthRequired => Self::new(
                 StatusCode::UNAUTHORIZED,
                 "AUTH_REQUIRED",
-                required.to_string(),
+                error.message().to_string(),
                 None,
-                serde_json::to_value(required).ok(),
+                serde_json::to_value(error.context()).ok(),
             ),
-            StoreError::Auth(mcpstore::AuthError::InvalidConfig(message)) => Self::new(
-                StatusCode::BAD_REQUEST,
-                "AUTH_CONFIG_INVALID",
-                message,
+            FailureCode::ConnectionScope => Self::new(
+                StatusCode::FORBIDDEN,
+                "AUTH_INSUFFICIENT_SCOPE",
+                "OAuth 授权范围不足，需要升级授权",
                 None,
-                None,
+                Some(json!({
+                    "instance_id": match error.context() {
+                        ErrorContext::Scope { instance_id, .. } => json!(instance_id),
+                        _ => serde_json::Value::Null,
+                    },
+                    "required_scope": match error.context() {
+                        ErrorContext::Scope { required_scope, .. } => json!(required_scope),
+                        _ => serde_json::Value::Null,
+                    },
+                })),
             ),
-            StoreError::Auth(mcpstore::AuthError::CallbackRejected) => Self::new(
-                StatusCode::BAD_REQUEST,
-                "AUTH_CALLBACK_REJECTED",
-                "授权回调校验失败",
-                None,
-                None,
-            ),
-            StoreError::Auth(mcpstore::AuthError::RefreshFailed) => Self::new(
-                StatusCode::UNAUTHORIZED,
-                "AUTH_REFRESH_FAILED",
-                "令牌刷新失败，需要重新授权",
-                None,
-                None,
-            ),
-            StoreError::Auth(mcpstore::AuthError::MissingClientCredential) => Self::new(
-                StatusCode::UNAUTHORIZED,
-                "AUTH_CREDENTIAL_REQUIRED",
-                "需要先写入 OAuth 客户端凭证",
-                None,
-                None,
-            ),
-            StoreError::Auth(mcpstore::AuthError::UnsupportedFlow) => Self::new(
+            FailureCode::CapabilityUnsupported => Self::new(
                 StatusCode::CONFLICT,
-                "AUTH_FLOW_UNSUPPORTED",
-                "当前认证流程不支持此操作",
+                "MCP_CAPABILITY_UNSUPPORTED",
+                format!("远端 MCP 服务不支持 capability（{}）", error.message()),
+                None,
+                Some(json!({ "message": error.message() })),
+            ),
+            FailureCode::InvalidInput => Self::new(
+                StatusCode::BAD_REQUEST,
+                "MCP_INVALID_INPUT",
+                error.message().to_string(),
                 None,
                 None,
             ),
-            StoreError::Auth(mcpstore::AuthError::SecureStorage { .. }) => Self::new(
+            FailureCode::ServiceNotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "SERVICE_NOT_FOUND",
+                format!("服务不存在: {}", error.message()),
+                Some("service_name"),
+                None,
+            ),
+            FailureCode::ToolNotAvailable => Self::new(
+                StatusCode::FORBIDDEN,
+                "TOOL_NOT_AVAILABLE",
+                error.message().to_string(),
+                Some("tool_name"),
+                Some(match error.context() {
+                    ErrorContext::Tool {
+                        instance_id,
+                        tool_name,
+                    } => json!({ "instance_id": instance_id, "tool_name": tool_name }),
+                    _ => serde_json::Value::Null,
+                }),
+            ),
+            FailureCode::SecureStorageUnavailable => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "SECURE_STORAGE_UNAVAILABLE",
                 "安全凭证存储不可用",
                 None,
                 None,
             ),
-            StoreError::Auth(
-                mcpstore::AuthError::AuthorizationStartFailed
-                | mcpstore::AuthError::ProviderFailure,
-            ) => Self::new(
+            FailureCode::OauthProviderFailed => Self::new(
                 StatusCode::BAD_GATEWAY,
                 "OAUTH_PROVIDER_FAILED",
                 "OAuth 提供方操作失败",
                 None,
                 None,
             ),
-            StoreError::Auth(error) => Self::new(
+            FailureCode::ConfigInvalid => Self::new(
+                StatusCode::BAD_REQUEST,
+                "CONFIG_INVALID",
+                error.message().to_string(),
+                None,
+                None,
+            ),
+            FailureCode::AuthFailed => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "AUTHENTICATION_ERROR",
-                error.to_string(),
+                error.message().to_string(),
                 None,
                 Some(json!({ "error_type": "AuthError" })),
             ),
-            StoreError::ToolNotAvailable {
-                instance_id,
-                tool_name,
-            } => Self::new(
-                StatusCode::FORBIDDEN,
-                "TOOL_NOT_AVAILABLE",
-                format!("工具不可用: {tool_name}"),
-                Some("tool_name"),
-                Some(json!({ "instance_id": instance_id, "tool_name": tool_name })),
-            ),
-            StoreError::ServiceNotFound(name) => Self::new(
+            FailureCode::SessionNotFound => Self::new(
                 StatusCode::NOT_FOUND,
-                "SERVICE_NOT_FOUND",
-                format!("服务不存在: {name}"),
-                Some("service_name"),
-                Some(json!({ "service_name": name })),
-            ),
-            StoreError::Config(error) => Self::new(
-                StatusCode::BAD_REQUEST,
-                "CONFIG_INVALID",
-                error.to_string(),
+                "SESSION_NOT_FOUND",
+                error.message().to_string(),
+                Some("session_key"),
                 None,
-                Some(json!({ "error_type": "ConfigError" })),
             ),
-            StoreError::Transport(error) => match error.code() {
-                mcpstore::error::FailureCode::ConnectionAuthRequired => Self::new(
-                    StatusCode::UNAUTHORIZED,
-                    "AUTH_REQUIRED",
-                    error.message().to_string(),
-                    None,
-                    serde_json::to_value(error.context()).ok(),
-                ),
-                mcpstore::error::FailureCode::ConnectionScope => Self::new(
-                    StatusCode::FORBIDDEN,
-                    "AUTH_INSUFFICIENT_SCOPE",
-                    "OAuth 授权范围不足，需要升级授权",
-                    None,
-                    Some(json!({
-                        "instance_id": serde_json::to_value(error.context()).ok()
-                            .and_then(|v| v.get("instance_id").cloned())
-                            .unwrap_or(serde_json::Value::Null),
-                        "required_scope": match error.context() {
-                            mcpstore::error::ErrorContext::Scope { required_scope, .. } => {
-                                json!(required_scope)
-                            }
-                            _ => serde_json::Value::Null,
-                        },
-                    })),
-                ),
-                mcpstore::error::FailureCode::CapabilityUnsupported => Self::new(
-                    StatusCode::CONFLICT,
-                    "MCP_CAPABILITY_UNSUPPORTED",
-                    format!("远端 MCP 服务不支持 capability（{}）", error.message()),
-                    None,
-                    Some(json!({ "message": error.message() })),
-                ),
-                mcpstore::error::FailureCode::InvalidInput => Self::new(
-                    StatusCode::BAD_REQUEST,
-                    "MCP_INVALID_INPUT",
-                    error.message().to_string(),
-                    None,
-                    None,
-                ),
-                _ => Self::new(
-                    StatusCode::BAD_GATEWAY,
-                    "SERVICE_OPERATION_FAILED",
-                    error.to_string(),
-                    None,
-                    Some(json!({ "error_type": "TransportError" })),
-                ),
-            },
-            StoreError::Cache(error) => Self::new(
+            FailureCode::SessionNotActive => Self::new(
+                StatusCode::CONFLICT,
+                "SESSION_NOT_ACTIVE",
+                error.message().to_string(),
+                Some("session_key"),
+                None,
+            ),
+            FailureCode::TaskStateFailed => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
-                error.to_string(),
+                error.message().to_string(),
                 None,
                 Some(json!({ "error_type": "CacheError" })),
             ),
-            StoreError::Other(message) if message.contains("Session not found") => Self::new(
-                StatusCode::NOT_FOUND,
-                "SESSION_NOT_FOUND",
-                message,
-                Some("session_key"),
-                None,
-            ),
-            StoreError::Other(message) if message.contains("Session is not active") => Self::new(
-                StatusCode::CONFLICT,
-                "SESSION_NOT_ACTIVE",
-                message,
-                Some("session_key"),
-                None,
-            ),
-            StoreError::State(error) => Self::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "STATE_ERROR",
-                error.to_string(),
-                None,
-                None,
-            ),
-            StoreError::Other(message) => Self::new(
+            FailureCode::Internal => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
-                message,
+                error.message().to_string(),
+                None,
+                None,
+            ),
+            _ => Self::new(
+                StatusCode::BAD_GATEWAY,
+                "SERVICE_OPERATION_FAILED",
+                error.to_string(),
                 None,
                 None,
             ),
@@ -327,21 +276,19 @@ fn api_meta() -> ApiMeta {
 mod tests {
     use super::*;
     use mcpstore::error::{Error, ErrorContext, FailureCode};
-    use mcpstore::{InstanceId, StoreError};
+    use mcpstore::InstanceId;
 
     #[test]
     fn insufficient_scope_maps_to_http_403_with_stable_error_code() {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
-        let error = ApiError::from_store(StoreError::Transport(
-            Error::new(
-                FailureCode::ConnectionScope,
-                "insufficient OAuth scope",
-            )
-            .with_context(ErrorContext::Scope {
-                instance_id,
-                required_scope: Some("resources.read tools.call".to_string()),
-            }),
-        ));
+        let error = ApiError::from_store(
+            Error::new(FailureCode::ConnectionScope, "insufficient OAuth scope").with_context(
+                ErrorContext::Scope {
+                    instance_id,
+                    required_scope: Some("resources.read tools.call".to_string()),
+                },
+            ),
+        );
 
         assert_eq!(error.status, StatusCode::FORBIDDEN);
         assert_eq!(error.code, "AUTH_INSUFFICIENT_SCOPE");
@@ -358,7 +305,7 @@ mod tests {
     #[test]
     fn unsupported_capability_maps_to_http_409_with_stable_error_code() {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
-        let error = ApiError::from_store(StoreError::Transport(
+        let error = ApiError::from_store(
             Error::new(
                 FailureCode::CapabilityUnsupported,
                 "MCP service instance does not support capability completions",
@@ -367,7 +314,7 @@ mod tests {
                 instance_id,
                 service_name: String::new(),
             }),
-        ));
+        );
 
         assert_eq!(error.status, StatusCode::CONFLICT);
         assert_eq!(error.code, "MCP_CAPABILITY_UNSUPPORTED");
@@ -376,7 +323,6 @@ mod tests {
             .as_ref()
             .and_then(|details| details.get("message"))
             .and_then(Value::as_str)
-            .is_some_and(|message| message.contains("completions"))
-        );
+            .is_some_and(|message| message.contains("completions")));
     }
 }

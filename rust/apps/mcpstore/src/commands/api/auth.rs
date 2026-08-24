@@ -112,7 +112,7 @@ pub(super) async fn service_auth_start(
                 json!({ "auth": auth, "authorization": null }),
             ))
         }
-        None => Err(ApiError::from_store(mcpstore::StoreError::Auth(
+        None => Err(ApiError::from_store(mcpstore::Error::from(
             mcpstore::AuthError::UnsupportedFlow,
         ))),
     }

@@ -1,5 +1,5 @@
-use crate::error::{Error, FailureCode};
 use crate::error::Result;
+use crate::error::{Error, FailureCode};
 use crate::transport::ContentItem;
 use rmcp::model::ContentBlock;
 
@@ -38,7 +38,10 @@ pub(in crate::transport) fn content_item_from_rmcp(content: ContentBlock) -> Res
                 annotations,
             })
         }
-        _ => Err(Error::new(FailureCode::ToolFailed, "rmcp returned an unsupported content block")),
+        _ => Err(Error::new(
+            FailureCode::ToolFailed,
+            "rmcp returned an unsupported content block",
+        )),
     }
 }
 

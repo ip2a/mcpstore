@@ -18,10 +18,16 @@ impl MCPStore {
             if config.mcp_servers.remove(service_name).is_some() {
                 self.config_manager.save(&config)?;
             } else if self.get_openapi_import(service_name).await?.is_none() {
-                return Err(StoreError::ServiceNotFound(service_name.to_string()));
+                return Err(Error::new(
+                    FailureCode::ServiceNotFound,
+                    service_name.to_string(),
+                ));
             }
         } else if self.registry.find_definition(service_name).await.is_none() {
-            return Err(StoreError::ServiceNotFound(service_name.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                service_name.to_string(),
+            ));
         }
 
         let instance_ids = self.registry.unregister_definition(service_name).await;
@@ -55,7 +61,8 @@ impl MCPStore {
         mut config: ServerConfig,
     ) -> Result<String> {
         if config.mcpstore.is_some() {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "Use scope APIs to modify _mcpstore metadata or declarations".to_string(),
             ));
         }
@@ -82,9 +89,9 @@ impl MCPStore {
                 .await?
                 .map(serde_json::from_value)
                 .transpose()
-                .map_err(|error| StoreError::Other(error.to_string()))?
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?
         }
-        .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+        .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
 
         current.ensure_native_scopes();
         let base_changed = current.base_config() != config.base_config();
@@ -113,10 +120,14 @@ impl MCPStore {
 
     pub async fn patch_service(&self, service_name: &str, updates: Value) -> Result<String> {
         let updates = updates.as_object().ok_or_else(|| {
-            StoreError::Other("Service base config patch must be a JSON object".to_string())
+            Error::new(
+                FailureCode::Internal,
+                "Service base config patch must be a JSON object".to_string(),
+            )
         })?;
         if updates.contains_key("_mcpstore") {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "Use scope APIs to modify _mcpstore metadata or declarations".to_string(),
             ));
         }
@@ -136,12 +147,12 @@ impl MCPStore {
         let current = self
             .get_definition_config(service_name)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
         let mut config: ServerConfig = serde_json::from_value(current)
-            .map_err(|error| StoreError::Other(error.to_string()))?;
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         let merged = crate::config::merge_config(&config.base_config(), updates);
         config = serde_json::from_value(Value::Object(merged))
-            .map_err(|error| StoreError::Other(error.to_string()))?;
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         self.update_service(service_name, config).await
     }
 }

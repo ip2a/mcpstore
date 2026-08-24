@@ -73,41 +73,45 @@ pub(crate) fn handshake_error(
     use rmcp::model::ErrorCode;
     use rmcp::service::ClientInitializeError;
 
-    let (code, rpc_code, expected_id, received_id): (FailureCode, Option<i32>, Option<String>, Option<String>) =
-        match &error {
-            ClientInitializeError::UncorrelatedErrorResponse { expected, received } => (
-                FailureCode::HandshakeUncorrelated,
-                None,
-                Some(expected.to_string()),
-                Some(received.to_string()),
-            ),
-            ClientInitializeError::ConflictInitResponseId(expected, received) => (
-                FailureCode::HandshakeUncorrelated,
-                None,
-                Some(expected.to_string()),
-                Some(received.to_string()),
-            ),
-            ClientInitializeError::JsonRpcError(data) => {
-                let rpc = data.code.0;
-                let code = if rpc == ErrorCode::METHOD_NOT_FOUND.0 {
-                    FailureCode::HandshakeIncompatible
-                } else if rpc == ErrorCode::INVALID_REQUEST.0 || rpc == ErrorCode::INVALID_PARAMS.0 {
-                    FailureCode::HandshakeRejected
-                } else {
-                    FailureCode::HandshakeFailed
-                };
-                (code, Some(rpc), None, None)
-            }
-            // Version negotiation failed against a discover-only offer set: a
-            // legacy initialize handshake may still succeed.
-            ClientInitializeError::NoCompatibleProtocolVersion { .. } => {
-                (FailureCode::HandshakeIncompatible, None, None, None)
-            }
-            // rmcp's Auto already exhausted discover→initialize internally;
-            // re-falling back would be a third attempt, so classify as a
-            // generic handshake failure (Retry policy, not fallback).
-            ClientInitializeError::LegacyFallbackFailed { discover, fallback } => {
-                return Error::new(
+    let (code, rpc_code, expected_id, received_id): (
+        FailureCode,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+    ) = match &error {
+        ClientInitializeError::UncorrelatedErrorResponse { expected, received } => (
+            FailureCode::HandshakeUncorrelated,
+            None,
+            Some(expected.to_string()),
+            Some(received.to_string()),
+        ),
+        ClientInitializeError::ConflictInitResponseId(expected, received) => (
+            FailureCode::HandshakeUncorrelated,
+            None,
+            Some(expected.to_string()),
+            Some(received.to_string()),
+        ),
+        ClientInitializeError::JsonRpcError(data) => {
+            let rpc = data.code.0;
+            let code = if rpc == ErrorCode::METHOD_NOT_FOUND.0 {
+                FailureCode::HandshakeIncompatible
+            } else if rpc == ErrorCode::INVALID_REQUEST.0 || rpc == ErrorCode::INVALID_PARAMS.0 {
+                FailureCode::HandshakeRejected
+            } else {
+                FailureCode::HandshakeFailed
+            };
+            (code, Some(rpc), None, None)
+        }
+        // Version negotiation failed against a discover-only offer set: a
+        // legacy initialize handshake may still succeed.
+        ClientInitializeError::NoCompatibleProtocolVersion { .. } => {
+            (FailureCode::HandshakeIncompatible, None, None, None)
+        }
+        // rmcp's Auto already exhausted discover→initialize internally;
+        // re-falling back would be a third attempt, so classify as a
+        // generic handshake failure (Retry policy, not fallback).
+        ClientInitializeError::LegacyFallbackFailed { discover, fallback } => {
+            return Error::new(
                     FailureCode::HandshakeFailed,
                     format!("handshake failed after fallback (discover: {discover}; initialize: {fallback})"),
                 )
@@ -118,21 +122,21 @@ pub(crate) fn handshake_error(
                     received_id: None,
                 })
                 .with_source(error);
-            }
-            ClientInitializeError::ConnectionClosed(_) | ClientInitializeError::Cancelled => {
-                (FailureCode::ConnectionClosed, None, None, None)
-            }
-            ClientInitializeError::TransportError { .. } => {
-                (FailureCode::ConnectionRefused, None, None, None)
-            }
-            ClientInitializeError::ExpectedInitResponse(_)
-            | ClientInitializeError::ExpectedInitResult(_)
-            | ClientInitializeError::NoPreferredProtocolVersion => {
-                (FailureCode::HandshakeFailed, None, None, None)
-            }
-            #[allow(unreachable_patterns)]
-            _ => (FailureCode::HandshakeFailed, None, None, None),
-        };
+        }
+        ClientInitializeError::ConnectionClosed(_) | ClientInitializeError::Cancelled => {
+            (FailureCode::ConnectionClosed, None, None, None)
+        }
+        ClientInitializeError::TransportError { .. } => {
+            (FailureCode::ConnectionRefused, None, None, None)
+        }
+        ClientInitializeError::ExpectedInitResponse(_)
+        | ClientInitializeError::ExpectedInitResult(_)
+        | ClientInitializeError::NoPreferredProtocolVersion => {
+            (FailureCode::HandshakeFailed, None, None, None)
+        }
+        #[allow(unreachable_patterns)]
+        _ => (FailureCode::HandshakeFailed, None, None, None),
+    };
     Error::new(code, format!("HTTP MCP handshake failed: {error}"))
         .with_context(ErrorContext::Handshake {
             mode,

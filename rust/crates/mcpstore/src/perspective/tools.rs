@@ -1,6 +1,6 @@
 use crate::perspective::tool_candidates::ToolCandidate;
 use crate::perspective::tool_matching::{exact_match, fuzzy_match, prefix_match, suggestions};
-use crate::{InstanceId, Result, ScopeRef, ServiceInstanceKey, StoreError};
+use crate::{Error, FailureCode, InstanceId, Result, ScopeRef, ServiceInstanceKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,10 +42,13 @@ impl AvailableTool {
         let expected =
             ServiceInstanceKey::new(self.service_name.clone(), self.scope.clone()).instance_id();
         if self.instance_id != expected {
-            return Err(StoreError::Other(format!(
-                "available_tools instance_id {} does not match service_name '{}' and scope",
-                self.instance_id, self.service_name
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                    "available_tools instance_id {} does not match service_name '{}' and scope",
+                    self.instance_id, self.service_name
+                ),
+            ));
         }
         Ok(())
     }
@@ -53,10 +56,14 @@ impl AvailableTool {
 
 pub fn resolve_tool(user_input: &str, available_tools: &[AvailableTool]) -> Result<ToolResolution> {
     if user_input.trim().is_empty() {
-        return Err(StoreError::Other("Tool name cannot be empty".to_string()));
+        return Err(Error::new(
+            FailureCode::Internal,
+            "Tool name cannot be empty".to_string(),
+        ));
     }
     if available_tools.is_empty() {
-        return Err(StoreError::Other(
+        return Err(Error::new(
+            FailureCode::Internal,
             "available_tools cannot be empty, must provide tool list for resolution".to_string(),
         ));
     }
@@ -79,14 +86,18 @@ pub fn resolve_tool(user_input: &str, available_tools: &[AvailableTool]) -> Resu
 
     let suggestions = suggestions(user_input, &candidates);
     if suggestions.is_empty() {
-        Err(StoreError::Other(format!(
-            "Tool '{user_input}' not found and no similar suggestions available"
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!("Tool '{user_input}' not found and no similar suggestions available"),
+        ))
     } else {
-        Err(StoreError::Other(format!(
-            "Tool '{user_input}' not found. Did you mean: {}?",
-            suggestions.join(", ")
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "Tool '{user_input}' not found. Did you mean: {}?",
+                suggestions.join(", ")
+            ),
+        ))
     }
 }
 
@@ -107,9 +118,10 @@ fn build_tool_resolution(
 
 fn non_empty<'a>(value: &'a str, field: &str) -> Result<&'a str> {
     if value.trim().is_empty() {
-        Err(StoreError::Other(format!(
-            "available_tools contains empty {field}"
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!("available_tools contains empty {field}"),
+        ))
     } else {
         Ok(value)
     }

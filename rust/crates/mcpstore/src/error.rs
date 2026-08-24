@@ -380,6 +380,50 @@ impl StdError for Error {
     }
 }
 
+impl From<crate::auth::AuthError> for Error {
+    fn from(error: crate::auth::AuthError) -> Self {
+        let code = match &error {
+            crate::auth::AuthError::Required(_) => FailureCode::ConnectionAuthRequired,
+            crate::auth::AuthError::SecureStorage { .. } => FailureCode::SecureStorageUnavailable,
+            crate::auth::AuthError::InvalidConfig(_) => FailureCode::ConfigInvalid,
+            crate::auth::AuthError::ProviderFailure
+            | crate::auth::AuthError::AuthorizationStartFailed => FailureCode::OauthProviderFailed,
+            _ => FailureCode::AuthFailed,
+        };
+        let context = if let crate::auth::AuthError::Required(required) = &error {
+            Some(ErrorContext::Auth {
+                required: required.clone(),
+            })
+        } else {
+            None
+        };
+        let message = error.to_string();
+        let mut converted = Self::new(code, message).with_source(error);
+        if let Some(context) = context {
+            converted = converted.with_context(context);
+        }
+        converted
+    }
+}
+
+impl From<crate::config::ConfigError> for Error {
+    fn from(error: crate::config::ConfigError) -> Self {
+        Self::new(FailureCode::ConfigInvalid, error.to_string()).with_source(error)
+    }
+}
+
+impl From<crate::cache::CacheError> for Error {
+    fn from(error: crate::cache::CacheError) -> Self {
+        Self::new(FailureCode::TaskStateFailed, error.to_string()).with_source(error)
+    }
+}
+
+impl From<crate::state::ServiceStateManagerError> for Error {
+    fn from(error: crate::state::ServiceStateManagerError) -> Self {
+        Self::new(FailureCode::Internal, error.to_string()).with_source(error)
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

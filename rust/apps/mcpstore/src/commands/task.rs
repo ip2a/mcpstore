@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 use mcpstore::error::{Error, ErrorContext, FailureCode};
 use mcpstore::{
     InstanceId, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpTask, McpTaskRecord,
-    McpTaskStatus, McpToolExecution, StoreError,
+    McpTaskStatus, McpToolExecution,
 };
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -543,7 +543,7 @@ fn parse_input(input: &str, output: OutputFormat) -> Result<Value, CliError> {
 }
 
 fn with_task_context(
-    error: StoreError,
+    error: mcpstore::Error,
     output: OutputFormat,
     instance_id: InstanceId,
     task_id: &str,
@@ -761,7 +761,7 @@ mod tests {
     #[test]
     fn store_errors_map_to_stable_task_codes() {
         let service = CliError::from_store(
-            &StoreError::ServiceNotFound("missing".to_string()),
+            &Error::new(FailureCode::ServiceNotFound, "missing".to_string()),
             OutputFormat::Human,
             Domain::Task,
         );
@@ -769,16 +769,14 @@ mod tests {
         assert_eq!(service.exit_code(), 10);
 
         let unsupported = CliError::from_store(
-            &StoreError::Transport(
-                Error::new(
-                    FailureCode::CapabilityUnsupported,
-                    "MCP service instance does not support capability tasks.list",
-                )
-                .with_context(ErrorContext::Service {
-                    instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
-                    service_name: String::new(),
-                }),
-            ),
+            &Error::new(
+                FailureCode::CapabilityUnsupported,
+                "MCP service instance does not support capability tasks.list",
+            )
+            .with_context(ErrorContext::Service {
+                instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
+                service_name: String::new(),
+            }),
             OutputFormat::Json,
             Domain::Task,
         );
@@ -786,11 +784,10 @@ mod tests {
         assert_eq!(unsupported.exit_code(), 20);
 
         let missing = CliError::from_store(
-            &StoreError::Transport(
-                Error::new(FailureCode::TaskNotFound, "task not found: task-1")
-                    .with_context(ErrorContext::Task {
-                        task_id: "task-1".to_string(),
-                    }),
+            &Error::new(FailureCode::TaskNotFound, "task not found: task-1").with_context(
+                ErrorContext::Task {
+                    task_id: "task-1".to_string(),
+                },
             ),
             OutputFormat::Jsonl,
             Domain::Task,
@@ -810,10 +807,7 @@ mod tests {
                 "task.cancelled",
             ),
             (
-                Error::new(
-                    FailureCode::CallTimedOut,
-                    "MCP request timed out after 1s",
-                ),
+                Error::new(FailureCode::CallTimedOut, "MCP request timed out after 1s"),
                 ErrorCode::TimedOut,
                 31,
                 "task.timed_out",
@@ -828,12 +822,8 @@ mod tests {
                 "task.failed",
             ),
         ] {
-            let error = CliError::from_store(
-                &StoreError::Transport(error),
-                OutputFormat::Jsonl,
-                Domain::Task,
-            )
-            .with("instance_id", instance_id.to_string());
+            let error = CliError::from_store(&error, OutputFormat::Jsonl, Domain::Task)
+                .with("instance_id", instance_id.to_string());
             assert_eq!(error.code(), code);
             assert_eq!(error.exit_code(), exit_code);
             let v: Value = serde_json::from_str(&error.to_string()).unwrap();

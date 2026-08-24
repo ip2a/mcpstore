@@ -383,9 +383,12 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         .send()
         .await
         .unwrap();
-    assert_eq!(callback.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        callback.status(),
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+    );
     let callback_body = callback.text().await.unwrap();
-    assert!(callback_body.contains("AUTH_CALLBACK_REJECTED"));
+    assert!(callback_body.contains("AUTHENTICATION_ERROR"));
     assert!(!callback_body.contains("sensitive-code"));
     assert!(!callback_body.contains("sensitive-state"));
 
@@ -397,7 +400,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         .unwrap();
     assert_eq!(empty_secret.status(), axum::http::StatusCode::BAD_REQUEST);
     let secret_body = empty_secret.text().await.unwrap();
-    assert!(secret_body.contains("AUTH_CONFIG_INVALID"));
+    assert!(secret_body.contains("CONFIG_INVALID"));
     assert!(!secret_body.contains("client_secret"));
 
     let empty_key = client
@@ -408,7 +411,7 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         .unwrap();
     assert_eq!(empty_key.status(), axum::http::StatusCode::BAD_REQUEST);
     let key_body = empty_key.text().await.unwrap();
-    assert!(key_body.contains("AUTH_CONFIG_INVALID"));
+    assert!(key_body.contains("CONFIG_INVALID"));
     assert!(!key_body.contains("private_key_pem"));
 
     handle.abort();

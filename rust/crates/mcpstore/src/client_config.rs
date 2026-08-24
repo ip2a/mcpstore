@@ -3,7 +3,7 @@
 //! This module deliberately stops before mutation and keeps unknown fields available
 //! to callers that need to inspect or import existing service definitions.
 
-use crate::{config::ServerConfig, Result, StoreError};
+use crate::{config::ServerConfig, Error, FailureCode, Result};
 use serde_json::{Map, Value};
 use std::{
     collections::{HashMap, HashSet},
@@ -49,20 +49,31 @@ pub fn import_selected_services(
     selected_names: &[String],
 ) -> Result<Vec<(String, ServerConfig)>> {
     if selected_names.is_empty() {
-        return Err(StoreError::Other("至少选择一个要导入的服务".into()));
+        return Err(Error::new(
+            FailureCode::Internal,
+            "至少选择一个要导入的服务",
+        ));
     }
     let mut seen = HashSet::new();
     selected_names
         .iter()
         .map(|name| {
             if !seen.insert(name.as_str()) {
-                return Err(StoreError::Other(format!("重复选择服务: {name}")));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("重复选择服务: {name}"),
+                ));
             }
             let service = inspection
                 .services
                 .iter()
                 .find(|service| service.name == *name)
-                .ok_or_else(|| StoreError::Other(format!("助手配置中不存在服务: {name}")))?;
+                .ok_or_else(|| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("助手配置中不存在服务: {name}"),
+                    )
+                })?;
             Ok((
                 name.clone(),
                 imported_server_config(inspection.client, name, &service.config)?,
@@ -74,17 +85,17 @@ pub fn import_selected_services(
 fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Result<ServerConfig> {
     let object = value
         .as_object()
-        .ok_or_else(|| StoreError::Other(format!("服务 {name} 配置必须是对象")))?;
+        .ok_or_else(|| Error::new(FailureCode::Internal, format!("服务 {name} 配置必须是对象")))?;
     let unsupported = object
         .keys()
         .filter(|field| !supported_fields(client).contains(&field.as_str()))
         .cloned()
         .collect::<Vec<_>>();
     if !unsupported.is_empty() {
-        return Err(StoreError::Other(format!(
-            "服务 {name} 包含不可导入字段: {}",
-            unsupported.join(", ")
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("服务 {name} 包含不可导入字段: {}", unsupported.join(", ")),
+        ));
     }
 
     let (command, args, env) = if client == ClientKind::OpenCode {
@@ -94,23 +105,28 @@ fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Resu
                     .iter()
                     .map(|part| {
                         part.as_str().map(str::to_owned).ok_or_else(|| {
-                            StoreError::Other(format!("服务 {name} 的 command 必须是字符串数组"))
+                            Error::new(
+                                FailureCode::Internal,
+                                format!("服务 {name} 的 command 必须是字符串数组"),
+                            )
                         })
                     })
                     .collect::<Result<Vec<_>>>()?;
                 if parts.is_empty() {
-                    return Err(StoreError::Other(format!(
-                        "服务 {name} 的 command 不能为空"
-                    )));
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!("服务 {name} 的 command 不能为空"),
+                    ));
                 }
                 let executable = parts.remove(0);
                 (Some(executable), parts)
             }
             None => (None, Vec::new()),
             _ => {
-                return Err(StoreError::Other(format!(
-                    "服务 {name} 的 command 必须是字符串数组"
-                )))
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("服务 {name} 的 command 必须是字符串数组"),
+                ))
             }
         };
         (
@@ -127,38 +143,44 @@ fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Resu
     };
     let url = optional_string(object.get("url"), name, "url")?;
     if command.is_some() == url.is_some() {
-        return Err(StoreError::Other(format!(
-            "服务 {name} 必须且只能设置 command 或 url"
-        )));
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("服务 {name} 必须且只能设置 command 或 url"),
+        ));
     }
     if client == ClientKind::OpenCode {
         match object.get("type").and_then(Value::as_str) {
             Some("local") if command.is_none() => {
-                return Err(StoreError::Other(format!(
-                    "服务 {name} 的 local 类型缺少 command"
-                )))
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("服务 {name} 的 local 类型缺少 command"),
+                ))
             }
             Some("remote") if url.is_none() => {
-                return Err(StoreError::Other(format!(
-                    "服务 {name} 的 remote 类型缺少 url"
-                )))
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("服务 {name} 的 remote 类型缺少 url"),
+                ))
             }
             Some("local" | "remote") | None => {}
             Some(kind) => {
-                return Err(StoreError::Other(format!(
-                    "服务 {name} 使用不支持的 OpenCode 类型: {kind}"
-                )))
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("服务 {name} 使用不支持的 OpenCode 类型: {kind}"),
+                ))
             }
         }
         if object.get("enabled") == Some(&Value::Bool(false)) {
-            return Err(StoreError::Other(format!(
-                "服务 {name} 已在 OpenCode 中禁用"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("服务 {name} 已在 OpenCode 中禁用"),
+            ));
         }
         if object.contains_key("timeout") {
-            return Err(StoreError::Other(format!(
-                "服务 {name} 的 timeout 没有安全的 MCPStore 映射"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("服务 {name} 的 timeout 没有安全的 MCPStore 映射"),
+            ));
         }
     }
     Ok(ServerConfig {
@@ -179,10 +201,12 @@ fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Resu
 fn optional_string(value: Option<&Value>, name: &str, field: &str) -> Result<Option<String>> {
     value
         .map(|value| {
-            value
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串")))
+            value.as_str().map(str::to_owned).ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("服务 {name} 的 {field} 必须是字符串"),
+                )
+            })
         })
         .transpose()
 }
@@ -193,11 +217,19 @@ fn string_array(value: Option<&Value>, name: &str, field: &str) -> Result<Vec<St
     };
     value
         .as_array()
-        .ok_or_else(|| StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串数组")))?
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!("服务 {name} 的 {field} 必须是字符串数组"),
+            )
+        })?
         .iter()
         .map(|value| {
             value.as_str().map(str::to_owned).ok_or_else(|| {
-                StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串数组"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("服务 {name} 的 {field} 必须是字符串数组"),
+                )
             })
         })
         .collect()
@@ -209,14 +241,22 @@ fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<
     };
     value
         .as_object()
-        .ok_or_else(|| StoreError::Other(format!("服务 {name} 的 {field} 必须是字符串对象")))?
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!("服务 {name} 的 {field} 必须是字符串对象"),
+            )
+        })?
         .iter()
         .map(|(key, value)| {
             value
                 .as_str()
                 .map(|value| (key.clone(), value.to_owned()))
                 .ok_or_else(|| {
-                    StoreError::Other(format!("服务 {name} 的 {field}.{key} 必须是字符串"))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("服务 {name} 的 {field}.{key} 必须是字符串"),
+                    )
                 })
         })
         .collect()
@@ -245,27 +285,44 @@ pub fn inspect_client_config(
     path: impl AsRef<Path>,
 ) -> Result<ClientConfigInspection> {
     let path = path.as_ref().to_path_buf();
-    let bytes = fs::read(&path)
-        .map_err(|error| StoreError::Other(format!("无法读取 {}: {error}", path.display())))?;
+    let bytes = fs::read(&path).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("无法读取 {}: {error}", path.display()),
+        )
+    })?;
     let (format, document) = match client {
         ClientKind::Codex => (
             ConfigFormat::Toml,
             toml::from_str::<toml::Value>(&String::from_utf8_lossy(&bytes))
-                .map_err(|error| StoreError::Other(format!("Codex 配置格式错误: {error}")))
+                .map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Codex 配置格式错误: {error}"),
+                    )
+                })
                 .and_then(|value| {
                     serde_json::to_value(value)
-                        .map_err(|error| StoreError::Other(error.to_string()))
+                        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                 })?,
         ),
         ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => (
             ConfigFormat::Json,
-            serde_json::from_slice(&bytes)
-                .map_err(|error| StoreError::Other(format!("Claude Code 配置格式错误: {error}")))?,
+            serde_json::from_slice(&bytes).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Claude Code 配置格式错误: {error}"),
+                )
+            })?,
         ),
         ClientKind::OpenCode => (
             ConfigFormat::Json,
-            serde_json::from_slice(&bytes)
-                .map_err(|error| StoreError::Other(format!("OpenCode 配置格式错误: {error}")))?,
+            serde_json::from_slice(&bytes).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("OpenCode 配置格式错误: {error}"),
+                )
+            })?,
         ),
     };
     let services = service_map(client, &document)?
@@ -297,7 +354,7 @@ fn service_map(client: ClientKind, document: &Value) -> Result<&Map<String, Valu
         None => Ok(&EMPTY_SERVICES),
         Some(value) => value
             .as_object()
-            .ok_or_else(|| StoreError::Other(format!("配置字段 {key} 必须是对象"))),
+            .ok_or_else(|| Error::new(FailureCode::Internal, format!("配置字段 {key} 必须是对象"))),
     }
 }
 
