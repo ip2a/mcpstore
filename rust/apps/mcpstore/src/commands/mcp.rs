@@ -1342,6 +1342,15 @@ fn scope_label(scope: &ScopeRef) -> &'static str {
     }
 }
 
+/// Cache key for the name→instance target cache; agents must not share entries,
+/// so agent scopes are keyed by agent id.
+fn scope_cache_key(scope: &ScopeRef) -> String {
+    match scope {
+        ScopeRef::Store => "store".to_string(),
+        ScopeRef::Agent { agent_id } => format!("agent:{agent_id}"),
+    }
+}
+
 #[derive(Debug)]
 enum ResolveError {
     NotFound {
@@ -1375,7 +1384,8 @@ async fn resolve_target(
         return Ok(instance_id);
     }
     let scope_name = scope_label(scope);
-    if let Some(cached) = crate::schema_cache::load_target(scope_name, target) {
+    let cache_key = scope_cache_key(scope);
+    if let Some(cached) = crate::schema_cache::load_target(&cache_key, target) {
         if let Ok(instance_id) = InstanceId::from_str(&cached) {
             return Ok(instance_id);
         }
@@ -1397,7 +1407,7 @@ async fn resolve_target(
             .and_then(Value::as_str)
             .and_then(|s| InstanceId::from_str(s).ok());
         if let Some(id) = &instance_id {
-            crate::schema_cache::save_target(scope_name, target, &id.to_string());
+            crate::schema_cache::save_target(&cache_key, target, &id.to_string());
         }
         return instance_id.ok_or_else(|| ResolveError::NotFound {
             scope_name,
@@ -1417,7 +1427,7 @@ async fn resolve_target(
         .find(|instance| instance.service_name == target)
         .map(|instance| instance.instance_id);
     if let Some(id) = &instance_id {
-        crate::schema_cache::save_target(scope_name, target, &id.to_string());
+        crate::schema_cache::save_target(&cache_key, target, &id.to_string());
     }
     instance_id.ok_or_else(|| ResolveError::NotFound {
         scope_name,
@@ -2275,6 +2285,20 @@ mod tests {
 
     fn json_schema(json: &str) -> Value {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn scope_cache_key_separates_agents() {
+        let store = scope_cache_key(&ScopeRef::Store);
+        let agent_x = scope_cache_key(&ScopeRef::Agent {
+            agent_id: "x".into(),
+        });
+        let agent_y = scope_cache_key(&ScopeRef::Agent {
+            agent_id: "y".into(),
+        });
+        assert_eq!(store, "store");
+        assert_eq!(agent_x, "agent:x");
+        assert_ne!(agent_x, agent_y);
     }
 
     #[test]
