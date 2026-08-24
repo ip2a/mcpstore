@@ -193,57 +193,53 @@ impl ApiError {
                 None,
                 Some(json!({ "error_type": "ConfigError" })),
             ),
-            StoreError::Transport(mcpstore::transport::TransportError::AuthRequired(required)) => {
-                Self::new(
+            StoreError::Transport(error) => match error.code() {
+                mcpstore::error::FailureCode::ConnectionAuthRequired => Self::new(
                     StatusCode::UNAUTHORIZED,
                     "AUTH_REQUIRED",
-                    required.to_string(),
+                    error.message().to_string(),
                     None,
-                    serde_json::to_value(required).ok(),
-                )
-            }
-            StoreError::Transport(mcpstore::transport::TransportError::InsufficientScope {
-                instance_id,
-                required_scope,
-            }) => Self::new(
-                StatusCode::FORBIDDEN,
-                "AUTH_INSUFFICIENT_SCOPE",
-                "OAuth 授权范围不足，需要升级授权",
-                None,
-                Some(json!({
-                    "instance_id": instance_id,
-                    "required_scope": required_scope,
-                })),
-            ),
-            StoreError::Transport(mcpstore::transport::TransportError::CapabilityUnsupported {
-                instance_id,
-                capability,
-            }) => Self::new(
-                StatusCode::CONFLICT,
-                "MCP_CAPABILITY_UNSUPPORTED",
-                format!("远端 MCP 服务不支持 {capability} capability"),
-                None,
-                Some(json!({
-                    "instance_id": instance_id,
-                    "capability": capability,
-                })),
-            ),
-            StoreError::Transport(mcpstore::transport::TransportError::InvalidInput(message)) => {
-                Self::new(
+                    serde_json::to_value(error.context()).ok(),
+                ),
+                mcpstore::error::FailureCode::ConnectionScope => Self::new(
+                    StatusCode::FORBIDDEN,
+                    "AUTH_INSUFFICIENT_SCOPE",
+                    "OAuth 授权范围不足，需要升级授权",
+                    None,
+                    Some(json!({
+                        "instance_id": serde_json::to_value(error.context()).ok()
+                            .and_then(|v| v.get("instance_id").cloned())
+                            .unwrap_or(serde_json::Value::Null),
+                        "required_scope": match error.context() {
+                            mcpstore::error::ErrorContext::Scope { required_scope, .. } => {
+                                json!(required_scope)
+                            }
+                            _ => serde_json::Value::Null,
+                        },
+                    })),
+                ),
+                mcpstore::error::FailureCode::CapabilityUnsupported => Self::new(
+                    StatusCode::CONFLICT,
+                    "MCP_CAPABILITY_UNSUPPORTED",
+                    format!("远端 MCP 服务不支持 capability（{}）", error.message()),
+                    None,
+                    Some(json!({ "message": error.message() })),
+                ),
+                mcpstore::error::FailureCode::InvalidInput => Self::new(
                     StatusCode::BAD_REQUEST,
                     "MCP_INVALID_INPUT",
-                    message,
+                    error.message().to_string(),
                     None,
                     None,
-                )
-            }
-            StoreError::Transport(error) => Self::new(
-                StatusCode::BAD_GATEWAY,
-                "SERVICE_OPERATION_FAILED",
-                error.to_string(),
-                None,
-                Some(json!({ "error_type": "TransportError" })),
-            ),
+                ),
+                _ => Self::new(
+                    StatusCode::BAD_GATEWAY,
+                    "SERVICE_OPERATION_FAILED",
+                    error.to_string(),
+                    None,
+                    Some(json!({ "error_type": "TransportError" })),
+                ),
+            },
             StoreError::Cache(error) => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
@@ -330,17 +326,22 @@ fn api_meta() -> ApiMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mcpstore::transport::TransportError;
+    use mcpstore::error::{Error, ErrorContext, FailureCode};
     use mcpstore::{InstanceId, StoreError};
 
     #[test]
     fn insufficient_scope_maps_to_http_403_with_stable_error_code() {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
-        let error =
-            ApiError::from_store(StoreError::Transport(TransportError::InsufficientScope {
+        let error = ApiError::from_store(StoreError::Transport(
+            Error::new(
+                FailureCode::ConnectionScope,
+                "insufficient OAuth scope",
+            )
+            .with_context(ErrorContext::Scope {
                 instance_id,
                 required_scope: Some("resources.read tools.call".to_string()),
-            }));
+            }),
+        ));
 
         assert_eq!(error.status, StatusCode::FORBIDDEN);
         assert_eq!(error.code, "AUTH_INSUFFICIENT_SCOPE");
@@ -358,21 +359,24 @@ mod tests {
     fn unsupported_capability_maps_to_http_409_with_stable_error_code() {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
         let error = ApiError::from_store(StoreError::Transport(
-            TransportError::CapabilityUnsupported {
+            Error::new(
+                FailureCode::CapabilityUnsupported,
+                "MCP service instance does not support capability completions",
+            )
+            .with_context(ErrorContext::Service {
                 instance_id,
-                capability: "completions",
-            },
+                service_name: String::new(),
+            }),
         ));
 
         assert_eq!(error.status, StatusCode::CONFLICT);
         assert_eq!(error.code, "MCP_CAPABILITY_UNSUPPORTED");
-        assert_eq!(
-            error
-                .details
-                .as_ref()
-                .and_then(|details| details.get("capability"))
-                .and_then(Value::as_str),
-            Some("completions")
+        assert!(error
+            .details
+            .as_ref()
+            .and_then(|details| details.get("message"))
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.contains("completions"))
         );
     }
 }

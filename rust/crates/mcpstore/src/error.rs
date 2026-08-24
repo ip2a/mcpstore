@@ -311,6 +311,11 @@ pub enum ErrorContext {
     Session {
         session_key: String,
     },
+    Scope {
+        instance_id: InstanceId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        required_scope: Option<String>,
+    },
     Auth {
         required: AuthRequired,
     },

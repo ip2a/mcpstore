@@ -1,9 +1,10 @@
 use std::time::Instant;
 
 use crate::store::prelude::*;
+use crate::error::{Error, ErrorContext, FailureCode};
 use crate::transport::{
     McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecution,
-    McpToolExecutionHandle, ToolCallResult, TransportError,
+    McpToolExecutionHandle, ToolCallResult,
 };
 
 #[derive(Debug)]
@@ -140,8 +141,10 @@ impl<'a> McpStoreToolExecutionHandle<'a> {
             }
             None => {
                 let context = self.context.take()?;
-                let error =
-                    TransportError::Protocol("tool execution ended without a result".to_string());
+                let error = Error::new(
+                    FailureCode::ToolFailed,
+                    "tool execution ended without a result",
+                );
                 Some(McpStoreExecutionUpdate::Finished(
                     self.store
                         .finish_tool_execution(context, Err(StoreError::Transport(error)))
@@ -157,8 +160,9 @@ impl<'a> McpStoreToolExecutionHandle<'a> {
                 return result;
             }
         }
-        Err(StoreError::Transport(TransportError::Protocol(
-            "tool execution ended without a result".to_string(),
+        Err(StoreError::Transport(Error::new(
+            FailureCode::ToolFailed,
+            "tool execution ended without a result",
         )))
     }
 }
@@ -227,10 +231,16 @@ impl MCPStore {
         let is_openapi_virtual = self.is_openapi_virtual_instance(instance_id).await?;
         if matches!(mode, ToolExecutionMode::Task) && is_openapi_virtual {
             return Err(StoreError::Transport(
-                TransportError::CapabilityUnsupported {
+                Error::new(
+                    FailureCode::CapabilityUnsupported,
+                    format!(
+                        "MCP service instance {instance_id} does not support capability tasks"
+                    ),
+                )
+                .with_context(ErrorContext::Service {
                     instance_id,
-                    capability: "tasks",
-                },
+                    service_name: String::new(),
+                }),
             ));
         }
         let context = ToolExecutionContext {
@@ -305,8 +315,9 @@ impl MCPStore {
             .await?
         {
             McpToolExecution::Immediate { result } => Ok(result),
-            McpToolExecution::Task { .. } => Err(StoreError::Transport(TransportError::Protocol(
-                "tool call unexpectedly returned a task".to_string(),
+            McpToolExecution::Task { .. } => Err(StoreError::Transport(Error::new(
+                FailureCode::ToolFailed,
+                "tool call unexpectedly returned a task",
             ))),
         }
     }
@@ -448,22 +459,22 @@ impl MCPStore {
     }
 }
 
-fn execution_failure_impairs_connection(error: &TransportError) -> bool {
+fn execution_failure_impairs_connection(error: &Error) -> bool {
     !matches!(
-        error,
-        TransportError::CapabilityUnsupported { .. }
-            | TransportError::RequestCancelled { .. }
-            | TransportError::RequestTimedOut { .. }
-            | TransportError::TaskNotFound { .. }
-            | TransportError::TaskState(_)
+        error.code(),
+        FailureCode::CapabilityUnsupported
+            | FailureCode::CallCancelled
+            | FailureCode::CallTimedOut
+            | FailureCode::TaskNotFound
+            | FailureCode::TaskStateFailed
     )
 }
 
-fn execution_failure_status(error: &TransportError) -> &'static str {
-    match error {
-        TransportError::RequestCancelled { .. } => "cancelled",
-        TransportError::RequestTimedOut { .. } => "timed_out",
-        TransportError::RequestDisconnected { .. } => "disconnected",
+fn execution_failure_status(error: &Error) -> &'static str {
+    match error.code() {
+        FailureCode::CallCancelled => "cancelled",
+        FailureCode::CallTimedOut => "timed_out",
+        FailureCode::CallDisconnected => "disconnected",
         _ => "error",
     }
 }
@@ -473,46 +484,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cancellation_timeout_and_capability_errors_keep_connections_healthy() {
-        let instance_id = ServiceInstanceKey::new("execution-test", ScopeRef::Store).instance_id();
-        assert!(!execution_failure_impairs_connection(
-            &TransportError::RequestCancelled { reason: None }
-        ));
-        assert!(!execution_failure_impairs_connection(
-            &TransportError::RequestTimedOut {
-                timeout: std::time::Duration::from_secs(1),
-            }
-        ));
-        assert!(!execution_failure_impairs_connection(
-            &TransportError::CapabilityUnsupported {
-                instance_id,
-                capability: "tools",
-            }
-        ));
-        assert!(execution_failure_impairs_connection(
-            &TransportError::RequestDisconnected { instance_id }
-        ));
+    fn execution_failures_that_impair_connection() {
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::CallCancelled,
+            "MCP request cancelled",
+        )));
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::CallTimedOut,
+            "MCP request timed out after 30s",
+        )));
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::CapabilityUnsupported,
+            "capability tasks",
+        )));
+        assert!(!execution_failure_impairs_connection(&Error::new(
+            FailureCode::TaskNotFound,
+            "task not found: t1",
+        )));
+        assert!(execution_failure_impairs_connection(&Error::new(
+            FailureCode::CallDisconnected,
+            "MCP request disconnected",
+        )));
     }
 
     #[test]
-    fn execution_failure_statuses_are_stable() {
-        let instance_id = ServiceInstanceKey::new("execution-test", ScopeRef::Store).instance_id();
+    fn execution_failure_status_uses_codes() {
         assert_eq!(
-            execution_failure_status(&TransportError::RequestCancelled { reason: None }),
+            execution_failure_status(&Error::new(
+                FailureCode::CallCancelled,
+                "MCP request cancelled"
+            )),
             "cancelled"
         );
         assert_eq!(
-            execution_failure_status(&TransportError::RequestTimedOut {
-                timeout: std::time::Duration::from_secs(1),
-            }),
+            execution_failure_status(&Error::new(
+                FailureCode::CallTimedOut,
+                "MCP request timed out after 30s"
+            )),
             "timed_out"
         );
         assert_eq!(
-            execution_failure_status(&TransportError::RequestDisconnected { instance_id }),
+            execution_failure_status(&Error::new(
+                FailureCode::CallDisconnected,
+                "MCP request disconnected"
+            )),
             "disconnected"
         );
         assert_eq!(
-            execution_failure_status(&TransportError::Protocol("bad response".to_string())),
+            execution_failure_status(&Error::new(
+                FailureCode::ToolFailed,
+                "bad response"
+            )),
             "error"
         );
     }

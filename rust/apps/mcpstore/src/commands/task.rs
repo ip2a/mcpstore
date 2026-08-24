@@ -1,6 +1,6 @@
 use clap::{Args, Subcommand};
 #[cfg(test)]
-use mcpstore::transport::TransportError;
+use mcpstore::error::{Error, ErrorContext, FailureCode};
 use mcpstore::{
     InstanceId, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpTask, McpTaskRecord,
     McpTaskStatus, McpToolExecution, StoreError,
@@ -769,10 +769,16 @@ mod tests {
         assert_eq!(service.exit_code(), 10);
 
         let unsupported = CliError::from_store(
-            &StoreError::Transport(TransportError::CapabilityUnsupported {
-                instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
-                capability: "tasks.list",
-            }),
+            &StoreError::Transport(
+                Error::new(
+                    FailureCode::CapabilityUnsupported,
+                    "MCP service instance does not support capability tasks.list",
+                )
+                .with_context(ErrorContext::Service {
+                    instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
+                    service_name: String::new(),
+                }),
+            ),
             OutputFormat::Json,
             Domain::Task,
         );
@@ -780,9 +786,12 @@ mod tests {
         assert_eq!(unsupported.exit_code(), 20);
 
         let missing = CliError::from_store(
-            &StoreError::Transport(TransportError::TaskNotFound {
-                task_id: "task-1".to_string(),
-            }),
+            &StoreError::Transport(
+                Error::new(FailureCode::TaskNotFound, "task not found: task-1")
+                    .with_context(ErrorContext::Task {
+                        task_id: "task-1".to_string(),
+                    }),
+            ),
             OutputFormat::Jsonl,
             Domain::Task,
         );
@@ -795,21 +804,25 @@ mod tests {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
         for (error, code, exit_code, event) in [
             (
-                TransportError::RequestCancelled { reason: None },
+                Error::new(FailureCode::CallCancelled, "MCP request cancelled"),
                 ErrorCode::Cancelled,
                 30,
                 "task.cancelled",
             ),
             (
-                TransportError::RequestTimedOut {
-                    timeout: Duration::from_secs(1),
-                },
+                Error::new(
+                    FailureCode::CallTimedOut,
+                    "MCP request timed out after 1s",
+                ),
                 ErrorCode::TimedOut,
                 31,
                 "task.timed_out",
             ),
             (
-                TransportError::RequestDisconnected { instance_id },
+                Error::new(
+                    FailureCode::CallDisconnected,
+                    format!("MCP request disconnected for service instance {instance_id}"),
+                ),
                 ErrorCode::Disconnected,
                 32,
                 "task.failed",

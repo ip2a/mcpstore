@@ -8,7 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use thiserror::Error;
 
 pub mod client;
 mod content;
@@ -62,51 +61,87 @@ pub(crate) fn client_lifecycle_mode(mode: HandshakeMode) -> rmcp::service::Clien
     }
 }
 
-#[derive(Error, Debug)]
-pub enum TransportError {
-    #[error("{0}")]
-    AuthRequired(crate::auth::AuthRequired),
-    #[error("insufficient OAuth scope for service instance {instance_id}")]
-    InsufficientScope {
-        instance_id: crate::identity::InstanceId,
-        required_scope: Option<String>,
-    },
-    #[error("MCP service instance {instance_id} does not support capability {capability}")]
-    CapabilityUnsupported {
-        instance_id: crate::identity::InstanceId,
-        capability: &'static str,
-    },
-    #[error("Invalid MCP input: {0}")]
-    InvalidInput(String),
-    #[error("Connection failed: {0}")]
-    ConnectionFailed(String),
-    #[error("Not connected: {0}")]
-    NotConnected(String),
-    #[error("Tool call failed: {0}")]
-    ToolCallFailed(String),
-    #[error("MCP protocol error: {0}")]
-    Protocol(String),
-    #[error("MCP request cancelled{reason_suffix}", reason_suffix = reason.as_ref().map(|reason| format!(": {reason}")).unwrap_or_default())]
-    RequestCancelled { reason: Option<String> },
-    #[error("MCP request timed out after {timeout:?}")]
-    RequestTimedOut { timeout: std::time::Duration },
-    #[error("MCP request disconnected for service instance {instance_id}")]
-    RequestDisconnected {
-        instance_id: crate::identity::InstanceId,
-    },
-    #[error("an elicitation session is already active for service instance {instance_id}")]
-    ElicitationSessionActive {
-        instance_id: crate::identity::InstanceId,
-    },
-    #[error("task not found: {task_id}")]
-    TaskNotFound { task_id: String },
-    #[error("task state error: {0}")]
-    TaskState(String),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-}
+/// Classifies a rmcp handshake failure into the unified error value.
+/// Structured rmcp variants map directly (no string matching); the ids and
+/// JSON-RPC code ride along in `ErrorContext::Handshake` for logs and the
+/// fallback executor.
+pub(crate) fn handshake_error(
+    mode: crate::config::HandshakeMode,
+    error: rmcp::service::ClientInitializeError,
+) -> crate::error::Error {
+    use crate::error::{Error, ErrorContext, FailureCode};
+    use rmcp::model::ErrorCode;
+    use rmcp::service::ClientInitializeError;
 
-pub type Result<T> = std::result::Result<T, TransportError>;
+    let (code, rpc_code, expected_id, received_id): (FailureCode, Option<i32>, Option<String>, Option<String>) =
+        match &error {
+            ClientInitializeError::UncorrelatedErrorResponse { expected, received } => (
+                FailureCode::HandshakeUncorrelated,
+                None,
+                Some(expected.to_string()),
+                Some(received.to_string()),
+            ),
+            ClientInitializeError::ConflictInitResponseId(expected, received) => (
+                FailureCode::HandshakeUncorrelated,
+                None,
+                Some(expected.to_string()),
+                Some(received.to_string()),
+            ),
+            ClientInitializeError::JsonRpcError(data) => {
+                let rpc = data.code.0;
+                let code = if rpc == ErrorCode::METHOD_NOT_FOUND.0 {
+                    FailureCode::HandshakeIncompatible
+                } else if rpc == ErrorCode::INVALID_REQUEST.0 || rpc == ErrorCode::INVALID_PARAMS.0 {
+                    FailureCode::HandshakeRejected
+                } else {
+                    FailureCode::HandshakeFailed
+                };
+                (code, Some(rpc), None, None)
+            }
+            // Version negotiation failed against a discover-only offer set: a
+            // legacy initialize handshake may still succeed.
+            ClientInitializeError::NoCompatibleProtocolVersion { .. } => {
+                (FailureCode::HandshakeIncompatible, None, None, None)
+            }
+            // rmcp's Auto already exhausted discover→initialize internally;
+            // re-falling back would be a third attempt, so classify as a
+            // generic handshake failure (Retry policy, not fallback).
+            ClientInitializeError::LegacyFallbackFailed { discover, fallback } => {
+                return Error::new(
+                    FailureCode::HandshakeFailed,
+                    format!("handshake failed after fallback (discover: {discover}; initialize: {fallback})"),
+                )
+                .with_context(ErrorContext::Handshake {
+                    mode,
+                    rpc_code: None,
+                    expected_id: None,
+                    received_id: None,
+                })
+                .with_source(error);
+            }
+            ClientInitializeError::ConnectionClosed(_) | ClientInitializeError::Cancelled => {
+                (FailureCode::ConnectionClosed, None, None, None)
+            }
+            ClientInitializeError::TransportError { .. } => {
+                (FailureCode::ConnectionRefused, None, None, None)
+            }
+            ClientInitializeError::ExpectedInitResponse(_)
+            | ClientInitializeError::ExpectedInitResult(_)
+            | ClientInitializeError::NoPreferredProtocolVersion => {
+                (FailureCode::HandshakeFailed, None, None, None)
+            }
+            #[allow(unreachable_patterns)]
+            _ => (FailureCode::HandshakeFailed, None, None, None),
+        };
+    Error::new(code, format!("HTTP MCP handshake failed: {error}"))
+        .with_context(ErrorContext::Handshake {
+            mode,
+            rpc_code: rpc_code.map(i64::from),
+            expected_id,
+            received_id,
+        })
+        .with_source(error)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredTool {

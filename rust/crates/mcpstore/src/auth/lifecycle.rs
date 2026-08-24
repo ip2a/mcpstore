@@ -3,7 +3,7 @@ use crate::core::{Result, StoreError};
 use crate::identity::InstanceId;
 use crate::state::ServiceStateEvent;
 use crate::store::MCPStore;
-use crate::transport::TransportError;
+use crate::error::{Error, FailureCode};
 
 use super::{
     AuthRequired, AuthStatus, AuthStatusView, AuthorizationStart, ClientSecret, PrivateKey,
@@ -187,25 +187,24 @@ impl MCPStore {
     pub(crate) async fn record_transport_failure(
         &self,
         instance_id: InstanceId,
-        error: &TransportError,
+        error: &Error,
         context: &str,
     ) -> Result<()> {
-        match error {
-            TransportError::AuthRequired(required) => {
-                return self
-                    .mark_instance_auth_required(instance_id, required)
-                    .await;
+        match error.code() {
+            FailureCode::ConnectionAuthRequired => {
+                if let crate::error::ErrorContext::Auth { required } = error.context() {
+                    return self.mark_instance_auth_required(instance_id, &required.clone()).await;
+                }
             }
-            TransportError::InsufficientScope {
-                instance_id: error_instance_id,
-                required_scope,
-            } => {
+            FailureCode::ConnectionScope => {
+                let required_scope = match error.context() {
+                    crate::error::ErrorContext::Scope { required_scope, .. } => {
+                        required_scope.clone()
+                    }
+                    _ => None,
+                };
                 return self
-                    .mark_instance_scope_upgrade_required(
-                        instance_id,
-                        *error_instance_id,
-                        required_scope.as_deref(),
-                    )
+                    .mark_instance_scope_upgrade_required(instance_id, instance_id, required_scope.as_deref())
                     .await;
             }
             _ => {}

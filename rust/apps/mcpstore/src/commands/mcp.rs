@@ -1,7 +1,7 @@
 use clap::{Args, ValueEnum};
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
 #[cfg(test)]
-use mcpstore::transport::TransportError;
+use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -2148,23 +2148,28 @@ mod tests {
         let instance_id: InstanceId = "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap();
         for (error, code, exit_code, event) in [
             (
-                TransportError::RequestCancelled {
-                    reason: Some("cancelled".to_string()),
-                },
+                Error::new(
+                    FailureCode::CallCancelled,
+                    "MCP request cancelled: cancelled",
+                ),
                 ErrorCode::Cancelled,
                 30,
                 "execution.cancelled",
             ),
             (
-                TransportError::RequestTimedOut {
-                    timeout: Duration::from_secs(1),
-                },
+                Error::new(
+                    FailureCode::CallTimedOut,
+                    "MCP request timed out after 1s",
+                ),
                 ErrorCode::TimedOut,
                 31,
                 "execution.timed_out",
             ),
             (
-                TransportError::RequestDisconnected { instance_id },
+                Error::new(
+                    FailureCode::CallDisconnected,
+                    format!("MCP request disconnected for service instance {instance_id}"),
+                ),
                 ErrorCode::Disconnected,
                 32,
                 "execution.failed",

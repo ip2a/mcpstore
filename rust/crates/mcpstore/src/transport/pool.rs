@@ -11,12 +11,14 @@ use crate::config::ServerConfig;
 use crate::events::EventBus;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
+use crate::error::{Error, FailureCode};
 use crate::transport::client::McpConnection;
+use crate::error::Result;
 use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
     McpCompletion, McpCompletionRequest, McpExecutionOptions, McpServerMetadata, McpTask,
-    McpTaskRecord, McpToolExecution, McpToolExecutionHandle, Result, TaskStateStore,
-    ToolCallResult, TransportError,
+    McpTaskRecord, McpToolExecution, McpToolExecutionHandle, TaskStateStore,
+    ToolCallResult,
 };
 
 pub struct ConnectionPool {
@@ -89,7 +91,10 @@ impl ConnectionPool {
         let connected = {
             let mut conns = self.connections.write().await;
             let conn = conns.get_mut(&instance_id).ok_or_else(|| {
-                TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+                Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
             })?;
             if conn.is_connected() {
                 true
@@ -143,7 +148,10 @@ impl ConnectionPool {
     ) -> Result<McpToolExecutionHandle> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.start_tool_task(tool_name, args, meta, options).await
     }
@@ -185,7 +193,10 @@ impl ConnectionPool {
         let task = {
             let conns = self.connections.read().await;
             let conn = conns.get(&instance_id).ok_or_else(|| {
-                TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+                Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
             })?;
             conn.get_task(task_id).await?
         };
@@ -201,7 +212,10 @@ impl ConnectionPool {
         let result = {
             let conns = self.connections.read().await;
             let conn = conns.get(&instance_id).ok_or_else(|| {
-                TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+                Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
             })?;
             conn.get_task_result(task_id).await
         };
@@ -215,7 +229,10 @@ impl ConnectionPool {
         let result = {
             let conns = self.connections.read().await;
             let conn = conns.get(&instance_id).ok_or_else(|| {
-                TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+                Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
             })?;
             conn.cancel_task(task_id).await
         };
@@ -229,7 +246,7 @@ impl ConnectionPool {
         self.task_state
             .list(instance_id)
             .await
-            .map_err(|error| TransportError::TaskState(error.to_string()))
+            .map_err(|error| Error::new(FailureCode::TaskStateFailed, error.to_string()))
     }
 
     pub async fn get_task_record(
@@ -240,13 +257,16 @@ impl ConnectionPool {
         self.task_state
             .get(instance_id, task_id)
             .await
-            .map_err(|error| TransportError::TaskState(error.to_string()))
+            .map_err(|error| Error::new(FailureCode::TaskStateFailed, error.to_string()))
     }
 
     pub async fn list_tools(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredTool>> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.list_tools().await
     }
@@ -273,7 +293,10 @@ impl ConnectionPool {
     ) -> Result<McpToolExecutionHandle> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.start_tool_call(tool_name, args, meta, options).await
     }
@@ -297,8 +320,9 @@ impl ConnectionPool {
             .await?
         {
             McpToolExecution::Immediate { result } => Ok(result),
-            McpToolExecution::Task { .. } => Err(TransportError::Protocol(
-                "tool call unexpectedly returned a task".to_string(),
+            McpToolExecution::Task { .. } => Err(Error::new(
+                FailureCode::ToolFailed,
+                "tool call unexpectedly returned a task",
             )),
         }
     }
@@ -306,7 +330,10 @@ impl ConnectionPool {
     pub async fn list_resources(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredResource>> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.list_resources().await
     }
@@ -317,7 +344,10 @@ impl ConnectionPool {
     ) -> Result<Vec<DiscoveredResourceTemplate>> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.list_resource_templates().await
     }
@@ -329,7 +359,10 @@ impl ConnectionPool {
     ) -> Result<serde_json::Value> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.read_resource(uri).await
     }
@@ -337,7 +370,10 @@ impl ConnectionPool {
     pub async fn list_prompts(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredPrompt>> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.list_prompts().await
     }
@@ -350,7 +386,10 @@ impl ConnectionPool {
     ) -> Result<serde_json::Value> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.get_prompt(prompt_name, arguments).await
     }
@@ -376,7 +415,10 @@ impl ConnectionPool {
     ) -> Result<McpCompletion> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.complete(request).await
     }
@@ -390,7 +432,10 @@ impl ConnectionPool {
         };
         let mut conns = self.connections.write().await;
         let conn = conns.get_mut(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.refresh_subscription(&subscriptions).await
     }
@@ -410,7 +455,10 @@ impl ConnectionPool {
         };
         let mut conns = self.connections.write().await;
         let conn = conns.get_mut(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.refresh_subscription(&subscriptions).await
     }
@@ -418,7 +466,10 @@ impl ConnectionPool {
     pub async fn ping(&self, instance_id: InstanceId, timeout: std::time::Duration) -> Result<()> {
         let conns = self.connections.read().await;
         let conn = conns.get(&instance_id).ok_or_else(|| {
-            TransportError::NotConnected(format!("Service instance not found: {instance_id}"))
+            Error::new(
+                FailureCode::NotConnected,
+                format!("Service instance not found: {instance_id}"),
+            )
         })?;
         conn.ping(timeout).await
     }
@@ -449,14 +500,14 @@ impl ConnectionPool {
         self.task_state
             .observe(instance_id, task, tool_name)
             .await
-            .map_err(|error| TransportError::TaskState(error.to_string()))
+            .map_err(|error| Error::new(FailureCode::TaskStateFailed, error.to_string()))
     }
 
     async fn record_task_error(
         &self,
         instance_id: InstanceId,
         task_id: &str,
-        error: &TransportError,
+        error: &Error,
     ) {
         if let Err(state_error) = self
             .task_state
@@ -471,7 +522,7 @@ impl ConnectionPool {
         self.task_state
             .mark_disconnected(instance_id, reason)
             .await
-            .map_err(|error| TransportError::TaskState(error.to_string()))
+            .map_err(|error| Error::new(FailureCode::TaskStateFailed, error.to_string()))
     }
 
     async fn recover_tasks(&self, instance_id: InstanceId) {

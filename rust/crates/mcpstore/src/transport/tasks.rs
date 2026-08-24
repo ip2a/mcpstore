@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::transport::client::McpConnection;
-use crate::transport::{McpExecutionOptions, Result, ToolCallResult, TransportError};
+use crate::error::{Error, ErrorContext, FailureCode};
+use crate::error::Result;
+use crate::transport::{McpExecutionOptions, ToolCallResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -115,19 +117,22 @@ impl McpConnection {
         let task = self.get_detailed_task(task_id).await?;
         match task.payload {
             TaskPayload::Completed { result } => Ok(Value::Object(result)),
-            TaskPayload::Failed { error } => Err(TransportError::Protocol(format!(
-                "task {task_id} failed: {}",
-                Value::Object(error)
-            ))),
-            TaskPayload::Cancelled => Err(TransportError::Protocol(format!(
-                "task {task_id} was cancelled"
-            ))),
-            TaskPayload::Working | TaskPayload::InputRequired { .. } => Err(
-                TransportError::Protocol(format!("task {task_id} result is not available")),
-            ),
-            _ => Err(TransportError::Protocol(format!(
-                "task {task_id} returned an unsupported payload"
-            ))),
+            TaskPayload::Failed { error } => Err(Error::new(
+                FailureCode::TaskFailed,
+                format!("task {task_id} failed: {}", Value::Object(error)),
+            )),
+            TaskPayload::Cancelled => Err(Error::new(
+                FailureCode::TaskFailed,
+                format!("task {task_id} was cancelled"),
+            )),
+            TaskPayload::Working | TaskPayload::InputRequired { .. } => Err(Error::new(
+                FailureCode::TaskUnavailable,
+                format!("task {task_id} result is not available"),
+            )),
+            _ => Err(Error::new(
+                FailureCode::TaskFailed,
+                format!("task {task_id} returned an unsupported payload"),
+            )),
         }
     }
 
@@ -154,8 +159,8 @@ impl McpConnection {
         })
     }
 
-    fn protocol_error(&self, operation: &str, error: rmcp::ServiceError) -> TransportError {
-        TransportError::Protocol(format!("{operation} failed: {error}"))
+    fn protocol_error(&self, operation: &str, error: rmcp::ServiceError) -> Error {
+        Error::new(FailureCode::TaskFailed, format!("{operation} failed: {error}"))
     }
 
     fn task_protocol_error(
@@ -163,16 +168,20 @@ impl McpConnection {
         operation: &str,
         task_id: &str,
         error: rmcp::ServiceError,
-    ) -> TransportError {
+    ) -> Error {
         if matches!(
             &error,
             rmcp::ServiceError::McpError(error)
                 if error.code == ErrorCode::RESOURCE_NOT_FOUND
                     || error.code == ErrorCode::INVALID_PARAMS
         ) {
-            return TransportError::TaskNotFound {
+            return Error::new(
+                FailureCode::TaskNotFound,
+                format!("task not found: {task_id}"),
+            )
+            .with_context(ErrorContext::Task {
                 task_id: task_id.to_string(),
-            };
+            });
         }
         self.protocol_error(operation, error)
     }
