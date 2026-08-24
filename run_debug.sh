@@ -77,6 +77,34 @@ free_tcp_port() {
   fi
 }
 
+wait_for_tcp_port() {
+  local port="$1"
+  local pid="$2"
+  local timeout="${3:-120}"
+  local deadline=$((SECONDS + timeout))
+  local status
+
+  while (( SECONDS < deadline )); do
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      echo "[API] 进程在端口 $port 就绪前退出" >&2
+      status=0
+      wait "$pid" || status=$?
+      if (( status == 0 )); then
+        return 1
+      fi
+      return "$status"
+    fi
+
+    if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.2
+  done
+
+  echo "[API] 等待端口 $port 就绪超时（${timeout}s）" >&2
+  return 1
+}
+
 run_external_web() {
   require_cmd cargo
   ensure_web_deps
@@ -109,10 +137,10 @@ run_external_web() {
   cargo run --manifest-path "$MCPSTORE_MANIFEST" --bin mcpstore -- api --host "$api_host" --port "$api_port" &
   api_pid="$!"
 
-  sleep 1
-  if ! kill -0 "$api_pid" >/dev/null 2>&1; then
-    wait "$api_pid"
+  if ! wait_for_tcp_port "$api_port" "$api_pid"; then
+    return 1
   fi
+  echo "[API] 已就绪: $api_target"
 
   echo "[Web] 启动 Vite，并接入 VITE_MCPSTORE_API_BASE=/api（通过 Vite proxy 转发到后端 API）"
   VITE_MCPSTORE_API_BASE="/api" npm --prefix "$WEB_DIR" run dev -- --host "$vite_host" --port "$vite_port"
