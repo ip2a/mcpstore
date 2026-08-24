@@ -20,4 +20,4 @@ pub mod types;
 
 pub use event::Event;
 pub use event_bus::EventBus;
-pub use types::EventCapabilityReport;
+pub use types::{EventCapabilityReport, EventKind};
