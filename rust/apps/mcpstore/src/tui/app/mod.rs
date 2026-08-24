@@ -2370,7 +2370,7 @@ fn split_words(value: &str) -> Vec<String> {
 fn parse_kv_items(value: &str, label: &str) -> Result<HashMap<String, String>, String> {
     let mut out = HashMap::new();
     for item in value
-        .split(|c| c == ',' || c == '\n')
+        .split([',', '\n'])
         .map(str::trim)
         .filter(|item| !item.is_empty())
     {

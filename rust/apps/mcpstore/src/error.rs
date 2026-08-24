@@ -1,15 +1,14 @@
-//! Unified CLI error model shared by every command.
+//! CLI error rendering: one failure code → one exit code, one output shape.
 //!
-//! Before this module the taxonomy lived in triplicate (`CallCommandError`,
-//! `TaskCommandError`, `ProtocolCommandError`) and service commands had none —
-//! they leaked generic `String` errors as exit-1 failures. `CliError`
-//! centralizes classification (`Error` → `ErrorCode` → exit code / label /
-//! hint) once, while `Domain` keeps each command family's `event` prefix and
-//! `context` carries per-command fields (instance_id, tool_name, task_id).
+//! Commands propagate `mcpstore::Error`; `cli_app::run` renders the final
+//! error here. The JSON shape is `{"error": {code, message, hint}}` with the
+//! error context flattened onto the root object — no `event` field, no
+//! per-command-family exit codes.
 
 use clap::ValueEnum;
-use mcpstore::error::{Error, FailureCode};
-use serde_json::{json, Map, Value};
+use mcpstore::error::{Error, ErrorContext, FailureCode};
+use mcpstore::InstanceId;
+use serde_json::json;
 
 /// Machine/human output format, shared by all commands that emit results.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
@@ -26,313 +25,168 @@ impl OutputFormat {
     }
 }
 
-/// Command family, used only to prefix the JSON `event` field so existing
-/// per-family event strings (`execution.*`, `task.*`, `protocol.*`) are kept.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Domain {
-    Execution,
-    Task,
-    Protocol,
-    Service,
-}
-
-impl Domain {
-    fn prefix(self) -> &'static str {
-        match self {
-            Domain::Execution => "execution",
-            Domain::Task => "task",
-            Domain::Protocol => "protocol",
-            Domain::Service => "service",
-        }
+/// Exit code per failure code (cluster-banded: config 2/1x, connection 2x,
+/// handshake 3x, invocation 4x, task 5x, elicitation 6x, auth 7x, session 8x,
+/// runtime 9x, internal 99).
+pub fn exit_code(code: FailureCode) -> i32 {
+    use FailureCode as Code;
+    match code {
+        Code::InvalidInput => 2,
+        Code::ServiceNotFound => 10,
+        Code::ConfigInvalid => 11,
+        Code::ConnectionUnsupported => 20,
+        Code::ConnectionSpawnFailed => 21,
+        Code::ConnectionRefused => 22,
+        Code::ConnectionTimedOut => 23,
+        Code::ConnectionTls => 24,
+        Code::ConnectionClosed => 25,
+        Code::ConnectionAuthRequired => 26,
+        Code::ConnectionScope => 27,
+        Code::HandshakeIncompatible => 30,
+        Code::HandshakeRejected => 31,
+        Code::HandshakeUncorrelated => 32,
+        Code::HandshakeFailed => 33,
+        Code::NotConnected => 40,
+        Code::ToolNotAvailable => 41,
+        Code::ToolFailed => 42,
+        Code::CallTimedOut => 43,
+        Code::CallCancelled => 44,
+        Code::CallDisconnected => 45,
+        Code::CapabilityUnsupported => 46,
+        Code::TaskNotFound => 50,
+        Code::TaskUnavailable => 51,
+        Code::TaskFailed => 52,
+        Code::TaskStateFailed => 53,
+        Code::TaskNotCancellable => 54,
+        Code::ElicitationInputRequired => 60,
+        Code::ElicitationCancelled => 61,
+        Code::ElicitationTimedOut => 62,
+        Code::ElicitationInvalidResponse => 63,
+        Code::AuthFailed => 70,
+        Code::OauthProviderFailed => 71,
+        Code::SecureStorageUnavailable => 72,
+        Code::SessionNotFound => 80,
+        Code::SessionNotActive => 81,
+        Code::ServiceUnavailable => 90,
+        Code::HealthCheckFailed => 91,
+        Code::ProbeTimedOut => 92,
+        Code::ToolSyncFailed => 93,
+        Code::StopFailed => 94,
+        Code::OpenapiRequestFailed => 95,
+        Code::Internal => 99,
     }
 }
 
-/// The full union of error classes across all commands. Exit codes are stable
-/// and never overlap, so an agent can branch on `$?` alone.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum ErrorCode {
-    InvalidInput,
-    ServiceNotFound,
-    ConnectionFailed,
-    AuthenticationRequired,
-    CapabilityUnsupported,
-    TaskNotFound,
-    TaskResultUnavailable,
-    TaskFailed,
-    TaskProtocolFailed,
-    TaskStateFailed,
-    TaskNotCancellable,
-    Cancelled,
-    TimedOut,
-    Disconnected,
-    ToolFailed,
-    ProtocolFailed,
-    ElicitationInputRequired,
-    ElicitationCancelled,
-    ElicitationTimedOut,
-    ElicitationInvalidResponse,
-    CommandFailed,
-}
-impl ErrorCode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::InvalidInput => "invalid_input",
-            Self::ServiceNotFound => "service_not_found",
-            Self::ConnectionFailed => "connection_failed",
-            Self::AuthenticationRequired => "authentication_required",
-            Self::CapabilityUnsupported => "capability_unsupported",
-            Self::TaskNotFound => "task_not_found",
-            Self::TaskResultUnavailable => "task_result_unavailable",
-            Self::TaskFailed => "task_failed",
-            Self::TaskProtocolFailed => "task_protocol_failed",
-            Self::TaskStateFailed => "task_state_failed",
-            Self::TaskNotCancellable => "task_not_cancellable",
-            Self::Cancelled => "execution_cancelled",
-            Self::TimedOut => "execution_timed_out",
-            Self::Disconnected => "execution_disconnected",
-            Self::ToolFailed => "tool_failed",
-            Self::ProtocolFailed => "protocol_failed",
-            Self::ElicitationInputRequired => "input_required",
-            Self::ElicitationCancelled => "elicitation_cancelled",
-            Self::ElicitationTimedOut => "elicitation_timed_out",
-            Self::ElicitationInvalidResponse => "elicitation_invalid_response",
-            Self::CommandFailed => "command_failed",
-        }
-    }
-
-    pub fn exit_code(self) -> i32 {
-        match self {
-            Self::CommandFailed => 1,
-            Self::InvalidInput => 2,
-            Self::ServiceNotFound => 10,
-            Self::ConnectionFailed => 11,
-            Self::AuthenticationRequired => 12,
-            Self::CapabilityUnsupported => 20,
-            Self::TaskNotFound => 21,
-            Self::TaskResultUnavailable => 23,
-            Self::TaskFailed => 24,
-            Self::TaskProtocolFailed => 25,
-            Self::TaskStateFailed => 26,
-            Self::TaskNotCancellable => 27,
-            Self::Cancelled => 30,
-            Self::TimedOut => 31,
-            Self::Disconnected => 32,
-            Self::ToolFailed => 33,
-            Self::ProtocolFailed => 34,
-            Self::ElicitationInputRequired => 35,
-            Self::ElicitationCancelled => 36,
-            Self::ElicitationTimedOut => 37,
-            Self::ElicitationInvalidResponse => 38,
-        }
-    }
-
-    /// A brief next-step suggestion for human output, when one is useful.
-    pub fn hint(self) -> Option<&'static str> {
-        match self {
-            Self::InvalidInput => {
-                Some("check the tool schema with `mcpstore tools <target> --schema`")
-            }
-            Self::ServiceNotFound => Some("run `mcpstore list` to see configured services"),
-            Self::ConnectionFailed => {
-                Some("run `mcpstore check <target>` or `mcpstore restart <target>`")
-            }
-            Self::AuthenticationRequired => Some("run `mcpstore auth login <target>`"),
-            Self::TimedOut => Some("retry, or raise --timeout / --max-total-timeout"),
-            Self::ElicitationInputRequired => {
-                Some("re-run without --non-interactive to answer the prompt")
-            }
-            _ => None,
-        }
-    }
-
-    /// The single, authoritative failure-code classifier. Domain-aware: the task
-    /// command family collapses ToolFailed/TaskFailed to match its historical
-    /// exit codes (1 and 25, not 33 and 34).
-    pub fn from_store(error: &Error, domain: Domain) -> Self {
-        match error.code() {
-            FailureCode::ToolNotAvailable => Self::InvalidInput,
-            FailureCode::ServiceNotFound => Self::ServiceNotFound,
-            FailureCode::ConnectionAuthRequired
-            | FailureCode::ConnectionScope
-            | FailureCode::AuthFailed
-            | FailureCode::OauthProviderFailed
-            | FailureCode::SecureStorageUnavailable => Self::AuthenticationRequired,
-            FailureCode::CapabilityUnsupported => Self::CapabilityUnsupported,
-            FailureCode::CallCancelled => Self::Cancelled,
-            FailureCode::CallTimedOut => Self::TimedOut,
-            FailureCode::CallDisconnected => Self::Disconnected,
-            FailureCode::TaskNotFound => Self::TaskNotFound,
-            FailureCode::TaskStateFailed => Self::TaskStateFailed,
-            FailureCode::ElicitationInputRequired => Self::ElicitationInputRequired,
-            FailureCode::ElicitationCancelled => Self::ElicitationCancelled,
-            FailureCode::ElicitationTimedOut => Self::ElicitationTimedOut,
-            FailureCode::ElicitationInvalidResponse => Self::ElicitationInvalidResponse,
-            FailureCode::ToolFailed | FailureCode::TaskFailed | FailureCode::TaskUnavailable => {
-                match domain {
-                    Domain::Task => Self::CommandFailed,
-                    _ => Self::ToolFailed,
+/// Render an error in the requested output format.
+pub fn render(error: &Error, format: OutputFormat) -> String {
+    let code = error.code();
+    match format {
+        OutputFormat::Human => match code.hint() {
+            Some(hint) => format!("{code}: {}\n  hint: {hint}", error.message()),
+            None => format!("{code}: {}", error.message()),
+        },
+        OutputFormat::Json | OutputFormat::Jsonl => {
+            let mut payload = json!({
+                "error": {
+                    "code": code.as_str(),
+                    "message": error.message(),
+                    "hint": code.hint(),
+                    "retryable": error.retryable(),
+                },
+            });
+            if let (Some(object), Ok(context)) = (
+                payload.as_object_mut(),
+                serde_json::to_value(error.context()),
+            ) {
+                if let Some(context) = context.as_object() {
+                    for (key, value) in context {
+                        object.insert(key.clone(), value.clone());
+                    }
                 }
             }
-            FailureCode::InvalidInput
-            | FailureCode::ConfigInvalid
-            | FailureCode::ConnectionUnsupported => Self::InvalidInput,
-            FailureCode::SessionNotFound | FailureCode::SessionNotActive => Self::CommandFailed,
-            FailureCode::Internal => Self::CommandFailed,
-            _ => Self::ConnectionFailed,
-        }
-    }
-
-    /// Best-effort classification from a daemon error string. The daemon wire
-    /// protocol only carries a message (no code channel), so recover intent
-    /// from well-known substrings, defaulting to `CommandFailed`.
-    pub fn from_daemon_message(message: &str) -> Self {
-        let lower = message.to_ascii_lowercase();
-        if lower.contains("not found") {
-            Self::ServiceNotFound
-        } else if lower.contains("auth") {
-            Self::AuthenticationRequired
-        } else if lower.contains("timed out") || lower.contains("timeout") {
-            Self::TimedOut
-        } else if lower.contains("connect") || lower.contains("daemon not running") {
-            Self::ConnectionFailed
-        } else {
-            Self::CommandFailed
+            if format == OutputFormat::Json {
+                serde_json::to_string_pretty(&payload)
+                    .unwrap_or_else(|_| format!("{code}: {}", error.message()))
+            } else {
+                payload.to_string()
+            }
         }
     }
 }
-/// The single CLI error type. `main.rs` downcasts to this to derive the exit
-/// code and render the message. `context` carries per-command fields
-/// (instance_id / tool_name / task_id) without the type needing to know them.
-#[derive(Debug)]
-pub struct CliError {
-    format: OutputFormat,
-    domain: Domain,
-    code: ErrorCode,
-    message: String,
-    context: Map<String, Value>,
+
+/// Attach service context at CLI sites that only know the instance id.
+/// Keeps any richer context already carried by the error.
+pub(crate) fn attach_instance(error: Error, instance_id: InstanceId) -> Error {
+    if matches!(error.context(), ErrorContext::None) {
+        return error.with_context(ErrorContext::Service {
+            instance_id,
+            service_name: String::new(),
+        });
+    }
+    error
 }
 
-impl CliError {
-    pub fn new(
-        format: OutputFormat,
-        domain: Domain,
-        code: ErrorCode,
-        message: impl Into<String>,
-    ) -> Self {
-        Self {
-            format,
-            domain,
-            code,
-            message: message.into(),
-            context: Map::new(),
+/// Attach task context at CLI sites; keeps richer existing context.
+pub(crate) fn attach_task(error: Error, task_id: impl Into<String>) -> Error {
+    if matches!(error.context(), ErrorContext::None) {
+        return error.with_context(ErrorContext::Task {
+            task_id: task_id.into(),
+        });
+    }
+    error
+}
+
+/// Attach tool context at CLI sites; keeps richer existing context.
+pub(crate) fn attach_tool(
+    error: Error,
+    instance_id: InstanceId,
+    tool_name: impl Into<String>,
+) -> Error {
+    if matches!(error.context(), ErrorContext::None) {
+        return error.with_context(ErrorContext::Tool {
+            instance_id,
+            tool_name: tool_name.into(),
+        });
+    }
+    error
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_code_has_an_exit_code() {
+        for code in FailureCode::ALL {
+            let exit = exit_code(code);
+            assert!(exit > 1 && exit < 100, "{code} has no exit code");
         }
     }
 
-    /// Attach a context field (e.g. `("instance_id", id)`, `("tool_name", name)`).
-    pub fn with(mut self, key: &str, value: impl Into<Value>) -> Self {
-        self.context.insert(key.to_string(), value.into());
-        self
-    }
-
-    /// Convenience for the common `execution`-domain shape: a code + message
-    /// tagged with the instance and tool the call targeted.
-    pub fn for_call(
-        format: OutputFormat,
-        code: ErrorCode,
-        message: impl Into<String>,
-        instance_id: impl std::fmt::Display,
-        tool_name: impl Into<String>,
-    ) -> Self {
-        Self::new(format, Domain::Execution, code, message)
-            .with("instance_id", instance_id.to_string())
-            .with("tool_name", tool_name.into())
-    }
-
-    /// Classify an `Error` into a `CliError` for the given command family.
-    pub fn from_store(error: &Error, format: OutputFormat, domain: Domain) -> Self {
-        Self::new(
-            format,
-            domain,
-            ErrorCode::from_store(error, domain),
-            error.to_string(),
+    #[test]
+    fn json_error_shape_has_code_message_and_flattened_context() {
+        let error = Error::new(
+            FailureCode::ToolNotAvailable,
+            "tool is not available: search",
         )
+        .with_context(ErrorContext::Tool {
+            instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
+            tool_name: "search".to_string(),
+        });
+        let payload: serde_json::Value =
+            serde_json::from_str(&render(&error, OutputFormat::Jsonl)).unwrap();
+        assert_eq!(payload["error"]["code"], "tool_not_available");
+        assert_eq!(payload["error"]["message"], "tool is not available: search");
+        assert_eq!(payload["tool_name"], "search");
+        assert!(payload.get("event").is_none());
     }
 
-    /// Classify a daemon error string into a `CliError`.
-    pub fn from_daemon(message: String, format: OutputFormat, domain: Domain) -> Self {
-        let code = ErrorCode::from_daemon_message(&message);
-        Self::new(format, domain, code, message)
-    }
-
-    /// Convenience for the `execution` domain without instance/tool context.
-    pub fn new_execution(
-        format: OutputFormat,
-        code: ErrorCode,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(format, Domain::Execution, code, message)
-    }
-
-    pub fn code(&self) -> ErrorCode {
-        self.code
-    }
-
-    pub fn exit_code(&self) -> i32 {
-        self.code.exit_code()
-    }
-
-    fn event(&self) -> String {
-        // Preserve the task command's established invalid-input event contract.
-        if self.domain == Domain::Task && self.code == ErrorCode::InvalidInput {
-            return "task.error".into();
-        }
-        // Elicitation events are unprefixed (same across all command families).
-        let detail = match self.code {
-            ErrorCode::ElicitationInputRequired => return "elicitation.input_required".into(),
-            ErrorCode::ElicitationCancelled => return "elicitation.cancelled".into(),
-            ErrorCode::ElicitationTimedOut => return "elicitation.timed_out".into(),
-            ErrorCode::ElicitationInvalidResponse => return "elicitation.invalid_response".into(),
-            ErrorCode::Cancelled => "cancelled",
-            ErrorCode::TimedOut => "timed_out",
-            _ => "failed",
-        };
-        format!("{}.{}", self.domain.prefix(), detail)
-    }
-
-    fn json_value(&self) -> Value {
-        let mut root = Map::new();
-        root.insert("event".to_string(), Value::String(self.event()));
-        root.insert(
-            "error".to_string(),
-            json!({ "code": self.code.as_str(), "message": self.message }),
+    #[test]
+    fn human_render_appends_hint() {
+        let error = Error::new(FailureCode::ServiceNotFound, "no such service");
+        assert_eq!(
+            render(&error, OutputFormat::Human),
+            "service_not_found: no such service\n  hint: run `mcpstore list` to see configured services"
         );
-        for (key, value) in &self.context {
-            root.insert(key.clone(), value.clone());
-        }
-        Value::Object(root)
     }
 }
-
-impl std::fmt::Display for CliError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.format {
-            OutputFormat::Human => match self.code.hint() {
-                Some(hint) => write!(
-                    f,
-                    "{}: {}\n  hint: {}",
-                    self.code.as_str(),
-                    self.message,
-                    hint
-                ),
-                None => write!(f, "{}: {}", self.code.as_str(), self.message),
-            },
-            OutputFormat::Json => match serde_json::to_string_pretty(&self.json_value()) {
-                Ok(s) => f.write_str(&s),
-                Err(_) => write!(f, "{}: {}", self.code.as_str(), self.message),
-            },
-            OutputFormat::Jsonl => self.json_value().fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for CliError {}
