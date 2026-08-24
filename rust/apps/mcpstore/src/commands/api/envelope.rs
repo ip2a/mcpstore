@@ -235,6 +235,21 @@ mod tests {
     }
 
     #[test]
+    fn failure_codes_map_to_documented_http_statuses() {
+        for (code, expected) in [
+            (FailureCode::HandshakeIncompatible, StatusCode::BAD_GATEWAY),
+            (
+                FailureCode::ConnectionAuthRequired,
+                StatusCode::UNAUTHORIZED,
+            ),
+            (FailureCode::SessionNotFound, StatusCode::NOT_FOUND),
+            (FailureCode::SessionNotActive, StatusCode::CONFLICT),
+        ] {
+            assert_eq!(http_status(code), expected, "{code}");
+        }
+    }
+
+    #[test]
     fn every_failure_code_has_an_http_status() {
         for code in FailureCode::ALL {
             let status = http_status(code);

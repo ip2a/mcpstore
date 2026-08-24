@@ -140,3 +140,29 @@ pub fn cleanup_stale_files() {
         let _ = std::fs::remove_file(default_socket_path());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcpstore::error::ErrorContext;
+
+    #[test]
+    fn daemon_error_serializes_as_code_message_context_object() {
+        let error =
+            mcpstore::Error::new(FailureCode::ServiceNotFound, "service instance not found")
+                .with_context(ErrorContext::Service {
+                    instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
+                    service_name: "demo".to_string(),
+                });
+        let wire = serde_json::to_value(DaemonError::from_error(&error)).unwrap();
+        assert_eq!(wire["code"], "service_not_found");
+        assert_eq!(wire["message"], "service instance not found");
+        assert_eq!(wire["context"]["kind"], "service");
+        assert_eq!(wire["context"]["service_name"], "demo");
+
+        let round_trip: DaemonError = serde_json::from_value(wire).unwrap();
+        let restored = round_trip.into_error();
+        assert_eq!(restored.code(), FailureCode::ServiceNotFound);
+        assert!(restored.message().contains("service instance"));
+    }
+}
