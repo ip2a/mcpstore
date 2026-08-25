@@ -336,11 +336,11 @@ impl McpConnection {
 }
 
 fn needs_fallback(error: &Error, mode: crate::config::HandshakeMode) -> bool {
+    // The policy table is the single source of which codes are fallback-eligible;
+    // do not re-list handshake codes here or the two lists can drift apart.
     matches!(
-        error.code(),
-        FailureCode::HandshakeIncompatible
-            | FailureCode::HandshakeRejected
-            | FailureCode::HandshakeUncorrelated
+        error.code().policy(),
+        crate::error::RecoveryPolicy::HandshakeFallback
     ) && matches!(
         mode,
         crate::config::HandshakeMode::Auto | crate::config::HandshakeMode::Discover
