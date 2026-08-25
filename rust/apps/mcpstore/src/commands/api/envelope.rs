@@ -143,9 +143,25 @@ pub(super) fn http_status(code: FailureCode) -> StatusCode {
         | Code::TaskStateFailed
         | Code::StopFailed
         | Code::Internal => Http::INTERNAL_SERVER_ERROR,
-        // connection_*, handshake_*, not_connected, tool_failed, call_disconnected,
-        // task_unavailable, task_failed, oauth_provider_failed
-        _ => Http::BAD_GATEWAY,
+        // Everything below means "the upstream MCP service is unreachable or
+        // misbehaving in a way the client can't fix by editing its request".
+        // Listed explicitly (not `_ =>`) so a new FailureCode variant fails to
+        // compile here until someone picks a status for it on purpose.
+        Code::ConnectionSpawnFailed
+        | Code::ConnectionRefused
+        | Code::ConnectionTls
+        | Code::ConnectionClosed
+        | Code::HandshakeIncompatible
+        | Code::HandshakeRejected
+        | Code::HandshakeUncorrelated
+        | Code::HandshakeFailed
+        | Code::NotConnected
+        | Code::ToolFailed
+        | Code::CallDisconnected
+        | Code::TaskUnavailable
+        | Code::TaskFailed
+        | Code::OauthProviderFailed
+        | Code::ElicitationInvalidResponse => Http::BAD_GATEWAY,
     }
 }
 
