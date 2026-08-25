@@ -18,12 +18,14 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let definition = self
             .registry
             .find_definition(&instance.service_name)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance.service_name.clone()))?;
+            .ok_or_else(|| {
+                Error::new(FailureCode::ServiceNotFound, instance.service_name.clone())
+            })?;
 
         self.cache_definition(&definition).await?;
         self.cache
@@ -44,9 +46,10 @@ impl MCPStore {
                 serde_json::Value::Object(instance.effective_config.clone()),
             )
             .map_err(|error| {
-                StoreError::Other(format!(
-                    "Effective config for instance {instance_id} is invalid: {error}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Effective config for instance {instance_id} is invalid: {error}"),
+                )
             })?;
             let auth = match config.auth {
                 crate::auth::AuthConfig::None => AuthState::NotRequired,
@@ -103,7 +106,7 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let now = chrono::Utc::now().timestamp();
         let mut relation_tools = Vec::with_capacity(tools.len());
         for tool in tools {
@@ -172,9 +175,10 @@ impl MCPStore {
         {
             let relation: InstanceToolRelation =
                 serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!(
-                        "Instance tool relation deserialization failed: {error}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Instance tool relation deserialization failed: {error}"),
+                    )
                 })?;
             for tool_name in relation.tools {
                 self.cache
@@ -217,7 +221,7 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         self.cache
             .put_entity(
                 "service_instances",
@@ -262,9 +266,12 @@ impl MCPStore {
                 };
                 let mut relation: SessionServiceRelation =
                     serde_json::from_value(value).map_err(|error| {
-                        StoreError::Other(format!(
+                        Error::new(
+                            FailureCode::Internal,
+                            format!(
                             "Session service relation deserialization failed for {key}: {error}"
-                        ))
+                        ),
+                        )
                     })?;
                 let expected_version = relation.version;
                 let previous_len = relation.services.len();
@@ -292,11 +299,11 @@ impl MCPStore {
                         break;
                     }
                     Err(CacheError::Conflict(_)) => continue,
-                    Err(error) => return Err(StoreError::Cache(error)),
+                    Err(error) => return Err(Error::from(error)),
                 }
             }
             if !complete {
-                return Err(StoreError::Cache(CacheError::Conflict(format!(
+                return Err(Error::from(CacheError::Conflict(format!(
                     "session service relation conflict after retries: session_key={key}"
                 ))));
             }
@@ -311,9 +318,12 @@ impl MCPStore {
                 };
                 let mut relation: SessionToolVisibility =
                     serde_json::from_value(value).map_err(|error| {
-                        StoreError::Other(format!(
-                            "Session tool relation deserialization failed for {key}: {error}"
-                        ))
+                        Error::new(
+                            FailureCode::Internal,
+                            format!(
+                                "Session tool relation deserialization failed for {key}: {error}"
+                            ),
+                        )
                     })?;
                 let expected_version = relation.version;
                 let previous_len = relation.tools.len();
@@ -341,11 +351,11 @@ impl MCPStore {
                         break;
                     }
                     Err(CacheError::Conflict(_)) => continue,
-                    Err(error) => return Err(StoreError::Cache(error)),
+                    Err(error) => return Err(Error::from(error)),
                 }
             }
             if !complete {
-                return Err(StoreError::Cache(CacheError::Conflict(format!(
+                return Err(Error::from(CacheError::Conflict(format!(
                     "session tool relation conflict after retries: session_key={key}"
                 ))));
             }
@@ -387,9 +397,10 @@ impl MCPStore {
     ) -> Result<bool> {
         let state: ContextToolVisibilityState =
             serde_json::from_value(value.clone()).map_err(|error| {
-                StoreError::Other(format!(
-                    "Context tool visibility deserialization failed: {error}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Context tool visibility deserialization failed: {error}"),
+                )
             })?;
         Ok(state.instance_id == instance_id)
     }
@@ -400,7 +411,10 @@ impl MCPStore {
     ) -> Result<bool> {
         let state: ToolPreferenceState =
             serde_json::from_value(value.clone()).map_err(|error| {
-                StoreError::Other(format!("Tool preference deserialization failed: {error}"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool preference deserialization failed: {error}"),
+                )
             })?;
         Ok(state.instance_id == instance_id)
     }
@@ -410,7 +424,10 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<bool> {
         let state: ToolOverrideRule = serde_json::from_value(value.clone()).map_err(|error| {
-            StoreError::Other(format!("Tool override deserialization failed: {error}"))
+            Error::new(
+                FailureCode::Internal,
+                format!("Tool override deserialization failed: {error}"),
+            )
         })?;
         Ok(state.instance_id == instance_id)
     }

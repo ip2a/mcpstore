@@ -30,7 +30,7 @@ impl MCPStore {
         let server = config
             .mcp_servers
             .get_mut(service_name)
-            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
         server.ensure_native_scopes();
         let extension = server
             .mcpstore
@@ -65,7 +65,9 @@ impl MCPStore {
             self.config_manager.save(&config)?;
         }
 
-        let effective_config = server.effective_config(scope).map_err(StoreError::Other)?;
+        let effective_config = server
+            .effective_config(scope)
+            .map_err(|message| Error::new(FailureCode::ConfigInvalid, message))?;
         let transport = effective_config
             .get("transport")
             .and_then(Value::as_str)
@@ -141,7 +143,7 @@ impl MCPStore {
         let server = config
             .mcp_servers
             .get_mut(service_name)
-            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
         server.ensure_native_scopes();
         let extension = server
             .mcpstore
@@ -152,9 +154,10 @@ impl MCPStore {
             ScopeRef::Agent { agent_id } => extension.scopes.agents.remove(agent_id),
         };
         if removed.is_none() {
-            return Err(StoreError::Other(format!(
-                "Scope {scope:?} is not declared for service '{service_name}'"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Scope {scope:?} is not declared for service '{service_name}'"),
+            ));
         }
 
         let server = server.clone();
@@ -207,9 +210,10 @@ impl MCPStore {
             .instance_id(service_name, scope)
             .await
             .ok_or_else(|| {
-                StoreError::Other(format!(
-                    "Scope {scope:?} is not declared for service '{service_name}'"
-                ))
+                Error::new(
+                    FailureCode::ServiceNotFound,
+                    format!("scope {scope:?} is not declared for service '{service_name}'"),
+                )
             })
     }
 

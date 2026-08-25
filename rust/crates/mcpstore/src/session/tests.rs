@@ -857,7 +857,7 @@ async fn session_retry_policy_retries_cache_conflicts_only() {
         let attempts = Arc::clone(&attempts);
         async move {
             if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                return Err(StoreError::Cache(CacheError::Conflict("stale".to_string())));
+                return Err(Error::from(CacheError::Conflict("stale".to_string())));
             }
             Ok("ok")
         }
@@ -876,13 +876,13 @@ async fn session_retry_policy_respects_attempt_limit() {
         let attempts = Arc::clone(&attempts);
         async move {
             attempts.fetch_add(1, Ordering::SeqCst);
-            Err::<(), _>(StoreError::Cache(CacheError::Conflict("stale".to_string())))
+            Err::<(), _>(Error::from(CacheError::Conflict("stale".to_string())))
         }
     })
     .await
     .unwrap_err();
 
-    assert!(matches!(err, StoreError::Cache(CacheError::Conflict(_))));
+    assert!(MCPStore::is_cache_conflict(&err));
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }
 

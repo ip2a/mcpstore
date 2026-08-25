@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
+use mcpstore::error::FailureCode;
 use mcpstore::{AuthFlow, InstanceId, MCPStore, ScopeRef};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -8,7 +9,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::signal;
 
 use crate::daemon::protocol::{
-    default_pid_path, default_socket_path, DaemonRequest, DaemonResponse,
+    default_pid_path, default_socket_path, DaemonError, DaemonRequest, DaemonResponse,
 };
 use crate::store_args::StoreSourceArgs;
 
@@ -109,7 +110,10 @@ async fn handle_connection(
     let request: DaemonRequest = match serde_json::from_str(&line) {
         Ok(r) => r,
         Err(e) => {
-            let resp = DaemonResponse::err(format!("Invalid JSON: {}", e));
+            let resp = DaemonResponse::err(DaemonError::new(
+                FailureCode::InvalidInput,
+                format!("Invalid JSON: {}", e),
+            ));
             writer.write_all(resp.to_json_line()?.as_bytes()).await?;
             return Ok(());
         }
@@ -157,7 +161,10 @@ async fn dispatch(
             shutdown.notify_waiters();
             DaemonResponse::ok(Some(json!({"message": "Daemon stopping"})))
         }
-        other => DaemonResponse::err(format!("Unknown method: {}", other)),
+        other => DaemonResponse::err(DaemonError::new(
+            FailureCode::InvalidInput,
+            format!("Unknown method: {}", other),
+        )),
     }
 }
 
@@ -167,11 +174,21 @@ async fn handle_add_service(store: &MCPStore, params: Value) -> DaemonResponse {
     let name = get_str(&params, "name");
     let mut config: ServerConfig = match serde_json::from_value(get_field(&params, "config")) {
         Ok(c) => c,
-        Err(e) => return DaemonResponse::err(format!("Invalid config: {}", e)),
+        Err(e) => {
+            return DaemonResponse::err(DaemonError::new(
+                FailureCode::InvalidInput,
+                format!("Invalid config: {}", e),
+            ))
+        }
     };
     let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
         Ok(scope) => scope,
-        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+        Err(e) => {
+            return DaemonResponse::err(DaemonError::new(
+                FailureCode::InvalidInput,
+                format!("Invalid scope: {e}"),
+            ))
+        }
     };
     if let ScopeRef::Agent { agent_id } = &scope {
         let previous = config.mcpstore.take();
@@ -199,7 +216,7 @@ async fn handle_add_service(store: &MCPStore, params: Value) -> DaemonResponse {
     }
     let definition_exists = match store.get_definition_config(&name).await {
         Ok(config) => config.is_some(),
-        Err(error) => return DaemonResponse::err(error.to_string()),
+        Err(error) => return DaemonResponse::err(DaemonError::from_error(&error)),
     };
     let result = if definition_exists {
         let lifecycle = config
@@ -224,7 +241,7 @@ async fn handle_add_service(store: &MCPStore, params: Value) -> DaemonResponse {
     };
     match result {
         Ok(_) => DaemonResponse::ok(Some(json!({"service_name": name, "scope": scope}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -232,14 +249,19 @@ async fn handle_remove_service_scope(store: &MCPStore, params: Value) -> DaemonR
     let service_name = get_str(&params, "service_name");
     let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
         Ok(scope) => scope,
-        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+        Err(e) => {
+            return DaemonResponse::err(DaemonError::new(
+                FailureCode::InvalidInput,
+                format!("Invalid scope: {e}"),
+            ))
+        }
     };
     match store.remove_service_scope(&service_name, &scope).await {
         Ok(_) => DaemonResponse::ok(Some(json!({
             "service_name": service_name,
             "scope": scope,
         }))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -247,12 +269,22 @@ async fn handle_declare_service_scope(store: &MCPStore, params: Value) -> Daemon
     let service_name = get_str(&params, "service_name");
     let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
         Ok(scope) => scope,
-        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+        Err(e) => {
+            return DaemonResponse::err(DaemonError::new(
+                FailureCode::InvalidInput,
+                format!("Invalid scope: {e}"),
+            ))
+        }
     };
     let descriptor: ScopeDescriptor = match serde_json::from_value(get_field(&params, "descriptor"))
     {
         Ok(descriptor) => descriptor,
-        Err(e) => return DaemonResponse::err(format!("Invalid scope descriptor: {e}")),
+        Err(e) => {
+            return DaemonResponse::err(DaemonError::new(
+                FailureCode::InvalidInput,
+                format!("Invalid scope descriptor: {e}"),
+            ))
+        }
     };
     match store
         .declare_service_scope(&service_name, &scope, descriptor)
@@ -263,7 +295,7 @@ async fn handle_declare_service_scope(store: &MCPStore, params: Value) -> Daemon
             "service_name": service_name,
             "scope": scope,
         }))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -283,7 +315,7 @@ async fn handle_connect_service(store: &MCPStore, params: Value) -> DaemonRespon
                 .unwrap_or_default();
             let metadata = match store.mcp_server_metadata(instance_id).await {
                 Ok(metadata) => metadata,
-                Err(error) => return DaemonResponse::err(error.to_string()),
+                Err(error) => return DaemonResponse::err(DaemonError::from_error(&error)),
             };
             DaemonResponse::ok(Some(json!({
                 "instance_id": instance_id,
@@ -292,7 +324,7 @@ async fn handle_connect_service(store: &MCPStore, params: Value) -> DaemonRespon
                 "mcp": metadata,
             })))
         }
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -303,7 +335,7 @@ async fn handle_disconnect_service(store: &MCPStore, params: Value) -> DaemonRes
     };
     match store.disconnect_service(instance_id).await {
         Ok(_) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -314,28 +346,33 @@ async fn handle_restart_service(store: &MCPStore, params: Value) -> DaemonRespon
     };
     match store.restart_service(instance_id).await {
         Ok(_) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
 async fn handle_list_services(store: &MCPStore, params: Value) -> DaemonResponse {
     let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
         Ok(scope) => scope,
-        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+        Err(e) => {
+            return DaemonResponse::err(DaemonError::new(
+                FailureCode::InvalidInput,
+                format!("Invalid scope: {e}"),
+            ))
+        }
     };
     let services = match store.list_scope_instances(&scope).await {
         Ok(services) => services,
-        Err(e) => return DaemonResponse::err(e.to_string()),
+        Err(e) => return DaemonResponse::err(DaemonError::from_error(&e)),
     };
     let mut data = Vec::with_capacity(services.len());
     for service in services {
         let state = match store.service_state_entry(service.instance_id).await {
             Ok(state) => state,
-            Err(error) => return DaemonResponse::err(error.to_string()),
+            Err(error) => return DaemonResponse::err(DaemonError::from_error(&error)),
         };
         let metadata = match store.mcp_server_metadata(service.instance_id).await {
             Ok(metadata) => metadata,
-            Err(error) => return DaemonResponse::err(error.to_string()),
+            Err(error) => return DaemonResponse::err(DaemonError::from_error(&error)),
         };
         data.push(json!({
             "instance_id": service.instance_id,
@@ -363,11 +400,14 @@ async fn handle_get_service(store: &MCPStore, params: Value) -> DaemonResponse {
             "transport": s.transport,
             "state": match store.service_state_entry(instance_id).await {
                 Ok(state) => state,
-                Err(error) => return DaemonResponse::err(error.to_string()),
+                Err(error) => return DaemonResponse::err(DaemonError::from_error(&error)),
             },
             "tools": s.tools.iter().map(|t| json!({"name": t.name, "description": t.description})).collect::<Vec<_>>(),
         }))),
-        None => DaemonResponse::err(format!("Service instance not found: {}", instance_id)),
+        None => DaemonResponse::err(DaemonError::new(
+            FailureCode::ServiceNotFound,
+            format!("service instance not found: {instance_id}"),
+        )),
     }
 }
 
@@ -390,7 +430,7 @@ async fn handle_list_tools(store: &MCPStore, params: Value) -> DaemonResponse {
                 .collect();
             DaemonResponse::ok(Some(json!({"tools": data, "total": data.len()})))
         }
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -408,7 +448,7 @@ async fn handle_call_tool(store: &MCPStore, params: Value) -> DaemonResponse {
                 .collect::<Vec<_>>(),
             "is_error": result.is_error,
         }))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -422,7 +462,7 @@ async fn handle_check_service(store: &MCPStore, params: Value) -> DaemonResponse
             "instance_id": instance_id,
             "state": state,
         }))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -440,7 +480,7 @@ async fn handle_wait_service(store: &MCPStore, params: Value) -> DaemonResponse 
             "instance_id": instance_id,
             "state": state,
         }))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -451,7 +491,7 @@ async fn handle_auth_status(store: &MCPStore, params: Value) -> DaemonResponse {
     };
     match store.auth_status_view(instance_id).await {
         Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -462,7 +502,7 @@ async fn handle_auth_callback_uri(store: &MCPStore, params: Value) -> DaemonResp
     };
     match store.authorization_callback_uri(instance_id).await {
         Ok(callback_uri) => DaemonResponse::ok(Some(json!({"callback_uri": callback_uri}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -473,7 +513,7 @@ async fn handle_auth_begin(store: &MCPStore, params: Value) -> DaemonResponse {
     };
     let auth = match store.auth_status_view(instance_id).await {
         Ok(auth) => auth,
-        Err(error) => return DaemonResponse::err(error.to_string()),
+        Err(error) => return DaemonResponse::err(DaemonError::from_error(&error)),
     };
     match auth.flow {
         Some(AuthFlow::AuthorizationCode) => match store.begin_authorization(instance_id).await {
@@ -482,26 +522,29 @@ async fn handle_auth_begin(store: &MCPStore, params: Value) -> DaemonResponse {
                     "auth": auth,
                     "authorization": authorization,
                 }))),
-                Err(error) => DaemonResponse::err(error.to_string()),
+                Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
             },
-            Err(error) => DaemonResponse::err(error.to_string()),
+            Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
         },
         Some(AuthFlow::ClientCredentials) => {
             if let Err(error) = store.refresh_authorization(instance_id).await {
-                return DaemonResponse::err(error.to_string());
+                return DaemonResponse::err(DaemonError::from_error(&error));
             }
             if let Err(error) = reconnect_authorized_service(store, instance_id).await {
-                return DaemonResponse::err(error.to_string());
+                return DaemonResponse::err(DaemonError::from_error(&error));
             }
             match store.auth_status_view(instance_id).await {
                 Ok(auth) => DaemonResponse::ok(Some(json!({
                     "auth": auth,
                     "authorization": null,
                 }))),
-                Err(error) => DaemonResponse::err(error.to_string()),
+                Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
             }
         }
-        None => DaemonResponse::err("Authentication is not configured for this instance"),
+        None => DaemonResponse::err(DaemonError::new(
+            FailureCode::ConnectionAuthRequired,
+            "authentication is not configured for this instance",
+        )),
     }
 }
 
@@ -513,21 +556,24 @@ async fn handle_auth_callback(store: &MCPStore, params: Value) -> DaemonResponse
     let code = get_str(&params, "code");
     let state = get_str(&params, "state");
     if code.is_empty() || state.is_empty() {
-        return DaemonResponse::err("OAuth callback requires code and state");
+        return DaemonResponse::err(DaemonError::new(
+            FailureCode::InvalidInput,
+            "OAuth callback requires code and state",
+        ));
     }
     let issuer = params.get("issuer").and_then(Value::as_str);
     if let Err(error) = store
         .complete_authorization_callback(instance_id, &code, &state, issuer)
         .await
     {
-        return DaemonResponse::err(error.to_string());
+        return DaemonResponse::err(DaemonError::from_error(&error));
     }
     if let Err(error) = reconnect_authorized_service(store, instance_id).await {
-        return DaemonResponse::err(error.to_string());
+        return DaemonResponse::err(DaemonError::from_error(&error));
     }
     match store.auth_status_view(instance_id).await {
         Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -537,14 +583,14 @@ async fn handle_auth_refresh(store: &MCPStore, params: Value) -> DaemonResponse 
         Err(response) => return response,
     };
     if let Err(error) = store.refresh_authorization(instance_id).await {
-        return DaemonResponse::err(error.to_string());
+        return DaemonResponse::err(DaemonError::from_error(&error));
     }
     if let Err(error) = reconnect_authorized_service(store, instance_id).await {
-        return DaemonResponse::err(error.to_string());
+        return DaemonResponse::err(DaemonError::from_error(&error));
     }
     match store.auth_status_view(instance_id).await {
         Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -554,11 +600,11 @@ async fn handle_auth_logout(store: &MCPStore, params: Value) -> DaemonResponse {
         Err(response) => return response,
     };
     if let Err(error) = store.logout_authorization(instance_id).await {
-        return DaemonResponse::err(error.to_string());
+        return DaemonResponse::err(DaemonError::from_error(&error));
     }
     match store.auth_status_view(instance_id).await {
         Ok(auth) => DaemonResponse::ok(Some(json!({"auth": auth}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -569,7 +615,10 @@ async fn handle_auth_scope_upgrade(store: &MCPStore, params: Value) -> DaemonRes
     };
     let required_scope = get_str(&params, "required_scope");
     if required_scope.trim().is_empty() {
-        return DaemonResponse::err("Scope upgrade requires required_scope");
+        return DaemonResponse::err(DaemonError::new(
+            FailureCode::InvalidInput,
+            "Scope upgrade requires required_scope",
+        ));
     }
     match store
         .begin_scope_upgrade(instance_id, required_scope.trim())
@@ -580,9 +629,9 @@ async fn handle_auth_scope_upgrade(store: &MCPStore, params: Value) -> DaemonRes
                 "auth": auth,
                 "authorization": authorization,
             }))),
-            Err(error) => DaemonResponse::err(error.to_string()),
+            Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
         },
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -594,7 +643,7 @@ async fn handle_auth_save_client_secret(store: &MCPStore, params: Value) -> Daem
     let secret = get_str(&params, "client_secret");
     match store.save_oauth_client_secret(instance_id, secret).await {
         Ok(()) => DaemonResponse::ok(Some(json!({"stored": true}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -609,7 +658,7 @@ async fn handle_auth_save_private_key(store: &MCPStore, params: Value) -> Daemon
         .await
     {
         Ok(()) => DaemonResponse::ok(Some(json!({"stored": true}))),
-        Err(error) => DaemonResponse::err(error.to_string()),
+        Err(error) => DaemonResponse::err(DaemonError::from_error(&error)),
     }
 }
 
@@ -624,21 +673,21 @@ async fn reconnect_authorized_service(
 async fn handle_list_agents(store: &MCPStore, _params: Value) -> DaemonResponse {
     match store.list_agents().await {
         Ok(agents) => DaemonResponse::ok(Some(json!({"agents": agents, "total": agents.len()}))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
 async fn handle_show_config(store: &MCPStore, _params: Value) -> DaemonResponse {
     match store.show_config().await {
         Ok(config) => DaemonResponse::ok(Some(config)),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
 async fn handle_reset_config(store: &MCPStore, _params: Value) -> DaemonResponse {
     match store.reset_config().await {
         Ok(_) => DaemonResponse::ok(Some(json!({"status": "ok"}))),
-        Err(e) => DaemonResponse::err(e.to_string()),
+        Err(e) => DaemonResponse::err(DaemonError::from_error(&e)),
     }
 }
 
@@ -657,7 +706,10 @@ fn get_str(params: &Value, key: &str) -> String {
 }
 
 fn get_instance_id(params: &Value) -> Result<InstanceId, DaemonResponse> {
-    get_str(params, "instance_id")
-        .parse()
-        .map_err(|error| DaemonResponse::err(format!("Invalid instance_id: {error}")))
+    get_str(params, "instance_id").parse().map_err(|error| {
+        DaemonResponse::err(DaemonError::new(
+            FailureCode::InvalidInput,
+            format!("Invalid instance_id: {error}"),
+        ))
+    })
 }

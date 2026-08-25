@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::cache::{memory_cache_store, CacheStore};
 #[cfg(feature = "redis")]
 use crate::cache::redis_store;
+use crate::cache::{memory_cache_store, CacheStore};
 use crate::store::prelude::*;
 use crate::store::{JsonStoreConfig, StoreConfig};
 
@@ -22,9 +22,12 @@ impl MCPStore {
                     .and_then(|value| value.as_str())
                     .unwrap_or(default_store_address),
             )),
-            store => Err(StoreError::Other(format!(
+            store => Err(Error::new(
+                FailureCode::Internal,
+                format!(
                 "OpenKeyv Store '{store}' does not provide the capabilities required by MCPStore"
-            ))),
+            ),
+            )),
         }
     }
 

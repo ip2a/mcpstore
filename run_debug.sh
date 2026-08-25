@@ -16,21 +16,50 @@ for bin_dir in /usr/local/bin /opt/homebrew/bin; do
   fi
 done
 
-print_menu() {
+print_main_menu() {
   cat <<'MENU'
 
 mcpstore debug menu
 1) 外部开发模式 Web (Rust API + React/Vite)
 2) 本地运行 App (Tauri)
-3) 本地运行 TUI
-4) 本地运行内置 Web (mcpstore web)
-5) Python API demo (FastAPI, demos/python_api)
-6) 清理构建产物
-7) 构建并安装最新本地 mcpstore 到 python/.venv
-8) 从 python/.venv 卸载 mcpstore
-9) 强制重建并重装 mcpstore（清缓存全量编译）
-10) 发布前处理
+3) CLI 启动 (tui / web / api / mcp)
+4) Python 管理 (安装 / 重建 / demo)
+5) 清理 (venv 卸载 / 构建产物)
+6) 发布前处理
 0) 退出
+MENU
+}
+
+print_cli_menu() {
+  cat <<'MENU'
+
+mcpstore CLI 启动
+1) mcpstore tui
+2) mcpstore web (先构建 Web dist)
+3) mcpstore api
+4) mcpstore mcp (stdio)
+0) 返回主菜单
+MENU
+}
+
+print_python_menu() {
+  cat <<'MENU'
+
+mcpstore Python 管理
+1) 构建并安装最新本地 mcpstore 到 python/.venv
+2) 强制重建并重装（清缓存全量编译）
+3) 运行 Python API demo (FastAPI, demos/python_api)
+0) 返回主菜单
+MENU
+}
+
+print_clean_menu() {
+  cat <<'MENU'
+
+mcpstore 清理
+1) 从 python/.venv 卸载 mcpstore
+2) 清理构建产物（Rust + Tauri + Web dist）
+0) 返回主菜单
 MENU
 }
 
@@ -176,6 +205,21 @@ run_embedded_web() {
   echo "[Web] 启动内置 Web: http://${web_host}:${web_port}/"
   MCPSTORE_WEB_ASSETS_DIR="$WEB_DIR/dist" \
     cargo run --manifest-path "$MCPSTORE_MANIFEST" --bin mcpstore -- web --host "$web_host" --port "$web_port"
+}
+
+run_api() {
+  require_cmd cargo
+  local api_host="${MCPSTORE_API_HOST:-127.0.0.1}"
+  local api_port="${MCPSTORE_API_PORT:-1820}"
+
+  echo "[API] 启动 Rust API: http://${api_host}:${api_port}/"
+  cargo run --manifest-path "$MCPSTORE_MANIFEST" --bin mcpstore -- api --host "$api_host" --port "$api_port"
+}
+
+run_mcp() {
+  require_cmd cargo
+  echo "[MCP] 启动 mcpstore mcp (stdio, Ctrl+C 退出)..."
+  cargo run --manifest-path "$MCPSTORE_MANIFEST" --bin mcpstore -- mcp
 }
 
 run_python_demo() {
@@ -422,9 +466,66 @@ run_pre_release_work() {
   echo "  git push origin $tag"
 }
 
+cli_menu() {
+  while true; do
+    print_cli_menu
+    printf '\n请选择: '
+    if ! read -r choice; then
+      echo
+      return
+    fi
+
+    case "$choice" in
+      1) run_tui ;;
+      2) run_embedded_web ;;
+      3) run_api ;;
+      4) run_mcp ;;
+      0) return ;;
+      *) echo "未知选项: $choice" ;;
+    esac
+  done
+}
+
+python_menu() {
+  while true; do
+    print_python_menu
+    printf '\n请选择: '
+    if ! read -r choice; then
+      echo
+      return
+    fi
+
+    case "$choice" in
+      1) install_python_package ;;
+      2) force_reinstall_python_package ;;
+      3) run_python_demo ;;
+      0) return ;;
+      *) echo "未知选项: $choice" ;;
+    esac
+  done
+}
+
+clean_menu() {
+  while true; do
+    print_clean_menu
+    printf '\n请选择: '
+    if ! read -r choice; then
+      echo
+      return
+    fi
+
+    case "$choice" in
+      1) uninstall_python_package ;;
+      2) clean_artifacts ;;
+      0) return ;;
+      *) echo "未知选项: $choice" ;;
+    esac
+  done
+}
+
 main() {
   while true; do
-    print_menu
+    print_main_menu
     printf '\n请选择: '
     if ! read -r choice; then
       echo
@@ -434,14 +535,10 @@ main() {
     case "$choice" in
       1) run_external_web ;;
       2) run_app ;;
-      3) run_tui ;;
-      4) run_embedded_web ;;
-      5) run_python_demo ;;
-      6) clean_artifacts ;;
-      7) install_python_package ;;
-      8) uninstall_python_package ;;
-      9) force_reinstall_python_package ;;
-      10) run_pre_release_work ;;
+      3) cli_menu ;;
+      4) python_menu ;;
+      5) clean_menu ;;
+      6) run_pre_release_work ;;
       0) exit 0 ;;
       *) echo "未知选项: $choice" ;;
     esac

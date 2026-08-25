@@ -22,7 +22,10 @@ impl MCPStore {
             "ServicePatchRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
                 let updates = payload.get("updates").cloned().ok_or_else(|| {
-                    StoreError::Other("Control request missing updates".to_string())
+                    Error::new(
+                        FailureCode::Internal,
+                        "Control request missing updates".to_string(),
+                    )
                 })?;
                 self.patch_service(&service_name, updates).await?;
             }
@@ -35,20 +38,28 @@ impl MCPStore {
                 let scope = payload
                     .get("scope")
                     .cloned()
-                    .ok_or_else(|| StoreError::Other("Control request missing scope".to_string()))
+                    .ok_or_else(|| {
+                        Error::new(
+                            FailureCode::Internal,
+                            "Control request missing scope".to_string(),
+                        )
+                    })
                     .and_then(|value| {
                         serde_json::from_value::<ScopeRef>(value)
-                            .map_err(|error| StoreError::Other(error.to_string()))
+                            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                     })?;
                 let descriptor = payload
                     .get("descriptor")
                     .cloned()
                     .ok_or_else(|| {
-                        StoreError::Other("Control request missing descriptor".to_string())
+                        Error::new(
+                            FailureCode::Internal,
+                            "Control request missing descriptor".to_string(),
+                        )
                     })
                     .and_then(|value| {
                         serde_json::from_value(value)
-                            .map_err(|error| StoreError::Other(error.to_string()))
+                            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                     })?;
                 self.declare_service_scope(&service_name, &scope, descriptor)
                     .await?;
@@ -58,23 +69,38 @@ impl MCPStore {
                 let scope = payload
                     .get("scope")
                     .cloned()
-                    .ok_or_else(|| StoreError::Other("Control request missing scope".to_string()))
+                    .ok_or_else(|| {
+                        Error::new(
+                            FailureCode::Internal,
+                            "Control request missing scope".to_string(),
+                        )
+                    })
                     .and_then(|value| {
                         serde_json::from_value::<ScopeRef>(value)
-                            .map_err(|error| StoreError::Other(error.to_string()))
+                            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                     })?;
                 self.remove_service_scope(&service_name, &scope).await?;
             }
             "ServiceConnectRequested" => {
                 let instance_id = request::required_string(payload, "instance_id")?
                     .parse::<InstanceId>()
-                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
+                    .map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("Invalid instance_id: {error}"),
+                        )
+                    })?;
                 self.connect_service_internal(instance_id, false).await?;
             }
             "ServiceRefreshToolsRequested" => {
                 let instance_id = request::required_string(payload, "instance_id")?
                     .parse::<InstanceId>()
-                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
+                    .map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("Invalid instance_id: {error}"),
+                        )
+                    })?;
                 let force_refresh = payload
                     .get("force_refresh")
                     .and_then(serde_json::Value::as_bool)
@@ -85,13 +111,23 @@ impl MCPStore {
             "ServiceDisconnectRequested" => {
                 let instance_id = request::required_string(payload, "instance_id")?
                     .parse::<InstanceId>()
-                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
+                    .map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("Invalid instance_id: {error}"),
+                        )
+                    })?;
                 self.disconnect_service(instance_id).await?;
             }
             "ServiceRestartRequested" => {
                 let instance_id = request::required_string(payload, "instance_id")?
                     .parse::<InstanceId>()
-                    .map_err(|error| StoreError::Other(format!("Invalid instance_id: {error}")))?;
+                    .map_err(|error| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("Invalid instance_id: {error}"),
+                        )
+                    })?;
                 self.restart_service(instance_id).await?;
             }
             "StoreResetRequested" => {
@@ -101,17 +137,23 @@ impl MCPStore {
                 let scope = payload
                     .get("scope")
                     .cloned()
-                    .ok_or_else(|| StoreError::Other("Control request missing scope".to_string()))
+                    .ok_or_else(|| {
+                        Error::new(
+                            FailureCode::Internal,
+                            "Control request missing scope".to_string(),
+                        )
+                    })
                     .and_then(|value| {
                         serde_json::from_value::<ScopeRef>(value)
-                            .map_err(|error| StoreError::Other(error.to_string()))
+                            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                     })?;
                 self.reset_scope(&scope).await?;
             }
             other => {
-                return Err(StoreError::Other(format!(
-                    "Unsupported control request type: {other}"
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("Unsupported control request type: {other}"),
+                ));
             }
         }
         Ok(())

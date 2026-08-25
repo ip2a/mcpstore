@@ -19,18 +19,20 @@ impl MCPStore {
         }
 
         if self.registry.find_definition(service_name).await.is_some() {
-            return Err(StoreError::Other(format!(
-                "Service definition already exists: {service_name}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Service definition already exists: {service_name}"),
+            ));
         }
 
         config.ensure_native_scopes();
         if self.source_mode == SourceMode::Local {
             let mut stored = self.config_manager.load_or_empty()?;
             if stored.mcp_servers.contains_key(service_name) {
-                return Err(StoreError::Other(format!(
-                    "Service definition already exists: {service_name}"
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!("Service definition already exists: {service_name}"),
+                ));
             }
             stored
                 .mcp_servers

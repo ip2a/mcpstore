@@ -3,9 +3,11 @@ use rmcp::model::{
     ReadResourceRequest, ReadResourceRequestParams, ServerResult,
 };
 
+use crate::error::Result;
+use crate::error::{Error, FailureCode};
 use crate::transport::client::McpConnection;
 use crate::transport::protocol::send_protocol_request;
-use crate::transport::{DiscoveredResource, DiscoveredResourceTemplate, Result, TransportError};
+use crate::transport::{DiscoveredResource, DiscoveredResourceTemplate};
 
 impl McpConnection {
     pub async fn list_resources(&self) -> Result<Vec<DiscoveredResource>> {
@@ -26,8 +28,9 @@ impl McpConnection {
             let page = match result {
                 Ok(ServerResult::ListResourcesResult(page)) => page,
                 Ok(_) => {
-                    return Err(TransportError::Protocol(
-                        "list resources returned an unexpected response".to_string(),
+                    return Err(Error::new(
+                        FailureCode::ToolFailed,
+                        "list resources returned an unexpected response",
                     ))
                 }
                 Err(error) => return Err(self.classify_client_failure(error).await),
@@ -44,7 +47,10 @@ impl McpConnection {
                 serde_json::to_value(resource)
                     .and_then(serde_json::from_value)
                     .map_err(|err| {
-                        TransportError::Protocol(format!("resource serialization failed: {err}"))
+                        Error::new(
+                            FailureCode::ToolFailed,
+                            format!("resource serialization failed: {err}"),
+                        )
                     })
             })
             .collect()
@@ -68,8 +74,9 @@ impl McpConnection {
             let page = match result {
                 Ok(ServerResult::ListResourceTemplatesResult(page)) => page,
                 Ok(_) => {
-                    return Err(TransportError::Protocol(
-                        "list resource templates returned an unexpected response".to_string(),
+                    return Err(Error::new(
+                        FailureCode::ToolFailed,
+                        "list resource templates returned an unexpected response",
                     ))
                 }
                 Err(error) => return Err(self.classify_client_failure(error).await),
@@ -86,9 +93,10 @@ impl McpConnection {
                 serde_json::to_value(template)
                     .and_then(serde_json::from_value)
                     .map_err(|err| {
-                        TransportError::Protocol(format!(
-                            "resource template serialization failed: {err}"
-                        ))
+                        Error::new(
+                            FailureCode::ToolFailed,
+                            format!("resource template serialization failed: {err}"),
+                        )
                     })
             })
             .collect()
@@ -108,14 +116,18 @@ impl McpConnection {
         let result = match result {
             Ok(ServerResult::ReadResourceResult(result)) => result,
             Ok(_) => {
-                return Err(TransportError::Protocol(
-                    "read resource returned an unexpected response".to_string(),
+                return Err(Error::new(
+                    FailureCode::ToolFailed,
+                    "read resource returned an unexpected response",
                 ))
             }
             Err(error) => return Err(self.classify_client_failure(error).await),
         };
         serde_json::to_value(result).map_err(|err| {
-            TransportError::Protocol(format!("resource read serialization failed: {err}"))
+            Error::new(
+                FailureCode::ToolFailed,
+                format!("resource read serialization failed: {err}"),
+            )
         })
     }
 }

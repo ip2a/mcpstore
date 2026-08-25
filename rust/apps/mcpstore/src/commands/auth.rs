@@ -146,7 +146,7 @@ fn classify_auth_error(error: &(dyn std::error::Error + 'static)) -> Option<Json
         ));
     }
 
-    // Typed library errors are preserved through StoreError::Auth(#[from] AuthError).
+    // Typed library errors are preserved through Error::from(AuthError).
     let auth_error = find_auth_error(error)?;
     Some(match auth_error {
         AuthError::Required(_) => JsonAuthError::classified(
@@ -213,7 +213,7 @@ fn classify_auth_error(error: &(dyn std::error::Error + 'static)) -> Option<Json
 }
 
 /// Walk the `std::error::Error::source` chain to find a typed `mcpstore::AuthError`,
-/// without downcasting the top-level `StoreError` wrapper directly. This keeps the
+/// without downcasting the top-level error wrapper directly. This keeps the
 /// classification boundary in the CLI and avoids touching library error plumbing.
 fn find_auth_error<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a AuthError> {
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error);
@@ -1113,7 +1113,7 @@ mod tests {
 
     #[test]
     fn json_auth_error_classifies_typed_refresh_failure() {
-        let store_error: mcpstore::StoreError = mcpstore::AuthError::RefreshFailed.into();
+        let store_error: mcpstore::Error = mcpstore::AuthError::RefreshFailed.into();
         let json_error = JsonAuthError::from_error(&store_error);
         let value: Value = serde_json::from_str(&json_error.to_string()).unwrap();
         assert_eq!(value["error"]["code"], "oauth_refresh_failed");
@@ -1129,7 +1129,7 @@ mod tests {
             flow: AuthFlow::AuthorizationCode,
             scopes: vec!["tools.call".to_string()],
         };
-        let store_error: mcpstore::StoreError = mcpstore::AuthError::Required(required).into();
+        let store_error: mcpstore::Error = mcpstore::AuthError::Required(required).into();
         let json_error = JsonAuthError::from_error(&store_error);
         let value: Value = serde_json::from_str(&json_error.to_string()).unwrap();
         assert_eq!(value["error"]["code"], "auth_required");

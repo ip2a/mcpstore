@@ -32,10 +32,10 @@ fn task_invalid_input_has_stable_machine_error_contract() {
         assert!(output.stdout.is_empty());
 
         let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-        assert_eq!(error["event"], "task.error");
+        assert!(error.get("event").is_none());
         assert_eq!(error["error"]["code"], "invalid_input");
-        assert_eq!(error["instance_id"], Value::Null);
-        assert_eq!(error["task_id"], Value::Null);
+        assert!(error.get("instance_id").is_none());
+        assert!(error.get("task_id").is_none());
     }
 }
 
@@ -63,9 +63,9 @@ fn call_invalid_input_has_stable_machine_error_contract() {
         assert!(output.stdout.is_empty());
 
         let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-        assert_eq!(error["event"], "execution.failed");
+        assert!(error.get("event").is_none());
         assert_eq!(error["error"]["code"], "invalid_input");
-        assert_eq!(error["instance_id"], Value::Null);
-        assert_eq!(error["tool_name"], Value::Null);
+        assert!(error.get("instance_id").is_none());
+        assert!(error.get("tool_name").is_none());
     }
 }

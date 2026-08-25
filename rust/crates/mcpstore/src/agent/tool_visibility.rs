@@ -94,10 +94,14 @@ impl MCPStore {
         {
             Ok(())
         } else {
-            Err(StoreError::ToolNotAvailable {
+            Err(Error::new(
+                FailureCode::ToolNotAvailable,
+                format!("tool is not available: {tool_name}"),
+            )
+            .with_context(ErrorContext::Tool {
                 instance_id,
                 tool_name: tool_name.to_string(),
-            })
+            }))
         }
     }
 
@@ -127,7 +131,7 @@ impl MCPStore {
         {
             Some(value) => serde_json::from_value(value)
                 .map(Some)
-                .map_err(|error| StoreError::Other(error.to_string())),
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string())),
             None => Ok(None),
         }
     }
@@ -163,7 +167,7 @@ impl MCPStore {
             state.updated_at = now;
             state.version += 1;
             let value = serde_json::to_value(&state)
-                .map_err(|error| StoreError::Other(error.to_string()))?;
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
             match self
                 .cache
                 .compare_and_put_state(
@@ -176,10 +180,10 @@ impl MCPStore {
             {
                 Ok(()) => return Ok(state),
                 Err(CacheError::Conflict(_)) => continue,
-                Err(error) => return Err(StoreError::Cache(error)),
+                Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(StoreError::Cache(CacheError::Conflict(format!(
+        Err(Error::from(CacheError::Conflict(format!(
             "context tool visibility conflict after retries: state_key={state_key}"
         ))))
     }

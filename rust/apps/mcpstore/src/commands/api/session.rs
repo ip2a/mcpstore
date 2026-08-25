@@ -105,7 +105,7 @@ fn require_present_session<T>(
 ) -> Result<T, ApiError> {
     value.ok_or_else(|| {
         ApiError::not_found(
-            "SESSION_NOT_FOUND",
+            mcpstore::error::FailureCode::SessionNotFound,
             format!("Session not found: session_key={session_key}"),
             Some("session_key"),
             Some(json!({ "session_key": session_key, "resource": label })),
@@ -349,7 +349,7 @@ pub(super) async fn session_call_tool(
     let args = extract_tool_args(&payload)?;
     let result = state
         .store
-        .call_tool_in_session(&session_key, instance_id, &tool_name, args)
+        .call_tool_in_session(session_key, instance_id, &tool_name, args)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(

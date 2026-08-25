@@ -1,5 +1,5 @@
 use crate::config::McpConfig;
-use crate::{Result, StoreError};
+use crate::{Error, FailureCode, Result};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,23 +10,28 @@ pub enum ConfigFormat {
 }
 
 impl FromStr for ConfigFormat {
-    type Err = StoreError;
+    type Err = Error;
 
     fn from_str(value: &str) -> Result<Self> {
         match value {
             "native" => Ok(Self::Native),
             "claude" => Ok(Self::Claude),
             "codex" => Ok(Self::Codex),
-            other => Err(StoreError::Other(format!(
-                "Unsupported config format: {other}"
-            ))),
+            other => Err(Error::new(
+                FailureCode::Internal,
+                format!("Unsupported config format: {other}"),
+            )),
         }
     }
 }
 
 pub fn project_config(config: &McpConfig, format: ConfigFormat) -> Result<serde_json::Value> {
-    let mut value = serde_json::to_value(config)
-        .map_err(|error| StoreError::Other(format!("Config projection failed: {error}")))?;
+    let mut value = serde_json::to_value(config).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Config projection failed: {error}"),
+        )
+    })?;
     if !matches!(format, ConfigFormat::Native) {
         strip_mcpstore_extension(&mut value);
     }
