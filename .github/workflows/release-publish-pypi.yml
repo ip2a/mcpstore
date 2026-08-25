@@ -39,9 +39,10 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: "2_28"
           working-directory: python
-          # memcached feature vendors OpenSSL; its perl Configure needs IPC::Cmd,
-          # which the manylinux container's perl is missing.
-          before-script-linux: dnf install -y perl-IPC-Cmd
+          # memcached feature vendors OpenSSL; its perl build needs IPC::Cmd and
+          # Time::Piece, which the manylinux container's base perl lacks.
+          # Guarded: the cross-compile images have no dnf and need no fix.
+          before-script-linux: if command -v dnf >/dev/null 2>&1; then dnf install -y perl-IPC-Cmd perl-Time-Piece; fi
           args: --release --locked --compatibility pypi --out dist
 
       - name: Verify Linux wheel contents and tag
