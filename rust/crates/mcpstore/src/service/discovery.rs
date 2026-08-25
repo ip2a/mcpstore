@@ -5,13 +5,16 @@ impl MCPStore {
     pub(crate) async fn ensure_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         let state = self
             .state_manager
             .get(instance_id)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let transport_connected = if self.is_openapi_virtual_instance(instance_id).await? {
             state.phase == RuntimePhase::Running
         } else {
@@ -54,7 +57,10 @@ impl MCPStore {
     ) -> Result<Vec<crate::registry::ToolInfo>> {
         self.refresh_from_db_if_needed().await?;
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         Ok(self.registry.list_instance_tools(instance_id).await)
     }

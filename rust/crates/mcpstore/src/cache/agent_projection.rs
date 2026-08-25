@@ -19,7 +19,10 @@ impl MCPStore {
             });
             let mut relation = match current {
                 Some(value) => serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!("Agent relation deserialization failed: {error}"))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Agent relation deserialization failed: {error}"),
+                    )
                 })?,
                 None => AgentInstanceRelation::default(),
             };
@@ -51,10 +54,10 @@ impl MCPStore {
             {
                 Ok(()) => return Ok(()),
                 Err(CacheError::Conflict(_)) => continue,
-                Err(error) => return Err(StoreError::Cache(error)),
+                Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(StoreError::Cache(CacheError::Conflict(format!(
+        Err(Error::from(CacheError::Conflict(format!(
             "agent instance relation conflict after retries: agent_id={agent_id}"
         ))))
     }
@@ -84,7 +87,10 @@ impl MCPStore {
                     .unwrap_or(0);
                 let mut relation: AgentInstanceRelation =
                     serde_json::from_value(value).map_err(|error| {
-                        StoreError::Other(format!("Agent relation deserialization failed: {error}"))
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("Agent relation deserialization failed: {error}"),
+                        )
                     })?;
                 let original_len = relation.instances.len();
                 relation
@@ -110,11 +116,11 @@ impl MCPStore {
                         break;
                     }
                     Err(CacheError::Conflict(_)) => continue,
-                    Err(error) => return Err(StoreError::Cache(error)),
+                    Err(error) => return Err(Error::from(error)),
                 }
             }
             if !complete {
-                return Err(StoreError::Cache(CacheError::Conflict(format!(
+                return Err(Error::from(CacheError::Conflict(format!(
                     "agent instance relation conflict after retries: agent_id={agent_id}"
                 ))));
             }

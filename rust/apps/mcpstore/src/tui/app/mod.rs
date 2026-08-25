@@ -1716,7 +1716,7 @@ impl TuiApp {
                 let state = self.store.service_state_entry(service.instance_id).await?;
                 summaries.push(ServiceSummary::new(service, state));
             }
-            Ok::<_, mcpstore::StoreError>(summaries)
+            Ok::<_, mcpstore::Error>(summaries)
         })?;
         self.apply_filter();
         self.apply_tool_filter();
@@ -2370,7 +2370,7 @@ fn split_words(value: &str) -> Vec<String> {
 fn parse_kv_items(value: &str, label: &str) -> Result<HashMap<String, String>, String> {
     let mut out = HashMap::new();
     for item in value
-        .split(|c| c == ',' || c == '\n')
+        .split([',', '\n'])
         .map(str::trim)
         .filter(|item| !item.is_empty())
     {

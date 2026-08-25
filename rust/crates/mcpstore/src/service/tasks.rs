@@ -1,8 +1,7 @@
+use crate::error::{Error, ErrorContext, FailureCode};
 use crate::service::McpStoreToolExecutionHandle;
 use crate::store::prelude::*;
-use crate::transport::{
-    McpExecutionOptions, McpTask, McpTaskRecord, McpToolExecution, TransportError,
-};
+use crate::transport::{McpExecutionOptions, McpTask, McpTaskRecord, McpToolExecution};
 
 impl MCPStore {
     pub async fn start_task_execution(
@@ -30,18 +29,12 @@ impl MCPStore {
 
     pub async fn list_tasks(&self, instance_id: InstanceId) -> Result<Vec<McpTask>> {
         self.ensure_task_instance_connected(instance_id).await?;
-        self.pool
-            .list_tasks(instance_id)
-            .await
-            .map_err(StoreError::Transport)
+        self.pool.list_tasks(instance_id).await
     }
 
     pub async fn get_task(&self, instance_id: InstanceId, task_id: &str) -> Result<McpTask> {
         self.ensure_task_instance_connected(instance_id).await?;
-        self.pool
-            .get_task(instance_id, task_id)
-            .await
-            .map_err(StoreError::Transport)
+        self.pool.get_task(instance_id, task_id).await
     }
 
     pub async fn get_task_result(
@@ -50,26 +43,17 @@ impl MCPStore {
         task_id: &str,
     ) -> Result<serde_json::Value> {
         self.ensure_task_instance_connected(instance_id).await?;
-        self.pool
-            .get_task_result(instance_id, task_id)
-            .await
-            .map_err(StoreError::Transport)
+        self.pool.get_task_result(instance_id, task_id).await
     }
 
     pub async fn cancel_task(&self, instance_id: InstanceId, task_id: &str) -> Result<()> {
         self.ensure_task_instance_connected(instance_id).await?;
-        self.pool
-            .cancel_task(instance_id, task_id)
-            .await
-            .map_err(StoreError::Transport)
+        self.pool.cancel_task(instance_id, task_id).await
     }
 
     pub async fn list_task_records(&self, instance_id: InstanceId) -> Result<Vec<McpTaskRecord>> {
         self.require_task_instance(instance_id).await?;
-        self.pool
-            .list_task_records(instance_id)
-            .await
-            .map_err(StoreError::Transport)
+        self.pool.list_task_records(instance_id).await
     }
 
     pub async fn get_task_record(
@@ -78,10 +62,7 @@ impl MCPStore {
         task_id: &str,
     ) -> Result<Option<McpTaskRecord>> {
         self.require_task_instance(instance_id).await?;
-        self.pool
-            .get_task_record(instance_id, task_id)
-            .await
-            .map_err(StoreError::Transport)
+        self.pool.get_task_record(instance_id, task_id).await
     }
 
     async fn ensure_task_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
@@ -92,12 +73,14 @@ impl MCPStore {
     async fn require_task_instance(&self, instance_id: InstanceId) -> Result<()> {
         self.require_instance(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
-            return Err(StoreError::Transport(
-                TransportError::CapabilityUnsupported {
-                    instance_id,
-                    capability: "tasks",
-                },
-            ));
+            return Err(Error::new(
+                FailureCode::CapabilityUnsupported,
+                format!("MCP service instance {instance_id} does not support capability tasks"),
+            )
+            .with_context(ErrorContext::Service {
+                instance_id,
+                service_name: String::new(),
+            }));
         }
         Ok(())
     }

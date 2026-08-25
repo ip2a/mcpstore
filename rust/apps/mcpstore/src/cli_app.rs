@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use mcpstore::ConfigManager;
 
+use crate::error::OutputFormat;
 use crate::{bootstrap, commands, BoxErr};
 
 #[derive(Parser)]
@@ -62,7 +63,8 @@ pub fn run() -> Result<(), BoxErr> {
     }
 
     let app_config = ConfigManager::new().load_app_config_or_default().ok();
-    if uses_machine_output(&cli.command) {
+    let output_format = output_format(&cli.command);
+    if output_format.is_machine() {
         bootstrap::init_tracing_silent("mcpstore=info");
     } else {
         bootstrap::init_tracing_from_config(app_config.as_ref());
@@ -70,7 +72,7 @@ pub fn run() -> Result<(), BoxErr> {
 
     let rt = bootstrap::build_runtime()?;
 
-    rt.block_on(async {
+    let result = rt.block_on(async {
         match cli.command {
             Commands::Version => {
                 print_banner();
@@ -105,51 +107,46 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Web(args) => commands::web::run(args).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
-    })
+    });
+
+    if let Err(error) = &result {
+        if let Some(error) = error.downcast_ref::<mcpstore::Error>() {
+            eprintln!("{}", crate::error::render(error, output_format));
+            std::process::exit(crate::error::exit_code(error.code()));
+        }
+    }
+    result
 }
 
-fn uses_machine_output(command: &Commands) -> bool {
+fn output_format(command: &Commands) -> crate::error::OutputFormat {
     match command {
-        Commands::Call(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Task(args) => {
-            let output = match &args.action {
-                commands::task::TaskAction::Run(args) => args.runtime.output,
-                commands::task::TaskAction::List(args) => args.runtime.output,
-                commands::task::TaskAction::Status(args)
-                | commands::task::TaskAction::Result(args)
-                | commands::task::TaskAction::Cancel(args) => args.runtime.output,
-            };
-            output != crate::error::OutputFormat::Human
-        }
+        Commands::Call(args) => args.output,
+        Commands::Task(args) => match &args.action {
+            commands::task::TaskAction::Run(args) => args.runtime.output,
+            commands::task::TaskAction::List(args) => args.runtime.output,
+            commands::task::TaskAction::Status(args)
+            | commands::task::TaskAction::Result(args)
+            | commands::task::TaskAction::Cancel(args) => args.runtime.output,
+        },
         Commands::Resource(args) => match &args.action {
-            commands::protocol::ResourceAction::List(args) => {
-                args.output.output != crate::error::OutputFormat::Human
-            }
-            commands::protocol::ResourceAction::Templates(args) => {
-                args.output.output != crate::error::OutputFormat::Human
-            }
-            commands::protocol::ResourceAction::Read(args) => {
-                args.output.output != crate::error::OutputFormat::Human
-            }
+            commands::protocol::ResourceAction::List(args) => args.output.output,
+            commands::protocol::ResourceAction::Templates(args) => args.output.output,
+            commands::protocol::ResourceAction::Read(args) => args.output.output,
         },
         Commands::Prompt(args) => match &args.action {
-            commands::protocol::PromptAction::List(args) => {
-                args.output.output != crate::error::OutputFormat::Human
-            }
-            commands::protocol::PromptAction::Get(args) => {
-                args.output.output != crate::error::OutputFormat::Human
-            }
+            commands::protocol::PromptAction::List(args) => args.output.output,
+            commands::protocol::PromptAction::Get(args) => args.output.output,
         },
-        Commands::Complete(args) => args.output.output != crate::error::OutputFormat::Human,
-        Commands::List(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Tools(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Get(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Connect(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Disconnect(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Restart(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Check(args) => args.output != crate::error::OutputFormat::Human,
-        Commands::Wait(args) => args.output != crate::error::OutputFormat::Human,
-        _ => false,
+        Commands::Complete(args) => args.output.output,
+        Commands::List(args) => args.output,
+        Commands::Tools(args) => args.output,
+        Commands::Get(args) => args.output,
+        Commands::Connect(args) => args.output,
+        Commands::Disconnect(args) => args.output,
+        Commands::Restart(args) => args.output,
+        Commands::Check(args) => args.output,
+        Commands::Wait(args) => args.output,
+        _ => OutputFormat::Human,
     }
 }
 
@@ -402,7 +399,7 @@ mod tests {
             "jsonl",
         ])
         .unwrap();
-        assert!(uses_machine_output(&call.command));
+        assert!(output_format(&call.command).is_machine());
 
         let task = Cli::try_parse_from([
             "mcpstore",
@@ -413,10 +410,10 @@ mod tests {
             "json",
         ])
         .unwrap();
-        assert!(uses_machine_output(&task.command));
+        assert!(output_format(&task.command).is_machine());
 
         let list_json = Cli::try_parse_from(["mcpstore", "list", "--output", "json"]).unwrap();
-        assert!(uses_machine_output(&list_json.command));
+        assert!(output_format(&list_json.command).is_machine());
 
         let tools_json = Cli::try_parse_from([
             "mcpstore",
@@ -426,10 +423,10 @@ mod tests {
             "json",
         ])
         .unwrap();
-        assert!(uses_machine_output(&tools_json.command));
+        assert!(output_format(&tools_json.command).is_machine());
 
         let list_human = Cli::try_parse_from(["mcpstore", "list"]).unwrap();
-        assert!(!uses_machine_output(&list_human.command));
+        assert!(!output_format(&list_human.command).is_machine());
 
         let human = Cli::try_parse_from([
             "mcpstore",
@@ -438,7 +435,7 @@ mod tests {
             "get_repo_status",
         ])
         .unwrap();
-        assert!(!uses_machine_output(&human.command));
+        assert!(!output_format(&human.command).is_machine());
     }
 
     #[test]

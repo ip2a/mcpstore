@@ -8,7 +8,7 @@ use crate::config::{ServerConfig, StartupPolicy};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::{MCPStore, SourceMode};
-use crate::{Result, ServiceInstanceKey, StoreError};
+use crate::{Error, FailureCode, Result, ServiceInstanceKey};
 
 impl MCPStore {
     pub(crate) async fn load_from_db(&self) -> Result<()> {
@@ -27,15 +27,19 @@ impl MCPStore {
         for (key, value) in definition_values {
             let entity: ServiceDefinitionEntity =
                 serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!(
-                        "Service definition entity deserialization failed: {error}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Service definition entity deserialization failed: {error}"),
+                    )
                 })?;
             if key != entity.service_name {
-                return Err(StoreError::Other(format!(
-                    "Service definition cache key '{key}' does not match service_name '{}'",
-                    entity.service_name
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service definition cache key '{key}' does not match service_name '{}'",
+                        entity.service_name
+                    ),
+                ));
             }
             definitions.insert(key, ServiceDefinition::from(entity));
         }
@@ -43,13 +47,19 @@ impl MCPStore {
         let mut tool_entities = HashMap::with_capacity(tool_values.len());
         for (key, value) in tool_values {
             let entity: ToolEntity = serde_json::from_value(value).map_err(|error| {
-                StoreError::Other(format!("Tool entity deserialization failed: {error}"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool entity deserialization failed: {error}"),
+                )
             })?;
             let expected_key = format!("{}:{}", entity.instance_id, entity.tool_name);
             if key != expected_key {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
                     "Tool cache key '{key}' does not match instance/tool identity '{expected_key}'"
-                )));
+                ),
+                ));
             }
             tool_entities.insert(key, entity);
         }
@@ -58,15 +68,19 @@ impl MCPStore {
         for (key, value) in tool_relation_values {
             let relation: InstanceToolRelation =
                 serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!(
-                        "Instance tool relation deserialization failed: {error}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Instance tool relation deserialization failed: {error}"),
+                    )
                 })?;
             if key != relation.instance_id.to_string() {
-                return Err(StoreError::Other(format!(
-                    "Instance tool relation key '{key}' does not match instance_id '{}'",
-                    relation.instance_id
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Instance tool relation key '{key}' does not match instance_id '{}'",
+                        relation.instance_id
+                    ),
+                ));
             }
             tool_relations.insert(relation.instance_id, relation);
         }
@@ -74,35 +88,48 @@ impl MCPStore {
         let mut instances = Vec::with_capacity(instance_values.len());
         for (key, value) in instance_values {
             let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
-                StoreError::Other(format!(
-                    "Service instance entity deserialization failed: {error}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Service instance entity deserialization failed: {error}"),
+                )
             })?;
             if key != entity.instance_id.to_string() {
-                return Err(StoreError::Other(format!(
-                    "Service instance cache key '{key}' does not match instance_id '{}'",
-                    entity.instance_id
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance cache key '{key}' does not match instance_id '{}'",
+                        entity.instance_id
+                    ),
+                ));
             }
             let definition = definitions.get(&entity.service_name).ok_or_else(|| {
-                StoreError::Other(format!(
-                    "Service instance '{}' references missing definition '{}'",
-                    entity.instance_id, entity.service_name
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance '{}' references missing definition '{}'",
+                        entity.instance_id, entity.service_name
+                    ),
+                )
             })?;
             if definition.scopes.descriptor(&entity.scope).is_none() {
-                return Err(StoreError::Other(format!(
-                    "Service instance '{}' uses undeclared scope {:?}",
-                    entity.instance_id, entity.scope
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance '{}' uses undeclared scope {:?}",
+                        entity.instance_id, entity.scope
+                    ),
+                ));
             }
             let expected_id =
                 ServiceInstanceKey::new(&entity.service_name, entity.scope.clone()).instance_id();
             if entity.instance_id != expected_id {
-                return Err(StoreError::Other(format!(
-                    "Service instance '{}' does not match deterministic identity '{}'",
-                    entity.instance_id, expected_id
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Service instance '{}' does not match deterministic identity '{}'",
+                        entity.instance_id, expected_id
+                    ),
+                ));
             }
 
             let tools = match tool_relations.get(&entity.instance_id) {
@@ -110,28 +137,37 @@ impl MCPStore {
                     if relation.service_name != entity.service_name
                         || relation.scope != entity.scope
                     {
-                        return Err(StoreError::Other(format!(
-                            "Instance tool relation '{}' identity does not match its instance",
-                            entity.instance_id
-                        )));
+                        return Err(Error::new(
+                            FailureCode::Internal,
+                            format!(
+                                "Instance tool relation '{}' identity does not match its instance",
+                                entity.instance_id
+                            ),
+                        ));
                     }
                     let mut tools = Vec::with_capacity(relation.tools.len());
                     for tool_name in &relation.tools {
                         let tool_key = format!("{}:{tool_name}", entity.instance_id);
                         let tool = tool_entities.get(&tool_key).ok_or_else(|| {
-                            StoreError::Other(format!(
-                                "Instance '{}' references missing tool '{tool_name}'",
-                                entity.instance_id
-                            ))
+                            Error::new(
+                                FailureCode::Internal,
+                                format!(
+                                    "Instance '{}' references missing tool '{tool_name}'",
+                                    entity.instance_id
+                                ),
+                            )
                         })?;
                         if tool.instance_id != entity.instance_id
                             || tool.service_name != entity.service_name
                             || tool.scope != entity.scope
                             || tool.tool_name != *tool_name
                         {
-                            return Err(StoreError::Other(format!(
+                            return Err(Error::new(
+                                FailureCode::Internal,
+                                format!(
                                 "Tool '{tool_key}' identity does not match its instance relation"
-                            )));
+                            ),
+                            ));
                         }
                         tools.push(ToolInfo {
                             name: tool.tool_name.clone(),
@@ -151,10 +187,13 @@ impl MCPStore {
             let transport_config: ServerConfig =
                 serde_json::from_value(serde_json::Value::Object(entity.effective_config.clone()))
                     .map_err(|error| {
-                        StoreError::Other(format!(
-                            "Service instance '{}' effective config cannot be decoded: {error}",
-                            entity.instance_id
-                        ))
+                        Error::new(
+                            FailureCode::Internal,
+                            format!(
+                                "Service instance '{}' effective config cannot be decoded: {error}",
+                                entity.instance_id
+                            ),
+                        )
                     })?;
             instances.push((
                 ServiceInstance {

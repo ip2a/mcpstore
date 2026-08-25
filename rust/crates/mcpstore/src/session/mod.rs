@@ -235,10 +235,13 @@ impl<'a> SessionContext<'a> {
             .get_session_status(&self.session_key)
             .await?
             .ok_or_else(|| {
-                StoreError::Other(format!(
-                    "Session not found: session_key={}",
-                    self.session_key
-                ))
+                Error::new(
+                    FailureCode::SessionNotFound,
+                    format!("session not found: session_key={}", self.session_key),
+                )
+                .with_context(ErrorContext::Session {
+                    session_key: self.session_key.clone(),
+                })
             })
     }
 
@@ -435,15 +438,19 @@ impl MCPStore {
         match scope {
             SessionScope::Store => {
                 if agent_id.is_some() {
-                    return Err(StoreError::Other(
-                        "store-scoped sessions must not include agent_id".to_string(),
+                    return Err(Error::new(
+                        FailureCode::InvalidInput,
+                        "store-scoped sessions must not include agent_id",
                     ));
                 }
                 Ok(format!("store:{session_id}"))
             }
             SessionScope::Agent => {
                 let agent_id = agent_id.ok_or_else(|| {
-                    StoreError::Other("agent-scoped sessions require agent_id".to_string())
+                    Error::new(
+                        FailureCode::InvalidInput,
+                        "agent-scoped sessions require agent_id",
+                    )
                 })?;
                 Self::validate_session_id(agent_id)?;
                 Ok(format!("agent:{agent_id}:{session_id}"))
@@ -459,9 +466,10 @@ impl MCPStore {
             &request.session_id,
         )?;
         if self.get_session(&session_key).await?.is_some() {
-            return Err(StoreError::Other(format!(
-                "Session already exists: session_key={session_key}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Session already exists: session_key={session_key}"),
+            ));
         }
 
         let now = Self::now_timestamp();
@@ -557,7 +565,8 @@ impl MCPStore {
         match scope {
             SessionScope::Store => {
                 if agent_id.is_some() {
-                    return Err(StoreError::Other(
+                    return Err(Error::new(
+                        FailureCode::Internal,
                         "store-scoped session context must not include agent_id".to_string(),
                     ));
                 }
@@ -565,7 +574,10 @@ impl MCPStore {
             }
             SessionScope::Agent => {
                 let agent_id = agent_id.ok_or_else(|| {
-                    StoreError::Other("agent-scoped session context requires agent_id".to_string())
+                    Error::new(
+                        FailureCode::InvalidInput,
+                        "agent-scoped session context requires agent_id",
+                    )
                 })?;
                 Self::validate_session_id(agent_id)?;
                 Ok(format!("agent:{agent_id}"))
@@ -1020,10 +1032,13 @@ impl MCPStore {
         let mut tools = Vec::with_capacity(selections.len());
         for selection in selections {
             if !bound_instance_ids.contains(&selection.instance_id) {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
                     "instance is not bound to session: session_key={session_key}, instance_id={}",
                     selection.instance_id
-                )));
+                ),
+                ));
             }
             let instance = self
                 .require_session_instance(&session, selection.instance_id)
@@ -1208,7 +1223,7 @@ impl MCPStore {
                     .cloned()
                     .unwrap_or_default(),
             )
-            .map_err(|e| StoreError::Other(e.to_string()))?,
+            .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
         );
         relations.insert(
             SESSION_TOOLS_RELATION_TYPE.to_string(),
@@ -1219,7 +1234,7 @@ impl MCPStore {
                     .cloned()
                     .unwrap_or_default(),
             )
-            .map_err(|e| StoreError::Other(e.to_string()))?,
+            .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
         );
         let mut states = serde_json::Map::new();
         states.insert(
@@ -1231,7 +1246,7 @@ impl MCPStore {
                     .cloned()
                     .unwrap_or_default(),
             )
-            .map_err(|e| StoreError::Other(e.to_string()))?,
+            .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
         );
         states.insert(
             SESSION_STATE_TYPE.to_string(),
@@ -1242,7 +1257,7 @@ impl MCPStore {
                     .cloned()
                     .unwrap_or_default(),
             )
-            .map_err(|e| StoreError::Other(e.to_string()))?,
+            .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
         );
         states.insert(
             SESSION_CONTEXT_STATE_TYPE.to_string(),
@@ -1253,7 +1268,7 @@ impl MCPStore {
                     .cloned()
                     .unwrap_or_default(),
             )
-            .map_err(|e| StoreError::Other(e.to_string()))?,
+            .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
         );
         Ok(serde_json::json!({
             "entities": snapshot.entities.get(SESSION_ENTITY_TYPE).cloned().unwrap_or_default(),
@@ -1455,7 +1470,7 @@ impl MCPStore {
             .load_session_tool_visibility(&session.session_key)
             .await?;
         if !bound || !Self::session_tool_allowed(&visibility, instance_id, tool_name) {
-            let error = StoreError::Other(format!(
+            let error = Error::new(FailureCode::Internal, format!(
                 "tool is not available in session: session_key={session_key}, instance_id={instance_id}, tool_name={tool_name}"
             ));
             self.append_session_event(
@@ -1485,7 +1500,7 @@ impl MCPStore {
             service_resources.sort_by(|left, right| left.uri.cmp(&right.uri));
             for resource in service_resources {
                 let mut value = serde_json::to_value(resource)
-                    .map_err(|error| StoreError::Other(error.to_string()))?;
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
                 if let serde_json::Value::Object(object) = &mut value {
                     object.insert(
                         "instance_id".to_string(),
@@ -1515,7 +1530,7 @@ impl MCPStore {
             service_templates.sort_by(|left, right| left.uri_template.cmp(&right.uri_template));
             for template in service_templates {
                 let mut value = serde_json::to_value(template)
-                    .map_err(|error| StoreError::Other(error.to_string()))?;
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
                 if let serde_json::Value::Object(object) = &mut value {
                     object.insert(
                         "instance_id".to_string(),
@@ -1558,7 +1573,7 @@ impl MCPStore {
             service_prompts.sort_by(|left, right| left.name.cmp(&right.name));
             for prompt in service_prompts {
                 let mut value = serde_json::to_value(prompt)
-                    .map_err(|error| StoreError::Other(error.to_string()))?;
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
                 if let serde_json::Value::Object(object) = &mut value {
                     object.insert(
                         "instance_id".to_string(),
@@ -1616,10 +1631,13 @@ impl MCPStore {
             }
         }
         if status.status != SessionStatus::Active {
-            return Err(StoreError::Other(format!(
-                "Session is not active: session_key={session_key}, status={:?}",
-                status.status
-            )));
+            return Err(Error::new(
+                FailureCode::SessionNotActive,
+                format!(
+                    "Session is not active: session_key={session_key}, status={:?}",
+                    status.status
+                ),
+            ));
         }
         Ok(())
     }
@@ -1686,7 +1704,7 @@ impl MCPStore {
                 .require_session_instance(session, item.instance_id)
                 .await?;
             if instance.service_name != item.service_name || instance.scope != item.scope {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(FailureCode::Internal, format!(
                     "session service relation does not match instance: session_key={}, instance_id={}",
                     session.session_key, item.instance_id
                 )));
@@ -1724,10 +1742,10 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let expected_scope = Self::session_scope_ref(session)?;
         if instance.scope != expected_scope {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(FailureCode::Internal, format!(
                 "instance does not belong to session scope: session_key={}, instance_id={instance_id}, session_scope={expected_scope:?}, instance_scope={:?}",
                 session.session_key, instance.scope
             )));
@@ -1745,10 +1763,13 @@ impl MCPStore {
             .into_iter()
             .find(|instance| instance.instance_id == instance_id)
             .ok_or_else(|| {
-                StoreError::Other(format!(
+                Error::new(
+                    FailureCode::Internal,
+                    format!(
                     "instance is not bound to session: session_key={}, instance_id={instance_id}",
                     session.session_key
-                ))
+                ),
+                )
             })
     }
 
@@ -1757,7 +1778,10 @@ impl MCPStore {
             SessionScope::Store => Ok(ScopeRef::Store),
             SessionScope::Agent => {
                 let agent_id = session.agent_id.clone().ok_or_else(|| {
-                    StoreError::Other("agent-scoped session missing agent_id".to_string())
+                    Error::new(
+                        FailureCode::Internal,
+                        "agent-scoped session missing agent_id".to_string(),
+                    )
                 })?;
                 Ok(ScopeRef::Agent { agent_id })
             }
@@ -1773,15 +1797,18 @@ impl MCPStore {
     ) -> Result<()> {
         let expected_scope = Self::session_scope_ref(session)?;
         if scope != &expected_scope {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
                 "{kind} scope does not match session: session_key={}, instance_id={instance_id}",
                 session.session_key
-            )));
+            ),
+            ));
         }
         let expected_instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
         if instance_id != expected_instance_id {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(FailureCode::Internal, format!(
                 "{kind} instance identity mismatch: session_key={}, instance_id={instance_id}, expected_instance_id={expected_instance_id}",
                 session.session_key
             )));
@@ -1791,7 +1818,10 @@ impl MCPStore {
 
     async fn require_session(&self, session_key: &str) -> Result<SessionEntity> {
         self.get_session(session_key).await?.ok_or_else(|| {
-            StoreError::Other(format!("Session not found: session_key={session_key}"))
+            Error::new(
+                FailureCode::SessionNotFound,
+                format!("session not found: session_key={session_key}"),
+            )
         })
     }
 
@@ -1803,9 +1833,10 @@ impl MCPStore {
     ) -> Result<()> {
         let session = self.require_session(session_key).await?;
         if &session.scope != scope || session.agent_id.as_deref() != agent_id {
-            return Err(StoreError::Other(format!(
-                "Session does not belong to requested context: session_key={session_key}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("Session does not belong to requested context: session_key={session_key}"),
+            ));
         }
         Ok(())
     }
@@ -1865,7 +1896,7 @@ impl MCPStore {
         {
             Some(value) => serde_json::from_value(value)
                 .map(Some)
-                .map_err(|e| StoreError::Other(e.to_string())),
+                .map_err(|e| Error::new(FailureCode::Internal, e.to_string())),
             None => Ok(None),
         }
     }
@@ -1894,8 +1925,8 @@ impl MCPStore {
             update(&mut state);
             state.updated_at = now;
             state.version += 1;
-            let value =
-                serde_json::to_value(&state).map_err(|e| StoreError::Other(e.to_string()))?;
+            let value = serde_json::to_value(&state)
+                .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?;
             match self
                 .cache
                 .compare_and_put_state(
@@ -1908,10 +1939,10 @@ impl MCPStore {
             {
                 Ok(()) => return Ok(state),
                 Err(CacheError::Conflict(_)) => continue,
-                Err(error) => return Err(StoreError::Cache(error)),
+                Err(error) => return Err(Error::from(error)),
             }
         }
-        Err(StoreError::Cache(CacheError::Conflict(format!(
+        Err(Error::from(CacheError::Conflict(format!(
             "session context state conflict after retries: context_key={context_key}"
         ))))
     }
@@ -1929,7 +1960,7 @@ impl MCPStore {
                 Err(error) => return Err(error),
             }
         }
-        Err(StoreError::Cache(CacheError::Conflict(format!(
+        Err(Error::from(CacheError::Conflict(format!(
             "session touch conflict after retries: session_key={session_key}"
         ))))
     }
@@ -1943,7 +1974,7 @@ impl MCPStore {
         Fut: Future<Output = Result<T>>,
     {
         let max_attempts = policy.max_attempts.max(1);
-        let mut last_conflict: Option<StoreError> = None;
+        let mut last_conflict: Option<Error> = None;
         for attempt in 0..max_attempts {
             match operation().await {
                 Ok(value) => return Ok(value),
@@ -1957,7 +1988,7 @@ impl MCPStore {
             }
         }
         Err(last_conflict.unwrap_or_else(|| {
-            StoreError::Cache(CacheError::Conflict(
+            Error::from(CacheError::Conflict(
                 "session write conflict after retries".to_string(),
             ))
         }))
@@ -1973,7 +2004,8 @@ impl MCPStore {
                 SESSION_ENTITY_TYPE,
                 &session.session_key,
                 expected_version,
-                serde_json::to_value(session).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(session)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await
             .map_err(Into::into)
@@ -1987,9 +2019,12 @@ impl MCPStore {
         else {
             return Ok(None);
         };
-        serde_json::from_value(value)
-            .map(Some)
-            .map_err(|e| StoreError::Other(format!("Session status deserialization failed: {e}")))
+        serde_json::from_value(value).map(Some).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Session status deserialization failed: {e}"),
+            )
+        })
     }
 
     async fn store_session_status(
@@ -2002,7 +2037,8 @@ impl MCPStore {
                 SESSION_STATUS_STATE_TYPE,
                 &status.session_key,
                 expected_version,
-                serde_json::to_value(status).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(status)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await
             .map_err(Into::into)
@@ -2016,9 +2052,12 @@ impl MCPStore {
         else {
             return Ok(None);
         };
-        serde_json::from_value(value)
-            .map(Some)
-            .map_err(|e| StoreError::Other(format!("Session state deserialization failed: {e}")))
+        serde_json::from_value(value).map(Some).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Session state deserialization failed: {e}"),
+            )
+        })
     }
 
     async fn store_session_state(
@@ -2031,7 +2070,8 @@ impl MCPStore {
                 SESSION_STATE_TYPE,
                 &state.session_key,
                 expected_version,
-                serde_json::to_value(state).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(state)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await
             .map_err(Into::into)
@@ -2048,9 +2088,12 @@ impl MCPStore {
         else {
             return Ok(None);
         };
-        serde_json::from_value(value)
-            .map(Some)
-            .map_err(|e| StoreError::Other(format!("Session services deserialization failed: {e}")))
+        serde_json::from_value(value).map(Some).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Session services deserialization failed: {e}"),
+            )
+        })
     }
 
     async fn store_session_services(
@@ -2063,7 +2106,8 @@ impl MCPStore {
                 SESSION_SERVICES_RELATION_TYPE,
                 &relation.session_key,
                 expected_version,
-                serde_json::to_value(relation).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(relation)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await
             .map_err(Into::into)
@@ -2080,9 +2124,12 @@ impl MCPStore {
         else {
             return Ok(None);
         };
-        serde_json::from_value(value)
-            .map(Some)
-            .map_err(|e| StoreError::Other(format!("Session tools deserialization failed: {e}")))
+        serde_json::from_value(value).map(Some).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Session tools deserialization failed: {e}"),
+            )
+        })
     }
 
     async fn store_session_tool_visibility(
@@ -2095,7 +2142,8 @@ impl MCPStore {
                 SESSION_TOOLS_RELATION_TYPE,
                 &visibility.session_key,
                 expected_version,
-                serde_json::to_value(visibility).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(visibility)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await
             .map_err(Into::into)
@@ -2119,20 +2167,28 @@ impl MCPStore {
             .put_event(
                 SESSION_EVENT_TYPE,
                 &key,
-                serde_json::to_value(event).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(event)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await
             .map_err(Into::into)
     }
 
     fn decode_session_entity(value: serde_json::Value) -> Result<SessionEntity> {
-        serde_json::from_value(value)
-            .map_err(|e| StoreError::Other(format!("Session deserialization failed: {e}")))
+        serde_json::from_value(value).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Session deserialization failed: {e}"),
+            )
+        })
     }
 
     fn validate_sessions_snapshot(snapshot: serde_json::Value) -> Result<ValidatedSessionSnapshot> {
         let root = snapshot.as_object().ok_or_else(|| {
-            StoreError::Other("session snapshot must be a JSON object".to_string())
+            Error::new(
+                FailureCode::Internal,
+                "session snapshot must be a JSON object".to_string(),
+            )
         })?;
         let entities_map = Self::required_object(root, "entities")?;
         let relations_map = Self::required_object(root, "relations")?;
@@ -2151,10 +2207,13 @@ impl MCPStore {
         for (key, value) in entities_map {
             let entity: SessionEntity = Self::decode_import_value("session entity", key, value)?;
             if entity.session_key != *key {
-                return Err(StoreError::Other(format!(
-                    "session entity key mismatch: key={key}, session_key={}",
-                    entity.session_key
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "session entity key mismatch: key={key}, session_key={}",
+                        entity.session_key
+                    ),
+                ));
             }
             let expected_key = Self::build_session_key(
                 &entity.scope,
@@ -2162,9 +2221,12 @@ impl MCPStore {
                 &entity.session_id,
             )?;
             if expected_key != *key {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
                     "session entity fields do not match key: key={key}, expected={expected_key}"
-                )));
+                ),
+                ));
             }
             Self::validate_lease_seconds(entity.lease_seconds)?;
             session_keys.insert(key.clone());
@@ -2281,10 +2343,13 @@ impl MCPStore {
                 let state: SessionContextState =
                     Self::decode_import_value("session context state", key, value)?;
                 if state.context_key != *key {
-                    return Err(StoreError::Other(format!(
-                        "session context state key mismatch: key={key}, context_key={}",
-                        state.context_key
-                    )));
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!(
+                            "session context state key mismatch: key={key}, context_key={}",
+                            state.context_key
+                        ),
+                    ));
                 }
                 Self::validate_session_context_state_references(&session_entities, key, &state)?;
                 context_states.push((
@@ -2299,17 +2364,23 @@ impl MCPStore {
         for (key, value) in events_map {
             let event: SessionEvent = Self::decode_import_value("session event", key, value)?;
             if !session_keys.contains(&event.session_key) {
-                return Err(StoreError::Other(format!(
-                    "session event references missing session: key={key}, session_key={}",
-                    event.session_key
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "session event references missing session: key={key}, session_key={}",
+                        event.session_key
+                    ),
+                ));
             }
             let event_prefix = format!("{}:", event.session_key);
             if !key.starts_with(&event_prefix) {
-                return Err(StoreError::Other(format!(
-                    "session event key mismatch: key={key}, session_key={}",
-                    event.session_key
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "session event key mismatch: key={key}, session_key={}",
+                        event.session_key
+                    ),
+                ));
             }
             events.push((
                 key.clone(),
@@ -2363,14 +2434,15 @@ impl MCPStore {
         state: &SessionContextState,
     ) -> Result<()> {
         let session = session_entities.get(session_key).ok_or_else(|| {
-            StoreError::Other(format!(
-                "{kind} references missing session: key={key}, session_key={session_key}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("{kind} references missing session: key={key}, session_key={session_key}"),
+            )
         })?;
         let expected_context_key =
             Self::build_session_context_key(&session.scope, session.agent_id.as_deref())?;
         if expected_context_key != state.context_key {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(FailureCode::Internal, format!(
                 "{kind} references session outside context: key={key}, session_key={session_key}, expected_context_key={expected_context_key}"
             )));
         }
@@ -2385,7 +2457,10 @@ impl MCPStore {
             .get(field)
             .and_then(serde_json::Value::as_object)
             .ok_or_else(|| {
-                StoreError::Other(format!("session snapshot field must be an object: {field}"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("session snapshot field must be an object: {field}"),
+                )
             })
     }
 
@@ -2395,7 +2470,10 @@ impl MCPStore {
     ) -> Result<Option<&'a serde_json::Map<String, serde_json::Value>>> {
         match object.get(field) {
             Some(value) => value.as_object().map(Some).ok_or_else(|| {
-                StoreError::Other(format!("session snapshot field must be an object: {field}"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("session snapshot field must be an object: {field}"),
+                )
             }),
             None => Ok(None),
         }
@@ -2406,9 +2484,10 @@ impl MCPStore {
         T: for<'de> Deserialize<'de>,
     {
         serde_json::from_value(value.clone()).map_err(|e| {
-            StoreError::Other(format!(
-                "{kind} import deserialization failed: key={key}, error={e}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("{kind} import deserialization failed: key={key}, error={e}"),
+            )
         })
     }
 
@@ -2417,9 +2496,10 @@ impl MCPStore {
         T: Serialize,
     {
         serde_json::to_value(value).map_err(|e| {
-            StoreError::Other(format!(
-                "{kind} import serialization failed: key={key}, error={e}"
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!("{kind} import serialization failed: key={key}, error={e}"),
+            )
         })
     }
 
@@ -2430,20 +2510,22 @@ impl MCPStore {
         kind: &str,
     ) -> Result<()> {
         if key != session_key {
-            return Err(StoreError::Other(format!(
-                "{kind} key mismatch: key={key}, session_key={session_key}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("{kind} key mismatch: key={key}, session_key={session_key}"),
+            ));
         }
         if !session_keys.contains(session_key) {
-            return Err(StoreError::Other(format!(
-                "{kind} references missing session: key={key}, session_key={session_key}"
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!("{kind} references missing session: key={key}, session_key={session_key}"),
+            ));
         }
         Ok(())
     }
 
-    fn session_import_conflict(kind: &str, key: &str) -> StoreError {
-        StoreError::Cache(CacheError::Conflict(format!(
+    fn session_import_conflict(kind: &str, key: &str) -> Error {
+        Error::from(CacheError::Conflict(format!(
             "session import conflict: kind={kind}, key={key}"
         )))
     }
@@ -2469,10 +2551,14 @@ impl MCPStore {
 
     fn validate_session_id(value: &str) -> Result<()> {
         if value.trim().is_empty() {
-            return Err(StoreError::Other("session id cannot be empty".to_string()));
+            return Err(Error::new(
+                FailureCode::Internal,
+                "session id cannot be empty".to_string(),
+            ));
         }
         if value.contains(':') {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "session id and agent id cannot contain ':'".to_string(),
             ));
         }
@@ -2481,12 +2567,14 @@ impl MCPStore {
 
     fn validate_session_state_key(value: &str) -> Result<()> {
         if value.trim().is_empty() {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "session state key cannot be empty".to_string(),
             ));
         }
         if value.contains(':') {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "session state key cannot contain ':'".to_string(),
             ));
         }
@@ -2496,7 +2584,8 @@ impl MCPStore {
     fn validate_lease_seconds(value: Option<i64>) -> Result<()> {
         if let Some(value) = value {
             if value <= 0 {
-                return Err(StoreError::Other(
+                return Err(Error::new(
+                    FailureCode::Internal,
                     "lease_seconds must be greater than zero".to_string(),
                 ));
             }
@@ -2504,8 +2593,10 @@ impl MCPStore {
         Ok(())
     }
 
-    fn is_cache_conflict(error: &StoreError) -> bool {
-        matches!(error, StoreError::Cache(CacheError::Conflict(_)))
+    fn is_cache_conflict(error: &Error) -> bool {
+        // ponytail: conflict signal rides the message prefix; CacheError has no dedicated code
+        error.code() == FailureCode::TaskStateFailed
+            && error.message().starts_with("cache write conflict")
     }
 }
 

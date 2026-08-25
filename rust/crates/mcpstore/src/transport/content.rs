@@ -1,4 +1,6 @@
-use crate::transport::{ContentItem, Result, TransportError};
+use crate::error::Result;
+use crate::error::{Error, FailureCode};
+use crate::transport::ContentItem;
 use rmcp::model::ContentBlock;
 
 fn optional_json<T: serde::Serialize>(value: Option<T>) -> Option<serde_json::Value> {
@@ -36,8 +38,9 @@ pub(in crate::transport) fn content_item_from_rmcp(content: ContentBlock) -> Res
                 annotations,
             })
         }
-        _ => Err(TransportError::Protocol(
-            "rmcp returned an unsupported content block".to_string(),
+        _ => Err(Error::new(
+            FailureCode::ToolFailed,
+            "rmcp returned an unsupported content block",
         )),
     }
 }

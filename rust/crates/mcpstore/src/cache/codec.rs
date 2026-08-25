@@ -14,5 +14,5 @@ pub(crate) fn value_to_json(value: Value) -> Result<JsonValue> {
 }
 
 fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
-    CacheError::StoreError(format!("openkeyv value conversion failed: {err}"))
+    CacheError::Backend(format!("openkeyv value conversion failed: {err}"))
 }

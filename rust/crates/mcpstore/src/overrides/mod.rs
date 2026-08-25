@@ -108,22 +108,30 @@ impl MCPStore {
                     .await
                 {
                     Ok(()) => return Ok(()),
-                    Err(StoreError::Cache(crate::cache::CacheError::Conflict(_))) => continue,
+                    Err(error)
+                        if error.code() == FailureCode::TaskStateFailed
+                            && error.message().starts_with("cache write conflict") =>
+                    {
+                        continue
+                    }
                     Err(error) => return Err(error),
                 }
             };
             let mut obj = match value {
                 Value::Object(map) => map,
                 _ => {
-                    return Err(StoreError::Other(format!(
-                        "{kind:?} override state is not an object"
-                    )))
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!("{kind:?} override state is not an object"),
+                    ))
                 }
             };
-            let version = obj
-                .get("version")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| StoreError::Other(format!("{kind:?} override missing version")))?;
+            let version = obj.get("version").and_then(Value::as_u64).ok_or_else(|| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("{kind:?} override missing version"),
+                )
+            })?;
             obj.insert("enabled".into(), Value::Bool(enabled));
             obj.insert("version".into(), serde_json::json!(version + 1));
             obj.insert(
@@ -138,11 +146,12 @@ impl MCPStore {
                 Ok(()) => return Ok(()),
                 Err(crate::cache::CacheError::Conflict(_)) if attempt < 7 => continue,
                 Err(crate::cache::CacheError::Conflict(_)) => {
-                    return Err(StoreError::Other(format!(
-                        "{kind:?} override concurrent modification, retry exhausted"
-                    )))
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!("{kind:?} override concurrent modification, retry exhausted"),
+                    ))
                 }
-                Err(error) => return Err(StoreError::Cache(error)),
+                Err(error) => return Err(Error::from(error)),
             }
         }
         unreachable!()
@@ -180,9 +189,10 @@ impl MCPStore {
         if exists {
             Ok(())
         } else {
-            Err(StoreError::Other(format!(
-                "{kind:?} '{key}' not found in instance '{instance_id}'"
-            )))
+            Err(Error::new(
+                FailureCode::Internal,
+                format!("{kind:?} '{key}' not found in instance '{instance_id}'"),
+            ))
         }
     }
 
@@ -306,9 +316,10 @@ impl MCPStore {
                 }
             }
         }
-        Err(StoreError::Other(format!(
-            "{kind:?} '{client_key}' not found in instance '{instance_id}'"
-        )))
+        Err(Error::new(
+            FailureCode::Internal,
+            format!("{kind:?} '{client_key}' not found in instance '{instance_id}'"),
+        ))
     }
 }
 

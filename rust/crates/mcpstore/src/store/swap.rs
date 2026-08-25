@@ -34,20 +34,23 @@ impl MCPStore {
         let target_handle = openkeyv::factory::open_store(target_openkeyv_config)
             .await
             .map_err(|e| {
-                StoreError::Other(format!(
-                    "failed to open target Store '{}': {e}",
-                    config.store_name()
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("failed to open target Store '{}': {e}", config.store_name()),
+                )
             })?;
 
         // Verify the target has the capabilities mcpstore needs.
         if !target_handle.capabilities.enumerate_keys
             || !target_handle.capabilities.enumerate_collections
         {
-            return Err(StoreError::Other(format!(
-                "Store '{}' does not provide enumeration, which mcpstore requires",
-                config.store_name()
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                    "Store '{}' does not provide enumeration, which mcpstore requires",
+                    config.store_name()
+                ),
+            ));
         }
 
         let source_name = self.store_config.read().await.store_name().to_string();
@@ -68,7 +71,9 @@ impl MCPStore {
                     let current = self.store_config.read().await;
                     let handle = openkeyv::factory::open_store(current.to_openkeyv_config())
                         .await
-                        .map_err(|e| StoreError::Other(format!("source Store: {e}")))?;
+                        .map_err(|e| {
+                            Error::new(FailureCode::Internal, format!("source Store: {e}"))
+                        })?;
                     EventBackend::from_store(handle)
                 }
             };
@@ -83,7 +88,7 @@ impl MCPStore {
                 &MigrationOptions::default(),
             )
             .await
-            .map_err(|e| StoreError::Other(format!("Store migration: {e}")))?;
+            .map_err(|e| Error::new(FailureCode::Internal, format!("Store migration: {e}")))?;
             copied = report.copied;
 
             let _route = self.cache.route.write().await;
@@ -98,13 +103,19 @@ impl MCPStore {
                     None,
                 )
                 .await
-                .map_err(|e| StoreError::Other(format!("migration barrier: {e}")))?;
+                .map_err(|e| {
+                    Error::new(FailureCode::Internal, format!("migration barrier: {e}"))
+                })?;
             loop {
                 let change = tokio::time::timeout(Duration::from_secs(10), changes.recv())
                     .await
-                    .map_err(|_| StoreError::Other("migration ChangeFeed timeout".into()))?
-                    .map_err(|e| StoreError::Other(format!("migration ChangeFeed: {e}")))?
-                    .ok_or_else(|| StoreError::Other("migration ChangeFeed ended".into()))?;
+                    .map_err(|_| Error::new(FailureCode::Internal, "migration ChangeFeed timeout"))?
+                    .map_err(|e| {
+                        Error::new(FailureCode::Internal, format!("migration ChangeFeed: {e}"))
+                    })?
+                    .ok_or_else(|| {
+                        Error::new(FailureCode::Internal, "migration ChangeFeed ended")
+                    })?;
                 if change.collection == barrier_collection && change.key == barrier_key {
                     break;
                 }
@@ -115,7 +126,7 @@ impl MCPStore {
                     &MigrationOptions::default(),
                 )
                 .await
-                .map_err(|e| StoreError::Other(format!("migration replay: {e}")))?;
+                .map_err(|e| Error::new(FailureCode::Internal, format!("migration replay: {e}")))?;
                 replayed += 1;
             }
         } else {

@@ -27,7 +27,7 @@ pub enum CacheError {
     #[error("value must be a JSON object (dict), got: {0}")]
     NotAnObject(String),
     #[error("KV store error: {0}")]
-    StoreError(String),
+    Backend(String),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("cache write conflict: {0}")]

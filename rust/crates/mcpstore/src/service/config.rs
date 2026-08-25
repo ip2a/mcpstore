@@ -15,7 +15,8 @@ impl MCPStore {
         format: ConfigFormat,
     ) -> Result<Value> {
         if format == ConfigFormat::Native {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 "Native export is definition-based; use show_config".to_string(),
             ));
         }
@@ -24,13 +25,16 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let mut config = crate::config::McpConfig::default();
         let server: ServerConfig = serde_json::from_value(Value::Object(instance.effective_config))
             .map_err(|error| {
-                StoreError::Other(format!(
-                    "Effective config for instance {instance_id} cannot be exported: {error}"
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Effective config for instance {instance_id} cannot be exported: {error}"
+                    ),
+                )
             })?;
         config.mcp_servers.insert(instance.service_name, server);
         project_config(&config, format)
@@ -61,17 +65,20 @@ impl MCPStore {
     }
 
     pub async fn show_session_config(&self, session_key: &str) -> Result<Value> {
-        let session = self
-            .get_session(session_key)
-            .await?
-            .ok_or_else(|| StoreError::Other(format!("Session not found: {session_key}")))?;
+        let session = self.get_session(session_key).await?.ok_or_else(|| {
+            Error::new(
+                FailureCode::SessionNotFound,
+                format!("session not found: session_key={session_key}"),
+            )
+        })?;
         let scope = match session.scope {
             crate::cache::models::SessionScope::Store => ScopeRef::Store,
             crate::cache::models::SessionScope::Agent => ScopeRef::Agent {
                 agent_id: session.agent_id.ok_or_else(|| {
-                    StoreError::Other(format!(
-                        "Agent-scoped session is missing agent_id: {session_key}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Agent-scoped session is missing agent_id: {session_key}"),
+                    )
                 })?,
             },
         };
@@ -204,7 +211,12 @@ impl MCPStore {
                 .state_manager
                 .get(instance.instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance.instance_id.to_string()))?;
+                .ok_or_else(|| {
+                    Error::new(
+                        FailureCode::ServiceNotFound,
+                        instance.instance_id.to_string(),
+                    )
+                })?;
             if state.desired != crate::state::DesiredState::Running {
                 continue;
             }
@@ -233,7 +245,7 @@ impl MCPStore {
         };
         Ok(Some(
             serde_json::to_value(Self::server_config_from_definition(&definition)?)
-                .map_err(|error| StoreError::Other(error.to_string()))?,
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
         ))
     }
 
@@ -258,12 +270,14 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let definition = self
             .registry
             .find_definition(&instance.service_name)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance.service_name.clone()))?;
+            .ok_or_else(|| {
+                Error::new(FailureCode::ServiceNotFound, instance.service_name.clone())
+            })?;
         let config = Self::server_config_from_definition(&definition)?;
         Ok(config.resolved_lifecycle_for_scope(
             &instance.scope,
@@ -279,13 +293,13 @@ impl MCPStore {
             .state_manager
             .get(instance_id)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         if state.phase == crate::state::RuntimePhase::Running {
             return Ok(());
         }
         let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
         if lifecycle.startup_policy == StartupPolicy::Manual {
-            return Err(StoreError::Other(format!(
+            return Err(Error::new(FailureCode::Internal, format!(
                 "Service instance {instance_id} uses startup_policy=manual; start it explicitly before use"
             )));
         }
@@ -313,10 +327,12 @@ impl MCPStore {
         let mut declared_instance_ids = std::collections::HashSet::new();
         for scope in scopes.scopes() {
             let scope_revision = config.scope_revision(&scope).unwrap_or(1);
-            let effective_config = config.effective_config(&scope).map_err(StoreError::Other)?;
+            let effective_config = config
+                .effective_config(&scope)
+                .map_err(|message| Error::new(FailureCode::ConfigInvalid, message))?;
             let effective_auth =
                 serde_json::from_value::<ServerConfig>(Value::Object(effective_config.clone()))
-                    .map_err(|error| StoreError::Other(error.to_string()))?
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?
                     .auth;
             let transport = effective_config
                 .get("transport")
@@ -420,10 +436,13 @@ impl MCPStore {
             definition.base_config.clone(),
         ))
         .map_err(|error| {
-            StoreError::Other(format!(
-                "Service definition '{}' cannot be decoded: {error}",
-                definition.service_name
-            ))
+            Error::new(
+                FailureCode::Internal,
+                format!(
+                    "Service definition '{}' cannot be decoded: {error}",
+                    definition.service_name
+                ),
+            )
         })?;
         config.mcpstore = Some(McpStoreExtension {
             scopes: definition.scopes.clone(),
