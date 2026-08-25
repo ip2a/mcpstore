@@ -41,7 +41,7 @@ jobs:
           working-directory: python
           # memcached feature vendors OpenSSL; its perl Configure needs IPC::Cmd,
           # which the manylinux container's perl is missing.
-          before-all-linux: dnf install -y perl-IPC-Cmd
+          before-script-linux: dnf install -y perl-IPC-Cmd
           args: --release --locked --compatibility pypi --out dist
 
       - name: Verify Linux wheel contents and tag
