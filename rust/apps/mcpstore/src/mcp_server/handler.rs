@@ -15,6 +15,7 @@ use super::tools::{
 };
 use super::transport::{build_tool_bindings, connect_target_instances};
 use super::*;
+use serde_json::json;
 
 impl McpStoreServer {
     pub(super) async fn from_store(
@@ -526,7 +527,7 @@ impl ServerHandler for McpStoreServer {
                     .remove(tool_name.as_str()))
             }
             .ok_or_else(|| ErrorData::invalid_params(format!("未知工具: {tool_name}"), None))?;
-            let result = match store
+            let execution = match store
                 .start_tool_execution(
                     binding.instance_id,
                     &binding.tool_name,
@@ -535,18 +536,19 @@ impl ServerHandler for McpStoreServer {
                     McpExecutionOptions::default(),
                 )
                 .await
-                .map_err(map_store_error)?
-                .wait()
-                .await
-                .map_err(map_store_error)?
             {
-                McpToolExecution::Immediate { result } => result,
-                McpToolExecution::Task { .. } => {
-                    return Err(ErrorData::internal_error(
-                        "aggregate tool call unexpectedly returned a task".to_string(),
-                        None,
-                    ));
+                Ok(execution) => execution,
+                Err(error) => return Ok(llm_error_result(&error)),
+            };
+            let result = match execution.wait().await {
+                Ok(McpToolExecution::Immediate { result }) => result,
+                Ok(McpToolExecution::Task { .. }) => {
+                    return Ok(llm_error_result(&mcpstore::Error::new(
+                        mcpstore::error::FailureCode::ToolFailed,
+                        "aggregate tool call unexpectedly returned a task",
+                    )));
                 }
+                Err(error) => return Ok(llm_error_result(&error)),
             };
 
             let mut content = Vec::with_capacity(result.content.len());
@@ -591,4 +593,19 @@ impl ServerHandler for McpStoreServer {
             }))
         }
     }
+}
+
+/// LLM-facing tool failure: `isError: true` plus one text block carrying the
+/// structured failure payload (code/message/hint/retryable).
+pub(super) fn llm_error_result(error: &mcpstore::Error) -> CallToolResponse {
+    let code = error.code();
+    let payload = json!({
+        "code": code.as_str(),
+        "message": error.message(),
+        "hint": code.hint(),
+        "retryable": error.retryable(),
+    });
+    CallToolResponse::Complete(CallToolResult::error(vec![ContentBlock::text(
+        payload.to_string(),
+    )]))
 }

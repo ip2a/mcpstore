@@ -97,9 +97,10 @@ impl MCPStore {
             .await?
             .is_some_and(|rule| rule.common.enabled == Some(false))
         {
-            return Err(crate::StoreError::Other(format!(
-                "Resource '{uri}' is disabled in instance '{instance_id}'"
-            )));
+            return Err(crate::Error::new(
+                FailureCode::Internal,
+                format!("Resource '{uri}' is disabled in instance '{instance_id}'"),
+            ));
         }
         self.read_resource(instance_id, &original).await
     }

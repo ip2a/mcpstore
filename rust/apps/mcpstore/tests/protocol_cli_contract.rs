@@ -189,10 +189,10 @@ fn completion_without_server_capability_has_stable_error() {
         "jsonl",
     ]);
 
-    assert_eq!(output.status.code(), Some(20));
+    assert_eq!(output.status.code(), Some(46));
     assert!(output.stdout.is_empty());
     let error: Value = serde_json::from_slice(&output.stderr).expect("valid JSON error");
-    assert_eq!(error["event"], "protocol.failed");
+    assert!(error.get("event").is_none());
     assert_eq!(error["error"]["code"], "capability_unsupported");
     assert_eq!(error["instance_id"], fixture.instance_id);
 }
@@ -214,7 +214,7 @@ fn protocol_invalid_input_is_stable_and_does_not_pollute_stdout() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     let error: Value = serde_json::from_slice(&output.stderr).expect("valid JSON error");
-    assert_eq!(error["event"], "protocol.failed");
+    assert!(error.get("event").is_none());
     assert_eq!(error["error"]["code"], "invalid_input");
 }
 
@@ -226,7 +226,7 @@ fn invalid_instance_id_has_stable_error_without_connecting() {
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     let error: Value = serde_json::from_slice(&output.stderr).expect("valid JSON error");
-    assert_eq!(error["event"], "protocol.failed");
+    assert!(error.get("event").is_none());
     assert_eq!(error["error"]["code"], "invalid_input");
     assert_eq!(error["instance_id"], Value::Null);
 }

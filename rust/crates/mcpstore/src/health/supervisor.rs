@@ -238,12 +238,16 @@ impl InstanceSupervisor {
         let now = observation.observed_at as i64;
 
         let failure_reason = assessment.failure_reason.unwrap_or("health_check_failed");
+        let failure_code = match failure_reason {
+            "transport_unavailable" => crate::error::FailureCode::ServiceUnavailable,
+            _ => crate::error::FailureCode::HealthCheckFailed,
+        };
         let event = ServiceStateEvent::HealthObserved {
             health: assessment.health,
             metrics: assessment.metrics,
             failure: (assessment.health == HealthState::Unhealthy).then(|| FailureInfo {
                 phase: FailurePhase::Health,
-                code: failure_reason.to_string(),
+                code: failure_code,
                 retryable: true,
                 message: failure_reason.replace('_', " "),
                 since: now,
@@ -262,14 +266,17 @@ impl InstanceSupervisor {
                     if let Err(error) = store.pool.disconnect(instance_id).await {
                         tracing::warn!(%instance_id, %error, "failed to disconnect unhealthy service");
                     }
-                    if let Err(error) = store
+                    if let Err(record_error) = store
                         .mark_instance_retryable_failure(
                             instance_id,
-                            format!("Health check failed: {failure_reason}"),
+                            &crate::error::Error::new(
+                                failure_code,
+                                format!("health check failed: {failure_reason}"),
+                            ),
                         )
                         .await
                     {
-                        tracing::error!(%instance_id, %error, "failed to schedule service recovery");
+                        tracing::error!(%instance_id, %record_error, "failed to schedule service recovery");
                         return None;
                     }
                 }
@@ -344,7 +351,7 @@ mod tests {
             _instance_id: InstanceId,
             _kind: ProbeKind,
             _timeout: std::time::Duration,
-        ) -> crate::transport::Result<()> {
+        ) -> crate::error::Result<()> {
             Ok(())
         }
     }

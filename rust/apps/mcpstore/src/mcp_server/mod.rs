@@ -11,8 +11,8 @@ use mcpstore::{
     events::{bus::EventHandler, Event},
     ContentItem, InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpToolExecution,
     OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch,
-    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef, SourceMode, StoreError,
-    StoreOptions, ToolOverridePatch,
+    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef, SourceMode, StoreOptions,
+    ToolOverridePatch,
 };
 use rmcp::{
     model::{

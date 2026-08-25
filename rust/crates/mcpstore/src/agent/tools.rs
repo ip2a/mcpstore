@@ -75,7 +75,7 @@ impl MCPStore {
                     .into_iter()
                     .map(|entry| {
                         serde_json::to_value(entry)
-                            .map_err(|error| StoreError::Other(error.to_string()))
+                            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                     })
                     .collect()
             })

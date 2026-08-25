@@ -167,7 +167,7 @@ async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
         .map_err(ApiError::from_store)?
         .ok_or_else(|| {
             ApiError::not_found(
-                "SCOPE_NOT_FOUND",
+                mcpstore::error::FailureCode::ServiceNotFound,
                 "作用域不存在".to_string(),
                 Some("scope"),
                 None,
@@ -201,7 +201,7 @@ pub(super) async fn agent_info(
         .map_err(ApiError::from_store)?
         .ok_or_else(|| {
             ApiError::not_found(
-                "AGENT_NOT_FOUND",
+                mcpstore::error::FailureCode::ServiceNotFound,
                 format!("Agent '{agent_id}' 不存在"),
                 Some("agent_id"),
                 None,

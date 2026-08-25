@@ -14,7 +14,7 @@ pub(crate) use crate::transport::{
     DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate,
 };
 
-pub(crate) use crate::{Result, StoreError};
+pub(crate) use crate::error::{Error, ErrorContext, FailureCode, Result};
 
 mod openapi;
 mod options;
@@ -48,10 +48,10 @@ pub(crate) mod prelude {
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
         CacheHealthReport, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
-        DiscoveredResourceTemplate, Event, MCPStore, OpenApiImportContextState, Result,
-        ScopedServiceEntry, ScopedToolEntry, ServerConfig, ServiceDefinition, ServiceInstance,
-        SourceMode, StartupPolicy, StoreError, ToolChangeServiceResult, ToolChangeSummary,
-        CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
+        DiscoveredResourceTemplate, Error, ErrorContext, Event, FailureCode, MCPStore,
+        OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig,
+        ServiceDefinition, ServiceInstance, SourceMode, StartupPolicy, ToolChangeServiceResult,
+        ToolChangeSummary, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
     };
 }
 
@@ -93,7 +93,8 @@ impl MCPStore {
         // requests would be written to a local in-process store that no other
         // node can consume. The user almost certainly meant ControlPlane.
         if options.source_mode == SourceMode::Local && options.node_mode == NodeMode::DataPlane {
-            return Err(StoreError::Other(
+            return Err(Error::new(
+                FailureCode::Internal,
                 concat!(
                     "Local source (file/memory) cannot be combined with DataPlane mode. ",
                     "DataPlane requires a shared remote store (e.g. Redis) so that ",
@@ -145,7 +146,7 @@ impl MCPStore {
                 (store, None) // Redis EventBackend created lazily in setup_event_reactor
             }
             backend => {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(FailureCode::Internal, format!(
                     "OpenKeyv backend '{backend}' does not provide the CAS and ChangeFeed capabilities required by MCPStore"
                 )))
             }
@@ -269,13 +270,14 @@ impl MCPStore {
                         serde_json::json!({"url": url}),
                     ))
                     .await
-                    .map_err(|e| StoreError::Other(format!("event Store: {e}")))?;
+                    .map_err(|e| Error::new(FailureCode::Internal, format!("event Store: {e}")))?;
                     EventBackend::from_store(handle)
                 }
                 backend => {
-                    return Err(StoreError::Other(format!(
-                        "OpenKeyv backend '{backend}' does not provide ChangeFeed support"
-                    )));
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!("OpenKeyv backend '{backend}' does not provide ChangeFeed support"),
+                    ));
                 }
             }
         };
@@ -293,7 +295,7 @@ impl MCPStore {
         let guard = self.event_reactor.read().await;
         let reactor = guard
             .as_ref()
-            .ok_or_else(|| StoreError::Other("event reactor not initialized".into()))?;
+            .ok_or_else(|| Error::new(FailureCode::Internal, "event reactor not initialized"))?;
         reactor.register(rule).await;
         Ok(())
     }
@@ -303,11 +305,11 @@ impl MCPStore {
         let guard = self.event_reactor.read().await;
         let reactor = guard
             .as_ref()
-            .ok_or_else(|| StoreError::Other("event reactor not initialized".into()))?;
+            .ok_or_else(|| Error::new(FailureCode::Internal, "event reactor not initialized"))?;
         reactor
             .start()
             .await
-            .map_err(|e| StoreError::Other(format!("reactor start: {e}")))?;
+            .map_err(|e| Error::new(FailureCode::Internal, format!("reactor start: {e}")))?;
         Ok(())
     }
 

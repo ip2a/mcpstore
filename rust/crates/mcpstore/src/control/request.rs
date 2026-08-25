@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::config::ServerConfig;
-use crate::{Result, StoreError};
+use crate::{Error, FailureCode, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -45,18 +45,26 @@ pub(in crate::control) fn required_string(
         .get(field)
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
-        .ok_or_else(|| StoreError::Other(format!("Control request missing {field}")))
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Control request missing {field}"),
+            )
+        })
 }
 
 pub(in crate::control) fn required_config(payload: &serde_json::Value) -> Result<ServerConfig> {
-    let config = payload
-        .get("config")
-        .cloned()
-        .ok_or_else(|| StoreError::Other("Control request missing config".to_string()))?;
+    let config = payload.get("config").cloned().ok_or_else(|| {
+        Error::new(
+            FailureCode::Internal,
+            "Control request missing config".to_string(),
+        )
+    })?;
     serde_json::from_value(config).map_err(|error| {
-        StoreError::Other(format!(
-            "Control request config deserialization failed: {error}"
-        ))
+        Error::new(
+            FailureCode::Internal,
+            format!("Control request config deserialization failed: {error}"),
+        )
     })
 }
 

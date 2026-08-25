@@ -124,7 +124,8 @@ impl MCPStore {
                 RESOURCE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, &uri),
                 expected,
-                serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(&rule)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await?;
         Ok(rule)
@@ -145,7 +146,7 @@ impl MCPStore {
                 &Self::component_override_key(instance_id, uri),
             )
             .await
-            .map_err(StoreError::from)
+            .map_err(Error::from)
     }
     pub async fn list_resource_overrides(&self) -> Result<Vec<ResourceOverrideRule>> {
         self.refresh_from_db_if_needed().await?;
@@ -224,7 +225,8 @@ impl MCPStore {
                 RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(i, &u),
                 expected,
-                serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(&rule)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await?;
         Ok(rule)
@@ -245,7 +247,7 @@ impl MCPStore {
                 &Self::component_override_key(i, u),
             )
             .await
-            .map_err(StoreError::from)
+            .map_err(Error::from)
     }
     pub async fn list_resource_template_overrides(
         &self,
@@ -309,7 +311,10 @@ async fn load_rule<T: for<'de> Deserialize<'de>>(
         .await?
         .map(|v| {
             serde_json::from_value(v).map_err(|e| {
-                StoreError::Other(format!("{label} override deserialization failed: {e}"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("{label} override deserialization failed: {e}"),
+                )
             })
         })
         .transpose()
@@ -323,7 +328,9 @@ async fn list_rules<T: for<'de> Deserialize<'de>, F: FnMut(&T, &T) -> std::cmp::
         .get_all_states_async(state)
         .await?
         .into_iter()
-        .map(|(_, v)| serde_json::from_value(v).map_err(|e| StoreError::Other(e.to_string())))
+        .map(|(_, v)| {
+            serde_json::from_value(v).map_err(|e| Error::new(FailureCode::Internal, e.to_string()))
+        })
         .collect::<Result<Vec<T>>>()?;
     out.sort_by(|a, b| cmp(a, b));
     Ok(out)
@@ -332,7 +339,8 @@ fn apply_resource<T: Serialize>(
     rule: &Option<impl RuleCommon>,
     item: &T,
 ) -> Result<Option<serde_json::Value>> {
-    let mut value = serde_json::to_value(item).map_err(|e| StoreError::Other(e.to_string()))?;
+    let mut value =
+        serde_json::to_value(item).map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?;
     if let Some(rule) = rule {
         if !is_override_enabled(rule.common()) {
             return Ok(None);

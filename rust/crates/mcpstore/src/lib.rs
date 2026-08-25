@@ -8,6 +8,7 @@ pub mod config;
 pub mod config_formats;
 pub(crate) mod control;
 pub mod core;
+pub mod error;
 pub mod event_reactor;
 pub mod events;
 pub mod facade;
@@ -101,8 +102,11 @@ pub use state::{
     ToolStateItem, ToolsState, ToolsStatus,
 };
 
+// Facade re-exports: unified errors
+pub use error::{Error, ErrorContext, FailureCategory, FailureCode, RecoveryPolicy};
+
 // Facade re-exports: core store
-pub use core::{Result, StoreError};
+pub use error::Result;
 pub use overrides::{
     ComponentKind, ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule,
     ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,

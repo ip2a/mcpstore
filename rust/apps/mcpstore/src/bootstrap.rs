@@ -279,8 +279,7 @@ mod tests {
     fn rotating_writer_creates_backup_when_exceeds_max_size() {
         use tracing_subscriber::fmt::MakeWriter as _;
 
-        let dir =
-            std::env::temp_dir().join(format!("mcpstore-rotate-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mcpstore-rotate-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log_path = dir.join("mcpstore.log");
         let writer = super::RotatingWriter::new(log_path.clone(), 64).unwrap();
