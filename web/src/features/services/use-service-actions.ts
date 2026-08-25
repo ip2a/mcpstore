@@ -40,7 +40,7 @@ export function useServiceActions({
         try {
           await connectInstance(service)
         } catch (error) {
-          if (error instanceof ApiError && error.code === "AUTH_REQUIRED") {
+          if (error instanceof ApiError && error.code === "connection_auth_required") {
             toast.info(t("oauthConnectLoginRequired"))
           }
           throw error

@@ -5,8 +5,8 @@ use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
 use mcpstore::core::store::{MCPStore, NodeMode, SourceMode, StoreOptions};
 use mcpstore::{
-    cache::models::SessionScope, InstanceId, McpConfig, ScopeContext, ScopeRef, ScopeView, Service,
-    ServiceTarget, StoreError, Tool,
+    cache::models::SessionScope, Error, InstanceId, McpConfig, ScopeContext, ScopeRef, ScopeView,
+    Service, ServiceTarget, Tool,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, PromptOverridePatch,
@@ -54,7 +54,7 @@ pub struct PyResourceTemplate {
     inner: mcpstore::ResourceTemplate,
 }
 
-pub(crate) fn map_store_err(err: StoreError) -> PyErr {
+pub(crate) fn map_store_err(err: Error) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
 }
 
@@ -133,7 +133,7 @@ fn parse_config_format(format: Option<&str>) -> PyResult<ConfigFormat> {
     format
         .unwrap_or("native")
         .parse()
-        .map_err(|err: StoreError| pyo3::exceptions::PyValueError::new_err(err.to_string()))
+        .map_err(|err: Error| pyo3::exceptions::PyValueError::new_err(err.to_string()))
 }
 
 pub(crate) fn py_to_server_config(

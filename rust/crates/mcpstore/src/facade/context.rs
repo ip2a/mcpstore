@@ -16,7 +16,7 @@ use crate::perspective::{resolve_tool, AvailableTool};
 use crate::state::ServiceState;
 use crate::store::{MCPStore, Result, ScopedToolEntry};
 use crate::transport::ToolCallResult;
-use crate::StoreError;
+use crate::{Error, FailureCode};
 
 #[derive(Clone, Copy)]
 pub enum ServiceTarget<'a> {
@@ -103,19 +103,25 @@ impl ScopeContext {
             .await?
             .map(serde_json::from_value::<ServerConfig>)
             .transpose()
-            .map_err(|error| StoreError::Other(error.to_string()))?;
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
 
         if let Some(existing) = existing {
             if existing.base_config() != config.base_config() {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
                     "Service definition already exists with a different base config: {service_name}"
-                )));
+                ),
+                ));
             }
             if declares_scope(&existing, &self.scope) {
-                return Err(StoreError::Other(format!(
-                    "Scope {:?} is already declared for service '{service_name}'",
-                    self.scope
-                )));
+                return Err(Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Scope {:?} is already declared for service '{service_name}'",
+                        self.scope
+                    ),
+                ));
             }
             self.store
                 .declare_service_scope(service_name, &self.scope, ScopeDescriptor::default())
@@ -232,16 +238,20 @@ impl ScopeContext {
                     .await?,
             )),
             ServiceTarget::InstanceId(instance_id) => {
-                let instance = self
-                    .store
-                    .find_instance(instance_id)
-                    .await
-                    .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+                let instance = self.store.find_instance(instance_id).await.ok_or_else(|| {
+                    Error::new(
+                        FailureCode::ServiceNotFound,
+                        format!("service instance {instance_id} not found"),
+                    )
+                })?;
                 if instance.scope != self.scope {
-                    return Err(StoreError::Other(format!(
-                        "Instance {instance_id} does not belong to scope {:?}",
-                        self.scope
-                    )));
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!(
+                            "Instance {instance_id} does not belong to scope {:?}",
+                            self.scope
+                        ),
+                    ));
                 }
                 Ok((instance.service_name, instance_id))
             }
@@ -293,7 +303,12 @@ impl Service {
             .store
             .find_instance(self.instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(self.instance_id.to_string()))?;
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::ServiceNotFound,
+                    format!("service instance {} not found", self.instance_id),
+                )
+            })?;
         Ok(Value::Object(instance.effective_config))
     }
 
@@ -427,10 +442,13 @@ impl Service {
             .into_iter()
             .any(|prompt| prompt.get("name").and_then(Value::as_str) == Some(prompt_name));
         if !found {
-            return Err(StoreError::Other(format!(
-                "Prompt '{prompt_name}' not found in instance {}",
-                self.instance_id
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                    "Prompt '{prompt_name}' not found in instance {}",
+                    self.instance_id
+                ),
+            ));
         }
         Prompt::new(
             self.context.clone(),
@@ -451,10 +469,13 @@ impl Service {
             .into_iter()
             .any(|resource| resource.get("uri").and_then(Value::as_str) == Some(uri));
         if !found {
-            return Err(StoreError::Other(format!(
-                "Resource '{uri}' not found in instance {}",
-                self.instance_id
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                    "Resource '{uri}' not found in instance {}",
+                    self.instance_id
+                ),
+            ));
         }
         Resource::new(self.context.clone(), self.instance_id, uri.to_string())
     }
@@ -474,10 +495,13 @@ impl Service {
                     || template.get("uri_template").and_then(Value::as_str) == Some(uri_template)
             });
         if !found {
-            return Err(StoreError::Other(format!(
-                "Resource template '{uri_template}' not found in instance {}",
-                self.instance_id
-            )));
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                    "Resource template '{uri_template}' not found in instance {}",
+                    self.instance_id
+                ),
+            ));
         }
         ResourceTemplate::new(
             self.context.clone(),
@@ -626,7 +650,7 @@ impl Tool {
             .await?
             .into_iter()
             .find(|entry| entry.tool_name == self.tool_name)
-            .ok_or_else(|| StoreError::ServiceNotFound(self.tool_name.clone()))
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, self.tool_name.clone()))
     }
 }
 
@@ -650,10 +674,13 @@ impl Prompt {
             .into_iter()
             .find(|prompt| prompt.get("name").and_then(Value::as_str) == Some(&self.prompt_name))
             .ok_or_else(|| {
-                StoreError::Other(format!(
-                    "Prompt '{}' not found in instance {}",
-                    self.prompt_name, self.instance_id
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Prompt '{}' not found in instance {}",
+                        self.prompt_name, self.instance_id
+                    ),
+                )
             })
     }
 
@@ -778,10 +805,13 @@ impl Resource {
             .into_iter()
             .find(|resource| resource.get("uri").and_then(Value::as_str) == Some(&self.uri))
             .ok_or_else(|| {
-                StoreError::Other(format!(
-                    "Resource '{}' not found in instance {}",
-                    self.uri, self.instance_id
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Resource '{}' not found in instance {}",
+                        self.uri, self.instance_id
+                    ),
+                )
             })
     }
     pub async fn read(&self) -> Result<Value> {
@@ -908,10 +938,13 @@ impl ResourceTemplate {
                         == Some(&self.uri_template)
             })
             .ok_or_else(|| {
-                StoreError::Other(format!(
-                    "Resource template '{}' not found in instance {}",
-                    self.uri_template, self.instance_id
-                ))
+                Error::new(
+                    FailureCode::Internal,
+                    format!(
+                        "Resource template '{}' not found in instance {}",
+                        self.uri_template, self.instance_id
+                    ),
+                )
             })
     }
     pub async fn set_override(
@@ -1026,7 +1059,7 @@ fn resolve_tool_entry(tool_name: &str, tools: Vec<ScopedToolEntry>) -> Result<Sc
         .find(|tool| {
             tool.instance_id == resolution.instance_id && tool.tool_name == resolution.tool_name
         })
-        .ok_or_else(|| StoreError::ServiceNotFound(resolution.tool_name))
+        .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, resolution.tool_name))
 }
 
 impl MCPStore {

@@ -16,9 +16,10 @@ impl MCPStore {
             .into_iter()
             .map(|(key, value)| {
                 let request = serde_json::from_value::<ControlRequest>(value).map_err(|error| {
-                    StoreError::Other(format!(
-                        "Control request '{key}' deserialization failed: {error}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Control request '{key}' deserialization failed: {error}"),
+                    )
                 })?;
                 Ok((key, request))
             })
@@ -44,7 +45,7 @@ impl MCPStore {
                     CONTROL_REQUEST_EVENT_TYPE,
                     &key,
                     serde_json::to_value(&request)
-                        .map_err(|error| StoreError::Other(error.to_string()))?,
+                        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
                 )
                 .await?;
 
@@ -67,7 +68,7 @@ impl MCPStore {
                     CONTROL_REQUEST_EVENT_TYPE,
                     &key,
                     serde_json::to_value(request)
-                        .map_err(|error| StoreError::Other(error.to_string()))?,
+                        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
                 )
                 .await?;
         }
@@ -103,7 +104,7 @@ impl MCPStore {
                 CONTROL_REQUEST_EVENT_TYPE,
                 &event_id,
                 serde_json::to_value(request)
-                    .map_err(|error| StoreError::Other(error.to_string()))?,
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             )
             .await?;
         self.event_bus

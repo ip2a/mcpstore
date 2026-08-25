@@ -1,10 +1,10 @@
 use rmcp::model::{ClientRequest, ListToolsRequest, PaginatedRequestParams, ServerResult};
 
+use crate::error::Result;
+use crate::error::{Error, FailureCode};
 use crate::transport::client::McpConnection;
 use crate::transport::protocol::send_protocol_request;
-use crate::transport::{
-    DiscoveredTool, McpExecutionOptions, McpToolExecution, Result, ToolCallResult, TransportError,
-};
+use crate::transport::{DiscoveredTool, McpExecutionOptions, McpToolExecution, ToolCallResult};
 
 impl McpConnection {
     pub async fn list_tools(&self) -> Result<Vec<DiscoveredTool>> {
@@ -24,8 +24,9 @@ impl McpConnection {
             let page = match result {
                 Ok(ServerResult::ListToolsResult(page)) => page,
                 Ok(_) => {
-                    return Err(TransportError::Protocol(
-                        "list tools returned an unexpected response".to_string(),
+                    return Err(Error::new(
+                        FailureCode::ToolFailed,
+                        "list tools returned an unexpected response",
                     ))
                 }
                 Err(error) => return Err(self.classify_client_failure(error).await),
@@ -51,8 +52,9 @@ impl McpConnection {
             .await?
         {
             McpToolExecution::Immediate { result } => Ok(result),
-            McpToolExecution::Task { .. } => Err(TransportError::Protocol(
-                "tool call unexpectedly returned a task".to_string(),
+            McpToolExecution::Task { .. } => Err(Error::new(
+                FailureCode::ToolFailed,
+                "tool call unexpectedly returned a task",
             )),
         }
     }

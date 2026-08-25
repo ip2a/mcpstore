@@ -5,7 +5,10 @@ impl MCPStore {
     pub async fn service_state(&self, instance_id: InstanceId) -> Result<serde_json::Value> {
         let state = self.service_state_entry(instance_id).await?;
         serde_json::to_value(state).map_err(|error| {
-            StoreError::Other(format!("Service state serialization failed: {error}"))
+            Error::new(
+                FailureCode::Internal,
+                format!("Service state serialization failed: {error}"),
+            )
         })
     }
 
@@ -13,7 +16,7 @@ impl MCPStore {
         self.state_manager
             .get(instance_id)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))
     }
 
     pub async fn check_instances(&self, instance_ids: &[InstanceId]) -> Result<Vec<ServiceState>> {
@@ -46,7 +49,7 @@ impl MCPStore {
                 }
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err(StoreError::Other(format!(
+                return Err(Error::new(FailureCode::Internal, format!(
                     "Wait for instance ready timed out: {instance_id} (service={}, scope={:?}, readiness={:?}, error={})",
                     state.service_name,
                     state.scope,

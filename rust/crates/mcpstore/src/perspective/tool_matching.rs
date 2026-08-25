@@ -1,5 +1,5 @@
 use crate::perspective::tool_candidates::ToolCandidate;
-use crate::{Result, StoreError};
+use crate::{Error, FailureCode, Result};
 
 pub(super) fn exact_match(
     user_input: &str,
@@ -57,9 +57,10 @@ fn one_or_ambiguous(
     match matches.len() {
         0 => Ok(None),
         1 => Ok(matches.into_iter().next()),
-        count => Err(StoreError::Other(format!(
-            "Ambiguous {method} tool name '{user_input}', matched {count} tools"
-        ))),
+        count => Err(Error::new(
+            FailureCode::Internal,
+            format!("Ambiguous {method} tool name '{user_input}', matched {count} tools"),
+        )),
     }
 }
 

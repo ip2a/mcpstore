@@ -11,7 +11,7 @@ impl MCPStore {
             .state_manager
             .get(instance_id)
             .await?
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         if self.is_data_plane() || self.is_openapi_virtual_instance(instance_id).await? {
             return Ok(current);
         }
@@ -23,7 +23,10 @@ impl MCPStore {
                 return self
                     .mark_instance_retryable_failure(
                         instance_id,
-                        "Transport is not connected".to_string(),
+                        &crate::error::Error::new(
+                            crate::error::FailureCode::NotConnected,
+                            "transport is not connected",
+                        ),
                     )
                     .await;
             }
@@ -35,7 +38,7 @@ impl MCPStore {
             .registry
             .find_instance(instance_id)
             .await
-            .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))?;
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let timeout = std::time::Duration::from_secs_f64(
             self.runtime_config
                 .ping_timeout_for_transport(instance.transport.as_str())
@@ -60,14 +63,17 @@ impl MCPStore {
         error: Option<String>,
     ) -> Result<ServiceState> {
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         if self.is_data_plane() {
             return self
                 .state_manager
                 .get(instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
         let now = Self::now_timestamp();
@@ -84,7 +90,7 @@ impl MCPStore {
                     metrics: HealthMetrics::default(),
                     failure: error.map(|message| FailureInfo {
                         phase: FailurePhase::Health,
-                        code: "openapi_request_failed".to_string(),
+                        code: crate::error::FailureCode::OpenapiRequestFailed,
                         retryable: true,
                         message,
                         since: now,
@@ -138,14 +144,17 @@ impl MCPStore {
         error: Option<String>,
     ) -> Result<ServiceState> {
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         if self.is_data_plane() {
             return self
                 .state_manager
                 .get(instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
         if let Some(supervisor) = &self.supervisor {
@@ -164,7 +173,7 @@ impl MCPStore {
                 .state_manager
                 .get(instance_id)
                 .await?
-                .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()));
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
         let health = if ok {
@@ -193,7 +202,7 @@ impl MCPStore {
                     },
                     failure: error.map(|message| FailureInfo {
                         phase: FailurePhase::Health,
-                        code: "health_observation_failed".to_string(),
+                        code: crate::error::FailureCode::HealthCheckFailed,
                         retryable: true,
                         message,
                         since: now,

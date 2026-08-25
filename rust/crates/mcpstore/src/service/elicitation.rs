@@ -9,7 +9,10 @@ impl MCPStore {
     ) -> Result<Option<McpElicitationSession>> {
         self.refresh_from_db_if_needed().await?;
         if self.registry.find_instance(instance_id).await.is_none() {
-            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                instance_id.to_string(),
+            ));
         }
         if self.is_openapi_virtual_instance(instance_id).await? {
             return Ok(None);
@@ -18,6 +21,5 @@ impl MCPStore {
         self.pool
             .open_elicitation_session(instance_id, options)
             .await
-            .map_err(StoreError::Transport)
     }
 }

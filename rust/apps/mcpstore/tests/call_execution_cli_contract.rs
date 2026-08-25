@@ -226,12 +226,12 @@ fn call_tool_error_has_stable_exit_and_machine_error() {
         .output()
         .expect("failed to run tool error call");
 
-    assert_eq!(output.status.code(), Some(33));
+    assert_eq!(output.status.code(), Some(42));
     let events = json_lines(&output.stdout);
     assert_eq!(events.len(), 1);
     assert_eq!(events[0]["event"], "execution.started");
     let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert_eq!(error["event"], "execution.failed");
+    assert!(error.get("event").is_none());
     assert_eq!(error["error"]["code"], "tool_failed");
     assert_eq!(error["instance_id"], fixture.instance_id);
     assert_eq!(error["tool_name"], "tool_error");
@@ -246,13 +246,13 @@ fn call_idle_timeout_has_stable_exit_and_jsonl_error() {
         .output()
         .expect("failed to run timeout call");
 
-    assert_eq!(output.status.code(), Some(31));
+    assert_eq!(output.status.code(), Some(43));
     let events = json_lines(&output.stdout);
     assert_eq!(events[0]["event"], "execution.started");
     let error: Value = serde_json::from_slice(&output.stderr)
         .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stderr)));
-    assert_eq!(error["event"], "execution.timed_out");
-    assert_eq!(error["error"]["code"], "execution_timed_out");
+    assert!(error.get("event").is_none());
+    assert_eq!(error["error"]["code"], "call_timed_out");
     assert_eq!(error["instance_id"], fixture.instance_id);
     assert!(fixture.marker_text().contains("cancelled:"));
 }
@@ -266,15 +266,15 @@ fn call_max_total_timeout_is_not_reset_by_progress() {
         .output()
         .expect("failed to run max-total-timeout call");
 
-    assert_eq!(output.status.code(), Some(31));
+    assert_eq!(output.status.code(), Some(43));
     let events = json_lines(&output.stdout);
     assert_eq!(events[0]["event"], "execution.started");
     assert!(events
         .iter()
         .any(|event| event["event"] == "execution.progress"));
     let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert_eq!(error["event"], "execution.timed_out");
-    assert_eq!(error["error"]["code"], "execution_timed_out");
+    assert!(error.get("event").is_none());
+    assert_eq!(error["error"]["code"], "call_timed_out");
     assert!(fixture.marker_text().contains("cancelled:"));
 }
 
@@ -302,7 +302,7 @@ fn call_ctrl_c_sends_typed_cancellation_and_exits_stably() {
     assert!(status.success());
 
     let output = child.wait_with_output().expect("failed to wait for call");
-    assert_eq!(output.status.code(), Some(30));
+    assert_eq!(output.status.code(), Some(44));
     let events = json_lines(&output.stdout);
     assert_eq!(events[0]["event"], "execution.started");
     assert!(events
@@ -310,8 +310,8 @@ fn call_ctrl_c_sends_typed_cancellation_and_exits_stably() {
         .any(|event| event["event"] == "execution.cancellation_requested"));
     let error: Value = serde_json::from_slice(&output.stderr)
         .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stderr)));
-    assert_eq!(error["event"], "execution.cancelled");
-    assert_eq!(error["error"]["code"], "execution_cancelled");
+    assert!(error.get("event").is_none());
+    assert_eq!(error["error"]["code"], "call_cancelled");
     assert!(
         fixture
             .marker_text()
@@ -367,7 +367,7 @@ fn call_form_without_input_is_non_interactive_and_requires_input() {
         .output()
         .expect("failed to run input-required elicitation call");
 
-    assert_eq!(output.status.code(), Some(35));
+    assert_eq!(output.status.code(), Some(60));
     let events = json_lines(&output.stdout);
     assert!(events
         .iter()
@@ -376,7 +376,7 @@ fn call_form_without_input_is_non_interactive_and_requires_input() {
         .iter()
         .any(|event| event["event"] == "elicitation.input_required"));
     let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert_eq!(error["error"]["code"], "input_required");
+    assert_eq!(error["error"]["code"], "elicitation_input_required");
     assert!(fixture
         .marker_text()
         .contains("elicitation_response:elicit_form:cancel"));
@@ -416,7 +416,7 @@ fn call_form_cancel_has_stable_exit_and_typed_response() {
         .output()
         .expect("failed to run cancelled elicitation call");
 
-    assert_eq!(output.status.code(), Some(36));
+    assert_eq!(output.status.code(), Some(61));
     let events = json_lines(&output.stdout);
     assert!(events
         .iter()
@@ -443,7 +443,7 @@ fn call_form_invalid_answer_has_stable_error_without_leaking_the_answer() {
         .output()
         .expect("failed to run invalid elicitation call");
 
-    assert_eq!(output.status.code(), Some(38));
+    assert_eq!(output.status.code(), Some(63));
     let error_text = String::from_utf8_lossy(&output.stderr);
     let error: Value = serde_json::from_slice(output.stderr.as_slice()).unwrap();
     assert_eq!(error["error"]["code"], "elicitation_invalid_response");
@@ -498,7 +498,7 @@ fn call_url_rejects_unsafe_handoff_without_echoing_it() {
             .command(tool)
             .output()
             .unwrap_or_else(|error| panic!("failed to run {tool}: {error}"));
-        assert_eq!(output.status.code(), Some(38));
+        assert_eq!(output.status.code(), Some(63));
         let text = format!(
             "{}\n{}",
             String::from_utf8_lossy(&output.stdout),
@@ -519,9 +519,9 @@ fn call_without_non_interactive_flag_does_not_block_on_non_tty() {
         .output()
         .expect("failed to run non-TTY elicitation call");
 
-    assert_eq!(output.status.code(), Some(35));
+    assert_eq!(output.status.code(), Some(60));
     let error: Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert_eq!(error["error"]["code"], "input_required");
+    assert_eq!(error["error"]["code"], "elicitation_input_required");
 }
 
 #[test]

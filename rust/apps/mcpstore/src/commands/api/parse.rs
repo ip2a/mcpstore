@@ -140,6 +140,6 @@ mod tests {
     fn extract_tool_args_requires_object() {
         let error = extract_tool_args(&json!({ "args": [] })).unwrap_err();
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
-        assert_eq!(error.code, "INVALID_PARAMETER");
+        assert_eq!(error.code, "invalid_input");
     }
 }

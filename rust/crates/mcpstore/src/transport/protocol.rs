@@ -9,10 +9,11 @@ use rmcp::service::{Peer, PeerRequestOptions, RoleClient};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::error::Result;
+use crate::error::{Error, ErrorContext, FailureCode};
 use crate::identity::InstanceId;
 use crate::transport::client::McpConnection;
 use crate::transport::execution::map_service_error;
-use crate::transport::{Result, TransportError};
 
 #[cfg(not(test))]
 const PROTOCOL_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -205,8 +206,9 @@ impl McpConnection {
         .await
         {
             Ok(ServerResult::CompleteResult(result)) => Ok(result.completion.into()),
-            Ok(_) => Err(TransportError::Protocol(
-                "completion returned an unexpected response".to_string(),
+            Ok(_) => Err(Error::new(
+                FailureCode::ToolFailed,
+                "completion returned an unexpected response",
             )),
             Err(error) => Err(self.classify_client_failure(error).await),
         }
@@ -329,10 +331,17 @@ impl McpConnection {
         if supported(info.as_ref()) {
             Ok(())
         } else {
-            Err(TransportError::CapabilityUnsupported {
+            Err(Error::new(
+                FailureCode::CapabilityUnsupported,
+                format!(
+                    "MCP service instance {} does not support capability {capability}",
+                    self.instance_id()
+                ),
+            )
+            .with_context(ErrorContext::Service {
                 instance_id: self.instance_id(),
-                capability,
-            })
+                service_name: String::new(),
+            }))
         }
     }
 }

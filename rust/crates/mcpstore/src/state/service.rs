@@ -143,10 +143,23 @@ pub enum FailurePhase {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FailureInfo {
     pub phase: FailurePhase,
-    pub code: String,
+    pub code: crate::error::FailureCode,
     pub retryable: bool,
     pub message: String,
     pub since: i64,
+}
+
+impl FailureInfo {
+    /// Build from a unified error; `retryable` derives from the code's recovery policy.
+    pub fn from_error(phase: FailurePhase, error: &crate::error::Error) -> Self {
+        Self {
+            phase,
+            code: error.code(),
+            retryable: error.retryable(),
+            message: error.message().to_string(),
+            since: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -462,7 +475,7 @@ mod tests {
     fn failure(phase: FailurePhase, retryable: bool) -> FailureInfo {
         FailureInfo {
             phase,
-            code: "test".to_string(),
+            code: crate::error::FailureCode::Internal,
             retryable,
             message: "failure".to_string(),
             since: 2,
@@ -470,6 +483,23 @@ mod tests {
     }
 
     #[test]
+    fn from_error_carries_code_policy_and_message() {
+        let error =
+            crate::error::Error::new(crate::error::FailureCode::ConnectionRefused, "refused");
+        let info = FailureInfo::from_error(FailurePhase::Recovery, &error);
+        assert_eq!(info.code, crate::error::FailureCode::ConnectionRefused);
+        assert!(info.retryable);
+        assert_eq!(info.message, "refused");
+    }
+
+    fn persisted_failure_info_with_unknown_code_deserializes_as_internal() {
+        let info: FailureInfo = serde_json::from_str(
+            r#"{"phase":"Recovery","code":"some_future_code","retryable":false,"message":"x","since":1}"#,
+        )
+        .unwrap();
+        assert_eq!(info.code, crate::error::FailureCode::Internal);
+    }
+
     fn service_becomes_ready_only_after_transport_health_and_tools() {
         let mut state = state(DesiredState::Running);
         state.apply(ServiceStateEvent::StartRequested, 2).unwrap();

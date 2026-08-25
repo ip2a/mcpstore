@@ -94,7 +94,8 @@ impl MCPStore {
                 PROMPT_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, &prompt_name),
                 expected_version,
-                serde_json::to_value(&rule).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(&rule)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             )
             .await?;
         Ok(rule)
@@ -120,7 +121,7 @@ impl MCPStore {
                 &Self::component_override_key(instance_id, prompt_name),
             )
             .await
-            .map_err(StoreError::from)
+            .map_err(Error::from)
     }
     pub async fn list_prompt_overrides(&self) -> Result<Vec<PromptOverrideRule>> {
         self.refresh_from_db_if_needed().await?;
@@ -131,9 +132,10 @@ impl MCPStore {
             .into_iter()
             .map(|(key, value)| {
                 serde_json::from_value::<PromptOverrideRule>(value).map_err(|e| {
-                    StoreError::Other(format!(
-                        "Prompt override deserialization failed for {key}: {e}"
-                    ))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Prompt override deserialization failed for {key}: {e}"),
+                    )
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -164,7 +166,10 @@ impl MCPStore {
             .await?
             .map(|value| {
                 serde_json::from_value(value).map_err(|e| {
-                    StoreError::Other(format!("Prompt override deserialization failed: {e}"))
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Prompt override deserialization failed: {e}"),
+                    )
                 })
             })
             .transpose()
@@ -176,14 +181,15 @@ impl MCPStore {
     ) -> Result<Option<serde_json::Value>> {
         let Some(rule) = self.load_prompt_override(instance_id, &prompt.name).await? else {
             return Ok(Some(
-                serde_json::to_value(prompt).map_err(|e| StoreError::Other(e.to_string()))?,
+                serde_json::to_value(prompt)
+                    .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?,
             ));
         };
         if !is_override_enabled(&rule.common) {
             return Ok(None);
         }
-        let mut value =
-            serde_json::to_value(prompt).map_err(|e| StoreError::Other(e.to_string()))?;
+        let mut value = serde_json::to_value(prompt)
+            .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
             apply_meta_override(object, &rule.common);
         }

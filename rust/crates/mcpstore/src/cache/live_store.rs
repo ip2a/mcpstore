@@ -28,25 +28,25 @@ impl LiveStore {
         self.handle
             .compare_and_swap
             .as_ref()
-            .ok_or_else(|| CacheError::StoreError("store does not provide compare-and-swap".into()))
+            .ok_or_else(|| CacheError::Backend("store does not provide compare-and-swap".into()))
     }
 
     fn enumerate_keys(&self) -> Result<&Arc<dyn AsyncEnumerateKeys>> {
         self.handle
             .enumerate_keys
             .as_ref()
-            .ok_or_else(|| CacheError::StoreError("store does not provide key enumeration".into()))
+            .ok_or_else(|| CacheError::Backend("store does not provide key enumeration".into()))
     }
 
     fn enumerate_collections(&self) -> Result<&Arc<dyn AsyncEnumerateCollections>> {
         self.handle.enumerate_collections.as_ref().ok_or_else(|| {
-            CacheError::StoreError("store does not provide collection enumeration".into())
+            CacheError::Backend("store does not provide collection enumeration".into())
         })
     }
 }
 
 fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
-    CacheError::StoreError(format!("openkeyv: {err}"))
+    CacheError::Backend(format!("openkeyv: {err}"))
 }
 
 fn value_version(value: &JsonValue) -> Option<u64> {
