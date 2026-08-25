@@ -6,14 +6,18 @@ pub mod server;
 
 #[cfg(not(unix))]
 pub mod client {
+    use mcpstore::error::{Error, FailureCode};
     use serde_json::Value;
 
     pub fn daemon_socket_exists() -> bool {
         false
     }
 
-    pub async fn call_daemon(_method: impl Into<String>, _params: Value) -> Result<Value, String> {
-        Err("Daemon mode is only available on Unix platforms.".to_string())
+    pub async fn call_daemon(_method: impl Into<String>, _params: Value) -> Result<Value, Error> {
+        Err(Error::new(
+            FailureCode::ServiceUnavailable,
+            "daemon mode is only available on Unix platforms",
+        ))
     }
 }
 
