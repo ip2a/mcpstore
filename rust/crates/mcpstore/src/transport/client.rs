@@ -352,6 +352,7 @@ fn needs_fallback(error: &Error, mode: crate::config::HandshakeMode) -> bool {
 /// uncorrelated case) and `initialize` either properly or with -32601.
 /// One request per connection (`Connection: close`); counts the probes it
 /// served so tests can assert exactly-one fallback.
+#[cfg(test)]
 struct RawHandshakeServer {
     discover_reply: DiscoverReply,
     reject_initialize: bool,
@@ -360,11 +361,13 @@ struct RawHandshakeServer {
 }
 
 #[derive(Clone)]
+#[cfg(test)]
 enum DiscoverReply {
     RpcError(i32),
     MismatchedId,
 }
 
+#[cfg(test)]
 impl RawHandshakeServer {
     async fn spawn(self) -> String {
         use tokio::io::AsyncReadExt;
@@ -427,6 +430,7 @@ impl RawHandshakeServer {
     }
 }
 
+#[cfg(test)]
 async fn serve_request(
     socket: &mut tokio::net::TcpStream,
     head: &str,
