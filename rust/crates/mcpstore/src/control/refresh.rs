@@ -220,7 +220,14 @@ impl MCPStore {
         self.auth_coordinator
             .retain_statuses(&active_instance_ids)
             .await;
-        self.pool.clear().await;
+
+        // 增量合并连接池，而非清空重建：只移除已删除的实例，
+        // 只对配置变更的实例重连，其余保留活连接。
+        let current_ids = self.pool.instance_ids().await;
+        for stale_id in current_ids.difference(&active_instance_ids) {
+            self.pool.remove(*stale_id).await.ok();
+        }
+
         self.applied_openapi_configs.write().await.clear();
         self.registry.clear().await;
         for definition in definitions.into_values() {
@@ -257,7 +264,11 @@ impl MCPStore {
             self.auth_coordinator
                 .initialize_status(instance_id, &transport_config.auth)
                 .await;
-            self.pool.add(instance_id, transport_config).await;
+            // 只在配置实际变化或实例首次注册时才重建连接池条目
+            if instance.restart_required() || !self.pool.contains(instance_id).await {
+                self.pool.remove(instance_id).await.ok();
+                self.pool.add(instance_id, transport_config).await;
+            }
             self.registry.register_instance(instance).await;
         }
         Ok(())
