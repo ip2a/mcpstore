@@ -30,7 +30,6 @@
 !/README_*.md
 !/install.sh
 !/platforms.toml
-!/run_debug.sh
 
 # Markdown is documentation-only unless it is a README.
 !README.md
