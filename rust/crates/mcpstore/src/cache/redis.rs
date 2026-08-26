@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use openkeyv::{
-    store::redis::RedisStore as OpenKeyvRedisInner, AsyncCompareAndSwap, AsyncEnumerateCollections,
-    AsyncEnumerateKeys, AsyncKeyValue, Revision, RevisionedValue, Value,
+    store::redis::{ForeignKeyPolicy, RedisConfig, RedisStore as OpenKeyvRedisInner},
+    AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, AsyncKeyValue, Revision,
+    RevisionedValue, Value,
 };
 use tokio::sync::OnceCell;
 
@@ -11,19 +12,32 @@ use tokio::sync::OnceCell;
 pub(in crate::cache) struct LazyRedisStore {
     inner: OnceCell<Arc<OpenKeyvRedisInner>>,
     url: String,
+    foreign_key_policy: ForeignKeyPolicy,
 }
 
 impl LazyRedisStore {
-    pub(in crate::cache) fn new(url: impl Into<String>) -> Self {
+    pub(in crate::cache) fn new(
+        url: impl Into<String>,
+        foreign_key_policy: ForeignKeyPolicy,
+    ) -> Self {
         Self {
             inner: OnceCell::new(),
             url: url.into(),
+            foreign_key_policy,
         }
     }
 
     async fn handle(&self) -> openkeyv::Result<&Arc<OpenKeyvRedisInner>> {
         self.inner
-            .get_or_try_init(|| async { OpenKeyvRedisInner::new(&self.url).await.map(Arc::new) })
+            .get_or_try_init(|| async {
+                let config = RedisConfig {
+                    foreign_key_policy: self.foreign_key_policy,
+                    ..RedisConfig::default()
+                };
+                OpenKeyvRedisInner::new_with_config(&self.url, config)
+                    .await
+                    .map(Arc::new)
+            })
             .await
     }
 }
