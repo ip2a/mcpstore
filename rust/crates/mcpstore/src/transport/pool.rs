@@ -137,6 +137,14 @@ impl ConnectionPool {
         self.resource_subscriptions.write().await.clear();
     }
 
+    pub async fn instance_ids(&self) -> HashSet<InstanceId> {
+        self.connections.read().await.keys().copied().collect()
+    }
+
+    pub async fn contains(&self, instance_id: InstanceId) -> bool {
+        self.connections.read().await.contains_key(&instance_id)
+    }
+
     pub async fn start_task_tool_execution(
         &self,
         instance_id: InstanceId,
