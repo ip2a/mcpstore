@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_PATH = ROOT / "rust" / "Cargo.toml"
 CARGO_VERSION_PATTERN = r'^version\s*=\s*"([^"]+)"'
 PYTHON_VERSION_PATTERN = r'^__version__\s*=\s*"([^"]+)"'
+LOCK_PATH = ROOT / "rust" / "Cargo.lock"
+# Cargo.lock package blocks for workspace crates (mcpstore, mcpstore-cli, mcpstore_python, ...).
+# Wheels and crates publish with --locked, so a stale lock version fails the release build.
+LOCK_PACKAGE_PATTERN = re.compile(r'(\[\[package\]\]\nname = "(mcpstore[^"]*)"\nversion = )"([^"]+)"')
 
 
 def _read_regex_version(path: Path, pattern: str) -> str:
@@ -48,6 +52,22 @@ def _write_json_file(path: Path, data: dict) -> bool:
         return False
     path.write_text(updated, encoding="utf-8")
     return True
+
+
+def _write_lock_versions(version: str) -> bool:
+    text = LOCK_PATH.read_text(encoding="utf-8")
+    updated, _ = LOCK_PACKAGE_PATTERN.subn(lambda m: f'{m.group(1)}"{version}"', text)
+    if updated == text:
+        return False
+    LOCK_PATH.write_text(updated, encoding="utf-8")
+    return True
+
+
+def read_lock_versions() -> dict[str, str]:
+    return {
+        match.group(2): match.group(3)
+        for match in LOCK_PACKAGE_PATTERN.finditer(LOCK_PATH.read_text(encoding="utf-8"))
+    }
 
 
 def read_canonical_version() -> str:
@@ -104,6 +124,9 @@ def sync_version(version: str) -> list[str]:
         if _write_regex_version(path, pattern, replacement):
             changed.append(str(path.relative_to(ROOT)))
 
+    if _write_lock_versions(version):
+        changed.append(str(LOCK_PATH.relative_to(ROOT)))
+
     json_targets = [
         ROOT / "desktop" / "tauri" / "tauri.conf.json",
         ROOT / "web" / "package.json",
@@ -143,6 +166,7 @@ def sync_version(version: str) -> list[str]:
 def verify_release_metadata() -> str:
     expected = read_canonical_version()
     versions = collect_versions()
+    versions.update({f"Cargo.lock {name}": value for name, value in read_lock_versions().items()})
     mismatches = {name: value for name, value in versions.items() if value != expected}
     if mismatches:
         for name, value in mismatches.items():
