@@ -26,7 +26,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rmcp = { workspace = true }
 
 # Cache backends
-openkeyv = { version = "0.1.5", default-features = false, features = ["json"] }
+openkeyv = { version = "0.1.6", default-features = false, features = ["json"] }
 http = "1"
 iri-string = "0.7.12"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }

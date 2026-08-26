@@ -1051,6 +1051,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "backon"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cffb0e931875b666fc4fcb20fee52e9bbd1ef836fd9e9e04ec21555f9f85f7ef"
+dependencies = [
+ "fastrand",
+]
+
+[[package]]
 name = "base16ct"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3710,7 +3719,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3742,7 +3751,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore-cli"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -3768,7 +3777,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore_python"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "mcpstore",
  "openssl",
@@ -4137,9 +4146,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "openkeyv"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "565929e227e7f5ed293b657bbbc4ae2b621599a73f2319ac70020b29adf33369"
+checksum = "735a6a6bd8b1a91cf86fd63bbca7e0795b149d42f60bc094a6513b61323ef5b6"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -4165,6 +4174,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sled",
+ "socket2 0.5.10",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -4907,8 +4917,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bc42f3a12fd4408ce64d8efef67048a924e543bd35c6591c0447fda9054695f"
 dependencies = [
  "arc-swap",
+ "backon",
  "bytes",
  "combine",
+ "futures-channel",
  "futures-util",
  "itoa",
  "num-bigint",
