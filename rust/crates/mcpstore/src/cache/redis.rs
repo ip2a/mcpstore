@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use openkeyv::{
-    store::redis::{ForeignKeyPolicy, RedisConfig, RedisStore as OpenKeyvRedisInner},
+    store::redis::{RedisConfig, RedisStore as OpenKeyvRedisInner},
     AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, AsyncKeyValue, Revision,
-    RevisionedValue, Value,
+    RevisionedValue, Subspace, Value,
 };
 use tokio::sync::OnceCell;
 
@@ -12,31 +12,49 @@ use tokio::sync::OnceCell;
 pub(in crate::cache) struct LazyRedisStore {
     inner: OnceCell<Arc<OpenKeyvRedisInner>>,
     url: String,
-    foreign_key_policy: ForeignKeyPolicy,
+    keyspace: String,
 }
 
 impl LazyRedisStore {
-    pub(in crate::cache) fn new(
-        url: impl Into<String>,
-        foreign_key_policy: ForeignKeyPolicy,
-    ) -> Self {
+    pub(in crate::cache) fn new(url: impl Into<String>, keyspace: impl Into<String>) -> Self {
         Self {
             inner: OnceCell::new(),
             url: url.into(),
-            foreign_key_policy,
+            keyspace: keyspace.into(),
         }
     }
 
     async fn handle(&self) -> openkeyv::Result<&Arc<OpenKeyvRedisInner>> {
         self.inner
             .get_or_try_init(|| async {
-                let config = RedisConfig {
-                    foreign_key_policy: self.foreign_key_policy,
-                    ..RedisConfig::default()
-                };
-                OpenKeyvRedisInner::new_with_config(&self.url, config)
-                    .await
-                    .map(Arc::new)
+                let keyspace = self.keyspace.clone();
+                let config = RedisConfig::default().with_keyspace(keyspace.clone());
+                let store = OpenKeyvRedisInner::new_with_config(&self.url, config).await?;
+
+                if !keyspace.is_empty() {
+                    const MARKER_COLLECTION: &str = "__mcpstore_keyspace_meta";
+                    const MARKER_KEY: &str = "keyspace_migration_v1";
+                    if store
+                        .get(MARKER_KEY, Some(MARKER_COLLECTION))
+                        .await?
+                        .is_none()
+                    {
+                        let options = openkeyv::MigrationOptions {
+                            collection_prefix: Some((
+                                format!("{keyspace}:"),
+                                format!("{keyspace}:"),
+                            )),
+                            ..openkeyv::MigrationOptions::default()
+                        };
+                        openkeyv::migrate_into_keyspace(&store, &Subspace::new(keyspace), &options)
+                            .await?;
+                        store
+                            .put(MARKER_KEY, Value::integer(1), Some(MARKER_COLLECTION), None)
+                            .await?;
+                    }
+                }
+
+                Ok(Arc::new(store))
             })
             .await
     }

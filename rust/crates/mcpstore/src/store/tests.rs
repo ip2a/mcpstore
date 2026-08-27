@@ -90,6 +90,21 @@ fn broken_stdio_config() -> ServerConfig {
     }
 }
 
+#[cfg(feature = "redis")]
+#[test]
+fn setup_scopes_redis_config_to_store_namespace() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        store: Some(JsonStoreConfig::redis("redis://127.0.0.1/")),
+        namespace: Some("tenant-a".to_string()),
+        ..StoreOptions::default()
+    })
+    .unwrap();
+
+    assert_eq!(store.namespace(), "tenant-a");
+    let config = store.store_config.try_read().unwrap();
+    assert_eq!(config.config["keyspace"], "tenant-a");
+}
+
 fn hanging_stdio_config() -> ServerConfig {
     ServerConfig {
         url: None,
