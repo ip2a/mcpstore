@@ -57,11 +57,8 @@ pub(crate) fn memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyv
 }
 
 #[cfg(feature = "redis")]
-pub(crate) fn redis_store(
-    redis_address: &str,
-    foreign_key_policy: openkeyv::store::redis::ForeignKeyPolicy,
-) -> Arc<dyn CacheStore> {
-    let store = Arc::new(LazyRedisStore::new(redis_address, foreign_key_policy));
+pub(crate) fn redis_store(redis_address: &str, keyspace: &str) -> Arc<dyn CacheStore> {
+    let store = Arc::new(LazyRedisStore::new(redis_address, keyspace));
     let handle = openkeyv::StoreHandle::with_capabilities(
         store.clone(),
         Some(store.clone()),

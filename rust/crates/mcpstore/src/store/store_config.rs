@@ -49,7 +49,11 @@ impl StoreConfig for RedisStoreConfig {
         "redis"
     }
     fn to_openkeyv_config(&self) -> OpenKeyvStoreConfig {
-        OpenKeyvStoreConfig::redis(json!({ "url": self.url }))
+        let mut config = json!({ "url": self.url });
+        if let Some(namespace) = &self.namespace {
+            config["keyspace"] = Value::String(namespace.clone());
+        }
+        OpenKeyvStoreConfig::redis(config)
     }
 }
 
@@ -83,5 +87,24 @@ impl StoreConfig for JsonStoreConfig {
     }
     fn to_openkeyv_config(&self) -> OpenKeyvStoreConfig {
         OpenKeyvStoreConfig::new(&self.store, self.config.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redis_config_preserves_namespace_as_keyspace() {
+        let config = RedisStoreConfig::new("redis://127.0.0.1/").with_namespace("tenant-a");
+        let openkeyv = config.to_openkeyv_config();
+        assert_eq!(openkeyv.config["keyspace"], "tenant-a");
+    }
+
+    #[test]
+    fn redis_config_omits_keyspace_without_namespace() {
+        let config = RedisStoreConfig::new("redis://127.0.0.1/");
+        let openkeyv = config.to_openkeyv_config();
+        assert!(openkeyv.config.get("keyspace").is_none());
     }
 }

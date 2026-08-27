@@ -30,8 +30,13 @@ impl MCPStore {
     /// 4. Atomically replaces the internal store.
     /// 5. Returns the swap result.
     pub async fn swap_store(&self, config: &dyn StoreConfig) -> Result<SwapResult> {
-        let target_openkeyv_config = config.to_openkeyv_config();
-        let target_handle = openkeyv::factory::open_store(target_openkeyv_config)
+        let namespace = self.namespace();
+        let mut target_openkeyv_config = config.to_openkeyv_config();
+        if matches!(config.store_name(), "redis" | "valkey") {
+            target_openkeyv_config.config["keyspace"] =
+                serde_json::Value::String(namespace.clone());
+        }
+        let target_handle = openkeyv::factory::open_store(target_openkeyv_config.clone())
             .await
             .map_err(|e| {
                 Error::new(
@@ -55,7 +60,6 @@ impl MCPStore {
 
         let source_name = self.store_config.read().await.store_name().to_string();
         let target_name = config.store_name().to_string();
-        let namespace = self.namespace();
 
         let target_live_store = Arc::new(LiveStore::from_handle(target_handle));
         let target_handle = target_live_store.handle();
@@ -156,13 +160,25 @@ impl MCPStore {
             }
         }
 
+        if !namespace.is_empty() && matches!(target_name.as_str(), "redis" | "valkey") {
+            target_handle
+                .put(
+                    "keyspace_migration_v1",
+                    openkeyv::Value::integer(1),
+                    Some("__mcpstore_keyspace_meta"),
+                    None,
+                )
+                .await
+                .map_err(|e| Error::new(FailureCode::Internal, format!("migration marker: {e}")))?;
+        }
+
         // Swap while writes remain frozen.
         *self.cache.store.write().await = target_live_store;
         self.cache.last_state_snapshot.write().await.clear();
 
         // Update metadata.
         *self.store_config.write().await =
-            JsonStoreConfig::new(config.store_name(), config.to_openkeyv_config().config);
+            JsonStoreConfig::new(config.store_name(), target_openkeyv_config.config);
         *self.event_backend.write().await = online.then_some(target_event_backend);
 
         Ok(SwapResult {
