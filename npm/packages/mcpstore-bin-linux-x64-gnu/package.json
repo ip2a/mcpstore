@@ -1,6 +1,6 @@
 {
   "name": "mcpstore-bin-linux-x64-gnu",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "MCPStore CLI platform package for Linux x64 GNU",
   "license": "MIT",
   "repository": {
