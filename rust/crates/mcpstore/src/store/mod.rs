@@ -115,15 +115,17 @@ impl MCPStore {
             .namespace
             .clone()
             .unwrap_or_else(|| app_config.cache.namespace.clone());
-        let store_config = options.store.clone().unwrap_or_else(|| {
+        let mut store_config = options.store.clone().unwrap_or_else(|| {
             JsonStoreConfig::new(
                 app_config.cache.store.as_str(),
                 app_config.cache.config.clone(),
             )
         });
         let store_name = store_config.store_name().to_string();
-        let redis_url = app_config
-            .cache
+        if matches!(store_name.as_str(), "redis" | "valkey") {
+            store_config.config["keyspace"] = serde_json::Value::String(namespace.clone());
+        }
+        let redis_url = store_config
             .config
             .get("url")
             .and_then(|v| v.as_str())
@@ -267,7 +269,10 @@ impl MCPStore {
                         .and_then(|v| v.as_str())
                         .unwrap_or("redis://127.0.0.1/");
                     let handle = openkeyv::factory::open_store(openkeyv::StoreConfig::redis(
-                        serde_json::json!({"url": url}),
+                        serde_json::json!({
+                            "url": url,
+                            "keyspace": self.namespace(),
+                        }),
                     ))
                     .await
                     .map_err(|e| Error::new(FailureCode::Internal, format!("event Store: {e}")))?;
