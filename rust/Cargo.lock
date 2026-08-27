@@ -3719,7 +3719,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3751,7 +3751,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore-cli"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -3777,7 +3777,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore_python"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "mcpstore",
  "openssl",
@@ -4146,9 +4146,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "openkeyv"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9e65bb8cf30840d07e2946c64f0f2728bd35a46512c679a623f0492286d7993"
+checksum = "37448feace9c304394e24ddba6e483af755271dbc2866933492ef746e9850a28"
 dependencies = [
  "async-trait",
  "aws-config",
