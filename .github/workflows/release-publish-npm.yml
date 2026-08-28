@@ -1,11 +1,11 @@
 # Manual release flow: after release-build-cli has finished for a tag, run
 #   gh workflow run release-publish-npm.yml --ref main -f tag=vX.Y.Z
-# The workflow checks out that tag and publishes @ip2a/mcpstore plus the five
-# @ip2a/mcpstore-bin-* platform packages with provenance. Dispatching to main
-# (instead of the tag ref) means npm publish fixes take effect without moving
-# the tag or cutting a new release.
-# Requires the repo secret NPM_TOKEN (npm granular access token with publish
-# rights for the @ip2a scope) and the "npm" GitHub environment.
+# The workflow checks out that tag and publishes @ip2a/mcpstore plus the
+# platform @ip2a/mcpstore-bin-* packages via npm trusted publishing (OIDC):
+# no NPM_TOKEN secret involved. Each package must have a trusted publisher
+# configured on npmjs.com (repo ip2a/mcpstore, workflow release-publish-npm.yml).
+# Dispatching to main (instead of the tag ref) means npm publish fixes take
+# effect without moving the tag or cutting a new release.
 name: release-publish-npm
 
 on:
@@ -22,10 +22,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # matches the Environment field of each package's trusted publisher on npm
     environment: npm
     env:
       GH_TOKEN: ${{ github.token }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout
@@ -38,10 +38,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Node 24 ships npm >= 11.5, required for trusted publishing (OIDC)
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: https://registry.npmjs.org/
 
       # The tag guard in preflight reads GITHUB_REF_*; pass it via shell-level
@@ -62,7 +63,7 @@ jobs:
       - name: Download build artifacts
         run: |
           mkdir -p dist
-          for platform in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+          for platform in darwin-arm64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
             gh run download "${BUILD_RUN_ID}" --name "mcpstore-${platform}" --dir "dist/${platform}"
           done
 
@@ -72,10 +73,6 @@ jobs:
       - name: Publish @ip2a/mcpstore-bin-darwin-arm64
         run: npm publish --access public --provenance
         working-directory: npm/packages/mcpstore-bin-darwin-arm64
-
-      - name: Publish @ip2a/mcpstore-bin-darwin-x64
-        run: npm publish --access public --provenance
-        working-directory: npm/packages/mcpstore-bin-darwin-x64
 
       - name: Publish @ip2a/mcpstore-bin-linux-x64-gnu
         run: npm publish --access public --provenance
