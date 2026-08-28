@@ -30,6 +30,7 @@
 !/README_*.md
 !/install.sh
 !/platforms.toml
+!/paseo.json
 
 # Markdown is documentation-only unless it is a README.
 !README.md

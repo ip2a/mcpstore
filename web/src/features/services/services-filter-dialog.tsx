@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -50,7 +49,6 @@ export function ServicesFilterDialog(props: {
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{t("filter")}</DialogTitle>
-          <DialogDescription>{t("filterDescription")}</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>

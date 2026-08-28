@@ -1,9 +1,7 @@
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
-import { Badge } from "@/components/ui/badge"
+import { isServiceConnected } from "@/features/services/service-display-status"
 import { getServiceTransport } from "@/lib/service-info"
 import type { ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
-
 
 export function ServiceRowMeta({
   service,
@@ -19,23 +17,17 @@ export function ServiceRowMeta({
     service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
   const transport = getServiceTransport(service)
   const transportLabel = transport !== "unknown" ? transport : "-"
+  const showToolCount = toolCount !== undefined && isServiceConnected(service.state)
+
+  const parts = [
+    showScope ? scope : null,
+    transportLabel,
+    showToolCount ? t("serviceRowToolCount", { count: toolCount }) : null,
+  ].filter((part): part is string => Boolean(part))
 
   return (
-    <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap font-mono text-xs text-muted-foreground">
-      {showScope ? (
-        <Badge variant="outline" className="max-w-full font-mono">
-          <span className="truncate">{scope}</span>
-        </Badge>
-      ) : null}
-      <Badge variant="outline" className="shrink-0 font-mono">
-        {transportLabel}
-      </Badge>
-      <ServiceStatusBadge state={service.state} />
-      {toolCount !== undefined ? (
-        <Badge variant="outline" className="shrink-0 font-mono">
-          {t("serviceRowToolCount", { count: toolCount })}
-        </Badge>
-      ) : null}
+    <div className="mt-1 min-w-0 truncate text-sm text-muted-foreground" title={parts.join(" · ")}>
+      {parts.join("  ")}
     </div>
   )
 }

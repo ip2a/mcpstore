@@ -1,17 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ClipboardIcon,
-  EyeIcon,
-  FileIcon,
-  LayoutTemplateIcon,
-  RefreshCwIcon,
-  WrenchIcon,
-} from "lucide-react";
 import { toast } from "sonner";
 
-import { JsonBlock } from "@/components/shared/json-block";
-import { MetricGrid, MetricTile } from "@/components/shared/metric-grid";
 import { PageEmpty, PageError } from "@/components/shared/page-states";
+import { MetricGrid, MetricTile } from "@/components/shared/metric-grid";
 import { PanelCard } from "@/components/shared/panel-card";
 import { ScrollPane } from "@/components/shared/scroll-pane";
 import { SectionHeading } from "@/components/shared/section-heading";
@@ -27,9 +18,7 @@ import {
 } from "@/components/shared/tool-detail-playground";
 import { TwoPanePage } from "@/components/shared/two-pane-page";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
   useServiceDetailQuery,
   useServicePromptsQuery,
@@ -37,7 +26,6 @@ import {
   useServiceResourcesQuery,
   useServiceStatusQuery,
 } from "@/features/services/queries";
-import { ServiceAuthPanel } from "@/features/services/service-auth-panel";
 import { ServiceStatusActionsDialog } from "@/features/services/service-status-actions-dialog";
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
 import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args";
@@ -243,6 +231,18 @@ export function ServiceDetailView(props: {
   }, [resourceTemplates, selectedTemplateKey]);
 
   useEffect(() => {
+    if (resourceSubTab === "items" && !resources.length && resourceTemplates.length) {
+      setResourceSubTab("templates");
+    } else if (
+      resourceSubTab === "templates" &&
+      !resourceTemplates.length &&
+      resources.length
+    ) {
+      setResourceSubTab("items");
+    }
+  }, [resourceSubTab, resourceTemplates.length, resources.length]);
+
+  useEffect(() => {
     if (!prompts.length) {
       setSelectedPromptKey(null);
       return;
@@ -351,13 +351,13 @@ export function ServiceDetailView(props: {
                 variant="text"
               />
               <CatalogTabTrigger
-                value="resources"
-                label={t("resources")}
+                value="prompts"
+                label={t("prompts")}
                 variant="text"
               />
               <CatalogTabTrigger
-                value="prompts"
-                label={t("prompts")}
+                value="resources"
+                label={t("resources")}
                 variant="text"
               />
             </CatalogTabsList>
@@ -422,133 +422,6 @@ export function ServiceDetailView(props: {
             </TabsContent>
 
             <TabsContent
-              value="resources"
-              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-            >
-              <Tabs
-                value={resourceSubTab}
-                onValueChange={(value) => {
-                  setResourceSubTab(value as ResourceSubTab);
-                  setRightPaneView("catalog");
-                }}
-                className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-              >
-                <TabsList variant="line" className="h-8 w-full">
-                  <TabsTrigger value="items" className="flex-1">
-                    <FileIcon />
-                    {t("resourceList")}
-                  </TabsTrigger>
-                  <TabsTrigger value="templates" className="flex-1">
-                    <LayoutTemplateIcon />
-                    {t("templateList")}
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent
-                  value="items"
-                  className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-                >
-                  <SectionHeading
-                    title={t("resourceList")}
-                    titleAs="h2"
-                    description={t("itemsCount", { count: resources.length })}
-                    descriptionPlacement="inline"
-                    className="border-b-0 pb-0"
-                  />
-                  {resources.length ? (
-                    <ScrollPane
-                      className="flex-1"
-                      innerClassName="flex flex-col gap-2"
-                    >
-                      {resources.map((resource) => {
-                        const key = resourceKey(resource);
-                        const mimeType = resourceMimeType(resource);
-                        return (
-                          <SelectableRowButton
-                            key={key}
-                            meta={mimeType || resource.uri}
-                            onClick={() => {
-                              setSelectedResourceKey(key);
-                              setRightPaneView("catalog");
-                            }}
-                            selected={
-                              rightPaneView === "catalog" &&
-                              resourceSubTab === "items" &&
-                              key === resourceKey(selectedResource || resource)
-                            }
-                            title={
-                              resource.title || resource.name || resource.uri
-                            }
-                          />
-                        );
-                      })}
-                    </ScrollPane>
-                  ) : (
-                    <PageEmpty
-                      title={t("noResourcesFound")}
-                      description={t("noResourcesFoundDescription")}
-                      onRefresh={refreshCurrentView}
-                    />
-                  )}
-                </TabsContent>
-
-                <TabsContent
-                  value="templates"
-                  className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-                >
-                  <SectionHeading
-                    title={t("templateList")}
-                    titleAs="h2"
-                    description={t("itemsCount", {
-                      count: resourceTemplates.length,
-                    })}
-                    descriptionPlacement="inline"
-                    className="border-b-0 pb-0"
-                  />
-                  {resourceTemplates.length ? (
-                    <ScrollPane
-                      className="flex-1"
-                      innerClassName="flex flex-col gap-2"
-                    >
-                      {resourceTemplates.map((template) => {
-                        const key = resourceTemplateKey(template);
-                        const mimeType = resourceTemplateMimeType(template);
-                        const uriTemplate = resourceTemplateUri(template);
-                        return (
-                          <SelectableRowButton
-                            key={key}
-                            meta={mimeType || uriTemplate}
-                            onClick={() => {
-                              setSelectedTemplateKey(key);
-                              setRightPaneView("catalog");
-                            }}
-                            selected={
-                              rightPaneView === "catalog" &&
-                              resourceSubTab === "templates" &&
-                              key ===
-                                resourceTemplateKey(
-                                  selectedTemplate || template,
-                                )
-                            }
-                            title={
-                              template.title || template.name || uriTemplate
-                            }
-                          />
-                        );
-                      })}
-                    </ScrollPane>
-                  ) : (
-                    <PageEmpty
-                      title={t("noTemplatesFound")}
-                      description={t("noTemplatesFoundDescription")}
-                      onRefresh={refreshCurrentView}
-                    />
-                  )}
-                </TabsContent>
-              </Tabs>
-            </TabsContent>
-
-            <TabsContent
               value="prompts"
               className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
             >
@@ -593,6 +466,85 @@ export function ServiceDetailView(props: {
                 <PageEmpty
                   title={t("noPromptsFound")}
                   description={t("noPromptsFoundDescription")}
+                  onRefresh={refreshCurrentView}
+                />
+              )}
+            </TabsContent>
+
+            <TabsContent
+              value="resources"
+              className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+            >
+              <SectionHeading
+                title={t("resourceList")}
+                titleAs="h2"
+                description={t("itemsCount", {
+                  count: resources.length + resourceTemplates.length,
+                })}
+                descriptionPlacement="inline"
+                className="border-b-0 pb-0"
+              />
+              {resources.length || resourceTemplates.length ? (
+                <ScrollPane
+                  className="flex-1"
+                  innerClassName="flex flex-col gap-2"
+                >
+                  {resources.map((resource) => {
+                    const key = resourceKey(resource);
+                    const mimeType = resourceMimeType(resource);
+                    return (
+                      <SelectableRowButton
+                        key={`resource:${key}`}
+                        meta={mimeType || resource.uri}
+                        onClick={() => {
+                          setResourceSubTab("items");
+                          setSelectedResourceKey(key);
+                          setRightPaneView("catalog");
+                        }}
+                        selected={
+                          rightPaneView === "catalog" &&
+                          resourceSubTab === "items" &&
+                          key === resourceKey(selectedResource || resource)
+                        }
+                        title={
+                          resource.title || resource.name || resource.uri
+                        }
+                      />
+                    );
+                  })}
+                  {resourceTemplates.map((template) => {
+                    const key = resourceTemplateKey(template);
+                    const mimeType = resourceTemplateMimeType(template);
+                    const uriTemplate = resourceTemplateUri(template);
+                    return (
+                      <SelectableRowButton
+                        key={`template:${key}`}
+                        meta={mimeType || uriTemplate}
+                        onClick={() => {
+                          setResourceSubTab("templates");
+                          setSelectedTemplateKey(key);
+                          setRightPaneView("catalog");
+                        }}
+                        selected={
+                          rightPaneView === "catalog" &&
+                          resourceSubTab === "templates" &&
+                          key ===
+                            resourceTemplateKey(selectedTemplate || template)
+                        }
+                        title={
+                          template.title || template.name || uriTemplate
+                        }
+                        trailing={
+                          <Badge variant="outline">{t("templates")}</Badge>
+                        }
+                      />
+                    );
+                  })}
+                </ScrollPane>
+              ) : (
+                <PageEmpty
+                  title={t("noResourcesFound")}
+                  description={t("noResourcesFoundDescription")}
                   onRefresh={refreshCurrentView}
                 />
               )}

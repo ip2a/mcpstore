@@ -1,10 +1,11 @@
 import { useState } from "react"
-import { EyeIcon, LayersIcon, LinkIcon, MoreHorizontalIcon, PencilIcon, RotateCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
+import { LayersIcon, LinkIcon, MoreHorizontalIcon, RotateCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
 
 import { EntityRow } from "@/components/shared/entity-row"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
+import { ServiceConnectionMark } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
 import {
   isServiceRunning,
@@ -47,9 +48,6 @@ function ServiceMoreActionsDialog({
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{t("serviceListMoreActions")}</DialogTitle>
-          <DialogDescription>
-            {service ? t("serviceListMoreActionsDescription", { name: service.service_name }) : null}
-          </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2">
           {connected ? (
@@ -176,15 +174,13 @@ function ServiceRow({
       }}
       actions={
         <>
+          <ServiceConnectionButtonForEntry busy={busy} service={service} onConnect={onConnect} onDisconnect={onDisconnect} />
           <Button variant="outline" size="sm" onClick={() => onOpen(service)}>
-            <EyeIcon data-icon="inline-start" />
             {t("detail")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => onEdit(service)}>
-            <PencilIcon data-icon="inline-start" />
             {t("edit")}
           </Button>
-          <ServiceConnectionButtonForEntry busy={busy} service={service} onConnect={onConnect} onDisconnect={onDisconnect} />
           <Button variant="outline" size="sm" aria-label={t("serviceListMoreActionsFor", { name: service.service_name })} onClick={() => onMore(service)}>
             <MoreHorizontalIcon data-icon="inline-start" />
             {t("more")}
@@ -194,8 +190,9 @@ function ServiceRow({
       actionsProps={{ onClick: (event) => event.stopPropagation() }}
     >
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-nowrap items-baseline gap-x-2">
+        <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
+          <ServiceConnectionMark state={service.state} />
           <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
             {getServiceEndpointLabel(service)}
           </span>
