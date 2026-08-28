@@ -201,6 +201,7 @@ pub fn run() {
                 WebviewUrl::External(url.parse().expect("desktop URL is valid")),
             )
             .title("mcpstore")
+            .hidden_title(true)
             .inner_size(initial_state.width as f64, initial_state.height as f64)
             .min_inner_size(ABSOLUTE_MIN_INNER_WIDTH, DESIGN_MIN_INNER_HEIGHT)
             .zoom_hotkeys_enabled(false)

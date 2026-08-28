@@ -17,6 +17,9 @@
   "dependencies": {
     "@tailwindcss/vite": "latest",
     "@tanstack/react-query": "^5.101.2",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "@vitejs/plugin-react": "latest",
     "class-variance-authority": "latest",
     "clsx": "latest",

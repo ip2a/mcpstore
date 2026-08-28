@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { payloadFromDraft, sections, settingsDraft, type ConnectionDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
+import { isDesktopShell, UpdateButton, useAppUpdater } from "@/features/settings/updater"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
 import { getApiBase, resolveActiveConnectionUrl, setApiBase, setConnections } from "@/lib/api/backend"
@@ -41,6 +42,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
   const metaQuery = useSettingsMetaQuery(open)
   const settingsMutation = useUpdateSettingsMutation()
+  const { phase, progress, version: updateAvailable, checkForUpdate, restartToUpdate } = useAppUpdater()
   const meta = metaQuery.data
   const loading = metaQuery.isFetching && !draft
   const error = metaQuery.error instanceof Error ? metaQuery.error.message : ""
@@ -216,6 +218,19 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                       <SectionHead title={t("about")} description={t("settingsDescription")} />
                       <div className="divide-y">
                         <AboutRow label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />
+                        {isDesktopShell ? (
+                          <AboutRow
+                            label={updateAvailable ? t("updateAvailable", { version: `v${updateAvailable}` }) : t("checkUpdates")}
+                            action={
+                              <UpdateButton
+                                phase={phase}
+                                progress={progress}
+                                onCheck={() => void checkForUpdate()}
+                                onRestart={restartToUpdate}
+                              />
+                            }
+                          />
+                        ) : null}
                         <AboutRow label={t("github")} href="https://github.com/ip2a/mcpstore" value="github.com/ip2a/mcpstore" />
                         <AboutRow label={t("rustCrate")} href="https://crates.io/crates/mcpstore" value="crates.io/crates/mcpstore" />
                       </div>
@@ -272,11 +287,13 @@ function ToggleField({ title, description, checked, disabled, onCheckedChange }:
   )
 }
 
-function AboutRow({ href, label, value }: { href?: string; label: string; value: string }) {
+function AboutRow({ href, label, value, action }: { href?: string; label: string; value?: string; action?: ReactNode }) {
   return (
-    <div className="flex min-w-0 items-baseline justify-between gap-4 py-3">
+    <div className="flex min-w-0 items-center justify-between gap-4 py-3">
       <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
-      {href ? (
+      {action ? (
+        action
+      ) : href ? (
         <a href={href} target="_blank" rel="noreferrer" className="min-w-0 truncate text-sm font-medium hover:underline">
           {value}
         </a>
