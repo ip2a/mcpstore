@@ -182,6 +182,8 @@ fn merge_path_values(preferred: &str, current: Option<OsString>) -> Option<OsStr
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             prime_desktop_environment();
             if let Some(home) = dirs::home_dir() {
