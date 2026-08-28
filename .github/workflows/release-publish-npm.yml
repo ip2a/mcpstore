@@ -1,0 +1,81 @@
+# Manual release flow: dispatch this workflow on the release tag ref after
+# release-build-cli has finished for that tag. Publishes @ip2a/mcpstore and the
+# five @ip2a/mcpstore-bin-* platform packages with provenance.
+# Requires the repo secret NPM_TOKEN (npm granular access token with publish
+# rights for the @ip2a scope) and the "npm" GitHub environment.
+name: release-publish-npm
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate release metadata
+        run: python scripts/release_preflight.py --require-tag
+
+      - name: Find release-build run for this tag
+        run: |
+          run_id="$(gh run list --workflow=release-build-cli --branch="${GITHUB_REF_NAME}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
+          if [ -z "${run_id}" ]; then
+            echo "::error::No successful release-build-cli run found for ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "BUILD_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
+
+      - name: Download build artifacts
+        run: |
+          mkdir -p dist
+          for platform in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+            gh run download "${BUILD_RUN_ID}" --name "mcpstore-${platform}" --dir "dist/${platform}"
+          done
+
+      - name: Assemble npm platform packages
+        run: python scripts/assemble_npm_packages.py
+
+      - name: Publish @ip2a/mcpstore-bin-darwin-arm64
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-darwin-arm64
+
+      - name: Publish @ip2a/mcpstore-bin-darwin-x64
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-darwin-x64
+
+      - name: Publish @ip2a/mcpstore-bin-linux-x64-gnu
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-linux-x64-gnu
+
+      - name: Publish @ip2a/mcpstore-bin-linux-arm64-gnu
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-linux-arm64-gnu
+
+      - name: Publish @ip2a/mcpstore-bin-win32-x64-msvc
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-win32-x64-msvc
+
+      - name: Publish @ip2a/mcpstore
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore
