@@ -44,13 +44,11 @@ jobs:
           node-version: "22"
           registry-url: https://registry.npmjs.org/
 
-      # The tag guard in preflight reads GITHUB_REF_*; satisfy it with the
-      # requested tag since we dispatch to main and check out the tag instead.
+      # The tag guard in preflight reads GITHUB_REF_*; pass it via shell-level
+      # env prefix — the runner does not let step env override its own
+      # GITHUB_* context variables, and we dispatch to main, not the tag.
       - name: Validate release metadata
-        run: python scripts/release_preflight.py --require-tag
-        env:
-          GITHUB_REF_TYPE: tag
-          GITHUB_REF_NAME: ${{ inputs.tag }}
+        run: GITHUB_REF_TYPE=tag GITHUB_REF_NAME="${{ inputs.tag }}" python scripts/release_preflight.py --require-tag
 
       - name: Find release-build run for this tag
         run: |
