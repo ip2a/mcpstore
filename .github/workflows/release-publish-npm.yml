@@ -1,12 +1,19 @@
-# Manual release flow: dispatch this workflow on the release tag ref after
-# release-build-cli has finished for that tag. Publishes @ip2a/mcpstore and the
-# five @ip2a/mcpstore-bin-* platform packages with provenance.
+# Manual release flow: after release-build-cli has finished for a tag, run
+#   gh workflow run release-publish-npm.yml --ref main -f tag=vX.Y.Z
+# The workflow checks out that tag and publishes @ip2a/mcpstore plus the five
+# @ip2a/mcpstore-bin-* platform packages with provenance. Dispatching to main
+# (instead of the tag ref) means npm publish fixes take effect without moving
+# the tag or cutting a new release.
 # Requires the repo secret NPM_TOKEN (npm granular access token with publish
 # rights for the @ip2a scope) and the "npm" GitHub environment.
 name: release-publish-npm
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v2.3.0)"
+        required: true
 
 permissions:
   contents: read
@@ -23,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Install Python
         uses: actions/setup-python@v6
@@ -33,15 +42,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          registry-url: https://registry.npmjs.org/
 
+      # The tag guard in preflight reads GITHUB_REF_*; satisfy it with the
+      # requested tag since we dispatch to main and check out the tag instead.
       - name: Validate release metadata
         run: python scripts/release_preflight.py --require-tag
+        env:
+          GITHUB_REF_TYPE: tag
+          GITHUB_REF_NAME: ${{ inputs.tag }}
 
       - name: Find release-build run for this tag
         run: |
-          run_id="$(gh run list --workflow=release-build-cli --branch="${GITHUB_REF_NAME}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
+          run_id="$(gh run list --workflow=release-build-cli --branch="${{ inputs.tag }}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
           if [ -z "${run_id}" ]; then
-            echo "::error::No successful release-build-cli run found for ${GITHUB_REF_NAME}"
+            echo "::error::No successful release-build-cli run found for ${{ inputs.tag }}"
             exit 1
           fi
           echo "BUILD_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
