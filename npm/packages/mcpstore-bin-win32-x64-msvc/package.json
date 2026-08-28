@@ -1,5 +1,5 @@
 {
-  "name": "mcpstore-bin-win32-x64-msvc",
+  "name": "@ip2a/mcpstore-bin-win32-x64-msvc",
   "version": "2.2.1",
   "description": "MCPStore CLI platform package for Windows x64 MSVC",
   "license": "MIT",
