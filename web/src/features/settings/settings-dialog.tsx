@@ -4,7 +4,6 @@ import { ActivityIcon, AlertCircleIcon, CheckIcon, FileTextIcon, InfoIcon, Monit
 import { toast } from "sonner"
 
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
-import { WorkspaceIdentity } from "@/components/shared/workspace-identity"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -165,13 +164,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
                   {section === "config" ? (
                     <section className="flex flex-col gap-4">
-                      <SectionHead title={t("configFile")} description={t("configReadonlyDescription")} />
-                      <WorkspaceIdentity
-                        workspace={configFile?.path}
-                        fallbackTitle={t("configFileMissing")}
-                        label="Config File"
-                        className="rounded-md border p-3"
-                      />
+                      <SectionHead title={t("configFile")} description={configFile?.path || t("configFileMissing")} />
                       <InputGroup>
                         <InputGroupTextarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
                       </InputGroup>
