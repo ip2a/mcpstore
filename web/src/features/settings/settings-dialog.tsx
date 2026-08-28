@@ -362,7 +362,7 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
               className={cn("rounded-md border p-4", isActive && "border-primary/40 bg-primary/5")}
             >
               <h4 className="truncate text-sm font-medium">{formatConnectionLabel(connection.url)}</h4>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <div className="mt-2.5 flex min-w-0 items-center gap-2 overflow-hidden">
                 <Badge variant="secondary" className="gap-1.5">
                   <span
                     className={cn(

@@ -1,6 +1,16 @@
-import { ActivityIcon } from "lucide-react"
+import { ArrowUpDownIcon, RefreshCwIcon } from "lucide-react"
 import { useRef, type ComponentRef } from "react"
 
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { HomeHero } from "@/components/home-hero"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
@@ -9,6 +19,7 @@ import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box
 import { Button } from "@/components/ui/button"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
+import { type ServiceSortBy } from "@/features/services/use-services-list"
 import { usePreserveServiceListScroll } from "@/features/services/use-preserve-service-list-scroll"
 import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, ServiceInstance } from "@/lib/api"
@@ -72,6 +83,35 @@ export function ServicesView(props: {
             {t("serviceList")}
           </label>
           <CollapsibleSearchBox id="service-list-search" placeholder={t("searchServices")} value={query} onChange={setQuery} />
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <ArrowUpDownIcon data-icon="inline-start" />
+                {t("sortLabel")}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>{t("sortLabel")}</DialogTitle>
+              </DialogHeader>
+              <Field>
+                <FieldLabel>{t("sortLabel")}</FieldLabel>
+                <Select value={sortBy} onValueChange={(value) => setSortBy(value as ServiceSortBy)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("sortLabel")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="status">{t("sortStatus")}</SelectItem>
+                      <SelectItem value="name">{t("sortName")}</SelectItem>
+                      <SelectItem value="tools">{t("sortTools")}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <DialogFooter showCloseButton />
+            </DialogContent>
+          </Dialog>
           <ServicesFilterDialog
             activeFilterCount={activeFilterCount}
             agentFilter={agentFilter}
@@ -84,9 +124,9 @@ export function ServicesView(props: {
             sortBy={sortBy}
             statusFilter={statusFilter}
           />
-          <Button variant="outline" size="sm" onClick={props.onCheck} disabled={Boolean(props.busy)}>
-            <ActivityIcon data-icon="inline-start" />
-            {t("inspect")}
+          <Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.loading}>
+            <RefreshCwIcon data-icon="inline-start" />
+            {t("refresh")}
           </Button>
         </div>
         <ScrollPane ref={listScrollRef} className="min-h-0 flex-1 px-4 py-2">

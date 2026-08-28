@@ -368,22 +368,6 @@ export function AgentsView(props: {
                                 setPreviewServiceId(service.instance_id)
                               }
                             }}
-                            actions={
-                              selectedScope.type === "agent" ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={Boolean(props.busy)}
-                                  aria-label={`${t("delete")} ${t("scope")}`}
-                                  onClick={() => props.onRemoveScope(activeAgentId, service.service_name)}
-                                >
-                                  <UnlinkIcon data-icon="inline-start" />
-                                  {t("delete")} {t("scope")}
-                                </Button>
-                              ) : null
-                            }
-                            actionsProps={{ onClick: (event) => event.stopPropagation() }}
                           >
                             <div className="min-w-0">
                               <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
@@ -542,11 +526,11 @@ function AgentPreviewHeader({
   const { t } = useI18n()
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2">
-      <strong className="truncate font-mono text-sm font-medium" title={scopeTitle}>
+    <div className="flex flex-nowrap items-center justify-between gap-3 border-b pb-2">
+      <strong className="min-w-0 flex-1 truncate font-mono text-sm font-medium" title={scopeTitle}>
         {scopeTitle}
       </strong>
-      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+      <div className="flex shrink-0 gap-2">
         {canAddService ? (
           <Button size="sm" variant="outline" onClick={onAddService} disabled={busy}>
             <PlusIcon data-icon="inline-start" />

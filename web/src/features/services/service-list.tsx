@@ -5,7 +5,7 @@ import { EntityRow } from "@/components/shared/entity-row"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceConnectionMark } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
 import {
   isServiceRunning,
@@ -48,10 +48,13 @@ function ServiceMoreActionsDialog({
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{t("serviceListMoreActions")}</DialogTitle>
+          <DialogDescription className="truncate">
+            {service ? t("serviceListMoreActionsDescription", { name: service.service_name }) : null}
+          </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {connected ? (
-            <>
+            <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
                 disabled={Boolean(busy) || !service}
@@ -76,7 +79,7 @@ function ServiceMoreActionsDialog({
                 <RotateCwIcon data-icon="inline-start" />
                 {t("reconnect")}
               </Button>
-            </>
+            </div>
           ) : connecting ? (
             <Button variant="outline" disabled>
               <Spinner data-icon="inline-start" />
@@ -95,42 +98,47 @@ function ServiceMoreActionsDialog({
               {t("connect")}
             </Button>
           )}
-          <Button
-            variant="outline"
-            disabled={Boolean(busy) || !service}
-            onClick={() => {
-              if (!service) return
-              onOpenChange(false)
-              onRestart(service)
-            }}
-          >
-            <RotateCwIcon data-icon="inline-start" />
-            {t("restart")}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={Boolean(busy) || !service}
-            onClick={() => {
-              if (!service) return
-              onOpenChange(false)
-              onAddScope(service)
-            }}
-          >
-            <LayersIcon data-icon="inline-start" />
-            {t("addScope")}
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={Boolean(busy) || !service}
-            onClick={() => {
-              if (!service) return
-              onOpenChange(false)
-              onDelete(service)
-            }}
-          >
-            <Trash2Icon data-icon="inline-start" />
-            {t("delete")}
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              disabled={Boolean(busy) || !service || !connected}
+              onClick={() => {
+                if (!service) return
+                onOpenChange(false)
+                onRestart(service)
+              }}
+            >
+              <RotateCwIcon data-icon="inline-start" />
+              {t("restart")}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={Boolean(busy) || !service}
+              onClick={() => {
+                if (!service) return
+                onOpenChange(false)
+                onAddScope(service)
+              }}
+            >
+              <LayersIcon data-icon="inline-start" />
+              {t("addScope")}
+            </Button>
+          </div>
+          <div className="border-t pt-3">
+            <Button
+              variant="destructive"
+              className="w-full"
+              disabled={Boolean(busy) || !service}
+              onClick={() => {
+                if (!service) return
+                onOpenChange(false)
+                onDelete(service)
+              }}
+            >
+              <Trash2Icon data-icon="inline-start" />
+              {t("delete")}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -222,7 +230,7 @@ export function ServiceList(props: {
 
   return (
     <>
-      <div className="border-t">
+      <div>
         {props.services.map((service) => (
           <ServiceRow
             key={service.instance_id}
