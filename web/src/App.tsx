@@ -145,7 +145,6 @@ export function App() {
             <ServicesView
               services={services}
               agents={agents}
-              backend={backend}
               busy={busy}
               error={dashboardError}
               loading={loading}

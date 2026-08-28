@@ -4,7 +4,6 @@ import { PathText } from "@/components/shared/path-text"
 import { MCPSTORE_ASCII, randomAsciiBannerColor } from "@/lib/ascii-banner"
 import { useI18n } from "@/lib/i18n-context"
 import { getApiBase } from "@/lib/api/backend"
-import type { CacheBackend } from "@/lib/api"
 
 export type HomeHeroStats = {
   loading: boolean
@@ -34,13 +33,13 @@ function HeroStats({ stats }: { stats: HomeHeroStats }) {
   return <PathText value={formatHeroStats(statItems, stats)} className="block w-full min-w-0 text-left" wrap="all" />
 }
 
-export function HomeHero({ backend, stats }: { backend?: CacheBackend; stats: HomeHeroStats }) {
+export function HomeHero({ stats }: { stats: HomeHeroStats }) {
   const { t } = useI18n()
   const statItems = useStatItems()
   const statsLine = formatHeroStats(statItems, stats)
   const [collapsed, setCollapsed] = useState(false)
   const [bannerColor, setBannerColor] = useState(randomAsciiBannerColor)
-  const subtitle = t("homeHeroSubtitle", { backend: backend || "", api: getApiBase() })
+  const subtitle = getApiBase()
 
   function setHeroCollapsed(next: boolean) {
     setBannerColor(randomAsciiBannerColor())

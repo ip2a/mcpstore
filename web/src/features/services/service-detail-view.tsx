@@ -28,22 +28,16 @@ import {
 } from "@/features/services/queries";
 import { ServiceStatusActionsDialog } from "@/features/services/service-status-actions-dialog";
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
-import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args";
+import { serializeToolArgs } from "@/lib/tool-args";
 import { getOriginalToolName, getToolSchema, toolKey } from "@/lib/tool-info";
 import {
-  getResourceTemplateAnnotations,
-  getResourceTemplateMeta,
-  hasResourceTemplateAnnotations,
-  hasResourceTemplateMeta,
   resourceTemplateKey,
   resourceTemplateMimeType,
   resourceTemplateUri,
 } from "@/lib/resource-template-info";
 import {
-  readInstanceResource,
   type PromptInfo,
   type ResourceInfo,
-  type ResourceTemplateInfo,
   type ServiceInstance,
   type ServiceState,
   type ToolInfo,

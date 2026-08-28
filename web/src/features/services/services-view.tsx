@@ -11,13 +11,12 @@ import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { usePreserveServiceListScroll } from "@/features/services/use-preserve-service-list-scroll"
 import { useServicesList } from "@/features/services/use-services-list"
-import type { AgentItem, CacheBackend, ServiceInstance } from "@/lib/api"
+import type { AgentItem, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 
 export function ServicesView(props: {
   services: ServiceInstance[]
   agents: AgentItem[]
-  backend?: CacheBackend
   busy: string | null
   error: string | null
   loading: boolean
@@ -59,7 +58,6 @@ export function ServicesView(props: {
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden">
       <HomeHero
-        backend={props.backend}
         stats={{
           loading: props.loading,
           services: totals.services,
