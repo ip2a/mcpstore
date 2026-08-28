@@ -63,7 +63,9 @@ jobs:
       - name: Download build artifacts
         run: |
           mkdir -p dist
-          for platform in darwin-arm64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+          # every platform the tag declares (assemble reads the same list);
+          # publishing below decides which of them actually go to npm
+          for platform in $(python3 -c "import tomllib; print(' '.join(p['id'] for p in tomllib.load(open('platforms.toml','rb'))['platforms']))"); do
             gh run download "${BUILD_RUN_ID}" --name "mcpstore-${platform}" --dir "dist/${platform}"
           done
 
