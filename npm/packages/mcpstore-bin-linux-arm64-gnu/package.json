@@ -1,5 +1,5 @@
 {
-  "name": "mcpstore-bin-linux-arm64-gnu",
+  "name": "@ip2a/mcpstore-bin-linux-arm64-gnu",
   "version": "2.2.1",
   "description": "MCPStore CLI platform package for Linux arm64 GNU",
   "license": "MIT",
