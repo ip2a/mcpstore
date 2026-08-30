@@ -1,103 +1,101 @@
+<h4 align="right">
+  <a href="README_en.md">English</a> | <strong>简体中文</strong>
+</h4>
 
+<h1 align="center">mcpstore</h1>
 
-<div align="center">
+<p align="center">
+  <strong>基于 Rust 构建的 MCP 管理</strong><br>
+</p>
 
-<table align="center">
-  <tr>
-    <td>
-<pre>
-███    ███  ██████  ███████  ██████  ████████  ██████  ██████  ███████
-████  ████ ██      ██    ██ ██          ██    ██    ██ ██   ██ ██
-██ ████ ██ ██      ███████  ██████      ██    ██    ██ ██████  █████
-██  ██  ██ ██      ██           ██      ██    ██    ██ ██  ██  ██
-██      ██  ██████ ██      ██████       ██     ██████  ██   ██ ███████
-</pre>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <a href="https://github.com/ip2a/mcpstore/releases/latest"><img src="https://img.shields.io/github/v/release/ip2a/mcpstore?color=222222" alt="GitHub Release"></a>
+  <a href="https://github.com/ip2a/mcpstore/stargazers"><img src="https://img.shields.io/github/stars/ip2a/mcpstore?color=222222" alt="GitHub stars"></a>
+  <a href="https://github.com/ip2a/mcpstore/network/members"><img src="https://img.shields.io/github/forks/ip2a/mcpstore?color=222222" alt="GitHub forks"></a>
+  <img src="https://img.shields.io/badge/built_with-Rust-dea584?logo=rust&logoColor=white" alt="Rust">
+</p>
 
----
+<p align="center">
+  <a href="https://github.com/ip2a/mcpstore/releases/latest">
+    <img src="https://img.shields.io/badge/download-macOS-222222?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS">
+  </a>
+  <a href="https://github.com/ip2a/mcpstore/releases/latest">
+    <img src="https://img.shields.io/badge/download-Windows-0078d7?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows">
+  </a>
+  <a href="https://github.com/ip2a/mcpstore/releases/latest">
+    <img src="https://img.shields.io/badge/download-Linux-fcc624?style=for-the-badge&logo=linux&logoColor=black" alt="Download for Linux">
+  </a>
+</p>
 
-![GitHub stars](https://img.shields.io/github/stars/ip2a/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/ip2a/mcpstore) ![GitHub license](https://img.shields.io/github/license/ip2a/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore)
+## 快速开始
 
+### SDK
 
-[English](README_en.md) | [简体中文](README_zh.md)
-
-
-[文档](https://ip2a.github.io/mcpstore/) | [快速使用](#简单示例)
-
-</div>
-
-### mcpstore 是什么？
-
-mcpstore 是一个基于 Rust 构建的 MCP 管理平台，覆盖 MCP 服务的配置、运行、调用与生命周期管理，并提供可复用的 SDK、命令行工具（CLI）以及 App/Web 应用等多种使用方式。
-
-### 快速开始
-
-#### SDK
-
-##### Python（PyPI Lib）
+#### Python（PyPI Lib）
 
 ```bash
 pip install mcpstore
-# 或：uv add mcpstore
 ```
 
-##### Rust Lib
+#### Rust Lib
 
 ```bash
 cargo add mcpstore
 ```
 
-#### CLI
+### CLI
 
 ```bash
-# macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/ip2a/mcpstore/main/install.sh | bash
+```
 
-# 或使用 npm（macOS / Linux / Windows）
+```bash
 npm install -g mcpstore
 ```
 
-#### App
+## App 功能
 
-从 [GitHub Releases](https://github.com/ip2a/mcpstore/releases) 下载发行版。
+### 服务列表
 
-### App 功能
+统一查看和管理 MCP 服务：连接状态、健康度、工具 / 资源 / Prompt 数量一目了然，支持搜索、排序与筛选。
 
-#### 会话管理
+<p align="center">
+  <img src="./docs/assets/images/app-services.png" width="100%" alt="mcpstore 服务列表">
+</p>
 
-统一查看和管理 MCP 会话，掌握当前连接状态与运行情况。
+### 工具
 
-> 截图：`docs/assets/images/app-sessions.png`
+浏览服务暴露的全部工具，查看参数与响应结构，并可直接在界面中试跑调用。
 
-#### 会话转移
+<p align="center">
+  <img src="./docs/assets/images/app-tools.png" width="100%" alt="mcpstore 工具注册表">
+</p>
 
-在不同 Agent 或工作区之间转移会话，保持上下文连续。
+### 作用域
 
-> 截图：`docs/assets/images/app-session-transfer.png`
+为不同 Agent 划分服务与工具的可见范围，store 与 agent 作用域独立管理。
 
-#### 技能管理
+<p align="center">
+  <img src="./docs/assets/images/app-agents.png" width="100%" alt="mcpstore 作用域">
+</p>
 
-集中管理可用工具和技能，按需配置 Agent 的能力范围。
+### 缓存
 
-> 截图：`docs/assets/images/app-skills.png`
+查看 KV 存储中的命名空间、集合与请求指标，掌握数据分布与命中情况。
 
-#### Agent 管理
+<p align="center">
+  <img src="./docs/assets/images/app-cache.png" width="100%" alt="mcpstore 缓存">
+</p>
 
-创建和管理不同 Agent，为每个 Agent 配置独立的服务与工具。
-
-> 截图：`docs/assets/images/app-agents.png`
-
-### CLI 使用
+## CLI 使用
 
 通过 CLI 管理 MCP 服务、查看运行状态，并为 Agent 提供命令行工作流。
 
-### SDK 使用
+## SDK 使用
 
 通过 Python SDK 或 Rust Lib 将 mcpstore 集成到自己的应用中。
 
-### 简单示例
+## 简单示例
 
 初始化 `store`：
 
@@ -109,7 +107,7 @@ store = MCPStore.setup_store()
 
 通过 `store.for_store()` 管理全局作用域内的 MCP 服务和工具。
 
-#### 添加第一个服务
+### 添加第一个服务
 
 ```python
 store.for_store().add_service({
@@ -123,7 +121,7 @@ store.for_store().add_service({
 
 `add_service` 接受 MCP 服务配置；`wait_service` 等待指定服务就绪。
 
-#### 转换为 LangChain 工具
+### 转换为 LangChain 工具
 
 ```python
 tools = store.for_store().for_langchain().list_tools()
@@ -132,7 +130,7 @@ print("loaded langchain tools:", len(tools))
 
 适配器从 `store.for_store()` 读取工具，并转换为对应框架使用的对象。
 
-##### 框架适配
+#### 框架适配
 
 | 框架 | 获取工具 |
 | --- | --- |
@@ -144,7 +142,7 @@ print("loaded langchain tools:", len(tools))
 | LlamaIndex | `tools = store.for_store().for_llamaindex().list_tools()` |
 | Semantic Kernel | `tools = store.for_store().for_semantic_kernel().list_tools()` |
 
-#### 在 LangChain 中使用
+### 在 LangChain 中使用
 
 ```python
 from langchain.agents import create_agent
@@ -166,7 +164,7 @@ print(events)
 这里的 `tools` 由 `store.for_store()` 提供。
 
 
-#### 为 Agent 分组
+### 为 Agent 分组
 
 使用 `for_agent(agent_id)` 为不同 Agent 建立独立作用域：
 
@@ -188,7 +186,7 @@ agent2_tools = store.for_agent("agent2").list_tools()
 
 `store.for_agent(agent_id)` 与 `store.for_store()` 提供相同的操作，服务和工具按 Agent 作用域隔离。
 
-#### Rust API 与 MCP Server
+### Rust API 与 MCP Server
 
 当前推荐直接使用 Rust CLI 暴露服务，而不是再依赖历史 Python hub 接口：
 
@@ -206,7 +204,7 @@ mcpstore mcp --config-path ./mcp.json --transport streamable-http --host 127.0.0
 Python SDK 不再启动嵌入式 API server；需要对外提供服务时，请使用 Rust CLI。
 
 
-#### 常用接口
+### 常用接口
 
 以下示例使用完整调用链：
 
@@ -233,11 +231,11 @@ Python SDK 不再启动嵌入式 API server；需要对外提供服务时，请�
 | 查看配置 | `store.for_store().show_config()` |
 | 列出 Agent | `store.list_agents()` |
 
-#### 数据源共享
+### 数据源共享
 
 可以使用 Redis 等 KV 后端，在多个进程或实例之间共享服务与工具数据。
 
-##### Redis 示例
+#### Redis 示例
 
 ```python
 from mcpstore import MCPStore
@@ -268,10 +266,9 @@ store = MCPStore.setup_store(source=redis_config, mode="data_plane")
 services = store.for_store().list_services()
 ```
 
-### Docker 部署
+## Docker 部署
 
 仓库提供 Docker 配置，可用于本地试用和部署。
-
 
 ## Star History
 
