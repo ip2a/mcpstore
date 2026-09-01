@@ -1,0 +1,52 @@
+name: release-finalize
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-finalize-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate release tag
+        run: python scripts/release_preflight.py --require-tag
+
+      - name: Verify all release workflows succeeded for this tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          for workflow in \
+            release-build-cli \
+            release-publish-crates \
+            release-publish-npm \
+            release-publish-pypi; do
+            run_id="$(gh run list --workflow="${workflow}" --branch="${GITHUB_REF_NAME}" --status=success --limit=100 --json databaseId,headSha --jq '.[] | select(.headSha == "'"${GITHUB_SHA}"'") | .databaseId' | head -n1)"
+            if [ -z "${run_id}" ]; then
+              echo "::error::${workflow} has no successful run for ${GITHUB_REF_NAME} at ${GITHUB_SHA}"
+              exit 1
+            fi
+            echo "${workflow}: ${run_id}"
+          done
+
+      - name: Publish GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)" = false ]; then
+            echo "Release ${GITHUB_REF_NAME} is already public"
+            exit 0
+          fi
+          gh release edit "${GITHUB_REF_NAME}" --draft=false

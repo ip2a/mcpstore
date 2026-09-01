@@ -168,6 +168,6 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag
+            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag --draft
           fi
           gh release upload "${tag}" release-assets/* --clobber

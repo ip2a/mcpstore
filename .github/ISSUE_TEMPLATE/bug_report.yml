@@ -1,0 +1,35 @@
+name: Bug report
+description: Report reproducible product or package failure.
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: State expected and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal commands, input, and environment.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MCPStore version
+      placeholder: v2.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Remove secrets, tokens, and private endpoints.
+      render: shell
