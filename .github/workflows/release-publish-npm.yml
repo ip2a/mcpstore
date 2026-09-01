@@ -1,19 +1,13 @@
-# Manual release flow: after release-build-cli has finished for a tag, run
-#   gh workflow run release-publish-npm.yml --ref main -f tag=vX.Y.Z
-# The workflow checks out that tag and publishes @ip2a/mcpstore plus the
-# platform @ip2a/mcpstore-bin-* packages via npm trusted publishing (OIDC):
-# no NPM_TOKEN secret involved. Each package must have a trusted publisher
-# configured on npmjs.com (repo ip2a/mcpstore, workflow release-publish-npm.yml).
-# Dispatching to main (instead of the tag ref) means npm publish fixes take
-# effect without moving the tag or cutting a new release.
+# Run only from immutable release tag after release-build-cli succeeds:
+#   gh workflow run release-publish-npm.yml --ref vX.Y.Z
+# Publishes @ip2a/mcpstore and platform packages through npm trusted publishing
+# (OIDC). No NPM_TOKEN secret is used. Every package needs a trusted publisher
+# for repo ip2a/mcpstore and workflow release-publish-npm.yml on npmjs.com.
+
 name: release-publish-npm
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to publish (e.g. v2.3.0)"
-        required: true
 
 permissions:
   contents: read
@@ -31,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.ref }}
 
       - name: Install Python
         uses: actions/setup-python@v6
@@ -42,20 +36,17 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "24.13.0"
           registry-url: https://registry.npmjs.org/
 
-      # The tag guard in preflight reads GITHUB_REF_*; pass it via shell-level
-      # env prefix — the runner does not let step env override its own
-      # GITHUB_* context variables, and we dispatch to main, not the tag.
       - name: Validate release metadata
-        run: GITHUB_REF_TYPE=tag GITHUB_REF_NAME="${{ inputs.tag }}" python scripts/release_preflight.py --require-tag
+        run: python scripts/release_preflight.py --require-tag
 
       - name: Find release-build run for this tag
         run: |
-          run_id="$(gh run list --workflow=release-build-cli --branch="${{ inputs.tag }}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
+          run_id="$(gh run list --workflow=release-build-cli --branch="${{ github.ref_name }}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
           if [ -z "${run_id}" ]; then
-            echo "::error::No successful release-build-cli run found for ${{ inputs.tag }}"
+            echo "::error::No successful release-build-cli run found for ${{ github.ref_name }}"
             exit 1
           fi
           echo "BUILD_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
