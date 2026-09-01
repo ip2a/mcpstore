@@ -143,7 +143,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Download Linux wheel
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: python-dist-linux-${{ matrix.arch }}
           path: dist
@@ -175,7 +175,7 @@ jobs:
 
     steps:
       - name: Download wheels
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: python-dist-*
           path: dist
