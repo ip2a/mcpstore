@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/ip2a/mcpstore/discussions
+    about: Ask usage and design questions outside bug tracking.

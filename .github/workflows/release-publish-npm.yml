@@ -1,19 +1,13 @@
-# Manual release flow: after release-build-cli has finished for a tag, run
-#   gh workflow run release-publish-npm.yml --ref main -f tag=vX.Y.Z
-# The workflow checks out that tag and publishes @ip2a/mcpstore plus the five
-# @ip2a/mcpstore-bin-* platform packages with provenance. Dispatching to main
-# (instead of the tag ref) means npm publish fixes take effect without moving
-# the tag or cutting a new release.
-# Requires the repo secret NPM_TOKEN (npm granular access token with publish
-# rights for the @ip2a scope) and the "npm" GitHub environment.
+# Run only from immutable release tag after release-build-cli succeeds:
+#   gh workflow run release-publish-npm.yml --ref vX.Y.Z
+# Publishes @ip2a/mcpstore and platform packages through npm trusted publishing
+# (OIDC). No NPM_TOKEN secret is used. Every package needs a trusted publisher
+# for repo ip2a/mcpstore and workflow release-publish-npm.yml on npmjs.com.
+
 name: release-publish-npm
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to publish (e.g. v2.3.0)"
-        required: true
 
 permissions:
   contents: read
@@ -22,39 +16,37 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # matches the Environment field of each package's trusted publisher on npm
     environment: npm
     env:
       GH_TOKEN: ${{ github.token }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.ref }}
 
       - name: Install Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
+      # Node 24 ships npm >= 11.5, required for trusted publishing (OIDC)
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.13.0"
           registry-url: https://registry.npmjs.org/
 
-      # The tag guard in preflight reads GITHUB_REF_*; pass it via shell-level
-      # env prefix — the runner does not let step env override its own
-      # GITHUB_* context variables, and we dispatch to main, not the tag.
       - name: Validate release metadata
-        run: GITHUB_REF_TYPE=tag GITHUB_REF_NAME="${{ inputs.tag }}" python scripts/release_preflight.py --require-tag
+        run: python scripts/release_preflight.py --require-tag
 
       - name: Find release-build run for this tag
         run: |
-          run_id="$(gh run list --workflow=release-build-cli --branch="${{ inputs.tag }}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
+          run_id="$(gh run list --workflow=release-build-cli --branch="${{ github.ref_name }}" --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
           if [ -z "${run_id}" ]; then
-            echo "::error::No successful release-build-cli run found for ${{ inputs.tag }}"
+            echo "::error::No successful release-build-cli run found for ${{ github.ref_name }}"
             exit 1
           fi
           echo "BUILD_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
@@ -62,7 +54,9 @@ jobs:
       - name: Download build artifacts
         run: |
           mkdir -p dist
-          for platform in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+          # every platform the tag declares (assemble reads the same list);
+          # publishing below decides which of them actually go to npm
+          for platform in $(python3 -c "import tomllib; print(' '.join(p['id'] for p in tomllib.load(open('platforms.toml','rb'))['platforms']))"); do
             gh run download "${BUILD_RUN_ID}" --name "mcpstore-${platform}" --dir "dist/${platform}"
           done
 
@@ -72,10 +66,6 @@ jobs:
       - name: Publish @ip2a/mcpstore-bin-darwin-arm64
         run: npm publish --access public --provenance
         working-directory: npm/packages/mcpstore-bin-darwin-arm64
-
-      - name: Publish @ip2a/mcpstore-bin-darwin-x64
-        run: npm publish --access public --provenance
-        working-directory: npm/packages/mcpstore-bin-darwin-x64
 
       - name: Publish @ip2a/mcpstore-bin-linux-x64-gnu
         run: npm publish --access public --provenance
