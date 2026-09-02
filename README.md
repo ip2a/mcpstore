@@ -27,33 +27,41 @@
   </a>
 </p>
 
+## 为什么使用 mcpstore
+
+一套入口覆盖 App、CLI 与 SDK，按 Agent 隔离作用域，并能一键适配 LangChain、OpenAI、CrewAI 等框架；基于 Rust 内核，安装即用，本地与多进程共享都行。
+
 ## 快速开始
-
-### SDK
-
-#### Python（PyPI Lib）
-
-```bash
-pip install mcpstore
-```
-
-#### Rust Lib
-
-```bash
-cargo add mcpstore
-```
-
-### CLI
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ip2a/mcpstore/main/install.sh | bash
 ```
 
+or npm
+
 ```bash
 npm install -g mcpstore
 ```
 
-## App 功能
+想用代码集成？→ [通过 SDK 使用](#sdk-使用)
+
+
+## 桌面应用（Beta）
+
+提供图形界面，统一管理 MCP 服务、工具、作用域与缓存。当前为 Beta，可从 [GitHub Releases](https://github.com/ip2a/mcpstore/releases/latest) 下载安装包：
+
+<p align="center">
+  <a href="https://github.com/ip2a/mcpstore/releases/latest">
+    <img src="https://img.shields.io/badge/download-macOS-222222?style=for-the-badge&logo=apple&logoColor=white" alt="下载 macOS">
+  </a>
+  <a href="https://github.com/ip2a/mcpstore/releases/latest">
+    <img src="https://img.shields.io/badge/download-Windows-0078d7?style=for-the-badge&logo=windows&logoColor=white" alt="下载 Windows">
+  </a>
+  <a href="https://github.com/ip2a/mcpstore/releases/latest">
+    <img src="https://img.shields.io/badge/download-Linux-fcc624?style=for-the-badge&logo=linux&logoColor=black" alt="下载 Linux">
+  </a>
+</p>
+
 
 ### 服务列表
 
@@ -93,9 +101,18 @@ npm install -g mcpstore
 
 ## SDK 使用
 
-通过 Python SDK 或 Rust Lib 将 mcpstore 集成到自己的应用中。
+通过 Python SDK 或 Rust Lib 将 mcpstore 集成到自己的应用中。点击下方展开对应语言的安装与示例。
 
-## 简单示例
+<details>
+<summary><strong>Python</strong></summary>
+
+### 安装
+
+```bash
+pip install mcpstore
+```
+
+### 简单示例
 
 初始化 `store`：
 
@@ -107,7 +124,7 @@ store = MCPStore.setup_store()
 
 通过 `store.for_store()` 管理全局作用域内的 MCP 服务和工具。
 
-### 添加第一个服务
+#### 添加第一个服务
 
 ```python
 store.for_store().add_service({
@@ -121,7 +138,7 @@ store.for_store().add_service({
 
 `add_service` 接受 MCP 服务配置；`wait_service` 等待指定服务就绪。
 
-### 转换为 LangChain 工具
+#### 转换为 LangChain 工具
 
 ```python
 tools = store.for_store().for_langchain().list_tools()
@@ -129,8 +146,6 @@ print("loaded langchain tools:", len(tools))
 ```
 
 适配器从 `store.for_store()` 读取工具，并转换为对应框架使用的对象。
-
-#### 框架适配
 
 | 框架 | 获取工具 |
 | --- | --- |
@@ -142,7 +157,7 @@ print("loaded langchain tools:", len(tools))
 | LlamaIndex | `tools = store.for_store().for_llamaindex().list_tools()` |
 | Semantic Kernel | `tools = store.for_store().for_semantic_kernel().list_tools()` |
 
-### 在 LangChain 中使用
+#### 在 LangChain 中使用
 
 ```python
 from langchain.agents import create_agent
@@ -163,8 +178,7 @@ print(events)
 
 这里的 `tools` 由 `store.for_store()` 提供。
 
-
-### 为 Agent 分组
+#### 为 Agent 分组
 
 使用 `for_agent(agent_id)` 为不同 Agent 建立独立作用域：
 
@@ -186,27 +200,7 @@ agent2_tools = store.for_agent("agent2").list_tools()
 
 `store.for_agent(agent_id)` 与 `store.for_store()` 提供相同的操作，服务和工具按 Agent 作用域隔离。
 
-### Rust API 与 MCP Server
-
-当前推荐直接使用 Rust CLI 暴露服务，而不是再依赖历史 Python hub 接口：
-
-```bash
-# 启动 Rust HTTP API
-mcpstore api --config-path ./mcp.json --host 127.0.0.1 --port 1820
-
-# 以 stdio 启动 Rust MCP Server
-mcpstore mcp --config-path ./mcp.json
-
-# 以 streamable-http 启动 Rust MCP Server
-mcpstore mcp --config-path ./mcp.json --transport streamable-http --host 127.0.0.1 --port 1830 --path /mcp
-```
-
-Python SDK 不再启动嵌入式 API server；需要对外提供服务时，请使用 Rust CLI。
-
-
 ### 常用接口
-
-以下示例使用完整调用链：
 
 | 动作 | 示例 |
 | --- | --- |
@@ -231,44 +225,123 @@ Python SDK 不再启动嵌入式 API server；需要对外提供服务时，请�
 | 查看配置 | `store.for_store().show_config()` |
 | 列出 Agent | `store.list_agents()` |
 
-### 数据源共享
+</details>
 
-可以使用 Redis 等 KV 后端，在多个进程或实例之间共享服务与工具数据。
+<details>
+<summary><strong>Rust</strong></summary>
 
-#### Redis 示例
+### 安装
 
-```python
-from mcpstore import MCPStore
-from mcpstore.config import RedisConfig
-
-redis_config = RedisConfig(
-    host="127.0.0.1",
-    port=6379,
-    password=None,
-    namespace="demo_namespace",
-)
-store = MCPStore.setup_store(source=redis_config)
+```bash
+cargo add mcpstore
 ```
 
-使用相同后端和 `namespace` 的实例可以共享数据。若当前进程只使用共享数据源、不维护本地服务实例，可设置 `mode="data_plane"`：
+### 简单示例
 
-```python
-from mcpstore import MCPStore
-from mcpstore.config import RedisConfig
+初始化 `store` 并添加服务：
 
-redis_config = RedisConfig(
-    host="127.0.0.1",
-    port=6379,
-    password=None,
-    namespace="demo_namespace",
-)
-store = MCPStore.setup_store(source=redis_config, mode="data_plane")
-services = store.for_store().list_services()
+```rust
+use std::time::Duration;
+
+use mcpstore::{McpConfig, MCPStore, Result, ServiceTarget};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let store = MCPStore::setup(None)?;
+
+    let config = McpConfig::from_json_str(
+        r#"{
+            "mcpServers": {
+                "mcpstore_wiki": {
+                    "url": "https://example.com/mcp"
+                }
+            }
+        }"#,
+    )?;
+
+    store
+        .for_store()
+        .add_service(config)
+        .await?
+        .wait_service(
+            ServiceTarget::ServiceName("mcpstore_wiki"),
+            Duration::from_secs(30),
+        )
+        .await?;
+
+    let tools = store.for_store().list_tools().await?;
+    println!("loaded tools: {}", tools.len());
+    Ok(())
+}
 ```
 
-## Docker 部署
+#### 为 Agent 分组
 
-仓库提供 Docker 配置，可用于本地试用和部署。
+```rust
+use mcpstore::{McpConfig, MCPStore, Result};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let store = MCPStore::setup(None)?;
+
+    store
+        .for_agent("agent1")
+        .add_service(McpConfig::from_json_str(
+            r#"{"name":"mcpstore_wiki","url":"https://example.com/mcp"}"#,
+        )?)
+        .await?;
+
+    store
+        .for_agent("agent2")
+        .add_service(McpConfig::from_json_str(
+            r#"{"name":"gitodo","command":"uvx","args":["gitodo"]}"#,
+        )?)
+        .await?;
+
+    let agent1_tools = store.for_agent("agent1").list_tools().await?;
+    let agent2_tools = store.for_agent("agent2").list_tools().await?;
+    println!(
+        "agent1={}, agent2={}",
+        agent1_tools.len(),
+        agent2_tools.len()
+    );
+    Ok(())
+}
+```
+
+`for_agent` 与 `for_store` 提供相同的操作，服务和工具按 Agent 作用域隔离。
+
+### 暴露 HTTP API / MCP Server
+
+需要对外提供服务时，使用 Rust CLI（Python SDK 不再启动嵌入式 API server）：
+
+```bash
+# 启动 Rust HTTP API
+mcpstore api --config-path ./mcp.json --host 127.0.0.1 --port 1820
+
+# 以 stdio 启动 Rust MCP Server
+mcpstore mcp --config-path ./mcp.json
+
+# 以 streamable-http 启动 Rust MCP Server
+mcpstore mcp --config-path ./mcp.json --transport streamable-http --host 127.0.0.1 --port 1830 --path /mcp
+```
+
+### 常用接口
+
+| 动作 | 示例 |
+| --- | --- |
+| 添加服务 | `store.for_store().add_service(config).await?` |
+| 定位服务 | `store.for_store().find_service(ServiceTarget::ServiceName("name")).await?` |
+| 等待就绪 | `store.for_store().wait_service(ServiceTarget::ServiceName("name"), timeout).await?` |
+| 列出服务 | `store.for_store().list_services().await?` |
+| 列出工具 | `store.for_store().list_tools().await?` |
+| 调用工具 | `store.for_store().call_tool("tool_name", args).await?` |
+| 查看配置 | `store.for_store().show_config().await?` |
+
+</details>
+
+
+
 
 ## Star History
 

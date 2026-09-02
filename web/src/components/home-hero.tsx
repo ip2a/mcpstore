@@ -48,7 +48,7 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
 
   if (collapsed) {
     return (
-      <section className="-mt-3 border-b py-2">
+      <section className="py-2">
         <button
           type="button"
           className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-1 text-left hover:bg-muted"
@@ -71,7 +71,7 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
   }
 
   return (
-    <section className="grid grid-cols-1 gap-3 overflow-hidden border-b py-3 md:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)] md:items-stretch">
+    <section className="grid grid-cols-1 gap-3 overflow-hidden py-3 md:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)] md:items-stretch">
       <button
         type="button"
         className="group grid min-h-0 min-w-0 place-items-center self-stretch overflow-hidden rounded-md text-left hover:bg-muted/30"
