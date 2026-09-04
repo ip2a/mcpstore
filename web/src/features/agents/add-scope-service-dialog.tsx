@@ -2,7 +2,7 @@ import { useEffect } from "react"
 import { PlusIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -52,7 +52,6 @@ export function AddScopeServiceDialog({
         <form onSubmit={onSubmit}>
           <DialogHeader>
             <DialogTitle>{t("assignService")}</DialogTitle>
-            <DialogDescription>{t("addScopeServiceDescription", { agentId })}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <Field>

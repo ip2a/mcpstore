@@ -1,0 +1,22 @@
+{
+  "worktree": {
+    "setup": [
+      "cp \"$PASEO_SOURCE_CHECKOUT_PATH/run_debug.sh\" . 2>/dev/null || echo '[setup] 源 checkout 没有 run_debug.sh，跳过'",
+      "chmod +x run_debug.sh 2>/dev/null || true",
+      "npm --prefix web ci",
+      "cargo fetch --manifest-path rust/apps/mcpstore/Cargo.toml"
+    ]
+  },
+  "scripts": {
+    "api": {
+      "type": "service",
+      "command": "cargo run --manifest-path rust/apps/mcpstore/Cargo.toml --bin mcpstore -- api --host 127.0.0.1 --port 1820",
+      "port": 1820
+    },
+    "web": {
+      "type": "service",
+      "command": "npm --prefix web run dev",
+      "port": 1828
+    }
+  }
+}

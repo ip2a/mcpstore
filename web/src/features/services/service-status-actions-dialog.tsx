@@ -2,7 +2,7 @@ import { RefreshCwIcon, Trash2Icon } from "lucide-react"
 
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   isServiceRunning,
   ServiceConnectionButton,
@@ -34,14 +34,12 @@ export function ServiceStatusActionsDialog({
   const { t } = useI18n()
   const currentState = serviceState || service.state
   const running = isServiceRunning(currentState)
-  const scopeLabel = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("serviceState")}</DialogTitle>
-          <DialogDescription className="font-mono">{service.service_name} · {scopeLabel}</DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">{t("current")}</span>

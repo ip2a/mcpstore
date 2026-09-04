@@ -182,6 +182,8 @@ fn merge_path_values(preferred: &str, current: Option<OsString>) -> Option<OsStr
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             prime_desktop_environment();
             if let Some(home) = dirs::home_dir() {
@@ -199,6 +201,7 @@ pub fn run() {
                 WebviewUrl::External(url.parse().expect("desktop URL is valid")),
             )
             .title("mcpstore")
+            .hidden_title(true)
             .inner_size(initial_state.width as f64, initial_state.height as f64)
             .min_inner_size(ABSOLUTE_MIN_INNER_WIDTH, DESIGN_MIN_INNER_HEIGHT)
             .zoom_hotkeys_enabled(false)
