@@ -67,7 +67,7 @@ detect_platform_id() {
     Darwin)
       case "${arch}" in
         arm64|aarch64) printf 'darwin-arm64' ;;
-        x86_64) printf 'darwin-x64' ;;
+        x86_64) echo "[error] Intel Mac is no longer supported; use an Apple Silicon Mac" >&2; exit 1 ;;
         *) echo "[error] Unsupported macOS architecture: ${arch}" >&2; exit 1 ;;
       esac
       ;;
