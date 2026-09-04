@@ -54,16 +54,21 @@ def verify_windows_checkout_paths() -> None:
     print(f"[ok] {len(paths)} release paths are compatible with Windows checkout")
 
 
-def verify_release_tag(expected: str) -> None:
+def verify_release_tag(expected: str, allow_prerelease: bool = False) -> None:
     expected_tag = f"v{expected}"
     ref_type = os.environ.get("GITHUB_REF_TYPE")
     ref_name = os.environ.get("GITHUB_REF_NAME")
-    if ref_type != "tag" or ref_name != expected_tag:
+    tag_ok = ref_name is not None and (
+        ref_name == expected_tag
+        or (allow_prerelease and ref_name.startswith(f"{expected_tag}-"))
+    )
+    if ref_type != "tag" or not tag_ok:
+        hint = f" or a {expected_tag}-<prerelease> tag" if allow_prerelease else ""
         raise SystemExit(
-            f"[error] Release workflow requires tag {expected_tag}; "
+            f"[error] Release workflow requires tag {expected_tag}{hint}; "
             f"received {ref_type or '<unset>'} {ref_name or '<unset>'}"
         )
-    print(f"[ok] release workflow ref matches {expected_tag}")
+    print(f"[ok] release workflow ref matches {ref_name}")
 
 
 def main() -> None:
@@ -73,12 +78,17 @@ def main() -> None:
         action="store_true",
         help="require GITHUB_REF_TYPE/GITHUB_REF_NAME to match the canonical version tag",
     )
+    parser.add_argument(
+        "--allow-prerelease-tag",
+        action="store_true",
+        help="also accept <canonical>-<prerelease> tags (build workflows only; publish stays exact)",
+    )
     args = parser.parse_args()
 
     expected = verify_release_metadata()
     verify_windows_checkout_paths()
     if args.require_tag:
-        verify_release_tag(expected)
+        verify_release_tag(expected, allow_prerelease=args.allow_prerelease_tag)
     print(f"[ok] release metadata is consistent at version {expected}")
 
 
