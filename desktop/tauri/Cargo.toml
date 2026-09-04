@@ -1,6 +1,6 @@
 [package]
 name = "mcpstore-tauri"
-version = "2.3.0"
+version = "2.3.1"
 edition = "2021"
 publish = false
 
@@ -18,7 +18,10 @@ anyhow = "1.0"
 axum = "0.7"
 dirs = "6.0"
 tauri = { version = "2", features = [] }
+serde_json = "1"
 tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "net"] }
 
 [build-dependencies]

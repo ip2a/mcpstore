@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -47,12 +46,11 @@ export function ServicesFilterDialog(props: {
           ) : null}
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("filter")}</DialogTitle>
-          <DialogDescription>{t("filterDescription")}</DialogDescription>
         </DialogHeader>
-        <FieldGroup>
+        <FieldGroup className="grid gap-4 sm:grid-cols-2">
           <Field>
             <FieldLabel>{t("scope")}</FieldLabel>
             <Select value={props.scopeFilter} onValueChange={(value) => props.onScopeFilterChange(value as ServiceScopeFilter)}>
@@ -126,7 +124,22 @@ export function ServicesFilterDialog(props: {
             </Select>
           </Field>
         </FieldGroup>
-        <DialogFooter showCloseButton />
+        <DialogFooter showCloseButton>
+          {props.activeFilterCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                props.onScopeFilterChange("all")
+                props.onAgentFilterChange("")
+                props.onStatusFilterChange("all")
+                props.onSortByChange("status")
+              }}
+            >
+              {t("reset")}
+            </Button>
+          ) : null}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

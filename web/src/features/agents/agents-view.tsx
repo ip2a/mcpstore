@@ -13,10 +13,10 @@ import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/quer
 import { ClientConfigPanel } from "@/features/config/client-config-panel"
 import { useScopesQuery } from "@/features/agents/queries"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
+import { ServiceConnectionMark, ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
 import { getAgentId } from "@/features/agents/model"
@@ -328,9 +328,6 @@ export function AgentsView(props: {
               <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-4 overflow-hidden sm:max-w-2xl">
                 <DialogHeader className="shrink-0">
                   <DialogTitle>{t("configuration")}</DialogTitle>
-                  <DialogDescription className="font-mono text-xs">
-                    {configAgentId ? `/config/agents/${configAgentId}` : "/config"}
-                  </DialogDescription>
                 </DialogHeader>
                 <div className="min-h-0 shrink overflow-hidden">
                   {configLoading && !configValue ? <PageSkeleton /> : <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />}
@@ -371,26 +368,11 @@ export function AgentsView(props: {
                                 setPreviewServiceId(service.instance_id)
                               }
                             }}
-                            actions={
-                              selectedScope.type === "agent" ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={Boolean(props.busy)}
-                                  aria-label={`${t("delete")} ${t("scope")}`}
-                                  onClick={() => props.onRemoveScope(activeAgentId, service.service_name)}
-                                >
-                                  <UnlinkIcon data-icon="inline-start" />
-                                  {t("delete")} {t("scope")}
-                                </Button>
-                              ) : null
-                            }
-                            actionsProps={{ onClick: (event) => event.stopPropagation() }}
                           >
                             <div className="min-w-0">
-                              <div className="flex min-w-0 flex-nowrap items-baseline gap-x-2">
+                              <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
                                 <span className="block min-w-0 truncate font-semibold">{service.service_name}</span>
+                                <ServiceConnectionMark state={service.state} />
                                 <span className="block min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
                                   {getServiceEndpointLabel(service)}
                                 </span>
@@ -544,11 +526,11 @@ function AgentPreviewHeader({
   const { t } = useI18n()
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2">
-      <strong className="truncate font-mono text-sm font-medium" title={scopeTitle}>
+    <div className="flex flex-nowrap items-center justify-between gap-3 border-b pb-2">
+      <strong className="min-w-0 flex-1 truncate font-mono text-sm font-medium" title={scopeTitle}>
         {scopeTitle}
       </strong>
-      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+      <div className="flex shrink-0 gap-2">
         {canAddService ? (
           <Button size="sm" variant="outline" onClick={onAddService} disabled={busy}>
             <PlusIcon data-icon="inline-start" />

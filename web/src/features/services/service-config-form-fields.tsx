@@ -90,7 +90,7 @@ export function ServiceConfigFormFields({
           <Field>
             <FieldLabel htmlFor="config-url">{t("httpEndpoint")}</FieldLabel>
             <InputGroup>
-              <InputGroupAddon align="inline-start">http</InputGroupAddon>
+              <InputGroupAddon align="inline-start">url</InputGroupAddon>
               <InputGroupInput
                 id="config-url"
                 value={fields.url}

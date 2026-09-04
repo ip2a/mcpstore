@@ -2,7 +2,7 @@ import type { SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/a
 import { getApiBase, getConnections, type StoredConnection } from "@/lib/api/backend"
 import type { I18nKey } from "@/lib/i18n-core"
 
-export type SectionId = "general" | "connection" | "diagnostics" | "config" | "about"
+export type SectionId = "overview" | "general" | "connection" | "diagnostics" | "config" | "about"
 
 export type ConnectionDraft = StoredConnection
 
@@ -23,6 +23,7 @@ export type SettingsDraft = {
 }
 
 export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
+  { id: "overview", labelKey: "overview" },
   { id: "general", labelKey: "general" },
   { id: "connection", labelKey: "connection" },
   { id: "diagnostics", labelKey: "diagnostics" },

@@ -34,12 +34,13 @@ export function CollapsibleSearchBox({ id, placeholder, value, onChange }: Colla
     return (
       <Button
         variant="outline"
-        size="icon"
-        className="ml-auto"
+        size="sm"
+        className="ml-auto gap-1.5"
         onClick={() => setOpen(true)}
         aria-label={placeholder}
       >
-        <SearchIcon />
+        <SearchIcon size={16} />
+        <span className="sr-only">{placeholder}</span>
       </Button>
     )
   }

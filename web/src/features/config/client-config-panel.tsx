@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -114,7 +113,6 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
           <DialogContent className="max-h-[min(720px,calc(100vh-2rem))] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>作用域聚合mcp</DialogTitle>
-              <DialogDescription>Run or inspect the bundled HTTP endpoint for this scope.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-2"><Label>MCP Hub transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>

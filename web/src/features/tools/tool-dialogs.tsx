@@ -15,7 +15,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -54,11 +53,8 @@ export function ToolResultDialog({ state, onOpenChange }: { state: ToolResultSta
   return (
     <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[min(85dvh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="border-b px-4 py-3 sm:px-5">
+        <DialogHeader className="border-b px-4 py-4 sm:px-5">
           <DialogTitle>{state ? t("result") : null}</DialogTitle>
-          <DialogDescription>
-            {state ? `${state.tool.name} · ${state.sourceLabel}` : null}
-          </DialogDescription>
         </DialogHeader>
         <ScrollPane className="min-h-0 flex-1 px-4 py-4 sm:px-5">
           {state ? <ToolResultView result={state.result} /> : null}
@@ -126,9 +122,6 @@ export function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState;
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{state ? t("confirmExecute", { name: state.tool.name }) : null}</DialogTitle>
-          <DialogDescription>
-            {state ? t("confirmExecuteDescription", { source: state.sourceLabel }) : null}
-          </DialogDescription>
         </DialogHeader>
         <DialogForm onSubmit={onRun}>
           <Field>
@@ -187,9 +180,8 @@ export function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDe
   return (
     <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[min(85dvh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-        <DialogHeader className="border-b px-4 py-3 sm:px-5">
+        <DialogHeader className="border-b px-4 py-4 sm:px-5">
           <DialogTitle className="font-mono">{state?.tool.name}</DialogTitle>
-          <DialogDescription>{state?.sourceLabel}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 overflow-auto px-4 py-4 sm:px-5">
           {state?.tool.description ? <p className="mb-4 text-sm text-muted-foreground">{state.tool.description}</p> : null}

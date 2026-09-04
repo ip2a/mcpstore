@@ -69,6 +69,15 @@ export function getApiBase(): string {
   }
 }
 
+/** Resolve an api base to an absolute URL (default `/api` -> `origin + /api`). */
+export function absoluteApiBase(base: string): string {
+  try {
+    return new URL(base, window.location.origin).toString();
+  } catch {
+    return base;
+  }
+}
+
 export function setApiBase(url: string): void {
   const trimmed = url.trim();
   try {

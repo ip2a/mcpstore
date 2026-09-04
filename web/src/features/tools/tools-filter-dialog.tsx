@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -63,7 +62,6 @@ export function ToolsFilterDialog(props: {
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("filter")}</DialogTitle>
-          <DialogDescription>{t("toolFilterDescription")}</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           {/* 搜索：独占一行 */}
