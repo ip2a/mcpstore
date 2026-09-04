@@ -113,8 +113,13 @@ jobs:
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME}"
+          # tags with a pre-release suffix (vX.Y.Z-rc.N) must not ship as latest
+          case "${tag}" in *-*) prerelease=(--prerelease) ;; *) prerelease=() ;; esac
           if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag
+            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag "${prerelease[@]}"
           fi
-          gh release upload "${tag}" dist/darwin-aarch64/*.app.tar.gz dist/darwin-aarch64/*.app.tar.gz.sig \
-            dist/darwin-x86_64/*.app.tar.gz dist/darwin-x86_64/*.app.tar.gz.sig dist/latest.json --clobber
+          assets=(dist/darwin-aarch64/*.app.tar.gz dist/darwin-aarch64/*.app.tar.gz.sig \
+            dist/darwin-x86_64/*.app.tar.gz dist/darwin-x86_64/*.app.tar.gz.sig)
+          # pre-releases must never feed the Tauri auto-updater channel
+          if [ ${#prerelease[@]} -eq 0 ]; then assets+=(dist/latest.json); fi
+          gh release upload "${tag}" "${assets[@]}" --clobber
