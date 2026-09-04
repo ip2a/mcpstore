@@ -1,21 +1,12 @@
 version: 2
 updates:
-  - package-ecosystem: github-actions
-    directory: "/"
-    schedule:
-      interval: weekly
-
   - package-ecosystem: cargo
     directory: "/rust"
     schedule:
       interval: weekly
-
-  - package-ecosystem: pip
-    directory: "/python"
-    schedule:
-      interval: weekly
-
+    target-branch: develop
   - package-ecosystem: npm
     directory: "/web"
     schedule:
       interval: weekly
+    target-branch: develop
