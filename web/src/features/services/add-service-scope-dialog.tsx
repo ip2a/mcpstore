@@ -3,7 +3,7 @@ import { PlusIcon } from "lucide-react"
 
 import { AgentIdPicker } from "@/components/shared/agent-id-picker"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
@@ -72,9 +72,6 @@ export function AddServiceScopeDialog({
         <form onSubmit={onSubmit}>
           <DialogHeader>
             <DialogTitle>{t("addServiceScope")}</DialogTitle>
-            <DialogDescription>
-              {service ? t("addServiceScopeDescription", { name: service.service_name }) : null}
-            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <Field>

@@ -3,6 +3,7 @@ import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppHeader } from "@/components/layout/app-header"
+import { HomeHero } from "@/components/home-hero"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { AgentsView } from "@/features/agents/agents-view"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
@@ -78,8 +79,8 @@ export function App() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-dvh bg-background">
-        <div className="mx-auto grid h-dvh w-[min(1280px,calc(100vw-24px))] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+      <div className="flex h-dvh flex-col overflow-hidden bg-background">
+        <div className="mx-auto flex w-[min(1280px,calc(100vw-24px))] shrink-0 flex-col">
           <AppHeader
             agents={agents}
             pageTitle={pageTitle}
@@ -89,11 +90,23 @@ export function App() {
             onViewChange={setView}
             onOpenSettings={() => setSettingsDialogOpen(true)}
           />
+          {view.name === "services" ? (
+            <HomeHero
+              stats={{
+                loading,
+                services: services.length,
+                connecting: services.filter((service) => service.state.phase === "starting").length,
+                agents: agents.length,
+              }}
+            />
+          ) : null}
+        </div>
 
-          <main
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
+          <div
             className={cn(
-              "flex min-h-0 min-w-0 flex-col",
-              view.name === "instance" || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "tools" ? "h-full overflow-hidden gap-3 pt-3" : "gap-6 overflow-auto py-3",
+              "mx-auto flex min-h-0 w-[min(1280px,calc(100vw-24px))] min-w-0 flex-1 flex-col",
+              view.name === "instance" || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "tools" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
             )}
           >
           {view.name === "instance" ? (
@@ -145,7 +158,6 @@ export function App() {
             <ServicesView
               services={services}
               agents={agents}
-              backend={backend}
               busy={busy}
               error={dashboardError}
               loading={loading}
@@ -160,8 +172,8 @@ export function App() {
               onRestart={restartServiceEntry}
             />
           )}
-          </main>
-        </div>
+          </div>
+        </main>
       </div>
 
       <AppDialogs

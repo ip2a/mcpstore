@@ -1,6 +1,7 @@
 import { type AppView } from "@/app/app-view"
 import { AppHeaderNav } from "@/components/layout/app-header-nav"
 import { type AgentItem } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 export function AppHeader({
   agents,
@@ -20,7 +21,7 @@ export function AppHeader({
   view: AppView
 }) {
   return (
-    <header className="flex min-h-16 items-center justify-between gap-4 border-b py-3">
+    <header className={cn("flex min-h-16 items-center justify-between gap-4 py-3", view.name === "services" && "border-b")}>
       <div className="flex min-w-0 shrink items-center gap-3">
         <button className="font-mono font-bold" type="button" onClick={() => onViewChange({ name: "services" })}>
           mcpstore
