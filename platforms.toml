@@ -12,15 +12,6 @@ npm_package = "@ip2a/mcpstore-bin-darwin-arm64"
 npm_dir = "mcpstore-bin-darwin-arm64"
 
 [[platforms]]
-id = "darwin-x64"
-target = "x86_64-apple-darwin"
-os = "darwin"
-cpu = "x64"
-artifact_binary = "mcpstore"
-npm_package = "@ip2a/mcpstore-bin-darwin-x64"
-npm_dir = "mcpstore-bin-darwin-x64"
-
-[[platforms]]
 id = "linux-x64-gnu"
 target = "x86_64-unknown-linux-gnu"
 os = "linux"
