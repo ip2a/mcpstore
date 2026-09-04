@@ -29,7 +29,7 @@ jobs:
         include:
           - platform_id: darwin
             runner: macos-latest
-            target: aarch64-apple-darwin,x86_64-apple-darwin
+            target: aarch64-apple-darwin
             artifact_binary: mcpstore
           - platform_id: linux-x64-gnu
             runner: ubuntu-24.04
@@ -72,7 +72,6 @@ jobs:
         shell: bash
         run: |
           ./scripts/build_target.sh aarch64-apple-darwin darwin-arm64 mcpstore
-          ./scripts/build_target.sh x86_64-apple-darwin darwin-x64 mcpstore
 
       - name: Run smoke test
         if: matrix.platform_id != 'darwin'
@@ -84,7 +83,6 @@ jobs:
         shell: bash
         run: |
           ./scripts/smoke_test.sh dist/darwin-arm64/mcpstore
-          ./scripts/smoke_test.sh dist/darwin-x64/mcpstore
 
       - name: Generate checksums
         if: matrix.platform_id != 'darwin'
@@ -97,7 +95,6 @@ jobs:
         shell: bash
         run: |
           python -c 'from pathlib import Path; from scripts.prepare_github_release_assets import sha256; p = Path(__import__("sys").argv[1]); (p.parent / "SHA256SUMS").write_text(f"{sha256(p)}  {p.name}\n", encoding="utf-8")' dist/darwin-arm64/mcpstore
-          python -c 'from pathlib import Path; from scripts.prepare_github_release_assets import sha256; p = Path(__import__("sys").argv[1]); (p.parent / "SHA256SUMS").write_text(f"{sha256(p)}  {p.name}\n", encoding="utf-8")' dist/darwin-x64/mcpstore
 
       - name: Upload build artifact
         if: matrix.platform_id != 'darwin'
@@ -113,14 +110,6 @@ jobs:
         with:
           name: mcpstore-darwin-arm64
           path: dist/darwin-arm64/*
-          if-no-files-found: error
-
-      - name: Upload macOS x64 artifact
-        if: matrix.platform_id == 'darwin'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: mcpstore-darwin-x64
-          path: dist/darwin-x64/*
           if-no-files-found: error
 
   upload-release-assets:
@@ -151,7 +140,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          for platform in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+          for platform in darwin-arm64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
             gh run download "${GITHUB_RUN_ID}" --name "mcpstore-${platform}" --dir "dist/${platform}"
           done
 
