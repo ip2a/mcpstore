@@ -14,6 +14,15 @@
     "active": true,
     "targets": [
       "dmg"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/ip2a/mcpstore/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIwRkJEMjkwNkUxRkNGNEIKUldSTHp4OXVrTkw3c0pQRFEyL1V1eEdOcG5DUy9DUjdwNG5EVTljeDNvVXJPWFQyRHlZWnIzZ3YK"
+    }
   }
 }

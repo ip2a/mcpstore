@@ -25,7 +25,7 @@ import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { useI18n } from "@/lib/i18n-context"
 
@@ -83,9 +83,6 @@ function CacheKeyDetailDialog({
           <DialogTitle className="truncate font-mono text-sm" title={entry?.key}>
             {entry?.key}
           </DialogTitle>
-          <DialogDescription className="truncate font-mono text-xs" title={entry?.collection}>
-            {entry ? `${entry.type} · ${entry.collection}` : null}
-          </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 shrink overflow-hidden">
           {entry ? <JsonBlock value={entry.value} className="h-[min(55vh,480px)] max-h-none" /> : null}

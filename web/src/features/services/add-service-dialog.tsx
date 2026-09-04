@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -59,9 +58,8 @@ export function AddServiceDialog(props: {
           "h-[78dvh] w-[min(84vw,68rem)]",
         )}
       >
-        <DialogHeader className="shrink-0 border-b px-4 py-3 @min-[640px]:px-5 @min-[640px]:py-3.5">
+        <DialogHeader className="shrink-0 border-b px-4 py-4 @min-[640px]:px-5">
           <DialogTitle>{t("navAddService")}</DialogTitle>
-          <DialogDescription>{t("addServiceDescription")}</DialogDescription>
         </DialogHeader>
         <AddServiceForm
           key={session}

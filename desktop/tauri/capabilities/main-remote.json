@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-remote",
+  "description": "Permissions for the web UI served by the local mcpstore host (random port on 127.0.0.1).",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:**", "http://localhost:**"]
+  },
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "process:allow-restart",
+    "opener:default"
+  ]
+}
