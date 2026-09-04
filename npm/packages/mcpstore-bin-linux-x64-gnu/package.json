@@ -1,6 +1,6 @@
 {
   "name": "@ip2a/mcpstore-bin-linux-x64-gnu",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "MCPStore CLI platform package for Linux x64 GNU",
   "license": "MIT",
   "repository": {

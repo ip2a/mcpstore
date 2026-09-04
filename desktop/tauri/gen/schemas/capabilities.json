@@ -1,1 +1,1 @@
-{}
+{"main-remote":{"identifier":"main-remote","description":"Permissions for the web UI served by the local mcpstore host (random port on 127.0.0.1).","remote":{"urls":["http://127.0.0.1:**","http://localhost:**"]},"local":true,"windows":["main"],"permissions":["core:default","updater:default","process:allow-restart","opener:default"]}}

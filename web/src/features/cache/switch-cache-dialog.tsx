@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useI18n } from "@/lib/i18n-context"
@@ -39,7 +39,6 @@ export function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { 
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("switchCacheStorage")}</DialogTitle>
-          <DialogDescription>{t("currentCacheStorage", { backend: current || t("unknown") })}</DialogDescription>
         </DialogHeader>
         <DialogForm onSubmit={onSwitch}>
           <Field>

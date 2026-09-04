@@ -4,22 +4,22 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    target-branch: develop
+    target-branch: main
 
   - package-ecosystem: cargo
     directory: "/rust"
     schedule:
       interval: weekly
-    target-branch: develop
+    target-branch: main
 
   - package-ecosystem: pip
     directory: "/python"
     schedule:
       interval: weekly
-    target-branch: develop
+    target-branch: main
 
   - package-ecosystem: npm
     directory: "/web"
     schedule:
       interval: weekly
-    target-branch: develop
+    target-branch: main
