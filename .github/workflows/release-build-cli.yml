@@ -167,7 +167,9 @@ jobs:
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME}"
+          # tags with a pre-release suffix (vX.Y.Z-rc.N) must not ship as latest
+          case "${tag}" in *-*) prerelease=(--prerelease) ;; *) prerelease=() ;; esac
           if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag --draft
+            gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag --draft "${prerelease[@]}"
           fi
           gh release upload "${tag}" release-assets/* --clobber
