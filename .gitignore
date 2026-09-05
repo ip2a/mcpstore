@@ -59,7 +59,9 @@ web/dist/
 docs/.venv/
 docs/site/
 release-assets/
+# assembled platform binaries; the entry package's wrapper is source and stays tracked
 npm/packages/*/bin/
+!npm/packages/mcpstore/bin/
 *.tgz
 .obsidian/
 .specstory/
