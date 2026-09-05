@@ -30,7 +30,7 @@
     "react-dom": "19.2.7",
     "react-resizable-panels": "^4.12.1",
     "react-router-dom": "^7.18.3",
-    "smol-toml": "^1.7.0",
+    "smol-toml": "^1.8.0",
     "sonner": "2.0.7",
     "tailwind-merge": "3.6.0",
     "tailwindcss": "4.3.2",
