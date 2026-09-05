@@ -1,6 +1,6 @@
 # Desktop (Tauri) release flow. Runs on the same tags as release-build-cli and
-# uploads updater artifacts (macOS .app.tar.gz + .sig) plus latest.json to the
-# GitHub Release so tauri-plugin-updater can serve updates from:
+# uploads the macOS .dmg plus updater artifacts (.app.tar.gz + .sig) and
+# latest.json to the GitHub Release so tauri-plugin-updater can serve updates from:
 #   https://github.com/ip2a/mcpstore/releases/latest/download/latest.json
 #
 # Required repository secrets:
@@ -34,8 +34,6 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             platform: darwin-aarch64
-          - target: x86_64-apple-darwin
-            platform: darwin-x86_64
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -53,14 +51,17 @@ jobs:
         working-directory: desktop/tauri
         run: |
           npm i -g @tauri-apps/cli@^2
-          tauri build --target ${{ matrix.target }} --bundles dmg
+          # app bundle is required: createUpdaterArtifacts emits .app.tar.gz/.sig
+          # only when the app target is built; --bundles dmg alone would skip it
+          tauri build --target ${{ matrix.target }} --bundles app,dmg
 
       - name: Collect updater artifacts
         shell: bash
         run: |
           mkdir -p dist/${{ matrix.platform }}
-          bundle="desktop/tauri/target/${{ matrix.target }}/release/bundle/macos"
-          cp "${bundle}"/*.app.tar.gz "${bundle}"/*.app.tar.gz.sig dist/${{ matrix.platform }}/
+          target="desktop/tauri/target/${{ matrix.target }}/release/bundle"
+          cp "${target}/macos"/*.app.tar.gz "${target}/macos"/*.app.tar.gz.sig dist/${{ matrix.platform }}/
+          cp "${target}/dmg"/*.dmg dist/${{ matrix.platform }}/
           ls -la dist/${{ matrix.platform }}
 
       - name: Upload build artifact
@@ -81,7 +82,6 @@ jobs:
         run: |
           mkdir -p dist
           gh run download "${GITHUB_RUN_ID}" --name "mcpstore-desktop-darwin-aarch64" --dir dist/darwin-aarch64
-          gh run download "${GITHUB_RUN_ID}" --name "mcpstore-desktop-darwin-x86_64" --dir dist/darwin-x86_64
 
       - name: Generate latest.json
         shell: bash
@@ -95,8 +95,8 @@ jobs:
           tag = f"v{version}"
           base = f"https://github.com/ip2a/mcpstore/releases/download/{tag}"
           platforms = {}
-          for identifier, dirname in (("darwin-aarch64", "darwin-aarch64"), ("darwin-x86_64", "darwin-x86_64")):
-              directory = Path("dist") / dirname
+          for identifier in ("darwin-aarch64",):
+              directory = Path("dist") / identifier
               archive = next(directory.glob("*.app.tar.gz"))
               platforms[identifier] = {
                   "signature": (directory / f"{archive.name}.sig").read_text(encoding="utf-8").strip(),
@@ -119,7 +119,7 @@ jobs:
             gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag "${prerelease[@]}"
           fi
           assets=(dist/darwin-aarch64/*.app.tar.gz dist/darwin-aarch64/*.app.tar.gz.sig \
-            dist/darwin-x86_64/*.app.tar.gz dist/darwin-x86_64/*.app.tar.gz.sig)
+            dist/darwin-aarch64/*.dmg)
           # pre-releases must never feed the Tauri auto-updater channel
           if [ ${#prerelease[@]} -eq 0 ]; then assets+=(dist/latest.json); fi
           gh release upload "${tag}" "${assets[@]}" --clobber
