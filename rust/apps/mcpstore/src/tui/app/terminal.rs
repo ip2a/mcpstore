@@ -1,5 +1,8 @@
 use super::*;
-use crate::{bootstrap, store_args::StoreSourceArgs};
+use crate::{
+    bootstrap,
+    store_args::{load_kernel, StoreSourceArgs},
+};
 use crossterm::{
     event::{self, Event, KeyEventKind},
     execute,
@@ -32,8 +35,10 @@ pub fn run(
     locale_override: Option<Locale>,
 ) -> Result<(), BoxErr> {
     let rt = bootstrap::build_runtime()?;
-    let store = crate::store_args::build_store(args)?;
-    rt.block_on(async { store.load_from_source().await })?;
+    let store = rt
+        .block_on(async { load_kernel(args).await })?
+        .store()
+        .clone();
 
     let app_config = store.config_manager().load_app_config_or_default()?;
     bootstrap::init_tracing_from_config(Some(&app_config));

@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::{JsonStoreConfig, MCPStore, SourceMode, StoreOptions};
+use mcpstore::{JsonStoreConfig, SourceMode, StoreOptions};
 
 use crate::BoxErr;
 
@@ -67,6 +67,51 @@ impl StoreSourceArgs {
     }
 }
 
-pub fn build_store(source: &StoreSourceArgs) -> Result<std::sync::Arc<MCPStore>, BoxErr> {
-    Ok(MCPStore::setup_with_options(source.to_store_options())?)
+pub enum KernelBootstrap {
+    Embedded(StoreOptions),
+}
+
+impl StoreSourceArgs {
+    pub fn to_kernel_bootstrap(&self) -> KernelBootstrap {
+        KernelBootstrap::Embedded(self.to_store_options())
+    }
+}
+
+pub enum KernelHandle {
+    Embedded(std::sync::Arc<mcpstore::MCPStore>),
+}
+
+pub fn boot_kernel(source: &StoreSourceArgs) -> Result<KernelHandle, BoxErr> {
+    let bootstrap = source.to_kernel_bootstrap();
+    let KernelBootstrap::Embedded(options) = bootstrap;
+    let store = mcpstore::MCPStore::setup_with_options(options)?;
+    Ok(KernelHandle::Embedded(store))
+}
+
+pub async fn load_kernel(source: &StoreSourceArgs) -> Result<KernelHandle, BoxErr> {
+    let handle = boot_kernel(source)?;
+    handle.load().await?;
+    Ok(handle)
+}
+
+impl std::ops::Deref for KernelHandle {
+    type Target = std::sync::Arc<mcpstore::MCPStore>;
+
+    fn deref(&self) -> &Self::Target {
+        self.store()
+    }
+}
+
+impl KernelHandle {
+    pub async fn load(&self) -> mcpstore::Result<()> {
+        match self {
+            Self::Embedded(store) => store.load_from_source().await,
+        }
+    }
+
+    pub fn store(&self) -> &std::sync::Arc<mcpstore::MCPStore> {
+        match self {
+            Self::Embedded(store) => store,
+        }
+    }
 }

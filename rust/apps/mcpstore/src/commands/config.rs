@@ -4,7 +4,7 @@ use mcpstore::{
     config::ConfigManager,
 };
 
-use crate::store_args::{build_store, StoreSourceArgs};
+use crate::store_args::{load_kernel, StoreSourceArgs};
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -73,8 +73,7 @@ async fn import_client(
     let inspection = inspect_client_config(parse_client(&client)?, &path)?;
     let names: Vec<String> = serde_json::from_str(&std::fs::read_to_string(names_file)?)?;
     let services = import_selected_services(&inspection, &names)?;
-    let store = build_store(&source)?;
-    store.load_from_source().await?;
+    let store = load_kernel(&source).await?.store().clone();
     for (name, _) in &services {
         if store.get_definition_config(name).await?.is_some() {
             return Err(format!("MCPStore service already exists: {name}").into());

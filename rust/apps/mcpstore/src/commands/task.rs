@@ -13,7 +13,7 @@ use crate::commands::elicitation::{
     ElicitationCommandError, ElicitationErrorKind,
 };
 use crate::error::{attach_instance, attach_task, OutputFormat};
-use crate::store_args::{build_store, StoreSourceArgs};
+use crate::store_args::{load_kernel, StoreSourceArgs};
 use crate::BoxErr;
 
 #[derive(Args)]
@@ -470,11 +470,11 @@ async fn loaded_store(
     runtime: &TaskRuntimeArgs,
     _output: OutputFormat,
 ) -> mcpstore::Result<std::sync::Arc<MCPStore>> {
-    let store = build_store(&runtime.store).map_err(|error| {
+    let store = load_kernel(&runtime.store).await.map_err(|error| {
         mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
     })?;
     store.load_from_source().await?;
-    Ok(store)
+    Ok(store.store().clone())
 }
 
 async fn require_task_record(

@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use url::{Host, Url};
 
-use crate::store_args::{build_store, StoreSourceArgs};
+use crate::store_args::{load_kernel, StoreSourceArgs};
 use crate::BoxErr;
 
 const DEFAULT_CALLBACK_TIMEOUT_SECONDS: u64 = 300;
@@ -658,8 +658,7 @@ async fn set_private_key(args: AuthPrivateKeyArgs) -> Result<(), BoxErr> {
 }
 
 async fn loaded_store(args: &StoreSourceArgs) -> Result<std::sync::Arc<MCPStore>, BoxErr> {
-    let store = build_store(args)?;
-    store.load_from_source().await?;
+    let store = load_kernel(args).await?.store().clone();
     Ok(store)
 }
 

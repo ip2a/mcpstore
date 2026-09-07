@@ -161,6 +161,19 @@ impl McpServerOptions {
             namespace: self.namespace.clone(),
         }
     }
+
+    pub fn store_args(&self) -> crate::store_args::StoreSourceArgs {
+        crate::store_args::StoreSourceArgs {
+            config_path: self.config_path.clone(),
+            source: match self.source_mode {
+                SourceMode::Local => crate::store_args::SourceArg::Local,
+                SourceMode::Db => crate::store_args::SourceArg::Db,
+            },
+            store: self.store.as_ref().map(|store| store.store.clone()),
+            store_config: self.store.as_ref().map(|store| store.config.to_string()),
+            namespace: self.namespace.clone(),
+        }
+    }
 }
 
 const SESSION_STATE_LIST_TOOL: &str = "mcpstore_session_state_list";

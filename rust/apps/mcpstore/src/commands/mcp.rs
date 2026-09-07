@@ -19,7 +19,7 @@ use crate::{
         handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
         ElicitationCommandError, ElicitationErrorKind,
     },
-    store_args::{build_store, StoreSourceArgs},
+    store_args::{load_kernel, StoreSourceArgs},
     BoxErr,
 };
 
@@ -151,7 +151,7 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
         return Ok(());
     }
 
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     let definition_exists = store.get_definition_config(&a.name).await?.is_some();
     if definition_exists {
@@ -200,7 +200,7 @@ pub struct AddJsonArgs {
 }
 
 pub async fn add_json(a: AddJsonArgs) -> std::result::Result<(), BoxErr> {
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let mut config: ServerConfig = serde_json::from_str(&a.json)?;
@@ -306,7 +306,7 @@ async fn load_service_summaries(
             })
             .collect());
     }
-    let store = build_store(store_args)?;
+    let store = load_kernel(store_args).await?.store().clone();
     store.load_from_source().await?;
     let services = store.list_scope_instances(scope).await?;
     let mut out = Vec::with_capacity(services.len());
@@ -384,7 +384,7 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
         return Ok(());
     }
 
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
 
     let services = store.list_scope_instances(&scope).await?;
@@ -434,7 +434,8 @@ pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = build_store(&a.store)
+    let store = load_kernel(&a.store)
+        .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
     store.load_from_source().await?;
     let payload = store.service_info_scoped(instance_id).await?;
@@ -475,7 +476,7 @@ pub async fn remove(a: RemoveArgs) -> std::result::Result<(), BoxErr> {
         println!("[Success] Service scope removed: {}", a.name);
         return Ok(());
     }
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     store.remove_service_scope(&a.name, &scope).await?;
     println!("[Success] Service scope removed: {}", a.name);
@@ -538,7 +539,8 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
+    let store = load_kernel(&a.store)
+        .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
     store.load_from_source().await?;
     store.connect_service(instance_id).await?;
@@ -614,7 +616,8 @@ pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
+    let store = load_kernel(&a.store)
+        .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
     store.load_from_source().await?;
     store.disconnect_service(instance_id).await?;
@@ -669,7 +672,8 @@ pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
+    let store = load_kernel(&a.store)
+        .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
     store.load_from_source().await?;
     store.restart_service(instance_id).await?;
@@ -734,7 +738,7 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
             format!("{instance_id} => readiness={readiness} phase={phase}"),
         )
     } else {
-        let store = build_store(&a.store).map_err(|e| {
+        let store = load_kernel(&a.store).await.map_err(|e| {
             mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string())
         })?;
         store.load_from_source().await?;
@@ -819,7 +823,8 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let store = build_store(&a.store)
+    let store = load_kernel(&a.store)
+        .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
     store.load_from_source().await?;
     store.connect_service(instance_id).await?;
@@ -875,7 +880,7 @@ pub struct UpdateArgs {
 }
 
 pub async fn update(a: UpdateArgs) -> std::result::Result<(), BoxErr> {
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let env_map = parse_env(&a.env)?;
@@ -947,7 +952,7 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
             .map(|t| tool_summary_value(t, a.schema))
             .collect()
     } else {
-        let store = build_store(&a.store)?;
+        let store = load_kernel(&a.store).await?.store().clone();
         store.load_from_source().await?;
         store.connect_service(instance_id).await?;
         let tools = store
@@ -1088,7 +1093,7 @@ async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = build_store(&a.store).map_err(|error| {
+    let store = load_kernel(&a.store).await.map_err(|error| {
         mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
     })?;
     store.load_from_source().await.map_err(|error| {
@@ -1293,7 +1298,9 @@ async fn resolve_target(
             target: target.to_string(),
         });
     }
-    let store = build_store(store_args).map_err(|e| ResolveError::Backend(e.to_string()))?;
+    let store = load_kernel(store_args)
+        .await
+        .map_err(|e| ResolveError::Backend(e.to_string()))?;
     store
         .load_from_source()
         .await
@@ -1730,7 +1737,7 @@ fn emit_call_value(output: OutputFormat, value: Value) -> mcpstore::Result<()> {
 }
 
 pub async fn migrate_store(a: MigrateStoreArgs) -> std::result::Result<(), BoxErr> {
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
 
     let target_config = JsonStoreConfig::new(&a.target_store, json!({"config": a.target_config}));
@@ -1780,7 +1787,7 @@ pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
         );
         return Ok(());
     }
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     store
         .declare_service_scope(&a.service_name, &scope, ScopeDescriptor::default())
@@ -1805,7 +1812,7 @@ pub async fn unassign(a: UnassignArgs) -> std::result::Result<(), BoxErr> {
         );
         return Ok(());
     }
-    let store = build_store(&a.store)?;
+    let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     store.remove_service_scope(&a.service_name, &scope).await?;
     println!(

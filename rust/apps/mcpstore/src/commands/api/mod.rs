@@ -26,7 +26,7 @@ use tokio::process::{Child, Command};
 use tower_http::cors::CorsLayer;
 
 use crate::{
-    store_args::{build_store, StoreSourceArgs},
+    store_args::{load_kernel, StoreSourceArgs},
     BoxErr,
 };
 
@@ -116,7 +116,7 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
         return Err("API 默认只允许 loopback 绑定；使用 --allow-remote 明确开启远程暴露".into());
     }
 
-    let store = build_store(&args.store)?;
+    let store = load_kernel(&args.store).await?.store().clone();
     store.load_from_source().await?;
 
     let config = store.config_manager().load_app_config_or_default()?;

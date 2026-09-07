@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::error::{attach_instance, OutputFormat};
 use crate::{
     commands::mcp::parse_instance_id,
-    store_args::{build_store, StoreSourceArgs},
+    store_args::{load_kernel, StoreSourceArgs},
     BoxErr,
 };
 
@@ -145,7 +145,7 @@ async fn execute_resource_list(args: ProtocolInstanceArgs) -> mcpstore::Result<(
             error.to_string(),
         )
     })?;
-    let store = build_store(&args.store).map_err(|error| {
+    let store = load_kernel(&args.store).await.map_err(|error| {
         attach_instance(
             mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
             instance_id,
@@ -184,7 +184,7 @@ async fn execute_resource_templates(args: ProtocolInstanceArgs) -> mcpstore::Res
             error.to_string(),
         )
     })?;
-    let store = build_store(&args.store).map_err(|error| {
+    let store = load_kernel(&args.store).await.map_err(|error| {
         attach_instance(
             mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
             instance_id,
@@ -232,7 +232,7 @@ async fn execute_resource_read(args: ResourceReadArgs) -> mcpstore::Result<()> {
             instance_id,
         ));
     }
-    let store = build_store(&args.store).map_err(|error| {
+    let store = load_kernel(&args.store).await.map_err(|error| {
         attach_instance(
             mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
             instance_id,
@@ -273,7 +273,7 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs) -> mcpstore::Result<()>
             error.to_string(),
         )
     })?;
-    let store = build_store(&args.store).map_err(|error| {
+    let store = load_kernel(&args.store).await.map_err(|error| {
         attach_instance(
             mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
             instance_id,
@@ -327,7 +327,7 @@ async fn execute_prompt_get(args: PromptGetArgs) -> mcpstore::Result<()> {
             instance_id,
         ));
     }
-    let store = build_store(&args.store).map_err(|error| {
+    let store = load_kernel(&args.store).await.map_err(|error| {
         attach_instance(
             mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
             instance_id,
@@ -394,7 +394,7 @@ async fn execute_complete(args: CompleteArgs) -> mcpstore::Result<()> {
         value: args.value,
         context,
     };
-    let store = build_store(&args.store).map_err(|error| {
+    let store = load_kernel(&args.store).await.map_err(|error| {
         attach_instance(
             mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
             instance_id,

@@ -1,10 +1,10 @@
 use super::catalog::{catalog_name_counts, service_namespace};
 use super::tools::{read_required_instance_id, read_required_object, read_required_string};
 use super::*;
+use crate::store_args::load_kernel;
 
 pub async fn run(args: McpServerOptions) -> Result<(), BoxErr> {
-    let store = Arc::new(MCPStore::setup_with_options(args.to_store_options())?);
-    store.load_from_source().await?;
+    let store = load_kernel(&args.store_args()).await?.store().clone();
 
     let server = McpStoreServer::from_store(
         Arc::clone(&store),

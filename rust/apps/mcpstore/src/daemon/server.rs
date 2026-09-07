@@ -11,14 +11,11 @@ use tokio::signal;
 use crate::daemon::protocol::{
     default_pid_path, default_socket_path, DaemonError, DaemonRequest, DaemonResponse,
 };
-use crate::store_args::StoreSourceArgs;
+use crate::store_args::{load_kernel, StoreSourceArgs};
 
 /// Start the daemon: create store, bind socket, write PID, accept loop.
 pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::store_args::build_store;
-
-    let store = build_store(&args)?;
-    store.load_from_source().await?;
+    let store = load_kernel(&args).await?.store().clone();
 
     // Ensure any stale files are cleaned up.
     super::protocol::cleanup_stale_files();
