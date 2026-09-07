@@ -9,7 +9,9 @@ impl MCPStore {
     ) -> Result<ServiceState> {
         if self.is_data_plane() {
             return self
-                .state_manager
+                .kernel
+                .control
+                .state
                 .get(instance_id)
                 .await?
                 .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
@@ -32,11 +34,18 @@ impl MCPStore {
     fn retry_delay_secs(&self, attempts: u32, instance_id: InstanceId) -> i64 {
         let exponent = attempts.saturating_sub(1).min(6);
         let delay = self
+            .kernel
+            .runtime
             .runtime_config
             .retry_backoff_base_secs
             .saturating_mul(2_i64.pow(exponent));
-        let capped = delay.min(self.runtime_config.retry_backoff_max_secs);
-        let jitter_ratio = self.runtime_config.backoff_jitter_ratio.clamp(0.0, 1.0);
+        let capped = delay.min(self.kernel.runtime.runtime_config.retry_backoff_max_secs);
+        let jitter_ratio = self
+            .kernel
+            .runtime
+            .runtime_config
+            .backoff_jitter_ratio
+            .clamp(0.0, 1.0);
         if jitter_ratio == 0.0 {
             return capped;
         }
@@ -78,7 +87,9 @@ impl MCPStore {
         let now = Self::now_timestamp();
         let now_f64 = now as f64;
         let current = self
-            .state_manager
+            .kernel
+            .control
+            .state
             .get(instance_id)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
@@ -92,7 +103,12 @@ impl MCPStore {
             RecoveryState::Waiting { hard_deadline, .. }
             | RecoveryState::Probing { hard_deadline, .. } => hard_deadline,
             RecoveryState::Idle | RecoveryState::Exhausted { .. } => {
-                now_f64 + self.runtime_config.reconnect_hard_timeout_secs as f64
+                now_f64
+                    + self
+                        .kernel
+                        .runtime
+                        .runtime_config
+                        .reconnect_hard_timeout_secs as f64
             }
         };
         let lifecycle = self.resolved_instance_lifecycle(instance_id).await?;
@@ -105,7 +121,9 @@ impl MCPStore {
         failure.since = now;
 
         let failed = self
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::TransportFailed(failure.clone()),
@@ -115,7 +133,9 @@ impl MCPStore {
         if should_restart {
             let retry_at = now_f64 + self.retry_delay_secs(attempts, instance_id) as f64;
             Ok(self
-                .state_manager
+                .kernel
+                .control
+                .state
                 .dispatch(
                     instance_id,
                     ServiceStateEvent::RecoveryScheduled {
@@ -129,7 +149,9 @@ impl MCPStore {
         } else {
             let _ = failed;
             Ok(self
-                .state_manager
+                .kernel
+                .control
+                .state
                 .dispatch(
                     instance_id,
                     ServiceStateEvent::RecoveryExhausted { attempts, failure },

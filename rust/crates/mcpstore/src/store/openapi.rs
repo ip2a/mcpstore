@@ -104,7 +104,14 @@ impl MCPStore {
         spec: serde_json::Value,
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
-        if self.registry.find_definition(name).await.is_some() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_definition(name)
+            .await
+            .is_some()
+        {
             return Err(Error::new(
                 FailureCode::Internal,
                 format!("Service definition already exists: {name}"),
@@ -117,7 +124,7 @@ impl MCPStore {
             timeout_millis: options.fetch_timeout_millis,
         };
         let spec =
-            bundle_openapi_external_refs(&client, &self.cache, spec_url, spec, &bundle_options)
+            bundle_openapi_external_refs(&client, &self.cache(), spec_url, spec, &bundle_options)
                 .await?;
         let mut result = analyze_openapi_spec(name, spec_url, spec)?;
         result.runtime_executable = true;
@@ -130,13 +137,15 @@ impl MCPStore {
                 format!("OpenAPI import result serialization failed: {err}"),
             )
         })?;
-        self.cache.put_state("openapi_imports", name, value).await?;
+        self.cache()
+            .put_state("openapi_imports", name, value)
+            .await?;
         let context = OpenApiImportContextState {
             last_service_name: name.to_string(),
             updated_at: now,
             version: OPENAPI_IMPORT_CONTEXT_VERSION,
         };
-        self.cache
+        self.cache()
             .put_state(
                 OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                 OPENAPI_IMPORT_CONTEXT_KEY,
@@ -148,7 +157,7 @@ impl MCPStore {
                 })?,
             )
             .await?;
-        self.cache
+        self.cache()
             .put_event(
                 "openapi_imports",
                 &format!("{name}:imported:{now}"),
@@ -225,7 +234,7 @@ impl MCPStore {
         options: OpenApiBundleOptions,
     ) -> Result<serde_json::Value> {
         let client = openapi_http_client(options.timeout_millis)?;
-        bundle_openapi_external_refs(&client, &self.cache, spec_url, spec, &options).await
+        bundle_openapi_external_refs(&client, &self.cache(), spec_url, spec, &options).await
     }
 
     pub async fn bundle_openapi_artifact(&self, spec_url: &str) -> Result<OpenApiBundleArtifact> {
@@ -268,7 +277,7 @@ impl MCPStore {
         let root_metadata = document_metadata_from_bytes(spec_text.as_bytes());
         bundle_openapi_external_ref_artifact(
             &client,
-            &self.cache,
+            &self.cache(),
             spec_url,
             spec,
             root_metadata,
@@ -300,7 +309,7 @@ impl MCPStore {
         let root_metadata = document_metadata_from_value(&spec)?;
         bundle_openapi_external_ref_artifact(
             &client,
-            &self.cache,
+            &self.cache(),
             spec_url,
             spec,
             root_metadata,
@@ -369,14 +378,22 @@ impl MCPStore {
             applied_config_revision: None,
             added_time: now,
         };
-        self.registry.register_definition(definition).await;
-        self.registry.register_instance(instance).await;
+        self.kernel
+            .control
+            .registry
+            .register_definition(definition)
+            .await;
+        self.kernel
+            .control
+            .registry
+            .register_instance(instance)
+            .await;
         self.cache_instance_added(instance_id).await?;
         Ok(())
     }
 
     pub async fn get_openapi_import(&self, name: &str) -> Result<Option<OpenApiImportResult>> {
-        let Some(value) = self.cache.get_state("openapi_imports", name).await? else {
+        let Some(value) = self.cache().get_state("openapi_imports", name).await? else {
             return Ok(None);
         };
         serde_json::from_value(value).map(Some).map_err(|err| {
@@ -388,7 +405,7 @@ impl MCPStore {
     }
 
     pub async fn list_openapi_imports(&self) -> Result<Vec<OpenApiImportResult>> {
-        let values = self.cache.get_all_states_async("openapi_imports").await?;
+        let values = self.cache().get_all_states_async("openapi_imports").await?;
         let mut imports: Vec<OpenApiImportResult> = Vec::with_capacity(values.len());
         for value in values.into_values() {
             imports.push(serde_json::from_value(value).map_err(|err| {
@@ -404,7 +421,7 @@ impl MCPStore {
 
     pub async fn last_openapi_import(&self) -> Result<Option<OpenApiImportResult>> {
         let Some(value) = self
-            .cache
+            .cache()
             .get_state(
                 OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                 OPENAPI_IMPORT_CONTEXT_KEY,
@@ -423,9 +440,9 @@ impl MCPStore {
     }
 
     pub(crate) async fn clear_openapi_import_for_service(&self, name: &str) -> Result<()> {
-        self.cache.delete_state("openapi_imports", name).await?;
+        self.cache().delete_state("openapi_imports", name).await?;
         let Some(value) = self
-            .cache
+            .cache()
             .get_state(
                 OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                 OPENAPI_IMPORT_CONTEXT_KEY,
@@ -441,7 +458,7 @@ impl MCPStore {
             )
         })?;
         if context.last_service_name == name {
-            self.cache
+            self.cache()
                 .delete_state(
                     OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                     OPENAPI_IMPORT_CONTEXT_KEY,
@@ -457,13 +474,22 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
     ) -> Result<OpenApiImportOptions> {
-        if self.registry.find_instance(instance_id).await.is_none() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
             ));
         }
         let applied_config = self
+            .kernel
+            .runtime
             .applied_openapi_configs
             .read()
             .await

@@ -59,7 +59,13 @@ async fn register_tool_service(
         .await
         .unwrap();
     let instance_id = ServiceInstanceKey::new(service_name, scope).instance_id();
-    let mut instance = store.registry.find_instance(instance_id).await.unwrap();
+    let mut instance = store
+        .kernel
+        .control
+        .registry
+        .find_instance(instance_id)
+        .await
+        .unwrap();
     instance.tools = tools
         .iter()
         .map(|tool| crate::registry::ToolInfo {
@@ -72,7 +78,12 @@ async fn register_tool_service(
             meta: None,
         })
         .collect();
-    store.registry.register_instance(instance).await;
+    store
+        .kernel
+        .control
+        .registry
+        .register_instance(instance)
+        .await;
     instance_id
 }
 

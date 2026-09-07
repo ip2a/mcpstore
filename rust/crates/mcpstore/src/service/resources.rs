@@ -5,6 +5,8 @@ impl MCPStore {
         self.ensure_instance_connected(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
             let instance = self
+                .kernel
+                .control
                 .registry
                 .find_instance(instance_id)
                 .await
@@ -30,7 +32,7 @@ impl MCPStore {
                 })
                 .collect();
         }
-        self.pool.list_resources(instance_id).await
+        self.kernel.execution.pool.list_resources(instance_id).await
     }
 
     pub async fn list_resource_templates(
@@ -40,6 +42,8 @@ impl MCPStore {
         self.ensure_instance_connected(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
             let instance = self
+                .kernel
+                .control
                 .registry
                 .find_instance(instance_id)
                 .await
@@ -65,7 +69,11 @@ impl MCPStore {
                 })
                 .collect();
         }
-        self.pool.list_resource_templates(instance_id).await
+        self.kernel
+            .execution
+            .pool
+            .list_resource_templates(instance_id)
+            .await
     }
 
     pub async fn read_resource(
@@ -76,6 +84,8 @@ impl MCPStore {
         self.ensure_instance_connected(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
             let instance = self
+                .kernel
+                .control
                 .registry
                 .find_instance(instance_id)
                 .await
@@ -94,6 +104,10 @@ impl MCPStore {
                 .await?;
             return crate::openapi_runtime::read_openapi_resource(&import, uri, &options).await;
         }
-        self.pool.read_resource(instance_id, uri).await
+        self.kernel
+            .execution
+            .pool
+            .read_resource(instance_id, uri)
+            .await
     }
 }

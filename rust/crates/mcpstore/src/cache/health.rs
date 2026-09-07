@@ -16,7 +16,7 @@ impl MCPStore {
 
     pub async fn cache_health_report(&self) -> Result<CacheHealthReport> {
         let namespace = self.namespace();
-        let snapshot = self.cache.snapshot().await?;
+        let snapshot = self.kernel.persistence.cache.snapshot().await?;
         Ok(CacheHealthReport {
             namespace,
             store: self.current_store_name().await,

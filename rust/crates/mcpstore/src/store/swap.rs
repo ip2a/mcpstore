@@ -58,7 +58,14 @@ impl MCPStore {
             ));
         }
 
-        let source_name = self.store_config.read().await.store_name().to_string();
+        let source_name = self
+            .kernel
+            .persistence
+            .store_config
+            .read()
+            .await
+            .store_name()
+            .to_string();
         let target_name = config.store_name().to_string();
 
         let target_live_store = Arc::new(LiveStore::from_handle(target_handle));
@@ -69,10 +76,10 @@ impl MCPStore {
         let online = target_handle.capabilities.change_feed;
 
         if online {
-            let source = match self.event_backend.read().await.clone() {
+            let source = match self.kernel.runtime.event_backend.read().await.clone() {
                 Some(source) => source,
                 None => {
-                    let current = self.store_config.read().await;
+                    let current = self.kernel.persistence.store_config.read().await;
                     let handle = openkeyv::factory::open_store(current.to_openkeyv_config())
                         .await
                         .map_err(|e| {
@@ -95,7 +102,7 @@ impl MCPStore {
             .map_err(|e| Error::new(FailureCode::Internal, format!("Store migration: {e}")))?;
             copied = report.copied;
 
-            let _route = self.cache.route.write().await;
+            let _route = self.kernel.persistence.cache.route.write().await;
             let barrier_collection = "__mcpstore_migration";
             let barrier_key = format!("{}-{}", std::process::id(), uuid::Uuid::new_v4());
             source
@@ -134,8 +141,8 @@ impl MCPStore {
                 replayed += 1;
             }
         } else {
-            let _route = self.cache.route.write().await;
-            let snapshot = self.cache.snapshot().await?;
+            let _route = self.kernel.persistence.cache.route.write().await;
+            let snapshot = self.kernel.persistence.cache.snapshot().await?;
             crate::cache::CacheLayerManager::clear_namespace(
                 target_live_store.as_ref(),
                 &namespace,
@@ -173,13 +180,19 @@ impl MCPStore {
         }
 
         // Swap while writes remain frozen.
-        *self.cache.store.write().await = target_live_store;
-        self.cache.last_state_snapshot.write().await.clear();
+        *self.kernel.persistence.cache.store.write().await = target_live_store;
+        self.kernel
+            .persistence
+            .cache
+            .last_state_snapshot
+            .write()
+            .await
+            .clear();
 
         // Update metadata.
-        *self.store_config.write().await =
+        *self.kernel.persistence.store_config.write().await =
             JsonStoreConfig::new(config.store_name(), target_openkeyv_config.config);
-        *self.event_backend.write().await = online.then_some(target_event_backend);
+        *self.kernel.runtime.event_backend.write().await = online.then_some(target_event_backend);
 
         Ok(SwapResult {
             source_store: source_name,

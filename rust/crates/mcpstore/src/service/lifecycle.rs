@@ -18,7 +18,14 @@ impl MCPStore {
                 .await;
         }
 
-        if self.registry.find_definition(service_name).await.is_some() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_definition(service_name)
+            .await
+            .is_some()
+        {
             return Err(Error::new(
                 FailureCode::Internal,
                 format!("Service definition already exists: {service_name}"),
@@ -26,8 +33,8 @@ impl MCPStore {
         }
 
         config.ensure_native_scopes();
-        if self.source_mode == SourceMode::Local {
-            let mut stored = self.config_manager.load_or_empty()?;
+        if self.kernel.runtime.source_mode == SourceMode::Local {
+            let mut stored = self.kernel.control.config_manager.load_or_empty()?;
             if stored.mcp_servers.contains_key(service_name) {
                 return Err(Error::new(
                     FailureCode::Internal,
@@ -37,12 +44,14 @@ impl MCPStore {
             stored
                 .mcp_servers
                 .insert(service_name.to_string(), config.clone());
-            self.config_manager.save(&stored)?;
+            self.kernel.control.config_manager.save(&stored)?;
         }
 
         self.register_configured_definition(service_name, &config)
             .await?;
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(
                 Event::new(
                     "SERVICE_ADD_REQUESTED",

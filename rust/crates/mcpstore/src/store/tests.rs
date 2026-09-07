@@ -101,7 +101,7 @@ fn setup_scopes_redis_config_to_store_namespace() {
     .unwrap();
 
     assert_eq!(store.namespace(), "tenant-a");
-    let config = store.store_config.try_read().unwrap();
+    let config = store.kernel.persistence.store_config.try_read().unwrap();
     assert_eq!(config.config["keyspace"], "tenant-a");
 }
 
@@ -1058,13 +1058,20 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         annotations: None,
         meta: None,
     }];
-    source.registry.register_instance(instance).await;
+    source
+        .kernel
+        .control
+        .registry
+        .register_instance(instance)
+        .await;
     source
         .cache_instance_connected(instance_id, &source.list_tools(instance_id).await.unwrap())
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::StartRequested,
@@ -1073,7 +1080,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::TransportConnected,
@@ -1082,7 +1091,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::HealthObserved {
@@ -1095,7 +1106,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::ToolSyncSucceeded {
@@ -1120,7 +1133,14 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     assert_eq!(instances.len(), 1);
     assert_eq!(instances[0].instance_id, instance_id);
     assert_eq!(db.list_tools(instance_id).await.unwrap()[0].name, "echo");
-    let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = db
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.health, crate::state::HealthState::Healthy);
     let unchanged = db
         .record_instance_failure(
@@ -1131,7 +1151,13 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .unwrap();
     assert_eq!(unchanged, state);
     assert_eq!(
-        db.state_manager.get(instance_id).await.unwrap().unwrap(),
+        db.kernel
+            .control
+            .state
+            .get(instance_id)
+            .await
+            .unwrap()
+            .unwrap(),
         state
     );
     assert_eq!(
@@ -1255,7 +1281,9 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
     source.add_service("svc", stdio_config()).await.unwrap();
     let instance_id = store_instance_id("svc");
     let original_state = source
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(instance_id)
         .await
         .unwrap()
@@ -1286,7 +1314,14 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
     .await
     .unwrap();
 
-    let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = db
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.desired, original_state.desired);
     assert_eq!(state.phase, original_state.phase);
     assert_eq!(state.health, original_state.health);
@@ -1401,6 +1436,8 @@ async fn openapi_import_persists_shared_analysis_result() {
     assert_eq!(pending.applied_config_revision, None);
     assert!(pending.tools.is_empty());
     assert!(store
+        .kernel
+        .runtime
         .applied_openapi_configs
         .read()
         .await
@@ -1413,7 +1450,14 @@ async fn openapi_import_persists_shared_analysis_result() {
         .unwrap()
         .unwrap();
     assert!(pending_entity["applied_config_revision"].is_null());
-    let pending_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let pending_state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(pending_state.phase, crate::state::RuntimePhase::Stopped);
     assert!(store
         .cache()
@@ -1433,7 +1477,14 @@ async fn openapi_import_persists_shared_analysis_result() {
 
     let service = store.find_instance(instance_id).await.unwrap();
     assert_eq!(service.transport, "openapi");
-    let connected_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let connected_state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(connected_state.phase, crate::state::RuntimePhase::Running);
     assert_eq!(connected_state.health, crate::state::HealthState::Unknown);
     assert_eq!(
@@ -1475,7 +1526,14 @@ async fn openapi_import_persists_shared_analysis_result() {
         serde_json::from_str::<serde_json::Value>(text).unwrap()["created"],
         serde_json::json!(true)
     );
-    let observed_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let observed_state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(observed_state.health, crate::state::HealthState::Healthy);
     assert_eq!(
         observed_state.health_metrics,
@@ -1689,8 +1747,16 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
     });
     store.add_service("inventory", config).await.unwrap();
 
-    let definition_before = store.registry.find_definition("inventory").await.unwrap();
+    let definition_before = store
+        .kernel
+        .control
+        .registry
+        .find_definition("inventory")
+        .await
+        .unwrap();
     let instances_before = store
+        .kernel
+        .control
         .registry
         .list_instances()
         .await
@@ -1715,7 +1781,10 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
                 .unwrap()
                 .unwrap(),
         );
-        connectivity_before.insert(instance_id, store.pool.is_connected(instance_id).await);
+        connectivity_before.insert(
+            instance_id,
+            store.kernel.execution.pool.is_connected(instance_id).await,
+        );
     }
     let config_before = store.show_config().await.unwrap();
 
@@ -1740,11 +1809,19 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         .to_string()
         .contains("Service definition already exists: inventory"));
     assert_eq!(
-        store.registry.find_definition("inventory").await.unwrap(),
+        store
+            .kernel
+            .control
+            .registry
+            .find_definition("inventory")
+            .await
+            .unwrap(),
         definition_before
     );
     assert_eq!(
         store
+            .kernel
+            .control
             .registry
             .list_instances()
             .await
@@ -1773,7 +1850,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
             cached_before
         );
         assert_eq!(
-            store.pool.is_connected(instance_id).await,
+            store.kernel.execution.pool.is_connected(instance_id).await,
             connectivity_before[&instance_id]
         );
     }
@@ -2661,7 +2738,9 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
         .await
         .unwrap();
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(service.instance_id)
         .await
         .unwrap()
@@ -4668,9 +4747,20 @@ async fn install_registry_tools(
     instance_id: InstanceId,
     tools: Vec<crate::registry::ToolInfo>,
 ) {
-    let mut instance = store.registry.find_instance(instance_id).await.unwrap();
+    let mut instance = store
+        .kernel
+        .control
+        .registry
+        .find_instance(instance_id)
+        .await
+        .unwrap();
     instance.tools = tools;
-    store.registry.register_instance(instance).await;
+    store
+        .kernel
+        .control
+        .registry
+        .register_instance(instance)
+        .await;
 }
 
 #[tokio::test]
@@ -4825,6 +4915,8 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
         .await
         .unwrap();
     store
+        .kernel
+        .control
         .registry
         .replace_instance_tools(
             instance_id,
@@ -4854,6 +4946,8 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
     assert!(policy.stale.is_empty());
 
     store
+        .kernel
+        .control
         .registry
         .replace_instance_tools(instance_id, vec![registry_tool("gamma")])
         .await;
@@ -5082,7 +5176,9 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
             == crate::error::FailureCategory::Connection
     ));
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5159,7 +5255,9 @@ async fn connect_service_times_out_hanging_stdio_startup() {
         .unwrap_err()
         .to_string();
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("hanging"))
         .await
         .unwrap()
@@ -5213,7 +5311,9 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
     assert!(blocked.contains("backoff active"));
 
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5223,7 +5323,9 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
         other => panic!("expected waiting recovery, got {other:?}"),
     };
     let transitioned = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             store_instance_id("broken"),
             crate::state::ServiceStateEvent::RecoveryProbeStarted { attempt },
@@ -5265,7 +5367,14 @@ async fn manual_startup_policy_blocks_implicit_connect() {
         .to_string();
 
     assert!(err.contains("startup_policy=manual"));
-    assert!(!store.pool.is_connected(store_instance_id("manual")).await);
+    assert!(
+        !store
+            .kernel
+            .execution
+            .pool
+            .is_connected(store_instance_id("manual"))
+            .await
+    );
 
     std::fs::remove_file(path).ok();
 }
@@ -5297,7 +5406,9 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
         .await
         .unwrap_err();
     let first = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5308,7 +5419,9 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
     ));
 
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             store_instance_id("broken"),
             crate::state::ServiceStateEvent::RecoveryProbeStarted { attempt: 1 },
@@ -5321,7 +5434,9 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
         .await
         .unwrap_err();
     let second = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5368,12 +5483,16 @@ async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
     }
 
     store
-        .auth_coordinator
+        .kernel
+        .control
+        .auth
         .set_status(instance_id, crate::auth::AuthStatus::Authenticated)
         .await;
     store.remove_service("protected").await.unwrap();
     assert!(store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(instance_id)
         .await
         .unwrap()
@@ -5447,7 +5566,14 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
 
     store.record_failure(instance_id, &error).await.unwrap();
 
-    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
     assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
     assert_eq!(state.failure, None);
@@ -5486,7 +5612,14 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
 
     store.record_failure(instance_id, &error).await.unwrap();
 
-    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
     assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
     assert_eq!(state.failure, None);
@@ -5521,7 +5654,9 @@ async fn successful_health_check_records_canonical_health() {
     store.add_service("svc", stdio_config()).await.unwrap();
     let instance_id = store_instance_id("svc");
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::StartRequested,
@@ -5530,7 +5665,9 @@ async fn successful_health_check_records_canonical_health() {
         .await
         .unwrap();
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::TransportConnected,
@@ -5806,7 +5943,12 @@ mod scoped_contract {
     async fn install_tool(store: &MCPStore, instance_id: InstanceId, tool_info: ToolInfo) {
         let mut instance = store.find_instance(instance_id).await.unwrap();
         instance.tools = vec![tool_info];
-        store.registry.register_instance(instance).await;
+        store
+            .kernel
+            .control
+            .registry
+            .register_instance(instance)
+            .await;
     }
 
     async fn spawn_openapi_auth_fixture() -> String {
@@ -6029,7 +6171,14 @@ mod scoped_contract {
         let agent_id = instance_id("svc", agent_scope("agent-1"));
         store.connect_service(store_id).await.unwrap_err();
 
-        let failed = store.state_manager.get(store_id).await.unwrap().unwrap();
+        let failed = store
+            .kernel
+            .control
+            .state
+            .get(store_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(failed.health, crate::state::HealthState::Unhealthy);
         assert!(matches!(
             failed.recovery,
@@ -6037,7 +6186,14 @@ mod scoped_contract {
         ));
         assert!(failed.failure.is_some());
 
-        let sibling = store.state_manager.get(agent_id).await.unwrap().unwrap();
+        let sibling = store
+            .kernel
+            .control
+            .state
+            .get(agent_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(sibling.desired, crate::state::DesiredState::Stopped);
         assert_eq!(sibling.phase, crate::state::RuntimePhase::Stopped);
         assert_eq!(sibling.health, crate::state::HealthState::Unknown);
@@ -6122,7 +6278,12 @@ mod scoped_contract {
         let applied_revision = connected.config_revision;
         connected.tools = vec![tool("echo")];
         connected.applied_config_revision = Some(applied_revision);
-        store.registry.register_instance(connected).await;
+        store
+            .kernel
+            .control
+            .registry
+            .register_instance(connected)
+            .await;
 
         let mut updated = original;
         updated.mcpstore = None;
@@ -6149,13 +6310,25 @@ mod scoped_contract {
         assert_eq!(agent_instance.scope, agent_scope("agent-1"));
         assert_eq!(agent_instance.effective_config["env"]["AGENT"], "one");
 
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(definition.scopes.store.is_some());
         assert!(definition.scopes.agents.contains_key("agent-1"));
         assert_eq!(definition.base_revision, 2);
 
         store.update_service("svc", updated).await.unwrap();
-        let unchanged = store.registry.find_definition("svc").await.unwrap();
+        let unchanged = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert_eq!(unchanged.base_revision, 2);
         assert!(unchanged.scopes.store.is_some());
         assert!(unchanged.scopes.agents.contains_key("agent-1"));
@@ -6250,7 +6423,13 @@ mod scoped_contract {
             .unwrap_err();
 
         assert!(error.to_string().contains("Use scope APIs"));
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert_eq!(definition.base_revision, 1);
         assert!(definition.scopes.store.is_some());
 
@@ -6268,7 +6447,9 @@ mod scoped_contract {
         let instance_id = instance_id("svc", store_scope());
 
         store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::StartRequested,
@@ -6277,7 +6458,9 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::TransportConnected,
@@ -6286,7 +6469,9 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::StopRequested,
@@ -6295,7 +6480,9 @@ mod scoped_contract {
             .await
             .unwrap();
         let observed = store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::TransportStopped,
@@ -6307,11 +6494,23 @@ mod scoped_contract {
         let mut runtime_instance = store.find_instance(instance_id).await.unwrap();
         runtime_instance.tools = vec![tool("echo")];
         runtime_instance.applied_config_revision = Some(runtime_instance.config_revision);
-        store.registry.register_instance(runtime_instance).await;
+        store
+            .kernel
+            .control
+            .registry
+            .register_instance(runtime_instance)
+            .await;
 
         store.load_from_config().await.unwrap();
 
-        let rebuilt = store.state_manager.get(instance_id).await.unwrap().unwrap();
+        let rebuilt = store
+            .kernel
+            .control
+            .state
+            .get(instance_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(rebuilt.desired, observed.desired);
         assert_eq!(rebuilt.phase, observed.phase);
         assert_eq!(rebuilt.health, observed.health);
@@ -6398,7 +6597,13 @@ mod scoped_contract {
             2
         );
 
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert_eq!(definition.base_revision, 1);
 
         std::fs::remove_file(path).ok();
@@ -6475,6 +6680,8 @@ mod scoped_contract {
             serde_json::to_value(connected.config_revision).unwrap()
         );
         let applied_before = store
+            .kernel
+            .runtime
             .applied_openapi_configs
             .read()
             .await
@@ -6517,7 +6724,9 @@ mod scoped_contract {
         let pending = store.find_instance(instance_id).await.unwrap();
         assert_eq!(
             store
-                .state_manager
+                .kernel
+                .control
+                .state
                 .get(instance_id)
                 .await
                 .unwrap()
@@ -6536,7 +6745,13 @@ mod scoped_contract {
             serde_json::to_value(pending.applied_config_revision.unwrap()).unwrap()
         );
         assert_eq!(
-            store.applied_openapi_configs.read().await.get(&instance_id),
+            store
+                .kernel
+                .runtime
+                .applied_openapi_configs
+                .read()
+                .await
+                .get(&instance_id),
             Some(&applied_before)
         );
         assert!(
@@ -6567,6 +6782,8 @@ mod scoped_contract {
             serde_json::to_value(restarted.config_revision).unwrap()
         );
         let applied_after = store
+            .kernel
+            .runtime
             .applied_openapi_configs
             .read()
             .await
@@ -6696,10 +6913,24 @@ mod scoped_contract {
         assert!(!untouched.is_error);
 
         store.disconnect_service(agent_1_id).await.unwrap();
-        let stopped = store.state_manager.get(agent_1_id).await.unwrap().unwrap();
+        let stopped = store
+            .kernel
+            .control
+            .state
+            .get(agent_1_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(stopped.desired, crate::state::DesiredState::Stopped);
         assert_eq!(stopped.phase, crate::state::RuntimePhase::Stopped);
-        let sibling = store.state_manager.get(agent_2_id).await.unwrap().unwrap();
+        let sibling = store
+            .kernel
+            .control
+            .state
+            .get(agent_2_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(sibling.desired, crate::state::DesiredState::Running);
         assert_eq!(sibling.phase, crate::state::RuntimePhase::Running);
         assert_eq!(sibling.health, crate::state::HealthState::Healthy);
@@ -6738,11 +6969,17 @@ mod scoped_contract {
         assert!(store.find_instance(store_id).await.is_none());
         assert!(store.find_instance(agent_1_id).await.is_some());
         assert!(store.find_instance(agent_2_id).await.is_some());
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(definition.scopes.store.is_none());
         assert!(definition.scopes.agents.contains_key("agent-1"));
         assert!(definition.scopes.agents.contains_key("agent-2"));
-        let config = store.config_manager.load_or_empty().unwrap();
+        let config = store.kernel.control.config_manager.load_or_empty().unwrap();
         let config_scopes = config.mcp_servers["svc"].scopes();
         assert!(config_scopes.store.is_none());
         assert!(config_scopes.agents.contains_key("agent-1"));
@@ -6970,11 +7207,17 @@ mod scoped_contract {
                 .is_some());
         }
 
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(definition.scopes.store.is_some());
         assert!(!definition.scopes.agents.contains_key("agent-1"));
         assert!(definition.scopes.agents.contains_key("agent-2"));
-        let config = store.config_manager.load_or_empty().unwrap();
+        let config = store.kernel.control.config_manager.load_or_empty().unwrap();
         let config_scopes = config.mcp_servers["svc"].scopes();
         assert!(config_scopes.store.is_some());
         assert!(!config_scopes.agents.contains_key("agent-1"));
@@ -7000,7 +7243,13 @@ mod scoped_contract {
         .unwrap();
         copy_cache_snapshot(&store, &db).await;
         db.load_from_db().await.unwrap();
-        let db_definition = db.registry.find_definition("svc").await.unwrap();
+        let db_definition = db
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(db_definition.scopes.store.is_some());
         assert!(!db_definition.scopes.agents.contains_key("agent-1"));
         assert!(db_definition.scopes.agents.contains_key("agent-2"));
@@ -7074,14 +7323,20 @@ mod scoped_contract {
         let agent_1_scope = agent_scope("agent-1");
         store.reset_scope(&agent_1_scope).await.unwrap();
 
-        let saved = store.config_manager.load_or_empty().unwrap();
+        let saved = store.kernel.control.config_manager.load_or_empty().unwrap();
         for service_name in ["alpha", "beta"] {
             let config_scopes = saved.mcp_servers[service_name].scopes();
             assert!(config_scopes.store.is_some());
             assert!(!config_scopes.agents.contains_key("agent-1"));
             assert!(config_scopes.agents.contains_key("agent-2"));
 
-            let definition = store.registry.find_definition(service_name).await.unwrap();
+            let definition = store
+                .kernel
+                .control
+                .registry
+                .find_definition(service_name)
+                .await
+                .unwrap();
             assert_eq!(definition.scopes, config_scopes);
             let cached: ServiceDefinitionEntity = serde_json::from_value(
                 store
@@ -7135,7 +7390,13 @@ mod scoped_contract {
             2
         );
         for service_name in ["alpha", "beta"] {
-            let definition = db.registry.find_definition(service_name).await.unwrap();
+            let definition = db
+                .kernel
+                .control
+                .registry
+                .find_definition(service_name)
+                .await
+                .unwrap();
             assert!(definition.scopes.store.is_some());
             assert!(!definition.scopes.agents.contains_key("agent-1"));
             assert!(definition.scopes.agents.contains_key("agent-2"));
@@ -7188,7 +7449,13 @@ mod scoped_contract {
         store.reset_scope(&scope).await.unwrap();
         store.load_from_db().await.unwrap();
         for service_name in ["alpha", "beta"] {
-            let definition = store.registry.find_definition(service_name).await.unwrap();
+            let definition = store
+                .kernel
+                .control
+                .registry
+                .find_definition(service_name)
+                .await
+                .unwrap();
             assert!(definition.scopes.store.is_some());
             assert!(!definition.scopes.agents.contains_key("agent-1"));
         }
@@ -7462,7 +7729,14 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     tokio::time::sleep(Duration::from_millis(25)).await;
     assert_eq!(requests.load(Ordering::SeqCst), 0);
 
-    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
     assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
     assert_eq!(state.failure, None);
@@ -7528,6 +7802,8 @@ mod event_reactor_facade {
         // Write a value to the watched collection via the cache layer — the
         // EventReactor's independent backend will see it via ChangeFeed.
         store
+            .kernel
+            .persistence
             .cache
             .put_event(
                 "facade.test",
@@ -7854,7 +8130,7 @@ mod control_reactor_tests {
         })
         .unwrap();
         assert!(
-            cp_store.supervisor.is_some(),
+            cp_store.kernel.execution.supervisor.is_some(),
             "control_plane must build supervisor"
         );
 
@@ -7869,7 +8145,7 @@ mod control_reactor_tests {
         })
         .unwrap();
         assert!(
-            dp_store.supervisor.is_none(),
+            dp_store.kernel.execution.supervisor.is_none(),
             "data_plane must NOT build supervisor"
         );
 

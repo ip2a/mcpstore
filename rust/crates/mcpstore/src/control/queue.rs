@@ -10,6 +10,8 @@ impl MCPStore {
         }
 
         let mut requests = self
+            .kernel
+            .persistence
             .cache
             .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
             .await?
@@ -40,7 +42,9 @@ impl MCPStore {
             request.status = ControlRequestStatus::Executing {
                 started_at: chrono::Utc::now().timestamp_millis(),
             };
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .put_event(
                     CONTROL_REQUEST_EVENT_TYPE,
                     &key,
@@ -63,7 +67,9 @@ impl MCPStore {
                     };
                 }
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .put_event(
                     CONTROL_REQUEST_EVENT_TYPE,
                     &key,
@@ -99,7 +105,9 @@ impl MCPStore {
             trace_id: event_id.clone(),
             status: ControlRequestStatus::Queued,
         };
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_event(
                 CONTROL_REQUEST_EVENT_TYPE,
                 &event_id,
@@ -107,7 +115,9 @@ impl MCPStore {
                     .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             )
             .await?;
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(
                 Event::new(
                     request_type,

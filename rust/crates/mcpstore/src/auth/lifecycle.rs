@@ -11,16 +11,20 @@ use super::{
 
 impl MCPStore {
     pub async fn auth_status(&self, instance_id: InstanceId) -> AuthStatus {
-        self.auth_coordinator.status(instance_id).await
+        self.kernel.control.auth.status(instance_id).await
     }
 
     pub async fn auth_status_view(&self, instance_id: InstanceId) -> Result<AuthStatusView> {
         let config = self.instance_auth_transport_config(instance_id).await?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .initialize_status(instance_id, &config.auth)
             .await;
         Ok(self
-            .auth_coordinator
+            .kernel
+            .control
+            .auth
             .status_view(instance_id, &config.auth)
             .await)
     }
@@ -28,7 +32,9 @@ impl MCPStore {
     pub async fn begin_authorization(&self, instance_id: InstanceId) -> Result<AuthorizationStart> {
         let config = self.instance_auth_transport_config(instance_id).await?;
         let base_url = required_auth_base_url(instance_id, &config)?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .begin_authorization(instance_id, base_url, &config.auth)
             .await
             .map_err(Into::into)
@@ -51,7 +57,9 @@ impl MCPStore {
         callback_url: &str,
     ) -> Result<()> {
         self.ensure_instance_exists(instance_id).await?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .complete_authorization(instance_id, callback_url)
             .await
             .map_err(Into::into)
@@ -65,7 +73,9 @@ impl MCPStore {
         issuer: Option<&str>,
     ) -> Result<()> {
         self.ensure_instance_exists(instance_id).await?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .complete_authorization_callback(instance_id, code, state, issuer)
             .await
             .map_err(Into::into)
@@ -74,7 +84,9 @@ impl MCPStore {
     pub async fn refresh_authorization(&self, instance_id: InstanceId) -> Result<()> {
         let config = self.instance_auth_transport_config(instance_id).await?;
         let base_url = required_auth_base_url(instance_id, &config)?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .refresh(instance_id, base_url, &config.auth)
             .await
             .map_err(Into::into)
@@ -92,7 +104,9 @@ impl MCPStore {
         }
         let config = self.instance_auth_transport_config(instance_id).await?;
         let base_url = required_auth_base_url(instance_id, &config)?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .begin_scope_upgrade(instance_id, base_url, &config.auth, required_scope)
             .await
             .map_err(Into::into)
@@ -110,7 +124,9 @@ impl MCPStore {
         }
         let config = self.instance_auth_transport_config(instance_id).await?;
         let base_url = required_auth_base_url(instance_id, &config)?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .save_client_secret(
                 instance_id,
                 base_url,
@@ -133,7 +149,9 @@ impl MCPStore {
         }
         let config = self.instance_auth_transport_config(instance_id).await?;
         let base_url = required_auth_base_url(instance_id, &config)?;
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .save_private_key(
                 instance_id,
                 base_url,
@@ -147,11 +165,20 @@ impl MCPStore {
     pub async fn logout_authorization(&self, instance_id: InstanceId) -> Result<()> {
         let config = self.instance_auth_transport_config(instance_id).await?;
         let base_url = required_auth_base_url(instance_id, &config)?;
-        self.pool.disconnect(instance_id).await.ok();
-        self.auth_coordinator
+        self.kernel
+            .execution
+            .pool
+            .disconnect(instance_id)
+            .await
+            .ok();
+        self.kernel
+            .control
+            .auth
             .logout(instance_id, base_url, &config.auth)
             .await?;
-        self.state_manager
+        self.kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::TransportStopped,
@@ -162,7 +189,14 @@ impl MCPStore {
     }
 
     async fn ensure_instance_exists(&self, instance_id: InstanceId) -> Result<()> {
-        if self.registry.find_instance(instance_id).await.is_none() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
@@ -176,6 +210,8 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<ServerConfig> {
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
@@ -234,16 +270,27 @@ impl MCPStore {
             )));
         }
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
 
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .mark_scope_upgrade_required(instance_id, required_scope)
             .await;
-        self.pool.disconnect(instance_id).await.ok();
-        self.state_manager
+        self.kernel
+            .execution
+            .pool
+            .disconnect(instance_id)
+            .await
+            .ok();
+        self.kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::TransportStopped,
@@ -251,7 +298,9 @@ impl MCPStore {
             )
             .await?;
 
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(
                 crate::events::Event::new(
                     "AUTH_SCOPE_UPGRADE_REQUIRED",
@@ -283,16 +332,27 @@ impl MCPStore {
             ));
         }
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
 
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .set_status(instance_id, AuthStatus::Unauthenticated)
             .await;
-        self.pool.disconnect(instance_id).await.ok();
-        self.state_manager
+        self.kernel
+            .execution
+            .pool
+            .disconnect(instance_id)
+            .await
+            .ok();
+        self.kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::TransportStopped,
@@ -300,7 +360,9 @@ impl MCPStore {
             )
             .await?;
 
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(
                 crate::events::Event::new(
                     "AUTH_REQUIRED",
@@ -330,6 +392,8 @@ fn required_auth_base_url(instance_id: InstanceId, config: &ServerConfig) -> Res
 impl MCPStore {
     pub(crate) async fn ensure_http_oauth_config(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await

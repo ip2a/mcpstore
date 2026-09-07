@@ -13,37 +13,53 @@ impl MCPStore {
                 .await;
         }
 
-        if self.source_mode == SourceMode::Local {
-            let mut config = self.config_manager.load_or_empty()?;
+        if self.kernel.runtime.source_mode == SourceMode::Local {
+            let mut config = self.kernel.control.config_manager.load_or_empty()?;
             if config.mcp_servers.remove(service_name).is_some() {
-                self.config_manager.save(&config)?;
+                self.kernel.control.config_manager.save(&config)?;
             } else if self.get_openapi_import(service_name).await?.is_none() {
                 return Err(Error::new(
                     FailureCode::ServiceNotFound,
                     service_name.to_string(),
                 ));
             }
-        } else if self.registry.find_definition(service_name).await.is_none() {
+        } else if self
+            .kernel
+            .control
+            .registry
+            .find_definition(service_name)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 service_name.to_string(),
             ));
         }
 
-        let instance_ids = self.registry.unregister_definition(service_name).await;
+        let instance_ids = self
+            .kernel
+            .control
+            .registry
+            .unregister_definition(service_name)
+            .await;
         for instance_id in instance_ids {
-            self.pool.remove(instance_id).await.ok();
-            self.applied_openapi_configs
+            self.kernel.execution.pool.remove(instance_id).await.ok();
+            self.kernel
+                .runtime
+                .applied_openapi_configs
                 .write()
                 .await
                 .remove(&instance_id);
-            self.auth_coordinator.remove_status(instance_id).await;
+            self.kernel.control.auth.remove_status(instance_id).await;
             self.cache_instance_removed(instance_id).await?;
         }
         self.cache_definition_removed(service_name).await?;
         self.clear_openapi_import_for_service(service_name).await?;
 
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(
                 Event::new(
                     "SERVICE_REMOVED",
@@ -78,8 +94,10 @@ impl MCPStore {
                 .await;
         }
 
-        let mut current = if self.source_mode == SourceMode::Local {
-            self.config_manager
+        let mut current = if self.kernel.runtime.source_mode == SourceMode::Local {
+            self.kernel
+                .control
+                .config_manager
                 .load_or_empty()?
                 .mcp_servers
                 .get(service_name)
@@ -106,12 +124,12 @@ impl MCPStore {
             current.definition_revision()
         };
 
-        if self.source_mode == SourceMode::Local {
-            let mut stored = self.config_manager.load_or_empty()?;
+        if self.kernel.runtime.source_mode == SourceMode::Local {
+            let mut stored = self.kernel.control.config_manager.load_or_empty()?;
             stored
                 .mcp_servers
                 .insert(service_name.to_string(), config.clone());
-            self.config_manager.save(&stored)?;
+            self.kernel.control.config_manager.save(&stored)?;
         }
         self.register_configured_definition(service_name, &config)
             .await

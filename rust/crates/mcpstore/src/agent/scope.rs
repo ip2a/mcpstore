@@ -61,8 +61,8 @@ impl MCPStore {
         }
 
         let server = server.clone();
-        if self.source_mode == SourceMode::Local {
-            self.config_manager.save(&config)?;
+        if self.kernel.runtime.source_mode == SourceMode::Local {
+            self.kernel.control.config_manager.save(&config)?;
         }
 
         let effective_config = server
@@ -89,7 +89,12 @@ impl MCPStore {
             .get("command")
             .and_then(Value::as_str)
             .map(str::to_string);
-        let previous = self.registry.find_instance(instance_id).await;
+        let previous = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await;
         let now = chrono::Utc::now().timestamp();
         let instance = ServiceInstance {
             instance_id,
@@ -115,7 +120,11 @@ impl MCPStore {
                 .map(|instance| instance.added_time)
                 .unwrap_or(now),
         };
-        self.registry.register_instance(instance).await;
+        self.kernel
+            .control
+            .registry
+            .register_instance(instance)
+            .await;
         self.sync_definition_projection(service_name, &server, now)
             .await?;
         self.cache_instance_added(instance_id).await?;
@@ -161,19 +170,25 @@ impl MCPStore {
         }
 
         let server = server.clone();
-        if self.source_mode == SourceMode::Local {
-            self.config_manager.save(&config)?;
+        if self.kernel.runtime.source_mode == SourceMode::Local {
+            self.kernel.control.config_manager.save(&config)?;
         }
 
         let instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
-        self.pool.remove(instance_id).await.ok();
-        self.applied_openapi_configs
+        self.kernel.execution.pool.remove(instance_id).await.ok();
+        self.kernel
+            .runtime
+            .applied_openapi_configs
             .write()
             .await
             .remove(&instance_id);
-        self.registry.unregister_instance(instance_id).await;
-        self.auth_coordinator.remove_status(instance_id).await;
+        self.kernel
+            .control
+            .registry
+            .unregister_instance(instance_id)
+            .await;
+        self.kernel.control.auth.remove_status(instance_id).await;
         self.sync_definition_projection(service_name, &server, chrono::Utc::now().timestamp())
             .await?;
         self.cache_instance_removed(instance_id).await?;
@@ -184,13 +199,21 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         let mut instances = match scope {
             ScopeRef::Store => self
+                .kernel
+                .control
                 .registry
                 .list_instances()
                 .await
                 .into_iter()
                 .filter(|instance| instance.scope == ScopeRef::Store)
                 .collect(),
-            ScopeRef::Agent { agent_id } => self.registry.list_agent_instances(agent_id).await,
+            ScopeRef::Agent { agent_id } => {
+                self.kernel
+                    .control
+                    .registry
+                    .list_agent_instances(agent_id)
+                    .await
+            }
         };
         instances.sort_by(|left, right| {
             left.service_name
@@ -206,7 +229,9 @@ impl MCPStore {
         scope: &ScopeRef,
     ) -> Result<InstanceId> {
         self.refresh_from_db_if_needed().await?;
-        self.registry
+        self.kernel
+            .control
+            .registry
             .instance_id(service_name, scope)
             .await
             .ok_or_else(|| {
@@ -220,7 +245,7 @@ impl MCPStore {
     /// 作用域注册表：root + store + 各 agent，每项带运行时服务数（来自 registry）。
     pub async fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {
         self.refresh_from_db_if_needed().await?;
-        let instances = self.registry.list_instances().await;
+        let instances = self.kernel.control.registry.list_instances().await;
         let mut agent_counts: HashMap<String, usize> = HashMap::new();
         let mut store_count = 0usize;
         for instance in &instances {
@@ -260,7 +285,12 @@ impl MCPStore {
     /// 单个 agent 实体（agent_id + 其下实例 id）；不存在返回 None。
     pub async fn find_agent(&self, agent_id: &str) -> Result<Option<AgentInfo>> {
         self.refresh_from_db_if_needed().await?;
-        let instance_ids = self.registry.list_agent_instance_ids(agent_id).await;
+        let instance_ids = self
+            .kernel
+            .control
+            .registry
+            .list_agent_instance_ids(agent_id)
+            .await;
         if instance_ids.is_empty() {
             return Ok(None);
         }

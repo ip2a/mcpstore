@@ -261,7 +261,9 @@ impl MCPStore {
         let (_, original_tool_name) = self
             .resolve_tool_override_target(instance_id, tool_name)
             .await?;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .delete_state(
                 TOOL_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, &original_tool_name),
@@ -274,6 +276,8 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         let mut rules = Vec::new();
         for (key, value) in self
+            .kernel
+            .persistence
             .cache
             .get_all_states_async(TOOL_OVERRIDES_STATE_TYPE)
             .await?
@@ -395,7 +399,9 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<Option<ToolOverrideRule>> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .get_state(
                 TOOL_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, tool_name),
@@ -417,7 +423,9 @@ impl MCPStore {
         rule: &ToolOverrideRule,
         expected_version: Option<u64>,
     ) -> Result<()> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_state(
                 TOOL_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(rule.instance_id, &rule.tool_name),

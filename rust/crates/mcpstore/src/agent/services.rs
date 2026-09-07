@@ -55,6 +55,8 @@ impl MCPStore {
     pub async fn service_info_scoped(&self, instance_id: InstanceId) -> Result<serde_json::Value> {
         self.refresh_from_db_if_needed().await?;
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await

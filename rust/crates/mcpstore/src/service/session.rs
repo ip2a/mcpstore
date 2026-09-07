@@ -13,11 +13,15 @@ impl MCPStore {
         }
 
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        self.state_manager
+        self.kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::StopRequested,
@@ -26,20 +30,26 @@ impl MCPStore {
             .await?;
 
         let stop_result = if self.is_openapi_virtual_instance(instance_id).await? {
-            self.applied_openapi_configs
+            self.kernel
+                .runtime
+                .applied_openapi_configs
                 .write()
                 .await
                 .remove(&instance_id);
             Ok(String::new())
         } else {
-            self.pool
+            self.kernel
+                .execution
+                .pool
                 .disconnect(instance_id)
                 .await
                 .map(|_| String::new())
                 .map_err(Error::from)
         };
         if let Err(error) = stop_result {
-            self.state_manager
+            self.kernel
+                .control
+                .state
                 .dispatch(
                     instance_id,
                     ServiceStateEvent::StopFailed(FailureInfo {
@@ -54,14 +64,18 @@ impl MCPStore {
                 .await?;
             return Err(error);
         }
-        self.state_manager
+        self.kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::TransportStopped,
                 Self::now_timestamp(),
             )
             .await?;
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(
                 Event::new(
                     "SERVICE_DISCONNECTED",
@@ -92,7 +106,14 @@ impl MCPStore {
                 .await;
         }
 
-        if self.registry.find_instance(instance_id).await.is_none() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),

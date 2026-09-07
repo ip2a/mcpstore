@@ -220,6 +220,8 @@ impl MCPStore {
             .await?;
         self.ensure_instance_connected(instance_id).await?;
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
@@ -261,12 +263,16 @@ impl MCPStore {
 
         let started = match mode {
             ToolExecutionMode::Task => {
-                self.pool
+                self.kernel
+                    .execution
+                    .pool
                     .start_task_tool_execution(instance_id, &tool_name, args, meta, options)
                     .await
             }
             ToolExecutionMode::Immediate => {
-                self.pool
+                self.kernel
+                    .execution
+                    .pool
                     .start_tool_execution(instance_id, &tool_name, args, meta, options)
                     .await
             }
@@ -321,7 +327,9 @@ impl MCPStore {
         match result {
             Ok(execution) => {
                 if let McpToolExecution::Task { task } = &execution {
-                    self.pool
+                    self.kernel
+                        .execution
+                        .pool
                         .observe_tool_task(
                             context.instance_id,
                             task.clone(),
@@ -351,7 +359,9 @@ impl MCPStore {
                         (false, "task_created", Some(task.task_id.as_str()))
                     }
                 };
-                self.event_bus
+                self.kernel
+                    .execution
+                    .event_bus
                     .publish(
                         Event::new(
                             "TOOL_CALL_COMPLETED",
@@ -384,12 +394,19 @@ impl MCPStore {
                     "error"
                 } else {
                     if execution_failure_impairs_connection(&error) {
-                        self.pool.disconnect(context.instance_id).await.ok();
+                        self.kernel
+                            .execution
+                            .pool
+                            .disconnect(context.instance_id)
+                            .await
+                            .ok();
                         self.record_failure(context.instance_id, &error).await?;
                     }
                     error.code().as_str()
                 };
-                self.event_bus
+                self.kernel
+                    .execution
+                    .event_bus
                     .publish(
                         Event::new(
                             "TOOL_CALL_FAILED",
@@ -420,6 +437,8 @@ impl MCPStore {
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await

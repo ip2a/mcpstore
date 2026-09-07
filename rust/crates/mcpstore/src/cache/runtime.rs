@@ -33,6 +33,12 @@ impl MCPStore {
     }
 
     pub async fn current_store_name(&self) -> String {
-        self.store_config.read().await.store_name().to_string()
+        self.kernel
+            .persistence
+            .store_config
+            .read()
+            .await
+            .store_name()
+            .to_string()
     }
 }
