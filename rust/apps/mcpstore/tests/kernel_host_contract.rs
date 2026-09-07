@@ -18,6 +18,11 @@ fn repo_root() -> PathBuf {
         .unwrap()
         .to_path_buf()
 }
+fn service_instance_id(name: &str) -> String {
+    mcpstore::ServiceInstanceKey::new(name, mcpstore::ScopeRef::Store)
+        .instance_id()
+        .to_string()
+}
 
 async fn write_line<W>(writer: &mut W, value: &serde_json::Value) -> TestResult<()>
 where
@@ -47,7 +52,8 @@ static HOST_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[tokio::test]
 async fn handshake_rejects_wrong_namespace() -> TestResult<()> {
     let _guard = HOST_TEST_LOCK.lock().unwrap();
-    let fixture = HostFixture::start().await?;
+    let mut fixture = HostFixture::start().await?;
+    fixture.instance_id = service_instance_id("execution-kernel-host");
     let stream = UnixStream::connect(&fixture.socket).await?;
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -69,7 +75,8 @@ async fn handshake_rejects_wrong_namespace() -> TestResult<()> {
 #[tokio::test]
 async fn request_round_trip_and_deadline_error() -> TestResult<()> {
     let _guard = HOST_TEST_LOCK.lock().unwrap();
-    let fixture = HostFixture::start().await?;
+    let mut fixture = HostFixture::start().await?;
+    fixture.instance_id = service_instance_id("execution-kernel-host");
     let stream = UnixStream::connect(&fixture.socket).await?;
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -129,7 +136,8 @@ async fn request_round_trip_and_deadline_error() -> TestResult<()> {
 #[tokio::test]
 async fn stream_execution_emits_started_progress_and_finished() -> TestResult<()> {
     let _guard = HOST_TEST_LOCK.lock().unwrap();
-    let fixture = HostFixture::start().await?;
+    let mut fixture = HostFixture::start().await?;
+    fixture.instance_id = service_instance_id("execution-kernel-host");
     let stream = UnixStream::connect(&fixture.socket).await?;
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -175,6 +183,244 @@ async fn stream_execution_emits_started_progress_and_finished() -> TestResult<()
     fixture.stop().await
 }
 
+#[tokio::test]
+async fn host_and_cli_share_kernel_authority_through_redis_backend() -> TestResult<()> {
+    let _guard = HOST_TEST_LOCK.lock().unwrap();
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        eprintln!("skipping redis integration test: MCPSTORE_TEST_REDIS_URL is not set");
+        return Ok(());
+    };
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let namespace = format!("mcpstore-kernel-consistency-{nanos}");
+    let fixture = HostFixture::start_redis(RedisHostSource {
+        url: redis_url.clone(),
+        namespace: namespace.clone(),
+    })
+    .await?;
+    let result = host_and_cli_share_kernel_authority(fixture, redis_url, namespace).await;
+    result
+}
+
+async fn host_and_cli_share_kernel_authority(
+    fixture: HostFixture,
+    redis_url: String,
+    namespace: String,
+) -> TestResult<()> {
+    let source_args = [
+        "--source".to_string(),
+        "db".to_string(),
+        "--store".to_string(),
+        "redis".to_string(),
+        "--store-config".to_string(),
+        format!(r#"{{"url":"{redis_url}"}}"#),
+        "--namespace".to_string(),
+        namespace.clone(),
+    ];
+    let service_name = "shared-service";
+    let mut add_args = vec![
+        "add".to_string(),
+        service_name.to_string(),
+        "--transport".to_string(),
+        "stdio".to_string(),
+    ];
+    add_args.extend(source_args.clone());
+    add_args.extend([
+        "--".to_string(),
+        "python3".to_string(),
+        fixture_script().display().to_string(),
+    ]);
+    let add = run_cli(&add_args)?;
+    assert!(add.status.success(), "shared add failed: {add:?}");
+
+    let mut store_list_args = vec![
+        "list".to_string(),
+        "--output".to_string(),
+        "json".to_string(),
+    ];
+    store_list_args.extend(source_args.clone());
+    let store_list = run_cli(&store_list_args)?;
+    assert!(
+        store_list.status.success(),
+        "store list failed: {store_list:?}"
+    );
+    let store_list: serde_json::Value = serde_json::from_slice(&store_list.stdout)?;
+    assert_eq!(store_list["total"], 1);
+    assert_eq!(store_list["services"][0]["service_name"], service_name);
+
+    let mut host = connect_host(&fixture.socket, &namespace).await?;
+    let declare = host
+        .request(
+            "DeclareServiceScope",
+            &serde_json::json!({
+                "service_name": service_name,
+                "scope": {"type": "agent", "agent_id": "agent-1"},
+                "descriptor": {},
+            }),
+        )
+        .await?;
+    assert!(declare["error"].is_null(), "{declare}");
+    let host_agent_list = host
+        .request(
+            "ListServices",
+            &serde_json::json!({"scope": {"type": "agent", "agent_id": "agent-1"}}),
+        )
+        .await?;
+    assert_eq!(host_agent_list["result"]["total"], 1, "{host_agent_list}");
+
+    let mut agent_list_args = vec![
+        "list".to_string(),
+        "--scope".to_string(),
+        "agent".to_string(),
+        "--agent".to_string(),
+        "agent-1".to_string(),
+        "--output".to_string(),
+        "json".to_string(),
+    ];
+    agent_list_args.extend(source_args.clone());
+    let agent_list = run_cli(&agent_list_args)?;
+    assert!(
+        agent_list.status.success(),
+        "agent list failed: {agent_list:?}"
+    );
+    let agent_list: serde_json::Value = serde_json::from_slice(&agent_list.stdout)?;
+    assert_eq!(agent_list["total"], 1);
+    assert_eq!(agent_list["services"][0]["service_name"], service_name);
+
+    let instance_id = service_instance_id(service_name);
+    let mut subscriber = connect_host(&fixture.socket, &namespace).await?;
+    subscriber
+        .request_without_response("SubscribeEvents", &serde_json::json!({}))
+        .await?;
+    let connect = host
+        .request(
+            "ConnectService",
+            &serde_json::json!({"instance_id": instance_id}),
+        )
+        .await?;
+    assert!(connect["error"].is_null(), "{connect}");
+    let event = subscriber.next_event().await?;
+    assert_eq!(event["event_type"], "SERVICE_STATE_CHANGED", "{event}");
+
+    let host_auth = host
+        .request(
+            "AuthStatus",
+            &serde_json::json!({"instance_id": instance_id}),
+        )
+        .await?;
+    assert!(host_auth["error"].is_null(), "{host_auth}");
+    let mut auth_args = vec![
+        "auth".to_string(),
+        "status".to_string(),
+        instance_id.clone(),
+        "--output".to_string(),
+        "json".to_string(),
+    ];
+    auth_args.extend(source_args);
+    let auth = run_cli(&auth_args)?;
+    assert!(auth.status.success(), "auth status failed: {auth:?}");
+    let auth: serde_json::Value = serde_json::from_slice(&auth.stdout)?;
+    assert_eq!(auth["auth"], host_auth["result"]["auth"]);
+
+    let disconnect = host
+        .request(
+            "DisconnectService",
+            &serde_json::json!({"instance_id": instance_id}),
+        )
+        .await?;
+    assert!(disconnect["error"].is_null(), "{disconnect}");
+
+    fixture.stop().await
+}
+
+fn run_cli(args: &[String]) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    std::process::Command::new(repo_root().join("target/debug/mcpstore"))
+        .args(args)
+        .output()
+        .map_err(Into::into)
+}
+
+struct HostConnection {
+    reader: BufReader<tokio::net::unix::OwnedReadHalf>,
+    writer: tokio::net::unix::OwnedWriteHalf,
+    next_request_id: u64,
+}
+
+impl HostConnection {
+    async fn request_without_response(
+        &mut self,
+        operation: &str,
+        payload: &serde_json::Value,
+    ) -> TestResult<()> {
+        self.write_request(operation, payload).await
+    }
+
+    async fn request(
+        &mut self,
+        operation: &str,
+        payload: &serde_json::Value,
+    ) -> TestResult<serde_json::Value> {
+        self.write_request(operation, payload).await?;
+        self.next_response().await
+    }
+
+    async fn write_request(
+        &mut self,
+        operation: &str,
+        payload: &serde_json::Value,
+    ) -> TestResult<()> {
+        self.next_request_id += 1;
+        write_line(
+            &mut self.writer,
+            &serde_json::json!({
+                "request_id": self.next_request_id,
+                "operation": operation,
+                "payload": payload,
+                "deadline_ms": 10000,
+            }),
+        )
+        .await
+    }
+
+    async fn next_response(&mut self) -> TestResult<serde_json::Value> {
+        read_line(&mut self.reader).await
+    }
+
+    async fn next_event(&mut self) -> TestResult<serde_json::Value> {
+        let response = tokio::time::timeout(Duration::from_secs(5), self.next_response())
+            .await
+            .map_err(|_| "KernelHost event timeout")??;
+        let event = response["event"]["Finished"].clone();
+        if event.is_null() {
+            return Err(format!("KernelHost returned non-event response: {response}").into());
+        }
+        Ok(event)
+    }
+}
+
+async fn connect_host(socket: &Path, namespace: &str) -> TestResult<HostConnection> {
+    let stream = UnixStream::connect(socket).await?;
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
+    write_line(
+        &mut writer,
+        &serde_json::json!({
+            "protocol_version": 1,
+            "namespace": namespace,
+            "client_capabilities": ["requests", "events"],
+        }),
+    )
+    .await?;
+    let handshake = read_line(&mut reader).await?;
+    assert!(handshake["error"].is_null(), "{handshake}");
+    Ok(HostConnection {
+        reader,
+        writer,
+        next_request_id: 0,
+    })
+}
+
 struct HostFixture {
     child: tokio::process::Child,
     socket: PathBuf,
@@ -182,8 +428,47 @@ struct HostFixture {
     instance_id: String,
 }
 
+struct RedisHostSource {
+    url: String,
+    namespace: String,
+}
+
 impl HostFixture {
     async fn start() -> TestResult<Self> {
+        Self::start_local("test").await
+    }
+
+    async fn start_redis(source: RedisHostSource) -> TestResult<Self> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("mcpstore-kernel-host-{nanos}"));
+        std::fs::create_dir_all(&dir)?;
+        let socket = dir.join("kernel.sock");
+        let pid = dir.join("kernel.pid");
+        let cli = repo_root().join("target/debug/mcpstore");
+        let child = tokio::process::Command::new(cli)
+            .args([
+                "start",
+                "--source",
+                "db",
+                "--store",
+                "redis",
+                "--store-config",
+                &format!(r#"{{"url":"{}"}}"#, source.url),
+                "--namespace",
+                &source.namespace,
+            ])
+            .env("MCPSTORE_SOCKET", &socket)
+            .env("MCPSTORE_PID", &pid)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        Self::wait_for_socket(child, socket, dir).await
+    }
+
+    async fn start_local(namespace: &str) -> TestResult<Self> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos();
@@ -206,7 +491,7 @@ impl HostFixture {
             }))?,
         )?;
         let cli = repo_root().join("target/debug/mcpstore");
-        let mut child = tokio::process::Command::new(cli)
+        let child = tokio::process::Command::new(cli)
             .args([
                 "start",
                 "--source",
@@ -214,7 +499,7 @@ impl HostFixture {
                 "--config-path",
                 config_path.to_string_lossy().as_ref(),
                 "--namespace",
-                "test",
+                namespace,
             ])
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
@@ -222,17 +507,21 @@ impl HostFixture {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
+        Self::wait_for_socket(child, socket, dir).await
+    }
+
+    async fn wait_for_socket(
+        mut child: tokio::process::Child,
+        socket: PathBuf,
+        dir: PathBuf,
+    ) -> TestResult<Self> {
         for _ in 0..100 {
             if socket.exists() {
-                let instance_id =
-                    mcpstore::ServiceInstanceKey::new(service_name, mcpstore::ScopeRef::Store)
-                        .instance_id()
-                        .to_string();
                 return Ok(Self {
                     child,
                     socket,
                     dir,
-                    instance_id,
+                    instance_id: String::new(),
                 });
             }
             if let Some(status) = child.try_wait()? {
@@ -255,7 +544,7 @@ impl HostFixture {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        return Err("KernelHost socket did not appear".into());
+        Err("KernelHost socket did not appear".into())
     }
 
     async fn stop(mut self) -> TestResult<()> {
