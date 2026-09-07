@@ -182,7 +182,7 @@ async fn spawn_test_api_with_state(
     let addr = listener.local_addr().unwrap();
     let state = Arc::new(ApiState {
         store,
-        mcp_hub_process: Arc::new(Mutex::new(None)),
+        mcp_hub: Arc::new(Mutex::new(None)),
     });
     let app = router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {

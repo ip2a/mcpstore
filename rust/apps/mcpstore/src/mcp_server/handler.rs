@@ -18,7 +18,7 @@ use super::*;
 use serde_json::json;
 
 impl McpStoreServer {
-    pub(super) async fn from_store(
+    pub(crate) async fn from_store(
         store: Arc<MCPStore>,
         scope: ScopeRef,
         instance_id: Option<InstanceId>,

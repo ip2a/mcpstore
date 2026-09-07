@@ -1,11 +1,13 @@
 use std::{
     collections::HashMap,
     net::IpAddr,
-    process::Stdio,
     sync::{Arc, Mutex},
 };
 
-use crate::mcp_server::{McpServerLaunchDescriptor, McpServerOptions, McpServerTransport};
+use crate::mcp_server::{
+    run_streamable_http, McpServerLaunchDescriptor, McpServerOptions, McpServerTransport,
+    McpStoreServer,
+};
 use axum::{
     extract::State,
     routing::{get, post, put},
@@ -22,7 +24,7 @@ use mcpstore::{
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
-use tokio::process::{Child, Command};
+use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 
 use crate::{
@@ -64,18 +66,12 @@ pub struct ApiArgs {
 #[derive(Clone)]
 pub struct ApiState {
     store: Arc<MCPStore>,
-    mcp_hub_process: Arc<Mutex<Option<McpHubProcess>>>,
+    mcp_hub: Arc<Mutex<Option<McpHub>>>,
 }
 
-struct McpHubProcess {
-    child: Child,
+struct McpHub {
+    task: JoinHandle<()>,
     descriptor: McpServerLaunchDescriptor,
-}
-
-impl Drop for McpHubProcess {
-    fn drop(&mut self) {
-        let _ = self.child.start_kill();
-    }
 }
 
 /// 把 `(service_name, scope)` 解析成 instance_id；服务未在该 scope 声明时返回 404。
@@ -140,7 +136,7 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
 pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     let state = Arc::new(ApiState {
         store,
-        mcp_hub_process: Arc::new(Mutex::new(None)),
+        mcp_hub: Arc::new(Mutex::new(None)),
     });
     if !state.store.is_data_plane() {
         let store = state.store.clone();

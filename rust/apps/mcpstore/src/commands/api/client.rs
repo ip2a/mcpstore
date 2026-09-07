@@ -40,7 +40,7 @@ pub(super) async fn mcp_hub_status(
 ) -> ApiResult {
     let options = mcp_hub_options(&state, &query)?;
     let descriptor = options.launch_descriptor("mcpstore");
-    let (running, pid) = mcp_hub_process_status(&state)?;
+    let (running, pid) = mcp_hub_status_inner(&state)?;
     Ok(success(
         "聚合服务状态获取成功",
         json!({
@@ -71,85 +71,85 @@ pub(super) async fn mcp_hub_start(
 
     let descriptor = options.launch_descriptor("mcpstore");
     {
-        let mut process = state
-            .mcp_hub_process
+        let hub = state
+            .mcp_hub
             .lock()
-            .map_err(|_| ApiError::invalid_request("聚合服务进程状态不可用"))?;
-        if let Some(existing) = process.as_mut() {
-            if existing
-                .child
-                .try_wait()
-                .map_err(|error| {
-                    ApiError::invalid_request(format!("检查聚合服务状态失败: {error}"))
-                })?
-                .is_none()
-            {
+            .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?;
+        if let Some(existing) = hub.as_ref() {
+            if !existing.task.is_finished() {
                 return Ok(success(
                     "聚合服务已经在运行",
-                    mcp_hub_process_payload(existing, true),
+                    mcp_hub_payload(existing, true),
                 ));
             }
-            *process = None;
         }
     }
 
-    let binary = std::env::current_exe().map_err(|error| {
-        ApiError::invalid_request(format!("定位 mcpstore 可执行文件失败: {error}"))
-    })?;
-    let mut command = Command::new(binary);
-    command
-        .args(&descriptor.args)
-        .arg("--source")
-        .arg(match options.source_mode {
-            mcpstore::SourceMode::Local => "local",
-            mcpstore::SourceMode::Db => "db",
-        })
-        .arg("--config-path")
-        .arg(state.store.config_manager().mcp_path())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let mut child = command
-        .spawn()
-        .map_err(|error| ApiError::invalid_request(format!("启动聚合服务失败: {error}")))?;
-    let pid = child.id();
-    if let Err(error) = wait_for_mcp_hub_ready(&mut child, &options.host, options.port).await {
-        let _ = child.kill().await;
+    let server = McpStoreServer::from_store(
+        Arc::clone(&state.store),
+        options.scope.clone(),
+        options.instance_id,
+        options.session_key.clone(),
+        options.expose_session_state_tools,
+        options.expose_tool_override_tools,
+        options.expose_prompt_override_tools,
+        options.expose_resource_override_tools,
+        options.expose_openapi_tools,
+        options.expose_service_tools,
+        options.expose_cache_tools,
+        options.expose_search_tools,
+    )
+    .await
+    .map_err(|error| ApiError::invalid_request(error.to_string()))?;
+    let task_options = options.clone();
+    let task = tokio::spawn(async move {
+        if let Err(error) = run_streamable_http(server, &task_options).await {
+            tracing::error!("[MCP_HUB] Aggregate server stopped: {error}");
+        }
+    });
+    if let Err(error) = wait_for_mcp_hub_ready(&options.host, options.port).await {
+        task.abort();
+        if task.await.is_err() {
+            return Err(ApiError::invalid_request("停止聚合服务失败"));
+        }
         return Err(error);
     }
     state
-        .mcp_hub_process
+        .mcp_hub
         .lock()
-        .map_err(|_| ApiError::invalid_request("聚合服务进程状态不可用"))?
-        .replace(McpHubProcess { child, descriptor });
+        .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?
+        .replace(McpHub {
+            task,
+            descriptor: descriptor.clone(),
+        });
 
     Ok(success(
         "聚合服务启动成功",
         json!({
             "running": true,
-            "pid": pid,
+            "pid": std::process::id(),
             "transport": options.transport.as_str(),
-            "url": options.launch_descriptor("mcpstore").url,
+            "url": descriptor.url,
         }),
     ))
 }
 
 pub(super) async fn mcp_hub_stop(State(state): State<Arc<ApiState>>) -> ApiResult {
     let aggregate = {
-        let mut process = state
-            .mcp_hub_process
+        let mut hub = state
+            .mcp_hub
             .lock()
-            .map_err(|_| ApiError::invalid_request("聚合服务进程状态不可用"))?;
-        process.take()
+            .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?;
+        hub.take()
     };
-    let Some(mut aggregate) = aggregate else {
+    let Some(aggregate) = aggregate else {
         return Ok(success("聚合服务当前未运行", json!({ "running": false })));
     };
-    let pid = aggregate.child.id();
-    aggregate
-        .child
-        .kill()
-        .await
-        .map_err(|error| ApiError::invalid_request(format!("停止聚合服务失败: {error}")))?;
+    let pid = std::process::id();
+    aggregate.task.abort();
+    if aggregate.task.await.is_err() {
+        return Err(ApiError::invalid_request("停止聚合服务失败"));
+    }
     Ok(success(
         "聚合服务已停止",
         json!({ "running": false, "pid": pid }),
@@ -215,11 +215,7 @@ fn mcp_hub_options(
     })
 }
 
-async fn wait_for_mcp_hub_ready(
-    child: &mut tokio::process::Child,
-    host: &str,
-    port: u16,
-) -> Result<(), ApiError> {
+async fn wait_for_mcp_hub_ready(host: &str, port: u16) -> Result<(), ApiError> {
     let probe_host = match host {
         "0.0.0.0" => "127.0.0.1",
         "::" => "::1",
@@ -228,14 +224,6 @@ async fn wait_for_mcp_hub_ready(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
 
     loop {
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| ApiError::invalid_request(format!("检查聚合服务状态失败: {error}")))?
-        {
-            return Err(ApiError::invalid_request(format!(
-                "聚合服务启动后提前退出: {status}"
-            )));
-        }
         if tokio::time::timeout(
             std::time::Duration::from_millis(200),
             tokio::net::TcpStream::connect((probe_host, port)),
@@ -254,32 +242,27 @@ async fn wait_for_mcp_hub_ready(
     }
 }
 
-fn mcp_hub_process_status(state: &ApiState) -> Result<(bool, Option<u32>), ApiError> {
-    let mut process = state
-        .mcp_hub_process
+fn mcp_hub_status_inner(state: &ApiState) -> Result<(bool, Option<u32>), ApiError> {
+    let mut hub = state
+        .mcp_hub
         .lock()
-        .map_err(|_| ApiError::invalid_request("聚合服务进程状态不可用"))?;
-    let Some(aggregate) = process.as_mut() else {
+        .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?;
+    let Some(aggregate) = hub.as_ref() else {
         return Ok((false, None));
     };
-    if aggregate
-        .child
-        .try_wait()
-        .map_err(|error| ApiError::invalid_request(format!("检查聚合服务状态失败: {error}")))?
-        .is_some()
-    {
-        *process = None;
+    if aggregate.task.is_finished() {
+        *hub = None;
         return Ok((false, None));
     }
-    Ok((true, aggregate.child.id()))
+    Ok((true, Some(std::process::id())))
 }
 
-fn mcp_hub_process_payload(process: &McpHubProcess, running: bool) -> Value {
+fn mcp_hub_payload(aggregate: &McpHub, running: bool) -> Value {
     json!({
         "running": running,
-        "pid": process.child.id(),
-        "transport": process.descriptor.transport,
-        "url": process.descriptor.url,
+        "pid": std::process::id(),
+        "transport": aggregate.descriptor.transport,
+        "url": aggregate.descriptor.url,
     })
 }
 

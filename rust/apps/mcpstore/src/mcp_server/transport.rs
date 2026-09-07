@@ -128,7 +128,7 @@ pub(super) async fn build_tool_bindings(
     Ok(bindings)
 }
 
-pub(super) async fn run_streamable_http(
+pub(crate) async fn run_streamable_http(
     server: McpStoreServer,
     args: &McpServerOptions,
 ) -> Result<(), BoxErr> {

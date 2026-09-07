@@ -260,7 +260,7 @@ impl EventHandler for AggregateToolsChangedNotification {
 }
 
 #[derive(Clone)]
-struct McpStoreServer {
+pub(crate) struct McpStoreServer {
     store: Arc<MCPStore>,
     scope: ScopeRef,
     instance_id: Option<InstanceId>,
@@ -286,3 +286,4 @@ mod tools;
 mod transport;
 
 pub use transport::run;
+pub(crate) use transport::run_streamable_http;
