@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use clap::{Args, Subcommand, ValueEnum};
 use mcpstore::{AuthError, AuthFlow, AuthStatusView, AuthorizationStart, InstanceId, MCPStore};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use url::{Host, Url};
@@ -388,22 +388,6 @@ pub struct AuthPrivateKeyArgs {
     pub store: StoreSourceArgs,
 }
 
-#[derive(Debug, Deserialize)]
-struct AuthStatusResponse {
-    auth: AuthStatusView,
-}
-
-#[derive(Debug, Deserialize)]
-struct AuthStartResponse {
-    auth: AuthStatusView,
-    authorization: Option<AuthorizationStart>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CallbackUriResponse {
-    callback_uri: Option<String>,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 enum AuthOutputEvent<'a> {
@@ -461,175 +445,95 @@ pub async fn run(args: AuthArgs) -> Result<(), BoxErr> {
 
 async fn status(args: AuthInstanceArgs) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let auth = if crate::daemon::client::daemon_socket_exists() {
-        daemon_auth_status(args.instance_id).await?
-    } else {
-        let store = loaded_store(&args.store).await?;
-        store.auth_status_view(args.instance_id).await?
-    };
+    let store = loaded_store(&args.store).await?;
+    let auth = store.auth_status_view(args.instance_id).await?;
     print_auth_status(&auth, output)
 }
 
 async fn login(args: AuthLoginArgs) -> Result<(), BoxErr> {
     let output = args.flow_output.output.output;
     let open_browser = !args.flow_output.non_interactive;
-    if crate::daemon::client::daemon_socket_exists() {
-        let auth = daemon_auth_status(args.instance_id).await?;
-        match auth.flow {
-            Some(AuthFlow::AuthorizationCode) => {
-                let callback_uri = daemon_callback_uri(args.instance_id).await?;
-                let listener = LocalCallbackListener::bind(&callback_uri).await?;
-                let started: AuthStartResponse =
-                    daemon_call("auth_begin", args.instance_id, json!({})).await?;
-                let authorization = started
-                    .authorization
-                    .ok_or("Authorization server did not return an authorization URL")?;
-                complete_daemon_browser_flow(
-                    args.instance_id,
-                    listener,
-                    authorization,
-                    args.timeout,
-                    output,
-                    open_browser,
-                )
-                .await
-            }
-            Some(AuthFlow::ClientCredentials) => {
-                let response: AuthStartResponse =
-                    daemon_call("auth_begin", args.instance_id, json!({})).await?;
-                print_auth_status(&response.auth, output)
-            }
-            None => Err("Authentication is not configured for this instance".into()),
+    let store = loaded_store(&args.store).await?;
+    let auth = store.auth_status_view(args.instance_id).await?;
+    match auth.flow {
+        Some(AuthFlow::AuthorizationCode) => {
+            let callback_uri = store
+                .authorization_callback_uri(args.instance_id)
+                .await?
+                .ok_or("Authorization Code flow has no callback URI")?;
+            let listener = LocalCallbackListener::bind(&callback_uri).await?;
+            let authorization = store.begin_authorization(args.instance_id).await?;
+            complete_local_browser_flow(
+                &store,
+                args.instance_id,
+                listener,
+                authorization,
+                args.timeout,
+                output,
+                open_browser,
+            )
+            .await
         }
-    } else {
-        let store = loaded_store(&args.store).await?;
-        let auth = store.auth_status_view(args.instance_id).await?;
-        match auth.flow {
-            Some(AuthFlow::AuthorizationCode) => {
-                let callback_uri = store
-                    .authorization_callback_uri(args.instance_id)
-                    .await?
-                    .ok_or("Authorization Code flow has no callback URI")?;
-                let listener = LocalCallbackListener::bind(&callback_uri).await?;
-                let authorization = store.begin_authorization(args.instance_id).await?;
-                complete_local_browser_flow(
-                    &store,
-                    args.instance_id,
-                    listener,
-                    authorization,
-                    args.timeout,
-                    output,
-                    open_browser,
-                )
-                .await
-            }
-            Some(AuthFlow::ClientCredentials) => {
-                store.refresh_authorization(args.instance_id).await?;
-                reconnect_authorized_service(&store, args.instance_id).await?;
-                let auth = store.auth_status_view(args.instance_id).await?;
-                print_auth_status(&auth, output)
-            }
-            None => Err("Authentication is not configured for this instance".into()),
+        Some(AuthFlow::ClientCredentials) => {
+            store.refresh_authorization(args.instance_id).await?;
+            reconnect_authorized_service(&store, args.instance_id).await?;
+            let auth = store.auth_status_view(args.instance_id).await?;
+            print_auth_status(&auth, output)
         }
+        None => Err("Authentication is not configured for this instance".into()),
     }
 }
 
 async fn refresh(args: AuthInstanceArgs) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let auth = if crate::daemon::client::daemon_socket_exists() {
-        let response: AuthStatusResponse =
-            daemon_call("auth_refresh", args.instance_id, json!({})).await?;
-        response.auth
-    } else {
-        let store = loaded_store(&args.store).await?;
-        store.refresh_authorization(args.instance_id).await?;
-        reconnect_authorized_service(&store, args.instance_id).await?;
-        store.auth_status_view(args.instance_id).await?
-    };
+    let store = loaded_store(&args.store).await?;
+    store.refresh_authorization(args.instance_id).await?;
+    reconnect_authorized_service(&store, args.instance_id).await?;
+    let auth = store.auth_status_view(args.instance_id).await?;
     print_auth_status(&auth, output)
 }
 
 async fn logout(args: AuthInstanceArgs) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let auth = if crate::daemon::client::daemon_socket_exists() {
-        let response: AuthStatusResponse =
-            daemon_call("auth_logout", args.instance_id, json!({})).await?;
-        response.auth
-    } else {
-        let store = loaded_store(&args.store).await?;
-        store.logout_authorization(args.instance_id).await?;
-        store.auth_status_view(args.instance_id).await?
-    };
+    let store = loaded_store(&args.store).await?;
+    store.logout_authorization(args.instance_id).await?;
+    let auth = store.auth_status_view(args.instance_id).await?;
     print_auth_status(&auth, output)
 }
 
 async fn scope_upgrade(args: AuthScopeUpgradeArgs) -> Result<(), BoxErr> {
     let output = args.flow_output.output.output;
     let open_browser = !args.flow_output.non_interactive;
-    if crate::daemon::client::daemon_socket_exists() {
-        let auth = daemon_auth_status(args.instance_id).await?;
-        let required_scope = required_scope(args.scope, &auth)?;
-        let callback_uri = daemon_callback_uri(args.instance_id).await?;
-        let listener = LocalCallbackListener::bind(&callback_uri).await?;
-        let started: AuthStartResponse = daemon_call(
-            "auth_scope_upgrade",
-            args.instance_id,
-            json!({"required_scope": required_scope}),
-        )
+    let store = loaded_store(&args.store).await?;
+    let auth = store.auth_status_view(args.instance_id).await?;
+    let required_scope = required_scope(args.scope, &auth)?;
+    let callback_uri = store
+        .authorization_callback_uri(args.instance_id)
+        .await?
+        .ok_or("Scope upgrade requires Authorization Code authentication")?;
+    let listener = LocalCallbackListener::bind(&callback_uri).await?;
+    let authorization = store
+        .begin_scope_upgrade(args.instance_id, &required_scope)
         .await?;
-        let authorization = started
-            .authorization
-            .ok_or("Authorization server did not return an authorization URL")?;
-        complete_daemon_browser_flow(
-            args.instance_id,
-            listener,
-            authorization,
-            args.timeout,
-            output,
-            open_browser,
-        )
-        .await
-    } else {
-        let store = loaded_store(&args.store).await?;
-        let auth = store.auth_status_view(args.instance_id).await?;
-        let required_scope = required_scope(args.scope, &auth)?;
-        let callback_uri = store
-            .authorization_callback_uri(args.instance_id)
-            .await?
-            .ok_or("Scope upgrade requires Authorization Code authentication")?;
-        let listener = LocalCallbackListener::bind(&callback_uri).await?;
-        let authorization = store
-            .begin_scope_upgrade(args.instance_id, &required_scope)
-            .await?;
-        complete_local_browser_flow(
-            &store,
-            args.instance_id,
-            listener,
-            authorization,
-            args.timeout,
-            output,
-            open_browser,
-        )
-        .await
-    }
+    complete_local_browser_flow(
+        &store,
+        args.instance_id,
+        listener,
+        authorization,
+        args.timeout,
+        output,
+        open_browser,
+    )
+    .await
 }
 
 async fn set_client_secret(args: AuthInstanceArgs) -> Result<(), BoxErr> {
     let output = args.output.output;
     let secret = read_stdin_secret("client secret")?;
-    if crate::daemon::client::daemon_socket_exists() {
-        let _: Value = daemon_call(
-            "auth_save_client_secret",
-            args.instance_id,
-            json!({"client_secret": secret}),
-        )
+    let store = loaded_store(&args.store).await?;
+    store
+        .save_oauth_client_secret(args.instance_id, secret)
         .await?;
-    } else {
-        let store = loaded_store(&args.store).await?;
-        store
-            .save_oauth_client_secret(args.instance_id, secret)
-            .await?;
-    }
     print_credential_stored(output, "client_secret")
 }
 
@@ -639,79 +543,16 @@ async fn set_private_key(args: AuthPrivateKeyArgs) -> Result<(), BoxErr> {
         Some(path) => std::fs::read(path)?,
         None => read_stdin_bytes("private key")?,
     };
-    if crate::daemon::client::daemon_socket_exists() {
-        let private_key =
-            String::from_utf8(private_key).map_err(|_| "Private key must be UTF-8 PEM data")?;
-        let _: Value = daemon_call(
-            "auth_save_private_key",
-            args.instance_id,
-            json!({"private_key_pem": private_key}),
-        )
+    let store = loaded_store(&args.store).await?;
+    store
+        .save_oauth_private_key(args.instance_id, private_key)
         .await?;
-    } else {
-        let store = loaded_store(&args.store).await?;
-        store
-            .save_oauth_private_key(args.instance_id, private_key)
-            .await?;
-    }
     print_credential_stored(output, "private_key")
 }
 
 async fn loaded_store(args: &StoreSourceArgs) -> Result<std::sync::Arc<MCPStore>, BoxErr> {
     let store = load_kernel(args).await?.store().clone();
     Ok(store)
-}
-
-async fn daemon_auth_status(instance_id: InstanceId) -> Result<AuthStatusView, BoxErr> {
-    let response: AuthStatusResponse = daemon_call("auth_status", instance_id, json!({})).await?;
-    Ok(response.auth)
-}
-
-async fn daemon_callback_uri(instance_id: InstanceId) -> Result<String, BoxErr> {
-    let response: CallbackUriResponse =
-        daemon_call("auth_callback_uri", instance_id, json!({})).await?;
-    response
-        .callback_uri
-        .ok_or_else(|| "Authorization Code flow has no callback URI".into())
-}
-
-async fn daemon_call<T: serde::de::DeserializeOwned>(
-    method: &str,
-    instance_id: InstanceId,
-    extra: Value,
-) -> Result<T, BoxErr> {
-    let mut params = match extra {
-        Value::Object(params) => params,
-        _ => return Err("Daemon auth parameters must be an object".into()),
-    };
-    params.insert("instance_id".to_string(), json!(instance_id));
-    let value = crate::daemon::client::call_daemon(method, Value::Object(params)).await?;
-    Ok(serde_json::from_value(value)?)
-}
-
-async fn complete_daemon_browser_flow(
-    instance_id: InstanceId,
-    listener: LocalCallbackListener,
-    authorization: AuthorizationStart,
-    timeout_seconds: u64,
-    output: OutputFormat,
-    open_browser: bool,
-) -> Result<(), BoxErr> {
-    announce_authorization(&authorization, output, open_browser)?;
-    let mut pending = listener.wait(timeout_seconds).await?;
-    let result: Result<AuthStatusResponse, BoxErr> = daemon_call(
-        "auth_callback",
-        instance_id,
-        json!({
-            "code": pending.callback.code,
-            "state": pending.callback.state,
-            "issuer": pending.callback.issuer,
-        }),
-    )
-    .await;
-    write_browser_response(&mut pending.stream, result.is_ok()).await?;
-    let response = result?;
-    print_auth_status(&response.auth, output)
 }
 
 async fn complete_local_browser_flow(
@@ -1039,6 +880,8 @@ async fn write_browser_response(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

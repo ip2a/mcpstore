@@ -137,20 +137,6 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
         });
     }
 
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({
-            "name": a.name,
-            "config": config,
-            "scope": scope,
-        });
-        crate::daemon::client::call_daemon("add_service", params).await?;
-        println!(
-            "[Success] Service added: {} (transport={})",
-            a.name, transport
-        );
-        return Ok(());
-    }
-
     let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     let definition_exists = store.get_definition_config(&a.name).await?.is_some();
@@ -286,26 +272,6 @@ async fn load_service_summaries(
     store_args: &StoreSourceArgs,
     scope: &ScopeRef,
 ) -> std::result::Result<Vec<Value>, BoxErr> {
-    if crate::daemon::client::daemon_socket_exists() {
-        let result =
-            crate::daemon::client::call_daemon("list_services", json!({ "scope": scope })).await?;
-        return Ok(result
-            .get("services")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|svc| {
-                json!({
-                    "service_name": svc.get("service_name").and_then(Value::as_str).unwrap_or(""),
-                    "instance_id": svc.get("instance_id").and_then(Value::as_str).unwrap_or(""),
-                    "transport": svc.get("transport").and_then(Value::as_str).unwrap_or(""),
-                    "readiness": svc.pointer("/state/readiness/status").and_then(Value::as_str).unwrap_or(""),
-                    "tools_count": svc.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0),
-                })
-            })
-            .collect());
-    }
     let store = load_kernel(store_args).await?.store().clone();
     store.load_from_source().await?;
     let services = store.list_scope_instances(scope).await?;
@@ -332,55 +298,6 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
             a.output,
             json!({ "services": services, "total": services.len() }),
         )?;
-        return Ok(());
-    }
-
-    if crate::daemon::client::daemon_socket_exists() {
-        let result = crate::daemon::client::call_daemon(
-            "list_services",
-            serde_json::json!({"scope": scope}),
-        )
-        .await?;
-        let services = result
-            .get("services")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        println!("[List] service_count={}", services.len());
-        if services.is_empty() {
-            println!("  No services available");
-            return Ok(());
-        }
-        for svc in services {
-            let name = svc
-                .get("service_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
-            let instance_id = svc
-                .get("instance_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
-            let transport = svc.get("transport").and_then(|v| v.as_str()).unwrap_or("?");
-            let readiness = svc
-                .pointer("/state/readiness/status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
-            let tools_count = svc.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
-            let capabilities = svc
-                .get("mcp")
-                .cloned()
-                .and_then(|value| serde_json::from_value::<Option<McpServerMetadata>>(value).ok())
-                .flatten();
-            println!(
-                "- {}  instance={}  transport={}  readiness={}  tools={}  capabilities={}",
-                name,
-                instance_id,
-                transport,
-                readiness,
-                tools_count,
-                format_capabilities(capabilities.as_ref())
-            );
-        }
         return Ok(());
     }
 
@@ -470,12 +387,6 @@ pub struct RemoveArgs {
 
 pub async fn remove(a: RemoveArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"service_name": a.name, "scope": scope});
-        crate::daemon::client::call_daemon("remove_service_scope", params).await?;
-        println!("[Success] Service scope removed: {}", a.name);
-        return Ok(());
-    }
     let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     store.remove_service_scope(&a.name, &scope).await?;
@@ -504,41 +415,6 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"instance_id": instance_id});
-        let result = crate::daemon::client::call_daemon("connect_service", params).await?;
-        let tools_count = result
-            .get("tools_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let capabilities = result
-            .get("mcp")
-            .cloned()
-            .and_then(|value| serde_json::from_value::<Option<McpServerMetadata>>(value).ok())
-            .flatten();
-        match a.output {
-            OutputFormat::Human => {
-                println!(
-                    "[Success] Connected: {} (tools={}, capabilities={})",
-                    instance_id,
-                    tools_count,
-                    format_capabilities(capabilities.as_ref())
-                );
-            }
-            _ => {
-                emit_call_value(
-                    a.output,
-                    json!({
-                        "event": "service.connected",
-                        "instance_id": instance_id.to_string(),
-                        "tools_count": tools_count,
-                        "capabilities": format_capabilities(capabilities.as_ref()),
-                    }),
-                )?;
-            }
-        }
-        return Ok(());
-    }
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
@@ -600,22 +476,6 @@ pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"instance_id": instance_id});
-        crate::daemon::client::call_daemon("disconnect_service", params).await?;
-        match a.output {
-            OutputFormat::Human => {
-                println!("[Success] Disconnected: {}", instance_id);
-            }
-            _ => {
-                emit_call_value(
-                    a.output,
-                    json!({"event": "service.disconnected", "instance_id": instance_id.to_string()}),
-                )?;
-            }
-        }
-        return Ok(());
-    }
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
@@ -656,22 +516,6 @@ pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"instance_id": instance_id});
-        crate::daemon::client::call_daemon("restart_service", params).await?;
-        match a.output {
-            OutputFormat::Human => {
-                println!("[Success] Restarted: {}", instance_id);
-            }
-            _ => {
-                emit_call_value(
-                    a.output,
-                    json!({"event": "service.restarted", "instance_id": instance_id.to_string()}),
-                )?;
-            }
-        }
-        return Ok(());
-    }
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
@@ -719,38 +563,20 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let (ready, label) = if crate::daemon::client::daemon_socket_exists() {
-        let result = crate::daemon::client::call_daemon(
-            "check_service",
-            json!({ "instance_id": instance_id }),
-        )
-        .await?;
-        let readiness = result
-            .pointer("/state/readiness/status")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        let phase = result
-            .pointer("/state/phase")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        (
-            readiness == "ready",
-            format!("{instance_id} => readiness={readiness} phase={phase}"),
-        )
-    } else {
-        let store = load_kernel(&a.store).await.map_err(|e| {
-            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string())
-        })?;
-        store.load_from_source().await?;
-        let status = store.service_state_entry(instance_id).await?;
-        (
-            status.readiness.status == mcpstore::ReadinessStatus::Ready,
-            format!(
-                "{instance_id} => readiness={:?} phase={:?} health={:?}",
-                status.readiness.status, status.phase, status.health
-            ),
-        )
-    };
+    let store = load_kernel(&a.store)
+        .await
+        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?
+        .store()
+        .clone();
+    store.load_from_source().await?;
+    let status = store.service_state_entry(instance_id).await?;
+    let (ready, label) = (
+        status.readiness.status == mcpstore::ReadinessStatus::Ready,
+        format!(
+            "{instance_id} => readiness={:?} phase={:?} health={:?}",
+            status.readiness.status, status.phase, status.health
+        ),
+    );
 
     if !a.quiet {
         match a.output {
@@ -799,30 +625,6 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     let instance_id = resolve_target(&a.store, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"instance_id": instance_id, "timeout": a.timeout});
-        let result = crate::daemon::client::call_daemon("wait_service", params).await?;
-        let readiness = result
-            .pointer("/state/readiness/status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        match a.output {
-            OutputFormat::Human => {
-                println!("[Success] Service ready: {} ({})", instance_id, readiness);
-            }
-            _ => {
-                emit_call_value(
-                    a.output,
-                    json!({
-                        "event": "service.ready",
-                        "instance_id": instance_id.to_string(),
-                        "readiness": readiness,
-                    }),
-                )?;
-            }
-        }
-        return Ok(());
-    }
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
@@ -939,33 +741,24 @@ pub struct ToolsArgs {
 pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
-    let entries: Vec<Value> = if crate::daemon::client::daemon_socket_exists() {
-        let result =
-            crate::daemon::client::call_daemon("list_tools", json!({ "instance_id": instance_id }))
-                .await?;
-        result
-            .get("tools")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|t| tool_summary_value(t, a.schema))
-            .collect()
-    } else {
-        let store = load_kernel(&a.store).await?.store().clone();
-        store.load_from_source().await?;
-        store.connect_service(instance_id).await?;
-        let tools = store
-            .list_tool_entries_for_instance_with_filter(
-                instance_id,
-                mcpstore::ToolVisibilityFilter::Available,
+    let store = load_kernel(&a.store).await?.store().clone();
+    store.load_from_source().await?;
+    store.connect_service(instance_id).await?;
+    let tools = store
+        .list_tool_entries_for_instance_with_filter(
+            instance_id,
+            mcpstore::ToolVisibilityFilter::Available,
+        )
+        .await?;
+    let entries: Vec<Value> = tools
+        .iter()
+        .map(|t| {
+            tool_summary_value(
+                json!({ "name": t.name, "description": t.description, "schema": t.input_schema }),
+                a.schema,
             )
-            .await?;
-        tools
-            .iter()
-            .map(|t| tool_summary_value(json!({ "name": t.name, "description": t.description, "schema": t.input_schema }), a.schema))
-            .collect()
-    };
+        })
+        .collect();
 
     if a.output != OutputFormat::Human {
         emit_call_value(
@@ -1081,9 +874,6 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
 
 async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
     parse_arguments_json_object(&a.arguments, a.output)?;
-    if crate::daemon::client::daemon_socket_exists() {
-        return run_call_via_daemon(a).await;
-    }
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
@@ -1274,30 +1064,6 @@ async fn resolve_target(
             return Ok(instance_id);
         }
     }
-    if crate::daemon::client::daemon_socket_exists() {
-        let response =
-            crate::daemon::client::call_daemon("list_services", json!({ "scope": scope }))
-                .await
-                .map_err(|error| ResolveError::Backend(error.to_string()))?;
-        let instance_id = response
-            .get("services")
-            .and_then(Value::as_array)
-            .and_then(|services| {
-                services
-                    .iter()
-                    .find(|svc| svc.get("service_name").and_then(Value::as_str) == Some(target))
-            })
-            .and_then(|svc| svc.get("instance_id"))
-            .and_then(Value::as_str)
-            .and_then(|s| InstanceId::from_str(s).ok());
-        if let Some(id) = &instance_id {
-            crate::schema_cache::save_target(&cache_key, target, &id.to_string());
-        }
-        return instance_id.ok_or_else(|| ResolveError::NotFound {
-            scope_name,
-            target: target.to_string(),
-        });
-    }
     let store = load_kernel(store_args)
         .await
         .map_err(|e| ResolveError::Backend(e.to_string()))?;
@@ -1327,62 +1093,6 @@ fn resolve_error(e: ResolveError) -> mcpstore::Error {
         ResolveError::Backend(_) => mcpstore::error::FailureCode::Internal,
     };
     mcpstore::Error::new(code, e.to_string())
-}
-
-/// Load the target tool's input schema through the daemon's `list_tools`.
-async fn load_tool_input_schema_daemon(
-    instance_id: InstanceId,
-    tool_name: &str,
-    _output: OutputFormat,
-) -> mcpstore::Result<Option<Value>> {
-    if let Some(cached) = crate::schema_cache::load(&instance_id.to_string()) {
-        if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
-            return Ok(Some(schema));
-        }
-    }
-    let response =
-        crate::daemon::client::call_daemon("list_tools", json!({ "instance_id": instance_id }))
-            .await?;
-    let tools = response
-        .get("tools")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    crate::schema_cache::save(&instance_id.to_string(), &tools);
-    Ok(tools
-        .iter()
-        .find(|t| t.get("name").and_then(Value::as_str) == Some(tool_name))
-        .and_then(|t| t.get("schema").cloned()))
-}
-
-/// Daemon fast path: reuse the daemon's long-lived MCP server connections across
-/// CLI invocations. The daemon speaks request/response, so streaming progress,
-/// elicitation, per-call timeouts, and cancellation apply only to the local path
-/// used when no daemon is running.
-async fn run_call_via_daemon(a: CallToolArgs) -> mcpstore::Result<()> {
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
-        mcpstore::Error::new(
-            mcpstore::error::FailureCode::InvalidInput,
-            error.to_string(),
-        )
-    })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
-        .await
-        .map_err(resolve_error)?;
-    let schema = load_tool_input_schema_daemon(instance_id, &a.tool_name, a.output).await?;
-    let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
-    let value = crate::daemon::client::call_daemon(
-        "call_tool",
-        json!({ "instance_id": instance_id, "tool_name": a.tool_name, "args": args }),
-    )
-    .await?;
-    let result: ToolCallResult = serde_json::from_value(value).map_err(|error| {
-        mcpstore::Error::new(
-            mcpstore::error::FailureCode::ToolFailed,
-            format!("daemon returned a malformed tool result: {error}"),
-        )
-    })?;
-    emit_call_result(a.output, instance_id, &a.tool_name, &result)
 }
 
 /// Load the target tool's input schema so arguments can be positionally mapped,
@@ -1774,19 +1484,6 @@ pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
     let scope = ScopeRef::Agent {
         agent_id: a.agent.clone(),
     };
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({
-            "service_name": a.service_name,
-            "scope": scope,
-            "descriptor": ScopeDescriptor::default(),
-        });
-        crate::daemon::client::call_daemon("declare_service_scope", params).await?;
-        println!(
-            "[Success] Service authorized to Agent: agent={} service={}",
-            a.agent, a.service_name
-        );
-        return Ok(());
-    }
     let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     store
@@ -1803,15 +1500,6 @@ pub async fn unassign(a: UnassignArgs) -> std::result::Result<(), BoxErr> {
     let scope = ScopeRef::Agent {
         agent_id: a.agent.clone(),
     };
-    if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"service_name": a.service_name, "scope": scope});
-        crate::daemon::client::call_daemon("remove_service_scope", params).await?;
-        println!(
-            "[Success] Removed Agent service authorization: agent={} service={}",
-            a.agent, a.service_name
-        );
-        return Ok(());
-    }
     let store = load_kernel(&a.store).await?.store().clone();
     store.load_from_source().await?;
     store.remove_service_scope(&a.service_name, &scope).await?;
