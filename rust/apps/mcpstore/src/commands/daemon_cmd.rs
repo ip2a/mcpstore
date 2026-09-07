@@ -1,9 +1,7 @@
-use clap::Args;
-use serde_json::json;
-
 use crate::daemon::protocol::{default_pid_path, is_daemon_running};
 use crate::store_args::StoreSourceArgs;
 use crate::BoxErr;
+use clap::Args;
 
 #[derive(Args)]
 pub struct StartArgs {
@@ -35,7 +33,7 @@ pub async fn stop() -> Result<(), BoxErr> {
     let _pid: u32 = pid_str.trim().parse()?;
 
     // Try graceful stop via socket first.
-    match crate::daemon::client::call_daemon("stop_daemon", json!({})).await {
+    match crate::daemon::client::call_daemon("stop_daemon", serde_json::json!({})).await {
         Ok(_) => {
             println!("[Success] Daemon stop requested.");
         }

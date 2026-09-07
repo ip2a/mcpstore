@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 
 use crate::events::bus::{EventHandler, EventHistory, SubscriberMap};
 use crate::events::Event;
@@ -15,6 +15,7 @@ pub struct EventBus {
     history_capacity: Option<usize>,
     critical_events: HashSet<String>,
     handler_timeout: Option<Duration>,
+    broadcast: broadcast::Sender<Event>,
 }
 
 impl EventBus {
@@ -25,6 +26,7 @@ impl EventBus {
             history_capacity: None,
             critical_events: HashSet::new(),
             handler_timeout: None,
+            broadcast: broadcast::channel(1_024).0,
         }
     }
 
@@ -35,6 +37,7 @@ impl EventBus {
             history_capacity: Some(capacity),
             critical_events: HashSet::new(),
             handler_timeout: None,
+            broadcast: broadcast::channel(1_024).0,
         }
     }
 
@@ -55,10 +58,16 @@ impl EventBus {
         subs.unsubscribe(event_type);
     }
 
+    /// Subscribe to every event published after this call.
+    pub fn subscribe_all(&self) -> broadcast::Receiver<Event> {
+        self.broadcast.subscribe()
+    }
+
     /// Publish an event to all matching subscribers.
     pub async fn publish(&self, event: Event, wait: bool) {
         let wait = wait || self.critical_events.contains(&event.event_type);
 
+        let _ = self.broadcast.send(event.clone());
         if let Some(history) = &self.history {
             let mut hist = history.write().await;
             hist.push(event.clone()).await;
@@ -133,5 +142,20 @@ impl EventBus {
 impl Default for EventBus {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn subscribe_all_receives_published_event() {
+        let bus = EventBus::new();
+        let mut receiver = bus.subscribe_all();
+        bus.publish(Event::new("test.event", serde_json::json!({})), false)
+            .await;
+        let event = receiver.recv().await.unwrap();
+        assert_eq!(event.event_type, "test.event");
     }
 }

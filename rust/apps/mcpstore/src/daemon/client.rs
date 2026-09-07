@@ -1,78 +1,171 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+
 use mcpstore::error::{Error, FailureCode};
 use serde_json::Value;
-use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 
-use crate::daemon::protocol::{default_socket_path, DaemonError, DaemonRequest, DaemonResponse};
+use crate::daemon::transport::{HostStreamReadHalf, HostStreamWriteHalf};
 
-/// Check whether the daemon socket exists and is connectable.
-pub fn daemon_socket_exists() -> bool {
-    default_socket_path().exists()
+use crate::daemon::protocol::{
+    HandshakeRequest, HandshakeResponse, KernelEvent, KernelOperation, KernelRequest,
+    KernelResponse, KERNEL_PROTOCOL_VERSION,
+};
+
+static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug)]
+pub struct KernelClient {
+    writer: HostStreamWriteHalf,
+    reader: BufReader<HostStreamReadHalf>,
 }
 
-/// Send a single request to the daemon and return the parsed response.
-pub async fn call_daemon(method: impl Into<String>, params: Value) -> Result<Value, Error> {
-    let socket_path = default_socket_path();
-    if !socket_path.exists() {
-        return Err(Error::new(
-            FailureCode::ServiceUnavailable,
-            "daemon is not running; run `mcpstore start` first",
-        ));
-    }
+impl KernelClient {
+    pub async fn connect(namespace: &str) -> Result<Self, Error> {
+        let stream = crate::daemon::transport::connect_endpoint().await?;
+        let (reader, writer) = stream.into_split();
+        let mut client = Self {
+            writer,
+            reader: BufReader::new(reader),
+        };
 
-    let mut stream = UnixStream::connect(&socket_path).await.map_err(|e| {
-        Error::new(
-            FailureCode::ConnectionRefused,
-            format!("failed to connect to daemon socket: {e}"),
-        )
-    })?;
-
-    let request = DaemonRequest::new(method, params);
-    let line = request.to_json_line().map_err(|e| {
-        Error::new(
-            FailureCode::ConnectionClosed,
-            format!("failed to serialize daemon request: {e}"),
-        )
-    })?;
-
-    stream.write_all(line.as_bytes()).await.map_err(|e| {
-        Error::new(
-            FailureCode::ConnectionClosed,
-            format!("daemon write failed: {e}"),
-        )
-    })?;
-
-    // Shutdown write to signal end of request.
-    let _ = stream.shutdown().await;
-
-    let (reader, _) = stream.into_split();
-    let mut buf_reader = BufReader::new(reader);
-    let mut line = String::new();
-
-    tokio::time::timeout(Duration::from_secs(60), buf_reader.read_line(&mut line))
-        .await
-        .map_err(|_| Error::new(FailureCode::ConnectionTimedOut, "daemon response timed out"))?
-        .map_err(|e| {
+        let handshake = HandshakeRequest {
+            protocol_version: KERNEL_PROTOCOL_VERSION,
+            namespace: namespace.to_string(),
+            client_capabilities: vec!["requests".into()],
+        };
+        let line = serde_json::to_string(&handshake).map_err(wire_error)?;
+        client.write_line(&line).await?;
+        let response = client.read_response(None).await?;
+        let _: HandshakeResponse = serde_json::from_value(response.result.unwrap_or(Value::Null))
+            .map_err(|error| {
             Error::new(
-                FailureCode::ConnectionClosed,
-                format!("failed to read daemon response: {e}"),
+                FailureCode::HandshakeFailed,
+                format!("KernelHost returned a malformed handshake: {error}"),
             )
         })?;
-
-    let response: DaemonResponse = serde_json::from_str(&line).map_err(|e| {
-        Error::new(
-            FailureCode::ConnectionClosed,
-            format!("failed to parse daemon response: {e}"),
-        )
-    })?;
-
-    if response.success {
-        Ok(response.data.unwrap_or(Value::Null))
-    } else {
-        Err(response
-            .error
-            .unwrap_or_else(|| DaemonError::new(FailureCode::Internal, "unknown daemon error"))
-            .into_error())
+        Ok(client)
     }
+
+    /// Send one typed request and wait for its response. Stream events emitted
+    /// before the terminal response are returned in arrival order.
+    pub async fn request(
+        &mut self,
+        operation: KernelOperation,
+        payload: Value,
+        timeout: Duration,
+    ) -> Result<(Value, Vec<KernelEvent>), Error> {
+        self.call(operation, payload, timeout).await?;
+        let mut events = Vec::new();
+        loop {
+            let response = self.read_response(None).await?;
+            if let Some(event) = response.event {
+                events.push(event);
+                continue;
+            }
+            if response.request_id.is_none() {
+                return Err(Error::new(
+                    FailureCode::ConnectionClosed,
+                    "KernelHost returned a response without request_id",
+                ));
+            }
+            if let Some(error) = response.error {
+                return Err(error.into_error());
+            }
+            return Ok((response.result.unwrap_or(Value::Null), events));
+        }
+    }
+
+    async fn call(
+        &mut self,
+        operation: KernelOperation,
+        payload: Value,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let request = KernelRequest {
+            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed),
+            operation,
+            payload,
+            deadline_ms: timeout.as_millis() as u64,
+        };
+        let line = serde_json::to_string(&request).map_err(wire_error)?;
+        self.write_line(&line).await
+    }
+
+    async fn write_line(&mut self, line: &str) -> Result<(), Error> {
+        self.writer
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .map_err(io_error)
+    }
+
+    async fn read_response(&mut self, timeout: Option<Duration>) -> Result<KernelResponse, Error> {
+        let mut line = String::new();
+        let read = self.reader.read_line(&mut line);
+        let read = if let Some(timeout) = timeout {
+            tokio::time::timeout(timeout, read).await.map_err(|_| {
+                Error::new(
+                    FailureCode::ConnectionTimedOut,
+                    "KernelHost response timed out",
+                )
+            })?
+        } else {
+            Ok(read.await.map_err(io_error)?)
+        };
+        let read = read.map_err(io_error)?;
+        if read == 0 {
+            return Err(Error::new(
+                FailureCode::ConnectionClosed,
+                "KernelHost connection closed",
+            ));
+        }
+        serde_json::from_str(&line).map_err(|error| {
+            Error::new(
+                FailureCode::ConnectionClosed,
+                format!("failed to parse KernelHost response: {error}"),
+            )
+        })
+    }
+
+    pub async fn stop_host(&mut self) -> Result<(), Error> {
+        self.request(
+            KernelOperation::StopHost,
+            Value::Null,
+            Duration::from_secs(5),
+        )
+        .await
+        .map(|_| ())
+    }
+}
+
+pub async fn call_daemon(method: impl Into<String>, params: Value) -> Result<Value, Error> {
+    let method = method.into();
+    let operation = match method.as_str() {
+        "stop_daemon" => KernelOperation::StopHost,
+        other => {
+            return Err(Error::new(
+                FailureCode::InvalidInput,
+                format!("unsupported KernelHost operation: {other}"),
+            ))
+        }
+    };
+    let mut client = KernelClient::connect("mcpstore").await?;
+    client
+        .request(operation, params, Duration::from_secs(5))
+        .await
+        .map(|(result, _)| result)
+}
+
+fn wire_error(error: serde_json::Error) -> Error {
+    Error::new(
+        FailureCode::ConnectionClosed,
+        format!("failed to serialize KernelHost request: {error}"),
+    )
+}
+
+fn io_error(error: std::io::Error) -> Error {
+    Error::new(
+        FailureCode::ConnectionClosed,
+        format!("KernelHost write failed: {error}"),
+    )
 }
