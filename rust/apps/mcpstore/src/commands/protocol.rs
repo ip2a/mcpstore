@@ -152,10 +152,6 @@ async fn execute_resource_list(args: ProtocolInstanceArgs) -> mcpstore::Result<(
         )
     })?;
     store
-        .load_from_source()
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    store
         .connect_service(instance_id)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
@@ -190,10 +186,6 @@ async fn execute_resource_templates(args: ProtocolInstanceArgs) -> mcpstore::Res
             instance_id,
         )
     })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
     store
         .connect_service(instance_id)
         .await
@@ -239,10 +231,6 @@ async fn execute_resource_read(args: ResourceReadArgs) -> mcpstore::Result<()> {
         )
     })?;
     store
-        .load_from_source()
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    store
         .connect_service(instance_id)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
@@ -279,10 +267,6 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs) -> mcpstore::Result<()>
             instance_id,
         )
     })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
     store
         .connect_service(instance_id)
         .await
@@ -333,10 +317,6 @@ async fn execute_prompt_get(args: PromptGetArgs) -> mcpstore::Result<()> {
             instance_id,
         )
     })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
     store
         .connect_service(instance_id)
         .await
@@ -400,10 +380,6 @@ async fn execute_complete(args: CompleteArgs) -> mcpstore::Result<()> {
             instance_id,
         )
     })?;
-    store
-        .load_from_source()
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
     store
         .connect_service(instance_id)
         .await

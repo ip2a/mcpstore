@@ -117,7 +117,6 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     }
 
     let store = load_kernel(&args.store).await?.store().clone();
-    store.load_from_source().await?;
 
     let config = store.config_manager().load_app_config_or_default()?;
     let port = args.port.unwrap_or(config.server.port);

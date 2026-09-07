@@ -473,7 +473,6 @@ async fn loaded_store(
     let store = load_kernel(&runtime.store).await.map_err(|error| {
         mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
     })?;
-    store.load_from_source().await?;
     Ok(store.store().clone())
 }
 

@@ -138,7 +138,6 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
     }
 
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
     let definition_exists = store.get_definition_config(&a.name).await?.is_some();
     if definition_exists {
         let lifecycle = config
@@ -187,7 +186,6 @@ pub struct AddJsonArgs {
 
 pub async fn add_json(a: AddJsonArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let mut config: ServerConfig = serde_json::from_str(&a.json)?;
     let transport = config.infer_transport().to_string();
@@ -273,7 +271,6 @@ async fn load_service_summaries(
     scope: &ScopeRef,
 ) -> std::result::Result<Vec<Value>, BoxErr> {
     let store = load_kernel(store_args).await?.store().clone();
-    store.load_from_source().await?;
     let services = store.list_scope_instances(scope).await?;
     let mut out = Vec::with_capacity(services.len());
     for svc in services {
@@ -302,7 +299,6 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
     }
 
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
 
     let services = store.list_scope_instances(&scope).await?;
     println!("[List] service_count={}", services.len());
@@ -354,7 +350,6 @@ pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.load_from_source().await?;
     let payload = store.service_info_scoped(instance_id).await?;
     match a.output {
         OutputFormat::Human => {
@@ -388,7 +383,6 @@ pub struct RemoveArgs {
 pub async fn remove(a: RemoveArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
     store.remove_service_scope(&a.name, &scope).await?;
     println!("[Success] Service scope removed: {}", a.name);
     Ok(())
@@ -418,7 +412,6 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.load_from_source().await?;
     store.connect_service(instance_id).await?;
     let tools = store
         .list_tool_entries_for_instance_with_filter(
@@ -479,7 +472,6 @@ pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.load_from_source().await?;
     store.disconnect_service(instance_id).await?;
     match a.output {
         OutputFormat::Human => {
@@ -519,7 +511,6 @@ pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.load_from_source().await?;
     store.restart_service(instance_id).await?;
     match a.output {
         OutputFormat::Human => {
@@ -568,7 +559,6 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?
         .store()
         .clone();
-    store.load_from_source().await?;
     let status = store.service_state_entry(instance_id).await?;
     let (ready, label) = (
         status.readiness.status == mcpstore::ReadinessStatus::Ready,
@@ -628,7 +618,6 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store)
         .await
         .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.load_from_source().await?;
     store.connect_service(instance_id).await?;
     let status = store
         .wait_instance_ready(instance_id, std::time::Duration::from_secs(a.timeout))
@@ -683,7 +672,6 @@ pub struct UpdateArgs {
 
 pub async fn update(a: UpdateArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let env_map = parse_env(&a.env)?;
     let header_map = parse_headers(&a.header)?;
@@ -742,7 +730,6 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
     store.connect_service(instance_id).await?;
     let tools = store
         .list_tool_entries_for_instance_with_filter(
@@ -886,10 +873,6 @@ async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
     let store = load_kernel(&a.store).await.map_err(|error| {
         mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
     })?;
-    store.load_from_source().await.map_err(|error| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
-    })?;
-
     store
         .connect_service(instance_id)
         .await
@@ -1065,10 +1048,6 @@ async fn resolve_target(
         }
     }
     let store = load_kernel(store_args)
-        .await
-        .map_err(|e| ResolveError::Backend(e.to_string()))?;
-    store
-        .load_from_source()
         .await
         .map_err(|e| ResolveError::Backend(e.to_string()))?;
     let instance_id = store
@@ -1448,7 +1427,6 @@ fn emit_call_value(output: OutputFormat, value: Value) -> mcpstore::Result<()> {
 
 pub async fn migrate_store(a: MigrateStoreArgs) -> std::result::Result<(), BoxErr> {
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
 
     let target_config = JsonStoreConfig::new(&a.target_store, json!({"config": a.target_config}));
     let result = store.swap_store(&target_config).await?;
@@ -1485,7 +1463,6 @@ pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
         agent_id: a.agent.clone(),
     };
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
     store
         .declare_service_scope(&a.service_name, &scope, ScopeDescriptor::default())
         .await?;
@@ -1501,7 +1478,6 @@ pub async fn unassign(a: UnassignArgs) -> std::result::Result<(), BoxErr> {
         agent_id: a.agent.clone(),
     };
     let store = load_kernel(&a.store).await?.store().clone();
-    store.load_from_source().await?;
     store.remove_service_scope(&a.service_name, &scope).await?;
     println!(
         "[Success] Removed Agent service authorization: agent={} service={}",
