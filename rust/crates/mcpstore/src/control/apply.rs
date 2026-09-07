@@ -1,3 +1,4 @@
+use crate::config::ScopeDescriptor;
 use crate::control::request::{self, ControlRequest};
 use crate::store::prelude::*;
 
@@ -58,7 +59,7 @@ impl MCPStore {
                         )
                     })
                     .and_then(|value| {
-                        serde_json::from_value(value)
+                        serde_json::from_value::<ScopeDescriptor>(value)
                             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                     })?;
                 self.declare_service_scope(&service_name, &scope, descriptor)

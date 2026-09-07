@@ -11,3 +11,10 @@ pub(crate) struct ControlPlane {
     pub(crate) auth: AuthCoordinator,
     pub(crate) state: Arc<ServiceStateManager>,
 }
+
+mod auth;
+mod config;
+mod connection;
+mod mutation;
+mod scope;
+mod session;

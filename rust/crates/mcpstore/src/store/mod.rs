@@ -16,6 +16,7 @@ pub(crate) use crate::transport::{
 
 pub(crate) use crate::error::{Error, ErrorContext, FailureCode, Result};
 
+mod control_facade;
 mod kernel;
 mod openapi;
 mod options;

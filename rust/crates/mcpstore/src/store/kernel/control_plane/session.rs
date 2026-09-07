@@ -1,10 +1,15 @@
 use crate::state::{FailureInfo, FailurePhase, ServiceStateEvent};
 use crate::store::prelude::*;
+use crate::store::{ControlPlane, MCPStore};
 
-impl MCPStore {
-    pub async fn disconnect_service(&self, instance_id: InstanceId) -> Result<String> {
-        if self.is_data_plane() {
-            return self
+impl ControlPlane {
+    pub async fn disconnect_service(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<String> {
+        if store.is_data_plane() {
+            return store
                 .queue_control_request(
                     "ServiceDisconnectRequested",
                     serde_json::json!({ "instance_id": instance_id }),
@@ -12,25 +17,27 @@ impl MCPStore {
                 .await;
         }
 
-        let instance = self
+        let instance = store
             .kernel
             .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        self.kernel
+        store
+            .kernel
             .control
             .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::StopRequested,
-                Self::now_timestamp(),
+                MCPStore::now_timestamp(),
             )
             .await?;
 
-        let stop_result = if self.is_openapi_virtual_instance(instance_id).await? {
-            self.kernel
+        let stop_result = if store.is_openapi_virtual_instance(instance_id).await? {
+            store
+                .kernel
                 .runtime
                 .applied_openapi_configs
                 .write()
@@ -38,7 +45,8 @@ impl MCPStore {
                 .remove(&instance_id);
             Ok(String::new())
         } else {
-            self.kernel
+            store
+                .kernel
                 .execution
                 .pool
                 .disconnect(instance_id)
@@ -47,7 +55,8 @@ impl MCPStore {
                 .map_err(Error::from)
         };
         if let Err(error) = stop_result {
-            self.kernel
+            store
+                .kernel
                 .control
                 .state
                 .dispatch(
@@ -57,23 +66,25 @@ impl MCPStore {
                         code: crate::error::FailureCode::StopFailed,
                         retryable: true,
                         message: error.to_string(),
-                        since: Self::now_timestamp(),
+                        since: MCPStore::now_timestamp(),
                     }),
-                    Self::now_timestamp(),
+                    MCPStore::now_timestamp(),
                 )
                 .await?;
             return Err(error);
         }
-        self.kernel
+        store
+            .kernel
             .control
             .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::TransportStopped,
-                Self::now_timestamp(),
+                MCPStore::now_timestamp(),
             )
             .await?;
-        self.kernel
+        store
+            .kernel
             .execution
             .event_bus
             .publish(
@@ -96,9 +107,13 @@ impl MCPStore {
         Ok(String::new())
     }
 
-    pub async fn restart_service(&self, instance_id: InstanceId) -> Result<String> {
-        if self.is_data_plane() {
-            return self
+    pub async fn restart_service(
+        &self,
+        store: &MCPStore,
+        instance_id: InstanceId,
+    ) -> Result<String> {
+        if store.is_data_plane() {
+            return store
                 .queue_control_request(
                     "ServiceRestartRequested",
                     serde_json::json!({ "instance_id": instance_id }),
@@ -106,7 +121,7 @@ impl MCPStore {
                 .await;
         }
 
-        if self
+        if store
             .kernel
             .control
             .registry
@@ -119,8 +134,9 @@ impl MCPStore {
                 instance_id.to_string(),
             ));
         }
-        self.disconnect_service(instance_id).await?;
-        self.connect_service_internal(instance_id, false)
+        self.disconnect_service(store, instance_id).await?;
+        store
+            .connect_service_internal(instance_id, false)
             .await
             .map(|_| String::new())
     }
