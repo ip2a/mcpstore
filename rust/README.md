@@ -38,3 +38,19 @@ cargo test
 2. **高频数据结构优先迁移**：注册表查找、缓存读写是最大收益点。
 3. **内部按组件拆分，对外统一交付**：工作区内部分组件按职责拆分，但对外仍统一为 MCPStore 的 Python 包、CLI 二进制和发布产物。
 4. **Rust 是唯一核心**：Python 正式入口直接使用 Rust core；Rust 扩展加载失败时必须显式报错，不保留 Python core 降级路径。
+
+## Kernel 架构与部署
+
+唯一分层：`MCPStore` 仍是公开门面；内部由 `StoreKernel` 承载 `ControlPlane`、`ExecutionEngine`、`RuntimeState`、`PersistenceRouter`。CLI、KernelHost、HTTP API、Web、MCP transport、TUI 只做输入校验、输出映射和协议编码。
+
+入口策略：
+
+| 入口 | 当前执行方式 |
+|---|---|
+| `mcpstore start` | 前台启动 KernelHost，一个进程持有一个 StoreKernel |
+| 一次性 CLI 命令 | embedded Kernel；每次命令按 `--config-path/--source/--store/--store-config/--namespace` 解析 StoreOptions，无隐式 daemon fallback |
+| `api` / `web` / `mcp` / `tui` | embedded Kernel；长生命周期进程独立部署时不共享本机 socket，也不隐式连接 KernelHost |
+
+KernelHost 是跨进程 typed IPC adapter，不是事实源。连接先做 handshake，再收发 JSON-lines：`KernelRequest{request_id, operation, payload, deadline_ms}` 与 `KernelResponse{request_id, event, result, error, kernel_revision}`。协议版本为 1；覆盖 call/tool stream/list/connect/disconnect/restart/check/wait/add/scope/config/auth/events/stop 等操作。本机 Unix 默认 `/tmp/mcpstore.sock`（`MCPSTORE_SOCKET`）；Windows 使用 loopback TCP（`MCPSTORE_KERNEL_ENDPOINT`，默认动态端口）；PID 文件为 `/tmp/mcpstore.pid`（`MCPSTORE_PID`）。
+
+OpenKV 是持久化事实源。内存、disk、SQLite、Redis、远程 backend 由 `PersistenceRouter` 统一路由；热迁移只切换 active backend，不重建 `ExecutionEngine`、连接、session 或 `InstanceId`。迁移期写入基线：p50 0.005ms、p95 0.023ms、max 0.060ms。embedded noop tool 基线：p50 15.538ms、p95 17.847ms、64 calls/s；该路径无 HTTP/socket/额外序列化。
