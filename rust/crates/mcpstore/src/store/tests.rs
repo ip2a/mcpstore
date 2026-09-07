@@ -2,6 +2,7 @@ use super::*;
 use base64::Engine;
 use serde_json::Map;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -5806,6 +5807,124 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
     assert_eq!(relation_after, relation_before);
 
     std::fs::remove_file(source_path).ok();
+}
+
+#[tokio::test]
+async fn embedded_tool_hot_path_baseline() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("hot-path-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/mcpstore/tests/fixtures/execution_mcp_server.py")
+        .canonicalize()
+        .unwrap();
+    let config = {
+        let mut config = stdio_config();
+        config.command = Some("python3".to_string());
+        config.args = vec![fixture.to_string_lossy().to_string()];
+        config
+    };
+    store.add_service("hot-path", config).await.unwrap();
+    let instance_id = store_instance_id("hot-path");
+    store.connect_service(instance_id).await.unwrap();
+
+    let warmup = 50;
+    let measured = 1_000;
+    for _ in 0..warmup {
+        store
+            .call_tool(instance_id, "noop", serde_json::json!({}))
+            .await
+            .unwrap();
+    }
+    let mut latency_ms = Vec::with_capacity(measured);
+    for _ in 0..measured {
+        let started_at = Instant::now();
+        store
+            .call_tool(instance_id, "noop", serde_json::json!({}))
+            .await
+            .unwrap();
+        latency_ms.push(started_at.elapsed().as_secs_f64() * 1000.0);
+    }
+    let elapsed_ms = latency_ms.iter().sum::<f64>();
+    let throughput = measured as f64 / (elapsed_ms / 1000.0);
+    latency_ms.sort_by(f64::total_cmp);
+    let percentile =
+        |fraction: f64| latency_ms[((measured as f64 * fraction) as usize).min(measured - 1)];
+    println!(
+        "embedded tool baseline: calls={measured} p50={:.3}ms p95={:.3}ms throughput={throughput:.0}/s",
+        percentile(0.50),
+        percentile(0.95)
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("migration-hot-path-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    for index in 0..5_000 {
+        store
+            .cache()
+            .put_entity(
+                "clients",
+                &format!("seed-{index}"),
+                serde_json::json!({"index": index}),
+            )
+            .await
+            .unwrap();
+    }
+    store.cache().reset_request_metrics();
+
+    let writer_store = store.clone();
+    let writer = async move {
+        let mut max_ms = 0.0f64;
+        for index in 0..200 {
+            let started_at = Instant::now();
+            writer_store
+                .cache()
+                .put_entity(
+                    "clients",
+                    &format!("live-{index}"),
+                    serde_json::json!({"index": index}),
+                )
+                .await
+                .unwrap();
+            max_ms = max_ms.max(started_at.elapsed().as_secs_f64() * 1000.0);
+            tokio::task::yield_now().await;
+        }
+        max_ms
+    };
+    let target = JsonStoreConfig::memory();
+    let migration = store.swap_store(&target);
+    let (max_write_ms, result) = tokio::join!(writer, migration);
+    result.unwrap();
+
+    let metrics = store.cache().request_metrics_snapshot();
+    println!(
+        "migration write pause: p50={:.3}ms p95={:.3}ms max={max_write_ms:.3}ms",
+        metrics.p50_latency_ms.unwrap_or(0.0),
+        metrics.p95_latency_ms.unwrap_or(0.0),
+    );
+    assert!(
+        max_write_ms < 250.0,
+        "ordinary writes must not wait for the full snapshot copy: {max_write_ms}ms"
+    );
+
+    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
