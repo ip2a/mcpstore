@@ -13,7 +13,6 @@ pub(crate) struct RuntimeState {
     pub(crate) applied_openapi_configs:
         RwLock<HashMap<InstanceId, serde_json::Map<String, serde_json::Value>>>,
     pub(crate) event_reactor: RwLock<Option<Arc<EventReactor<EventBackend>>>>,
-    pub(crate) event_backend: RwLock<Option<EventBackend>>,
     pub(crate) source_mode: SourceMode,
     pub(crate) node_mode: NodeMode,
     pub(crate) runtime_config: StoreRuntimeConfig,

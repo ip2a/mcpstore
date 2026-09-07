@@ -183,12 +183,12 @@ impl MCPStore {
                 persistence: PersistenceRouter {
                     store_config: tokio::sync::RwLock::new(store_config),
                     cache,
+                    event_backend: tokio::sync::RwLock::new(event_backend),
                 },
                 runtime: RuntimeState {
                     namespace: SyncRwLock::new(namespace),
                     applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
                     event_reactor: tokio::sync::RwLock::new(None),
-                    event_backend: tokio::sync::RwLock::new(event_backend),
                     source_mode: options.source_mode,
                     node_mode: options.node_mode,
                     runtime_config,
@@ -246,7 +246,7 @@ impl MCPStore {
     pub async fn setup_event_reactor(&self, config: ReactorConfig) -> Result<()> {
         // Fast path: backend already initialized. Drop the read guard before
         // potentially taking the write guard below to avoid RwLock upgrade deadlock.
-        if let Some(b) = self.kernel.runtime.event_backend.read().await.clone() {
+        if let Some(b) = self.kernel.persistence.event_backend.read().await.clone() {
             let reactor = std::sync::Arc::new(
                 EventReactor::new(b, config)
                     .with_event_bus(self.kernel.execution.event_bus.clone()),
@@ -283,7 +283,7 @@ impl MCPStore {
                 }
             }
         };
-        *self.kernel.runtime.event_backend.write().await = Some(backend.clone());
+        *self.kernel.persistence.event_backend.write().await = Some(backend.clone());
 
         let reactor = std::sync::Arc::new(
             EventReactor::new(backend, config)

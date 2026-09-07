@@ -23,30 +23,28 @@ impl CacheLayerManager {
         store: Arc<dyn CacheStore>,
         namespace: impl Into<String>,
     ) -> Result<CacheSnapshot> {
-        let _route = self.route.write().await;
         self.ensure_current_schema().await?;
         let current_namespace = self.namespace();
         let next_namespace = namespace.into();
-        let mut current = self.store.write().await;
+        let current = self.active_store();
         let snapshot = self
             .snapshot_from_store_with_namespace(current.as_ref(), &current_namespace)
             .await?;
         Self::clear_namespace(store.as_ref(), &next_namespace).await?;
         self.restore_to_store_with_namespace(store.as_ref(), &snapshot, &next_namespace)
             .await?;
-        *current = store;
         *self
             .namespace
             .write()
             .expect("cache namespace lock poisoned") = next_namespace;
-        self.last_state_snapshot.write().await.clear();
+        self.activate_store(store).await;
         Ok(snapshot)
     }
 
     pub async fn snapshot(&self) -> Result<CacheSnapshot> {
         self.ensure_current_schema().await?;
         let namespace = self.namespace();
-        let store = self.store.read().await;
+        let store = self.active_store();
         self.snapshot_from_store_with_namespace(store.as_ref(), &namespace)
             .await
     }

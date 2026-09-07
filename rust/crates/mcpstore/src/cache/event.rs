@@ -10,7 +10,6 @@ impl CacheLayerManager {
         key: &str,
         value: serde_json::Value,
     ) -> Result<()> {
-        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
@@ -19,7 +18,7 @@ impl CacheLayerManager {
         }
         let collection = self.event_collection(event_type);
         let started_at = Instant::now();
-        let result = self.store.read().await.put(key, value, &collection).await;
+        let result = self.active_store().put(key, value, &collection).await;
         self.record_request(started_at, None, result.is_ok());
         result
     }
@@ -31,7 +30,6 @@ impl CacheLayerManager {
         expected_version: Option<u64>,
         value: serde_json::Value,
     ) -> Result<()> {
-        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         if !value.is_object() {
             return Err(CacheError::NotAnObject(format!(
@@ -41,9 +39,7 @@ impl CacheLayerManager {
         let collection = self.event_collection(event_type);
         let started_at = Instant::now();
         let result = self
-            .store
-            .read()
-            .await
+            .active_store()
             .compare_and_put(key, expected_version, value, &collection)
             .await;
         self.record_request(started_at, None, result.is_ok());
@@ -55,22 +51,20 @@ impl CacheLayerManager {
         event_type: &str,
         key: &str,
     ) -> Result<Option<serde_json::Value>> {
-        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         let collection = self.event_collection(event_type);
         let started_at = Instant::now();
-        let result = self.store.read().await.get(key, &collection).await;
+        let result = self.active_store().get(key, &collection).await;
         let hit = result.as_ref().ok().map(|value| value.is_some());
         self.record_request(started_at, hit, result.is_ok());
         result
     }
 
     pub async fn delete_event(&self, event_type: &str, key: &str) -> Result<()> {
-        let _route = self.route.read().await;
         self.ensure_current_schema().await?;
         let collection = self.event_collection(event_type);
         let started_at = Instant::now();
-        let result = self.store.read().await.delete(key, &collection).await;
+        let result = self.active_store().delete(key, &collection).await;
         self.record_request(started_at, None, result.is_ok());
         result
     }
@@ -79,7 +73,6 @@ impl CacheLayerManager {
         &self,
         event_type: &str,
     ) -> Result<HashMap<String, serde_json::Value>> {
-        let _route = self.route.read().await;
         let collection = self.event_collection(event_type);
         self.get_all_from_collection(&collection).await
     }

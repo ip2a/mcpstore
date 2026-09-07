@@ -4340,6 +4340,35 @@ async fn local_source_processes_control_requests() {
 }
 
 #[tokio::test]
+async fn swap_store_failure_keeps_active_source_usable() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    store
+        .add_service("svc", agent_only_config("agent-a"))
+        .await
+        .unwrap();
+
+    let error = store
+        .swap_store(&JsonStoreConfig::new(
+            "does-not-exist",
+            serde_json::Value::Null,
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("does-not-exist"));
+    assert_eq!(store.current_store_name().await, "memory");
+    assert!(store
+        .cache()
+        .get_entity("service_definitions", "svc")
+        .await
+        .unwrap()
+        .is_some());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn swap_store_migrates_runtime_cache() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();

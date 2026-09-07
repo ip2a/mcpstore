@@ -3723,6 +3723,7 @@ dependencies = [
 name = "mcpstore"
 version = "2.3.1"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "base64 0.22.1",
  "blake3",
