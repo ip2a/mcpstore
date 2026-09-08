@@ -34,6 +34,11 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     );
     println!("[KERNEL_HOST] MCPStore host started (pid={pid})");
 
+    let state = crate::commands::api::state_for_store(Arc::clone(&store));
+    let app_config = store.config_manager().load_app_config_or_default()?;
+    let faces = crate::daemon::listeners::ListenerManager::new();
+    faces.start_all(&app_config, &state).await?;
+
     let shutdown = Arc::new(tokio::sync::Notify::new());
     spawn_shutdown_watcher(shutdown.clone(), endpoint_cleanup_paths());
     let shutdown_task = shutdown.clone();
@@ -58,6 +63,7 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         });
     }
 
+    faces.shutdown_all();
     tokio::time::sleep(Duration::from_millis(500)).await;
     cleanup_paths(endpoint_cleanup_paths());
     tracing::info!("[KERNEL_HOST] Shut down");

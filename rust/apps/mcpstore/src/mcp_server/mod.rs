@@ -286,4 +286,4 @@ mod tools;
 mod transport;
 
 pub use transport::run;
-pub(crate) use transport::run_streamable_http;
+pub(crate) use transport::{run_streamable_http, streamable_http_router};

@@ -133,7 +133,8 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     Ok(())
 }
 
-pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
+/// 构建 daemon 共享的 ApiState；非数据面时恢复事件 reactor。
+pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     let state = Arc::new(ApiState {
         store,
         mcp_hub: Arc::new(Mutex::new(None)),
@@ -148,7 +149,17 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
             }
         });
     }
-    full_router(state, prefix)
+    state
+}
+
+impl ApiState {
+    pub(crate) fn store(&self) -> &Arc<MCPStore> {
+        &self.store
+    }
+}
+
+pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
+    full_router(state_for_store(store), prefix)
 }
 
 /// App 面：daemon 自身（健康/元信息/设置/配置/客户端导入/聚合/缓存），固定本地。

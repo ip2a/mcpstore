@@ -128,11 +128,8 @@ pub(super) async fn build_tool_bindings(
     Ok(bindings)
 }
 
-pub(crate) async fn run_streamable_http(
-    server: McpStoreServer,
-    args: &McpServerOptions,
-) -> Result<(), BoxErr> {
-    let path = normalize_http_path(&args.path);
+/// 构建 streamable-http 聚合服务的 axum router（不 bind，由调用方决定监听位置）。
+pub(crate) fn streamable_http_router(server: McpStoreServer, path: &str) -> axum::Router {
     let service: StreamableHttpService<McpStoreServer, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(server.clone()),
@@ -141,7 +138,15 @@ pub(crate) async fn run_streamable_http(
                 .with_legacy_session_mode(false)
                 .with_stateless_protocol_metadata_required(true),
         );
-    let router = axum::Router::new().nest_service(&path, service);
+    axum::Router::new().nest_service(&normalize_http_path(path), service)
+}
+
+pub(crate) async fn run_streamable_http(
+    server: McpStoreServer,
+    args: &McpServerOptions,
+) -> Result<(), BoxErr> {
+    let path = normalize_http_path(&args.path);
+    let router = streamable_http_router(server, &path);
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     eprintln!("[MCP] Starting streamable-http at http://{addr}{path}");
