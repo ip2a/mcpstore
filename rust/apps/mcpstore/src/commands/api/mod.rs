@@ -148,15 +148,52 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
             }
         });
     }
-    router(state, prefix)
+    full_router(state, prefix)
 }
 
-fn router(state: Arc<ApiState>, prefix: &str) -> Router {
-    let base = Router::new()
+/// App 面：daemon 自身（健康/元信息/设置/配置/客户端导入/聚合/缓存），固定本地。
+pub fn app_router(state: Arc<ApiState>) -> Router {
+    app_routes(state).layer(CorsLayer::permissive())
+}
+
+/// Core 面：全部 store 业务，可随 core base 指向远程 daemon。
+pub fn core_router(state: Arc<ApiState>) -> Router {
+    core_routes(state).layer(CorsLayer::permissive())
+}
+
+fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
+    let full = app_routes(state.clone())
+        .merge(core_routes(state))
+        .layer(CorsLayer::permissive());
+    if prefix.is_empty() {
+        full
+    } else {
+        Router::new().nest(prefix, full)
+    }
+}
+
+fn app_routes(state: Arc<ApiState>) -> Router {
+    Router::new()
         // ===== app：应用配置 / 元信息 / 历史（app 专用，非 core）=====
         .route("/health", get(app::health))
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
+        // ===== 配置 / 客户端导入 / 聚合 / 缓存（app 专用，非 core）=====
+        .route("/config", get(service::store_show_config))
+        .route("/config/reset", post(service::store_reset_config))
+        .route("/client-config/import", post(client::client_config_import))
+        .route("/mcp-hub/descriptor", get(client::mcp_hub_descriptor))
+        .route("/mcp-hub/status", get(client::mcp_hub_status))
+        .route("/mcp-hub/start", post(client::mcp_hub_start))
+        .route("/mcp-hub/stop", post(client::mcp_hub_stop))
+        .route("/cache/health", get(cache::health))
+        .route("/cache/inspect", get(cache::inspect))
+        .route("/cache/switch", post(cache::switch))
+        .with_state(state)
+}
+
+fn core_routes(state: Arc<ApiState>) -> Router {
+    Router::new()
         // ===== agents / scopes =====
         .route("/agents/list", get(service::list_agents))
         .route("/agents/:agent_id", get(service::agent_info))
@@ -383,26 +420,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             "/openapi_imports/bundle_artifact",
             post(openapi::store_bundle_openapi_artifact),
         )
-        // ===== 配置 / 编程助手 / 聚合 / 缓存（app 专用，非 core）=====
-        .route("/config", get(service::store_show_config))
-        .route("/config/reset", post(service::store_reset_config))
-        .route("/client-config/import", post(client::client_config_import))
-        .route("/mcp-hub/descriptor", get(client::mcp_hub_descriptor))
-        .route("/mcp-hub/status", get(client::mcp_hub_status))
-        .route("/mcp-hub/start", post(client::mcp_hub_start))
-        .route("/mcp-hub/stop", post(client::mcp_hub_stop))
-        .route("/cache/health", get(cache::health))
-        .route("/cache/inspect", get(cache::inspect))
-        .route("/cache/switch", post(cache::switch))
-        .with_state(state);
-
-    if prefix.is_empty() {
-        base.layer(CorsLayer::permissive())
-    } else {
-        Router::new()
-            .nest(prefix, base)
-            .layer(CorsLayer::permissive())
-    }
+        .with_state(state)
 }
 
 #[cfg(test)]
