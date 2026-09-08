@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    net::IpAddr,
     sync::{Arc, Mutex},
 };
 
@@ -13,7 +12,6 @@ use axum::{
     routing::{get, post, put},
     Router,
 };
-use clap::Args;
 use mcpstore::{
     client_config::{import_selected_services, inspect_client_config, ClientKind},
     config::ScopeDescriptor,
@@ -26,11 +24,6 @@ use serde_json::json;
 use serde_json::Value;
 use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
-
-use crate::{
-    store_args::{load_kernel, StoreSourceArgs},
-    BoxErr,
-};
 
 mod app;
 mod auth;
@@ -46,22 +39,8 @@ use envelope::{success, ApiError, ApiResult};
 
 use parse::{
     extract_prompt_args, extract_prompt_name, extract_tool_args, extract_tool_name,
-    normalize_prefix, parse_scope_ref, ScopeQuery,
+    parse_scope_ref, ScopeQuery,
 };
-
-#[derive(Args)]
-pub struct ApiArgs {
-    #[arg(long, help = "API 服务端口；未指定时读取 app 配置")]
-    pub port: Option<u16>,
-    #[arg(long, default_value = "127.0.0.1", help = "绑定地址")]
-    pub host: String,
-    #[arg(long, default_value = "", help = "URL 前缀，例如 /mcp")]
-    pub url_prefix: String,
-    #[arg(long, help = "显式允许非 loopback API 绑定")]
-    pub allow_remote: bool,
-    #[command(flatten)]
-    pub store: StoreSourceArgs,
-}
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -100,37 +79,6 @@ async fn resolve_instance(
                 ApiError::from_store(error)
             }
         })
-}
-
-pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
-    let loopback = args.host == "localhost"
-        || args
-            .host
-            .parse::<IpAddr>()
-            .is_ok_and(|address| address.is_loopback());
-    if !loopback && !args.allow_remote {
-        return Err("API 默认只允许 loopback 绑定；使用 --allow-remote 明确开启远程暴露".into());
-    }
-
-    let store = load_kernel(&args.store).await?.store().clone();
-
-    let config = store.config_manager().load_app_config_or_default()?;
-    let port = args.port.unwrap_or(config.server.port);
-
-    let prefix = normalize_prefix(&args.url_prefix);
-    let app = router_for_store(store, &prefix);
-
-    let addr = format!("{}:{}", args.host, port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    let display_prefix = if prefix.is_empty() {
-        "/".to_string()
-    } else {
-        prefix.clone()
-    };
-    println!("[API] Starting at http://{addr}{display_prefix}");
-
-    axum::serve(listener, app).await?;
-    Ok(())
 }
 
 /// 构建 daemon 共享的 ApiState；非数据面时恢复事件 reactor。

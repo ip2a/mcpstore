@@ -4,23 +4,6 @@ use serde_json::{json, Value};
 
 use super::envelope::{ApiError, ApiResult};
 
-pub(super) fn normalize_prefix(prefix: &str) -> String {
-    let trimmed = prefix.trim();
-    if trimmed.is_empty() || trimmed == "/" {
-        return String::new();
-    }
-
-    let mut normalized = if trimmed.starts_with('/') {
-        trimmed.to_string()
-    } else {
-        format!("/{trimmed}")
-    };
-    while normalized.ends_with('/') {
-        normalized.pop();
-    }
-    normalized
-}
-
 pub(super) fn extract_tool_name(payload: &Value) -> ApiResult<String> {
     let tool_name = payload
         .get("tool_name")
@@ -127,14 +110,6 @@ pub(super) fn parse_scope_view(
 mod tests {
     use super::*;
     use axum::http::StatusCode;
-
-    #[test]
-    fn normalize_prefix_trims_empty_and_trailing_slash() {
-        assert_eq!(normalize_prefix(""), "");
-        assert_eq!(normalize_prefix("/"), "");
-        assert_eq!(normalize_prefix("mcp"), "/mcp");
-        assert_eq!(normalize_prefix("/mcp/"), "/mcp");
-    }
 
     #[test]
     fn extract_tool_args_requires_object() {

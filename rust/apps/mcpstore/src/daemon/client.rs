@@ -14,6 +14,11 @@ use crate::daemon::protocol::{
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
+/// 连接本机 daemon 的管理面（默认 namespace）。
+pub async fn connect_admin() -> Result<KernelClient, Error> {
+    KernelClient::connect(crate::daemon::protocol::DEFAULT_NAMESPACE).await
+}
+
 #[derive(Debug)]
 pub struct KernelClient {
     writer: HostStreamWriteHalf,

@@ -20,11 +20,26 @@ pub enum Commands {
     Version,
     Start(commands::daemon_cmd::StartArgs),
     Stop,
-    Api(commands::api::ApiArgs),
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    Daemon {
+        #[command(subcommand)]
+        action: commands::daemon_cmd::DaemonAction,
+    },
+    Api {
+        #[arg(long)]
+        json: bool,
+    },
     Auth(commands::auth::AuthArgs),
     Config {
         #[command(subcommand)]
-        action: commands::config::ConfigAction,
+        action: Option<commands::config::ConfigAction>,
+        #[command(flatten)]
+        edits: commands::config::ConfigEdits,
+        #[arg(long)]
+        json: bool,
     },
     Add(commands::mcp::AddArgs),
     AddJson(commands::mcp::AddJsonArgs),
@@ -49,7 +64,10 @@ pub enum Commands {
     #[command(name = "mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
     #[command(visible_alias = "ui")]
-    Web(commands::web::WebArgs),
+    Web {
+        #[arg(long)]
+        json: bool,
+    },
     Tui(crate::tui::TuiArgs),
 }
 
@@ -80,9 +98,13 @@ pub fn run() -> Result<(), BoxErr> {
             }
             Commands::Start(args) => commands::daemon_cmd::start(args).await,
             Commands::Stop => commands::daemon_cmd::stop().await,
-            Commands::Api(args) => commands::api::run(args).await,
+            Commands::Status { json } => commands::daemon_cmd::status(json).await,
+            Commands::Daemon { action } => commands::daemon_cmd::run_daemon(action).await,
+            Commands::Api { json } => commands::daemon_cmd::face_view("core", json).await,
             Commands::Auth(args) => commands::auth::run(args).await,
-            Commands::Config { action } => commands::config::run(action).await,
+            Commands::Config { action, edits, json } => {
+                commands::config::run(action, edits, json).await
+            }
             Commands::Add(args) => commands::mcp::add(args).await,
             Commands::AddJson(args) => commands::mcp::add_json(args).await,
             Commands::Assign(args) => commands::mcp::assign(args).await,
@@ -104,7 +126,7 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Complete(args) => commands::protocol::complete(args).await,
             Commands::MigrateStore(args) => commands::mcp::migrate_store(args).await,
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
-            Commands::Web(args) => commands::web::run(args).await,
+            Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
     });
@@ -630,12 +652,13 @@ mod tests {
 
     #[test]
     fn parses_web_command() {
-        let cli = Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).unwrap();
-
+        let cli = Cli::try_parse_from(["mcpstore", "web", "--json"]).unwrap();
         match cli.command {
-            Commands::Web(args) => assert_eq!(args.port, Some(9090)),
-            _ => panic!("Expected to parse as web command"),
+            Commands::Web { json } => assert!(json),
+            _ => panic!("Expected to parse as web view command"),
         }
+        // 启动语义已删除：旧 flag 必须解析失败
+        assert!(Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).is_err());
     }
 
     #[test]
@@ -671,17 +694,44 @@ mod tests {
 
     #[test]
     fn parses_api_command() {
-        let cli =
-            Cli::try_parse_from(["mcpstore", "api", "--port", "9091", "--url-prefix", "/mcp"])
-                .unwrap();
-
+        let cli = Cli::try_parse_from(["mcpstore", "api", "--json"]).unwrap();
         match cli.command {
-            Commands::Api(args) => {
-                assert_eq!(args.port, Some(9091));
-                assert_eq!(args.url_prefix, "/mcp");
-                assert!(!args.allow_remote);
+            Commands::Api { json } => assert!(json),
+            _ => panic!("Expected to parse as api view command"),
+        }
+        // 启动语义已删除：旧 flag 必须解析失败
+        assert!(
+            Cli::try_parse_from(["mcpstore", "api", "--port", "9091", "--url-prefix", "/mcp"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn parses_config_edit_flags() {
+        let cli =
+            Cli::try_parse_from(["mcpstore", "config", "--web-port", "1829", "--core", "off"])
+                .unwrap();
+        match cli.command {
+            Commands::Config { action, edits, .. } => {
+                assert!(action.is_none());
+                assert_eq!(edits.web_port, Some(1829));
+                assert_eq!(edits.core.as_deref(), Some("off"));
             }
-            _ => panic!("Expected to parse as api command"),
+            _ => panic!("Expected to parse as config edit command"),
+        }
+    }
+
+    #[test]
+    fn parses_daemon_restart() {
+        let cli = Cli::try_parse_from(["mcpstore", "daemon", "restart"]).unwrap();
+        match cli.command {
+            Commands::Daemon { action } => {
+                assert!(matches!(
+                    action,
+                    commands::daemon_cmd::DaemonAction::Restart
+                ));
+            }
+            _ => panic!("Expected to parse as daemon restart"),
         }
     }
     #[test]
