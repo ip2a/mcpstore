@@ -33,7 +33,7 @@ pub async fn stop() -> Result<(), BoxErr> {
     let _pid: u32 = pid_str.trim().parse()?;
 
     // Try graceful stop via socket first.
-    match crate::daemon::client::call_daemon("stop_daemon", serde_json::json!({})).await {
+    match crate::daemon::client::stop_daemon().await {
         Ok(_) => {
             println!("[Success] Daemon stop requested.");
         }

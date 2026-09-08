@@ -98,13 +98,22 @@ impl ListenerManager {
         Ok(())
     }
 
-    /// 启用/重绑一个面。bind 失败保留旧 listener，不会出现空窗。
+    /// 启用/重绑一个面。目标与现状相同则跳过（幂等）；bind 失败保留旧 listener，不会出现空窗。
     pub async fn apply(
         &self,
         key: ListenerKey,
         bind: SocketAddr,
         state: &Arc<ApiState>,
     ) -> Result<(), Error> {
+        {
+            let slots = self.slots.lock().expect("listener slots poisoned");
+            if slots[key.index()]
+                .as_ref()
+                .is_some_and(|current| current.bind == bind)
+            {
+                return Ok(());
+            }
+        }
         let router = build_router(key, state).await?;
         let listener = tokio::net::TcpListener::bind(bind).await.map_err(|error| {
             Error::new(
@@ -215,7 +224,7 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
     }
 }
 
-fn resolve_bind(host: &str, port: u16) -> Result<SocketAddr, Error> {
+pub(crate) fn resolve_bind(host: &str, port: u16) -> Result<SocketAddr, Error> {
     if let Ok(ip) = host.parse::<IpAddr>() {
         return Ok(SocketAddr::new(ip, port));
     }

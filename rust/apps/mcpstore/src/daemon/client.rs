@@ -136,22 +136,47 @@ impl KernelClient {
         .await
         .map(|_| ())
     }
+
+    pub async fn status_host(&mut self) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::StatusHost,
+            Value::Null,
+            Duration::from_secs(10),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn get_daemon_config(&mut self) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::GetDaemonConfig,
+            Value::Null,
+            Duration::from_secs(10),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn set_daemon_config(&mut self, key: &str, value: Value) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::SetDaemonConfig,
+            serde_json::json!({"key": key, "value": value}),
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
 }
 
-pub async fn call_daemon(method: impl Into<String>, params: Value) -> Result<Value, Error> {
-    let method = method.into();
-    let operation = match method.as_str() {
-        "stop_daemon" => KernelOperation::StopHost,
-        other => {
-            return Err(Error::new(
-                FailureCode::InvalidInput,
-                format!("unsupported KernelHost operation: {other}"),
-            ))
-        }
-    };
-    let mut client = KernelClient::connect("mcpstore").await?;
+/// 连接本机 daemon（默认 namespace）并请求优雅停机。
+pub async fn stop_daemon() -> Result<Value, Error> {
+    let mut client = KernelClient::connect(crate::daemon::protocol::DEFAULT_NAMESPACE).await?;
     client
-        .request(operation, params, Duration::from_secs(5))
+        .request(
+            KernelOperation::StopHost,
+            Value::Null,
+            Duration::from_secs(5),
+        )
         .await
         .map(|(result, _)| result)
 }
