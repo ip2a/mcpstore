@@ -447,11 +447,20 @@ impl HostFixture {
         let socket = dir.join("kernel.sock");
         let pid = dir.join("kernel.pid");
         let cli = repo_root().join("target/debug/mcpstore");
+        // 本契约只测 kernel socket；禁用 HTTP 面，避免端口冲突
+        let config_path = dir.join("config.json");
+        std::fs::write(&config_path, b"{}")?;
+        std::fs::write(
+            dir.join("config.toml"),
+            "[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\n",
+        )?;
         let child = tokio::process::Command::new(cli)
             .args([
                 "start",
                 "--source",
                 "db",
+                "--config-path",
+                config_path.to_string_lossy().as_ref(),
                 "--store",
                 "redis",
                 "--store-config",
@@ -478,6 +487,11 @@ impl HostFixture {
         let pid = dir.join("kernel.pid");
         let config_path = dir.join("config.json");
         let service_name = "execution-kernel-host";
+        // 本契约只测 kernel socket；禁用 HTTP 面，避免与其他测试/本机服务抢端口
+        std::fs::write(
+            dir.join("config.toml"),
+            "[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\n",
+        )?;
         std::fs::write(
             &config_path,
             serde_json::to_vec(&serde_json::json!({

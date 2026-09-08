@@ -265,6 +265,16 @@ pub(crate) async fn execute(
             let task_id = required_str(&payload, "task_id")?;
             Ok(json!({"record": store.get_task_record(instance_id, &task_id).await?}))
         }
+        KernelOperation::TaskLive => {
+            let instance_id = instance_id(&payload)?;
+            let task_id = required_str(&payload, "task_id")?;
+            Ok(json!({"task": store.get_task(instance_id, &task_id).await?}))
+        }
+        KernelOperation::TaskResult => {
+            let instance_id = instance_id(&payload)?;
+            let task_id = required_str(&payload, "task_id")?;
+            Ok(json!({"result": store.get_task_result(instance_id, &task_id).await?}))
+        }
         KernelOperation::TaskCancel => {
             let instance_id = instance_id(&payload)?;
             let task_id = required_str(&payload, "task_id")?;

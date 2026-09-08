@@ -50,7 +50,7 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         faces: crate::daemon::listeners::ListenerManager::new(),
         started_at: Instant::now(),
     });
-    host.faces.start_all(&app_config, &host.state).await?;
+    host.faces.start_all(&app_config, &host.state).await;
 
     let shutdown = Arc::new(tokio::sync::Notify::new());
     spawn_shutdown_watcher(shutdown.clone(), endpoint_cleanup_paths());

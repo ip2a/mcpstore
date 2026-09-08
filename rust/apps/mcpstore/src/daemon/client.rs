@@ -81,7 +81,8 @@ impl KernelClient {
         }
     }
 
-    /// 流式请求：每个事件即时回调，直到终态响应。放弃连接（drop）即停止接收。
+    /// 流式请求（StreamToolExecution 专用）：事件即时回调，`Finished` 事件即终态，
+    /// 返回其 result 载荷。放弃连接（drop）即停止接收事件。
     pub async fn request_stream<F>(
         &mut self,
         operation: KernelOperation,
@@ -96,7 +97,10 @@ impl KernelClient {
         loop {
             let response = self.read_response(None).await?;
             if let Some(event) = response.event {
-                on_event(event);
+                match event {
+                    KernelEvent::Finished { result } => return Ok(result),
+                    other => on_event(other),
+                }
                 continue;
             }
             if response.request_id.is_none() {

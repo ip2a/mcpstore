@@ -4,14 +4,15 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Args, Subcommand, ValueEnum};
-use mcpstore::{AuthError, AuthFlow, AuthStatusView, AuthorizationStart, InstanceId, MCPStore};
+use mcpstore::{AuthError, AuthFlow, AuthStatusView, AuthorizationStart, InstanceId};
 use serde::Serialize;
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use url::{Host, Url};
 
-use crate::store_args::{load_kernel, StoreSourceArgs};
+use crate::daemon::protocol::KernelOperation;
+use crate::store_args::{StoreAccess, StoreSourceArgs};
 use crate::BoxErr;
 
 const DEFAULT_CALLBACK_TIMEOUT_SECONDS: u64 = 300;
@@ -424,16 +425,16 @@ struct LocalCallbackListener {
     callback_uri: Url,
 }
 
-pub async fn run(args: AuthArgs) -> Result<(), BoxErr> {
+pub async fn run(args: AuthArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.action.output_format();
     let result = match args.action {
-        AuthAction::Status(args) => status(args).await,
-        AuthAction::Login(args) => login(args).await,
-        AuthAction::Refresh(args) => refresh(args).await,
-        AuthAction::Logout(args) => logout(args).await,
-        AuthAction::ScopeUpgrade(args) => scope_upgrade(args).await,
-        AuthAction::SetClientSecret(args) => set_client_secret(args).await,
-        AuthAction::SetPrivateKey(args) => set_private_key(args).await,
+        AuthAction::Status(args) => status(args, embedded).await,
+        AuthAction::Login(args) => login(args, embedded).await,
+        AuthAction::Refresh(args) => refresh(args, embedded).await,
+        AuthAction::Logout(args) => logout(args, embedded).await,
+        AuthAction::ScopeUpgrade(args) => scope_upgrade(args, embedded).await,
+        AuthAction::SetClientSecret(args) => set_client_secret(args, embedded).await,
+        AuthAction::SetPrivateKey(args) => set_private_key(args, embedded).await,
     };
     match (output, result) {
         (OutputFormat::Json, Err(error)) => {
@@ -443,28 +444,40 @@ pub async fn run(args: AuthArgs) -> Result<(), BoxErr> {
     }
 }
 
-async fn status(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+async fn status(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let store = loaded_store(&args.store).await?;
-    let auth = store.auth_status_view(args.instance_id).await?;
+    let mut access = loaded_access(&args.store, embedded).await?;
+    let auth = auth_view(&mut access, args.instance_id).await?;
     print_auth_status(&auth, output)
 }
 
-async fn login(args: AuthLoginArgs) -> Result<(), BoxErr> {
+async fn login(args: AuthLoginArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.flow_output.output.output;
     let open_browser = !args.flow_output.non_interactive;
-    let store = loaded_store(&args.store).await?;
-    let auth = store.auth_status_view(args.instance_id).await?;
+    let mut access = loaded_access(&args.store, embedded).await?;
+    let auth = auth_view(&mut access, args.instance_id).await?;
     match auth.flow {
         Some(AuthFlow::AuthorizationCode) => {
-            let callback_uri = store
-                .authorization_callback_uri(args.instance_id)
-                .await?
+            let result = access
+                .request(
+                    KernelOperation::AuthCallbackUri,
+                    json!({"instance_id": args.instance_id.to_string()}),
+                )
+                .await?;
+            let callback_uri = result["callback_uri"]
+                .as_str()
                 .ok_or("Authorization Code flow has no callback URI")?;
-            let listener = LocalCallbackListener::bind(&callback_uri).await?;
-            let authorization = store.begin_authorization(args.instance_id).await?;
+            let listener = LocalCallbackListener::bind(callback_uri).await?;
+            let result = access
+                .request(
+                    KernelOperation::AuthBegin,
+                    json!({"instance_id": args.instance_id.to_string()}),
+                )
+                .await?;
+            let authorization: AuthorizationStart =
+                serde_json::from_value(result["authorization"].clone())?;
             complete_local_browser_flow(
-                &store,
+                &mut access,
                 args.instance_id,
                 listener,
                 authorization,
@@ -475,48 +488,75 @@ async fn login(args: AuthLoginArgs) -> Result<(), BoxErr> {
             .await
         }
         Some(AuthFlow::ClientCredentials) => {
-            store.refresh_authorization(args.instance_id).await?;
-            reconnect_authorized_service(&store, args.instance_id).await?;
-            let auth = store.auth_status_view(args.instance_id).await?;
+            // AuthBegin 的 ClientCredentials 分支 = refresh + reconnect + status
+            access
+                .request(
+                    KernelOperation::AuthBegin,
+                    json!({"instance_id": args.instance_id.to_string()}),
+                )
+                .await?;
+            let auth = auth_view(&mut access, args.instance_id).await?;
             print_auth_status(&auth, output)
         }
         None => Err("Authentication is not configured for this instance".into()),
     }
 }
 
-async fn refresh(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+async fn refresh(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let store = loaded_store(&args.store).await?;
-    store.refresh_authorization(args.instance_id).await?;
-    reconnect_authorized_service(&store, args.instance_id).await?;
-    let auth = store.auth_status_view(args.instance_id).await?;
+    let mut access = loaded_access(&args.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::AuthRefresh,
+            json!({"instance_id": args.instance_id.to_string()}),
+        )
+        .await?;
+    let auth = auth_view(&mut access, args.instance_id).await?;
     print_auth_status(&auth, output)
 }
 
-async fn logout(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+async fn logout(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let store = loaded_store(&args.store).await?;
-    store.logout_authorization(args.instance_id).await?;
-    let auth = store.auth_status_view(args.instance_id).await?;
+    let mut access = loaded_access(&args.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::AuthLogout,
+            json!({"instance_id": args.instance_id.to_string()}),
+        )
+        .await?;
+    let auth = auth_view(&mut access, args.instance_id).await?;
     print_auth_status(&auth, output)
 }
 
-async fn scope_upgrade(args: AuthScopeUpgradeArgs) -> Result<(), BoxErr> {
+async fn scope_upgrade(args: AuthScopeUpgradeArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.flow_output.output.output;
     let open_browser = !args.flow_output.non_interactive;
-    let store = loaded_store(&args.store).await?;
-    let auth = store.auth_status_view(args.instance_id).await?;
+    let mut access = loaded_access(&args.store, embedded).await?;
+    let auth = auth_view(&mut access, args.instance_id).await?;
     let required_scope = required_scope(args.scope, &auth)?;
-    let callback_uri = store
-        .authorization_callback_uri(args.instance_id)
-        .await?
-        .ok_or("Scope upgrade requires Authorization Code authentication")?;
-    let listener = LocalCallbackListener::bind(&callback_uri).await?;
-    let authorization = store
-        .begin_scope_upgrade(args.instance_id, &required_scope)
+    let result = access
+        .request(
+            KernelOperation::AuthCallbackUri,
+            json!({"instance_id": args.instance_id.to_string()}),
+        )
         .await?;
+    let callback_uri = result["callback_uri"]
+        .as_str()
+        .ok_or("Scope upgrade requires Authorization Code authentication")?;
+    let listener = LocalCallbackListener::bind(callback_uri).await?;
+    let result = access
+        .request(
+            KernelOperation::AuthScopeUpgrade,
+            json!({
+                "instance_id": args.instance_id.to_string(),
+                "required_scope": required_scope,
+            }),
+        )
+        .await?;
+    let authorization: AuthorizationStart =
+        serde_json::from_value(result["authorization"].clone())?;
     complete_local_browser_flow(
-        &store,
+        &mut access,
         args.instance_id,
         listener,
         authorization,
@@ -527,36 +567,60 @@ async fn scope_upgrade(args: AuthScopeUpgradeArgs) -> Result<(), BoxErr> {
     .await
 }
 
-async fn set_client_secret(args: AuthInstanceArgs) -> Result<(), BoxErr> {
+async fn set_client_secret(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.output.output;
     let secret = read_stdin_secret("client secret")?;
-    let store = loaded_store(&args.store).await?;
-    store
-        .save_oauth_client_secret(args.instance_id, secret)
+    let mut access = loaded_access(&args.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::AuthSaveClientSecret,
+            json!({
+                "instance_id": args.instance_id.to_string(),
+                "client_secret": secret,
+            }),
+        )
         .await?;
     print_credential_stored(output, "client_secret")
 }
 
-async fn set_private_key(args: AuthPrivateKeyArgs) -> Result<(), BoxErr> {
+async fn set_private_key(args: AuthPrivateKeyArgs, embedded: bool) -> Result<(), BoxErr> {
     let output = args.output.output;
     let private_key = match args.file {
         Some(path) => std::fs::read(path)?,
         None => read_stdin_bytes("private key")?,
     };
-    let store = loaded_store(&args.store).await?;
-    store
-        .save_oauth_private_key(args.instance_id, private_key)
+    let mut access = loaded_access(&args.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::AuthSavePrivateKey,
+            json!({
+                "instance_id": args.instance_id.to_string(),
+                "private_key_pem": String::from_utf8_lossy(&private_key),
+            }),
+        )
         .await?;
     print_credential_stored(output, "private_key")
 }
 
-async fn loaded_store(args: &StoreSourceArgs) -> Result<std::sync::Arc<MCPStore>, BoxErr> {
-    let store = load_kernel(args).await?.store().clone();
-    Ok(store)
+async fn loaded_access(args: &StoreSourceArgs, embedded: bool) -> Result<StoreAccess, BoxErr> {
+    Ok(crate::commands::mcp::open_store(args, embedded).await?)
+}
+
+async fn auth_view(
+    access: &mut StoreAccess,
+    instance_id: InstanceId,
+) -> Result<AuthStatusView, BoxErr> {
+    let result = access
+        .request(
+            KernelOperation::AuthStatus,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await?;
+    Ok(serde_json::from_value(result["auth"].clone())?)
 }
 
 async fn complete_local_browser_flow(
-    store: &MCPStore,
+    access: &mut StoreAccess,
     instance_id: InstanceId,
     listener: LocalCallbackListener,
     authorization: AuthorizationStart,
@@ -566,30 +630,22 @@ async fn complete_local_browser_flow(
 ) -> Result<(), BoxErr> {
     announce_authorization(&authorization, output, open_browser)?;
     let mut pending = listener.wait(timeout_seconds).await?;
-    let result = async {
-        store
-            .complete_authorization_callback(
-                instance_id,
-                &pending.callback.code,
-                &pending.callback.state,
-                pending.callback.issuer.as_deref(),
-            )
-            .await?;
-        reconnect_authorized_service(store, instance_id).await?;
-        store.auth_status_view(instance_id).await
-    }
-    .await;
+    // AuthCallback op 内部已含 reconnect
+    let result = access
+        .request(
+            KernelOperation::AuthCallback,
+            json!({
+                "instance_id": instance_id.to_string(),
+                "code": pending.callback.code,
+                "state": pending.callback.state,
+                "issuer": pending.callback.issuer,
+            }),
+        )
+        .await;
     write_browser_response(&mut pending.stream, result.is_ok()).await?;
-    let auth = result?;
+    result?;
+    let auth = auth_view(access, instance_id).await?;
     print_auth_status(&auth, output)
-}
-
-async fn reconnect_authorized_service(
-    store: &MCPStore,
-    instance_id: InstanceId,
-) -> mcpstore::Result<()> {
-    store.disconnect_service(instance_id).await.ok();
-    store.connect_service(instance_id).await.map(|_| ())
 }
 
 fn required_scope(requested: Option<String>, auth: &AuthStatusView) -> Result<String, BoxErr> {

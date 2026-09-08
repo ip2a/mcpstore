@@ -3,10 +3,11 @@ use mcpstore::{InstanceId, McpCompletionReference, McpCompletionRequest};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_instance, OutputFormat};
+use crate::store_args::StoreSourceArgs;
 use crate::{
-    commands::mcp::parse_instance_id,
-    store_args::{load_kernel, StoreSourceArgs},
+    commands::mcp::{open_store, parse_instance_id},
     BoxErr,
 };
 
@@ -112,53 +113,56 @@ pub struct CompleteArgs {
     pub store: StoreSourceArgs,
 }
 
-pub async fn run_resource(args: ResourceArgs) -> Result<(), BoxErr> {
-    execute_resource(args)
+pub async fn run_resource(args: ResourceArgs, embedded: bool) -> Result<(), BoxErr> {
+    execute_resource(args, embedded)
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-pub async fn run_prompt(args: PromptArgs) -> Result<(), BoxErr> {
-    execute_prompt(args)
+pub async fn run_prompt(args: PromptArgs, embedded: bool) -> Result<(), BoxErr> {
+    execute_prompt(args, embedded)
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-pub async fn complete(args: CompleteArgs) -> Result<(), BoxErr> {
-    execute_complete(args)
+pub async fn complete(args: CompleteArgs, embedded: bool) -> Result<(), BoxErr> {
+    execute_complete(args, embedded)
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute_resource(args: ResourceArgs) -> mcpstore::Result<()> {
+async fn execute_resource(args: ResourceArgs, embedded: bool) -> mcpstore::Result<()> {
     match args.action {
-        ResourceAction::List(args) => execute_resource_list(args).await,
-        ResourceAction::Templates(args) => execute_resource_templates(args).await,
-        ResourceAction::Read(args) => execute_resource_read(args).await,
+        ResourceAction::List(args) => execute_resource_list(args, embedded).await,
+        ResourceAction::Templates(args) => execute_resource_templates(args, embedded).await,
+        ResourceAction::Read(args) => execute_resource_read(args, embedded).await,
     }
 }
 
-async fn execute_resource_list(args: ProtocolInstanceArgs) -> mcpstore::Result<()> {
+async fn execute_resource_list(args: ProtocolInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
-    let store = load_kernel(&args.store).await.map_err(|error| {
-        attach_instance(
-            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-            instance_id,
-        )
+    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
+        attach_instance(error, instance_id)
     })?;
-    store
-        .connect_service(instance_id)
+    let result = access
+        .request(
+            KernelOperation::ResourcesList,
+            json!({"instance_id": instance_id.to_string()}),
+        )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let resources = store
-        .list_resources(instance_id)
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
+    let resources: Vec<mcpstore::DiscoveredResource> =
+        serde_json::from_value(result["resources"].clone()).map_err(|error| {
+            attach_instance(
+                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+                instance_id,
+            )
+        })?;
     let total = resources.len();
     let value = json!({
         "event": "resource.listed",
@@ -173,27 +177,30 @@ async fn execute_resource_list(args: ProtocolInstanceArgs) -> mcpstore::Result<(
     )
 }
 
-async fn execute_resource_templates(args: ProtocolInstanceArgs) -> mcpstore::Result<()> {
+async fn execute_resource_templates(args: ProtocolInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
-    let store = load_kernel(&args.store).await.map_err(|error| {
-        attach_instance(
-            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-            instance_id,
-        )
+    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
+        attach_instance(error, instance_id)
     })?;
-    store
-        .connect_service(instance_id)
+    let result = access
+        .request(
+            KernelOperation::ResourcesTemplates,
+            json!({"instance_id": instance_id.to_string()}),
+        )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let templates = store
-        .list_resource_templates(instance_id)
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
+    let templates: Vec<mcpstore::DiscoveredResourceTemplate> =
+        serde_json::from_value(result["templates"].clone()).map_err(|error| {
+            attach_instance(
+                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+                instance_id,
+            )
+        })?;
     let total = templates.len();
     let value = json!({
         "event": "resource.templates_listed",
@@ -208,7 +215,7 @@ async fn execute_resource_templates(args: ProtocolInstanceArgs) -> mcpstore::Res
     )
 }
 
-async fn execute_resource_read(args: ResourceReadArgs) -> mcpstore::Result<()> {
+async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
@@ -224,20 +231,17 @@ async fn execute_resource_read(args: ResourceReadArgs) -> mcpstore::Result<()> {
             instance_id,
         ));
     }
-    let store = load_kernel(&args.store).await.map_err(|error| {
-        attach_instance(
-            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-            instance_id,
-        )
+    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
+        attach_instance(error, instance_id)
     })?;
-    store
-        .connect_service(instance_id)
+    let result = access
+        .request(
+            KernelOperation::ResourcesRead,
+            json!({"instance_id": instance_id.to_string(), "uri": args.uri}),
+        )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let resource = store
-        .read_resource(instance_id, &args.uri)
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
+    let resource = result["resource"].clone();
     let value = json!({
         "event": "resource.read",
         "instance_id": instance_id,
@@ -247,34 +251,37 @@ async fn execute_resource_read(args: ResourceReadArgs) -> mcpstore::Result<()> {
     emit(args.output.output, value["resource"].to_string(), value)
 }
 
-async fn execute_prompt(args: PromptArgs) -> mcpstore::Result<()> {
+async fn execute_prompt(args: PromptArgs, embedded: bool) -> mcpstore::Result<()> {
     match args.action {
-        PromptAction::List(args) => execute_prompt_list(args).await,
-        PromptAction::Get(args) => execute_prompt_get(args).await,
+        PromptAction::List(args) => execute_prompt_list(args, embedded).await,
+        PromptAction::Get(args) => execute_prompt_get(args, embedded).await,
     }
 }
 
-async fn execute_prompt_list(args: ProtocolInstanceArgs) -> mcpstore::Result<()> {
+async fn execute_prompt_list(args: ProtocolInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
-    let store = load_kernel(&args.store).await.map_err(|error| {
-        attach_instance(
-            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-            instance_id,
-        )
+    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
+        attach_instance(error, instance_id)
     })?;
-    store
-        .connect_service(instance_id)
+    let result = access
+        .request(
+            KernelOperation::PromptsList,
+            json!({"instance_id": instance_id.to_string()}),
+        )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let prompts = store
-        .list_prompts(instance_id)
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
+    let prompts: Vec<mcpstore::DiscoveredPrompt> =
+        serde_json::from_value(result["prompts"].clone()).map_err(|error| {
+            attach_instance(
+                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+                instance_id,
+            )
+        })?;
     let total = prompts.len();
     let value = json!({
         "event": "prompt.listed",
@@ -289,7 +296,7 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs) -> mcpstore::Result<()>
     )
 }
 
-async fn execute_prompt_get(args: PromptGetArgs) -> mcpstore::Result<()> {
+async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
@@ -311,20 +318,21 @@ async fn execute_prompt_get(args: PromptGetArgs) -> mcpstore::Result<()> {
             instance_id,
         ));
     }
-    let store = load_kernel(&args.store).await.map_err(|error| {
-        attach_instance(
-            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-            instance_id,
-        )
+    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
+        attach_instance(error, instance_id)
     })?;
-    store
-        .connect_service(instance_id)
+    let result = access
+        .request(
+            KernelOperation::PromptGet,
+            json!({
+                "instance_id": instance_id.to_string(),
+                "prompt_name": args.prompt_name,
+                "arguments": arguments,
+            }),
+        )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let prompt = store
-        .get_prompt(instance_id, &args.prompt_name, arguments)
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
+    let prompt = result["prompt"].clone();
     let value = json!({
         "event": "prompt.get",
         "instance_id": instance_id,
@@ -334,7 +342,7 @@ async fn execute_prompt_get(args: PromptGetArgs) -> mcpstore::Result<()> {
     emit(args.output.output, value["prompt"].to_string(), value)
 }
 
-async fn execute_complete(args: CompleteArgs) -> mcpstore::Result<()> {
+async fn execute_complete(args: CompleteArgs, embedded: bool) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
@@ -374,20 +382,20 @@ async fn execute_complete(args: CompleteArgs) -> mcpstore::Result<()> {
         value: args.value,
         context,
     };
-    let store = load_kernel(&args.store).await.map_err(|error| {
-        attach_instance(
-            mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-            instance_id,
-        )
+    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
+        attach_instance(error, instance_id)
     })?;
-    store
-        .connect_service(instance_id)
+    let result = access
+        .request(
+            KernelOperation::CompleteArgument,
+            json!({
+                "instance_id": instance_id.to_string(),
+                "request": request,
+            }),
+        )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let completion = store
-        .complete_mcp_argument(instance_id, request)
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
+    let completion = result["completion"].clone();
     let value = json!({
         "event": "completion.completed",
         "instance_id": instance_id,

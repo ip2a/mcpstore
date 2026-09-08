@@ -110,6 +110,8 @@ pub enum KernelOperation {
     CompleteArgument,
     TaskList,
     TaskGet,
+    TaskLive,
+    TaskResult,
     TaskCancel,
     SwapStore,
 }

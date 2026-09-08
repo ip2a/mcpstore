@@ -71,8 +71,10 @@ impl ListenerManager {
         }
     }
 
-    /// daemon 启动：按 config.toml 拉起所有启用的面。任一面失败即停掉已启动的并返回错误。
-    pub async fn start_all(&self, config: &AppConfig, state: &Arc<ApiState>) -> Result<(), Error> {
+    /// daemon 启动：按 config.toml 拉起所有启用的面。
+    /// 单面 bind 失败不致命：kernel socket 才是命脉，面失败降级为「未运行」并大声告警
+    /// （与热切换「失败保留旧 listener」同一哲学）。
+    pub async fn start_all(&self, config: &AppConfig, state: &Arc<ApiState>) {
         let server = &config.server;
         let aggregate = &config.mcp_aggregate;
         for (key, port) in [
@@ -87,15 +89,23 @@ impl ListenerManager {
         ] {
             match port {
                 Some(port) => {
-                    if let Err(error) = self.apply(key, resolve_bind(&server.host, port)?, state).await {
-                        self.shutdown_all();
-                        return Err(error);
+                    let bind = match resolve_bind(&server.host, port) {
+                        Ok(bind) => bind,
+                        Err(error) => {
+                            eprintln!("[DAEMON] {key:?} face start skipped: {error}");
+                            continue;
+                        }
+                    };
+                    if let Err(error) = self.apply(key, bind, state).await {
+                        eprintln!(
+                            "[DAEMON] {} face start failed on http://{bind}: {error}（该面未启动，其余不受影响）",
+                            key.name()
+                        );
                     }
                 }
                 None => tracing::info!("[DAEMON] {} face disabled", key.name()),
             }
         }
-        Ok(())
     }
 
     /// 启用/重绑一个面。目标与现状相同则跳过（幂等）；bind 失败保留旧 listener，不会出现空窗。

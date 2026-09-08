@@ -183,4 +183,12 @@ impl StoreAccess {
             Self::Remote(_) => None,
         }
     }
+
+    /// remote 侧的 kernel client（仅流式命令转发事件时使用）。
+    pub fn remote_client(&mut self) -> Option<&mut crate::daemon::client::KernelClient> {
+        match self {
+            Self::Embedded(_) => None,
+            Self::Remote(client) => Some(client),
+        }
+    }
 }

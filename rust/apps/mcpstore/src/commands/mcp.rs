@@ -1,17 +1,17 @@
 use clap::{Args, ValueEnum};
 use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
-#[cfg(test)]
 use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
+use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_tool, OutputFormat};
 
 use mcpstore::{
-    InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpServerCapabilities,
-    McpServerMetadata, McpStoreExecutionUpdate, McpToolExecution, ScopeRef, ToolCallResult,
+    InstanceId, McpExecutionOptions, McpStoreExecutionUpdate, McpToolExecution, ScopeRef,
+    ToolCallResult,
 };
 
 use crate::{
@@ -19,9 +19,24 @@ use crate::{
         handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
         ElicitationCommandError, ElicitationErrorKind,
     },
-    store_args::{load_kernel, StoreSourceArgs},
+    store_args::{open_store_access, StoreAccess, StoreSourceArgs},
     BoxErr,
 };
+
+/// 命令统一入口：默认 daemon，--embedded/显式 store 参数时本进程冷启动。
+pub(crate) async fn open_store(
+    store_args: &StoreSourceArgs,
+    embedded: bool,
+) -> mcpstore::Result<StoreAccess> {
+    open_store_access(store_args, embedded)
+        .await
+        .map_err(|error| {
+            Error::new(
+                FailureCode::ServiceUnavailable,
+                format!("打开 store 失败: {error}"),
+            )
+        })
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum HandshakeArg {
@@ -94,7 +109,7 @@ pub struct AddArgs {
     pub handshake: Option<HandshakeArg>,
 }
 
-pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
+pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     validate_scope_target(&a.scope, a.agent.as_deref())?;
 
     let env_map = parse_env(&a.env)?;
@@ -137,32 +152,13 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
         });
     }
 
-    let store = load_kernel(&a.store).await?.store().clone();
-    let definition_exists = store.get_definition_config(&a.name).await?.is_some();
-    if definition_exists {
-        let lifecycle = config
-            .mcpstore
-            .as_ref()
-            .and_then(|extension| extension.lifecycle.clone());
-        store
-            .declare_service_scope(
-                &a.name,
-                &scope,
-                ScopeDescriptor {
-                    config: config.base_config(),
-                    lifecycle,
-                    handshake_mode: config
-                        .mcpstore
-                        .as_ref()
-                        .and_then(|extension| extension.handshake_mode),
-                    revision: 0,
-                    ..Default::default()
-                },
-            )
-            .await?;
-    } else {
-        store.add_service(&a.name, config).await?;
-    }
+    let mut access = open_store(&a.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::AddService,
+            json!({"name": a.name, "config": config, "scope": scope}),
+        )
+        .await?;
     println!(
         "[Success] Service added: {} (transport={})",
         a.name, transport
@@ -184,8 +180,7 @@ pub struct AddJsonArgs {
     pub agent: Option<String>,
 }
 
-pub async fn add_json(a: AddJsonArgs) -> std::result::Result<(), BoxErr> {
-    let store = load_kernel(&a.store).await?.store().clone();
+pub async fn add_json(a: AddJsonArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let mut config: ServerConfig = serde_json::from_str(&a.json)?;
     let transport = config.infer_transport().to_string();
@@ -214,31 +209,13 @@ pub async fn add_json(a: AddJsonArgs) -> std::result::Result<(), BoxErr> {
                 .unwrap_or_default(),
         });
     }
-    let definition_exists = store.get_definition_config(&a.name).await?.is_some();
-    if definition_exists {
-        let lifecycle = config
-            .mcpstore
-            .as_ref()
-            .and_then(|extension| extension.lifecycle.clone());
-        store
-            .declare_service_scope(
-                &a.name,
-                &scope,
-                ScopeDescriptor {
-                    config: config.base_config(),
-                    lifecycle,
-                    handshake_mode: config
-                        .mcpstore
-                        .as_ref()
-                        .and_then(|extension| extension.handshake_mode),
-                    revision: 0,
-                    ..Default::default()
-                },
-            )
-            .await?;
-    } else {
-        store.add_service(&a.name, config).await?;
-    }
+    let mut access = open_store(&a.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::AddService,
+            json!({"name": a.name, "config": config, "scope": scope}),
+        )
+        .await?;
     println!(
         "[Success] Service added: {} (transport={})",
         a.name, transport
@@ -263,44 +240,35 @@ pub struct ListArgs {
     pub output: OutputFormat,
 }
 
-/// Collect service summaries (name, instance, transport, readiness, tool count)
-/// from the daemon when running, otherwise from a local store. Used by the
-/// machine-readable `list --json` view.
-async fn load_service_summaries(
-    store_args: &StoreSourceArgs,
-    scope: &ScopeRef,
-) -> std::result::Result<Vec<Value>, BoxErr> {
-    let store = load_kernel(store_args).await?.store().clone();
-    let services = store.list_scope_instances(scope).await?;
-    let mut out = Vec::with_capacity(services.len());
-    for svc in services {
-        let state = store.service_state_entry(svc.instance_id).await?;
-        out.push(json!({
-            "service_name": svc.service_name,
-            "instance_id": svc.instance_id,
-            "transport": svc.transport,
-            "readiness": state.readiness.status,
-            "tools_count": svc.tools.len(),
-        }));
-    }
-    Ok(out)
-}
-
-pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
+pub async fn list(a: ListArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
 
+    let mut access = open_store(&a.store, embedded).await?;
+    let result = access
+        .request(KernelOperation::ListServices, json!({ "scope": scope }))
+        .await?;
+    let services = result["services"].as_array().cloned().unwrap_or_default();
+
     if a.output != OutputFormat::Human {
-        let services = load_service_summaries(&a.store, &scope).await?;
+        let summaries: Vec<Value> = services
+            .iter()
+            .map(|service| {
+                json!({
+                    "service_name": service["service_name"],
+                    "instance_id": service["instance_id"],
+                    "transport": service["transport"],
+                    "readiness": service["state"]["readiness"]["status"],
+                    "tools_count": service["tools_count"],
+                })
+            })
+            .collect();
         emit_call_value(
             a.output,
-            json!({ "services": services, "total": services.len() }),
+            json!({ "services": summaries, "total": summaries.len() }),
         )?;
         return Ok(());
     }
 
-    let store = load_kernel(&a.store).await?.store().clone();
-
-    let services = store.list_scope_instances(&scope).await?;
     println!("[List] service_count={}", services.len());
 
     if services.is_empty() {
@@ -308,19 +276,18 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
         return Ok(());
     }
 
-    for svc in &services {
-        let state = store.service_state_entry(svc.instance_id).await?;
-        let metadata = store.mcp_server_metadata(svc.instance_id).await?;
+    for service in &services {
+        let state = &service["state"];
         println!(
-            "- {}  instance={}  transport={}  readiness={:?}  phase={:?}  health={:?}  tools={}  capabilities={}",
-            svc.service_name,
-            svc.instance_id,
-            svc.transport,
-            state.readiness.status,
-            state.phase,
-            state.health,
-            svc.tools.len(),
-            format_capabilities(metadata.as_ref())
+            "- {}  instance={}  transport={}  readiness={}  phase={}  health={}  tools={}  capabilities={}",
+            service["service_name"].as_str().unwrap_or("?"),
+            service["instance_id"].as_str().unwrap_or("?"),
+            service["transport"].as_str().unwrap_or("?"),
+            state["readiness"]["status"].as_str().unwrap_or("?"),
+            state["phase"].as_str().unwrap_or("?"),
+            state["health"].as_str().unwrap_or("?"),
+            service["tools_count"].as_u64().unwrap_or_default(),
+            format_capabilities(service.get("mcp")),
         );
     }
     Ok(())
@@ -340,21 +307,24 @@ pub struct GetArgs {
     pub output: OutputFormat,
 }
 
-pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
+pub async fn get(a: GetArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
+        Error::new(FailureCode::InvalidInput, e.to_string())
     })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = load_kernel(&a.store)
-        .await
-        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    let payload = store.service_info_scoped(instance_id).await?;
+    let payload = access
+        .request(
+            KernelOperation::GetServiceInfo,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await?;
     match a.output {
         OutputFormat::Human => {
             let json = serde_json::to_string_pretty(&payload).map_err(|e| {
-                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string())
+                Error::new(FailureCode::Internal, e.to_string())
             })?;
             println!("{json}");
         }
@@ -380,10 +350,15 @@ pub struct RemoveArgs {
     pub agent: Option<String>,
 }
 
-pub async fn remove(a: RemoveArgs) -> std::result::Result<(), BoxErr> {
+pub async fn remove(a: RemoveArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let store = load_kernel(&a.store).await?.store().clone();
-    store.remove_service_scope(&a.name, &scope).await?;
+    let mut access = open_store(&a.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::RemoveServiceScope,
+            json!({"service_name": a.name, "scope": scope}),
+        )
+        .await?;
     println!("[Success] Service scope removed: {}", a.name);
     Ok(())
 }
@@ -402,35 +377,35 @@ pub struct ConnectArgs {
     pub output: OutputFormat,
 }
 
-pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
+pub async fn connect(a: ConnectArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
+        Error::new(FailureCode::InvalidInput, e.to_string())
     })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = load_kernel(&a.store)
-        .await
-        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.connect_service(instance_id).await?;
-    let tools = store
-        .list_tool_entries_for_instance_with_filter(
-            instance_id,
-            mcpstore::ToolVisibilityFilter::Available,
+    let result = access
+        .request(
+            KernelOperation::ConnectService,
+            json!({"instance_id": instance_id.to_string()}),
         )
-        .await
-        .unwrap_or_default();
-    let metadata = store.mcp_server_metadata(instance_id).await?;
+        .await?;
+    let tools = result["tools"].as_array().cloned().unwrap_or_default();
+    let tools_count = result["tools_count"].as_u64().unwrap_or_else(|| tools.len() as u64);
+    let capabilities = format_capabilities(result.get("mcp"));
     match a.output {
         OutputFormat::Human => {
             println!(
                 "[Success] Connected: {} (tools={}, capabilities={})",
-                instance_id,
-                tools.len(),
-                format_capabilities(metadata.as_ref())
+                instance_id, tools_count, capabilities
             );
-            for t in &tools {
-                println!("  - {}: {}", t.name, t.description);
+            for tool in &tools {
+                println!(
+                    "  - {}: {}",
+                    tool["name"].as_str().unwrap_or("?"),
+                    tool["description"].as_str().unwrap_or("")
+                );
             }
         }
         _ => {
@@ -439,8 +414,8 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
                 json!({
                     "event": "service.connected",
                     "instance_id": instance_id.to_string(),
-                    "tools_count": tools.len(),
-                    "capabilities": format_capabilities(metadata.as_ref()),
+                    "tools_count": tools_count,
+                    "capabilities": capabilities,
                 }),
             )?;
         }
@@ -462,17 +437,20 @@ pub struct DisconnectArgs {
     pub output: OutputFormat,
 }
 
-pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
+pub async fn disconnect(a: DisconnectArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
+        Error::new(FailureCode::InvalidInput, e.to_string())
     })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = load_kernel(&a.store)
-        .await
-        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.disconnect_service(instance_id).await?;
+    access
+        .request(
+            KernelOperation::DisconnectService,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await?;
     match a.output {
         OutputFormat::Human => {
             println!("[Success] Disconnected: {}", instance_id);
@@ -501,17 +479,20 @@ pub struct RestartArgs {
     pub output: OutputFormat,
 }
 
-pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
+pub async fn restart(a: RestartArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
+        Error::new(FailureCode::InvalidInput, e.to_string())
     })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = load_kernel(&a.store)
-        .await
-        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.restart_service(instance_id).await?;
+    access
+        .request(
+            KernelOperation::RestartService,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await?;
     match a.output {
         OutputFormat::Human => {
             println!("[Success] Restarted: {}", instance_id);
@@ -547,25 +528,27 @@ pub struct CheckArgs {
     pub quiet: bool,
 }
 
-pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
+pub async fn check(a: CheckArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
+        Error::new(FailureCode::InvalidInput, e.to_string())
     })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = load_kernel(&a.store)
-        .await
-        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?
-        .store()
-        .clone();
-    let status = store.service_state_entry(instance_id).await?;
-    let (ready, label) = (
-        status.readiness.status == mcpstore::ReadinessStatus::Ready,
-        format!(
-            "{instance_id} => readiness={:?} phase={:?} health={:?}",
-            status.readiness.status, status.phase, status.health
-        ),
+    let result = access
+        .request(
+            KernelOperation::CheckService,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await?;
+    let state = &result["state"];
+    let ready = state["readiness"]["status"].as_str() == Some("ready");
+    let label = format!(
+        "{instance_id} => readiness={} phase={} health={}",
+        state["readiness"]["status"].as_str().unwrap_or("?"),
+        state["phase"].as_str().unwrap_or("?"),
+        state["health"].as_str().unwrap_or("?"),
     );
 
     if !a.quiet {
@@ -608,25 +591,35 @@ pub struct WaitArgs {
     pub output: OutputFormat,
 }
 
-pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
+pub async fn wait(a: WaitArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::InvalidInput, e.to_string())
+        Error::new(FailureCode::InvalidInput, e.to_string())
     })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = load_kernel(&a.store)
-        .await
-        .map_err(|e| mcpstore::Error::new(mcpstore::error::FailureCode::Internal, e.to_string()))?;
-    store.connect_service(instance_id).await?;
-    let status = store
-        .wait_instance_ready(instance_id, std::time::Duration::from_secs(a.timeout))
+    // 与既有语义一致：先触发连接，再等待就绪。
+    access
+        .request(
+            KernelOperation::ConnectService,
+            json!({"instance_id": instance_id.to_string()}),
+        )
         .await?;
+    let result = access
+        .request(
+            KernelOperation::WaitService,
+            json!({"instance_id": instance_id.to_string(), "timeout": a.timeout}),
+        )
+        .await?;
+    let state = &result["state"];
     match a.output {
         OutputFormat::Human => {
             println!(
-                "[Success] Service ready: {} (readiness={:?}, health={:?})",
-                instance_id, status.readiness.status, status.health
+                "[Success] Service ready: {} (readiness={}, health={})",
+                instance_id,
+                state["readiness"]["status"].as_str().unwrap_or("?"),
+                state["health"].as_str().unwrap_or("?"),
             );
         }
         _ => {
@@ -635,7 +628,11 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
                 json!({
                     "event": "service.ready",
                     "instance_id": instance_id.to_string(),
-                    "readiness": format!("{:?} {:?}", status.readiness.status, status.health),
+                    "readiness": format!(
+                        "{} {}",
+                        state["readiness"]["status"].as_str().unwrap_or("?"),
+                        state["health"].as_str().unwrap_or("?"),
+                    ),
                 }),
             )?;
         }
@@ -670,8 +667,7 @@ pub struct UpdateArgs {
     pub agent: Option<String>,
 }
 
-pub async fn update(a: UpdateArgs) -> std::result::Result<(), BoxErr> {
-    let store = load_kernel(&a.store).await?.store().clone();
+pub async fn update(a: UpdateArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let env_map = parse_env(&a.env)?;
     let header_map = parse_headers(&a.header)?;
@@ -682,21 +678,30 @@ pub async fn update(a: UpdateArgs) -> std::result::Result<(), BoxErr> {
         &env_map,
         &header_map,
     )?;
+    let mut access = open_store(&a.store, embedded).await?;
     match a.scope.to_ref(a.agent.as_deref())? {
         ScopeRef::Store => {
-            store.update_service(&a.name, config).await?;
+            access
+                .request(
+                    KernelOperation::UpdateService,
+                    json!({"name": a.name, "config": config}),
+                )
+                .await?;
         }
         scope @ ScopeRef::Agent { .. } => {
-            store
-                .declare_service_scope(
-                    &a.name,
-                    &scope,
-                    ScopeDescriptor {
-                        config: config.base_config(),
-                        lifecycle: None,
-                        revision: 0,
-                        ..Default::default()
-                    },
+            access
+                .request(
+                    KernelOperation::DeclareServiceScope,
+                    json!({
+                        "service_name": a.name,
+                        "scope": scope,
+                        "descriptor": ScopeDescriptor {
+                            config: config.base_config(),
+                            lifecycle: None,
+                            revision: 0,
+                            ..Default::default()
+                        },
+                    }),
                 )
                 .await?;
         }
@@ -726,25 +731,26 @@ pub struct ToolsArgs {
     pub schema: bool,
 }
 
-pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
+pub async fn tools(a: ToolsArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target).await?;
-    let store = load_kernel(&a.store).await?.store().clone();
-    store.connect_service(instance_id).await?;
-    let tools = store
-        .list_tool_entries_for_instance_with_filter(
-            instance_id,
-            mcpstore::ToolVisibilityFilter::Available,
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target).await?;
+    access
+        .request(
+            KernelOperation::ConnectService,
+            json!({"instance_id": instance_id.to_string()}),
         )
         .await?;
-    let entries: Vec<Value> = tools
+    let result = access
+        .request(
+            KernelOperation::ListTools,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await?;
+    let tool_values = result["tools"].as_array().cloned().unwrap_or_default();
+    let entries: Vec<Value> = tool_values
         .iter()
-        .map(|t| {
-            tool_summary_value(
-                json!({ "name": t.name, "description": t.description, "schema": t.input_schema }),
-                a.schema,
-            )
-        })
+        .map(|tool| tool_summary_value(tool.clone(), a.schema))
         .collect();
 
     if a.output != OutputFormat::Human {
@@ -853,31 +859,29 @@ pub struct MigrateStoreArgs {
     pub target_config: Option<String>,
 }
 
-pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
-    execute_call_tool(a)
+pub async fn call_tool(a: CallToolArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+    execute_call_tool(a, embedded)
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
+async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<()> {
     parse_arguments_json_object(&a.arguments, a.output)?;
     let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
-        mcpstore::Error::new(
-            mcpstore::error::FailureCode::InvalidInput,
-            error.to_string(),
-        )
+        Error::new(FailureCode::InvalidInput, error.to_string())
     })?;
-    let instance_id = resolve_target(&a.store, &scope, &a.target)
+    let mut access = open_store(&a.store, embedded).await?;
+    let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    let store = load_kernel(&a.store).await.map_err(|error| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
-    })?;
-    store
-        .connect_service(instance_id)
+    access
+        .request(
+            KernelOperation::ConnectService,
+            json!({"instance_id": instance_id.to_string()}),
+        )
         .await
         .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
-    let schema = load_tool_input_schema(&store, instance_id, &a.tool_name, a.output).await?;
+    let schema = load_tool_input_schema(&mut access, instance_id, &a.tool_name).await?;
     let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
 
     let mut options = McpExecutionOptions::default();
@@ -888,15 +892,39 @@ async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
         options = options.with_max_total_timeout(Duration::from_secs(timeout));
     }
 
+    match access {
+        StoreAccess::Embedded(store) => call_embedded(
+            &store,
+            instance_id,
+            &a,
+            args,
+            options,
+        )
+        .await,
+        StoreAccess::Remote(mut client) => {
+            call_remote(&mut client, instance_id, &a, args, options).await
+        }
+    }
+}
+
+/// embedded 流式路径：elicitation 交互与 Ctrl-C 取消全保留。
+async fn call_embedded(
+    store: &std::sync::Arc<mcpstore::MCPStore>,
+    instance_id: InstanceId,
+    a: &CallToolArgs,
+    args: Value,
+    options: McpExecutionOptions,
+) -> mcpstore::Result<()> {
+    let tool_name = a.tool_name.as_str();
     let mut elicitation = store
         .open_elicitation_session(instance_id, a.elicitation.session_options())
         .await
-        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
+        .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
     let mut execution = store
-        .start_tool_execution(instance_id, &a.tool_name, args, None, options)
+        .start_tool_execution(instance_id, tool_name, args, None, options)
         .await
-        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
-    emit_call_started(a.output, &a.tool_name, &execution)?;
+        .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
+    emit_call_started(a.output, tool_name, &execution)?;
 
     let mut cancellation_requested = false;
     loop {
@@ -926,7 +954,7 @@ async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
                                 return Err(call_elicitation_error(
                                     error,
                                     instance_id,
-                                    &a.tool_name,
+                                    tool_name,
                                 ));
                             }
                         }
@@ -935,10 +963,10 @@ async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
                     continue;
                 }
                 signal = tokio::signal::ctrl_c() => {
-                    signal.map_err(|error| attach_tool(mcpstore::Error::new(mcpstore::error::FailureCode::Internal, format!("failed to listen for Ctrl+C: {error}")), instance_id, &a.tool_name))?;
+                    signal.map_err(|error| attach_tool(Error::new(FailureCode::Internal, format!("failed to listen for Ctrl+C: {error}")), instance_id, tool_name))?;
                     if execution.cancel("cancelled by user (Ctrl+C)") {
                         cancellation_requested = true;
-                        emit_call_cancellation_requested(a.output, instance_id, &a.tool_name)?;
+                        emit_call_cancellation_requested(a.output, instance_id, tool_name)?;
                     }
                     continue;
                 }
@@ -947,25 +975,95 @@ async fn execute_call_tool(a: CallToolArgs) -> mcpstore::Result<()> {
 
         match update {
             Some(McpStoreExecutionUpdate::Progress(progress)) => {
-                emit_call_progress(a.output, &a.tool_name, &progress)?;
+                emit_call_progress(a.output, tool_name, &progress)?;
             }
             Some(McpStoreExecutionUpdate::Finished(result)) => {
                 let execution = result
-                    .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
-                return finish_call_execution(a.output, instance_id, &a.tool_name, execution);
+                    .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
+                return finish_call_execution(a.output, instance_id, tool_name, execution);
             }
             None => {
                 return Err(attach_tool(
-                    mcpstore::Error::new(
-                        mcpstore::error::FailureCode::ToolFailed,
+                    Error::new(
+                        FailureCode::ToolFailed,
                         "tool execution ended without a result",
                     ),
                     instance_id,
-                    &a.tool_name,
+                    tool_name,
                 ));
             }
         }
     }
+}
+
+/// daemon 流式路径：事件透传到本地输出。elicitation 在 daemon 模式不可用
+/// （headless 语义，同 --non-interactive）；Ctrl-C 终止 CLI 进程即断开事件流，
+/// daemon 侧执行继续（不自动重放）。
+async fn call_remote(
+    client: &mut crate::daemon::client::KernelClient,
+    instance_id: InstanceId,
+    a: &CallToolArgs,
+    args: Value,
+    options: McpExecutionOptions,
+) -> mcpstore::Result<()> {
+    let tool_name = a.tool_name.as_str();
+    let mut payload = json!({
+        "instance_id": instance_id.to_string(),
+        "tool_name": tool_name,
+        "args": args,
+    });
+    if let Some(timeout) = options.idle_timeout {
+        payload["idle_timeout"] = json!(timeout.as_millis() as u64);
+    }
+    if let Some(timeout) = options.max_total_timeout {
+        payload["max_total_timeout"] = json!(timeout.as_millis() as u64);
+    }
+
+    let output = a.output;
+    let mut instance_for_events = instance_id;
+    let result = client
+        .request_stream(KernelOperation::StreamToolExecution, payload, Duration::from_secs(600), |event| {
+            match event {
+                crate::daemon::protocol::KernelEvent::Started { request_id, instance_id: started_instance, cancellation } => {
+                    instance_for_events = started_instance;
+                    if output == OutputFormat::Jsonl {
+                        let _ = emit_call_value(output, json!({
+                            "event": "execution.started",
+                            "instance_id": instance_for_events,
+                            "tool_name": tool_name,
+                            "request_id": request_id,
+                            "progress_token": null,
+                            "cancellable": cancellation,
+                        }));
+                    }
+                }
+                crate::daemon::protocol::KernelEvent::Progress { progress, .. } => {
+                    let _ = emit_call_progress(output, tool_name, &progress);
+                }
+                crate::daemon::protocol::KernelEvent::Finished { .. } => {
+                    unreachable!("finished is the terminal frame")
+                }
+            }
+        })
+        .await
+        .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
+
+    let execution: McpToolExecution = if let Ok(execution) =
+        serde_json::from_value(result.clone())
+    {
+        execution
+    } else {
+        let error = serde_json::from_value::<crate::daemon::protocol::KernelError>(result.clone())
+            .map(|error| error.into_error())
+            .unwrap_or_else(|_| {
+                Error::new(
+                    FailureCode::ToolFailed,
+                    "tool execution returned an unreadable result",
+                )
+            });
+        return Err(call_error_from_store(error, instance_id, tool_name));
+    };
+    finish_call_execution(a.output, instance_for_events, tool_name, execution)
 }
 
 fn call_elicitation_error(
@@ -1031,9 +1129,9 @@ impl std::fmt::Display for ResolveError {
 impl std::error::Error for ResolveError {}
 
 /// Resolve a service name or instance UUID to an `InstanceId`. UUIDs bypass lookup;
-/// names are resolved via the daemon when running, otherwise from a local store load.
+/// names are resolved via ListServices（优先命中本地 schema 缓存）.
 async fn resolve_target(
-    store_args: &StoreSourceArgs,
+    access: &mut StoreAccess,
     scope: &ScopeRef,
     target: &str,
 ) -> Result<InstanceId, ResolveError> {
@@ -1047,23 +1145,28 @@ async fn resolve_target(
             return Ok(instance_id);
         }
     }
-    let store = load_kernel(store_args)
+    let result = access
+        .request(KernelOperation::ListServices, json!({ "scope": scope }))
         .await
         .map_err(|e| ResolveError::Backend(e.to_string()))?;
-    let instance_id = store
-        .list_scope_instances(scope)
-        .await
-        .map_err(|e| ResolveError::Backend(e.to_string()))?
-        .into_iter()
-        .find(|instance| instance.service_name == target)
-        .map(|instance| instance.instance_id);
+    let instance_id = result["services"]
+        .as_array()
+        .and_then(|services| {
+            services
+                .iter()
+                .find(|service| service["service_name"].as_str() == Some(target))
+                .and_then(|service| service["instance_id"].as_str())
+                .map(str::to_string)
+        });
     if let Some(id) = &instance_id {
-        crate::schema_cache::save_target(&cache_key, target, &id.to_string());
+        crate::schema_cache::save_target(&cache_key, target, id);
     }
-    instance_id.ok_or_else(|| ResolveError::NotFound {
-        scope_name,
-        target: target.to_string(),
-    })
+    instance_id
+        .and_then(|id| InstanceId::from_str(&id).ok())
+        .ok_or_else(|| ResolveError::NotFound {
+            scope_name,
+            target: target.to_string(),
+        })
 }
 
 fn resolve_error(e: ResolveError) -> mcpstore::Error {
@@ -1078,32 +1181,32 @@ fn resolve_error(e: ResolveError) -> mcpstore::Error {
 /// defaulted, coerced, and validated. Returns `None` when the tool is not in the
 /// available-tool set for the instance.
 async fn load_tool_input_schema(
-    store: &MCPStore,
+    access: &mut StoreAccess,
     instance_id: InstanceId,
     tool_name: &str,
-    _output: OutputFormat,
 ) -> mcpstore::Result<Option<Value>> {
     if let Some(cached) = crate::schema_cache::load(&instance_id.to_string()) {
         if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
             return Ok(Some(schema));
         }
     }
-    let entries = store
-        .list_tool_entries_for_instance_with_filter(
-            instance_id,
-            mcpstore::ToolVisibilityFilter::Available,
+    let result = access
+        .request(
+            KernelOperation::ListTools,
+            json!({"instance_id": instance_id.to_string()}),
         )
         .await
         .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
-    let tools_json: Vec<Value> = entries
+    let tools = result["tools"].as_array().cloned().unwrap_or_default();
+    let tools_json: Vec<Value> = tools
         .iter()
-        .map(|e| json!({ "name": e.tool_name, "schema": e.input_schema }))
+        .map(|tool| json!({ "name": tool["name"], "schema": tool["schema"] }))
         .collect();
     crate::schema_cache::save(&instance_id.to_string(), &tools_json);
-    Ok(entries
+    Ok(tools
         .iter()
-        .find(|entry| entry.tool_name == tool_name)
-        .map(|entry| entry.input_schema.clone()))
+        .find(|tool| tool["name"].as_str() == Some(tool_name))
+        .map(|tool| tool["schema"].clone()))
 }
 
 /// Merge the `--arguments` JSON base with trailing argument tokens, then apply
@@ -1425,15 +1528,23 @@ fn emit_call_value(output: OutputFormat, value: Value) -> mcpstore::Result<()> {
     Ok(())
 }
 
-pub async fn migrate_store(a: MigrateStoreArgs) -> std::result::Result<(), BoxErr> {
-    let store = load_kernel(&a.store).await?.store().clone();
-
-    let target_config = JsonStoreConfig::new(&a.target_store, json!({"config": a.target_config}));
-    let result = store.swap_store(&target_config).await?;
+pub async fn migrate_store(a: MigrateStoreArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+    let mut access = open_store(&a.store, embedded).await?;
+    let mut config = json!({});
+    if let Some(target_config) = a.target_config {
+        config = json!({"config": target_config});
+    }
+    let result = access
+        .request(
+            KernelOperation::SwapStore,
+            json!({"store": a.target_store, "config": config}),
+        )
+        .await?;
 
     println!(
         "[Success] Cache storage hot migration completed: target={} entries={}",
-        result.target_store, result.copied
+        result["target_store"].as_str().unwrap_or("?"),
+        result["copied"]
     );
     Ok(())
 }
@@ -1458,13 +1569,20 @@ pub struct UnassignArgs {
     pub store: StoreSourceArgs,
 }
 
-pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
+pub async fn assign(a: AssignArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = ScopeRef::Agent {
         agent_id: a.agent.clone(),
     };
-    let store = load_kernel(&a.store).await?.store().clone();
-    store
-        .declare_service_scope(&a.service_name, &scope, ScopeDescriptor::default())
+    let mut access = open_store(&a.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::DeclareServiceScope,
+            json!({
+                "service_name": a.service_name,
+                "scope": scope,
+                "descriptor": ScopeDescriptor::default(),
+            }),
+        )
         .await?;
     println!(
         "[Success] Service authorized to Agent: agent={} service={}",
@@ -1473,12 +1591,17 @@ pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
     Ok(())
 }
 
-pub async fn unassign(a: UnassignArgs) -> std::result::Result<(), BoxErr> {
+pub async fn unassign(a: UnassignArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = ScopeRef::Agent {
         agent_id: a.agent.clone(),
     };
-    let store = load_kernel(&a.store).await?.store().clone();
-    store.remove_service_scope(&a.service_name, &scope).await?;
+    let mut access = open_store(&a.store, embedded).await?;
+    access
+        .request(
+            KernelOperation::RemoveServiceScope,
+            json!({"service_name": a.service_name, "scope": scope}),
+        )
+        .await?;
     println!(
         "[Success] Removed Agent service authorization: agent={} service={}",
         a.agent, a.service_name
@@ -1578,35 +1701,50 @@ pub(crate) fn parse_instance_id(value: &str) -> std::result::Result<InstanceId, 
     Ok(InstanceId::from_str(value)?)
 }
 
-fn format_capabilities(metadata: Option<&McpServerMetadata>) -> String {
-    let Some(metadata) = metadata else {
+fn format_capabilities(metadata: Option<&Value>) -> String {
+    let Some(capabilities) = metadata.and_then(|metadata| metadata.get("capabilities")) else {
         return "unknown".to_string();
     };
-    let McpServerCapabilities {
-        tools,
-        tools_list_changed,
-        resources,
-        resources_list_changed,
-        prompts,
-        prompts_list_changed,
-        completions,
-        tasks,
-        extensions,
-        experimental,
-        ..
-    } = &metadata.capabilities;
     let mut enabled = Vec::new();
     for (name, present) in [
-        ("tools", *tools),
-        ("tools.list_changed", *tools_list_changed),
-        ("resources", *resources),
-        ("resources.list_changed", *resources_list_changed),
-        ("prompts", *prompts),
-        ("prompts.list_changed", *prompts_list_changed),
-        ("completions", *completions),
-        ("tasks", *tasks),
-        ("extensions", !extensions.is_empty()),
-        ("experimental", !experimental.is_empty()),
+        ("tools", capabilities["tools"].as_bool().unwrap_or(false)),
+        (
+            "tools.list_changed",
+            capabilities["tools_list_changed"]
+                .as_bool()
+                .unwrap_or(false),
+        ),
+        ("resources", capabilities["resources"].as_bool().unwrap_or(false)),
+        (
+            "resources.list_changed",
+            capabilities["resources_list_changed"]
+                .as_bool()
+                .unwrap_or(false),
+        ),
+        ("prompts", capabilities["prompts"].as_bool().unwrap_or(false)),
+        (
+            "prompts.list_changed",
+            capabilities["prompts_list_changed"]
+                .as_bool()
+                .unwrap_or(false),
+        ),
+        (
+            "completions",
+            capabilities["completions"].as_bool().unwrap_or(false),
+        ),
+        ("tasks", capabilities["tasks"].as_bool().unwrap_or(false)),
+        (
+            "extensions",
+            capabilities["extensions"]
+                .as_array()
+                .is_some_and(|list| !list.is_empty()),
+        ),
+        (
+            "experimental",
+            capabilities["experimental"]
+                .as_array()
+                .is_some_and(|list| !list.is_empty()),
+        ),
     ] {
         if present {
             enabled.push(name);
@@ -1646,29 +1784,21 @@ mod tests {
 
     #[test]
     fn capability_summary_reports_protocol_features() {
-        let metadata = McpServerMetadata {
-            protocol_version: "2026-07-28".to_string(),
-            server_info: Some(mcpstore::McpServerImplementation {
-                name: "fixture".to_string(),
-                title: None,
-                version: "1.0.0".to_string(),
-                description: None,
-                website_url: None,
-            }),
-            instructions: None,
-            capabilities: McpServerCapabilities {
-                tools: true,
-                tools_list_changed: false,
-                resources: true,
-                resources_list_changed: false,
-                prompts: true,
-                prompts_list_changed: false,
-                completions: true,
-                tasks: false,
-                extensions: Default::default(),
-                experimental: Default::default(),
+        let metadata = json!({
+            "protocol_version": "2026-07-28",
+            "capabilities": {
+                "tools": true,
+                "tools_list_changed": false,
+                "resources": true,
+                "resources_list_changed": false,
+                "prompts": true,
+                "prompts_list_changed": false,
+                "completions": true,
+                "tasks": false,
+                "extensions": [],
+                "experimental": [],
             },
-        };
+        });
         assert_eq!(
             format_capabilities(Some(&metadata)),
             "tools,resources,prompts,completions"

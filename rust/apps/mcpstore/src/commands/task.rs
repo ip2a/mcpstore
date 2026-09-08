@@ -1,6 +1,7 @@
 use clap::{Args, Subcommand};
 #[cfg(test)]
-use mcpstore::error::{Error, ErrorContext, FailureCode};
+use mcpstore::error::ErrorContext;
+use mcpstore::error::{Error, FailureCode};
 use mcpstore::{
     InstanceId, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpTask, McpTaskRecord,
     McpTaskStatus, McpToolExecution,
@@ -12,8 +13,10 @@ use crate::commands::elicitation::{
     handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
     ElicitationCommandError, ElicitationErrorKind,
 };
+use crate::commands::mcp::open_store;
 use crate::error::{attach_instance, attach_task, OutputFormat};
-use crate::store_args::{load_kernel, StoreSourceArgs};
+use crate::daemon::protocol::KernelOperation;
+use crate::store_args::{StoreAccess, StoreSourceArgs};
 use crate::BoxErr;
 
 #[derive(Args)]
@@ -90,26 +93,33 @@ pub struct TaskTargetArgs {
     pub runtime: TaskRuntimeArgs,
 }
 
-pub async fn run(args: TaskArgs) -> Result<(), BoxErr> {
-    execute(args.action)
+pub async fn run(args: TaskArgs, embedded: bool) -> Result<(), BoxErr> {
+    execute(args.action, embedded)
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute(action: TaskAction) -> mcpstore::Result<()> {
+async fn execute(action: TaskAction, embedded: bool) -> mcpstore::Result<()> {
     match action {
-        TaskAction::Run(args) => run_task(args).await,
-        TaskAction::List(args) => list_tasks(args).await,
-        TaskAction::Status(args) => show_status(args).await,
-        TaskAction::Result(args) => show_result(args).await,
-        TaskAction::Cancel(args) => cancel_task(args).await,
+        TaskAction::Run(args) => run_task(args, embedded).await,
+        TaskAction::List(args) => list_tasks(args, embedded).await,
+        TaskAction::Status(args) => show_status(args, embedded).await,
+        TaskAction::Result(args) => show_result(args, embedded).await,
+        TaskAction::Cancel(args) => cancel_task(args, embedded).await,
     }
 }
 
-async fn run_task(args: TaskRunArgs) -> mcpstore::Result<()> {
+async fn loaded_access(
+    runtime: &TaskRuntimeArgs,
+    embedded: bool,
+) -> mcpstore::Result<StoreAccess> {
+    open_store(&runtime.store, embedded).await
+}
+
+async fn run_task(args: TaskRunArgs, embedded: bool) -> mcpstore::Result<()> {
     let output = args.runtime.output;
     let input = parse_input(&args.input, output)?;
-    let store = loaded_store(&args.runtime, output).await?;
+    let mut access = loaded_access(&args.runtime, embedded).await?;
     let mut options = McpExecutionOptions::default();
     if let Some(timeout) = args.timeout {
         options = options.with_idle_timeout(Duration::from_secs(timeout));
@@ -117,6 +127,26 @@ async fn run_task(args: TaskRunArgs) -> mcpstore::Result<()> {
     if let Some(timeout) = args.max_total_timeout {
         options = options.with_max_total_timeout(Duration::from_secs(timeout));
     }
+    if access.embedded_store().is_some() {
+        let store = access
+            .embedded_store()
+            .expect("embedded presence was just checked")
+            .clone();
+        run_task_embedded(&mut access, store, args, input, options).await
+    } else {
+        run_task_remote(&mut access, args, input, options).await
+    }
+}
+
+/// embedded 流式路径：elicitation 与 Ctrl-C 取消全保留。
+async fn run_task_embedded(
+    access: &mut StoreAccess,
+    store: std::sync::Arc<MCPStore>,
+    args: TaskRunArgs,
+    input: Value,
+    options: McpExecutionOptions,
+) -> mcpstore::Result<()> {
+    let output = args.runtime.output;
 
     let mut elicitation = store
         .open_elicitation_session(args.instance_id, args.elicitation.session_options())
@@ -177,7 +207,7 @@ async fn run_task(args: TaskRunArgs) -> mcpstore::Result<()> {
                 let execution = result.map_err(|error| attach_instance(error, args.instance_id))?;
                 if cancellation_requested {
                     return cancel_created_task(
-                        &store,
+                        access,
                         output,
                         args.instance_id,
                         &args.tool_name,
@@ -186,7 +216,7 @@ async fn run_task(args: TaskRunArgs) -> mcpstore::Result<()> {
                     .await;
                 }
                 return finish_task_execution(
-                    &store,
+                    access,
                     output,
                     args.instance_id,
                     &args.tool_name,
@@ -207,6 +237,87 @@ async fn run_task(args: TaskRunArgs) -> mcpstore::Result<()> {
     }
 }
 
+/// daemon 流式路径：task:true 转发事件。elicitation 在 daemon 模式不可用
+/// （headless 语义）；Ctrl-C 终止 CLI 即断开事件流，daemon 侧任务继续。
+async fn run_task_remote(
+    access: &mut StoreAccess,
+    args: TaskRunArgs,
+    input: Value,
+    options: McpExecutionOptions,
+) -> mcpstore::Result<()> {
+    use crate::daemon::protocol::KernelEvent;
+
+    let output = args.runtime.output;
+    let tool_name = args.tool_name.as_str();
+    let mut payload = json!({
+        "instance_id": args.instance_id.to_string(),
+        "tool_name": tool_name,
+        "args": input,
+        "task": true,
+    });
+    if let Some(timeout) = options.idle_timeout {
+        payload["idle_timeout"] = json!(timeout.as_millis() as u64);
+    }
+    if let Some(timeout) = options.max_total_timeout {
+        payload["max_total_timeout"] = json!(timeout.as_millis() as u64);
+    }
+
+    let result = {
+        let client = access.remote_client().expect("remote access carries a client");
+        client
+            .request_stream(
+                KernelOperation::StreamToolExecution,
+                payload,
+                Duration::from_secs(600),
+            |event| match event {
+                KernelEvent::Started {
+                    request_id,
+                    instance_id,
+                    cancellation,
+                } => {
+                    if output == OutputFormat::Jsonl {
+                        let _ = emit_value(
+                            output,
+                            json!({
+                                "event": "task.started",
+                                "instance_id": instance_id,
+                                "tool_name": tool_name,
+                                "request_id": request_id,
+                                "progress_token": null,
+                                "cancellable": cancellation,
+                            }),
+                        );
+                    }
+                }
+                KernelEvent::Progress { progress, .. } => {
+                    let _ = emit_task_progress(output, tool_name, &progress);
+                }
+                KernelEvent::Finished { .. } => {
+                    unreachable!("finished is the terminal frame")
+                }
+                },
+            )
+            .await
+            .map_err(|error| attach_instance(error, args.instance_id))?
+    };
+
+    let execution: McpToolExecution = if let Ok(execution) = serde_json::from_value(result.clone())
+    {
+        execution
+    } else {
+        let error = serde_json::from_value::<crate::daemon::protocol::KernelError>(result.clone())
+            .map(|error| error.into_error())
+            .unwrap_or_else(|_| {
+                Error::new(
+                    FailureCode::TaskFailed,
+                    "task execution returned an unreadable result",
+                )
+            });
+        return Err(attach_instance(error, args.instance_id));
+    };
+    finish_task_execution(access, output, args.instance_id, tool_name, execution).await
+}
+
 fn task_elicitation_error(
     error: ElicitationCommandError,
     instance_id: InstanceId,
@@ -225,7 +336,7 @@ fn task_elicitation_error(
 }
 
 async fn finish_task_execution(
-    store: &MCPStore,
+    access: &mut StoreAccess,
     output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
@@ -244,7 +355,7 @@ async fn finish_task_execution(
             }),
         ),
         McpToolExecution::Task { task } => {
-            let record = require_task_record(store, instance_id, &task.task_id, output).await?;
+            let record = require_task_record(access, instance_id, &task.task_id, output).await?;
             emit(
                 output,
                 task_human("created", &record),
@@ -255,7 +366,7 @@ async fn finish_task_execution(
 }
 
 async fn cancel_created_task(
-    store: &MCPStore,
+    access: &mut StoreAccess,
     output: OutputFormat,
     instance_id: InstanceId,
     tool_name: &str,
@@ -263,8 +374,14 @@ async fn cancel_created_task(
 ) -> mcpstore::Result<()> {
     let task_id = match execution {
         McpToolExecution::Task { task } => {
-            store
-                .cancel_task(instance_id, &task.task_id)
+            access
+                .request(
+                    KernelOperation::TaskCancel,
+                    json!({
+                        "instance_id": instance_id.to_string(),
+                        "task_id": task.task_id,
+                    }),
+                )
                 .await
                 .map_err(|error| with_task_context(error, output, instance_id, &task.task_id))?;
             Some(task.task_id)
@@ -362,10 +479,24 @@ fn emit_task_cancellation_requested(
     }
 }
 
-async fn list_tasks(args: TaskInstanceArgs) -> mcpstore::Result<()> {
+async fn list_tasks(args: TaskInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let store = loaded_store(&args.runtime, output).await?;
-    let records = store.list_task_records(args.instance_id).await?;
+    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let result = access
+        .request(
+            KernelOperation::TaskList,
+            json!({"instance_id": args.instance_id.to_string()}),
+        )
+        .await
+        .map_err(|error| attach_instance(error, args.instance_id))?;
+    let records: Vec<McpTaskRecord> = serde_json::from_value(result["records"].clone()).map_err(
+        |error| {
+            attach_instance(
+                Error::new(FailureCode::Internal, error.to_string()),
+                args.instance_id,
+            )
+        },
+    )?;
 
     match output {
         OutputFormat::Human => {
@@ -400,14 +531,10 @@ async fn list_tasks(args: TaskInstanceArgs) -> mcpstore::Result<()> {
     }
 }
 
-async fn show_status(args: TaskTargetArgs) -> mcpstore::Result<()> {
+async fn show_status(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let store = loaded_store(&args.runtime, output).await?;
-    store
-        .get_task(args.instance_id, &args.task_id)
-        .await
-        .map_err(|error| with_task_context(error, output, args.instance_id, &args.task_id))?;
-    let record = require_task_record(&store, args.instance_id, &args.task_id, output).await?;
+    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let record = require_task_record(&mut access, args.instance_id, &args.task_id, output).await?;
     emit(
         output,
         task_human("status", &record),
@@ -415,18 +542,39 @@ async fn show_status(args: TaskTargetArgs) -> mcpstore::Result<()> {
     )
 }
 
-async fn show_result(args: TaskTargetArgs) -> mcpstore::Result<()> {
+async fn show_result(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let store = loaded_store(&args.runtime, output).await?;
-    let task = store
-        .get_task(args.instance_id, &args.task_id)
+    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let task_value = access
+        .request(
+            KernelOperation::TaskLive,
+            json!({
+                "instance_id": args.instance_id.to_string(),
+                "task_id": args.task_id,
+            }),
+        )
         .await
         .map_err(|error| with_task_context(error, output, args.instance_id, &args.task_id))?;
+    let task: McpTask = serde_json::from_value(task_value["task"].clone()).map_err(|error| {
+        with_task_context(
+            Error::new(FailureCode::Internal, error.to_string()),
+            output,
+            args.instance_id,
+            &args.task_id,
+        )
+    })?;
     ensure_result_available(args.instance_id, &task, output)?;
-    let result = store
-        .get_task_result(args.instance_id, &args.task_id)
+    let result_value = access
+        .request(
+            KernelOperation::TaskResult,
+            json!({
+                "instance_id": args.instance_id.to_string(),
+                "task_id": args.task_id,
+            }),
+        )
         .await
         .map_err(|error| with_task_context(error, output, args.instance_id, &args.task_id))?;
+    let result = result_value["result"].clone();
     emit(
         output,
         format!(
@@ -444,21 +592,35 @@ async fn show_result(args: TaskTargetArgs) -> mcpstore::Result<()> {
     )
 }
 
-async fn cancel_task(args: TaskTargetArgs) -> mcpstore::Result<()> {
+async fn cancel_task(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let store = loaded_store(&args.runtime, output).await?;
-    if let Some(record) = store
-        .get_task_record(args.instance_id, &args.task_id)
+    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let record_value = access
+        .request(
+            KernelOperation::TaskGet,
+            json!({
+                "instance_id": args.instance_id.to_string(),
+                "task_id": args.task_id,
+            }),
+        )
         .await
-        .map_err(|error| with_task_context(error, output, args.instance_id, &args.task_id))?
+        .map_err(|error| with_task_context(error, output, args.instance_id, &args.task_id))?;
+    if let Ok(Some(record)) =
+        serde_json::from_value::<Option<McpTaskRecord>>(record_value["record"].clone())
     {
         ensure_cancellable(args.instance_id, &record.task, output)?;
     }
-    store
-        .cancel_task(args.instance_id, &args.task_id)
+    access
+        .request(
+            KernelOperation::TaskCancel,
+            json!({
+                "instance_id": args.instance_id.to_string(),
+                "task_id": args.task_id,
+            }),
+        )
         .await
         .map_err(|error| with_task_context(error, output, args.instance_id, &args.task_id))?;
-    let record = require_task_record(&store, args.instance_id, &args.task_id, output).await?;
+    let record = require_task_record(&mut access, args.instance_id, &args.task_id, output).await?;
     emit(
         output,
         task_human("cancellation_requested", &record),
@@ -466,26 +628,31 @@ async fn cancel_task(args: TaskTargetArgs) -> mcpstore::Result<()> {
     )
 }
 
-async fn loaded_store(
-    runtime: &TaskRuntimeArgs,
-    _output: OutputFormat,
-) -> mcpstore::Result<std::sync::Arc<MCPStore>> {
-    let store = load_kernel(&runtime.store).await.map_err(|error| {
-        mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string())
-    })?;
-    Ok(store.store().clone())
-}
-
 async fn require_task_record(
-    store: &MCPStore,
+    access: &mut StoreAccess,
     instance_id: InstanceId,
     task_id: &str,
     output: OutputFormat,
 ) -> mcpstore::Result<McpTaskRecord> {
-    store
-        .get_task_record(instance_id, task_id)
+    let result = access
+        .request(
+            KernelOperation::TaskGet,
+            json!({
+                "instance_id": instance_id.to_string(),
+                "task_id": task_id,
+            }),
+        )
         .await
-        .map_err(|error| with_task_context(error, output, instance_id, task_id))?
+        .map_err(|error| with_task_context(error, output, instance_id, task_id))?;
+    serde_json::from_value::<Option<McpTaskRecord>>(result["record"].clone())
+        .map_err(|error| {
+            with_task_context(
+                Error::new(FailureCode::Internal, error.to_string()),
+                output,
+                instance_id,
+                task_id,
+            )
+        })?
         .ok_or_else(|| {
             attach_instance(
                 attach_task(
