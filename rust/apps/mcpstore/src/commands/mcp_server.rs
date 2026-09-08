@@ -48,6 +48,8 @@ pub struct McpServerArgs {
         help = "MCP transport: stdio or streamable-http; defaults to app config"
     )]
     pub transport: Option<McpServerTransport>,
+    #[arg(long, help = "本进程内嵌 kernel（默认 stdio 为转发 daemon 的 thin client）")]
+    pub embedded: bool,
     #[arg(
         long,
         default_value = "127.0.0.1",
@@ -172,7 +174,18 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
         None => ConfigManager::new(),
     };
     let app_config = config_manager.load_app_config_or_default()?;
-    crate::mcp_server::run(args.to_core_options(&app_config)?).await
+    let options = args.to_core_options(&app_config)?;
+    // stdio 默认是 thin client：转发 daemon，共享其连接池。--embedded、显式 store
+    // 参数或 instance/session 定向模式保持本进程 kernel。
+    if options.transport == crate::mcp_server::McpServerTransport::Stdio
+        && options.instance_id.is_none()
+        && options.session_key.is_none()
+        && !args.embedded
+        && !args.store.is_explicit()
+    {
+        return crate::mcp_server::thin::run(options.scope).await;
+    }
+    crate::mcp_server::run(options).await
 }
 
 #[cfg(test)]
@@ -193,6 +206,7 @@ mod tests {
             agent: None,
             instance_id: None,
             transport: None,
+            embedded: false,
             host: "127.0.0.1".to_string(),
             port: None,
             path: "/mcp".to_string(),
