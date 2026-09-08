@@ -1,16 +1,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
 use mcpstore::error::{Error, FailureCode};
 use mcpstore::{
-    AppConfig, AuthFlow, InstanceId, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate,
-    McpStoreToolExecutionHandle, ScopeRef,
+    AppConfig, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate,
+    McpStoreToolExecutionHandle,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
 
+use crate::daemon::ops::{instance_id, required_str};
 use crate::daemon::protocol::{
     deadline, default_pid_path, HandshakeRequest, KernelError, KernelEvent, KernelOperation,
     KernelRequest, KernelResponse,
@@ -286,211 +286,15 @@ async fn execute_operation(
     operation: KernelOperation,
     payload: Value,
 ) -> Result<Value, Error> {
-    let store = host.store.as_ref();
     match operation {
-        KernelOperation::CallTool => {
-            let instance_id = instance_id(&payload)?;
-            let tool_name = required_str(&payload, "tool_name")?;
-            let args = payload.get("args").cloned().unwrap_or_else(|| json!({}));
-            let result = store.call_tool(instance_id, &tool_name, args).await?;
-            Ok(json!({
-                "content": result.content,
-                "is_error": result.is_error,
-            }))
-        }
-        KernelOperation::ListTools => {
-            let instance_id = instance_id(&payload)?;
-            let tools = store
-                .list_tool_entries_for_instance_with_filter(
-                    instance_id,
-                    mcpstore::ToolVisibilityFilter::Available,
-                )
-                .await?;
-            let tools: Vec<Value> = tools
-                .iter()
-                .map(|tool| {
-                    json!({
-                        "name": tool.name,
-                        "description": tool.description,
-                        "schema": tool.input_schema,
-                    })
-                })
-                .collect();
-            Ok(json!({"tools": tools, "total": tools.len()}))
-        }
-        KernelOperation::ListServices => {
-            let scope = payload_field::<ScopeRef>(&payload, "scope")?;
-            let services = store.list_scope_instances(&scope).await?;
-            let mut data = Vec::with_capacity(services.len());
-            for service in services {
-                let state = store.service_state_entry(service.instance_id).await?;
-                let metadata = store.mcp_server_metadata(service.instance_id).await?;
-                data.push(json!({
-                    "instance_id": service.instance_id,
-                    "service_name": service.service_name,
-                    "scope": service.scope,
-                    "transport": service.transport,
-                    "state": state,
-                    "tools_count": service.tools.len(),
-                    "mcp": metadata,
-                }));
-            }
-            Ok(json!({"services": data, "total": data.len()}))
-        }
-        KernelOperation::GetService => {
-            let instance_id = instance_id(&payload)?;
-            let service = store
-                .find_instance(instance_id)
-                .await
-                .ok_or_else(|| service_not_found(instance_id))?;
-            let state = store.service_state_entry(instance_id).await?;
-            Ok(json!({
-                "instance_id": service.instance_id,
-                "service_name": service.service_name,
-                "scope": service.scope,
-                "transport": service.transport,
-                "state": state,
-                "tools": service.tools.iter().map(|tool| json!({
-                    "name": tool.name,
-                    "description": tool.description,
-                })).collect::<Vec<_>>(),
-            }))
-        }
-        KernelOperation::ConnectService => {
-            let instance_id = instance_id(&payload)?;
-            store.connect_service(instance_id).await?;
-            let tools = store
-                .list_tool_entries_for_instance_with_filter(
-                    instance_id,
-                    mcpstore::ToolVisibilityFilter::Available,
-                )
-                .await
-                .unwrap_or_default();
-            let metadata = store.mcp_server_metadata(instance_id).await?;
-            Ok(json!({
-                "instance_id": instance_id,
-                "tools_count": tools.len(),
-                "tools": tools.iter().map(|tool| json!({
-                    "name": tool.name,
-                    "description": tool.description,
-                })).collect::<Vec<_>>(),
-                "mcp": metadata,
-            }))
-        }
-        KernelOperation::DisconnectService => {
-            let instance_id = instance_id(&payload)?;
-            store.disconnect_service(instance_id).await?;
-            Ok(json!({"instance_id": instance_id}))
-        }
-        KernelOperation::RestartService => {
-            let instance_id = instance_id(&payload)?;
-            store.restart_service(instance_id).await?;
-            Ok(json!({"instance_id": instance_id}))
-        }
-        KernelOperation::CheckService => {
-            let instance_id = instance_id(&payload)?;
-            let state = store.service_state_entry(instance_id).await?;
-            Ok(json!({"instance_id": instance_id, "state": state}))
-        }
-        KernelOperation::WaitService => {
-            let instance_id = instance_id(&payload)?;
-            let timeout = payload.get("timeout").and_then(Value::as_u64).unwrap_or(30);
-            let state = store
-                .wait_instance_ready(instance_id, Duration::from_secs(timeout))
-                .await?;
-            Ok(json!({"instance_id": instance_id, "state": state}))
-        }
-        KernelOperation::AddService => add_service(store, payload).await,
-        KernelOperation::DeclareServiceScope => {
-            let service_name = required_str(&payload, "service_name")?;
-            let scope = payload_field::<ScopeRef>(&payload, "scope")?;
-            let descriptor = payload_field::<ScopeDescriptor>(&payload, "descriptor")?;
-            let instance_id = store
-                .declare_service_scope(&service_name, &scope, descriptor)
-                .await?;
-            Ok(json!({
-                "instance_id": instance_id,
-                "service_name": service_name,
-                "scope": scope,
-            }))
-        }
-        KernelOperation::RemoveServiceScope => {
-            let service_name = required_str(&payload, "service_name")?;
-            let scope = payload_field::<ScopeRef>(&payload, "scope")?;
-            store.remove_service_scope(&service_name, &scope).await?;
-            Ok(json!({"service_name": service_name, "scope": scope}))
-        }
-        KernelOperation::ListAgents => {
-            let agents = store.list_agents().await?;
-            Ok(json!({"agents": agents, "total": agents.len()}))
-        }
-        KernelOperation::ShowConfig => store.show_config().await,
-        KernelOperation::ResetConfig => {
-            store.reset_config().await?;
-            Ok(json!({"status": "ok"}))
-        }
-        KernelOperation::AuthStatus => {
-            let instance_id = instance_id(&payload)?;
-            Ok(json!({"auth": store.auth_status_view(instance_id).await?}))
-        }
-        KernelOperation::AuthCallbackUri => {
-            let instance_id = instance_id(&payload)?;
-            let callback_uri = store.authorization_callback_uri(instance_id).await?;
-            Ok(json!({"callback_uri": callback_uri}))
-        }
-        KernelOperation::AuthBegin => auth_begin(store, payload).await,
-        KernelOperation::AuthCallback => {
-            let instance_id = instance_id(&payload)?;
-            let code = required_str(&payload, "code")?;
-            let state = required_str(&payload, "state")?;
-            let issuer = payload.get("issuer").and_then(Value::as_str);
-            store
-                .complete_authorization_callback(instance_id, &code, &state, issuer)
-                .await?;
-            reconnect_authorized_service(store, instance_id).await?;
-            Ok(json!({"auth": store.auth_status_view(instance_id).await?}))
-        }
-        KernelOperation::AuthRefresh => {
-            let instance_id = instance_id(&payload)?;
-            store.refresh_authorization(instance_id).await?;
-            reconnect_authorized_service(store, instance_id).await?;
-            Ok(json!({"auth": store.auth_status_view(instance_id).await?}))
-        }
-        KernelOperation::AuthLogout => {
-            let instance_id = instance_id(&payload)?;
-            store.logout_authorization(instance_id).await?;
-            Ok(json!({"auth": store.auth_status_view(instance_id).await?}))
-        }
-        KernelOperation::AuthScopeUpgrade => {
-            let instance_id = instance_id(&payload)?;
-            let required_scope = required_str(&payload, "required_scope")?;
-            let authorization = store
-                .begin_scope_upgrade(instance_id, required_scope.trim())
-                .await?;
-            let auth = store.auth_status_view(instance_id).await?;
-            Ok(json!({"auth": auth, "authorization": authorization}))
-        }
-        KernelOperation::AuthSaveClientSecret => {
-            let instance_id = instance_id(&payload)?;
-            let secret = required_str(&payload, "client_secret")?;
-            store.save_oauth_client_secret(instance_id, secret).await?;
-            Ok(json!({"stored": true}))
-        }
-        KernelOperation::AuthSavePrivateKey => {
-            let instance_id = instance_id(&payload)?;
-            let private_key = required_str(&payload, "private_key_pem")?;
-            store
-                .save_oauth_private_key(instance_id, private_key.into_bytes())
-                .await?;
-            Ok(json!({"stored": true}))
-        }
-        KernelOperation::SubscribeEvents | KernelOperation::StreamToolExecution => {
-            unreachable!("stream operations are handled before the request deadline")
-        }
-        KernelOperation::StopHost => Ok(json!({"message": "KernelHost stopping"})),
         KernelOperation::StatusHost => Ok(status_host_payload(host)),
         KernelOperation::GetDaemonConfig => get_daemon_config(host),
         KernelOperation::SetDaemonConfig => set_daemon_config(host, payload).await,
+        KernelOperation::StopHost => Ok(json!({"message": "KernelHost stopping"})),
+        KernelOperation::SubscribeEvents | KernelOperation::StreamToolExecution => {
+            unreachable!("stream operations are handled before the request deadline")
+        }
+        business => crate::daemon::ops::execute(&host.store, business, payload).await,
     }
 }
 
@@ -877,80 +681,6 @@ where
     }
 }
 
-async fn add_service(store: &MCPStore, payload: Value) -> Result<Value, Error> {
-    let name = required_str(&payload, "name")?;
-    let mut config = payload_field::<ServerConfig>(&payload, "config")?;
-    let scope = payload_field::<ScopeRef>(&payload, "scope")?;
-    if let ScopeRef::Agent { agent_id } = &scope {
-        let previous = config.mcpstore.take();
-        let mut scopes = ScopeDeclarations::default();
-        scopes
-            .agents
-            .insert(agent_id.clone(), ScopeDescriptor::default());
-        config.mcpstore = Some(McpStoreExtension {
-            scopes,
-            lifecycle: previous
-                .as_ref()
-                .and_then(|extension| extension.lifecycle.clone()),
-            handshake_mode: previous
-                .as_ref()
-                .and_then(|extension| extension.handshake_mode),
-            revision: previous
-                .as_ref()
-                .map(|extension| extension.revision)
-                .unwrap_or(1)
-                .max(1),
-            extra: previous
-                .map(|extension| extension.extra)
-                .unwrap_or_default(),
-        });
-    }
-    let definition_exists = store.get_definition_config(&name).await?.is_some();
-    if definition_exists {
-        let lifecycle = config
-            .mcpstore
-            .as_ref()
-            .and_then(|extension| extension.lifecycle.clone());
-        store
-            .declare_service_scope(
-                &name,
-                &scope,
-                ScopeDescriptor {
-                    config: config.base_config(),
-                    lifecycle,
-                    revision: 0,
-                    ..Default::default()
-                },
-            )
-            .await?;
-    } else {
-        store.add_service(&name, config).await?;
-    }
-    Ok(json!({"service_name": name, "scope": scope}))
-}
-
-async fn auth_begin(store: &MCPStore, payload: Value) -> Result<Value, Error> {
-    let instance_id = instance_id(&payload)?;
-    let auth = store.auth_status_view(instance_id).await?;
-    match auth.flow {
-        Some(AuthFlow::AuthorizationCode) => {
-            let authorization = store.begin_authorization(instance_id).await?;
-            let auth = store.auth_status_view(instance_id).await?;
-            Ok(json!({"auth": auth, "authorization": authorization}))
-        }
-        Some(AuthFlow::ClientCredentials) => {
-            store.refresh_authorization(instance_id).await?;
-            reconnect_authorized_service(store, instance_id).await?;
-            let auth = store.auth_status_view(instance_id).await?;
-            Ok(json!({"auth": auth, "authorization": null}))
-        }
-        None => Err(Error::new(
-            FailureCode::ConnectionAuthRequired,
-            "authentication is not configured for this instance",
-        )),
-    }
-}
-
 fn execution_options(payload: &Value) -> McpExecutionOptions {
     let mut options = McpExecutionOptions::default();
     if let Some(timeout) = payload.get("idle_timeout").and_then(Value::as_u64) {
@@ -960,49 +690,6 @@ fn execution_options(payload: &Value) -> McpExecutionOptions {
         options = options.with_max_total_timeout(Duration::from_millis(timeout));
     }
     options
-}
-
-async fn reconnect_authorized_service(
-    store: &MCPStore,
-    instance_id: InstanceId,
-) -> mcpstore::Result<()> {
-    store.disconnect_service(instance_id).await.ok();
-    store.connect_service(instance_id).await.map(|_| ())
-}
-
-fn service_not_found(instance_id: InstanceId) -> Error {
-    Error::new(
-        FailureCode::ServiceNotFound,
-        format!("service instance not found: {instance_id}"),
-    )
-}
-
-fn payload_field<T>(payload: &Value, key: &str) -> Result<T, Error>
-where
-    T: serde::de::DeserializeOwned,
-{
-    serde_json::from_value(payload.get(key).cloned().unwrap_or(Value::Null))
-        .map_err(|error| Error::new(FailureCode::InvalidInput, format!("invalid {key}: {error}")))
-}
-
-fn required_str(payload: &Value, key: &str) -> Result<String, Error> {
-    payload
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| Error::new(FailureCode::InvalidInput, format!("{key} is required")))
-}
-
-fn instance_id(payload: &Value) -> Result<InstanceId, Error> {
-    required_str(payload, "instance_id")?
-        .parse()
-        .map_err(|error| {
-            Error::new(
-                FailureCode::InvalidInput,
-                format!("invalid instance_id: {error}"),
-            )
-        })
 }
 
 async fn write_response<W>(writer: &mut W, response: &KernelResponse) -> Result<(), Error>

@@ -11,6 +11,9 @@ use crate::{bootstrap, commands, BoxErr};
     version = env!("CARGO_PKG_VERSION"),
 )]
 pub struct Cli {
+    /// 本进程内嵌 kernel 冷启动，不连也不拉 daemon
+    #[arg(long, global = true)]
+    pub embedded: bool,
     #[command(subcommand)]
     pub command: Commands,
 }

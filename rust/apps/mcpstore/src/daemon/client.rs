@@ -81,6 +81,37 @@ impl KernelClient {
         }
     }
 
+    /// 流式请求：每个事件即时回调，直到终态响应。放弃连接（drop）即停止接收。
+    pub async fn request_stream<F>(
+        &mut self,
+        operation: KernelOperation,
+        payload: Value,
+        timeout: Duration,
+        mut on_event: F,
+    ) -> Result<Value, Error>
+    where
+        F: FnMut(KernelEvent),
+    {
+        self.call(operation, payload, timeout).await?;
+        loop {
+            let response = self.read_response(None).await?;
+            if let Some(event) = response.event {
+                on_event(event);
+                continue;
+            }
+            if response.request_id.is_none() {
+                return Err(Error::new(
+                    FailureCode::ConnectionClosed,
+                    "KernelHost returned a response without request_id",
+                ));
+            }
+            if let Some(error) = response.error {
+                return Err(error.into_error());
+            }
+            return Ok(response.result.unwrap_or(Value::Null));
+        }
+    }
+
     async fn call(
         &mut self,
         operation: KernelOperation,

@@ -100,6 +100,18 @@ pub enum KernelOperation {
     StatusHost,
     GetDaemonConfig,
     SetDaemonConfig,
+    GetServiceInfo,
+    UpdateService,
+    ResourcesList,
+    ResourcesTemplates,
+    ResourcesRead,
+    PromptsList,
+    PromptGet,
+    CompleteArgument,
+    TaskList,
+    TaskGet,
+    TaskCancel,
+    SwapStore,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
