@@ -51,8 +51,8 @@ cargo test
 | 业务 CLI 命令 | 默认连本机 daemon（不在则后台自动拉起）；`--embedded` 或显式 `--source/--store/--store-config/--namespace/--config-path` 时本进程冷启动 embedded Kernel |
 | `mcpstore status` / `mcpstore stop` / 裸 `api` / 裸 `web` | daemon 管理与只读视图命令，不启动进程 |
 | `mcpstore config --<key> <value>` | 唯一修改面：经 daemon 热应用（listener 先新后旧）并原子回写 `~/.mcpstore/config.toml`；手动改文件仅在重启 daemon 后生效 |
-| `mcp`（聚合 server） | 独立进程（stdio 由 MCP client 拉起；streamable-http 由 daemon 按 `mcp_aggregate.enabled` 托管 1830） |
-| `tui` | embedded Kernel（remote 化依赖 Core API 事件流，二期） |
+| `mcp`（聚合 server） | stdio 默认为 thin client：进程形态保留、业务全部转发 daemon（单 kernel）；`--embedded`/显式 store 参数/instance·session 定向模式为本进程 kernel；streamable-http 由 daemon 按 `mcp_aggregate.enabled` 托管 1830 |
+| `tui` | 默认连 daemon（自动拉起），与 CLI 共用业务 op；`--embedded` 回退本进程 kernel |
 
 daemon 托管四个 HTTP 面（默认全部 `127.0.0.1`，v1 无认证，远程暴露需自行判断）：Core API `:1820`（全部业务路由，前端 core base 可切远程 daemon）、App API `:1821`（health/meta/settings/config/cache，固定本地）、Web `:1828`（静态资源 + 同源 `/api` → App 面）、聚合 MCP `:1830`（`mcp_aggregate.enabled=true` 且 streamable-http）。单面 bind 失败不致命：该面降级为未运行，kernel socket 不受影响。
 
