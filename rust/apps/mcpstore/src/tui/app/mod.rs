@@ -7,10 +7,10 @@ use std::{
 
 use crossterm::event::{KeyCode, KeyEvent};
 use mcpstore::{
-    config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
+    config::{ScopeDescriptor, ServerConfig},
     state::{ReadinessStatus, RecoveryState},
     transport::ContentItem,
-    InstanceId, ScopeRef, ServiceInstanceKey,
+    InstanceId, ScopeRef,
 };
 use ratatui::widgets::TableState;
 
@@ -104,8 +104,16 @@ pub enum PendingTask {
     UnassignAgentService,
 }
 
+fn json_error(error: serde_json::Error) -> mcpstore::Error {
+    mcpstore::Error::new(
+        mcpstore::error::FailureCode::Internal,
+        format!("响应解码失败: {error}"),
+    )
+}
+
 pub struct TuiApp {
-    pub store: std::sync::Arc<mcpstore::MCPStore>,
+    pub access: crate::store_args::StoreAccess,
+    pub app_config: mcpstore::config::AppConfig,
     pub locale: Locale,
     pub active_view: MainView,
     pub service_tab: ServiceManagementTab,
@@ -174,8 +182,19 @@ impl Drop for TuiApp {
 }
 
 impl TuiApp {
+    /// 业务 op 请求：daemon 或 embedded 同一份分发。
+    fn request(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+        operation: crate::daemon::protocol::KernelOperation,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, mcpstore::Error> {
+        rt.block_on(self.access.request(operation, payload))
+    }
+
     pub fn new(
-        store: std::sync::Arc<mcpstore::MCPStore>,
+        access: crate::store_args::StoreAccess,
+        app_config: mcpstore::config::AppConfig,
         tick_rate: Duration,
         locale: Locale,
         source_label: String,
@@ -193,14 +212,17 @@ impl TuiApp {
         .to_string();
         let mut status_history = VecDeque::new();
         status_history.push_back(format_status_history_entry(&initial_status));
-        let config_manager = store.config_manager();
-        let app_config_path = config_manager.app_config_path().display().to_string();
-        let app_config_exists = config_manager.app_config_exists();
+        let app_config_path = std::path::Path::new(&config_path)
+            .parent()
+            .map(|parent| parent.join("config.toml").display().to_string())
+            .unwrap_or_else(|| "config.toml".to_string());
+        let app_config_exists = std::path::Path::new(&app_config_path).exists();
         let install_path = std::env::current_exe()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|_| "-".to_string());
         Self {
-            store,
+            access,
+            app_config,
             locale,
             active_view: MainView::ServiceManagement,
             service_tab: ServiceManagementTab::Services,
@@ -275,7 +297,16 @@ impl TuiApp {
     }
 
     pub fn refresh_log_sources(&mut self, rt: &tokio::runtime::Runtime) {
-        let events = rt.block_on(async { self.store.event_history(100).await });
+        let events: Vec<mcpstore::Event> = match self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::EventHistory,
+            serde_json::json!({"count": 100}),
+        ) {
+            Ok(result) => {
+                serde_json::from_value(result["events"].clone()).unwrap_or_default()
+            }
+            Err(_) => Vec::new(),
+        };
         self.store_event_history = events
             .into_iter()
             .map(|event| {
@@ -290,13 +321,9 @@ impl TuiApp {
     }
 
     pub fn refresh_log_config(&mut self) {
-        let config = self
-            .store
-            .config_manager()
-            .load_app_config_or_default()
-            .ok();
+        let config = Some(&self.app_config);
         let value = |read: &dyn Fn(&mcpstore::config::AppConfig) -> String| {
-            config.as_ref().map(read).unwrap_or_else(|| "-".to_string())
+            config.map(read).unwrap_or_else(|| "-".to_string())
         };
         self.log_config = vec![
             (
@@ -322,12 +349,21 @@ impl TuiApp {
     }
 
     pub fn refresh_status_sources(&mut self, rt: &tokio::runtime::Runtime) {
-        self.status_cache_lines = match rt.block_on(async { self.store.cache_health_check().await })
-        {
+        self.status_cache_lines = match self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::CacheHealth,
+            serde_json::json!({}),
+        ) {
             Ok(value) => json_lines(&value, 160),
             Err(error) => vec![format!("cache health error: {error}")],
         };
-        let event_capability = rt.block_on(async { self.store.event_capability_report().await });
+        let event_capability = self
+            .request(
+                rt,
+                crate::daemon::protocol::KernelOperation::EventCapabilityReport,
+                serde_json::json!({}),
+            )
+            .unwrap_or(serde_json::Value::Null);
         self.status_event_lines = json_lines(&event_capability, 160);
     }
 
@@ -655,7 +691,10 @@ impl TuiApp {
         }
     }
 
-    pub fn toggle_mcp_aggregate_transport(&mut self) -> Result<(), BoxErr> {
+    pub fn toggle_mcp_aggregate_transport(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+    ) -> Result<(), BoxErr> {
         self.refresh_mcp_aggregate_status();
         if self.mcp_aggregate_running {
             self.status_message = "[提示] 请先停止 MCP 聚合 HTTP 服务".to_string();
@@ -666,10 +705,13 @@ impl TuiApp {
         } else {
             "streamable-http".to_string()
         };
-        let manager = self.store.config_manager();
-        let mut config = manager.load_app_config_or_default()?;
-        config.mcp_aggregate.transport = self.mcp_aggregate_transport.clone();
-        manager.save_app_config(&config)?;
+        rt.block_on(
+            self.access.set_daemon_config(
+                "mcp-transport",
+                serde_json::json!(self.mcp_aggregate_transport),
+            ),
+        )?;
+        self.app_config.mcp_aggregate.transport = self.mcp_aggregate_transport.clone();
         self.status_message = format!(
             "[成功] MCP 聚合默认 transport 已更新为 {}",
             self.mcp_aggregate_transport
@@ -677,7 +719,26 @@ impl TuiApp {
         Ok(())
     }
 
-    pub fn toggle_mcp_aggregate(&mut self) -> Result<(), BoxErr> {
+    pub fn toggle_mcp_aggregate(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
+        if !self.access.embedded() {
+            // daemon 模式：聚合 1830 由 daemon 托管，开关走配置热应用
+            let running = self.mcp_aggregate_running;
+            rt.block_on(
+                self.access
+                    .set_daemon_config("mcp", serde_json::json!(if running { "off" } else { "on" })),
+            )?;
+            self.mcp_aggregate_running = !running;
+            self.mcp_aggregate_pid = None;
+            self.status_message = if running {
+                "[成功] MCP 聚合服务已停止（daemon）".to_string()
+            } else {
+                format!(
+                    "[成功] MCP 聚合服务已启动（daemon）: http://127.0.0.1:{}/mcp",
+                    self.mcp_aggregate_port
+                )
+            };
+            return Ok(());
+        }
         self.refresh_mcp_aggregate_status();
         if let Some(mut child) = self.mcp_aggregate_child.take() {
             child.kill()?;
@@ -829,7 +890,7 @@ impl TuiApp {
         });
     }
 
-    pub fn handle_edit_input(&mut self, key: KeyEvent) {
+    pub fn handle_edit_input(&mut self, rt: &tokio::runtime::Runtime, key: KeyEvent) {
         match key.code {
             KeyCode::Char(c) => {
                 if let Overlay::Edit(modal) = &mut self.overlay {
@@ -845,7 +906,7 @@ impl TuiApp {
                 self.overlay = Overlay::None;
                 self.status_message = "[进行中] 已取消编辑".to_string();
             }
-            KeyCode::Enter => self.save_edit_modal(),
+            KeyCode::Enter => self.save_edit_modal(rt),
             _ => {}
         }
     }
@@ -1156,7 +1217,7 @@ impl TuiApp {
         );
     }
 
-    fn save_edit_modal(&mut self) {
+    fn save_edit_modal(&mut self, rt: &tokio::runtime::Runtime) {
         let modal = match std::mem::replace(&mut self.overlay, Overlay::None) {
             Overlay::Edit(modal) => modal,
             overlay => {
@@ -1177,26 +1238,13 @@ impl TuiApp {
                     return;
                 };
 
-                let manager = self.store.config_manager();
-                let mut config = match manager.load_app_config_or_default() {
-                    Ok(config) => config,
-                    Err(error) => {
-                        self.status_message = format!(
-                            "{} {}",
-                            i18n::text(self.locale, TextKey::StatusErrorPrefix),
-                            i18n::text_with_args(
-                                self.locale,
-                                TextKey::ReadConfigFailed,
-                                &[("error", &error.to_string())]
-                            )
-                        );
-                        self.overlay = Overlay::Edit(modal);
-                        return;
-                    }
-                };
+                let mut config = self.app_config.clone();
                 config.ui.language = locale.as_config_value().to_string();
 
-                if let Err(error) = manager.save_app_config(&config) {
+                if let Err(error) = rt.block_on(self.access.request(
+                    crate::daemon::protocol::KernelOperation::SaveAppConfig,
+                    serde_json::json!({"config": config}),
+                )) {
                     self.status_message = format!(
                         "{} {}",
                         i18n::text(self.locale, TextKey::StatusErrorPrefix),
@@ -1210,6 +1258,7 @@ impl TuiApp {
                     return;
                 }
 
+                self.app_config.ui.language = locale.as_config_value().to_string();
                 self.locale = locale;
                 self.status_message = format!(
                     "{} {}",
@@ -1441,62 +1490,21 @@ impl TuiApp {
         } else {
             ScopeRef::Store
         };
-        let definition_exists = rt
-            .block_on(async { self.store.get_definition_config(&name).await })?
-            .is_some();
-        let instance_id = if definition_exists {
-            let lifecycle = config
-                .mcpstore
-                .as_ref()
-                .and_then(|extension| extension.lifecycle.clone());
-            rt.block_on(async {
-                self.store
-                    .declare_service_scope(
-                        &name,
-                        &target_scope,
-                        ScopeDescriptor {
-                            config: config.base_config(),
-                            lifecycle,
-                            revision: 0,
-                            ..Default::default()
-                        },
-                    )
-                    .await
-            })?
-        } else {
-            let previous = config.mcpstore.take();
-            let mut scopes = ScopeDeclarations::default();
-            match &target_scope {
-                ScopeRef::Store => scopes.store = Some(ScopeDescriptor::default()),
-                ScopeRef::Agent { agent_id } => {
-                    scopes
-                        .agents
-                        .insert(agent_id.clone(), ScopeDescriptor::default());
-                }
-            }
-            config.mcpstore = Some(McpStoreExtension {
-                scopes,
-                lifecycle: previous
-                    .as_ref()
-                    .and_then(|extension| extension.lifecycle.clone()),
-                handshake_mode: previous
-                    .as_ref()
-                    .and_then(|extension| extension.handshake_mode),
-                revision: previous
-                    .as_ref()
-                    .map(|extension| extension.revision)
-                    .unwrap_or(1)
-                    .max(1),
-                extra: previous
-                    .map(|extension| extension.extra)
-                    .unwrap_or_default(),
-            });
-            rt.block_on(async { self.store.add_service(&name, config).await })?;
-            ServiceInstanceKey::new(name.clone(), target_scope.clone()).instance_id()
-        };
+        // AddService op 内部完成 def-exists → declare / add 分支（与 CLI 同一实现）
+        let result = self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::AddService,
+            serde_json::json!({"name": name, "config": config, "scope": target_scope}),
+        )?;
+        let instance_id: mcpstore::InstanceId =
+            serde_json::from_value(result["instance_id"].clone())?;
 
         let connect_result = if connect_after_add {
-            Some(rt.block_on(async { self.store.connect_service(instance_id).await }))
+            Some(self.request(
+                rt,
+                crate::daemon::protocol::KernelOperation::ConnectService,
+                serde_json::json!({"instance_id": instance_id.to_string()}),
+            ))
         } else {
             None
         };
@@ -1543,7 +1551,16 @@ impl TuiApp {
         let service = selected_tool.service_name.clone();
         let tool = selected_tool.name.clone();
         let args: serde_json::Value = serde_json::from_str(&self.tool_test_args)?;
-        let result = rt.block_on(async { self.store.call_tool(instance_id, &tool, args).await })?;
+        let result = self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::CallTool,
+            serde_json::json!({
+                "instance_id": instance_id.to_string(),
+                "tool_name": tool,
+                "args": args,
+            }),
+        )?;
+        let result: mcpstore::ToolCallResult = serde_json::from_value(result)?;
 
         self.tool_test_result = format_tool_call_result(result.is_error, &result.content);
         self.overlay = Overlay::ToolDetail;
@@ -1564,17 +1581,15 @@ impl TuiApp {
             trim_required(&self.pending_agent_id, "Agent ID").map_err(add_service_error)?;
         let service_name = trim_required(&self.pending_agent_service, "Service name")
             .map_err(add_service_error)?;
-        rt.block_on(async {
-            self.store
-                .declare_service_scope(
-                    &service_name,
-                    &ScopeRef::Agent {
-                        agent_id: agent_id.clone(),
-                    },
-                    ScopeDescriptor::default(),
-                )
-                .await
-        })?;
+        self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::DeclareServiceScope,
+            serde_json::json!({
+                "service_name": service_name,
+                "scope": ScopeRef::Agent { agent_id: agent_id.clone() },
+                "descriptor": ScopeDescriptor::default(),
+            }),
+        )?;
         self.refresh_agents(rt)?;
         self.status_message = format!("[成功] 已授权服务 {service_name} 给 Agent {agent_id}");
         Ok(())
@@ -1588,16 +1603,14 @@ impl TuiApp {
             trim_required(&self.pending_agent_id, "Agent ID").map_err(add_service_error)?;
         let service_name = trim_required(&self.pending_agent_service, "Service name")
             .map_err(add_service_error)?;
-        rt.block_on(async {
-            self.store
-                .remove_service_scope(
-                    &service_name,
-                    &ScopeRef::Agent {
-                        agent_id: agent_id.clone(),
-                    },
-                )
-                .await
-        })?;
+        self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::RemoveServiceScope,
+            serde_json::json!({
+                "service_name": service_name,
+                "scope": ScopeRef::Agent { agent_id: agent_id.clone() },
+            }),
+        )?;
         self.refresh_agents(rt)?;
         self.status_message = format!("[成功] 已解除 Agent {agent_id} 的服务 {service_name}");
         Ok(())
@@ -1706,18 +1719,30 @@ impl TuiApp {
     ) -> Result<(), BoxErr> {
         let selected_instance_id = self.current_service().map(|service| service.instance_id);
         if reload_source {
-            rt.block_on(async { self.store.load_from_source().await })?;
+            self.request(
+                rt,
+                crate::daemon::protocol::KernelOperation::LoadFromSource,
+                serde_json::json!({}),
+            )?;
         }
 
-        self.all_services = rt.block_on(async {
-            let services = self.store.list_instances().await;
-            let mut summaries = Vec::with_capacity(services.len());
-            for service in services {
-                let state = self.store.service_state_entry(service.instance_id).await?;
-                summaries.push(ServiceSummary::new(service, state));
-            }
-            Ok::<_, mcpstore::Error>(summaries)
-        })?;
+        let result = self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::ListInstances,
+            serde_json::json!({}),
+        )?;
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_value(result["instances"].clone())?;
+        self.all_services = entries
+            .into_iter()
+            .map(|entry| {
+                let service: mcpstore::ServiceInstance =
+                    serde_json::from_value(entry["instance"].clone()).map_err(json_error)?;
+                let state: mcpstore::ServiceState =
+                    serde_json::from_value(entry["state"].clone()).map_err(json_error)?;
+                Ok(ServiceSummary::new(service, state))
+            })
+            .collect::<Result<Vec<_>, mcpstore::Error>>()?;
         self.apply_filter();
         self.apply_tool_filter();
 
@@ -1835,13 +1860,35 @@ impl TuiApp {
         if self.tool_filter == ToolFilterTab::All {
             if connect {
                 for service in self.all_services.clone() {
-                    rt.block_on(async { self.store.connect_service(service.instance_id).await })
-                        .ok();
+                    self.request(
+                        rt,
+                        crate::daemon::protocol::KernelOperation::ConnectService,
+                        serde_json::json!({"instance_id": service.instance_id.to_string()}),
+                    )
+                    .ok();
                 }
                 self.refresh(rt, false)?;
             }
 
-            let tools = rt.block_on(async { self.store.list_all_tools().await });
+            let result = self
+                .request(
+                    rt,
+                    crate::daemon::protocol::KernelOperation::ListAllTools,
+                    serde_json::json!({}),
+                )
+                .unwrap_or(serde_json::json!({"tools": []}));
+            let tools: Vec<(mcpstore::InstanceId, mcpstore::ToolInfo)> = result["tools"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|entry| {
+                    Some((
+                        serde_json::from_value(entry["instance_id"].clone()).ok()?,
+                        serde_json::from_value(entry["tool"].clone()).ok()?,
+                    ))
+                })
+                .collect();
             self.service_tools = tools
                 .into_iter()
                 .map(|(instance_id, tool)| {
@@ -1873,25 +1920,28 @@ impl TuiApp {
         };
 
         if connect {
-            rt.block_on(async { self.store.connect_service(service.instance_id).await })?;
+            self.request(
+                rt,
+                crate::daemon::protocol::KernelOperation::ConnectService,
+                serde_json::json!({"instance_id": service.instance_id.to_string()}),
+            )?;
         }
 
-        let tools = rt.block_on(async {
-            self.store
-                .list_tool_entries_for_instance_with_filter(
-                    service.instance_id,
-                    mcpstore::ToolVisibilityFilter::Available,
-                )
-                .await
-        })?;
+        let result = self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::ListTools,
+            serde_json::json!({"instance_id": service.instance_id.to_string()}),
+        )?;
+        let tools: Vec<serde_json::Value> =
+            serde_json::from_value(result["tools"].clone())?;
         self.service_tools = tools
             .into_iter()
             .map(|tool| ToolSummary {
                 instance_id: service.instance_id,
-                name: tool.name,
+                name: tool["name"].as_str().unwrap_or("?").to_string(),
                 service_name: service.name.clone(),
-                description: tool.description,
-                input_schema: tool.input_schema,
+                description: tool["description"].as_str().unwrap_or("").to_string(),
+                input_schema: tool.get("schema").cloned().unwrap_or(serde_json::Value::Null),
             })
             .collect();
 
@@ -1964,9 +2014,16 @@ impl TuiApp {
             return Ok(());
         };
 
-        let status = rt
-            .block_on(async { self.store.health_check(service.instance_id).await })
-            .ok();
+        let status = self
+            .request(
+                rt,
+                crate::daemon::protocol::KernelOperation::HealthCheck,
+                serde_json::json!({"instance_id": service.instance_id.to_string()}),
+            )
+            .ok()
+            .and_then(|result| {
+                serde_json::from_value::<mcpstore::ServiceState>(result["state"].clone()).ok()
+            });
         let scope = match &service.scope {
             ScopeRef::Store => "store".to_string(),
             ScopeRef::Agent { agent_id } => format!("agent: {agent_id}"),
@@ -2143,7 +2200,11 @@ impl TuiApp {
             self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
-        rt.block_on(async { self.store.connect_service(service.instance_id).await })?;
+        self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::ConnectService,
+            serde_json::json!({"instance_id": service.instance_id.to_string()}),
+        )?;
         self.refresh(rt, false)?;
         self.status_message = format!("[成功] 已连接服务 {}", service.name);
         Ok(())
@@ -2154,7 +2215,11 @@ impl TuiApp {
             self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
-        rt.block_on(async { self.store.disconnect_service(service.instance_id).await })?;
+        self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::DisconnectService,
+            serde_json::json!({"instance_id": service.instance_id.to_string()}),
+        )?;
         self.refresh(rt, false)?;
         self.status_message = format!("[成功] 已断开服务 {}", service.name);
         Ok(())
@@ -2165,7 +2230,11 @@ impl TuiApp {
             self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
-        rt.block_on(async { self.store.restart_service(service.instance_id).await })?;
+        self.request(
+            rt,
+            crate::daemon::protocol::KernelOperation::RestartService,
+            serde_json::json!({"instance_id": service.instance_id.to_string()}),
+        )?;
         self.refresh(rt, false)?;
         self.status_message = format!("[成功] 已重启服务 {}", service.name);
         Ok(())
@@ -2193,7 +2262,11 @@ impl TuiApp {
             scope,
         }) = overlay
         {
-            rt.block_on(async { self.store.remove_service_scope(&service_name, &scope).await })?;
+            self.request(
+                rt,
+                crate::daemon::protocol::KernelOperation::RemoveServiceScope,
+                serde_json::json!({"service_name": service_name, "scope": scope}),
+            )?;
             self.refresh(rt, false)?;
             self.status_message = format!("[成功] 已删除服务作用域 {service_name}");
         }

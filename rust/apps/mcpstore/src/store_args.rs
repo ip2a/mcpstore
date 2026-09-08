@@ -191,4 +191,31 @@ impl StoreAccess {
             Self::Remote(client) => Some(client),
         }
     }
+
+    pub fn embedded(&self) -> bool {
+        matches!(self, Self::Embedded(_))
+    }
+
+    /// daemon 配置 key 修改（§7 key 表）：remote 走 daemon 热应用；
+    /// embedded 校验（planner）后落盘，下次启动生效。
+    pub async fn set_daemon_config(
+        &mut self,
+        key: &str,
+        value: Value,
+    ) -> mcpstore::Result<Value> {
+        match self {
+            Self::Embedded(store) => {
+                let manager = store.config_manager();
+                let mut config = manager
+                    .load_app_config_or_default()
+                    .map_err(crate::daemon::ops::config_error)?;
+                crate::daemon::ops::plan_config_change(&mut config, key, &value)?;
+                manager
+                    .save_app_config(&config)
+                    .map_err(crate::daemon::ops::config_error)?;
+                Ok(serde_json::json!({"applied": "saved", "key": key}))
+            }
+            Self::Remote(client) => client.set_daemon_config(key, value).await,
+        }
+    }
 }

@@ -114,6 +114,20 @@ pub enum KernelOperation {
     TaskResult,
     TaskCancel,
     SwapStore,
+    ListInstances,
+    ListAllTools,
+    EventHistory,
+    EventCapabilityReport,
+    CacheHealth,
+    HealthCheck,
+    GetDefinitionConfig,
+    LoadFromSource,
+    GetAppConfig,
+    SaveAppConfig,
+    ListScopeTools,
+    ListScopeResources,
+    ListScopeResourceTemplates,
+    ListScopePrompts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

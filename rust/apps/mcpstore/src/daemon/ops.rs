@@ -1,7 +1,9 @@
 //! 业务 op 分发：daemon socket 与 CLI embedded 进程共用同一份实现
 //! （单业务协议、双执行位置）。daemon 管理面（status/config/stop）在 server.rs。
 
-use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
+use mcpstore::config::{
+    AppConfig, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+};
 use mcpstore::error::{Error, FailureCode};
 use mcpstore::{AuthFlow, InstanceId, McpCompletionRequest, MCPStore, ScopeRef};
 use serde_json::{json, Value};
@@ -288,6 +290,90 @@ pub(crate) async fn execute(
             let result = store.swap_store(&target).await?;
             Ok(json!({"target_store": result.target_store, "copied": result.copied}))
         }
+        KernelOperation::ListInstances => {
+            let instances = store.list_instances().await;
+            let mut data = Vec::with_capacity(instances.len());
+            for instance in instances {
+                let state = store.service_state_entry(instance.instance_id).await?;
+                data.push(json!({"instance": instance, "state": state}));
+            }
+            Ok(json!({"instances": data, "total": data.len()}))
+        }
+        KernelOperation::ListAllTools => {
+            let tools: Vec<Value> = store
+                .list_all_tools()
+                .await
+                .into_iter()
+                .map(|(instance_id, tool)| json!({"instance_id": instance_id, "tool": tool}))
+                .collect();
+            Ok(json!({"tools": tools, "total": tools.len()}))
+        }
+        KernelOperation::EventHistory => {
+            let count = payload.get("count").and_then(Value::as_u64).unwrap_or(100) as usize;
+            Ok(json!({"events": store.event_history(count).await}))
+        }
+        KernelOperation::EventCapabilityReport => Ok(store.event_capability_report().await),
+        KernelOperation::CacheHealth => store.cache_health_check().await,
+        KernelOperation::HealthCheck => {
+            let instance_id = instance_id(&payload)?;
+            Ok(json!({"state": store.health_check(instance_id).await?}))
+        }
+        KernelOperation::GetDefinitionConfig => {
+            let name = required_str(&payload, "name")?;
+            Ok(json!({"config": store.get_definition_config(&name).await?}))
+        }
+        KernelOperation::LoadFromSource => {
+            store.load_from_source().await?;
+            Ok(json!({"status": "ok"}))
+        }
+        KernelOperation::GetAppConfig => {
+            let manager = store.config_manager();
+            let config = manager
+                .load_app_config_or_default()
+                .map_err(config_error)?;
+            Ok(json!({
+                "config": config,
+                "mcp_path": manager.mcp_path().display().to_string(),
+                "current_store_name": store.current_store_name().await,
+                "namespace": store.namespace(),
+            }))
+        }
+        KernelOperation::SaveAppConfig => {
+            // server/mcp_aggregate 是 daemon 热应用面，必须走 config --<key>；其余段整体保存
+            let new_config = payload_field::<AppConfig>(&payload, "config")?;
+            let manager = store.config_manager();
+            let current = manager
+                .load_app_config_or_default()
+                .map_err(config_error)?;
+            if serde_json::to_value(&new_config.server).unwrap_or(Value::Null)
+                != serde_json::to_value(&current.server).unwrap_or(Value::Null)
+                || serde_json::to_value(&new_config.mcp_aggregate).unwrap_or(Value::Null)
+                    != serde_json::to_value(&current.mcp_aggregate).unwrap_or(Value::Null)
+            {
+                return Err(Error::new(
+                    FailureCode::InvalidInput,
+                    "server/mcp_aggregate 段是 daemon 热应用配置，请用 mcpstore config --<key> <value> 修改",
+                ));
+            }
+            manager.save_app_config(&new_config).map_err(config_error)?;
+            Ok(json!({"saved": true}))
+        }
+        KernelOperation::ListScopeTools => {
+            let scope = payload_field::<ScopeRef>(&payload, "scope")?;
+            Ok(json!({"tools": store.list_tools_scoped(&scope).await?}))
+        }
+        KernelOperation::ListScopeResources => {
+            let scope = payload_field::<ScopeRef>(&payload, "scope")?;
+            Ok(json!({"resources": store.list_resources_scoped(&scope).await?}))
+        }
+        KernelOperation::ListScopeResourceTemplates => {
+            let scope = payload_field::<ScopeRef>(&payload, "scope")?;
+            Ok(json!({"templates": store.list_resource_templates_scoped(&scope).await?}))
+        }
+        KernelOperation::ListScopePrompts => {
+            let scope = payload_field::<ScopeRef>(&payload, "scope")?;
+            Ok(json!({"prompts": store.list_prompts_scoped(&scope).await?}))
+        }
         KernelOperation::SubscribeEvents
         | KernelOperation::StreamToolExecution
         | KernelOperation::StopHost
@@ -297,6 +383,13 @@ pub(crate) async fn execute(
             unreachable!("stream/admin operations are handled by the daemon server")
         }
     }
+}
+
+pub(crate) fn config_error(error: mcpstore::config::ConfigError) -> Error {
+    Error::new(
+        FailureCode::InvalidInput,
+        format!("config.toml 操作失败: {error}"),
+    )
 }
 
 pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Value, Error> {
@@ -348,7 +441,12 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
     } else {
         store.add_service(&name, config).await?;
     }
-    Ok(json!({"service_name": name, "scope": scope}))
+    let instance_id = mcpstore::ServiceInstanceKey::new(name.clone(), scope.clone()).instance_id();
+    Ok(json!({
+        "service_name": name,
+        "scope": scope,
+        "instance_id": instance_id,
+    }))
 }
 
 async fn auth_begin(store: &MCPStore, payload: Value) -> Result<Value, Error> {
@@ -412,6 +510,163 @@ pub(crate) fn instance_id(payload: &Value) -> Result<InstanceId, Error> {
             Error::new(
                 FailureCode::InvalidInput,
                 format!("invalid instance_id: {error}"),
+            )
+        })
+}
+
+/// 配置 key 表（设计文档 §7）：把单 key 修改应用到 AppConfig，
+/// 返回受影响面的目标端口（Some=起/重绑，None=停；空=仅改配置无面变更）。
+pub(crate) fn plan_config_change(
+    config: &mut AppConfig,
+    key: &str,
+    value: &Value,
+) -> Result<Vec<(crate::daemon::listeners::ListenerKey, Option<u16>)>, Error> {
+    use crate::daemon::listeners::ListenerKey;
+
+    fn aggregate_target(config: &AppConfig) -> Option<u16> {
+        (config.mcp_aggregate.enabled && config.mcp_aggregate.transport == "streamable-http")
+            .then_some(config.mcp_aggregate.port)
+    }
+
+    let server = &mut config.server;
+    match key {
+        "host" => {
+            let host = required_str_value(value, "host")?;
+            if host.trim().is_empty() {
+                return Err(Error::new(FailureCode::InvalidInput, "host 不能为空"));
+            }
+            let mut planned = Vec::new();
+            if server.core_enabled {
+                planned.push((ListenerKey::Core, Some(server.port)));
+            }
+            if server.app_enabled {
+                planned.push((ListenerKey::App, Some(server.app_port)));
+            }
+            if server.web_enabled {
+                planned.push((ListenerKey::Web, Some(server.web_port)));
+            }
+            server.host = host;
+            let aggregate = aggregate_target(config);
+            if aggregate.is_some() {
+                planned.push((ListenerKey::Aggregate, aggregate));
+            }
+            Ok(planned)
+        }
+        "core" => {
+            let on = parse_switch(value, "core")?;
+            server.core_enabled = on;
+            Ok(vec![(ListenerKey::Core, on.then_some(server.port))])
+        }
+        "core-port" => {
+            let port = parse_port(value, "core-port")?;
+            server.port = port;
+            Ok(server
+                .core_enabled
+                .then_some(vec![(ListenerKey::Core, Some(port))])
+                .unwrap_or_default())
+        }
+        "app" => {
+            let on = parse_switch(value, "app")?;
+            server.app_enabled = on;
+            Ok(vec![(ListenerKey::App, on.then_some(server.app_port))])
+        }
+        "app-port" => {
+            let port = parse_port(value, "app-port")?;
+            server.app_port = port;
+            Ok(server
+                .app_enabled
+                .then_some(vec![(ListenerKey::App, Some(port))])
+                .unwrap_or_default())
+        }
+        "web" => {
+            let on = parse_switch(value, "web")?;
+            server.web_enabled = on;
+            Ok(vec![(ListenerKey::Web, on.then_some(server.web_port))])
+        }
+        "web-port" => {
+            let port = parse_port(value, "web-port")?;
+            server.web_port = port;
+            Ok(server
+                .web_enabled
+                .then_some(vec![(ListenerKey::Web, Some(port))])
+                .unwrap_or_default())
+        }
+        "mcp" => {
+            let on = parse_switch(value, "mcp")?;
+            config.mcp_aggregate.enabled = on;
+            let target = aggregate_target(config);
+            if on && target.is_none() {
+                return Err(Error::new(
+                    FailureCode::InvalidInput,
+                    "mcp 聚合监听要求 transport=streamable-http；先 --mcp-transport streamable-http",
+                ));
+            }
+            Ok(vec![(ListenerKey::Aggregate, target)])
+        }
+        "mcp-port" => {
+            let port = parse_port(value, "mcp-port")?;
+            config.mcp_aggregate.port = port;
+            Ok(aggregate_target(config)
+                .map(|_| vec![(ListenerKey::Aggregate, Some(port))])
+                .unwrap_or_default())
+        }
+        "mcp-transport" => {
+            let transport = required_str_value(value, "mcp-transport")?;
+            if !matches!(transport.as_str(), "stdio" | "streamable-http") {
+                return Err(Error::new(
+                    FailureCode::InvalidInput,
+                    format!("mcp-transport 必须是 stdio 或 streamable-http，得到 {transport}"),
+                ));
+            }
+            config.mcp_aggregate.transport = transport;
+            Ok(config
+                .mcp_aggregate
+                .enabled
+                .then_some(vec![(ListenerKey::Aggregate, aggregate_target(config))])
+                .unwrap_or_default())
+        }
+        other => Err(Error::new(
+            FailureCode::InvalidInput,
+            format!(
+                "未知配置 key {other:?}；可用：host, core, core-port, app, app-port, web, web-port, mcp, mcp-port, mcp-transport"
+            ),
+        )),
+    }
+}
+
+pub(crate) fn required_str_value(value: &Value, field: &str) -> Result<String, Error> {
+    value
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::InvalidInput,
+                format!("{field} 需要非空字符串"),
+            )
+        })
+}
+
+pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
+    match value.as_str() {
+        Some("on") | Some("true") => Ok(true),
+        Some("off") | Some("false") => Ok(false),
+        other => Err(Error::new(
+            FailureCode::InvalidInput,
+            format!("{field} 需要 on/off，得到 {other:?}"),
+        )),
+    }
+}
+
+pub(crate) fn parse_port(value: &Value, field: &str) -> Result<u16, Error> {
+    value
+        .as_u64()
+        .and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port > 0)
+        .ok_or_else(|| {
+            Error::new(
+                FailureCode::InvalidInput,
+                format!("{field} 需要 1-65535 的端口号"),
             )
         })
 }

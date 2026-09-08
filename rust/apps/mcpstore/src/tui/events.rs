@@ -23,7 +23,7 @@ pub fn handle_key(
     }
 
     if matches!(&app.overlay, Overlay::Edit(_)) {
-        app.handle_edit_input(key);
+        app.handle_edit_input(rt, key);
         return Ok(());
     }
 
@@ -69,7 +69,7 @@ pub fn handle_key(
     }
 
     if app.active_view == MainView::Settings && app.focus_area == FocusArea::ViewTable {
-        return handle_settings_content_key(app, key);
+        return handle_settings_content_key(app, rt, key);
     }
 
     if app.active_view == MainView::Logs && app.focus_area == FocusArea::ViewTable {
@@ -346,7 +346,11 @@ fn handle_service_management_content_key(
     }
 }
 
-fn handle_settings_content_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), BoxErr> {
+fn handle_settings_content_key(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
     match key.code {
         KeyCode::Left | KeyCode::Char('h') => app.focus_settings_menu(),
         KeyCode::Right | KeyCode::Char('l') => app.focus_settings_detail(),
@@ -369,7 +373,7 @@ fn handle_settings_content_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), Bo
         KeyCode::Enter => {
             if app.settings_pane == SettingsPane::Detail {
                 if app.settings_section == SettingsSection::McpAggregate {
-                    app.toggle_mcp_aggregate()?;
+                    app.toggle_mcp_aggregate(rt)?;
                 } else {
                     app.open_settings_editor();
                 }
@@ -382,7 +386,7 @@ fn handle_settings_content_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), Bo
             app.status_message = "[成功] MCP 聚合状态已刷新".to_string();
         }
         KeyCode::Char('t') if app.settings_section == SettingsSection::McpAggregate => {
-            app.toggle_mcp_aggregate_transport()?;
+            app.toggle_mcp_aggregate_transport(rt)?;
         }
         _ => {}
     }

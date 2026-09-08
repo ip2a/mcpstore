@@ -79,7 +79,8 @@ pub fn run() -> Result<(), BoxErr> {
 
     // TUI runs its own blocking event loop and creates its own runtime,
     // so it must be handled outside the async block to avoid nested runtimes.
-    if let Commands::Tui(args) = cli.command {
+    if let Commands::Tui(mut args) = cli.command {
+        args.embedded = args.embedded || cli.embedded;
         return crate::tui::run_from_args(&args);
     }
 

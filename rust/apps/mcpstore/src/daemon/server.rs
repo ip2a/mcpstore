@@ -3,14 +3,13 @@ use std::time::{Duration, Instant};
 
 use mcpstore::error::{Error, FailureCode};
 use mcpstore::{
-    AppConfig, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate,
-    McpStoreToolExecutionHandle,
+    MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpStoreToolExecutionHandle,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
 
-use crate::daemon::ops::{instance_id, required_str};
+use crate::daemon::ops::{config_error, instance_id, plan_config_change, required_str};
 use crate::daemon::protocol::{
     deadline, default_pid_path, HandshakeRequest, KernelError, KernelEvent, KernelOperation,
     KernelRequest, KernelResponse,
@@ -350,174 +349,10 @@ async fn set_daemon_config(host: &DaemonHost, payload: Value) -> Result<Value, E
     manager.save_app_config(&config).map_err(config_error)?;
     Ok(json!({"applied": "hot", "key": key}))
 }
-
-fn config_error(error: mcpstore::config::ConfigError) -> Error {
-    Error::new(
-        FailureCode::InvalidInput,
-        format!("config.toml 操作失败: {error}"),
-    )
-}
-
-/// 配置 key 表（设计文档 §7）：把单 key 修改应用到 AppConfig，
-/// 返回受影响面的目标端口（Some=起/重绑，None=停；空=仅改配置无面变更）。
-fn plan_config_change(
-    config: &mut AppConfig,
-    key: &str,
-    value: &Value,
-) -> Result<Vec<(crate::daemon::listeners::ListenerKey, Option<u16>)>, Error> {
-    use crate::daemon::listeners::ListenerKey;
-
-    fn aggregate_target(config: &AppConfig) -> Option<u16> {
-        (config.mcp_aggregate.enabled && config.mcp_aggregate.transport == "streamable-http")
-            .then_some(config.mcp_aggregate.port)
-    }
-
-    let server = &mut config.server;
-    match key {
-        "host" => {
-            let host = required_str_value(value, "host")?;
-            if host.trim().is_empty() {
-                return Err(Error::new(FailureCode::InvalidInput, "host 不能为空"));
-            }
-            let mut planned = Vec::new();
-            if server.core_enabled {
-                planned.push((ListenerKey::Core, Some(server.port)));
-            }
-            if server.app_enabled {
-                planned.push((ListenerKey::App, Some(server.app_port)));
-            }
-            if server.web_enabled {
-                planned.push((ListenerKey::Web, Some(server.web_port)));
-            }
-            server.host = host;
-            let aggregate = aggregate_target(config);
-            if aggregate.is_some() {
-                planned.push((ListenerKey::Aggregate, aggregate));
-            }
-            Ok(planned)
-        }
-        "core" => {
-            let on = parse_switch(value, "core")?;
-            server.core_enabled = on;
-            Ok(vec![(ListenerKey::Core, on.then_some(server.port))])
-        }
-        "core-port" => {
-            let port = parse_port(value, "core-port")?;
-            server.port = port;
-            Ok(server
-                .core_enabled
-                .then_some(vec![(ListenerKey::Core, Some(port))])
-                .unwrap_or_default())
-        }
-        "app" => {
-            let on = parse_switch(value, "app")?;
-            server.app_enabled = on;
-            Ok(vec![(ListenerKey::App, on.then_some(server.app_port))])
-        }
-        "app-port" => {
-            let port = parse_port(value, "app-port")?;
-            server.app_port = port;
-            Ok(server
-                .app_enabled
-                .then_some(vec![(ListenerKey::App, Some(port))])
-                .unwrap_or_default())
-        }
-        "web" => {
-            let on = parse_switch(value, "web")?;
-            server.web_enabled = on;
-            Ok(vec![(ListenerKey::Web, on.then_some(server.web_port))])
-        }
-        "web-port" => {
-            let port = parse_port(value, "web-port")?;
-            server.web_port = port;
-            Ok(server
-                .web_enabled
-                .then_some(vec![(ListenerKey::Web, Some(port))])
-                .unwrap_or_default())
-        }
-        "mcp" => {
-            let on = parse_switch(value, "mcp")?;
-            config.mcp_aggregate.enabled = on;
-            let target = aggregate_target(config);
-            if on && target.is_none() {
-                return Err(Error::new(
-                    FailureCode::InvalidInput,
-                    "mcp 聚合监听要求 transport=streamable-http；先 --mcp-transport streamable-http",
-                ));
-            }
-            Ok(vec![(ListenerKey::Aggregate, target)])
-        }
-        "mcp-port" => {
-            let port = parse_port(value, "mcp-port")?;
-            config.mcp_aggregate.port = port;
-            Ok(aggregate_target(config)
-                .map(|_| vec![(ListenerKey::Aggregate, Some(port))])
-                .unwrap_or_default())
-        }
-        "mcp-transport" => {
-            let transport = required_str_value(value, "mcp-transport")?;
-            if !matches!(transport.as_str(), "stdio" | "streamable-http") {
-                return Err(Error::new(
-                    FailureCode::InvalidInput,
-                    format!("mcp-transport 必须是 stdio 或 streamable-http，得到 {transport}"),
-                ));
-            }
-            config.mcp_aggregate.transport = transport;
-            Ok(config
-                .mcp_aggregate
-                .enabled
-                .then_some(vec![(ListenerKey::Aggregate, aggregate_target(config))])
-                .unwrap_or_default())
-        }
-        other => Err(Error::new(
-            FailureCode::InvalidInput,
-            format!(
-                "未知配置 key {other:?}；可用：host, core, core-port, app, app-port, web, web-port, mcp, mcp-port, mcp-transport"
-            ),
-        )),
-    }
-}
-
-fn required_str_value(value: &Value, field: &str) -> Result<String, Error> {
-    value
-        .as_str()
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| {
-            Error::new(
-                FailureCode::InvalidInput,
-                format!("{field} 需要非空字符串"),
-            )
-        })
-}
-
-fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
-    match value.as_str() {
-        Some("on") | Some("true") => Ok(true),
-        Some("off") | Some("false") => Ok(false),
-        other => Err(Error::new(
-            FailureCode::InvalidInput,
-            format!("{field} 需要 on/off，得到 {other:?}"),
-        )),
-    }
-}
-
-fn parse_port(value: &Value, field: &str) -> Result<u16, Error> {
-    value
-        .as_u64()
-        .and_then(|port| u16::try_from(port).ok())
-        .filter(|port| *port > 0)
-        .ok_or_else(|| {
-            Error::new(
-                FailureCode::InvalidInput,
-                format!("{field} 需要 1-65535 的端口号"),
-            )
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mcpstore::AppConfig;
 
     fn config() -> AppConfig {
         AppConfig::default()
