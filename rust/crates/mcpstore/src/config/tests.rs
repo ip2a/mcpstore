@@ -579,3 +579,37 @@ fn test_add_examples_only_inserts_missing_entries() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn test_server_settings_daemon_surfaces_default() {
+    let server = ServerSettings::default();
+    assert_eq!(server.host, "127.0.0.1");
+    assert_eq!(server.port, 1820);
+    assert_eq!(server.app_port, 1821);
+    assert_eq!(server.web_port, 1828);
+    assert!(server.core_enabled);
+    assert!(server.app_enabled);
+    assert!(server.web_enabled);
+    assert!(!server.auto_open_browser);
+    assert!(!McpAggregateConfig::default().enabled);
+}
+
+#[test]
+fn test_save_app_config_round_trips_without_tmp_residue() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    let mut config = AppConfig::default();
+    config.server.web_port = 1829;
+    config.mcp_aggregate.enabled = true;
+    mgr.save_app_config(&config).unwrap();
+
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(loaded.server.web_port, 1829);
+    assert!(loaded.mcp_aggregate.enabled);
+    assert_eq!(loaded.server.app_port, 1821);
+    assert!(!mgr.app_config_path().with_extension("toml.tmp").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+}

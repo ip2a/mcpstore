@@ -63,6 +63,8 @@ pub struct McpAggregateConfig {
     pub transport: String,
     #[serde(default = "default_mcp_aggregate_port")]
     pub port: u16,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl Default for McpAggregateConfig {
@@ -70,6 +72,7 @@ impl Default for McpAggregateConfig {
         Self {
             transport: default_mcp_aggregate_transport(),
             port: default_mcp_aggregate_port(),
+            enabled: false,
         }
     }
 }
@@ -168,8 +171,16 @@ pub struct ServerSettings {
     pub host: String,
     #[serde(default = "default_server_port")]
     pub port: u16,
+    #[serde(default = "default_app_port")]
+    pub app_port: u16,
     #[serde(default = "default_web_port")]
     pub web_port: u16,
+    #[serde(default = "default_true")]
+    pub core_enabled: bool,
+    #[serde(default = "default_true")]
+    pub app_enabled: bool,
+    #[serde(default = "default_true")]
+    pub web_enabled: bool,
     #[serde(default)]
     pub reload: bool,
     #[serde(default)]
@@ -187,7 +198,11 @@ impl Default for ServerSettings {
         Self {
             host: default_server_host(),
             port: default_server_port(),
+            app_port: default_app_port(),
             web_port: default_web_port(),
+            core_enabled: true,
+            app_enabled: true,
+            web_enabled: true,
             reload: false,
             auto_open_browser: false,
             show_startup_info: true,
