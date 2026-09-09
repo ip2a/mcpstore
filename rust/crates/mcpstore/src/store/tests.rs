@@ -8332,6 +8332,25 @@ mod control_reactor_tests {
     }
 
     #[tokio::test]
+    async fn cache_identity_separates_backends_and_namespaces() {
+        let path = temp_config_path();
+        let options = |namespace: &str| StoreOptions {
+            config_path: Some(path.clone()),
+            source_mode: SourceMode::Local,
+            node_mode: NodeMode::ControlPlane,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some(namespace.to_string()),
+        };
+        let first = MCPStore::setup_with_options(options("tenant-a")).unwrap();
+        let second = MCPStore::setup_with_options(options("tenant-a")).unwrap();
+        let third = MCPStore::setup_with_options(options("tenant-b")).unwrap();
+        assert_eq!(first.cache_identity().await, second.cache_identity().await);
+        assert_ne!(first.cache_identity().await, third.cache_identity().await);
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
     async fn swap_store_memory_to_redis_db9_and_back() {
         let Ok(url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
             return;

@@ -221,6 +221,27 @@ impl StoreAccess {
         matches!(self, Self::Embedded(_))
     }
 
+    pub async fn cache_identity(&mut self) -> Result<String, BoxErr> {
+        match self {
+            Self::Embedded(store) => Ok(store.cache_identity().await),
+            Self::Remote(client) => {
+                let (result, _) = client
+                    .request(
+                        crate::daemon::protocol::KernelOperation::GetAppConfig,
+                        serde_json::json!({}),
+                        crate::daemon::protocol::DEFAULT_REQUEST_TIMEOUT,
+                    )
+                    .await?;
+                let store_name = result["current_store_name"].as_str().unwrap_or("memory");
+                let namespace = result["namespace"].as_str().unwrap_or_default();
+                let serialized = result["config"]["cache"]["config"].to_string();
+                let serialized = format!("{store_name}:{serialized}:{namespace}");
+                let hash = blake3::hash(serialized.as_bytes());
+                Ok(hash.to_hex().to_string())
+            }
+        }
+    }
+
     /// daemon 配置 key 修改（§7 key 表）：remote 走 daemon 热应用；
     /// embedded 校验（planner）后落盘，下次启动生效。
     pub async fn set_daemon_config(&mut self, key: &str, value: Value) -> mcpstore::Result<Value> {

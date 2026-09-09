@@ -1342,9 +1342,13 @@ async fn resolve_target(
     if let Ok(instance_id) = InstanceId::from_str(target) {
         return Ok(instance_id);
     }
+    let identity = access
+        .cache_identity()
+        .await
+        .map_err(|e| ResolveError::Backend(e.to_string()))?;
     let scope_name = scope_label(scope);
     let cache_key = scope_cache_key(scope);
-    if let Some(cached) = crate::schema_cache::load_target(&cache_key, target) {
+    if let Some(cached) = crate::schema_cache::load_target(&identity, &cache_key, target) {
         if let Ok(instance_id) = InstanceId::from_str(&cached) {
             return Ok(instance_id);
         }
@@ -1361,7 +1365,7 @@ async fn resolve_target(
             .map(str::to_string)
     });
     if let Some(id) = &instance_id {
-        crate::schema_cache::save_target(&cache_key, target, id);
+        crate::schema_cache::save_target(&identity, &cache_key, target, id);
     }
     instance_id
         .and_then(|id| InstanceId::from_str(&id).ok())
@@ -1387,7 +1391,14 @@ async fn load_tool_input_schema(
     instance_id: InstanceId,
     tool_name: &str,
 ) -> mcpstore::Result<Option<Value>> {
-    if let Some(cached) = crate::schema_cache::load(&instance_id.to_string()) {
+    let identity = access.cache_identity().await.map_err(|error| {
+        call_error_from_store(
+            mcpstore::Error::new(mcpstore::FailureCode::ServiceUnavailable, error.to_string()),
+            instance_id,
+            tool_name,
+        )
+    })?;
+    if let Some(cached) = crate::schema_cache::load(&identity, &instance_id.to_string()) {
         if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
             return Ok(Some(schema));
         }
@@ -1404,7 +1415,7 @@ async fn load_tool_input_schema(
         .iter()
         .map(|tool| json!({ "name": tool["name"], "schema": tool["schema"] }))
         .collect();
-    crate::schema_cache::save(&instance_id.to_string(), &tools_json);
+    crate::schema_cache::save(&identity, &instance_id.to_string(), &tools_json);
     Ok(tools
         .iter()
         .find(|tool| tool["name"].as_str() == Some(tool_name))
