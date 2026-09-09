@@ -1,5 +1,7 @@
 use clap::{Args, ValueEnum};
-use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
+use mcpstore::config::{
+    ExecutionPolicy, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+};
 use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -153,6 +155,10 @@ pub struct AddArgs {
         help = "Client handshake mode: initialize (default), auto, or discover"
     )]
     pub handshake: Option<HandshakeArg>,
+    #[arg(long, help = "Default execution target: local or daemon")]
+    pub default_execute_on: Option<mcpstore::config::ExecutionTarget>,
+    #[arg(long, help = "Allowed execution targets; repeatable")]
+    pub allow_execute_on: Vec<mcpstore::config::ExecutionTarget>,
 }
 
 pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
@@ -171,6 +177,16 @@ pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> 
     if let Some(handshake) = a.handshake.as_ref().map(|h| h.to_mode()) {
         let extension = config.mcpstore.get_or_insert_with(Default::default);
         extension.handshake_mode = Some(handshake);
+    }
+    if a.default_execute_on.is_some() || !a.allow_execute_on.is_empty() {
+        let extension = config.mcpstore.get_or_insert_with(Default::default);
+        extension.execution_policy = Some(ExecutionPolicy {
+            default_target: a
+                .default_execute_on
+                .unwrap_or(mcpstore::config::ExecutionTarget::Local),
+            allowed_targets: a.allow_execute_on.clone(),
+            required_capabilities: Vec::new(),
+        });
     }
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     if let ScopeRef::Agent { agent_id } = &scope {
@@ -1979,6 +1995,44 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("not allowed"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn add_declares_execution_policy() {
+        let path = std::env::temp_dir().join(format!("mcpstore-add-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        let config_path = path.join("mcp.json");
+        let args = AddArgs {
+            name: "browser".into(),
+            command_or_url: Some("echo".into()),
+            args: vec!["fixture".into()],
+            transport: Some("stdio".into()),
+            store: StoreSourceArgs {
+                config_path: Some(config_path.to_str().unwrap().into()),
+                source: crate::store_args::SourceArg::Local,
+                store: None,
+                store_config: None,
+                namespace: None,
+            },
+            env: Vec::new(),
+            header: Vec::new(),
+            scope: Scope::Store,
+            agent: None,
+            handshake: None,
+            default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
+            allow_execute_on: vec![mcpstore::config::ExecutionTarget::Local],
+        };
+        add(args, true).await.unwrap();
+        let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+        store.load_from_source().await.unwrap();
+        let definition = store.find_definition("browser").await.unwrap();
+        assert_eq!(
+            definition
+                .execution_policy
+                .map(|policy| policy.default_target),
+            Some(mcpstore::config::ExecutionTarget::Local)
+        );
+        std::fs::remove_dir_all(path).ok();
     }
 
     #[test]
