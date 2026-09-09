@@ -105,10 +105,9 @@ impl MCPStore {
         self.kernel
             .persistence
             .cache
-            .compare_and_put_event(
+            .put_event(
                 CONTROL_REQUEST_EVENT_TYPE,
                 &event_id,
-                None,
                 serde_json::to_value(request)
                     .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             )

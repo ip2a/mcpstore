@@ -184,6 +184,133 @@ async fn stream_execution_emits_started_progress_and_finished() -> TestResult<()
 }
 
 #[tokio::test]
+async fn redis_dataplane_queue_is_consumed_by_control_plane_daemon() -> TestResult<()> {
+    let _guard = HOST_TEST_LOCK.lock().unwrap();
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        eprintln!("skipping redis integration test: MCPSTORE_TEST_REDIS_URL is not set");
+        return Ok(());
+    };
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let namespace = format!("mcpstore-dataplane-redis-{nanos}");
+    let fixture = HostFixture::start_redis(RedisHostSource {
+        url: redis_url.clone(),
+        namespace: namespace.clone(),
+    })
+    .await?;
+    let result = dataplane_queue_consumed_by_daemon(fixture, redis_url, namespace).await;
+    result
+}
+
+async fn dataplane_queue_consumed_by_daemon(
+    fixture: HostFixture,
+    redis_url: String,
+    namespace: String,
+) -> TestResult<()> {
+    let source_args = [
+        "--source".to_string(),
+        "db".to_string(),
+        "--store".to_string(),
+        "redis".to_string(),
+        "--store-config".to_string(),
+        format!(r#"{{"url":"{redis_url}"}}"#),
+        "--namespace".to_string(),
+        namespace,
+        "--node-mode".to_string(),
+        "data".to_string(),
+    ];
+    let mut add_args = vec![
+        "add".to_string(),
+        "shared-service".to_string(),
+        "--transport".to_string(),
+        "stdio".to_string(),
+    ];
+    add_args.extend(source_args.iter().cloned());
+    add_args.extend([
+        "--".to_string(),
+        "python3".to_string(),
+        fixture_script().display().to_string(),
+    ]);
+    let add = run_cli(&add_args)?;
+    assert!(add.status.success(), "data-plane add failed: {add:?}");
+    let request_id = queued_request_id(&add)?;
+    wait_for_applied(&request_id, &source_args)?;
+
+    let mut connect_args = vec![
+        "connect".to_string(),
+        "shared-service".to_string(),
+        "--output".to_string(),
+        "json".to_string(),
+    ];
+    connect_args.extend(source_args.clone());
+    let connect = run_cli(&connect_args)?;
+    assert!(
+        connect.status.success(),
+        "data-plane connect failed: {connect:?}"
+    );
+    let connect: serde_json::Value = serde_json::from_slice(&connect.stdout)?;
+    let connect_request_id = connect["request_id"]
+        .as_str()
+        .ok_or("connect did not return request_id")?
+        .to_string();
+
+    wait_for_applied(&connect_request_id, &source_args)?;
+
+    let mut list_args = vec![
+        "list".to_string(),
+        "--output".to_string(),
+        "json".to_string(),
+    ];
+    list_args.extend(source_args.iter().take(8).cloned());
+    let list = run_cli(&list_args)?;
+    assert!(list.status.success(), "data-plane list failed: {list:?}");
+    let list: serde_json::Value = serde_json::from_slice(&list.stdout)?;
+    assert_eq!(list["total"], 1, "{list}");
+    assert_eq!(
+        list["services"][0]["readiness"], "ready",
+        "control-plane daemon must apply queued connect: {list}"
+    );
+    assert_eq!(list["services"][0]["tools_count"], 10, "{list}");
+
+    fixture.stop().await
+}
+
+fn wait_for_applied(request_id: &str, source_args: &[String]) -> TestResult<()> {
+    let mut args = vec![
+        "request".to_string(),
+        "wait".to_string(),
+        request_id.to_string(),
+        "--output".to_string(),
+        "json".to_string(),
+        "--timeout".to_string(),
+        "10".to_string(),
+    ];
+    args.extend(source_args.iter().take(8).cloned());
+    let output = run_cli(&args)?;
+    assert!(output.status.success(), "request wait failed: {output:?}");
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(response["status"], "applied", "{response}");
+    Ok(())
+}
+
+fn queued_request_id(output: &std::process::Output) -> TestResult<String> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout
+        .lines()
+        .rev()
+        .find(|line| line.starts_with("[Queued] "))
+        .ok_or_else(|| format!("add did not return queue receipt: {stdout}"))?;
+    line.rsplit("request_id=")
+        .next()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| format!("queue receipt has no request_id: {line}"))
+        .map_err(Into::into)
+}
+
+#[tokio::test]
 async fn host_and_cli_share_kernel_authority_through_redis_backend() -> TestResult<()> {
     let _guard = HOST_TEST_LOCK.lock().unwrap();
     let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
