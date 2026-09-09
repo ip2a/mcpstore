@@ -15,10 +15,15 @@ impl MCPStore {
         self.kernel.control.remove_service(self, service_name).await
     }
 
-    pub async fn update_service(&self, service_name: &str, config: ServerConfig) -> Result<String> {
+    pub async fn update_service(
+        &self,
+        service_name: &str,
+        config: ServerConfig,
+        execution_policy: Option<crate::config::ExecutionPolicy>,
+    ) -> Result<String> {
         self.kernel
             .control
-            .update_service(self, service_name, config)
+            .update_service(self, service_name, config, execution_policy)
             .await
     }
 

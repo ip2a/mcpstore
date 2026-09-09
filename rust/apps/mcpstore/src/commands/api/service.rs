@@ -559,7 +559,7 @@ pub(super) async fn update_service_definition(
     })?;
     state
         .store
-        .update_service(&service_name, config)
+        .update_service(&service_name, config, None)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("服务定义更新成功", json!({ "status": "ok" })))

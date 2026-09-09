@@ -200,7 +200,11 @@ pub(crate) async fn execute(
         KernelOperation::UpdateService => {
             let name = required_str(&payload, "name")?;
             let config = payload_field::<ServerConfig>(&payload, "config")?;
-            store.update_service(&name, config).await?;
+            let execution_policy =
+                payload_field::<Option<ExecutionPolicy>>(&payload, "execution_policy")?;
+            store
+                .update_service(&name, config, execution_policy)
+                .await?;
             Ok(json!({"service_name": name}))
         }
         KernelOperation::DeclareServiceScope => {

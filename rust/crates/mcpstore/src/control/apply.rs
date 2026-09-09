@@ -17,8 +17,18 @@ impl MCPStore {
             }
             "ServiceUpdateRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
-                self.update_service(&service_name, request::required_config(payload)?)
-                    .await?;
+                let execution_policy = payload
+                    .get("execution_policy")
+                    .cloned()
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+                self.update_service(
+                    &service_name,
+                    request::required_config(payload)?,
+                    execution_policy,
+                )
+                .await?;
             }
             "ServicePatchRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;

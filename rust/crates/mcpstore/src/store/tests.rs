@@ -1227,7 +1227,10 @@ async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity()
     let scope = agent_scope("agent-a");
     let instance_id = instance_id("svc", scope.clone());
 
-    store.update_service("svc", stdio_config()).await.unwrap();
+    store
+        .update_service("svc", stdio_config(), None)
+        .await
+        .unwrap();
     store
         .patch_service("svc", serde_json::json!({"description": "patched"}))
         .await
@@ -4729,7 +4732,7 @@ async fn update_and_patch_service_update_runtime_cache() {
 
     let mut updated = stdio_config();
     updated.args = vec!["updated".to_string()];
-    store.update_service("svc", updated).await.unwrap();
+    store.update_service("svc", updated, None).await.unwrap();
     let config = store
         .get_effective_config("svc", &store_scope())
         .await
@@ -6484,7 +6487,10 @@ mod scoped_contract {
         updated.mcpstore = None;
         updated.command = Some("changed-command".to_string());
         updated.args = vec!["--changed".to_string()];
-        store.update_service("svc", updated.clone()).await.unwrap();
+        store
+            .update_service("svc", updated.clone(), None)
+            .await
+            .unwrap();
 
         let instance = store.find_instance(store_instance_id).await.unwrap();
         assert_eq!(instance.tools, vec![tool("echo")]);
@@ -6516,7 +6522,7 @@ mod scoped_contract {
         assert!(definition.scopes.agents.contains_key("agent-1"));
         assert_eq!(definition.base_revision, 2);
 
-        store.update_service("svc", updated).await.unwrap();
+        store.update_service("svc", updated, None).await.unwrap();
         let unchanged = store
             .kernel
             .control
@@ -6561,7 +6567,7 @@ mod scoped_contract {
         updated
             .env
             .insert("SHARED".to_string(), "changed-base".to_string());
-        store.update_service("svc", updated).await.unwrap();
+        store.update_service("svc", updated, None).await.unwrap();
 
         let store_after_base = store.find_instance(store_id).await.unwrap();
         let agent_1_after_base = store.find_instance(agent_1_id).await.unwrap();
@@ -6613,7 +6619,7 @@ mod scoped_contract {
             .unwrap();
 
         let error = store
-            .update_service("svc", native_config(ScopeDeclarations::default()))
+            .update_service("svc", native_config(ScopeDeclarations::default()), None)
             .await
             .unwrap_err();
 
