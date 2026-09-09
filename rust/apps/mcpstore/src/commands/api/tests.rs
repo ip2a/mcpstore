@@ -413,7 +413,10 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -504,7 +507,10 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -686,7 +692,10 @@ async fn third_party_config_export_requires_service_name() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1090,7 +1099,10 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1156,7 +1168,10 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1211,7 +1226,10 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1300,7 +1318,10 @@ async fn store_routes_manage_rust_core_tool_overrides() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1400,7 +1421,10 @@ async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1440,7 +1464,10 @@ async fn store_routes_manage_rust_core_openapi_imports() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1577,7 +1604,10 @@ async fn store_route_bundles_openapi_without_importing() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1656,7 +1686,10 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();

@@ -127,6 +127,14 @@ impl MCPStore {
             .and_then(|v| v.as_str())
             .unwrap_or("redis://127.0.0.1/")
             .to_string();
+        #[cfg(any(test, feature = "test-shared-memory"))]
+        let store_name = if store_config.store_name() == "memory-test-shared" {
+            "memory".to_string()
+        } else {
+            store_name
+        };
+        #[cfg(not(any(test, feature = "test-shared-memory")))]
+        let store_name = store_name;
         let (cache_store, event_backend) = match store_name.as_str() {
             "memory" => {
                 let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
