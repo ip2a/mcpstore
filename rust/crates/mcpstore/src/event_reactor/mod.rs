@@ -62,6 +62,8 @@ pub struct ReactorConfig {
     pub max_causation_depth: u32,
     /// Interval for recovering persisted RetryWaiting/Running reactions.
     pub recovery_interval: std::time::Duration,
+    /// Delay before resubscribing after the feed closes or errors.
+    pub feed_retry_interval: std::time::Duration,
 }
 
 impl Default for ReactorConfig {
@@ -73,6 +75,7 @@ impl Default for ReactorConfig {
             watch_collections: Vec::new(),
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         }
     }
 }
@@ -242,7 +245,8 @@ where
 
         let this = self.clone();
         let handle = tokio::spawn(async move {
-            this.feed_loop(subscription, rx).await;
+            let mut rx = rx;
+            this.feed_loop(subscription, &mut rx).await;
         });
         *self.feed_task.write().await = Some(handle);
 
@@ -277,8 +281,12 @@ where
     async fn feed_loop(
         self: Arc<Self>,
         mut subscription: ChangeSubscription,
-        mut shutdown_rx: mpsc::Receiver<()>,
+        shutdown_rx: &mut mpsc::Receiver<()>,
     ) {
+        let filter = ChangeFilter {
+            collections: self.config.watch_collections.clone(),
+            operations: Vec::new(),
+        };
         loop {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
@@ -298,37 +306,74 @@ where
                                 .cursor_store
                                 .save(&openkeyv::ChangeCursor::new(&oldest).to_string())
                                 .await;
-                            let cursor = openkeyv::ChangeCursor::new(oldest);
-                            match self.store.subscribe(ChangeFeedRequest {
-                                start: ChangeStart::After(cursor),
-                                filter: ChangeFilter {
-                                    collections: self.config.watch_collections.clone(),
-                                    operations: Vec::new(),
-                                },
-                            }).await {
-                                Ok(new_sub) => {
-                                    info!("resubscribed after cursor expiry");
-                                    subscription = new_sub;
-                                }
-                                Err(e) => {
-                                    error!(error = %e, "failed to resubscribe after cursor expiry, reactor stopping");
-                                    break;
-                                }
+                            if !self
+                                .resubscribe(&mut subscription, filter.clone(), shutdown_rx)
+                                .await
+                            {
+                                break;
                             }
                         }
                         Err(e) => {
-                            error!(error = %e, "change feed error, reactor stopping");
-                            break;
+                            error!(error = %e, "change feed error");
+                            if !self
+                                .resubscribe(&mut subscription, filter.clone(), shutdown_rx)
+                                .await
+                            {
+                                break;
+                            }
                         }
                         Ok(None) => {
-                            info!("change feed closed, reactor stopping");
-                            break;
+                            info!("change feed closed");
+                            if !self
+                                .resubscribe(&mut subscription, filter.clone(), shutdown_rx)
+                                .await
+                            {
+                                break;
+                            }
                         }
                         Ok(Some(change)) => {
                             self.handle_change(change).await;
                         }
                     }
                 }
+            }
+        }
+    }
+
+    async fn resubscribe(
+        self: &Arc<Self>,
+        subscription: &mut ChangeSubscription,
+        filter: ChangeFilter,
+        shutdown_rx: &mut mpsc::Receiver<()>,
+    ) -> bool {
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.recv() => return false,
+                _ = tokio::time::sleep(self.config.feed_retry_interval) => {}
+            }
+            let cursor = self.cursor_store.load().await.ok().flatten();
+            let start = cursor.map_or(ChangeStart::Beginning, |cursor| {
+                ChangeStart::After(openkeyv::ChangeCursor::new(cursor))
+            });
+            match self
+                .store
+                .subscribe(ChangeFeedRequest {
+                    start,
+                    filter: filter.clone(),
+                })
+                .await
+            {
+                Ok(new_sub) => {
+                    *subscription = new_sub;
+                    return true;
+                }
+                Err(openkeyv::Error::ChangeCursorExpired { oldest, .. }) => {
+                    let _ = self
+                        .cursor_store
+                        .save(&openkeyv::ChangeCursor::new(&oldest).to_string())
+                        .await;
+                }
+                Err(error) => error!(%error, "failed to resubscribe change feed"),
             }
         }
     }

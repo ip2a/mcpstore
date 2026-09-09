@@ -8025,6 +8025,7 @@ mod event_reactor_facade {
             watch_collections: vec!["mcpstore:event:facade.test".into()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
 
         store.setup_event_reactor(config).await.unwrap();
@@ -8123,6 +8124,7 @@ mod control_reactor_tests {
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         store.setup_event_reactor(config).await.unwrap();
         let rule = store.control_request_rule();
@@ -8236,6 +8238,7 @@ mod control_reactor_tests {
             watch_collections: vec![collection],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         store.setup_event_reactor(config).await.unwrap();
         let rule = store.control_request_rule();

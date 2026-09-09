@@ -36,6 +36,7 @@ async fn run_reactor_basic() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
         recovery_interval: std::time::Duration::from_secs(60),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -93,6 +94,7 @@ async fn run_reactor_cursor_resume() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
         recovery_interval: std::time::Duration::from_secs(60),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -147,6 +149,7 @@ async fn run_reactor_cursor_resume() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
         recovery_interval: std::time::Duration::from_secs(60),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
     let reactor2 = Arc::new(EventReactor::new(store.clone(), config2));
     reactor2
@@ -194,6 +197,7 @@ async fn run_reactor_distributed_claim() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
         recovery_interval: std::time::Duration::from_secs(60),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
     let config_b = ReactorConfig {
         subscriber_id: "claim-sub-b".into(),
@@ -202,6 +206,7 @@ async fn run_reactor_distributed_claim() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
         recovery_interval: std::time::Duration::from_secs(60),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
 
     let reactor_a = Arc::new(EventReactor::new(store.clone(), config_a));
@@ -295,6 +300,7 @@ async fn run_reactor_recovers_persisted_execution() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
         recovery_interval: Duration::from_millis(50),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
 
@@ -425,6 +431,7 @@ async fn run_control_reactor_recovers_executing_request() {
             watch_collections: vec![collection],
             max_causation_depth: 16,
             recovery_interval: Duration::from_millis(50),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         })
         .await
         .unwrap();
@@ -515,6 +522,7 @@ mod tests {
             watch_collections: vec![collection.into()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         let reactor = Arc::new(EventReactor::new(store.clone(), config));
 
@@ -612,6 +620,7 @@ mod tests {
             watch_collections: vec![collection.into()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         let reactor =
             Arc::new(EventReactor::new(store.clone(), config).with_event_bus(event_bus.clone()));
@@ -670,6 +679,7 @@ async fn run_reactor_recursion_guard() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
         recovery_interval: std::time::Duration::from_secs(60),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -732,6 +742,7 @@ async fn run_reactor_depth_limit() {
         watch_collections: vec![collection.into()],
         max_causation_depth: 3,
         recovery_interval: std::time::Duration::from_secs(60),
+        feed_retry_interval: std::time::Duration::from_secs(1),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -832,6 +843,7 @@ mod m5_tests {
             watch_collections: vec![collection.into()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
 
         let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -926,6 +938,7 @@ mod redis_tests {
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
 
         let reactor = Arc::new(EventReactor::new(reader_store, config));
@@ -1006,6 +1019,7 @@ mod redis_tests {
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         let config_b = ReactorConfig {
             subscriber_id: format!("{ns}-b"),
@@ -1014,6 +1028,7 @@ mod redis_tests {
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
 
         let reactor_a = Arc::new(EventReactor::new(store_a, config_a));
@@ -1097,6 +1112,7 @@ mod redis_tests {
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         let store1 = RedisStore::new(&url).await.unwrap();
         let reactor1 = Arc::new(EventReactor::new(store1, config1));
@@ -1141,6 +1157,7 @@ mod redis_tests {
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
             recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         let store2 = RedisStore::new(&url).await.unwrap();
         let reactor2 = Arc::new(EventReactor::new(store2, config2));
