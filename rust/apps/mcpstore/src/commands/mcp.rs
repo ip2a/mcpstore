@@ -4,8 +4,9 @@ use mcpstore::config::{
 };
 use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::daemon::protocol::KernelOperation;
@@ -173,6 +174,9 @@ pub struct AddArgs {
         help = "Client handshake mode: initialize (default), auto, or discover"
     )]
     pub handshake: Option<HandshakeArg>,
+    /// Repeatable host capability required by local execution (for example browser)
+    #[arg(long = "require-capability", value_name = "CAPABILITY")]
+    pub require_capability: Vec<String>,
     #[arg(long, help = "Default execution target: local or daemon")]
     pub default_execute_on: Option<mcpstore::config::ExecutionTarget>,
     #[arg(long, help = "Allowed execution targets; repeatable")]
@@ -196,7 +200,11 @@ pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> 
         let extension = config.mcpstore.get_or_insert_with(Default::default);
         extension.handshake_mode = Some(handshake);
     }
-    if let Some(policy) = execution_policy_from_flags(a.default_execute_on, &a.allow_execute_on) {
+    if let Some(policy) = execution_policy_from_flags(
+        a.default_execute_on,
+        &a.allow_execute_on,
+        &a.require_capability,
+    ) {
         config
             .mcpstore
             .get_or_insert_with(Default::default)
@@ -775,6 +783,9 @@ pub struct UpdateArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
+    /// Repeatable host capability required by local execution (for example browser)
+    #[arg(long = "require-capability", value_name = "CAPABILITY")]
+    pub require_capability: Vec<String>,
     #[arg(long, help = "Default execution target: local or daemon")]
     pub default_execute_on: Option<mcpstore::config::ExecutionTarget>,
     #[arg(long, help = "Allowed execution targets; repeatable")]
@@ -792,7 +803,11 @@ pub async fn update(a: UpdateArgs, embedded: bool) -> std::result::Result<(), Bo
         &env_map,
         &header_map,
     )?;
-    let execution_policy = execution_policy_from_flags(a.default_execute_on, &a.allow_execute_on);
+    let execution_policy = execution_policy_from_flags(
+        a.default_execute_on,
+        &a.allow_execute_on,
+        &a.require_capability,
+    );
     if a.scope == Scope::Agent && execution_policy.is_some() {
         return Err("Execution policy is definition-level; use --scope store".into());
     }
@@ -995,6 +1010,45 @@ pub async fn call_tool(a: CallToolArgs, embedded: bool) -> std::result::Result<(
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
+pub(crate) fn host_capabilities() -> &'static HashSet<&'static str> {
+    static CAPABILITIES: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    CAPABILITIES.get_or_init(|| {
+        let mut capabilities = HashSet::from(["browser"]);
+        if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            capabilities.insert("display");
+        }
+        capabilities
+    })
+}
+
+fn ensure_host_capabilities(
+    policy: &mcpstore::config::ExecutionPolicy,
+    target: mcpstore::config::ExecutionTarget,
+) -> mcpstore::Result<()> {
+    if target != mcpstore::config::ExecutionTarget::Local {
+        return Ok(());
+    }
+    let missing: Vec<_> = policy
+        .required_capabilities
+        .iter()
+        .filter(|capability| !host_capabilities().contains(capability.as_str()))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(Error::new(
+        FailureCode::CapabilityUnsupported,
+        format!(
+            "local host lacks required capabilities: {}",
+            missing
+                .iter()
+                .map(|capability| capability.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    ))
+}
+
 pub(crate) fn resolve_declared_execution_target(
     info: &Value,
     requested: &ExecutionTargetArg,
@@ -1026,6 +1080,7 @@ pub(crate) fn resolve_declared_execution_target(
         ));
     }
     if let Some(policy) = policy {
+        ensure_host_capabilities(&policy, target.clone())?;
         if !policy.allows(&target) {
             return Err(Error::new(
                 FailureCode::InvalidInput,
@@ -1859,11 +1914,14 @@ fn parse_key_values(
 fn execution_policy_from_flags(
     default: Option<mcpstore::config::ExecutionTarget>,
     allowed: &[mcpstore::config::ExecutionTarget],
+    required_capabilities: &[String],
 ) -> Option<ExecutionPolicy> {
-    (default.is_some() || !allowed.is_empty()).then(|| ExecutionPolicy {
-        default_target: default.unwrap_or(mcpstore::config::ExecutionTarget::Local),
-        allowed_targets: allowed.to_vec(),
-        required_capabilities: Vec::new(),
+    (default.is_some() || !allowed.is_empty() || !required_capabilities.is_empty()).then(|| {
+        ExecutionPolicy {
+            default_target: default.unwrap_or(mcpstore::config::ExecutionTarget::Local),
+            allowed_targets: allowed.to_vec(),
+            required_capabilities: required_capabilities.to_vec(),
+        }
     })
 }
 
@@ -2022,6 +2080,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn local_execution_rejects_missing_host_capability() {
+        let policy = ExecutionPolicy {
+            default_target: mcpstore::config::ExecutionTarget::Local,
+            allowed_targets: Vec::new(),
+            required_capabilities: vec!["definitely-missing-capability".into()],
+        };
+        let error = ensure_host_capabilities(&policy, mcpstore::config::ExecutionTarget::Local)
+            .unwrap_err();
+        assert!(error.to_string().contains("definitely-missing-capability"));
+    }
+
+    #[test]
     fn auto_uses_declared_default_and_enforces_allowlist() {
         let policy = mcpstore::config::ExecutionPolicy {
             default_target: mcpstore::config::ExecutionTarget::Daemon,
@@ -2099,6 +2169,7 @@ mod tests {
             scope: Scope::Store,
             agent: None,
             handshake: None,
+            require_capability: Vec::new(),
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
             allow_execute_on: vec![mcpstore::config::ExecutionTarget::Local],
         };
@@ -2121,6 +2192,7 @@ mod tests {
             header: Vec::new(),
             scope: Scope::Store,
             agent: None,
+            require_capability: Vec::new(),
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Daemon),
             allow_execute_on: vec![mcpstore::config::ExecutionTarget::Daemon],
         };
@@ -2143,6 +2215,7 @@ mod tests {
             header: Vec::new(),
             scope: Scope::Store,
             agent: None,
+            require_capability: Vec::new(),
             default_execute_on: None,
             allow_execute_on: Vec::new(),
         };
@@ -2186,6 +2259,7 @@ mod tests {
             header: Vec::new(),
             scope: Scope::Agent,
             agent: Some("agent".into()),
+            require_capability: Vec::new(),
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
             allow_execute_on: Vec::new(),
         };
@@ -2216,6 +2290,7 @@ mod tests {
             scope: Scope::Store,
             agent: None,
             handshake: None,
+            require_capability: Vec::new(),
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
             allow_execute_on: vec![mcpstore::config::ExecutionTarget::Local],
         };

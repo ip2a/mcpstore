@@ -1,5 +1,6 @@
 //! 业务 op 分发：daemon socket 与 CLI embedded 进程共用同一份实现
 //! （单业务协议、双执行位置）。daemon 管理面（status/config/stop）在 server.rs。
+use std::collections::HashSet;
 
 use mcpstore::config::{
     AppConfig, ExecutionPolicy, ExecutionTarget, McpStoreExtension, ScopeDeclarations,
@@ -39,6 +40,9 @@ pub(crate) async fn resolve_daemon_execution_target(
     if let Some(instance) = store.find_instance(instance_id).await {
         if let Some(definition) = store.find_definition(&instance.service_name).await {
             if let Some(policy) = definition.execution_policy {
+                if let Some(missing) = missing_local_capabilities(&policy, &requested) {
+                    return Err(capabilities_unsupported(missing));
+                }
                 if !policy.allows(&requested) {
                     return Err(target_not_allowed(
                         &requested,
@@ -761,6 +765,38 @@ pub(crate) fn required_str_value(value: &Value, field: &str) -> Result<String, E
         })
 }
 
+fn host_capabilities() -> HashSet<&'static str> {
+    let mut capabilities = HashSet::from(["browser"]);
+    if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        capabilities.insert("display");
+    }
+    capabilities
+}
+
+fn missing_local_capabilities(
+    policy: &ExecutionPolicy,
+    target: &ExecutionTarget,
+) -> Option<String> {
+    if *target != ExecutionTarget::Local {
+        return None;
+    }
+    let capabilities = host_capabilities();
+    let missing: Vec<_> = policy
+        .required_capabilities
+        .iter()
+        .filter(|capability| !capabilities.contains(capability.as_str()))
+        .cloned()
+        .collect();
+    (!missing.is_empty()).then(|| missing.join(", "))
+}
+
+fn capabilities_unsupported(missing: String) -> Error {
+    Error::new(
+        FailureCode::CapabilityUnsupported,
+        format!("local host lacks required capabilities: {missing}"),
+    )
+}
+
 pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
     match value.as_str() {
         Some("on") | Some("true") => Ok(true),
@@ -776,6 +812,17 @@ pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
 mod tests {
     use super::*;
     use mcpstore::ServiceInstanceKey;
+
+    #[test]
+    fn local_execution_rejects_missing_host_capability() {
+        let policy = ExecutionPolicy {
+            default_target: ExecutionTarget::Local,
+            allowed_targets: Vec::new(),
+            required_capabilities: vec!["definitely-missing-capability".into()],
+        };
+        let error = missing_local_capabilities(&policy, &ExecutionTarget::Local).unwrap();
+        assert_eq!(error, "definitely-missing-capability");
+    }
 
     #[tokio::test]
     async fn daemon_rejects_execution_target_disallowed_by_service() {
