@@ -61,6 +61,9 @@ impl ControlPlane {
             }
         }
         for (event_type, entries) in snapshot.events {
+            if event_type == CONTROL_REQUEST_EVENT_TYPE {
+                continue;
+            }
             for key in entries.keys() {
                 store
                     .kernel

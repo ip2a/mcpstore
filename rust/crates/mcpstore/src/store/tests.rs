@@ -1294,6 +1294,44 @@ async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity()
 }
 
 #[tokio::test]
+async fn local_reset_preserves_pending_control_requests() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    store
+        .cache()
+        .put_event(
+            CONTROL_REQUEST_EVENT_TYPE,
+            "queued-request",
+            serde_json::json!({
+                "id": "queued-request",
+                "type": "ServiceAddRequested",
+                "payload": {},
+                "source": "data_plane",
+                "created_at": 1,
+                "dedup_key": "ServiceAddRequested:null",
+                "trace_id": "queued-request",
+                "status": "queued",
+            }),
+        )
+        .await
+        .unwrap();
+
+    store.reset_config().await.unwrap();
+
+    assert_eq!(
+        store
+            .cache()
+            .get_event(CONTROL_REQUEST_EVENT_TYPE, "queued-request")
+            .await
+            .unwrap()
+            .unwrap()["status"],
+        serde_json::json!("queued")
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn local_reset_preserves_cache_schema_marker() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
