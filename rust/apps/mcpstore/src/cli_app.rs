@@ -63,6 +63,7 @@ pub enum Commands {
     Resource(commands::protocol::ResourceArgs),
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
+    Request(commands::request::RequestArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
     #[command(name = "mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
@@ -130,6 +131,7 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Resource(args) => commands::protocol::run_resource(args, cli.embedded).await,
             Commands::Prompt(args) => commands::protocol::run_prompt(args, cli.embedded).await,
             Commands::Complete(args) => commands::protocol::complete(args, cli.embedded).await,
+            Commands::Request(args) => commands::request::run(args, cli.embedded).await,
             Commands::MigrateStore(args) => commands::mcp::migrate_store(args, cli.embedded).await,
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
             Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
@@ -166,6 +168,11 @@ fn output_format(command: &Commands) -> crate::error::OutputFormat {
             commands::protocol::PromptAction::Get(args) => args.output.output,
         },
         Commands::Complete(args) => args.output.output,
+        Commands::Request(args) => match &args.action {
+            commands::request::RequestAction::List(args) => args.output,
+            commands::request::RequestAction::Get(args) => args.output,
+            commands::request::RequestAction::Wait(args) => args.output,
+        },
         Commands::List(args) => args.output,
         Commands::Tools(args) => args.output,
         Commands::Get(args) => args.output,
@@ -652,6 +659,61 @@ mod tests {
                 assert_eq!(args.store.namespace.as_deref(), Some("demo"));
             }
             _ => panic!("Expected to parse as list command"),
+        }
+    }
+
+    #[test]
+    fn parses_data_plane_node_mode() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "list",
+            "--source",
+            "db",
+            "--store",
+            "redis",
+            "--node-mode",
+            "data",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::List(args) => {
+                assert_eq!(
+                    args.store.node_mode,
+                    Some(crate::store_args::NodeModeArg::Data)
+                );
+                assert!(args.store.is_explicit());
+            }
+            _ => panic!("Expected to parse as list command"),
+        }
+    }
+
+    #[test]
+    fn parses_request_get_and_wait_commands() {
+        let cli = Cli::try_parse_from(["mcpstore", "request", "get", "req-1", "--output", "json"])
+            .unwrap();
+        match cli.command {
+            Commands::Request(args) => match args.action {
+                commands::request::RequestAction::Get(args) => {
+                    assert_eq!(args.request_id, "req-1");
+                    assert_eq!(args.output, OutputFormat::Json);
+                }
+                _ => panic!("Expected request get"),
+            },
+            _ => panic!("Expected request command"),
+        }
+
+        let cli = Cli::try_parse_from(["mcpstore", "request", "wait", "req-1", "--timeout", "7"])
+            .unwrap();
+        match cli.command {
+            Commands::Request(args) => match args.action {
+                commands::request::RequestAction::Wait(args) => {
+                    assert_eq!(args.request_id, "req-1");
+                    assert_eq!(args.timeout, 7);
+                }
+                _ => panic!("Expected request wait"),
+            },
+            _ => panic!("Expected request command"),
         }
     }
 
