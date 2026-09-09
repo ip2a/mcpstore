@@ -177,42 +177,47 @@ async fn execute_resource_list(args: ProtocolInstanceArgs, embedded: bool) -> mc
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let execution_target = resolve_execution_target(
-        &mut access,
-        instance_id,
-        &args.execution.execute_on,
-        embedded,
-    )
-    .await?;
-    let result = access
-        .request(
-            KernelOperation::ResourcesList,
-            json!({
-                "instance_id": instance_id.to_string(),
-                "execute_on": execution_target,
-            }),
+    let result = async {
+        let execution_target = resolve_execution_target(
+            &mut access,
+            instance_id,
+            &args.execution.execute_on,
+            embedded,
         )
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    let resources: Vec<mcpstore::DiscoveredResource> =
-        serde_json::from_value(result["resources"].clone()).map_err(|error| {
-            attach_instance(
-                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-                instance_id,
+        .await?;
+        let result = access
+            .request(
+                KernelOperation::ResourcesList,
+                json!({
+                    "instance_id": instance_id.to_string(),
+                    "execute_on": execution_target,
+                }),
             )
-        })?;
-    let total = resources.len();
-    let value = json!({
-        "event": "resource.listed",
-        "instance_id": instance_id,
-        "resources": resources,
-        "total": total,
-    });
-    emit(
-        args.output.output,
-        format_resource_list(instance_id, &resources, total),
-        value,
-    )
+            .await
+            .map_err(|error| attach_instance(error, instance_id))?;
+        let resources: Vec<mcpstore::DiscoveredResource> =
+            serde_json::from_value(result["resources"].clone()).map_err(|error| {
+                attach_instance(
+                    mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+                    instance_id,
+                )
+            })?;
+        let total = resources.len();
+        let value = json!({
+            "event": "resource.listed",
+            "instance_id": instance_id,
+            "resources": resources,
+            "total": total,
+        });
+        emit(
+            args.output.output,
+            format_resource_list(instance_id, &resources, total),
+            value,
+        )
+    };
+    let result = result.await;
+    access.close().await;
+    result
 }
 
 async fn execute_resource_templates(
@@ -228,42 +233,47 @@ async fn execute_resource_templates(
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let execution_target = resolve_execution_target(
-        &mut access,
-        instance_id,
-        &args.execution.execute_on,
-        embedded,
-    )
-    .await?;
-    let result = access
-        .request(
-            KernelOperation::ResourcesTemplates,
-            json!({
-                "instance_id": instance_id.to_string(),
-                "execute_on": execution_target,
-            }),
+    let result = async {
+        let execution_target = resolve_execution_target(
+            &mut access,
+            instance_id,
+            &args.execution.execute_on,
+            embedded,
         )
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    let templates: Vec<mcpstore::DiscoveredResourceTemplate> =
-        serde_json::from_value(result["templates"].clone()).map_err(|error| {
-            attach_instance(
-                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-                instance_id,
+        .await?;
+        let result = access
+            .request(
+                KernelOperation::ResourcesTemplates,
+                json!({
+                    "instance_id": instance_id.to_string(),
+                    "execute_on": execution_target,
+                }),
             )
-        })?;
-    let total = templates.len();
-    let value = json!({
-        "event": "resource.templates_listed",
-        "instance_id": instance_id,
-        "resource_templates": templates,
-        "total": total,
-    });
-    emit(
-        args.output.output,
-        format!("[Resource Templates] instance={instance_id} count={total}"),
-        value,
-    )
+            .await
+            .map_err(|error| attach_instance(error, instance_id))?;
+        let templates: Vec<mcpstore::DiscoveredResourceTemplate> =
+            serde_json::from_value(result["templates"].clone()).map_err(|error| {
+                attach_instance(
+                    mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+                    instance_id,
+                )
+            })?;
+        let total = templates.len();
+        let value = json!({
+            "event": "resource.templates_listed",
+            "instance_id": instance_id,
+            "resource_templates": templates,
+            "total": total,
+        });
+        emit(
+            args.output.output,
+            format!("[Resource Templates] instance={instance_id} count={total}"),
+            value,
+        )
+    };
+    let result = result.await;
+    access.close().await;
+    result
 }
 
 async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpstore::Result<()> {
@@ -285,32 +295,37 @@ async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpsto
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let execution_target = resolve_execution_target(
-        &mut access,
-        instance_id,
-        &args.execution.execute_on,
-        embedded,
-    )
-    .await?;
-    let result = access
-        .request(
-            KernelOperation::ResourcesRead,
-            json!({
-                "instance_id": instance_id.to_string(),
-                "uri": args.uri,
-                "execute_on": execution_target,
-            }),
+    let result = async {
+        let execution_target = resolve_execution_target(
+            &mut access,
+            instance_id,
+            &args.execution.execute_on,
+            embedded,
         )
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    let resource = result["resource"].clone();
-    let value = json!({
-        "event": "resource.read",
-        "instance_id": instance_id,
-        "uri": args.uri,
-        "resource": resource,
-    });
-    emit(args.output.output, value["resource"].to_string(), value)
+        .await?;
+        let result = access
+            .request(
+                KernelOperation::ResourcesRead,
+                json!({
+                    "instance_id": instance_id.to_string(),
+                    "uri": args.uri,
+                    "execute_on": execution_target,
+                }),
+            )
+            .await
+            .map_err(|error| attach_instance(error, instance_id))?;
+        let resource = result["resource"].clone();
+        let value = json!({
+            "event": "resource.read",
+            "instance_id": instance_id,
+            "uri": args.uri,
+            "resource": resource,
+        });
+        emit(args.output.output, value["resource"].to_string(), value)
+    };
+    let result = result.await;
+    access.close().await;
+    result
 }
 
 async fn execute_prompt(args: PromptArgs, embedded: bool) -> mcpstore::Result<()> {
@@ -330,42 +345,47 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs, embedded: bool) -> mcps
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let execution_target = resolve_execution_target(
-        &mut access,
-        instance_id,
-        &args.execution.execute_on,
-        embedded,
-    )
-    .await?;
-    let result = access
-        .request(
-            KernelOperation::PromptsList,
-            json!({
-                "instance_id": instance_id.to_string(),
-                "execute_on": execution_target,
-            }),
+    let result = async {
+        let execution_target = resolve_execution_target(
+            &mut access,
+            instance_id,
+            &args.execution.execute_on,
+            embedded,
         )
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    let prompts: Vec<mcpstore::DiscoveredPrompt> =
-        serde_json::from_value(result["prompts"].clone()).map_err(|error| {
-            attach_instance(
-                mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
-                instance_id,
+        .await?;
+        let result = access
+            .request(
+                KernelOperation::PromptsList,
+                json!({
+                    "instance_id": instance_id.to_string(),
+                    "execute_on": execution_target,
+                }),
             )
-        })?;
-    let total = prompts.len();
-    let value = json!({
-        "event": "prompt.listed",
-        "instance_id": instance_id,
-        "prompts": prompts,
-        "total": total,
-    });
-    emit(
-        args.output.output,
-        format_prompt_list(instance_id, &prompts, total),
-        value,
-    )
+            .await
+            .map_err(|error| attach_instance(error, instance_id))?;
+        let prompts: Vec<mcpstore::DiscoveredPrompt> =
+            serde_json::from_value(result["prompts"].clone()).map_err(|error| {
+                attach_instance(
+                    mcpstore::Error::new(mcpstore::error::FailureCode::Internal, error.to_string()),
+                    instance_id,
+                )
+            })?;
+        let total = prompts.len();
+        let value = json!({
+            "event": "prompt.listed",
+            "instance_id": instance_id,
+            "prompts": prompts,
+            "total": total,
+        });
+        emit(
+            args.output.output,
+            format_prompt_list(instance_id, &prompts, total),
+            value,
+        )
+    };
+    let result = result.await;
+    access.close().await;
+    result
 }
 
 async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Result<()> {
@@ -393,33 +413,38 @@ async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Re
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let execution_target = resolve_execution_target(
-        &mut access,
-        instance_id,
-        &args.execution.execute_on,
-        embedded,
-    )
-    .await?;
-    let result = access
-        .request(
-            KernelOperation::PromptGet,
-            json!({
-                "instance_id": instance_id.to_string(),
-                "prompt_name": args.prompt_name,
-                "arguments": arguments,
-                "execute_on": execution_target,
-            }),
+    let result = async {
+        let execution_target = resolve_execution_target(
+            &mut access,
+            instance_id,
+            &args.execution.execute_on,
+            embedded,
         )
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    let prompt = result["prompt"].clone();
-    let value = json!({
-        "event": "prompt.get",
-        "instance_id": instance_id,
-        "prompt_name": args.prompt_name,
-        "prompt": prompt,
-    });
-    emit(args.output.output, value["prompt"].to_string(), value)
+        .await?;
+        let result = access
+            .request(
+                KernelOperation::PromptGet,
+                json!({
+                    "instance_id": instance_id.to_string(),
+                    "prompt_name": args.prompt_name,
+                    "arguments": arguments,
+                    "execute_on": execution_target,
+                }),
+            )
+            .await
+            .map_err(|error| attach_instance(error, instance_id))?;
+        let prompt = result["prompt"].clone();
+        let value = json!({
+            "event": "prompt.get",
+            "instance_id": instance_id,
+            "prompt_name": args.prompt_name,
+            "prompt": prompt,
+        });
+        emit(args.output.output, value["prompt"].to_string(), value)
+    };
+    let result = result.await;
+    access.close().await;
+    result
 }
 
 async fn execute_complete(args: CompleteArgs, embedded: bool) -> mcpstore::Result<()> {
@@ -465,31 +490,36 @@ async fn execute_complete(args: CompleteArgs, embedded: bool) -> mcpstore::Resul
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    let execution_target = resolve_execution_target(
-        &mut access,
-        instance_id,
-        &args.execution.execute_on,
-        embedded,
-    )
-    .await?;
-    let result = access
-        .request(
-            KernelOperation::CompleteArgument,
-            json!({
-                "instance_id": instance_id.to_string(),
-                "request": request,
-                "execute_on": execution_target,
-            }),
+    let result = async {
+        let execution_target = resolve_execution_target(
+            &mut access,
+            instance_id,
+            &args.execution.execute_on,
+            embedded,
         )
-        .await
-        .map_err(|error| attach_instance(error, instance_id))?;
-    let completion = result["completion"].clone();
-    let value = json!({
-        "event": "completion.completed",
-        "instance_id": instance_id,
-        "completion": completion,
-    });
-    emit(args.output.output, value["completion"].to_string(), value)
+        .await?;
+        let result = access
+            .request(
+                KernelOperation::CompleteArgument,
+                json!({
+                    "instance_id": instance_id.to_string(),
+                    "request": request,
+                    "execute_on": execution_target,
+                }),
+            )
+            .await
+            .map_err(|error| attach_instance(error, instance_id))?;
+        let completion = result["completion"].clone();
+        let value = json!({
+            "event": "completion.completed",
+            "instance_id": instance_id,
+            "completion": completion,
+        });
+        emit(args.output.output, value["completion"].to_string(), value)
+    };
+    let result = result.await;
+    access.close().await;
+    result
 }
 
 fn parse_object(

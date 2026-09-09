@@ -8428,3 +8428,75 @@ mod control_reactor_tests {
         std::fs::remove_file(cp_path).ok();
     }
 }
+
+#[tokio::test]
+async fn data_plane_closes_only_connections_started_by_this_process() {
+    let source_path = temp_config_path();
+    let source = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(source_path.clone()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("ephemeral-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = || {
+        serde_json::json!({
+            "openapi": "3.0.0",
+            "info": {"title": "fixture", "version": "1.0"},
+            "paths": {
+                "/ping": {"get": {"operationId": "ping"}}
+            }
+        })
+    };
+    source
+        .import_openapi_service_from_spec("owned", "memory://owned", spec())
+        .await
+        .unwrap();
+    source
+        .import_openapi_service_from_spec("other", "memory://other", spec())
+        .await
+        .unwrap();
+    source
+        .connect_service(store_instance_id("other"))
+        .await
+        .unwrap();
+
+    let db = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(format!("ephemeral-db-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    copy_cache_snapshot(&source, &db).await;
+    db.load_from_db().await.unwrap();
+    let owned_id = store_instance_id("owned");
+    let other_id = store_instance_id("other");
+    db.ensure_instance_connected(owned_id).await.unwrap();
+
+    db.close_local_connections().await;
+
+    let owned = db
+        .kernel
+        .control
+        .state
+        .get(owned_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let other = db
+        .kernel
+        .control
+        .state
+        .get(other_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(owned.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(other.phase, crate::state::RuntimePhase::Running);
+    assert!(db.kernel.runtime.local_connections.read().await.is_empty());
+
+    std::fs::remove_file(source_path).ok();
+}

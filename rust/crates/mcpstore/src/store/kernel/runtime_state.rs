@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock as SyncRwLock};
 
 use tokio::sync::RwLock;
@@ -13,6 +13,7 @@ pub(crate) struct RuntimeState {
     pub(crate) applied_openapi_configs:
         RwLock<HashMap<InstanceId, serde_json::Map<String, serde_json::Value>>>,
     pub(crate) event_reactor: RwLock<Option<Arc<EventReactor<EventBackend>>>>,
+    pub(crate) local_connections: RwLock<HashSet<InstanceId>>,
     pub(crate) source_mode: SourceMode,
     pub(crate) node_mode: NodeMode,
     pub(crate) runtime_config: StoreRuntimeConfig,

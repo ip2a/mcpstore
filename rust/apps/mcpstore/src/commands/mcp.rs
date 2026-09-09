@@ -1054,50 +1054,53 @@ async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<
         .to_ref(a.agent.as_deref())
         .map_err(|error| Error::new(FailureCode::InvalidInput, error.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
-    let instance_id = resolve_target(&mut access, &scope, &a.target)
-        .await
-        .map_err(resolve_error)?;
-    let info = access
-        .request(
-            KernelOperation::GetServiceInfo,
-            json!({"instance_id": instance_id.to_string()}),
-        )
-        .await
-        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
-    let execution_target =
-        resolve_declared_execution_target(&info, &a.execution.execute_on, routed_target, embedded)?;
-    access
-        .request(
-            KernelOperation::ConnectService,
-            json!({"instance_id": instance_id.to_string()}),
-        )
-        .await
-        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
-    let schema = load_tool_input_schema(&mut access, instance_id, &a.tool_name).await?;
-    let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
-
-    let mut options = McpExecutionOptions::default();
-    if let Some(timeout) = a.timeout {
-        options = options.with_idle_timeout(Duration::from_secs(timeout));
-    }
-    if let Some(timeout) = a.max_total_timeout {
-        options = options.with_max_total_timeout(Duration::from_secs(timeout));
-    }
-
-    match access {
-        StoreAccess::Embedded(store) => call_embedded(&store, instance_id, &a, args, options).await,
-        StoreAccess::Remote(mut client) => {
-            call_remote(
-                &mut client,
-                instance_id,
-                &a,
-                args,
-                options,
-                execution_target,
+    let result = async {
+        let instance_id = resolve_target(&mut access, &scope, &a.target)
+            .await
+            .map_err(resolve_error)?;
+        let info = access
+            .request(
+                KernelOperation::GetServiceInfo,
+                json!({"instance_id": instance_id.to_string()}),
             )
             .await
+            .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
+        let execution_target = resolve_declared_execution_target(
+            &info,
+            &a.execution.execute_on,
+            routed_target,
+            embedded,
+        )?;
+        access
+            .request(
+                KernelOperation::ConnectService,
+                json!({"instance_id": instance_id.to_string()}),
+            )
+            .await
+            .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
+        let schema = load_tool_input_schema(&mut access, instance_id, &a.tool_name).await?;
+        let args = build_call_arguments(&a.args, &a.arguments, schema.as_ref(), a.output)?;
+
+        let mut options = McpExecutionOptions::default();
+        if let Some(timeout) = a.timeout {
+            options = options.with_idle_timeout(Duration::from_secs(timeout));
         }
-    }
+        if let Some(timeout) = a.max_total_timeout {
+            options = options.with_max_total_timeout(Duration::from_secs(timeout));
+        }
+
+        match &mut access {
+            StoreAccess::Embedded(store) => {
+                call_embedded(&store, instance_id, &a, args, options).await
+            }
+            StoreAccess::Remote(ref mut client) => {
+                call_remote(client, instance_id, &a, args, options, execution_target).await
+            }
+        }
+    };
+    let result = result.await;
+    access.close().await;
+    result
 }
 
 /// embedded 流式路径：elicitation 交互与 Ctrl-C 取消全保留。

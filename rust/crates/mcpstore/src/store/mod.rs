@@ -209,6 +209,7 @@ impl MCPStore {
                     namespace: SyncRwLock::new(namespace),
                     applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
                     event_reactor: tokio::sync::RwLock::new(None),
+                    local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
                     source_mode: options.source_mode,
                     node_mode: options.node_mode,
                     runtime_config,
@@ -256,6 +257,36 @@ impl MCPStore {
 
     pub fn is_db_source(&self) -> bool {
         self.kernel.runtime.source_mode == SourceMode::Db
+    }
+
+    /// Close only transports started by this process. A DataPlane CLI is
+    /// ephemeral; it must not queue disconnect requests against the control
+    /// plane or stop transports owned by another node.
+    pub async fn close_local_connections(&self) {
+        if !self.is_data_plane() {
+            return;
+        }
+        let instance_ids: Vec<crate::identity::InstanceId> = self
+            .kernel
+            .runtime
+            .local_connections
+            .write()
+            .await
+            .drain()
+            .collect();
+        for instance_id in instance_ids {
+            self.kernel.execution.pool.remove(instance_id).await.ok();
+            self.kernel
+                .control
+                .state
+                .dispatch(
+                    instance_id,
+                    crate::state::ServiceStateEvent::TransportStopped,
+                    Self::now_timestamp(),
+                )
+                .await
+                .ok();
+        }
     }
 
     // ── EventReactor facade ──

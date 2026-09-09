@@ -222,6 +222,12 @@ impl StoreAccess {
         matches!(self, Self::Embedded(_))
     }
 
+    pub async fn close(&mut self) {
+        if let Self::Embedded(store) = self {
+            store.close_local_connections().await;
+        }
+    }
+
     pub async fn cache_identity(&mut self) -> Result<String, BoxErr> {
         match self {
             Self::Embedded(store) => Ok(store.cache_identity().await),

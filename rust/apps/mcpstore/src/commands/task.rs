@@ -141,7 +141,7 @@ async fn run_task(args: TaskRunArgs, embedded: bool) -> mcpstore::Result<()> {
     if let Some(timeout) = args.max_total_timeout {
         options = options.with_max_total_timeout(Duration::from_secs(timeout));
     }
-    if access.embedded_store().is_some() {
+    let result = if access.embedded_store().is_some() {
         let store = access
             .embedded_store()
             .expect("embedded presence was just checked")
@@ -149,7 +149,9 @@ async fn run_task(args: TaskRunArgs, embedded: bool) -> mcpstore::Result<()> {
         run_task_embedded(&mut access, store, args, input, options).await
     } else {
         run_task_remote(&mut access, args, input, options, execution_target).await
-    }
+    };
+    access.close().await;
+    result
 }
 
 /// embedded 流式路径：elicitation 与 Ctrl-C 取消全保留。

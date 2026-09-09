@@ -106,5 +106,6 @@ pub fn run(
     }
 
     terminal.show_cursor()?;
+    rt.block_on(app.access.close());
     Ok(())
 }
