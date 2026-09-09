@@ -45,6 +45,22 @@ fn execution_policy_restricts_declared_targets() {
 }
 
 #[test]
+fn execution_policy_rejects_default_outside_allowlist() {
+    let mut config = ServerConfig::default();
+    config.mcpstore = Some(McpStoreExtension {
+        execution_policy: Some(ExecutionPolicy {
+            default_target: ExecutionTarget::Local,
+            allowed_targets: vec![ExecutionTarget::Daemon],
+            required_capabilities: Vec::new(),
+        }),
+        ..McpStoreExtension::default()
+    });
+
+    let error = config.validate_structure().unwrap_err();
+    assert!(error.contains("not in allowed_targets"), "{error}");
+}
+
+#[test]
 fn old_service_config_defaults_without_execution_policy() {
     let config: ServerConfig = serde_json::from_value(json!({
         "command": "demo"

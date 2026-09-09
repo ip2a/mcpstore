@@ -455,6 +455,18 @@ impl ServerConfig {
                 return Err("scopes.agents contains an empty agent id".to_string());
             }
         }
+        if let Some(policy) = self
+            .mcpstore
+            .as_ref()
+            .and_then(|extension| extension.execution_policy.as_ref())
+        {
+            if !policy.allows(&policy.default_target) {
+                return Err(format!(
+                    "execution_policy.default_target '{}' is not in allowed_targets",
+                    policy.default_target
+                ));
+            }
+        }
         Ok(())
     }
 
