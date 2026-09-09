@@ -34,14 +34,23 @@ impl DaemonEndpoint {
             token,
         })
     }
+
+    pub fn from_node(node: &mcpstore::DaemonNodeSettings) -> Self {
+        Self {
+            address: node.endpoint.clone(),
+            namespace: node
+                .namespace
+                .clone()
+                .unwrap_or_else(|| crate::daemon::protocol::DEFAULT_NAMESPACE.to_string()),
+            token: node.token.clone(),
+        }
+    }
 }
 
 /// 连接 daemon 管理面；无 remote endpoint 时连本机默认 namespace。
 pub async fn connect_admin(endpoint: Option<&DaemonEndpoint>) -> Result<KernelClient, Error> {
     match endpoint {
-        Some(endpoint) => {
-            KernelClient::connect_remote(crate::daemon::protocol::DEFAULT_NAMESPACE, endpoint).await
-        }
+        Some(endpoint) => KernelClient::connect_remote(&endpoint.namespace, endpoint).await,
         None => KernelClient::connect(crate::daemon::protocol::DEFAULT_NAMESPACE).await,
     }
 }

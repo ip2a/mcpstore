@@ -157,18 +157,33 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Wait(args) => commands::mcp::wait(args, embedded, endpoint.clone()).await,
             Commands::Update(args) => commands::mcp::update(args, embedded, endpoint.clone()).await,
             Commands::Tools(args) => commands::mcp::tools(args, embedded, endpoint.clone()).await,
-            Commands::Call(args) => {
-                commands::mcp::call_tool(args, embedded, endpoint.clone()).await
+            Commands::Call(ref args) => {
+                let endpoint = execution_endpoint(
+                    endpoint.clone(),
+                    app_config.as_ref(),
+                    &args.execution.execute_on,
+                )?;
+                commands::mcp::call_tool(args.clone(), embedded, endpoint).await
             }
-            Commands::Task(args) => commands::task::run(args, embedded, endpoint.clone()).await,
+            Commands::Task(args) => {
+                let endpoint = task_endpoint(app_config.as_ref(), &args, endpoint.clone())?;
+                commands::task::run(args, embedded, endpoint).await
+            }
             Commands::Resource(args) => {
-                commands::protocol::run_resource(args, embedded, endpoint.clone()).await
+                let endpoint = protocol_endpoint(app_config.as_ref(), &args, endpoint.clone())?;
+                commands::protocol::run_resource(args, embedded, endpoint).await
             }
             Commands::Prompt(args) => {
-                commands::protocol::run_prompt(args, embedded, endpoint.clone()).await
+                let endpoint = protocol_endpoint(app_config.as_ref(), &args, endpoint.clone())?;
+                commands::protocol::run_prompt(args, embedded, endpoint).await
             }
-            Commands::Complete(args) => {
-                commands::protocol::complete(args, embedded, endpoint.clone()).await
+            Commands::Complete(ref args) => {
+                let endpoint = execution_endpoint(
+                    endpoint.clone(),
+                    app_config.as_ref(),
+                    &args.execution.execute_on,
+                )?;
+                commands::protocol::complete(args.clone(), embedded, endpoint).await
             }
             Commands::Request(args) => {
                 commands::request::run(args, embedded, endpoint.clone()).await
@@ -189,6 +204,72 @@ pub fn run() -> Result<(), BoxErr> {
         }
     }
     result
+}
+
+fn execution_endpoint(
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+    app_config: Option<&mcpstore::AppConfig>,
+    requested: &commands::mcp::ExecutionTargetArg,
+) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
+    if endpoint.is_some() {
+        return Ok(endpoint);
+    }
+    let commands::mcp::ExecutionTargetArg::Node(node_id) = requested else {
+        return Ok(None);
+    };
+    let endpoint = app_config
+        .and_then(|config| config.daemon_nodes.get(node_id))
+        .map(crate::daemon::client::DaemonEndpoint::from_node);
+    if let Some(endpoint) = endpoint {
+        return Ok(Some(endpoint));
+    }
+    Err(mcpstore::Error::new(
+        mcpstore::FailureCode::ConfigInvalid,
+        format!("unknown execution node '{node_id}'"),
+    ))
+}
+
+fn task_endpoint(
+    app_config: Option<&mcpstore::AppConfig>,
+    args: &commands::task::TaskArgs,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
+    let requested = match &args.action {
+        commands::task::TaskAction::Run(args) => &args.execution.execute_on,
+        _ => &commands::mcp::ExecutionTargetArg::Auto,
+    };
+    execution_endpoint(endpoint, app_config, requested)
+}
+
+fn protocol_endpoint<T: ProtocolExecutionArgs>(
+    app_config: Option<&mcpstore::AppConfig>,
+    args: &T,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
+    execution_endpoint(endpoint, app_config, args.execution_target())
+}
+
+trait ProtocolExecutionArgs {
+    fn execution_target(&self) -> &commands::mcp::ExecutionTargetArg;
+}
+
+impl ProtocolExecutionArgs for commands::protocol::ResourceArgs {
+    fn execution_target(&self) -> &commands::mcp::ExecutionTargetArg {
+        match &self.action {
+            commands::protocol::ResourceAction::List(args) => &args.execution.execute_on,
+            commands::protocol::ResourceAction::Templates(args) => &args.execution.execute_on,
+            commands::protocol::ResourceAction::Read(args) => &args.execution.execute_on,
+        }
+    }
+}
+
+impl ProtocolExecutionArgs for commands::protocol::PromptArgs {
+    fn execution_target(&self) -> &commands::mcp::ExecutionTargetArg {
+        match &self.action {
+            commands::protocol::PromptAction::List(args) => &args.execution.execute_on,
+            commands::protocol::PromptAction::Get(args) => &args.execution.execute_on,
+        }
+    }
 }
 
 fn output_format(command: &Commands) -> crate::error::OutputFormat {
@@ -334,6 +415,37 @@ mod tests {
     }
 
     #[test]
+    fn named_execution_node_resolves_endpoint_from_config() {
+        let mut config = mcpstore::AppConfig::default();
+        config.daemon_nodes.insert(
+            "remote".into(),
+            mcpstore::DaemonNodeSettings {
+                endpoint: "127.0.0.1:1840".into(),
+                namespace: Some("ns".into()),
+                token: Some("secret".into()),
+            },
+        );
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "svc",
+            "noop",
+            "--execute-on",
+            "node:remote",
+        ])
+        .unwrap();
+        let Commands::Call(args) = &cli.command else {
+            panic!("expected call command");
+        };
+        let endpoint = execution_endpoint(None, Some(&config), &args.execution.execute_on)
+            .unwrap()
+            .unwrap();
+        assert_eq!(endpoint.address, "127.0.0.1:1840");
+        assert_eq!(endpoint.namespace, "ns");
+        assert_eq!(endpoint.token.as_deref(), Some("secret"));
+    }
+
+    #[test]
     fn parses_stdio_command_after_separator() {
         let cli = Cli::try_parse_from([
             "mcpstore",
@@ -425,7 +537,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Call(args) => {
+            Commands::Call(ref args) => {
                 assert_eq!(args.target, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.tool_name, "get_repo_status");
                 assert_eq!(args.arguments, "{}");
@@ -475,7 +587,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Call(args) => {
+            Commands::Call(ref args) => {
                 assert_eq!(args.target, "github");
                 assert_eq!(args.tool_name, "get_repo");
                 assert_eq!(args.args, vec!["owner:ip2a", "repo:mcp/store"]);
@@ -948,7 +1060,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Complete(args) => {
+            Commands::Complete(ref args) => {
                 assert_eq!(
                     args.reference_kind,
                     commands::protocol::CompletionReferenceKind::Resource

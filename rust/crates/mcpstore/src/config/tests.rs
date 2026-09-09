@@ -399,6 +399,38 @@ fn test_default_template_contains_runtime_sections() {
 }
 
 #[test]
+fn test_daemon_nodes_roundtrip_and_validation() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    let config = concat!(
+        "[daemon_nodes.remote]\n",
+        "endpoint = \"127.0.0.1:1840\"\n",
+        "namespace = \"ns\"\n",
+        "token = \"secret\"\n"
+    );
+    std::fs::write(mgr.app_config_path(), config).unwrap();
+
+    let loaded = mgr.load_app_config().unwrap();
+    let node = loaded.daemon_nodes.get("remote").unwrap();
+    assert_eq!(node.endpoint, "127.0.0.1:1840");
+    assert_eq!(node.namespace.as_deref(), Some("ns"));
+    assert_eq!(node.token.as_deref(), Some("secret"));
+
+    std::fs::write(
+        mgr.app_config_path(),
+        "[daemon_nodes.bad]\nendpoint = \" \"\n",
+    )
+    .unwrap();
+    let error = mgr.load_app_config().unwrap_err();
+    assert!(
+        error.to_string().contains("daemon_nodes.bad.endpoint"),
+        "{error}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn test_flatten_raw_app_config_only_contains_explicit_keys() {
     let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

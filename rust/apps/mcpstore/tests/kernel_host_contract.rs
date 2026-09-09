@@ -79,7 +79,7 @@ async fn remote_daemon_endpoint_requires_token() -> TestResult<()> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
     let port = 18000 + (nanos % 2000) as u16;
-    let fixture = HostFixture::start_remote(port, "secret").await?;
+    let fixture = HostFixture::start_remote(port, "secret", "mcpstore").await?;
     let ok = run_cli(&[
         "list".into(),
         "--output".into(),
@@ -106,6 +106,62 @@ async fn remote_daemon_endpoint_requires_token() -> TestResult<()> {
     fixture.stop().await
 }
 
+#[tokio::test]
+async fn named_execution_node_routes_to_configured_daemon() -> TestResult<()> {
+    let _guard = HOST_TEST_LOCK.lock().unwrap();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let port = 20000 + (nanos % 2000) as u16;
+    let fixture = HostFixture::start_remote(port, "secret", "remote-node-ns").await?;
+    let client_dir = std::env::temp_dir().join(format!("mcpstore-node-client-{nanos}"));
+    std::fs::create_dir_all(&client_dir)?;
+    std::fs::write(client_dir.join("mcp.json"), "{}")?;
+    std::fs::write(
+        client_dir.join("config.toml"),
+        format!(
+            "[daemon_nodes.remote]\nendpoint = \"127.0.0.1:{port}\"\nnamespace = \"remote-node-ns\"\ntoken = \"secret\"\n"
+        ),
+    )?;
+    let call = run_cli_in_dir(
+        &client_dir,
+        &[
+            "call".into(),
+            "missing-node-fixture".into(),
+            "noop".into(),
+            "--output".into(),
+            "json".into(),
+            "--execute-on".into(),
+            "node:remote".into(),
+        ],
+    )?;
+    assert!(
+        !call.status.success(),
+        "local unknown service was used: {call:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&call.stderr).contains("service_not_found"),
+        "call did not route through configured daemon: {call:?}"
+    );
+    let unknown = run_cli_in_dir(
+        &client_dir,
+        &[
+            "call".into(),
+            "local-only-fixture".into(),
+            "noop".into(),
+            "--output".into(),
+            "json".into(),
+            "--execute-on".into(),
+            "node:missing".into(),
+        ],
+    )?;
+    assert!(
+        String::from_utf8_lossy(&unknown.stderr).contains("unknown execution node"),
+        "missing node fell back to local daemon: {unknown:?}"
+    );
+    std::fs::remove_dir_all(&client_dir)?;
+    fixture.stop().await
+}
 #[tokio::test]
 async fn request_round_trip_and_deadline_error() -> TestResult<()> {
     let _guard = HOST_TEST_LOCK.lock().unwrap();
@@ -502,6 +558,17 @@ fn run_cli(args: &[String]) -> Result<std::process::Output, Box<dyn std::error::
         .map_err(Into::into)
 }
 
+fn run_cli_in_dir(
+    dir: &Path,
+    args: &[String],
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    std::process::Command::new(repo_root().join("target/debug/mcpstore"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .map_err(Into::into)
+}
+
 struct HostConnection {
     reader: BufReader<tokio::net::unix::OwnedReadHalf>,
     writer: tokio::net::unix::OwnedWriteHalf,
@@ -599,7 +666,7 @@ impl HostFixture {
         Self::start_local("test").await
     }
 
-    async fn start_remote(port: u16, token: &str) -> TestResult<Self> {
+    async fn start_remote(port: u16, token: &str, namespace: &str) -> TestResult<Self> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos();
@@ -617,7 +684,7 @@ impl HostFixture {
             .args(["start", "--source", "local", "--config-path"])
             .arg(&config_path)
             .arg("--namespace")
-            .arg("mcpstore")
+            .arg(namespace)
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
             .stdin(Stdio::null())

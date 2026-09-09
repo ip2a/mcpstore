@@ -31,10 +31,13 @@ pub(crate) async fn resolve_daemon_execution_target(
             ))
         }
     };
-    if requested != ExecutionTarget::Daemon {
+    if !matches!(
+        requested,
+        ExecutionTarget::Daemon | ExecutionTarget::Node(_)
+    ) {
         return Err(Error::new(
             FailureCode::CapabilityUnsupported,
-            "daemon execution accepts execute_on=daemon only",
+            "daemon execution accepts execute_on=daemon or node:NODE_ID only",
         ));
     }
     if let Some(instance) = store.find_instance(instance_id).await {
@@ -777,7 +780,7 @@ fn missing_local_capabilities(
     policy: &ExecutionPolicy,
     target: &ExecutionTarget,
 ) -> Option<String> {
-    if *target != ExecutionTarget::Local {
+    if !matches!(target, ExecutionTarget::Local | ExecutionTarget::Node(_)) {
         return None;
     }
     let capabilities = host_capabilities();
@@ -822,6 +825,27 @@ mod tests {
         };
         let error = missing_local_capabilities(&policy, &ExecutionTarget::Local).unwrap();
         assert_eq!(error, "definitely-missing-capability");
+    }
+
+    #[tokio::test]
+    async fn daemon_accepts_named_execution_node_as_local_host_execution() {
+        let path =
+            std::env::temp_dir().join(format!("mcpstore-daemon-node-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        let config_path = path.join("mcp.json");
+        let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
+
+        let target = resolve_daemon_execution_target(
+            &store,
+            instance_id,
+            &json!({"execute_on": "node:remote"}),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(target, ExecutionTarget::Node("remote".into()));
+        std::fs::remove_dir_all(path).ok();
     }
 
     #[tokio::test]

@@ -109,15 +109,14 @@ impl ExecutionTargetArg {
         &self,
         embedded: bool,
     ) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
+        if let Self::Node(node_id) = self {
+            return Ok(mcpstore::config::ExecutionTarget::Node(node_id.clone()));
+        }
         match self {
             Self::Auto if embedded => Ok(mcpstore::config::ExecutionTarget::Local),
             Self::Auto => Ok(mcpstore::config::ExecutionTarget::Daemon),
             Self::Local if embedded => Ok(mcpstore::config::ExecutionTarget::Local),
             Self::Daemon if !embedded => Ok(mcpstore::config::ExecutionTarget::Daemon),
-            Self::Node(_) => Err(Error::new(
-                FailureCode::CapabilityUnsupported,
-                "named execution nodes are not available yet",
-            )),
             Self::Local => Err(Error::new(
                 FailureCode::InvalidInput,
                 "local execution is available only with embedded access",
@@ -126,6 +125,7 @@ impl ExecutionTargetArg {
                 FailureCode::InvalidInput,
                 "daemon execution is available only with daemon access",
             )),
+            Self::Node(_) => unreachable!("named node target is handled above"),
         }
     }
 }
@@ -987,7 +987,7 @@ pub struct ExecuteOnArgs {
     pub execute_on: ExecutionTargetArg,
 }
 
-#[derive(Args)]
+#[derive(Clone, Args)]
 pub struct CallToolArgs {
     #[arg(value_name = "SERVICE|INSTANCE", help = "Service name or instance ID")]
     pub target: String,
@@ -1120,13 +1120,14 @@ pub(crate) fn resolve_declared_execution_target(
         .map(|policy| policy.default_target.clone())
         .unwrap_or(routed_target);
 
-    if embedded && target != mcpstore::config::ExecutionTarget::Local {
+    let remote_node = matches!(target, mcpstore::config::ExecutionTarget::Node(_));
+    if embedded && target != mcpstore::config::ExecutionTarget::Local && !remote_node {
         return Err(Error::new(
             FailureCode::InvalidInput,
             "service default execution target requires daemon access; retry with daemon access",
         ));
     }
-    if !embedded && target != mcpstore::config::ExecutionTarget::Daemon {
+    if !embedded && target != mcpstore::config::ExecutionTarget::Daemon && !remote_node {
         return Err(Error::new(
             FailureCode::InvalidInput,
             "service default execution target requires embedded access; retry with --embedded",
