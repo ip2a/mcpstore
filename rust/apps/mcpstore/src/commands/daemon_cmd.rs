@@ -109,8 +109,13 @@ pub async fn status(json: bool) -> Result<(), BoxErr> {
         return Ok(());
     }
     println!(
-        "[Success] Daemon running (pid={}, version={}, uptime={}s, namespace={})",
-        status["pid"], status["version"], status["uptime_s"], status["namespace"]
+        "[Success] Daemon running (pid={}, version={}, uptime={}s, namespace={}, reactor={}, pending_requests={})",
+        status["pid"],
+        status["version"],
+        status["uptime_s"],
+        status["namespace"],
+        status["reactor_running"],
+        status["control_queue"]["pending"]
     );
     for listener in status["listeners"].as_array().into_iter().flatten() {
         let key = listener["key"].as_str().unwrap_or("?");

@@ -289,7 +289,7 @@ async fn execute_operation(
     payload: Value,
 ) -> Result<Value, Error> {
     match operation {
-        KernelOperation::StatusHost => Ok(status_host_payload(host)),
+        KernelOperation::StatusHost => status_host_payload(host).await,
         KernelOperation::GetDaemonConfig => get_daemon_config(host),
         KernelOperation::SetDaemonConfig => set_daemon_config(host, payload).await,
         KernelOperation::StopHost => Ok(json!({"message": "KernelHost stopping"})),
@@ -300,14 +300,25 @@ async fn execute_operation(
     }
 }
 
-fn status_host_payload(host: &DaemonHost) -> Value {
-    json!({
+async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
+    let reactor_running = host.store.has_reactor().await;
+    let requests = host.store.control_requests().await?;
+    let pending = requests
+        .iter()
+        .any(|request| request.is_pending())
+        .then(|| requests.len());
+    Ok(json!({
         "pid": std::process::id(),
         "version": env!("CARGO_PKG_VERSION"),
         "uptime_s": host.started_at.elapsed().as_secs(),
         "namespace": host.store.namespace(),
+        "reactor_running": reactor_running,
+        "control_queue": {
+            "pending": pending.unwrap_or(0),
+            "requests": requests.len(),
+        },
         "listeners": host.faces.snapshot(),
-    })
+    }))
 }
 
 fn get_daemon_config(host: &DaemonHost) -> Result<Value, Error> {

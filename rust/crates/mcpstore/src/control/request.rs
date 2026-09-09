@@ -27,6 +27,17 @@ pub struct ControlRequest {
     pub status: ControlRequestStatus,
 }
 
+impl ControlRequest {
+    pub fn is_pending(&self) -> bool {
+        matches!(
+            self.status,
+            ControlRequestStatus::Queued
+                | ControlRequestStatus::Executing { .. }
+                | ControlRequestStatus::RetryScheduled { .. }
+        )
+    }
+}
+
 pub(in crate::control) fn dedup_key(request_type: &str, payload: &serde_json::Value) -> String {
     let identity = payload
         .get("instance_id")
