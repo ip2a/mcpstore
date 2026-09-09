@@ -60,7 +60,8 @@ pub(super) async fn switch(
     if !state.store.is_data_plane() {
         spawn_control_reactor(state.store.clone());
     }
-    let snapshot = serde_json::to_value(snapshot)
-        .map_err(|error| ApiError::invalid_request(format!("Failed to serialize cache-switch result: {error}")))?;
+    let snapshot = serde_json::to_value(snapshot).map_err(|error| {
+        ApiError::invalid_request(format!("Failed to serialize cache-switch result: {error}"))
+    })?;
     Ok(success("缓存后端切换成功", snapshot))
 }

@@ -280,9 +280,9 @@ pub(crate) struct McpStoreServer {
 
 mod catalog;
 mod handler;
-pub(crate) mod thin;
 mod search;
 mod tests;
+pub(crate) mod thin;
 mod tools;
 mod transport;
 

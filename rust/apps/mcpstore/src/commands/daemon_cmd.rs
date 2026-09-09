@@ -152,7 +152,10 @@ pub async fn face_view(face: &str, json: bool) -> Result<(), BoxErr> {
                     json!({"face": face, "running": true, "pid": status["pid"], "bind": bind, "server": config["config"]["server"]})
                 );
             } else {
-                let bind = bind.as_str().map(str::to_string).unwrap_or_else(|| "off".to_string());
+                let bind = bind
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "off".to_string());
                 println!("[{face}] daemon: running (pid={})", status["pid"]);
                 println!("[{face}] bind: {bind}");
                 println!("Use this command to change settings: {tip}");

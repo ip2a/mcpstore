@@ -83,9 +83,12 @@ pub fn import_selected_services(
 }
 
 fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Result<ServerConfig> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| Error::new(FailureCode::Internal, format!("Service {name} configuration must be an object")))?;
+    let object = value.as_object().ok_or_else(|| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Service {name} configuration must be an object"),
+        )
+    })?;
     let unsupported = object
         .keys()
         .filter(|field| !supported_fields(client).contains(&field.as_str()))
@@ -94,7 +97,10 @@ fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Resu
     if !unsupported.is_empty() {
         return Err(Error::new(
             FailureCode::Internal,
-            format!("Service {name} contains fields that cannot be imported: {}", unsupported.join(", ")),
+            format!(
+                "Service {name} contains fields that cannot be imported: {}",
+                unsupported.join(", ")
+            ),
         ));
     }
 
@@ -352,9 +358,12 @@ fn service_map(client: ClientKind, document: &Value) -> Result<&Map<String, Valu
     };
     match document.get(key) {
         None => Ok(&EMPTY_SERVICES),
-        Some(value) => value
-            .as_object()
-            .ok_or_else(|| Error::new(FailureCode::Internal, format!("Configuration field {key} must be an object"))),
+        Some(value) => value.as_object().ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Configuration field {key} must be an object"),
+            )
+        }),
     }
 }
 

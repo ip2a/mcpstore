@@ -45,15 +45,17 @@ pub fn run(
             serde_json::json!({}),
         ))
         .map_err(|error| format!("Failed to read runtime configuration: {error}"))?;
-    let app_config: mcpstore::config::AppConfig =
-        serde_json::from_value(info["config"].clone())?;
+    let app_config: mcpstore::config::AppConfig = serde_json::from_value(info["config"].clone())?;
     let config_path = info["mcp_path"].as_str().unwrap_or_default().to_string();
     bootstrap::init_tracing_from_config(Some(&app_config));
 
     let locale = locale_override
         .or_else(|| Locale::from_config_value(&app_config.ui.language))
         .unwrap_or_default();
-    let cache_storage_label = info["current_store_name"].as_str().unwrap_or("?").to_string();
+    let cache_storage_label = info["current_store_name"]
+        .as_str()
+        .unwrap_or("?")
+        .to_string();
     let namespace = info["namespace"].as_str().unwrap_or("?").to_string();
     let mcp_aggregate_transport = app_config.mcp_aggregate.transport.clone();
     let mcp_aggregate_port = app_config.mcp_aggregate.port;

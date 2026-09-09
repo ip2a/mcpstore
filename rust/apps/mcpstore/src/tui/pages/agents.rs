@@ -96,7 +96,10 @@ fn render_agent_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {
             Span::styled(agent.services.len().to_string(), theme::text()),
         ])),
         ListItem::new(Line::from("")),
-        ListItem::new(Line::from(Span::styled("Authorized services", theme::field_label()))),
+        ListItem::new(Line::from(Span::styled(
+            "Authorized services",
+            theme::field_label(),
+        ))),
     ];
 
     if agent.services.is_empty() {

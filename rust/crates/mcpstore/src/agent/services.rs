@@ -22,9 +22,25 @@ impl MCPStore {
     async fn enrich_service(&self, instance: ServiceInstance) -> Result<serde_json::Value> {
         let tool_count = instance.tools.len();
         let state = self.service_state_entry(instance.instance_id).await?;
-        let mut value = serde_json::to_value(instance)
+        let mut value = serde_json::to_value(&instance)
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
+            if let Some(definition) = self
+                .kernel
+                .control
+                .registry
+                .find_definition(&instance.service_name)
+                .await
+            {
+                if let Some(policy) = definition.execution_policy {
+                    object.insert(
+                        "execution_policy".to_string(),
+                        serde_json::to_value(policy).map_err(|error| {
+                            Error::new(FailureCode::Internal, error.to_string())
+                        })?,
+                    );
+                }
+            }
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             object.insert(
                 "state".to_string(),
@@ -62,9 +78,25 @@ impl MCPStore {
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let tool_count = instance.tools.len();
-        let mut value = serde_json::to_value(instance)
+        let mut value = serde_json::to_value(&instance)
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
+            if let Some(definition) = self
+                .kernel
+                .control
+                .registry
+                .find_definition(&instance.service_name)
+                .await
+            {
+                if let Some(policy) = definition.execution_policy {
+                    object.insert(
+                        "execution_policy".to_string(),
+                        serde_json::to_value(policy).map_err(|error| {
+                            Error::new(FailureCode::Internal, error.to_string())
+                        })?,
+                    );
+                }
+            }
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             object.insert(
                 "state".to_string(),

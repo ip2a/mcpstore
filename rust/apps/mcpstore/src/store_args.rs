@@ -143,7 +143,9 @@ pub async fn open_store_access(
     embedded: bool,
 ) -> Result<StoreAccess, BoxErr> {
     if embedded || args.is_explicit() {
-        return Ok(StoreAccess::Embedded(load_kernel(args).await?.store().clone()));
+        return Ok(StoreAccess::Embedded(
+            load_kernel(args).await?.store().clone(),
+        ));
     }
     if !crate::daemon::ensure::is_daemon_ready().await {
         crate::daemon::ensure::spawn_detached_daemon()?;
@@ -162,9 +164,7 @@ impl StoreAccess {
         payload: Value,
     ) -> mcpstore::Result<Value> {
         match self {
-            Self::Embedded(store) => {
-                crate::daemon::ops::execute(store, operation, payload).await
-            }
+            Self::Embedded(store) => crate::daemon::ops::execute(store, operation, payload).await,
             Self::Remote(client) => client
                 .request(
                     operation,
@@ -198,11 +198,7 @@ impl StoreAccess {
 
     /// daemon 配置 key 修改（§7 key 表）：remote 走 daemon 热应用；
     /// embedded 校验（planner）后落盘，下次启动生效。
-    pub async fn set_daemon_config(
-        &mut self,
-        key: &str,
-        value: Value,
-    ) -> mcpstore::Result<Value> {
+    pub async fn set_daemon_config(&mut self, key: &str, value: Value) -> mcpstore::Result<Value> {
         match self {
             Self::Embedded(store) => {
                 let manager = store.config_manager();

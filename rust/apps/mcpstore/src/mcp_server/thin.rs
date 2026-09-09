@@ -18,8 +18,8 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 use super::catalog::{
-    catalog_name_counts, project_catalog_uris, project_prompt_names,
-    resolve_projected_catalog_uri, resolve_projected_prompt, service_namespace,
+    catalog_name_counts, project_catalog_uris, project_prompt_names, resolve_projected_catalog_uri,
+    resolve_projected_prompt, service_namespace,
 };
 use super::handler::llm_error_result;
 use super::tools::{read_required_instance_id, read_required_object, read_required_string};
@@ -29,15 +29,19 @@ fn deserialize_item<T: serde::de::DeserializeOwned>(
     payload: Value,
     what: &str,
 ) -> Result<T, ErrorData> {
-    serde_json::from_value(payload)
-        .map_err(|error| ErrorData::internal_error(format!("failed to decode {what}: {error}"), None))
+    serde_json::from_value(payload).map_err(|error| {
+        ErrorData::internal_error(format!("failed to decode {what}: {error}"), None)
+    })
 }
 
 fn deserialize_items<T: serde::de::DeserializeOwned>(
     payloads: Vec<Value>,
     what: &str,
 ) -> Result<Vec<T>, ErrorData> {
-    payloads.into_iter().map(|payload| deserialize_item(payload, what)).collect()
+    payloads
+        .into_iter()
+        .map(|payload| deserialize_item(payload, what))
+        .collect()
 }
 use crate::daemon::client::KernelClient;
 use crate::daemon::protocol::KernelOperation;
@@ -92,24 +96,21 @@ impl ThinAggregate {
         let catalog_err = |error: crate::BoxErr| -> ErrorData {
             ErrorData::internal_error(format!("invalid tool catalog from daemon: {error}"), None)
         };
-        let names =
-            catalog_name_counts(&payloads, "name").map_err(catalog_err)?;
+        let names = catalog_name_counts(&payloads, "name").map_err(catalog_err)?;
         let mut bindings = HashMap::with_capacity(payloads.len());
         for payload in payloads {
-            let original_name =
-                read_required_string(&payload, "name").map_err(catalog_err)?;
+            let original_name = read_required_string(&payload, "name").map_err(catalog_err)?;
             let canonical_tool_name =
                 read_required_string(&payload, "tool_name").map_err(catalog_err)?;
             let instance_id =
                 read_required_instance_id(&payload, "instance_id").map_err(catalog_err)?;
             let service_name =
                 read_required_string(&payload, "service_name").map_err(catalog_err)?;
-            let exposed_name =
-                if names.get(&original_name).copied().unwrap_or_default() > 1 {
-                    format!("{}__{}", service_namespace(&service_name), original_name)
-                } else {
-                    original_name
-                };
+            let exposed_name = if names.get(&original_name).copied().unwrap_or_default() > 1 {
+                format!("{}__{}", service_namespace(&service_name), original_name)
+            } else {
+                original_name
+            };
             let description: Option<String> = payload
                 .get("description")
                 .and_then(Value::as_str)
@@ -231,26 +232,26 @@ impl ServerHandler for ThinAggregate {
             for item in result.content {
                 content.push(match item {
                     mcpstore::transport::ContentItem::Text { text, .. } => ContentBlock::text(text),
-                    mcpstore::transport::ContentItem::Image { data, mime_type, .. } => {
-                        ContentBlock::image(data, mime_type)
-                    }
-                    mcpstore::transport::ContentItem::Audio { data, mime_type, .. } => {
-                        ContentBlock::audio(data, mime_type)
-                    }
+                    mcpstore::transport::ContentItem::Image {
+                        data, mime_type, ..
+                    } => ContentBlock::image(data, mime_type),
+                    mcpstore::transport::ContentItem::Audio {
+                        data, mime_type, ..
+                    } => ContentBlock::audio(data, mime_type),
                     mcpstore::transport::ContentItem::Resource { resource, .. } => {
                         match serde_json::from_value::<ResourceContents>(resource) {
                             Ok(resource) => ContentBlock::resource(resource),
-                            Err(error) => {
-                                ContentBlock::text(format!("Failed to decode resource content: {error}"))
-                            }
+                            Err(error) => ContentBlock::text(format!(
+                                "Failed to decode resource content: {error}"
+                            )),
                         }
                     }
                     mcpstore::transport::ContentItem::ResourceLink { resource, .. } => {
                         match serde_json::from_value::<rmcp::model::Resource>(resource) {
                             Ok(resource) => ContentBlock::resource_link(resource),
-                            Err(error) => {
-                                ContentBlock::text(format!("Failed to decode resource link: {error}"))
-                            }
+                            Err(error) => ContentBlock::text(format!(
+                                "Failed to decode resource link: {error}"
+                            )),
                         }
                     }
                 });

@@ -14,8 +14,8 @@ use crate::commands::elicitation::{
     ElicitationCommandError, ElicitationErrorKind,
 };
 use crate::commands::mcp::open_store;
-use crate::error::{attach_instance, attach_task, OutputFormat};
 use crate::daemon::protocol::KernelOperation;
+use crate::error::{attach_instance, attach_task, OutputFormat};
 use crate::store_args::{StoreAccess, StoreSourceArgs};
 use crate::BoxErr;
 
@@ -109,10 +109,7 @@ async fn execute(action: TaskAction, embedded: bool) -> mcpstore::Result<()> {
     }
 }
 
-async fn loaded_access(
-    runtime: &TaskRuntimeArgs,
-    embedded: bool,
-) -> mcpstore::Result<StoreAccess> {
+async fn loaded_access(runtime: &TaskRuntimeArgs, embedded: bool) -> mcpstore::Result<StoreAccess> {
     open_store(&runtime.store, embedded).await
 }
 
@@ -263,38 +260,40 @@ async fn run_task_remote(
     }
 
     let result = {
-        let client = access.remote_client().expect("remote access carries a client");
+        let client = access
+            .remote_client()
+            .expect("remote access carries a client");
         client
             .request_stream(
                 KernelOperation::StreamToolExecution,
                 payload,
                 Duration::from_secs(600),
-            |event| match event {
-                KernelEvent::Started {
-                    request_id,
-                    instance_id,
-                    cancellation,
-                } => {
-                    if output == OutputFormat::Jsonl {
-                        let _ = emit_value(
-                            output,
-                            json!({
-                                "event": "task.started",
-                                "instance_id": instance_id,
-                                "tool_name": tool_name,
-                                "request_id": request_id,
-                                "progress_token": null,
-                                "cancellable": cancellation,
-                            }),
-                        );
+                |event| match event {
+                    KernelEvent::Started {
+                        request_id,
+                        instance_id,
+                        cancellation,
+                    } => {
+                        if output == OutputFormat::Jsonl {
+                            let _ = emit_value(
+                                output,
+                                json!({
+                                    "event": "task.started",
+                                    "instance_id": instance_id,
+                                    "tool_name": tool_name,
+                                    "request_id": request_id,
+                                    "progress_token": null,
+                                    "cancellable": cancellation,
+                                }),
+                            );
+                        }
                     }
-                }
-                KernelEvent::Progress { progress, .. } => {
-                    let _ = emit_task_progress(output, tool_name, &progress);
-                }
-                KernelEvent::Finished { .. } => {
-                    unreachable!("finished is the terminal frame")
-                }
+                    KernelEvent::Progress { progress, .. } => {
+                        let _ = emit_task_progress(output, tool_name, &progress);
+                    }
+                    KernelEvent::Finished { .. } => {
+                        unreachable!("finished is the terminal frame")
+                    }
                 },
             )
             .await
@@ -489,14 +488,13 @@ async fn list_tasks(args: TaskInstanceArgs, embedded: bool) -> mcpstore::Result<
         )
         .await
         .map_err(|error| attach_instance(error, args.instance_id))?;
-    let records: Vec<McpTaskRecord> = serde_json::from_value(result["records"].clone()).map_err(
-        |error| {
+    let records: Vec<McpTaskRecord> =
+        serde_json::from_value(result["records"].clone()).map_err(|error| {
             attach_instance(
                 Error::new(FailureCode::Internal, error.to_string()),
                 args.instance_id,
             )
-        },
-    )?;
+        })?;
 
     match output {
         OutputFormat::Human => {

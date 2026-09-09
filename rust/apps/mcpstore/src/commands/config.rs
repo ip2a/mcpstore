@@ -124,9 +124,7 @@ pub async fn run(
     overview(json).await
 }
 
-async fn run_action(
-    action: ConfigAction,
-) -> std::result::Result<(), Box<dyn std::error::Error>> {
+async fn run_action(action: ConfigAction) -> std::result::Result<(), Box<dyn std::error::Error>> {
     match action {
         ConfigAction::Show { path } => show(path),
         ConfigAction::Validate { path } => validate(path),

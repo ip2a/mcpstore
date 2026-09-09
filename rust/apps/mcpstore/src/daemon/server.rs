@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
 
-use crate::daemon::ops::{config_error, instance_id, plan_config_change, required_str};
+use crate::daemon::ops::{
+    config_error, instance_id, plan_config_change, required_str, validate_daemon_execution_target,
+};
 use crate::daemon::protocol::{
     deadline, default_pid_path, HandshakeRequest, KernelError, KernelEvent, KernelOperation,
     KernelRequest, KernelResponse,
@@ -328,9 +330,7 @@ async fn set_daemon_config(host: &DaemonHost, payload: Value) -> Result<Value, E
         .cloned()
         .ok_or_else(|| Error::new(FailureCode::InvalidInput, "value is required"))?;
     let manager = host.store.config_manager();
-    let mut config = manager
-        .load_app_config_or_default()
-        .map_err(config_error)?;
+    let mut config = manager.load_app_config_or_default().map_err(config_error)?;
     let planned = plan_config_change(&mut config, &key, &value)?;
     for (face, port) in planned {
         match port {
@@ -440,6 +440,7 @@ where
     let instance_id = instance_id(&payload)?;
     let tool_name = required_str(&payload, "tool_name")?;
     let args = payload.get("args").cloned().unwrap_or_else(|| json!({}));
+    validate_daemon_execution_target(&payload)?;
     let task = payload
         .get("task")
         .and_then(Value::as_bool)

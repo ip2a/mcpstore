@@ -48,7 +48,10 @@ pub struct McpServerArgs {
         help = "MCP transport: stdio or streamable-http; defaults to app config"
     )]
     pub transport: Option<McpServerTransport>,
-    #[arg(long, help = "本进程内嵌 kernel（默认 stdio 为转发 daemon 的 thin client）")]
+    #[arg(
+        long,
+        help = "本进程内嵌 kernel（默认 stdio 为转发 daemon 的 thin client）"
+    )]
     pub embedded: bool,
     #[arg(
         long,

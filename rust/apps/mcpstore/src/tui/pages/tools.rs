@@ -98,10 +98,12 @@ fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     if app.service_tools.is_empty() {
         if app.tool_filter == ToolFilterTab::All {
-            let body = Paragraph::new("No tools loaded. Press r to connect to services and load the global tool list.")
-                .block(widgets::chrome::panel_block(title, focused))
-                .style(theme::text())
-                .wrap(Wrap { trim: true });
+            let body = Paragraph::new(
+                "No tools loaded. Press r to connect to services and load the global tool list.",
+            )
+            .block(widgets::chrome::panel_block(title, focused))
+            .style(theme::text())
+            .wrap(Wrap { trim: true });
             frame.render_widget(body, area);
             return;
         }
@@ -120,7 +122,9 @@ fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
                 Span::styled(status, theme::text()),
             ]),
             Line::from(""),
-            Line::from("No tools loaded. Press r to connect to this service and load its tool list."),
+            Line::from(
+                "No tools loaded. Press r to connect to this service and load its tool list.",
+            ),
         ])
         .block(widgets::chrome::panel_block(title, focused))
         .style(theme::text())

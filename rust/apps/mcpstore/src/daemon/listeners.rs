@@ -78,9 +78,18 @@ impl ListenerManager {
         let server = &config.server;
         let aggregate = &config.mcp_aggregate;
         for (key, port) in [
-            (ListenerKey::Core, server.core_enabled.then_some(server.port)),
-            (ListenerKey::App, server.app_enabled.then_some(server.app_port)),
-            (ListenerKey::Web, server.web_enabled.then_some(server.web_port)),
+            (
+                ListenerKey::Core,
+                server.core_enabled.then_some(server.port),
+            ),
+            (
+                ListenerKey::App,
+                server.app_enabled.then_some(server.app_port),
+            ),
+            (
+                ListenerKey::Web,
+                server.web_enabled.then_some(server.web_port),
+            ),
             (
                 ListenerKey::Aggregate,
                 (aggregate.enabled && aggregate.transport == "streamable-http")
@@ -137,10 +146,8 @@ impl ListenerManager {
             }
         });
         let mut slots = self.slots.lock().expect("listener slots poisoned");
-        let previous = std::mem::replace(
-            &mut slots[key.index()],
-            Some(ListenerSlot { task, bind }),
-        );
+        let previous =
+            std::mem::replace(&mut slots[key.index()], Some(ListenerSlot { task, bind }));
         if let Some(old) = previous {
             old.task.abort();
         }
@@ -226,10 +233,7 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
                     format!("failed to build aggregate server: {error}"),
                 )
             })?;
-            Ok(crate::mcp_server::streamable_http_router(
-                server,
-                "/mcp",
-            ))
+            Ok(crate::mcp_server::streamable_http_router(server, "/mcp"))
         }
     }
 }

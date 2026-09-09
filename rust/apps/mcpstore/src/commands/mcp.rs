@@ -62,6 +62,52 @@ pub enum Scope {
     Agent,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExecutionTargetArg {
+    Auto,
+    Local,
+    Daemon,
+    Node(String),
+}
+
+impl FromStr for ExecutionTargetArg {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value == "auto" {
+            return Ok(Self::Auto);
+        }
+        mcpstore::config::ExecutionTarget::from_str(value).map(|target| match target {
+            mcpstore::config::ExecutionTarget::Local => Self::Local,
+            mcpstore::config::ExecutionTarget::Daemon => Self::Daemon,
+            mcpstore::config::ExecutionTarget::Node(node_id) => Self::Node(node_id),
+        })
+    }
+}
+
+impl ExecutionTargetArg {
+    fn resolve(&self, embedded: bool) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
+        match self {
+            Self::Auto if embedded => Ok(mcpstore::config::ExecutionTarget::Local),
+            Self::Auto => Ok(mcpstore::config::ExecutionTarget::Daemon),
+            Self::Local if embedded => Ok(mcpstore::config::ExecutionTarget::Local),
+            Self::Daemon if !embedded => Ok(mcpstore::config::ExecutionTarget::Daemon),
+            Self::Node(_) => Err(Error::new(
+                FailureCode::CapabilityUnsupported,
+                "named execution nodes are not available yet",
+            )),
+            Self::Local => Err(Error::new(
+                FailureCode::InvalidInput,
+                "local execution is available only with embedded access",
+            )),
+            Self::Daemon => Err(Error::new(
+                FailureCode::InvalidInput,
+                "daemon execution is available only with daemon access",
+            )),
+        }
+    }
+}
+
 impl Scope {
     pub fn to_ref(&self, agent: Option<&str>) -> std::result::Result<ScopeRef, BoxErr> {
         match self {
@@ -141,6 +187,9 @@ pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> 
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
+            execution_policy: previous
+                .as_ref()
+                .and_then(|extension| extension.execution_policy.clone()),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -199,6 +248,9 @@ pub async fn add_json(a: AddJsonArgs, embedded: bool) -> std::result::Result<(),
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
+            execution_policy: previous
+                .as_ref()
+                .and_then(|extension| extension.execution_policy.clone()),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -308,9 +360,10 @@ pub struct GetArgs {
 }
 
 pub async fn get(a: GetArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        Error::new(FailureCode::InvalidInput, e.to_string())
-    })?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
@@ -323,9 +376,8 @@ pub async fn get(a: GetArgs, embedded: bool) -> std::result::Result<(), BoxErr> 
         .await?;
     match a.output {
         OutputFormat::Human => {
-            let json = serde_json::to_string_pretty(&payload).map_err(|e| {
-                Error::new(FailureCode::Internal, e.to_string())
-            })?;
+            let json = serde_json::to_string_pretty(&payload)
+                .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?;
             println!("{json}");
         }
         _ => {
@@ -378,9 +430,10 @@ pub struct ConnectArgs {
 }
 
 pub async fn connect(a: ConnectArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        Error::new(FailureCode::InvalidInput, e.to_string())
-    })?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
@@ -392,7 +445,9 @@ pub async fn connect(a: ConnectArgs, embedded: bool) -> std::result::Result<(), 
         )
         .await?;
     let tools = result["tools"].as_array().cloned().unwrap_or_default();
-    let tools_count = result["tools_count"].as_u64().unwrap_or_else(|| tools.len() as u64);
+    let tools_count = result["tools_count"]
+        .as_u64()
+        .unwrap_or_else(|| tools.len() as u64);
     let capabilities = format_capabilities(result.get("mcp"));
     match a.output {
         OutputFormat::Human => {
@@ -438,9 +493,10 @@ pub struct DisconnectArgs {
 }
 
 pub async fn disconnect(a: DisconnectArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        Error::new(FailureCode::InvalidInput, e.to_string())
-    })?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
@@ -480,9 +536,10 @@ pub struct RestartArgs {
 }
 
 pub async fn restart(a: RestartArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        Error::new(FailureCode::InvalidInput, e.to_string())
-    })?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
@@ -529,9 +586,10 @@ pub struct CheckArgs {
 }
 
 pub async fn check(a: CheckArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        Error::new(FailureCode::InvalidInput, e.to_string())
-    })?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
@@ -592,9 +650,10 @@ pub struct WaitArgs {
 }
 
 pub async fn wait(a: WaitArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|e| {
-        Error::new(FailureCode::InvalidInput, e.to_string())
-    })?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
@@ -830,6 +889,14 @@ pub struct CallToolArgs {
     )]
     pub output: OutputFormat,
     #[arg(
+        long = "execute-on",
+        default_value = "auto",
+        value_name = "TARGET",
+        value_parser = ExecutionTargetArg::from_str,
+        help = "Execution target: auto, local, daemon, or node:NODE_ID",
+    )]
+    pub execute_on: ExecutionTargetArg,
+    #[arg(
         long,
         value_name = "SECONDS",
         help = "Idle timeout, reset by matching progress"
@@ -867,9 +934,13 @@ pub async fn call_tool(a: CallToolArgs, embedded: bool) -> std::result::Result<(
 
 async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<()> {
     parse_arguments_json_object(&a.arguments, a.output)?;
-    let scope = a.scope.to_ref(a.agent.as_deref()).map_err(|error| {
-        Error::new(FailureCode::InvalidInput, error.to_string())
-    })?;
+    // Explicit store arguments force embedded access in open_store_access.
+    let embedded = embedded || a.store.is_explicit();
+    let execution_target = a.execute_on.resolve(embedded)?;
+    let scope = a
+        .scope
+        .to_ref(a.agent.as_deref())
+        .map_err(|error| Error::new(FailureCode::InvalidInput, error.to_string()))?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
@@ -893,16 +964,17 @@ async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<
     }
 
     match access {
-        StoreAccess::Embedded(store) => call_embedded(
-            &store,
-            instance_id,
-            &a,
-            args,
-            options,
-        )
-        .await,
+        StoreAccess::Embedded(store) => call_embedded(&store, instance_id, &a, args, options).await,
         StoreAccess::Remote(mut client) => {
-            call_remote(&mut client, instance_id, &a, args, options).await
+            call_remote(
+                &mut client,
+                instance_id,
+                &a,
+                args,
+                options,
+                execution_target,
+            )
+            .await
         }
     }
 }
@@ -978,8 +1050,8 @@ async fn call_embedded(
                 emit_call_progress(a.output, tool_name, &progress)?;
             }
             Some(McpStoreExecutionUpdate::Finished(result)) => {
-                let execution = result
-                    .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
+                let execution =
+                    result.map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
                 return finish_call_execution(a.output, instance_id, tool_name, execution);
             }
             None => {
@@ -1005,9 +1077,11 @@ async fn call_remote(
     a: &CallToolArgs,
     args: Value,
     options: McpExecutionOptions,
+    execution_target: mcpstore::config::ExecutionTarget,
 ) -> mcpstore::Result<()> {
     let tool_name = a.tool_name.as_str();
     let mut payload = json!({
+        "execute_on": execution_target,
         "instance_id": instance_id.to_string(),
         "tool_name": tool_name,
         "args": args,
@@ -1022,19 +1096,29 @@ async fn call_remote(
     let output = a.output;
     let mut instance_for_events = instance_id;
     let result = client
-        .request_stream(KernelOperation::StreamToolExecution, payload, Duration::from_secs(600), |event| {
-            match event {
-                crate::daemon::protocol::KernelEvent::Started { request_id, instance_id: started_instance, cancellation } => {
+        .request_stream(
+            KernelOperation::StreamToolExecution,
+            payload,
+            Duration::from_secs(600),
+            |event| match event {
+                crate::daemon::protocol::KernelEvent::Started {
+                    request_id,
+                    instance_id: started_instance,
+                    cancellation,
+                } => {
                     instance_for_events = started_instance;
                     if output == OutputFormat::Jsonl {
-                        let _ = emit_call_value(output, json!({
-                            "event": "execution.started",
-                            "instance_id": instance_for_events,
-                            "tool_name": tool_name,
-                            "request_id": request_id,
-                            "progress_token": null,
-                            "cancellable": cancellation,
-                        }));
+                        let _ = emit_call_value(
+                            output,
+                            json!({
+                                "event": "execution.started",
+                                "instance_id": instance_for_events,
+                                "tool_name": tool_name,
+                                "request_id": request_id,
+                                "progress_token": null,
+                                "cancellable": cancellation,
+                            }),
+                        );
                     }
                 }
                 crate::daemon::protocol::KernelEvent::Progress { progress, .. } => {
@@ -1043,13 +1127,12 @@ async fn call_remote(
                 crate::daemon::protocol::KernelEvent::Finished { .. } => {
                     unreachable!("finished is the terminal frame")
                 }
-            }
-        })
+            },
+        )
         .await
         .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
 
-    let execution: McpToolExecution = if let Ok(execution) =
-        serde_json::from_value(result.clone())
+    let execution: McpToolExecution = if let Ok(execution) = serde_json::from_value(result.clone())
     {
         execution
     } else {
@@ -1149,15 +1232,13 @@ async fn resolve_target(
         .request(KernelOperation::ListServices, json!({ "scope": scope }))
         .await
         .map_err(|e| ResolveError::Backend(e.to_string()))?;
-    let instance_id = result["services"]
-        .as_array()
-        .and_then(|services| {
-            services
-                .iter()
-                .find(|service| service["service_name"].as_str() == Some(target))
-                .and_then(|service| service["instance_id"].as_str())
-                .map(str::to_string)
-        });
+    let instance_id = result["services"].as_array().and_then(|services| {
+        services
+            .iter()
+            .find(|service| service["service_name"].as_str() == Some(target))
+            .and_then(|service| service["instance_id"].as_str())
+            .map(str::to_string)
+    });
     if let Some(id) = &instance_id {
         crate::schema_cache::save_target(&cache_key, target, id);
     }
@@ -1714,14 +1795,20 @@ fn format_capabilities(metadata: Option<&Value>) -> String {
                 .as_bool()
                 .unwrap_or(false),
         ),
-        ("resources", capabilities["resources"].as_bool().unwrap_or(false)),
+        (
+            "resources",
+            capabilities["resources"].as_bool().unwrap_or(false),
+        ),
         (
             "resources.list_changed",
             capabilities["resources_list_changed"]
                 .as_bool()
                 .unwrap_or(false),
         ),
-        ("prompts", capabilities["prompts"].as_bool().unwrap_or(false)),
+        (
+            "prompts",
+            capabilities["prompts"].as_bool().unwrap_or(false),
+        ),
         (
             "prompts.list_changed",
             capabilities["prompts_list_changed"]

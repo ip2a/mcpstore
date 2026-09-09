@@ -5,10 +5,27 @@ use mcpstore::config::{
     AppConfig, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
-use mcpstore::{AuthFlow, InstanceId, McpCompletionRequest, MCPStore, ScopeRef};
+use mcpstore::{AuthFlow, InstanceId, MCPStore, McpCompletionRequest, ScopeRef};
 use serde_json::{json, Value};
 
 use crate::daemon::protocol::KernelOperation;
+
+/// Validate optional execution target at daemon trust boundary.
+/// Missing field remains compatible with older clients.
+pub(crate) fn validate_daemon_execution_target(payload: &Value) -> Result<(), Error> {
+    match payload.get("execute_on") {
+        None => Ok(()),
+        Some(Value::String(target)) if target == "daemon" => Ok(()),
+        Some(Value::String(_)) => Err(Error::new(
+            FailureCode::CapabilityUnsupported,
+            "daemon execution accepts execute_on=daemon only",
+        )),
+        Some(_) => Err(Error::new(
+            FailureCode::InvalidInput,
+            "execute_on must be a string",
+        )),
+    }
+}
 
 /// 执行一个业务 op。请求/响应 op 全部经此；流式 op（StreamToolExecution/
 /// SubscribeEvents）与管理 op 不在此列。
@@ -19,6 +36,7 @@ pub(crate) async fn execute(
 ) -> Result<Value, Error> {
     match operation {
         KernelOperation::CallTool => {
+            validate_daemon_execution_target(&payload)?;
             let instance_id = instance_id(&payload)?;
             let tool_name = required_str(&payload, "tool_name")?;
             let args = payload.get("args").cloned().unwrap_or_else(|| json!({}));
@@ -247,8 +265,13 @@ pub(crate) async fn execute(
         KernelOperation::PromptGet => {
             let instance_id = instance_id(&payload)?;
             let prompt_name = required_str(&payload, "prompt_name")?;
-            let arguments = payload.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            let prompt = store.get_prompt(instance_id, &prompt_name, arguments).await?;
+            let arguments = payload
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let prompt = store
+                .get_prompt(instance_id, &prompt_name, arguments)
+                .await?;
             Ok(json!({"prompt": prompt}))
         }
         KernelOperation::CompleteArgument => {
@@ -328,9 +351,7 @@ pub(crate) async fn execute(
         }
         KernelOperation::GetAppConfig => {
             let manager = store.config_manager();
-            let config = manager
-                .load_app_config_or_default()
-                .map_err(config_error)?;
+            let config = manager.load_app_config_or_default().map_err(config_error)?;
             Ok(json!({
                 "config": config,
                 "mcp_path": manager.mcp_path().display().to_string(),
@@ -342,9 +363,7 @@ pub(crate) async fn execute(
             // server/mcp_aggregate 是 daemon 热应用面，必须走 config --<key>；其余段整体保存
             let new_config = payload_field::<AppConfig>(&payload, "config")?;
             let manager = store.config_manager();
-            let current = manager
-                .load_app_config_or_default()
-                .map_err(config_error)?;
+            let current = manager.load_app_config_or_default().map_err(config_error)?;
             if serde_json::to_value(&new_config.server).unwrap_or(Value::Null)
                 != serde_json::to_value(&current.server).unwrap_or(Value::Null)
                 || serde_json::to_value(&new_config.mcp_aggregate).unwrap_or(Value::Null)
@@ -410,6 +429,9 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
+            execution_policy: previous
+                .as_ref()
+                .and_then(|extension| extension.execution_policy.clone()),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)

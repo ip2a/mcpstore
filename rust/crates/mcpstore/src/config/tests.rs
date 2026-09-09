@@ -4,6 +4,33 @@ use super::{examples::default_server_config, *};
 use crate::identity::ScopeRef;
 
 #[test]
+fn execution_target_roundtrips_as_stable_string() {
+    for (target, encoded) in [
+        (ExecutionTarget::Local, "\"local\""),
+        (ExecutionTarget::Daemon, "\"daemon\""),
+        (
+            ExecutionTarget::Node("browser-host".into()),
+            "\"node:browser-host\"",
+        ),
+    ] {
+        assert_eq!(serde_json::to_string(&target).unwrap(), encoded);
+        assert_eq!(
+            serde_json::from_str::<ExecutionTarget>(encoded).unwrap(),
+            target
+        );
+    }
+}
+
+#[test]
+fn old_service_config_defaults_without_execution_policy() {
+    let config: ServerConfig = serde_json::from_value(json!({
+        "command": "demo"
+    }))
+    .unwrap();
+    assert!(config.mcpstore.is_none());
+}
+
+#[test]
 fn test_load_save_roundtrip() {
     let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

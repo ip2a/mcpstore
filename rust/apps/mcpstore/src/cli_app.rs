@@ -106,9 +106,11 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Daemon { action } => commands::daemon_cmd::run_daemon(action).await,
             Commands::Api { json } => commands::daemon_cmd::face_view("core", json).await,
             Commands::Auth(args) => commands::auth::run(args, cli.embedded).await,
-            Commands::Config { action, edits, json } => {
-                commands::config::run(action, edits, json).await
-            }
+            Commands::Config {
+                action,
+                edits,
+                json,
+            } => commands::config::run(action, edits, json).await,
             Commands::Add(args) => commands::mcp::add(args, cli.embedded).await,
             Commands::AddJson(args) => commands::mcp::add_json(args, cli.embedded).await,
             Commands::Assign(args) => commands::mcp::assign(args, cli.embedded).await,
@@ -383,6 +385,26 @@ mod tests {
                 assert!(args.non_interactive);
             }
             _ => panic!("Expected to parse as call command"),
+        }
+    }
+
+    #[test]
+    fn parses_call_execution_targets() {
+        for (value, expected) in [
+            ("local", commands::mcp::ExecutionTargetArg::Local),
+            ("daemon", commands::mcp::ExecutionTargetArg::Daemon),
+            (
+                "node:browser-host",
+                commands::mcp::ExecutionTargetArg::Node("browser-host".into()),
+            ),
+        ] {
+            let cli =
+                Cli::try_parse_from(["mcpstore", "call", "service", "tool", "--execute-on", value])
+                    .unwrap();
+            match cli.command {
+                Commands::Call(args) => assert_eq!(args.execute_on, expected),
+                _ => panic!("Expected to parse as call command"),
+            }
         }
     }
 

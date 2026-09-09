@@ -300,8 +300,9 @@ pub(super) async fn service_wait(
         .wait_instance_ready(instance_id, std::time::Duration::from_secs(timeout))
         .await
         .map_err(ApiError::from_store)?;
-    let status = serde_json::to_value(status)
-        .map_err(|error| ApiError::invalid_request(format!("Failed to serialize service status: {error}")))?;
+    let status = serde_json::to_value(status).map_err(|error| {
+        ApiError::invalid_request(format!("Failed to serialize service status: {error}"))
+    })?;
     Ok(success("服务等待完成", status))
 }
 
@@ -529,8 +530,9 @@ pub(super) async fn add_service_definition(
     Path(service_name): Path<String>,
     Json(payload): Json<Value>,
 ) -> ApiResult {
-    let config: ServerConfig = serde_json::from_value(payload)
-        .map_err(|error| ApiError::invalid_request(format!("Invalid service configuration: {error}")))?;
+    let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
+        ApiError::invalid_request(format!("Invalid service configuration: {error}"))
+    })?;
     state
         .store
         .add_service(&service_name, config)
@@ -552,8 +554,9 @@ pub(super) async fn update_service_definition(
             "基础配置更新不能包含 _mcpstore；请使用作用域接口修改 scope",
         ));
     }
-    let config: ServerConfig = serde_json::from_value(payload)
-        .map_err(|error| ApiError::invalid_request(format!("Invalid service configuration: {error}")))?;
+    let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
+        ApiError::invalid_request(format!("Invalid service configuration: {error}"))
+    })?;
     state
         .store
         .update_service(&service_name, config)

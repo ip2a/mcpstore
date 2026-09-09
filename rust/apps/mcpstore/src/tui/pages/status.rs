@@ -119,7 +119,10 @@ fn capability_lines(app: &TuiApp) -> Vec<Line<'static>> {
             "Tool management",
             "全局Tool list / 按服务Tool list / 工具详情 / 工具测试".to_string(),
         ),
-        kv("Agent", "Agent list / Authorized services / Revoke authorization".to_string()),
+        kv(
+            "Agent",
+            "Agent list / Authorized services / Revoke authorization".to_string(),
+        ),
         kv(
             "Logs",
             "运行消息 / Store事件 / 服务Status / Logs配置".to_string(),

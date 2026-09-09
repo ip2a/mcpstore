@@ -302,9 +302,7 @@ impl TuiApp {
             crate::daemon::protocol::KernelOperation::EventHistory,
             serde_json::json!({"count": 100}),
         ) {
-            Ok(result) => {
-                serde_json::from_value(result["events"].clone()).unwrap_or_default()
-            }
+            Ok(result) => serde_json::from_value(result["events"].clone()).unwrap_or_default(),
             Err(_) => Vec::new(),
         };
         self.store_event_history = events
@@ -404,7 +402,10 @@ impl TuiApp {
         self.service_tab = tab;
         self.service_list_pane = ContentPane::Menu;
         self.add_service.pane = AddServicePane::Menu;
-        self.status_message = format!("[In progress] Service management: {}", tab.label(self.locale));
+        self.status_message = format!(
+            "[In progress] Service management: {}",
+            tab.label(self.locale)
+        );
     }
 
     pub fn focus_service_list_menu(&mut self) {
@@ -633,7 +634,8 @@ impl TuiApp {
             return;
         };
         let Some(service_name) = self.current_agent_service().map(ToString::to_string) else {
-            self.status_message = "[Warning] Current agent has no authorized services to revoke".to_string();
+            self.status_message =
+                "[Warning] Current agent has no authorized services to revoke".to_string();
             return;
         };
         self.pending_agent_id = agent_id;
@@ -705,12 +707,10 @@ impl TuiApp {
         } else {
             "streamable-http".to_string()
         };
-        rt.block_on(
-            self.access.set_daemon_config(
-                "mcp-transport",
-                serde_json::json!(self.mcp_aggregate_transport),
-            ),
-        )?;
+        rt.block_on(self.access.set_daemon_config(
+            "mcp-transport",
+            serde_json::json!(self.mcp_aggregate_transport),
+        ))?;
         self.app_config.mcp_aggregate.transport = self.mcp_aggregate_transport.clone();
         self.status_message = format!(
             "[Success] MCP 聚合默认 transport 已更新为 {}",
@@ -724,8 +724,10 @@ impl TuiApp {
             // daemon 模式：聚合 1830 由 daemon 托管，开关走配置热应用
             let running = self.mcp_aggregate_running;
             rt.block_on(
-                self.access
-                    .set_daemon_config("mcp", serde_json::json!(if running { "off" } else { "on" })),
+                self.access.set_daemon_config(
+                    "mcp",
+                    serde_json::json!(if running { "off" } else { "on" }),
+                ),
             )?;
             self.mcp_aggregate_running = !running;
             self.mcp_aggregate_pid = None;
@@ -963,7 +965,10 @@ impl TuiApp {
         if self.active_view == MainView::Status && self.focus_area == FocusArea::ViewTable {
             self.status_pane = ContentPane::Menu;
         }
-        self.status_message = format!("[In progress] Focus: {}", self.focus_area.label(self.locale));
+        self.status_message = format!(
+            "[In progress] Focus: {}",
+            self.focus_area.label(self.locale)
+        );
     }
 
     pub fn focus_previous_area(&mut self) {
@@ -974,7 +979,10 @@ impl TuiApp {
             FocusArea::ViewTable => FocusArea::MainNav,
         };
         self.filter.search_mode = false;
-        self.status_message = format!("[In progress] Focus: {}", self.focus_area.label(self.locale));
+        self.status_message = format!(
+            "[In progress] Focus: {}",
+            self.focus_area.label(self.locale)
+        );
     }
 
     fn shift_view(&mut self, offset: isize) {
@@ -992,7 +1000,10 @@ impl TuiApp {
         self.active_view = visible_pages[next].id;
         self.focus_area = FocusArea::MainNav;
         self.filter.search_mode = false;
-        self.status_message = format!("[In progress] Current page: {}", self.active_view.label(self.locale));
+        self.status_message = format!(
+            "[In progress] Current page: {}",
+            self.active_view.label(self.locale)
+        );
     }
 
     fn has_filter_focus(&self) -> bool {
@@ -1028,7 +1039,10 @@ impl TuiApp {
             } else {
                 Some(0)
             });
-        self.status_message = format!("[In progress] Service list: {}", self.service_list_menu.label());
+        self.status_message = format!(
+            "[In progress] Service list: {}",
+            self.service_list_menu.label()
+        );
     }
 
     fn shift_settings_section(&mut self, offset: isize) {
@@ -1053,7 +1067,10 @@ impl TuiApp {
         let len = LogsSection::ALL.len() as isize;
         let next = (current + offset).clamp(0, len - 1) as usize;
         self.logs_section = LogsSection::ALL[next];
-        self.status_message = format!("[In progress] Logs: {}", self.logs_section.label(self.locale));
+        self.status_message = format!(
+            "[In progress] Logs: {}",
+            self.logs_section.label(self.locale)
+        );
     }
 
     fn shift_status_section(&mut self, offset: isize) {
@@ -1520,7 +1537,9 @@ impl TuiApp {
 
         self.status_message = match connect_result {
             Some(Ok(_)) => {
-                format!("[Success] Added and connected service {service_label} (transport={transport})")
+                format!(
+                    "[Success] Added and connected service {service_label} (transport={transport})"
+                )
             }
             Some(Err(error)) => {
                 format!("[Error] Added service {service_label}，but connection failed: {error}")
@@ -1544,9 +1563,9 @@ impl TuiApp {
     }
 
     fn execute_tool_test(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
-        let selected_tool = self
-            .current_tool()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No testable tool is available"))?;
+        let selected_tool = self.current_tool().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "No testable tool is available")
+        })?;
         let instance_id = selected_tool.instance_id;
         let service = selected_tool.service_name.clone();
         let tool = selected_tool.name.clone();
@@ -1572,7 +1591,10 @@ impl TuiApp {
 
     fn execute_refresh_agents(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         self.refresh_agents(rt)?;
-        self.status_message = format!("[Success] Agent list refreshed (agents={})", self.agents.len());
+        self.status_message = format!(
+            "[Success] Agent list refreshed (agents={})",
+            self.agents.len()
+        );
         Ok(())
     }
 
@@ -1591,7 +1613,8 @@ impl TuiApp {
             }),
         )?;
         self.refresh_agents(rt)?;
-        self.status_message = format!("[Success] Authorized service {service_name} for Agent {agent_id}");
+        self.status_message =
+            format!("[Success] Authorized service {service_name} for Agent {agent_id}");
         Ok(())
     }
 
@@ -1612,7 +1635,8 @@ impl TuiApp {
             }),
         )?;
         self.refresh_agents(rt)?;
-        self.status_message = format!("[Success] Revoked service {service_name} from Agent {agent_id}");
+        self.status_message =
+            format!("[Success] Revoked service {service_name} from Agent {agent_id}");
         Ok(())
     }
 
@@ -1731,8 +1755,7 @@ impl TuiApp {
             crate::daemon::protocol::KernelOperation::ListInstances,
             serde_json::json!({}),
         )?;
-        let entries: Vec<serde_json::Value> =
-            serde_json::from_value(result["instances"].clone())?;
+        let entries: Vec<serde_json::Value> = serde_json::from_value(result["instances"].clone())?;
         self.all_services = entries
             .into_iter()
             .map(|entry| {
@@ -1932,8 +1955,7 @@ impl TuiApp {
             crate::daemon::protocol::KernelOperation::ListTools,
             serde_json::json!({"instance_id": service.instance_id.to_string()}),
         )?;
-        let tools: Vec<serde_json::Value> =
-            serde_json::from_value(result["tools"].clone())?;
+        let tools: Vec<serde_json::Value> = serde_json::from_value(result["tools"].clone())?;
         self.service_tools = tools
             .into_iter()
             .map(|tool| ToolSummary {
@@ -1941,7 +1963,10 @@ impl TuiApp {
                 name: tool["name"].as_str().unwrap_or("?").to_string(),
                 service_name: service.name.clone(),
                 description: tool["description"].as_str().unwrap_or("").to_string(),
-                input_schema: tool.get("schema").cloned().unwrap_or(serde_json::Value::Null),
+                input_schema: tool
+                    .get("schema")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
             })
             .collect();
 

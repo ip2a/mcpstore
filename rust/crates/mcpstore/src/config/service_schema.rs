@@ -182,6 +182,78 @@ impl HandshakeMode {
     }
 }
 
+/// Placement selected for an MCP tool/resource execution.
+///
+/// This is deliberately separate from node mode: a DataPlane may still execute
+/// locally, while a ControlPlane may execute through its daemon.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ExecutionTarget {
+    Local,
+    Daemon,
+    Node(String),
+}
+
+impl ExecutionTarget {}
+
+impl std::fmt::Display for ExecutionTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Local => write!(formatter, "local"),
+            Self::Daemon => write!(formatter, "daemon"),
+            Self::Node(node_id) => write!(formatter, "node:{node_id}"),
+        }
+    }
+}
+
+impl std::str::FromStr for ExecutionTarget {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "local" => Ok(Self::Local),
+            "daemon" => Ok(Self::Daemon),
+            value
+                if value
+                    .strip_prefix("node:")
+                    .is_some_and(|node| !node.trim().is_empty()) =>
+            {
+                Ok(Self::Node(value[5..].trim().to_string()))
+            }
+            _ => Err(format!(
+                "invalid execution target '{value}'; expected local, daemon, or node:NODE_ID"
+            )),
+        }
+    }
+}
+
+impl Serialize for ExecutionTarget {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for ExecutionTarget {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionPolicy {
+    pub default_target: ExecutionTarget,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_targets: Vec<ExecutionTarget>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_capabilities: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpStoreExtension {
     pub scopes: ScopeDeclarations,
@@ -190,6 +262,8 @@ pub struct McpStoreExtension {
     /// Client lifecycle handshake mode. Defaults to `auto` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handshake_mode: Option<HandshakeMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_policy: Option<ExecutionPolicy>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub revision: u64,
     #[serde(flatten)]
@@ -397,6 +471,7 @@ impl ServerConfig {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle: None,
                 handshake_mode: None,
+                execution_policy: None,
                 revision: 1,
                 extra: Map::new(),
             });

@@ -213,7 +213,10 @@ pub(super) async fn session_status(
         .await
         .map_err(ApiError::from_store)?;
     let status = require_present_session(status, &query.session_key, "session_status")?;
-    Ok(success("Session Status获取成功", json!({ "status": status })))
+    Ok(success(
+        "Session Status获取成功",
+        json!({ "status": status }),
+    ))
 }
 
 /// `POST /sessions/close` —— body: `{ session_key, reason? }`

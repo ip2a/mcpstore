@@ -164,7 +164,9 @@ fn mcp_hub_options(
         .store
         .config_manager()
         .load_app_config_or_default()
-        .map_err(|error| ApiError::invalid_request(format!("Failed to load app configuration: {error}")))?;
+        .map_err(|error| {
+            ApiError::invalid_request(format!("Failed to load app configuration: {error}"))
+        })?;
     let scope = match query.scope.as_deref().unwrap_or("store") {
         "store" => ScopeRef::Store,
         "agent" => ScopeRef::Agent {

@@ -94,6 +94,7 @@ async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle,
                 handshake_mode: None,
+                execution_policy: None,
                 metadata,
                 base_revision: 1,
                 added_time: 111,
@@ -213,13 +214,17 @@ async fn app_and_core_routers_are_disjoint() {
     let app_addr = app_listener.local_addr().unwrap();
     let app_state = Arc::clone(&state);
     let app_handle = tokio::spawn(async move {
-        axum::serve(app_listener, app_router(app_state)).await.unwrap();
+        axum::serve(app_listener, app_router(app_state))
+            .await
+            .unwrap();
     });
     let core_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let core_addr = core_listener.local_addr().unwrap();
     let core_state = Arc::clone(&state);
     let core_handle = tokio::spawn(async move {
-        axum::serve(core_listener, core_router(core_state)).await.unwrap();
+        axum::serve(core_listener, core_router(core_state))
+            .await
+            .unwrap();
     });
 
     // App 面只承载 daemon 自身；业务路由不在其中。

@@ -1413,7 +1413,9 @@ pub(super) async fn call_resource_template_override_tool(
                 serde_json::from_value::<ResourceTemplateOverridePatch>(Value::Object(arguments))
                     .map_err(|error| {
                     ErrorData::invalid_params(
-                        format!("Resource-template override arguments failed to deserialize: {error}"),
+                        format!(
+                            "Resource-template override arguments failed to deserialize: {error}"
+                        ),
                         None,
                     )
                 })?;
@@ -1688,16 +1690,18 @@ pub(super) fn required_scope_argument(
         .get("scope")
         .cloned()
         .ok_or_else(|| ErrorData::invalid_params("Missing parameter: scope", None))?;
-    serde_json::from_value(value)
-        .map_err(|error| ErrorData::invalid_params(format!("Invalid scope parameter: {error}"), None))
+    serde_json::from_value(value).map_err(|error| {
+        ErrorData::invalid_params(format!("Invalid scope parameter: {error}"), None)
+    })
 }
 
 pub(super) fn required_instance_id_argument(
     arguments: &Map<String, Value>,
 ) -> Result<InstanceId, ErrorData> {
     let value = required_argument_string(arguments, "instance_id")?;
-    InstanceId::from_str(value)
-        .map_err(|error| ErrorData::invalid_params(format!("Invalid instance_id parameter: {error}"), None))
+    InstanceId::from_str(value).map_err(|error| {
+        ErrorData::invalid_params(format!("Invalid instance_id parameter: {error}"), None)
+    })
 }
 
 pub(super) fn service_config_from_arguments(
@@ -1707,8 +1711,12 @@ pub(super) fn service_config_from_arguments(
         .get("config")
         .cloned()
         .ok_or_else(|| ErrorData::invalid_params("Missing parameter: config", None))?;
-    serde_json::from_value::<ServerConfig>(config)
-        .map_err(|error| ErrorData::invalid_params(format!("Failed to parse service configuration: {error}"), None))
+    serde_json::from_value::<ServerConfig>(config).map_err(|error| {
+        ErrorData::invalid_params(
+            format!("Failed to parse service configuration: {error}"),
+            None,
+        )
+    })
 }
 
 pub(super) fn service_scope_descriptor_from_arguments(
@@ -1719,7 +1727,10 @@ pub(super) fn service_scope_descriptor_from_arguments(
         .cloned()
         .ok_or_else(|| ErrorData::invalid_params("Missing parameter: descriptor", None))?;
     serde_json::from_value(descriptor).map_err(|error| {
-        ErrorData::invalid_params(format!("Failed to parse service-scope descriptor: {error}"), None)
+        ErrorData::invalid_params(
+            format!("Failed to parse service-scope descriptor: {error}"),
+            None,
+        )
     })
 }
 
@@ -1831,8 +1842,9 @@ pub(super) fn read_required_instance_id(
     let value = payload
         .get(field)
         .ok_or_else(|| format!("Tool metadata is missing field: {field}"))?;
-    serde_json::from_value(value.clone())
-        .map_err(|error| format!("Tool metadata field {field} is not a valid instance_id: {error}").into())
+    serde_json::from_value(value.clone()).map_err(|error| {
+        format!("Tool metadata field {field} is not a valid instance_id: {error}").into()
+    })
 }
 
 pub(super) fn read_required_object(
@@ -1864,6 +1876,7 @@ pub(super) fn deserialize_item<T>(item: Value, label: &str) -> Result<T, ErrorDa
 where
     T: DeserializeOwned,
 {
-    serde_json::from_value(item)
-        .map_err(|error| ErrorData::internal_error(format!("{label} failed to deserialize: {error}"), None))
+    serde_json::from_value(item).map_err(|error| {
+        ErrorData::internal_error(format!("{label} failed to deserialize: {error}"), None)
+    })
 }

@@ -146,9 +146,9 @@ async fn execute_resource_list(args: ProtocolInstanceArgs, embedded: bool) -> mc
             error.to_string(),
         )
     })?;
-    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
-        attach_instance(error, instance_id)
-    })?;
+    let mut access = open_store(&args.store, embedded)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let result = access
         .request(
             KernelOperation::ResourcesList,
@@ -177,16 +177,19 @@ async fn execute_resource_list(args: ProtocolInstanceArgs, embedded: bool) -> mc
     )
 }
 
-async fn execute_resource_templates(args: ProtocolInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_resource_templates(
+    args: ProtocolInstanceArgs,
+    embedded: bool,
+) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
-    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
-        attach_instance(error, instance_id)
-    })?;
+    let mut access = open_store(&args.store, embedded)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let result = access
         .request(
             KernelOperation::ResourcesTemplates,
@@ -231,9 +234,9 @@ async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpsto
             instance_id,
         ));
     }
-    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
-        attach_instance(error, instance_id)
-    })?;
+    let mut access = open_store(&args.store, embedded)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let result = access
         .request(
             KernelOperation::ResourcesRead,
@@ -265,9 +268,9 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs, embedded: bool) -> mcps
             error.to_string(),
         )
     })?;
-    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
-        attach_instance(error, instance_id)
-    })?;
+    let mut access = open_store(&args.store, embedded)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let result = access
         .request(
             KernelOperation::PromptsList,
@@ -318,9 +321,9 @@ async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Re
             instance_id,
         ));
     }
-    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
-        attach_instance(error, instance_id)
-    })?;
+    let mut access = open_store(&args.store, embedded)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let result = access
         .request(
             KernelOperation::PromptGet,
@@ -382,9 +385,9 @@ async fn execute_complete(args: CompleteArgs, embedded: bool) -> mcpstore::Resul
         value: args.value,
         context,
     };
-    let mut access = open_store(&args.store, embedded).await.map_err(|error| {
-        attach_instance(error, instance_id)
-    })?;
+    let mut access = open_store(&args.store, embedded)
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
     let result = access
         .request(
             KernelOperation::CompleteArgument,
