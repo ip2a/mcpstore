@@ -88,7 +88,7 @@ fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
     );
 
     if app.tool_filter != ToolFilterTab::All && app.current_tool_service().is_none() {
-        let body = Paragraph::new("当前工具分类下没有服务。")
+        let body = Paragraph::new("No services in the current tool category.")
             .block(widgets::chrome::panel_block(title, focused))
             .style(theme::text())
             .wrap(Wrap { trim: true });
@@ -98,7 +98,7 @@ fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     if app.service_tools.is_empty() {
         if app.tool_filter == ToolFilterTab::All {
-            let body = Paragraph::new("还没有读取到工具。按 r 会连接服务并读取全局工具列表。")
+            let body = Paragraph::new("No tools loaded. Press r to connect to services and load the global tool list.")
                 .block(widgets::chrome::panel_block(title, focused))
                 .style(theme::text())
                 .wrap(Wrap { trim: true });
@@ -120,7 +120,7 @@ fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
                 Span::styled(status, theme::text()),
             ]),
             Line::from(""),
-            Line::from("还没有读取到工具。按 r 会连接该服务并读取工具列表。"),
+            Line::from("No tools loaded. Press r to connect to this service and load its tool list."),
         ])
         .block(widgets::chrome::panel_block(title, focused))
         .style(theme::text())
@@ -145,12 +145,12 @@ fn render_tool_list(frame: &mut Frame, area: Rect, app: &TuiApp) {
 fn tool_item(selected: bool, tool: &ToolSummary) -> ListItem<'static> {
     let params = schema_summary(&tool.input_schema);
     let param_label = if params.is_empty() {
-        "无参数".to_string()
+        "No parameters".to_string()
     } else {
-        format!("{} 个参数: {}", params.len(), params.join(", "))
+        format!("{} parameters: {}", params.len(), params.join(", "))
     };
     let desc = if tool.description.trim().is_empty() {
-        "无描述".to_string()
+        "No description".to_string()
     } else {
         truncate_chars(&tool.description, 120)
     };
@@ -167,7 +167,7 @@ fn tool_item(selected: bool, tool: &ToolSummary) -> ListItem<'static> {
                 },
             ),
             Span::raw("  "),
-            Span::styled("Enter 详情  t 测试", theme::muted()),
+            Span::styled("Enter for details  t to test", theme::muted()),
         ]),
         Line::from(vec![
             Span::raw("  "),

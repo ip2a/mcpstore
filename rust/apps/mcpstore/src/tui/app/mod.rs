@@ -107,7 +107,7 @@ pub enum PendingTask {
 fn json_error(error: serde_json::Error) -> mcpstore::Error {
     mcpstore::Error::new(
         mcpstore::error::FailureCode::Internal,
-        format!("响应解码失败: {error}"),
+        format!("Failed to decode response: {error}"),
     )
 }
 
@@ -404,18 +404,18 @@ impl TuiApp {
         self.service_tab = tab;
         self.service_list_pane = ContentPane::Menu;
         self.add_service.pane = AddServicePane::Menu;
-        self.status_message = format!("[进行中] 服务管理: {}", tab.label(self.locale));
+        self.status_message = format!("[In progress] Service management: {}", tab.label(self.locale));
     }
 
     pub fn focus_service_list_menu(&mut self) {
         self.service_list_pane = ContentPane::Menu;
         self.overlay = Overlay::None;
-        self.status_message = "[进行中] 服务列表: 左侧菜单".to_string();
+        self.status_message = "[In progress] Service list: left menu".to_string();
     }
 
     pub fn focus_service_list_body(&mut self) {
         self.service_list_pane = ContentPane::Body;
-        self.status_message = "[进行中] 服务列表: 内容区".to_string();
+        self.status_message = "[In progress] Service list: content area".to_string();
     }
 
     pub fn next_service_list_menu_item(&mut self, rt: &tokio::runtime::Runtime) {
@@ -444,12 +444,12 @@ impl TuiApp {
 
     pub fn focus_logs_menu(&mut self) {
         self.logs_pane = LogsPane::Menu;
-        self.status_message = "[进行中] 日志: 左侧菜单".to_string();
+        self.status_message = "[In progress] Logs: left menu".to_string();
     }
 
     pub fn focus_logs_body(&mut self) {
         self.logs_pane = LogsPane::Body;
-        self.status_message = "[进行中] 日志: 内容区".to_string();
+        self.status_message = "[In progress] Logs: content area".to_string();
     }
 
     pub fn next_tool_filter(&mut self, rt: &tokio::runtime::Runtime) {
@@ -462,12 +462,12 @@ impl TuiApp {
 
     pub fn focus_tool_service_menu(&mut self) {
         self.tool_pane = ContentPane::Menu;
-        self.status_message = "[进行中] 工具管理: 服务菜单".to_string();
+        self.status_message = "[In progress] Tool management: service menu".to_string();
     }
 
     pub fn focus_tool_list(&mut self) {
         self.tool_pane = ContentPane::Body;
-        self.status_message = "[进行中] 工具管理: 工具列表".to_string();
+        self.status_message = "[In progress] Tool management: Tool list".to_string();
     }
 
     pub fn next_tool_service(&mut self, rt: &tokio::runtime::Runtime) {
@@ -488,30 +488,30 @@ impl TuiApp {
 
     pub fn queue_tool_refresh(&mut self) {
         if self.tool_filter != ToolFilterTab::All && self.current_tool_service_name().is_none() {
-            self.status_message = "[警告] 当前没有可读取工具的服务".to_string();
+            self.status_message = "[Warning] No service is available for reading tools".to_string();
             return;
         }
 
         self.pending_task = Some(PendingTask::RefreshTools);
         self.overlay = Overlay::Loading(LoadingModalState {
-            title: "读取工具列表".to_string(),
+            title: "读取Tool list".to_string(),
             message: if self.tool_filter == ToolFilterTab::All {
-                "正在连接全部服务并读取全局工具列表...".to_string()
+                "正在连接全部服务并读取全局Tool list...".to_string()
             } else {
-                "正在连接服务并读取工具列表...".to_string()
+                "正在连接服务并读取Tool list...".to_string()
             },
         });
-        self.status_message = "[进行中] 正在读取工具列表".to_string();
+        self.status_message = "[In progress] Reading tool list".to_string();
     }
 
     pub fn open_selected_tool_detail(&mut self) {
         if self.current_tool().is_none() {
-            self.status_message = "[警告] 当前服务没有可查看的工具".to_string();
+            self.status_message = "[Warning] Current service has no viewable tools".to_string();
             return;
         }
 
         self.overlay = Overlay::ToolDetail;
-        self.status_message = "[进行中] 查看工具详情".to_string();
+        self.status_message = "[In progress] View tool details".to_string();
     }
 
     pub fn open_tools_for_selected_service(
@@ -519,7 +519,7 @@ impl TuiApp {
         rt: &tokio::runtime::Runtime,
     ) -> Result<(), BoxErr> {
         let Some(service) = self.current_service().cloned() else {
-            self.status_message = "[警告] 当前没有可查看工具的服务".to_string();
+            self.status_message = "[Warning] No service is available for viewing tools".to_string();
             return Ok(());
         };
 
@@ -539,18 +539,18 @@ impl TuiApp {
         self.focus_area = FocusArea::ViewTable;
         self.tool_pane = ContentPane::Body;
         self.refresh_tools_for_selected_service(rt, true)?;
-        self.status_message = format!("[进行中] {} 的工具", service.name);
+        self.status_message = format!("[In progress] {} tools", service.name);
         Ok(())
     }
 
     pub fn close_tool_detail(&mut self) {
         self.overlay = Overlay::None;
-        self.status_message = "[进行中] 已关闭工具详情".to_string();
+        self.status_message = "[In progress] Closed tool details".to_string();
     }
 
     pub fn open_tool_test_editor(&mut self) {
         if self.current_tool().is_none() || self.current_tool_service_name().is_none() {
-            self.status_message = "[警告] 当前没有可测试的工具".to_string();
+            self.status_message = "[Warning] No testable tool is available".to_string();
             return;
         }
 
@@ -564,12 +564,12 @@ impl TuiApp {
 
     pub fn focus_agent_menu(&mut self) {
         self.agent_pane = ContentPane::Menu;
-        self.status_message = "[进行中] Agent列表: 左侧菜单".to_string();
+        self.status_message = "[In progress] Agent list: left menu".to_string();
     }
 
     pub fn focus_agent_services(&mut self) {
         self.agent_pane = ContentPane::Body;
-        self.status_message = "[进行中] Agent列表: 授权服务".to_string();
+        self.status_message = "[In progress] Agent list: Authorized services".to_string();
     }
 
     pub fn next_agent(&mut self) {
@@ -594,7 +594,7 @@ impl TuiApp {
             title: "刷新 Agent".to_string(),
             message: "正在读取 Agent 列表与服务授权关系...".to_string(),
         });
-        self.status_message = "[进行中] 正在刷新 Agent 列表".to_string();
+        self.status_message = "[In progress] Refreshing Agent list".to_string();
     }
 
     pub fn open_agent_id_editor(&mut self) {
@@ -617,7 +617,7 @@ impl TuiApp {
         self.pending_agent_id = agent_id;
         self.overlay = Overlay::Edit(EditModalState {
             target: EditTarget::AgentAssignService,
-            title: "授权服务给 Agent".to_string(),
+            title: "Authorized services给 Agent".to_string(),
             value: self
                 .all_services
                 .first()
@@ -629,11 +629,11 @@ impl TuiApp {
 
     pub fn queue_agent_unassign(&mut self) {
         let Some(agent_id) = self.current_agent_id().map(ToString::to_string) else {
-            self.status_message = "[警告] 当前没有 Agent".to_string();
+            self.status_message = "[Warning] No agents are available".to_string();
             return;
         };
         let Some(service_name) = self.current_agent_service().map(ToString::to_string) else {
-            self.status_message = "[警告] 当前 Agent 没有可解除授权的服务".to_string();
+            self.status_message = "[Warning] Current agent has no authorized services to revoke".to_string();
             return;
         };
         self.pending_agent_id = agent_id;
@@ -647,12 +647,12 @@ impl TuiApp {
 
     pub fn focus_status_menu(&mut self) {
         self.status_pane = ContentPane::Menu;
-        self.status_message = "[进行中] 状态: 左侧菜单".to_string();
+        self.status_message = "[In progress] Status: left menu".to_string();
     }
 
     pub fn focus_status_body(&mut self) {
         self.status_pane = ContentPane::Body;
-        self.status_message = "[进行中] 状态: 内容区".to_string();
+        self.status_message = "[In progress] Status: content area".to_string();
     }
 
     pub fn next_status_section(&mut self) {
@@ -665,12 +665,12 @@ impl TuiApp {
 
     pub fn focus_settings_menu(&mut self) {
         self.settings_pane = SettingsPane::Menu;
-        self.status_message = "[进行中] 设置: 左侧菜单".to_string();
+        self.status_message = "[In progress] Settings: left menu".to_string();
     }
 
     pub fn focus_settings_detail(&mut self) {
         self.settings_pane = SettingsPane::Detail;
-        self.status_message = "[进行中] 设置: 右侧内容".to_string();
+        self.status_message = "[In progress] Settings: detail panel".to_string();
     }
 
     pub fn refresh_mcp_aggregate_status(&mut self) {
@@ -697,7 +697,7 @@ impl TuiApp {
     ) -> Result<(), BoxErr> {
         self.refresh_mcp_aggregate_status();
         if self.mcp_aggregate_running {
-            self.status_message = "[提示] 请先停止 MCP 聚合 HTTP 服务".to_string();
+            self.status_message = "[Info] Stop the MCP aggregate HTTP service first".to_string();
             return Ok(());
         }
         self.mcp_aggregate_transport = if self.mcp_aggregate_transport == "streamable-http" {
@@ -713,7 +713,7 @@ impl TuiApp {
         )?;
         self.app_config.mcp_aggregate.transport = self.mcp_aggregate_transport.clone();
         self.status_message = format!(
-            "[成功] MCP 聚合默认 transport 已更新为 {}",
+            "[Success] MCP 聚合默认 transport 已更新为 {}",
             self.mcp_aggregate_transport
         );
         Ok(())
@@ -730,10 +730,10 @@ impl TuiApp {
             self.mcp_aggregate_running = !running;
             self.mcp_aggregate_pid = None;
             self.status_message = if running {
-                "[成功] MCP 聚合服务已停止（daemon）".to_string()
+                "[Success] MCP 聚合服务已停止（daemon）".to_string()
             } else {
                 format!(
-                    "[成功] MCP 聚合服务已启动（daemon）: http://127.0.0.1:{}/mcp",
+                    "[Success] MCP 聚合服务已启动（daemon）: http://127.0.0.1:{}/mcp",
                     self.mcp_aggregate_port
                 )
             };
@@ -745,13 +745,13 @@ impl TuiApp {
             let _ = child.wait();
             self.mcp_aggregate_running = false;
             self.mcp_aggregate_pid = None;
-            self.status_message = "[成功] MCP 聚合 HTTP 服务已停止".to_string();
+            self.status_message = "[Success] MCP aggregate HTTP service stopped".to_string();
             return Ok(());
         }
 
         if self.mcp_aggregate_transport != "streamable-http" {
             self.status_message = format!(
-                "[提示] stdio 请由 MCP 客户端启动: mcpstore mcp --transport stdio --scope store --source {} --config-path {}",
+                "[Info] stdio 请由 MCP 客户端启动: mcpstore mcp --transport stdio --scope store --source {} --config-path {}",
                 self.source_label, self.config_path
             );
             return Ok(());
@@ -787,7 +787,7 @@ impl TuiApp {
         self.mcp_aggregate_child = Some(child);
         self.mcp_aggregate_running = true;
         self.status_message = format!(
-            "[成功] MCP 聚合 HTTP 服务已启动: http://127.0.0.1:{}/mcp",
+            "[Success] MCP 聚合 HTTP 服务已启动: http://127.0.0.1:{}/mcp",
             self.mcp_aggregate_port
         );
         Ok(())
@@ -809,17 +809,17 @@ impl TuiApp {
             .unwrap_or(0);
         self.add_service.selected_field = 0;
         self.add_service.pane = AddServicePane::Menu;
-        self.status_message = format!("[进行中] 添加服务模式: {}", mode.label());
+        self.status_message = format!("[In progress] Add-service mode: {}", mode.label());
     }
 
     pub fn focus_add_service_menu(&mut self) {
         self.add_service.pane = AddServicePane::Menu;
-        self.status_message = "[进行中] 添加服务: 左侧菜单".to_string();
+        self.status_message = "[In progress] Add service: left menu".to_string();
     }
 
     pub fn focus_add_service_form(&mut self) {
         self.add_service.pane = AddServicePane::Form;
-        self.status_message = "[进行中] 添加服务: 右侧表单".to_string();
+        self.status_message = "[In progress] Add service: right form".to_string();
     }
 
     pub fn next_add_service_menu_item(&mut self) {
@@ -875,7 +875,7 @@ impl TuiApp {
                 .unwrap_or(0);
             self.overlay = Overlay::Select(SelectModalState {
                 target: EditTarget::AddServiceField(field),
-                title: format!("选择 {}", field.label()),
+                title: format!("Select {}", field.label()),
                 options,
                 selected,
             });
@@ -884,7 +884,7 @@ impl TuiApp {
 
         self.overlay = Overlay::Edit(EditModalState {
             target: EditTarget::AddServiceField(field),
-            title: format!("编辑 {}", field.label()),
+            title: format!("Edit {}", field.label()),
             value: self.add_service_value(field),
             hint: add_service_field_hint(field).to_string(),
         });
@@ -904,7 +904,7 @@ impl TuiApp {
             }
             KeyCode::Esc => {
                 self.overlay = Overlay::None;
-                self.status_message = "[进行中] 已取消编辑".to_string();
+                self.status_message = "[In progress] Edit cancelled".to_string();
             }
             KeyCode::Enter => self.save_edit_modal(rt),
             _ => {}
@@ -927,7 +927,7 @@ impl TuiApp {
             }
             KeyCode::Esc => {
                 self.overlay = Overlay::None;
-                self.status_message = "[进行中] 已取消选择".to_string();
+                self.status_message = "[In progress] Selection cancelled".to_string();
             }
             KeyCode::Enter => self.save_select_modal(),
             _ => {}
@@ -963,7 +963,7 @@ impl TuiApp {
         if self.active_view == MainView::Status && self.focus_area == FocusArea::ViewTable {
             self.status_pane = ContentPane::Menu;
         }
-        self.status_message = format!("[进行中] 焦点: {}", self.focus_area.label(self.locale));
+        self.status_message = format!("[In progress] Focus: {}", self.focus_area.label(self.locale));
     }
 
     pub fn focus_previous_area(&mut self) {
@@ -974,7 +974,7 @@ impl TuiApp {
             FocusArea::ViewTable => FocusArea::MainNav,
         };
         self.filter.search_mode = false;
-        self.status_message = format!("[进行中] 焦点: {}", self.focus_area.label(self.locale));
+        self.status_message = format!("[In progress] Focus: {}", self.focus_area.label(self.locale));
     }
 
     fn shift_view(&mut self, offset: isize) {
@@ -992,7 +992,7 @@ impl TuiApp {
         self.active_view = visible_pages[next].id;
         self.focus_area = FocusArea::MainNav;
         self.filter.search_mode = false;
-        self.status_message = format!("[进行中] 当前页面: {}", self.active_view.label(self.locale));
+        self.status_message = format!("[In progress] Current page: {}", self.active_view.label(self.locale));
     }
 
     fn has_filter_focus(&self) -> bool {
@@ -1028,7 +1028,7 @@ impl TuiApp {
             } else {
                 Some(0)
             });
-        self.status_message = format!("[进行中] 服务列表: {}", self.service_list_menu.label());
+        self.status_message = format!("[In progress] Service list: {}", self.service_list_menu.label());
     }
 
     fn shift_settings_section(&mut self, offset: isize) {
@@ -1040,7 +1040,7 @@ impl TuiApp {
         let next = (current + offset).rem_euclid(len) as usize;
         self.settings_section = SettingsSection::ALL[next];
         self.status_message = format!(
-            "[进行中] 设置: {}",
+            "[In progress] Settings: {}",
             self.settings_section.label(self.locale)
         );
     }
@@ -1053,7 +1053,7 @@ impl TuiApp {
         let len = LogsSection::ALL.len() as isize;
         let next = (current + offset).clamp(0, len - 1) as usize;
         self.logs_section = LogsSection::ALL[next];
-        self.status_message = format!("[进行中] 日志: {}", self.logs_section.label(self.locale));
+        self.status_message = format!("[In progress] Logs: {}", self.logs_section.label(self.locale));
     }
 
     fn shift_status_section(&mut self, offset: isize) {
@@ -1064,7 +1064,7 @@ impl TuiApp {
         let len = StatusSection::ALL.len() as isize;
         let next = (current + offset).clamp(0, len - 1) as usize;
         self.status_section = StatusSection::ALL[next];
-        self.status_message = format!("[进行中] 状态: {}", self.status_section.label());
+        self.status_message = format!("[In progress] Status: {}", self.status_section.label());
     }
 
     fn shift_tool_filter(&mut self, offset: isize, rt: &tokio::runtime::Runtime) {
@@ -1078,10 +1078,10 @@ impl TuiApp {
         self.apply_tool_filter();
         self.selected_tool_service = 0;
         if let Err(error) = self.refresh_tools_for_selected_service(rt, false) {
-            self.status_message = format!("[错误] {error}");
+            self.status_message = format!("[Error] {error}");
             return;
         }
-        self.status_message = format!("[进行中] 工具分类: {}", self.tool_filter.label());
+        self.status_message = format!("[In progress] Tool category: {}", self.tool_filter.label());
     }
 
     fn shift_tool_service(&mut self, offset: isize, rt: &tokio::runtime::Runtime) {
@@ -1096,11 +1096,11 @@ impl TuiApp {
         self.selected_tool_service = next as usize;
         self.selected_tool = 0;
         if let Err(error) = self.refresh_tools_for_selected_service(rt, false) {
-            self.status_message = format!("[错误] {error}");
+            self.status_message = format!("[Error] {error}");
             return;
         }
         if let Some(name) = self.current_tool_service_name() {
-            self.status_message = format!("[进行中] 工具服务: {name}");
+            self.status_message = format!("[In progress] Tool service: {name}");
         }
     }
 
@@ -1114,7 +1114,7 @@ impl TuiApp {
         let next = (self.selected_tool as isize + offset).clamp(0, len - 1);
         self.selected_tool = next as usize;
         if let Some(tool) = self.current_tool() {
-            self.status_message = format!("[进行中] 当前工具: {}", tool.name);
+            self.status_message = format!("[In progress] Current tool: {}", tool.name);
         }
     }
 
@@ -1130,7 +1130,7 @@ impl TuiApp {
         self.selected_agent = next as usize;
         self.selected_agent_service = 0;
         if let Some(agent) = self.current_agent_id() {
-            self.status_message = format!("[进行中] 当前 Agent: {agent}");
+            self.status_message = format!("[In progress] Current agent: {agent}");
         }
     }
 
@@ -1148,7 +1148,7 @@ impl TuiApp {
         let next = (self.selected_agent_service as isize + offset).clamp(0, len - 1);
         self.selected_agent_service = next as usize;
         if let Some(service) = self.current_agent_service() {
-            self.status_message = format!("[进行中] Agent 授权服务: {service}");
+            self.status_message = format!("[In progress] Agent authorized service: {service}");
         }
     }
 
@@ -1442,14 +1442,14 @@ impl TuiApp {
         }
 
         if let Err(error) = self.build_add_service_config() {
-            self.status_message = format!("[错误] {error}");
+            self.status_message = format!("[Error] {error}");
             return;
         }
 
         self.pending_task = Some(PendingTask::AddService);
         self.overlay = Overlay::Loading(LoadingModalState {
             title: "添加服务".to_string(),
-            message: "正在写入配置、连接服务并刷新服务列表...".to_string(),
+            message: "正在写入配置、连接服务并刷新Service list...".to_string(),
         });
         self.status_message = i18n::text(self.locale, TextKey::AddingService).to_string();
     }
@@ -1520,13 +1520,13 @@ impl TuiApp {
 
         self.status_message = match connect_result {
             Some(Ok(_)) => {
-                format!("[成功] 已添加并连接服务 {service_label} (transport={transport})")
+                format!("[Success] Added and connected service {service_label} (transport={transport})")
             }
             Some(Err(error)) => {
-                format!("[错误] 已添加服务 {service_label}，但连接失败: {error}")
+                format!("[Error] Added service {service_label}，but connection failed: {error}")
             }
             None => {
-                format!("[成功] 已添加服务 {service_label} (未自动连接, transport={transport})")
+                format!("[Success] Added service {service_label} (not connected automatically, transport={transport})")
             }
         };
         Ok(())
@@ -1537,7 +1537,7 @@ impl TuiApp {
         self.refresh_tools_for_selected_service(rt, true)?;
         let service = self.current_tool_service_name().unwrap_or("-").to_string();
         self.status_message = format!(
-            "[成功] 已读取工具列表 {service} (tools={})",
+            "[Success] 已读取Tool list {service} (tools={})",
             self.service_tools.len()
         );
         Ok(())
@@ -1546,7 +1546,7 @@ impl TuiApp {
     fn execute_tool_test(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         let selected_tool = self
             .current_tool()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "当前没有可测试的工具"))?;
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No testable tool is available"))?;
         let instance_id = selected_tool.instance_id;
         let service = selected_tool.service_name.clone();
         let tool = selected_tool.name.clone();
@@ -1566,13 +1566,13 @@ impl TuiApp {
         self.overlay = Overlay::ToolDetail;
         self.refresh(rt, false)?;
         self.refresh_tools_for_selected_service(rt, false)?;
-        self.status_message = format!("[成功] 工具测试完成 {service}/{tool}");
+        self.status_message = format!("[Success] Tool test completed {service}/{tool}");
         Ok(())
     }
 
     fn execute_refresh_agents(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         self.refresh_agents(rt)?;
-        self.status_message = format!("[成功] 已刷新 Agent 列表 (agents={})", self.agents.len());
+        self.status_message = format!("[Success] Agent list refreshed (agents={})", self.agents.len());
         Ok(())
     }
 
@@ -1591,7 +1591,7 @@ impl TuiApp {
             }),
         )?;
         self.refresh_agents(rt)?;
-        self.status_message = format!("[成功] 已授权服务 {service_name} 给 Agent {agent_id}");
+        self.status_message = format!("[Success] Authorized service {service_name} for Agent {agent_id}");
         Ok(())
     }
 
@@ -1612,7 +1612,7 @@ impl TuiApp {
             }),
         )?;
         self.refresh_agents(rt)?;
-        self.status_message = format!("[成功] 已解除 Agent {agent_id} 的服务 {service_name}");
+        self.status_message = format!("[Success] Revoked service {service_name} from Agent {agent_id}");
         Ok(())
     }
 
@@ -2083,20 +2083,20 @@ impl TuiApp {
 
     pub fn open_selected_detail(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         if self.current_service_name().is_none() {
-            self.status_message = "[警告] 当前没有可查看的服务".to_string();
+            self.status_message = "[Warning] No service is available for viewing".to_string();
             return Ok(());
         }
         self.refresh_selected_detail(rt)?;
         if self.selected_detail.is_some() {
             self.overlay = Overlay::ServiceDetail;
         }
-        self.status_message = "[进行中] 查看服务详情".to_string();
+        self.status_message = "[In progress] View service details".to_string();
         Ok(())
     }
 
     pub fn close_service_detail(&mut self) {
         self.overlay = Overlay::None;
-        self.status_message = "[进行中] 已关闭服务详情".to_string();
+        self.status_message = "[In progress] Closed service details".to_string();
     }
 
     fn select_service(
@@ -2178,7 +2178,7 @@ impl TuiApp {
             } else {
                 Some(0)
             });
-        self.status_message = "[进行中] 已更新服务筛选".to_string();
+        self.status_message = "[In progress] Updated service filter".to_string();
     }
 
     pub fn toggle_sort(&mut self) {
@@ -2206,7 +2206,7 @@ impl TuiApp {
             serde_json::json!({"instance_id": service.instance_id.to_string()}),
         )?;
         self.refresh(rt, false)?;
-        self.status_message = format!("[成功] 已连接服务 {}", service.name);
+        self.status_message = format!("[Success] Connected service {}", service.name);
         Ok(())
     }
 
@@ -2221,7 +2221,7 @@ impl TuiApp {
             serde_json::json!({"instance_id": service.instance_id.to_string()}),
         )?;
         self.refresh(rt, false)?;
-        self.status_message = format!("[成功] 已断开服务 {}", service.name);
+        self.status_message = format!("[Success] Disconnected service {}", service.name);
         Ok(())
     }
 
@@ -2236,7 +2236,7 @@ impl TuiApp {
             serde_json::json!({"instance_id": service.instance_id.to_string()}),
         )?;
         self.refresh(rt, false)?;
-        self.status_message = format!("[成功] 已重启服务 {}", service.name);
+        self.status_message = format!("[Success] Restarted service {}", service.name);
         Ok(())
     }
 
@@ -2247,7 +2247,7 @@ impl TuiApp {
                 scope: service.scope,
             });
             self.status_message = format!(
-                "[警告] 确认删除服务作用域 {}？按 y 确认，按 n 取消",
+                "[Warning] 确认删除服务作用域 {}？按 y 确认，按 n 取消",
                 service.name
             );
         } else {
@@ -2268,7 +2268,7 @@ impl TuiApp {
                 serde_json::json!({"service_name": service_name, "scope": scope}),
             )?;
             self.refresh(rt, false)?;
-            self.status_message = format!("[成功] 已删除服务作用域 {service_name}");
+            self.status_message = format!("[Success] Deleted service scope {service_name}");
         }
         Ok(())
     }

@@ -68,7 +68,7 @@ async fn resolve_instance(
             if error.code() == mcpstore::error::FailureCode::ServiceNotFound {
                 ApiError::not_found(
                     mcpstore::error::FailureCode::ServiceNotFound,
-                    format!("服务 {service_name} 未在该作用域声明"),
+                    format!("Service {service_name} is not declared in this scope"),
                     Some("service_name"),
                     Some(json!({
                         "service_name": service_name,

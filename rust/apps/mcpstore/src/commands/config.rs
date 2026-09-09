@@ -154,7 +154,7 @@ async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error
     let mut client = crate::daemon::client::connect_admin().await?;
     for (key, value) in edits.pairs() {
         client.set_daemon_config(key, value).await?;
-        println!("[Success] {key} 已热应用并回写 config.toml");
+        println!("[Success] {key} hot-applied and written to config.toml");
     }
     Ok(())
 }
@@ -179,7 +179,7 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
                 None => println!("  {key}: off"),
             }
         }
-        println!("修改请用: mcpstore config --<key> <value>");
+        println!("Use this command to change settings: mcpstore config --<key> <value>");
         return Ok(());
     }
 
@@ -188,7 +188,7 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", serde_json::to_value(&config.server)?);
         return Ok(());
     }
-    println!("[Info] Daemon not running（显示 config.toml 文件值；重启后生效）");
+    println!("[Info] Daemon not running（showing config.toml values; takes effect after restart）");
     println!("  host: {}", config.server.host);
     println!(
         "  core: {} port={}",
@@ -211,7 +211,7 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         config.mcp_aggregate.transport,
         config.mcp_aggregate.port
     );
-    println!("修改请用: mcpstore config --<key> <value>");
+    println!("Use this command to change settings: mcpstore config --<key> <value>");
     Ok(())
 }
 

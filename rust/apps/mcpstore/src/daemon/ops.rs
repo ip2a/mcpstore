@@ -388,7 +388,7 @@ pub(crate) async fn execute(
 pub(crate) fn config_error(error: mcpstore::config::ConfigError) -> Error {
     Error::new(
         FailureCode::InvalidInput,
-        format!("config.toml 操作失败: {error}"),
+        format!("config.toml Operation failed: {error}"),
     )
 }
 
@@ -615,7 +615,7 @@ pub(crate) fn plan_config_change(
             if !matches!(transport.as_str(), "stdio" | "streamable-http") {
                 return Err(Error::new(
                     FailureCode::InvalidInput,
-                    format!("mcp-transport 必须是 stdio 或 streamable-http，得到 {transport}"),
+                    format!("mcp-transport must be stdio or streamable-http, got {transport}"),
                 ));
             }
             config.mcp_aggregate.transport = transport;
@@ -642,7 +642,7 @@ pub(crate) fn required_str_value(value: &Value, field: &str) -> Result<String, E
         .ok_or_else(|| {
             Error::new(
                 FailureCode::InvalidInput,
-                format!("{field} 需要非空字符串"),
+                format!("{field} must be a non-empty string"),
             )
         })
 }
@@ -653,7 +653,7 @@ pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
         Some("off") | Some("false") => Ok(false),
         other => Err(Error::new(
             FailureCode::InvalidInput,
-            format!("{field} 需要 on/off，得到 {other:?}"),
+            format!("{field} must be on/off, got {other:?}"),
         )),
     }
 }
@@ -666,7 +666,7 @@ pub(crate) fn parse_port(value: &Value, field: &str) -> Result<u16, Error> {
         .ok_or_else(|| {
             Error::new(
                 FailureCode::InvalidInput,
-                format!("{field} 需要 1-65535 的端口号"),
+                format!("{field} must be a port number from 1 to 65535"),
             )
         })
 }

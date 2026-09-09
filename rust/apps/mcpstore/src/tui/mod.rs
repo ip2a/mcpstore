@@ -16,7 +16,7 @@ pub mod widgets;
 #[derive(Parser)]
 #[command(
     name = "mcpstore-tui",
-    about = "MCPStore 终端服务管理界面",
+    about = "MCPStore 终端Service management界面",
     version = env!("CARGO_PKG_VERSION"),
 )]
 pub struct TuiArgs {

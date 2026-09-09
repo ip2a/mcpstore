@@ -78,7 +78,7 @@ pub(super) fn parse_scope_ref(scope: Option<&str>, agent_id: Option<&str>) -> Ap
                 .to_string(),
         }),
         other => Err(ApiError::invalid_parameter(
-            format!("不支持的 scope: {other}"),
+            format!("Unsupported scope: {other}"),
             Some("scope"),
         )),
     }
@@ -100,7 +100,7 @@ pub(super) fn parse_scope_view(
                 .to_string(),
         }),
         other => Err(ApiError::invalid_parameter(
-            format!("不支持的 scope: {other}"),
+            format!("Unsupported scope: {other}"),
             Some("scope"),
         )),
     }

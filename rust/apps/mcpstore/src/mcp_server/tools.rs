@@ -1078,7 +1078,7 @@ pub(super) async fn call_service_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore service 管理工具: {tool_name}"),
+                format!("Unknown MCPStore service-management tool: {tool_name}"),
                 None,
             ));
         }
@@ -1105,7 +1105,7 @@ pub(super) async fn call_session_state_tool(
             let snapshot = arguments
                 .get("snapshot")
                 .cloned()
-                .ok_or_else(|| ErrorData::invalid_params("缺少参数: snapshot", None))?;
+                .ok_or_else(|| ErrorData::invalid_params("Missing parameter: snapshot", None))?;
             let report = store
                 .import_sessions_snapshot(snapshot)
                 .await
@@ -1136,7 +1136,7 @@ pub(super) async fn call_session_state_tool(
             let value = arguments
                 .get("value")
                 .cloned()
-                .ok_or_else(|| ErrorData::invalid_params("缺少参数: value", None))?;
+                .ok_or_else(|| ErrorData::invalid_params("Missing parameter: value", None))?;
             let state = store
                 .set_session_state(&session_key, key, value)
                 .await
@@ -1162,7 +1162,7 @@ pub(super) async fn call_session_state_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore session_state 管理工具: {tool_name}"),
+                format!("Unknown MCPStore session-state management tool: {tool_name}"),
                 None,
             ));
         }
@@ -1208,7 +1208,7 @@ pub(super) async fn call_tool_override_tool(
             let patch = serde_json::from_value::<ToolOverridePatch>(Value::Object(arguments))
                 .map_err(|error| {
                     ErrorData::invalid_params(
-                        format!("工具转换规则参数反序列化失败: {error}"),
+                        format!("Tool conversion-rule arguments failed to deserialize: {error}"),
                         None,
                     )
                 })?;
@@ -1230,7 +1230,7 @@ pub(super) async fn call_tool_override_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore tool override 管理工具: {tool_name}"),
+                format!("Unknown MCPStore tool-override management tool: {tool_name}"),
                 None,
             ));
         }
@@ -1276,7 +1276,7 @@ pub(super) async fn call_prompt_override_tool(
             let patch = serde_json::from_value::<PromptOverridePatch>(Value::Object(arguments))
                 .map_err(|error| {
                     ErrorData::invalid_params(
-                        format!("Prompt override 参数反序列化失败: {error}"),
+                        format!("Prompt override arguments failed to deserialize: {error}"),
                         None,
                     )
                 })?;
@@ -1298,7 +1298,7 @@ pub(super) async fn call_prompt_override_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore prompt override 管理工具: {tool_name}"),
+                format!("Unknown MCPStore prompt-override management tool: {tool_name}"),
                 None,
             ))
         }
@@ -1344,7 +1344,7 @@ pub(super) async fn call_resource_override_tool(
             let patch = serde_json::from_value::<ResourceOverridePatch>(Value::Object(arguments))
                 .map_err(|error| {
                 ErrorData::invalid_params(
-                    format!("Resource override 参数反序列化失败: {error}"),
+                    format!("Resource override arguments failed to deserialize: {error}"),
                     None,
                 )
             })?;
@@ -1366,7 +1366,7 @@ pub(super) async fn call_resource_override_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore resource override 管理工具: {tool_name}"),
+                format!("Unknown MCPStore resource-override management tool: {tool_name}"),
                 None,
             ))
         }
@@ -1413,7 +1413,7 @@ pub(super) async fn call_resource_template_override_tool(
                 serde_json::from_value::<ResourceTemplateOverridePatch>(Value::Object(arguments))
                     .map_err(|error| {
                     ErrorData::invalid_params(
-                        format!("Resource template override 参数反序列化失败: {error}"),
+                        format!("Resource-template override arguments failed to deserialize: {error}"),
                         None,
                     )
                 })?;
@@ -1435,7 +1435,7 @@ pub(super) async fn call_resource_template_override_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore resource template override 管理工具: {tool_name}"),
+                format!("Unknown MCPStore resource-template-override management tool: {tool_name}"),
                 None,
             ))
         }
@@ -1599,7 +1599,7 @@ pub(super) async fn call_openapi_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore OpenAPI 管理工具: {tool_name}"),
+                format!("Unknown MCPStore OpenAPI management tool: {tool_name}"),
                 None,
             ));
         }
@@ -1643,7 +1643,7 @@ pub(super) async fn call_cache_tool(
         }
         _ => {
             return Err(ErrorData::invalid_params(
-                format!("未知 MCPStore cache 管理工具: {tool_name}"),
+                format!("Unknown MCPStore cache-management tool: {tool_name}"),
                 None,
             ));
         }
@@ -1667,7 +1667,7 @@ pub(super) fn resolve_session_state_key(
         .or(default_session_key)
         .filter(|session_key| !session_key.is_empty())
         .map(str::to_string)
-        .ok_or_else(|| ErrorData::invalid_params("缺少参数: session_key", None))
+        .ok_or_else(|| ErrorData::invalid_params("Missing parameter: session_key", None))
 }
 
 pub(super) fn required_argument_string<'a>(
@@ -1678,7 +1678,7 @@ pub(super) fn required_argument_string<'a>(
         .get(field)
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ErrorData::invalid_params(format!("缺少参数: {field}"), None))
+        .ok_or_else(|| ErrorData::invalid_params(format!("Missing parameter: {field}"), None))
 }
 
 pub(super) fn required_scope_argument(
@@ -1687,9 +1687,9 @@ pub(super) fn required_scope_argument(
     let value = arguments
         .get("scope")
         .cloned()
-        .ok_or_else(|| ErrorData::invalid_params("缺少参数: scope", None))?;
+        .ok_or_else(|| ErrorData::invalid_params("Missing parameter: scope", None))?;
     serde_json::from_value(value)
-        .map_err(|error| ErrorData::invalid_params(format!("scope 参数无效: {error}"), None))
+        .map_err(|error| ErrorData::invalid_params(format!("Invalid scope parameter: {error}"), None))
 }
 
 pub(super) fn required_instance_id_argument(
@@ -1697,7 +1697,7 @@ pub(super) fn required_instance_id_argument(
 ) -> Result<InstanceId, ErrorData> {
     let value = required_argument_string(arguments, "instance_id")?;
     InstanceId::from_str(value)
-        .map_err(|error| ErrorData::invalid_params(format!("instance_id 参数无效: {error}"), None))
+        .map_err(|error| ErrorData::invalid_params(format!("Invalid instance_id parameter: {error}"), None))
 }
 
 pub(super) fn service_config_from_arguments(
@@ -1706,9 +1706,9 @@ pub(super) fn service_config_from_arguments(
     let config = arguments
         .get("config")
         .cloned()
-        .ok_or_else(|| ErrorData::invalid_params("缺少参数: config", None))?;
+        .ok_or_else(|| ErrorData::invalid_params("Missing parameter: config", None))?;
     serde_json::from_value::<ServerConfig>(config)
-        .map_err(|error| ErrorData::invalid_params(format!("服务配置解析失败: {error}"), None))
+        .map_err(|error| ErrorData::invalid_params(format!("Failed to parse service configuration: {error}"), None))
 }
 
 pub(super) fn service_scope_descriptor_from_arguments(
@@ -1717,9 +1717,9 @@ pub(super) fn service_scope_descriptor_from_arguments(
     let descriptor = arguments
         .get("descriptor")
         .cloned()
-        .ok_or_else(|| ErrorData::invalid_params("缺少参数: descriptor", None))?;
+        .ok_or_else(|| ErrorData::invalid_params("Missing parameter: descriptor", None))?;
     serde_json::from_value(descriptor).map_err(|error| {
-        ErrorData::invalid_params(format!("服务作用域描述解析失败: {error}"), None)
+        ErrorData::invalid_params(format!("Failed to parse service-scope descriptor: {error}"), None)
     })
 }
 
@@ -1821,7 +1821,7 @@ pub(super) fn read_required_string(payload: &Value, field: &str) -> Result<Strin
         .get(field)
         .and_then(Value::as_str)
         .map(str::to_string)
-        .ok_or_else(|| format!("工具元数据缺少字符串字段: {field}").into())
+        .ok_or_else(|| format!("Tool metadata is missing string field: {field}").into())
 }
 
 pub(super) fn read_required_instance_id(
@@ -1830,9 +1830,9 @@ pub(super) fn read_required_instance_id(
 ) -> Result<InstanceId, BoxErr> {
     let value = payload
         .get(field)
-        .ok_or_else(|| format!("工具元数据缺少字段: {field}"))?;
+        .ok_or_else(|| format!("Tool metadata is missing field: {field}"))?;
     serde_json::from_value(value.clone())
-        .map_err(|error| format!("工具元数据字段 {field} 不是有效 instance_id: {error}").into())
+        .map_err(|error| format!("Tool metadata field {field} is not a valid instance_id: {error}").into())
 }
 
 pub(super) fn read_required_object(
@@ -1843,7 +1843,7 @@ pub(super) fn read_required_object(
         .get(field)
         .and_then(Value::as_object)
         .cloned()
-        .ok_or_else(|| format!("工具元数据缺少对象字段: {field}").into())
+        .ok_or_else(|| format!("Tool metadata is missing object field: {field}").into())
 }
 
 pub(super) fn map_store_error(error: mcpstore::Error) -> ErrorData {
@@ -1865,5 +1865,5 @@ where
     T: DeserializeOwned,
 {
     serde_json::from_value(item)
-        .map_err(|error| ErrorData::internal_error(format!("{label} 反序列化失败: {error}"), None))
+        .map_err(|error| ErrorData::internal_error(format!("{label} failed to deserialize: {error}"), None))
 }

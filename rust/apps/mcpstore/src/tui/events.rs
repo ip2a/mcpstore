@@ -112,7 +112,7 @@ pub fn handle_key(
             } else if app.active_view == MainView::Logs {
                 app.refresh_log_sources(rt);
                 app.refresh_log_config();
-                app.status_message = "[成功] 已刷新日志".to_string();
+                app.status_message = "[Success] Logs refreshed".to_string();
             } else {
                 app.refresh(rt, true)?;
                 app.status_message = format!(
@@ -383,7 +383,7 @@ fn handle_settings_content_key(
         }
         KeyCode::Char('r') if app.settings_section == SettingsSection::McpAggregate => {
             app.refresh_mcp_aggregate_status();
-            app.status_message = "[成功] MCP 聚合状态已刷新".to_string();
+            app.status_message = "[Success] MCP aggregate status refreshed".to_string();
         }
         KeyCode::Char('t') if app.settings_section == SettingsSection::McpAggregate => {
             app.toggle_mcp_aggregate_transport(rt)?;
@@ -424,7 +424,7 @@ fn handle_logs_content_key(
         KeyCode::Char('r') => {
             app.refresh_log_sources(rt);
             app.refresh_log_config();
-            app.status_message = "[成功] 已刷新日志".to_string();
+            app.status_message = "[Success] Logs refreshed".to_string();
         }
         _ => {}
     }

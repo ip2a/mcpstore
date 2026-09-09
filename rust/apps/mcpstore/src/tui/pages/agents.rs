@@ -21,7 +21,7 @@ pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
             },
             theme::accent(),
         ),
-        Span::styled("Agent列表", theme::field_label()),
+        Span::styled("Agent list", theme::field_label()),
         Span::raw("  "),
         Span::styled(
             "h/l Focus  j/k Move  r Refresh  e Select  a Authorize  u Revoke  q Quit",
@@ -60,7 +60,7 @@ fn render_agent_selector(frame: &mut Frame, area: Rect, app: &TuiApp) {
     }
     if app.agents.is_empty() {
         spans.push(Span::styled(
-            "暂无 Agent，按 e 输入 Agent ID",
+            "No agents. Press e to enter an Agent ID",
             theme::muted(),
         ));
     }
@@ -78,7 +78,7 @@ fn render_agent_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     let Some(agent) = app.current_agent() else {
         let body =
-            Paragraph::new("暂无 Agent。按 e 输入 Agent ID，或在添加服务时选择 agent 作用域。")
+            Paragraph::new("No agents. Press e to enter an Agent ID, or choose the agent scope when adding a service.")
                 .block(widgets::chrome::panel_block(title, focused))
                 .style(theme::text())
                 .wrap(Wrap { trim: true });
@@ -92,16 +92,16 @@ fn render_agent_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {
             Span::styled(agent.id.clone(), theme::field_label()),
         ])),
         ListItem::new(Line::from(vec![
-            Span::styled("服务数量: ", theme::muted()),
+            Span::styled("Service count: ", theme::muted()),
             Span::styled(agent.services.len().to_string(), theme::text()),
         ])),
         ListItem::new(Line::from("")),
-        ListItem::new(Line::from(Span::styled("授权服务", theme::field_label()))),
+        ListItem::new(Line::from(Span::styled("Authorized services", theme::field_label()))),
     ];
 
     if agent.services.is_empty() {
         items.push(ListItem::new(Line::from(
-            "  暂无授权服务，按 a 输入服务名授权。",
+            "  暂无Authorized services，按 a 输入服务名授权。",
         )));
     } else {
         for (index, service) in agent.services.iter().enumerate() {
@@ -118,7 +118,7 @@ fn render_agent_detail(frame: &mut Frame, area: Rect, app: &TuiApp) {
                         },
                     ),
                     Span::raw("  "),
-                    Span::styled("u 解除授权", theme::muted()),
+                    Span::styled("u Revoke authorization", theme::muted()),
                 ]))
                 .style(if selected {
                     theme::field_selected()

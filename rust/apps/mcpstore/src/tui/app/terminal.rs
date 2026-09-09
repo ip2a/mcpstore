@@ -44,7 +44,7 @@ pub fn run(
             crate::daemon::protocol::KernelOperation::GetAppConfig,
             serde_json::json!({}),
         ))
-        .map_err(|error| format!("读取运行配置失败: {error}"))?;
+        .map_err(|error| format!("Failed to read runtime configuration: {error}"))?;
     let app_config: mcpstore::config::AppConfig =
         serde_json::from_value(info["config"].clone())?;
     let config_path = info["mcp_path"].as_str().unwrap_or_default().to_string();
@@ -83,7 +83,7 @@ pub fn run(
         terminal.draw(|frame| super::super::ui::draw(frame, &mut app))?;
         if app.has_pending_task() {
             if let Err(error) = app.process_pending_task(&rt) {
-                app.status_message = format!("[错误] {error}");
+                app.status_message = format!("[Error] {error}");
             }
             continue;
         }
@@ -96,7 +96,7 @@ pub fn run(
             if let Event::Key(key) = event::read()? {
                 if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                     if let Err(error) = super::super::events::handle_key(&mut app, &rt, key) {
-                        app.status_message = format!("[错误] {error}");
+                        app.status_message = format!("[Error] {error}");
                     }
                 }
             }

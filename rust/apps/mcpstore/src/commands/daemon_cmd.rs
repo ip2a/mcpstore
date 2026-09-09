@@ -155,7 +155,7 @@ pub async fn face_view(face: &str, json: bool) -> Result<(), BoxErr> {
                 let bind = bind.as_str().map(str::to_string).unwrap_or_else(|| "off".to_string());
                 println!("[{face}] daemon: running (pid={})", status["pid"]);
                 println!("[{face}] bind: {bind}");
-                println!("修改请用: {tip}");
+                println!("Use this command to change settings: {tip}");
             }
         }
         None => {
@@ -170,14 +170,14 @@ pub async fn face_view(face: &str, json: bool) -> Result<(), BoxErr> {
                     json!({"face": face, "running": false, "enabled": enabled, "port": port, "host": config.server.host})
                 );
             } else {
-                println!("[{face}] daemon: not running（以下为 config.toml 文件值）");
+                println!("[{face}] daemon: not running（showing values from config.toml）");
                 println!(
                     "[{face}] enabled: {}  host: {}  port: {}",
                     if enabled { "on" } else { "off" },
                     config.server.host,
                     port
                 );
-                println!("修改请用: {tip}");
+                println!("Use this command to change settings: {tip}");
             }
         }
     }

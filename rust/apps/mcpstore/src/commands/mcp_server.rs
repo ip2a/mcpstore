@@ -53,23 +53,23 @@ pub struct McpServerArgs {
     #[arg(
         long,
         default_value = "127.0.0.1",
-        help = "绑定地址，仅 streamable-http 使用"
+        help = "Bind address, used only by streamable-http"
     )]
     pub host: String,
     #[arg(
         long,
-        help = "监听端口，仅 streamable-http 使用；默认读取 mcp_aggregate.port"
+        help = "Listen port, used only by streamable-http; defaults to mcp_aggregate.port"
     )]
     pub port: Option<u16>,
     #[arg(
         long,
         default_value = "/mcp",
-        help = "HTTP 路径，仅 streamable-http 使用"
+        help = "HTTP path, used only by streamable-http"
     )]
     pub path: String,
     #[arg(
         long,
-        help = "MCPStore 业务 session key；与 rmcp transport session 分离"
+        help = "MCPStore business session key, separate from the rmcp transport session"
     )]
     pub session_key: Option<String>,
     #[arg(

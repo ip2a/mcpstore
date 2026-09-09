@@ -92,7 +92,7 @@ fn parse_session_scope_param(scope: Option<&str>) -> ApiResult<Option<SessionSco
         Some("store") => Ok(Some(SessionScope::Store)),
         Some("agent") => Ok(Some(SessionScope::Agent)),
         Some(other) => Err(ApiError::invalid_parameter(
-            format!("无效的 session scope: {other}"),
+            format!("Invalid session scope: {other}"),
             Some("scope"),
         )),
     }
@@ -213,7 +213,7 @@ pub(super) async fn session_status(
         .await
         .map_err(ApiError::from_store)?;
     let status = require_present_session(status, &query.session_key, "session_status")?;
-    Ok(success("Session 状态获取成功", json!({ "status": status })))
+    Ok(success("Session Status获取成功", json!({ "status": status })))
 }
 
 /// `POST /sessions/close` —— body: `{ session_key, reason? }`
@@ -301,7 +301,7 @@ pub(super) async fn session_list_services(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session 服务列表获取成功",
+        "Session Service list获取成功",
         json!({ "services": services, "total": services.len() }),
     ))
 }
@@ -317,7 +317,7 @@ pub(super) async fn session_list_tools(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session 工具列表获取成功",
+        "Session Tool list获取成功",
         json!({ "tools": tools, "total": tools.len() }),
     ))
 }

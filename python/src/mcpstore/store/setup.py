@@ -132,7 +132,7 @@ class StoreSetupManager:
 
         if kwargs:
             unsupported = ", ".join(sorted(kwargs))
-            raise ValueError(f"setup_store 不支持参数: {unsupported}")
+            raise ValueError(f"setup_store does not support arguments: {unsupported}")
 
         if source is None:
             from mcpstore.config import FileConfig

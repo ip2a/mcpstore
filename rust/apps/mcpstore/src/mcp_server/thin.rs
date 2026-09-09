@@ -194,7 +194,7 @@ impl ServerHandler for ThinAggregate {
                 None => {
                     self.refresh_bindings().await?;
                     self.binding(&tool_name).ok_or_else(|| {
-                        ErrorData::invalid_params(format!("未知工具: {tool_name}"), None)
+                        ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None)
                     })?
                 }
             };
@@ -214,7 +214,7 @@ impl ServerHandler for ThinAggregate {
                     // daemon 返回的是 store 层错误，保留 LLM 面错误语义
                     let _ = error;
                     return Ok(CallToolResponse::Complete(CallToolResult::error(vec![
-                        ContentBlock::text(format!("daemon 调用失败: {error}")),
+                        ContentBlock::text(format!("Daemon call failed: {error}")),
                     ])));
                 }
             };
@@ -223,7 +223,7 @@ impl ServerHandler for ThinAggregate {
                 Err(error) => {
                     return Ok(llm_error_result(&mcpstore::Error::new(
                         mcpstore::error::FailureCode::Internal,
-                        format!("调用结果解码失败: {error}"),
+                        format!("Failed to decode call result: {error}"),
                     )))
                 }
             };

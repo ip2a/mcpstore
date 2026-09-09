@@ -526,7 +526,7 @@ impl ServerHandler for McpStoreServer {
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
                     .remove(tool_name.as_str()))
             }
-            .ok_or_else(|| ErrorData::invalid_params(format!("未知工具: {tool_name}"), None))?;
+            .ok_or_else(|| ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None))?;
             let execution = match store
                 .start_tool_execution(
                     binding.instance_id,

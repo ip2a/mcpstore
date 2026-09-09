@@ -33,7 +33,7 @@ pub(crate) async fn open_store(
         .map_err(|error| {
             Error::new(
                 FailureCode::ServiceUnavailable,
-                format!("打开 store 失败: {error}"),
+                format!("Failed to open store: {error}"),
             )
         })
 }

@@ -42,7 +42,7 @@ pub(super) async fn mcp_hub_status(
     let descriptor = options.launch_descriptor("mcpstore");
     let (running, pid) = mcp_hub_status_inner(&state)?;
     Ok(success(
-        "聚合服务状态获取成功",
+        "聚合服务Status获取成功",
         json!({
             "running": running,
             "pid": pid,
@@ -74,7 +74,7 @@ pub(super) async fn mcp_hub_start(
         let hub = state
             .mcp_hub
             .lock()
-            .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?;
+            .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?;
         if let Some(existing) = hub.as_ref() {
             if !existing.task.is_finished() {
                 return Ok(success(
@@ -117,7 +117,7 @@ pub(super) async fn mcp_hub_start(
     state
         .mcp_hub
         .lock()
-        .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?
+        .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?
         .replace(McpHub {
             task,
             descriptor: descriptor.clone(),
@@ -139,7 +139,7 @@ pub(super) async fn mcp_hub_stop(State(state): State<Arc<ApiState>>) -> ApiResul
         let mut hub = state
             .mcp_hub
             .lock()
-            .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?;
+            .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?;
         hub.take()
     };
     let Some(aggregate) = aggregate else {
@@ -164,7 +164,7 @@ fn mcp_hub_options(
         .store
         .config_manager()
         .load_app_config_or_default()
-        .map_err(|error| ApiError::invalid_request(format!("加载 app 配置失败: {error}")))?;
+        .map_err(|error| ApiError::invalid_request(format!("Failed to load app configuration: {error}")))?;
     let scope = match query.scope.as_deref().unwrap_or("store") {
         "store" => ScopeRef::Store,
         "agent" => ScopeRef::Agent {
@@ -175,7 +175,7 @@ fn mcp_hub_options(
         },
         value => {
             return Err(ApiError::invalid_parameter(
-                format!("不支持的 scope: {value}"),
+                format!("Unsupported scope: {value}"),
                 Some("scope"),
             ))
         }
@@ -189,7 +189,7 @@ fn mcp_hub_options(
         "streamable-http" | "http" => McpServerTransport::StreamableHttp,
         value => {
             return Err(ApiError::invalid_parameter(
-                format!("不支持的 transport: {value}"),
+                format!("Unsupported transport: {value}"),
                 Some("transport"),
             ))
         }
@@ -246,7 +246,7 @@ fn mcp_hub_status_inner(state: &ApiState) -> Result<(bool, Option<u32>), ApiErro
     let mut hub = state
         .mcp_hub
         .lock()
-        .map_err(|_| ApiError::invalid_request("聚合服务状态不可用"))?;
+        .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?;
     let Some(aggregate) = hub.as_ref() else {
         return Ok((false, None));
     };
