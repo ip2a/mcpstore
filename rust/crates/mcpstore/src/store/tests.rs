@@ -1079,6 +1079,19 @@ async fn db_source_does_not_write_config_file_and_queues_add() {
     assert_eq!(event["type"], "ServiceAddRequested");
     assert_eq!(event["status"], "queued");
     assert_eq!(event["payload"]["service_name"], "svc");
+    assert_eq!(event["id"], event["trace_id"]);
+    assert!(event["id"]
+        .as_str()
+        .unwrap()
+        .starts_with("ServiceAddRequested:"));
+    assert!(event["id"].as_str().unwrap().ends_with(
+        event["trace_id"]
+            .as_str()
+            .unwrap()
+            .rsplit(':')
+            .next()
+            .unwrap()
+    ));
 }
 
 #[tokio::test]

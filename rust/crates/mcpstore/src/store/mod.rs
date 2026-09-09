@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
+use std::sync::RwLock as SyncRwLock;
 
 pub(crate) use crate::cache::models::OpenApiImportContextState;
 pub(crate) use crate::cache::CacheLayerManager;
@@ -44,7 +44,6 @@ pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, Sto
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
 pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
-pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) mod prelude {
     pub(crate) use crate::config_formats::{project_config, ConfigFormat};
@@ -56,7 +55,7 @@ pub(crate) mod prelude {
         DiscoveredResourceTemplate, Error, ErrorContext, Event, FailureCode, MCPStore,
         OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig,
         ServiceDefinition, ServiceInstance, SourceMode, StartupPolicy, ToolChangeServiceResult,
-        ToolChangeSummary, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
+        ToolChangeSummary, CONTROL_REQUEST_EVENT_TYPE,
     };
 }
 

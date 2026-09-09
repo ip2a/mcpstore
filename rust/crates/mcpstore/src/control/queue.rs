@@ -1,5 +1,3 @@
-use std::sync::atomic::Ordering;
-
 use crate::control::request::{self, ControlRequest, ControlRequestStatus};
 use crate::store::prelude::*;
 
@@ -88,8 +86,7 @@ impl MCPStore {
         payload: serde_json::Value,
     ) -> Result<String> {
         let created_at = chrono::Utc::now().timestamp_millis();
-        let sequence = CONTROL_EVENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let event_id = format!("{request_type}:{created_at}:{sequence}");
+        let event_id = format!("{request_type}:{}", uuid::Uuid::new_v4());
         let request = ControlRequest {
             id: event_id.clone(),
             request_type: request_type.to_string(),
@@ -108,9 +105,10 @@ impl MCPStore {
         self.kernel
             .persistence
             .cache
-            .put_event(
+            .compare_and_put_event(
                 CONTROL_REQUEST_EVENT_TYPE,
                 &event_id,
+                None,
                 serde_json::to_value(request)
                     .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             )
