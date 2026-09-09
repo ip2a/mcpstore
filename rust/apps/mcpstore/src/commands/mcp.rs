@@ -88,7 +88,10 @@ impl FromStr for ExecutionTargetArg {
 }
 
 impl ExecutionTargetArg {
-    fn resolve(&self, embedded: bool) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
+    pub(crate) fn resolve(
+        &self,
+        embedded: bool,
+    ) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
         match self {
             Self::Auto if embedded => Ok(mcpstore::config::ExecutionTarget::Local),
             Self::Auto => Ok(mcpstore::config::ExecutionTarget::Daemon),
@@ -878,6 +881,18 @@ fn call_error_from_store(
     attach_tool(error, instance_id, tool_name)
 }
 
+#[derive(Clone, Debug, Args)]
+pub struct ExecuteOnArgs {
+    #[arg(
+        long = "execute-on",
+        default_value = "auto",
+        value_name = "TARGET",
+        value_parser = ExecutionTargetArg::from_str,
+        help = "Execution target: auto, local, daemon, or node:NODE_ID",
+    )]
+    pub execute_on: ExecutionTargetArg,
+}
+
 #[derive(Args)]
 pub struct CallToolArgs {
     #[arg(value_name = "SERVICE|INSTANCE", help = "Service name or instance ID")]
@@ -912,14 +927,8 @@ pub struct CallToolArgs {
         help = "Output format: human, json, or jsonl"
     )]
     pub output: OutputFormat,
-    #[arg(
-        long = "execute-on",
-        default_value = "auto",
-        value_name = "TARGET",
-        value_parser = ExecutionTargetArg::from_str,
-        help = "Execution target: auto, local, daemon, or node:NODE_ID",
-    )]
-    pub execute_on: ExecutionTargetArg,
+    #[command(flatten)]
+    pub execution: ExecuteOnArgs,
     #[arg(
         long,
         value_name = "SECONDS",
@@ -956,7 +965,7 @@ pub async fn call_tool(a: CallToolArgs, embedded: bool) -> std::result::Result<(
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-fn resolve_declared_execution_target(
+pub(crate) fn resolve_declared_execution_target(
     info: &Value,
     requested: &ExecutionTargetArg,
     routed_target: mcpstore::config::ExecutionTarget,
@@ -1009,7 +1018,7 @@ async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<
     parse_arguments_json_object(&a.arguments, a.output)?;
     // Explicit store arguments force embedded access in open_store_access.
     let embedded = embedded || a.store.is_explicit();
-    let routed_target = a.execute_on.resolve(embedded)?;
+    let routed_target = a.execution.execute_on.resolve(embedded)?;
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
@@ -1026,7 +1035,7 @@ async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<
         .await
         .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
     let execution_target =
-        resolve_declared_execution_target(&info, &a.execute_on, routed_target, embedded)?;
+        resolve_declared_execution_target(&info, &a.execution.execute_on, routed_target, embedded)?;
     access
         .request(
             KernelOperation::ConnectService,

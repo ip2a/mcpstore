@@ -402,7 +402,7 @@ mod tests {
                 Cli::try_parse_from(["mcpstore", "call", "service", "tool", "--execute-on", value])
                     .unwrap();
             match cli.command {
-                Commands::Call(args) => assert_eq!(args.execute_on, expected),
+                Commands::Call(args) => assert_eq!(args.execution.execute_on, expected),
                 _ => panic!("Expected to parse as call command"),
             }
         }
@@ -504,6 +504,8 @@ mod tests {
             "--output",
             "jsonl",
             "--non-interactive",
+            "--execute-on",
+            "daemon",
         ])
         .unwrap();
 
@@ -518,6 +520,10 @@ mod tests {
                 assert_eq!(args.max_total_timeout, Some(90));
                 assert_eq!(args.runtime.output, crate::error::OutputFormat::Jsonl);
                 assert!(args.runtime.non_interactive);
+                assert!(matches!(
+                    args.execution.execute_on,
+                    crate::commands::mcp::ExecutionTargetArg::Daemon
+                ));
             }
             _ => panic!("Expected to parse as task run command"),
         }
@@ -768,6 +774,8 @@ mod tests {
             "read",
             "c81af510-755b-55c7-8487-5668ab36e06e",
             "repo://mcp/store",
+            "--execute-on",
+            "local",
             "--output",
             "json",
         ])
@@ -780,6 +788,10 @@ mod tests {
                 assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.uri, "repo://mcp/store");
                 assert_eq!(args.output.output, crate::error::OutputFormat::Json);
+                assert!(matches!(
+                    args.execution.execute_on,
+                    crate::commands::mcp::ExecutionTargetArg::Local
+                ));
             }
             _ => panic!("Expected resource read command"),
         }

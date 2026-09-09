@@ -7,7 +7,9 @@ use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_instance, OutputFormat};
 use crate::store_args::StoreSourceArgs;
 use crate::{
-    commands::mcp::{open_store, parse_instance_id},
+    commands::mcp::{
+        open_store, parse_instance_id, resolve_declared_execution_target, ExecuteOnArgs,
+    },
     BoxErr,
 };
 
@@ -26,6 +28,8 @@ pub struct ProtocolOutputArgs {
 pub struct ProtocolInstanceArgs {
     #[arg(help = "Service instance ID")]
     pub instance_id: String,
+    #[command(flatten)]
+    pub execution: ExecuteOnArgs,
     #[command(flatten)]
     pub output: ProtocolOutputArgs,
     #[command(flatten)]
@@ -52,6 +56,8 @@ pub struct ResourceReadArgs {
     #[arg(help = "Resource URI")]
     pub uri: String,
     #[command(flatten)]
+    pub execution: ExecuteOnArgs,
+    #[command(flatten)]
     pub output: ProtocolOutputArgs,
     #[command(flatten)]
     pub store: StoreSourceArgs,
@@ -77,6 +83,8 @@ pub struct PromptGetArgs {
     pub prompt_name: String,
     #[arg(long, default_value = "{}", help = "Prompt arguments JSON object")]
     pub arguments: String,
+    #[command(flatten)]
+    pub execution: ExecuteOnArgs,
     #[command(flatten)]
     pub output: ProtocolOutputArgs,
     #[command(flatten)]
@@ -108,6 +116,8 @@ pub struct CompleteArgs {
     #[arg(long, default_value = "{}", help = "Completion context JSON object")]
     pub context: String,
     #[command(flatten)]
+    pub execution: ExecuteOnArgs,
+    #[command(flatten)]
     pub output: ProtocolOutputArgs,
     #[command(flatten)]
     pub store: StoreSourceArgs,
@@ -131,6 +141,24 @@ pub async fn complete(args: CompleteArgs, embedded: bool) -> Result<(), BoxErr> 
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
+async fn resolve_execution_target(
+    access: &mut crate::store_args::StoreAccess,
+    instance_id: InstanceId,
+    requested: &crate::commands::mcp::ExecutionTargetArg,
+    embedded: bool,
+) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
+    let routed_target = requested.resolve(embedded)?;
+    let info = access
+        .request(
+            KernelOperation::GetServiceInfo,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await
+        .map_err(|error| attach_instance(error, instance_id))?;
+    resolve_declared_execution_target(&info, requested, routed_target, embedded)
+        .map_err(|error| attach_instance(error, instance_id))
+}
+
 async fn execute_resource(args: ResourceArgs, embedded: bool) -> mcpstore::Result<()> {
     match args.action {
         ResourceAction::List(args) => execute_resource_list(args, embedded).await,
@@ -149,10 +177,20 @@ async fn execute_resource_list(args: ProtocolInstanceArgs, embedded: bool) -> mc
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
+    let execution_target = resolve_execution_target(
+        &mut access,
+        instance_id,
+        &args.execution.execute_on,
+        embedded,
+    )
+    .await?;
     let result = access
         .request(
             KernelOperation::ResourcesList,
-            json!({"instance_id": instance_id.to_string()}),
+            json!({
+                "instance_id": instance_id.to_string(),
+                "execute_on": execution_target,
+            }),
         )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
@@ -190,10 +228,20 @@ async fn execute_resource_templates(
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
+    let execution_target = resolve_execution_target(
+        &mut access,
+        instance_id,
+        &args.execution.execute_on,
+        embedded,
+    )
+    .await?;
     let result = access
         .request(
             KernelOperation::ResourcesTemplates,
-            json!({"instance_id": instance_id.to_string()}),
+            json!({
+                "instance_id": instance_id.to_string(),
+                "execute_on": execution_target,
+            }),
         )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
@@ -237,10 +285,21 @@ async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpsto
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
+    let execution_target = resolve_execution_target(
+        &mut access,
+        instance_id,
+        &args.execution.execute_on,
+        embedded,
+    )
+    .await?;
     let result = access
         .request(
             KernelOperation::ResourcesRead,
-            json!({"instance_id": instance_id.to_string(), "uri": args.uri}),
+            json!({
+                "instance_id": instance_id.to_string(),
+                "uri": args.uri,
+                "execute_on": execution_target,
+            }),
         )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
@@ -271,10 +330,20 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs, embedded: bool) -> mcps
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
+    let execution_target = resolve_execution_target(
+        &mut access,
+        instance_id,
+        &args.execution.execute_on,
+        embedded,
+    )
+    .await?;
     let result = access
         .request(
             KernelOperation::PromptsList,
-            json!({"instance_id": instance_id.to_string()}),
+            json!({
+                "instance_id": instance_id.to_string(),
+                "execute_on": execution_target,
+            }),
         )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
@@ -324,6 +393,13 @@ async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Re
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
+    let execution_target = resolve_execution_target(
+        &mut access,
+        instance_id,
+        &args.execution.execute_on,
+        embedded,
+    )
+    .await?;
     let result = access
         .request(
             KernelOperation::PromptGet,
@@ -331,6 +407,7 @@ async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Re
                 "instance_id": instance_id.to_string(),
                 "prompt_name": args.prompt_name,
                 "arguments": arguments,
+                "execute_on": execution_target,
             }),
         )
         .await
@@ -388,12 +465,20 @@ async fn execute_complete(args: CompleteArgs, embedded: bool) -> mcpstore::Resul
     let mut access = open_store(&args.store, embedded)
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
+    let execution_target = resolve_execution_target(
+        &mut access,
+        instance_id,
+        &args.execution.execute_on,
+        embedded,
+    )
+    .await?;
     let result = access
         .request(
             KernelOperation::CompleteArgument,
             json!({
                 "instance_id": instance_id.to_string(),
                 "request": request,
+                "execute_on": execution_target,
             }),
         )
         .await

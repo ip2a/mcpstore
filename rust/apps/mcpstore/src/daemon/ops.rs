@@ -19,7 +19,7 @@ pub(crate) async fn resolve_daemon_execution_target(
     payload: &Value,
 ) -> Result<ExecutionTarget, Error> {
     let requested = match payload.get("execute_on") {
-        None => ExecutionTarget::Daemon,
+        None | Some(Value::Null) => ExecutionTarget::Daemon,
         Some(Value::String(target)) => target
             .parse()
             .map_err(|error: String| Error::new(FailureCode::InvalidInput, error))?,
@@ -292,26 +292,31 @@ pub(crate) async fn execute(
         }
         KernelOperation::ResourcesList => {
             let instance_id = instance_id(&payload)?;
+            resolve_daemon_execution_target(store, instance_id, &payload).await?;
             let resources = store.list_resources(instance_id).await?;
             Ok(json!({"resources": resources, "total": resources.len()}))
         }
         KernelOperation::ResourcesTemplates => {
             let instance_id = instance_id(&payload)?;
+            resolve_daemon_execution_target(store, instance_id, &payload).await?;
             let templates = store.list_resource_templates(instance_id).await?;
             Ok(json!({"templates": templates, "total": templates.len()}))
         }
         KernelOperation::ResourcesRead => {
             let instance_id = instance_id(&payload)?;
+            resolve_daemon_execution_target(store, instance_id, &payload).await?;
             let uri = required_str(&payload, "uri")?;
             Ok(json!({"resource": store.read_resource(instance_id, &uri).await?}))
         }
         KernelOperation::PromptsList => {
             let instance_id = instance_id(&payload)?;
+            resolve_daemon_execution_target(store, instance_id, &payload).await?;
             let prompts = store.list_prompts(instance_id).await?;
             Ok(json!({"prompts": prompts, "total": prompts.len()}))
         }
         KernelOperation::PromptGet => {
             let instance_id = instance_id(&payload)?;
+            resolve_daemon_execution_target(store, instance_id, &payload).await?;
             let prompt_name = required_str(&payload, "prompt_name")?;
             let arguments = payload
                 .get("arguments")
@@ -324,6 +329,7 @@ pub(crate) async fn execute(
         }
         KernelOperation::CompleteArgument => {
             let instance_id = instance_id(&payload)?;
+            resolve_daemon_execution_target(store, instance_id, &payload).await?;
             let request = payload_field::<McpCompletionRequest>(&payload, "request")?;
             let completion = store.complete_mcp_argument(instance_id, request).await?;
             Ok(json!({"completion": completion}))
