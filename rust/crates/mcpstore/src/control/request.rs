@@ -5,7 +5,7 @@ use crate::{Error, FailureCode, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "snake_case")]
-pub(in crate::control) enum ControlRequestStatus {
+pub enum ControlRequestStatus {
     Queued,
     Executing { started_at: i64 },
     Applied { applied_at: i64 },
@@ -14,7 +14,7 @@ pub(in crate::control) enum ControlRequestStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(in crate::control) struct ControlRequest {
+pub struct ControlRequest {
     pub id: String,
     #[serde(rename = "type")]
     pub request_type: String,

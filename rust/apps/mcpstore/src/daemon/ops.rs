@@ -73,6 +73,14 @@ fn target_not_allowed(
 
 /// 执行一个业务 op。请求/响应 op 全部经此；流式 op（StreamToolExecution/
 /// SubscribeEvents）与管理 op 不在此列。
+fn mutation_status(store: &MCPStore) -> &'static str {
+    if store.is_control_mutation_queued() {
+        "queued"
+    } else {
+        "applied"
+    }
+}
+
 pub(crate) async fn execute(
     store: &MCPStore,
     operation: KernelOperation,
@@ -154,7 +162,10 @@ pub(crate) async fn execute(
         }
         KernelOperation::ConnectService => {
             let instance_id = instance_id(&payload)?;
-            store.connect_service(instance_id).await?;
+            let request_id = store.connect_service(instance_id).await?;
+            if store.is_control_mutation_queued() {
+                return Ok(json!({"request_id": request_id, "status": "queued"}));
+            }
             let tools = store
                 .list_tool_entries_for_instance_with_filter(
                     instance_id,
@@ -175,13 +186,17 @@ pub(crate) async fn execute(
         }
         KernelOperation::DisconnectService => {
             let instance_id = instance_id(&payload)?;
-            store.disconnect_service(instance_id).await?;
-            Ok(json!({"instance_id": instance_id}))
+            let request_id = store.disconnect_service(instance_id).await?;
+            Ok(
+                json!({"instance_id": instance_id, "request_id": request_id, "status": mutation_status(store)}),
+            )
         }
         KernelOperation::RestartService => {
             let instance_id = instance_id(&payload)?;
-            store.restart_service(instance_id).await?;
-            Ok(json!({"instance_id": instance_id}))
+            let request_id = store.restart_service(instance_id).await?;
+            Ok(
+                json!({"instance_id": instance_id, "request_id": request_id, "status": mutation_status(store)}),
+            )
         }
         KernelOperation::CheckService => {
             let instance_id = instance_id(&payload)?;
@@ -202,29 +217,38 @@ pub(crate) async fn execute(
             let config = payload_field::<ServerConfig>(&payload, "config")?;
             let execution_policy =
                 payload_field::<Option<ExecutionPolicy>>(&payload, "execution_policy")?;
-            store
+            let request_id = store
                 .update_service(&name, config, execution_policy)
                 .await?;
-            Ok(json!({"service_name": name}))
+            Ok(
+                json!({"service_name": name, "request_id": request_id, "status": mutation_status(store)}),
+            )
         }
         KernelOperation::DeclareServiceScope => {
             let service_name = required_str(&payload, "service_name")?;
             let scope = payload_field::<ScopeRef>(&payload, "scope")?;
             let descriptor = payload_field::<ScopeDescriptor>(&payload, "descriptor")?;
-            let instance_id = store
+            let request_id = store
                 .declare_service_scope(&service_name, &scope, descriptor)
                 .await?;
+            let instance_id =
+                mcpstore::ServiceInstanceKey::new(service_name.clone(), scope.clone())
+                    .instance_id();
             Ok(json!({
                 "instance_id": instance_id,
                 "service_name": service_name,
                 "scope": scope,
+                "request_id": request_id,
+                "status": mutation_status(store),
             }))
         }
         KernelOperation::RemoveServiceScope => {
             let service_name = required_str(&payload, "service_name")?;
             let scope = payload_field::<ScopeRef>(&payload, "scope")?;
-            store.remove_service_scope(&service_name, &scope).await?;
-            Ok(json!({"service_name": service_name, "scope": scope}))
+            let request_id = store.remove_service_scope(&service_name, &scope).await?;
+            Ok(
+                json!({"service_name": service_name, "scope": scope, "request_id": request_id, "status": mutation_status(store)}),
+            )
         }
         KernelOperation::ListAgents => {
             let agents = store.list_agents().await?;
@@ -232,8 +256,8 @@ pub(crate) async fn execute(
         }
         KernelOperation::ShowConfig => store.show_config().await,
         KernelOperation::ResetConfig => {
-            store.reset_config().await?;
-            Ok(json!({"status": "ok"}))
+            let request_id = store.reset_config().await?;
+            Ok(json!({"request_id": request_id, "status": mutation_status(store)}))
         }
         KernelOperation::AuthStatus => {
             let instance_id = instance_id(&payload)?;
@@ -391,6 +415,16 @@ pub(crate) async fn execute(
         }
         KernelOperation::EventCapabilityReport => Ok(store.event_capability_report().await),
         KernelOperation::CacheHealth => store.cache_health_check().await,
+        KernelOperation::ControlRequestGet => {
+            let request_id = required_str(&payload, "request_id")?;
+            let request = store.control_request(&request_id).await?;
+            Ok(serde_json::to_value(request)
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?)
+        }
+        KernelOperation::ControlRequestList => {
+            let requests = store.control_requests().await?;
+            Ok(json!({"requests": requests, "total": requests.len()}))
+        }
         KernelOperation::HealthCheck => {
             let instance_id = instance_id(&payload)?;
             Ok(json!({"state": store.health_check(instance_id).await?}))
@@ -497,12 +531,13 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
         });
     }
     let definition_exists = store.get_definition_config(&name).await?.is_some();
+    let request_id;
     if definition_exists {
         let lifecycle = config
             .mcpstore
             .as_ref()
             .and_then(|extension| extension.lifecycle.clone());
-        store
+        request_id = store
             .declare_service_scope(
                 &name,
                 &scope,
@@ -513,15 +548,18 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
                     ..Default::default()
                 },
             )
-            .await?;
+            .await?
+            .to_string();
     } else {
-        store.add_service(&name, config).await?;
+        request_id = store.add_service(&name, config).await?;
     }
     let instance_id = mcpstore::ServiceInstanceKey::new(name.clone(), scope.clone()).instance_id();
     Ok(json!({
         "service_name": name,
         "scope": scope,
         "instance_id": instance_id,
+        "request_id": request_id,
+        "status": mutation_status(store),
     }))
 }
 

@@ -17,6 +17,7 @@ pub(crate) use crate::transport::{
 pub(crate) use crate::error::{Error, ErrorContext, FailureCode, Result};
 
 mod control_facade;
+mod control_requests;
 mod kernel;
 mod openapi;
 mod options;
@@ -43,7 +44,7 @@ pub use options::{NodeMode, SourceMode, StoreOptions};
 pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
-pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
+pub const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
 
 pub(crate) mod prelude {
     pub(crate) use crate::config_formats::{project_config, ConfigFormat};

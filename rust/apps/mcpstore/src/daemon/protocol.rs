@@ -128,6 +128,8 @@ pub enum KernelOperation {
     ListScopeResources,
     ListScopeResourceTemplates,
     ListScopePrompts,
+    ControlRequestGet,
+    ControlRequestList,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
