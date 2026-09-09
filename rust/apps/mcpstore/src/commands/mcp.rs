@@ -40,6 +40,21 @@ pub(crate) async fn open_store(
         })
 }
 
+pub(crate) fn mutation_receipt(result: &Value) -> (&str, &str) {
+    let status = result["status"].as_str().unwrap_or("applied");
+    let request_id = result["request_id"].as_str().unwrap_or("");
+    (status, request_id)
+}
+
+pub(crate) fn print_mutation(message: &str, result: &Value) {
+    let (status, request_id) = mutation_receipt(result);
+    if status == "queued" {
+        println!("[Queued] {message} request_id={request_id}");
+    } else {
+        println!("[Success] {message}");
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum HandshakeArg {
     Auto,
@@ -217,15 +232,15 @@ pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> 
     }
 
     let mut access = open_store(&a.store, embedded).await?;
-    access
+    let result = access
         .request(
             KernelOperation::AddService,
             json!({"name": a.name, "config": config, "scope": scope}),
         )
         .await?;
-    println!(
-        "[Success] Service added: {} (transport={})",
-        a.name, transport
+    print_mutation(
+        &format!("Service added: {} (transport={})", a.name, transport),
+        &result,
     );
     Ok(())
 }
@@ -277,15 +292,15 @@ pub async fn add_json(a: AddJsonArgs, embedded: bool) -> std::result::Result<(),
         });
     }
     let mut access = open_store(&a.store, embedded).await?;
-    access
+    let result = access
         .request(
             KernelOperation::AddService,
             json!({"name": a.name, "config": config, "scope": scope}),
         )
         .await?;
-    println!(
-        "[Success] Service added: {} (transport={})",
-        a.name, transport
+    print_mutation(
+        &format!("Service added: {} (transport={})", a.name, transport),
+        &result,
     );
     Ok(())
 }
@@ -420,13 +435,13 @@ pub struct RemoveArgs {
 pub async fn remove(a: RemoveArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     let mut access = open_store(&a.store, embedded).await?;
-    access
+    let result = access
         .request(
             KernelOperation::RemoveServiceScope,
             json!({"service_name": a.name, "scope": scope}),
         )
         .await?;
-    println!("[Success] Service scope removed: {}", a.name);
+    print_mutation(&format!("Service scope removed: {}", a.name), &result);
     Ok(())
 }
 
@@ -459,6 +474,26 @@ pub async fn connect(a: ConnectArgs, embedded: bool) -> std::result::Result<(), 
             json!({"instance_id": instance_id.to_string()}),
         )
         .await?;
+    let (status, request_id) = mutation_receipt(&result);
+    if status == "queued" {
+        if a.output == OutputFormat::Human {
+            println!(
+                "[Queued] Connected: {} request_id={request_id}",
+                instance_id
+            );
+        } else {
+            emit_call_value(
+                a.output,
+                json!({
+                    "event": "service.connect_queued",
+                    "instance_id": instance_id.to_string(),
+                    "request_id": request_id,
+                    "status": status,
+                }),
+            )?;
+        }
+        return Ok(());
+    }
     let tools = result["tools"].as_array().cloned().unwrap_or_default();
     let tools_count = result["tools_count"]
         .as_u64()
@@ -484,6 +519,7 @@ pub async fn connect(a: ConnectArgs, embedded: bool) -> std::result::Result<(), 
                 json!({
                     "event": "service.connected",
                     "instance_id": instance_id.to_string(),
+                    "request_id": request_id,
                     "tools_count": tools_count,
                     "capabilities": capabilities,
                 }),
@@ -761,7 +797,7 @@ pub async fn update(a: UpdateArgs, embedded: bool) -> std::result::Result<(), Bo
         return Err("Execution policy is definition-level; use --scope store".into());
     }
     let mut access = open_store(&a.store, embedded).await?;
-    match a.scope.to_ref(a.agent.as_deref())? {
+    let receipt = match a.scope.to_ref(a.agent.as_deref())? {
         ScopeRef::Store => {
             access
                 .request(
@@ -772,7 +808,7 @@ pub async fn update(a: UpdateArgs, embedded: bool) -> std::result::Result<(), Bo
                         "execution_policy": execution_policy,
                     }),
                 )
-                .await?;
+                .await?
         }
         scope @ ScopeRef::Agent { .. } => {
             access
@@ -789,10 +825,10 @@ pub async fn update(a: UpdateArgs, embedded: bool) -> std::result::Result<(), Bo
                         },
                     }),
                 )
-                .await?;
+                .await?
         }
-    }
-    println!("[Success] Service updated: {}", a.name);
+    };
+    print_mutation(&format!("Service updated: {}", a.name), &receipt);
     Ok(())
 }
 
@@ -821,12 +857,6 @@ pub async fn tools(a: ToolsArgs, embedded: bool) -> std::result::Result<(), BoxE
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     let mut access = open_store(&a.store, embedded).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target).await?;
-    access
-        .request(
-            KernelOperation::ConnectService,
-            json!({"instance_id": instance_id.to_string()}),
-        )
-        .await?;
     let result = access
         .request(
             KernelOperation::ListTools,
@@ -1684,7 +1714,7 @@ fn tool_error_message(result: &ToolCallResult) -> String {
         .unwrap_or_else(|| "tool returned an error result".to_string())
 }
 
-fn emit_call_value(output: OutputFormat, value: Value) -> mcpstore::Result<()> {
+pub(crate) fn emit_call_value(output: OutputFormat, value: Value) -> mcpstore::Result<()> {
     let encoded = match output {
         OutputFormat::Human => Ok(value.to_string()),
         OutputFormat::Json => serde_json::to_string_pretty(&value),
@@ -1746,7 +1776,7 @@ pub async fn assign(a: AssignArgs, embedded: bool) -> std::result::Result<(), Bo
         agent_id: a.agent.clone(),
     };
     let mut access = open_store(&a.store, embedded).await?;
-    access
+    let result = access
         .request(
             KernelOperation::DeclareServiceScope,
             json!({
@@ -1756,9 +1786,12 @@ pub async fn assign(a: AssignArgs, embedded: bool) -> std::result::Result<(), Bo
             }),
         )
         .await?;
-    println!(
-        "[Success] Service authorized to Agent: agent={} service={}",
-        a.agent, a.service_name
+    print_mutation(
+        &format!(
+            "Service authorized to Agent: agent={} service={}",
+            a.agent, a.service_name
+        ),
+        &result,
     );
     Ok(())
 }
@@ -1768,15 +1801,18 @@ pub async fn unassign(a: UnassignArgs, embedded: bool) -> std::result::Result<()
         agent_id: a.agent.clone(),
     };
     let mut access = open_store(&a.store, embedded).await?;
-    access
+    let result = access
         .request(
             KernelOperation::RemoveServiceScope,
             json!({"service_name": a.service_name, "scope": scope}),
         )
         .await?;
-    println!(
-        "[Success] Removed Agent service authorization: agent={} service={}",
-        a.agent, a.service_name
+    print_mutation(
+        &format!(
+            "Removed Agent service authorization: agent={} service={}",
+            a.agent, a.service_name
+        ),
+        &result,
     );
     Ok(())
 }
@@ -2042,6 +2078,7 @@ mod tests {
                 store: None,
                 store_config: None,
                 namespace: None,
+                node_mode: None,
             },
             env: Vec::new(),
             header: Vec::new(),
@@ -2064,6 +2101,7 @@ mod tests {
                 store: None,
                 store_config: None,
                 namespace: None,
+                node_mode: None,
             },
             env: Vec::new(),
             header: Vec::new(),
@@ -2085,6 +2123,7 @@ mod tests {
                 store: None,
                 store_config: None,
                 namespace: None,
+                node_mode: None,
             },
             env: Vec::new(),
             header: Vec::new(),
@@ -2127,6 +2166,7 @@ mod tests {
                 store: None,
                 store_config: None,
                 namespace: None,
+                node_mode: None,
             },
             env: Vec::new(),
             header: Vec::new(),
@@ -2155,6 +2195,7 @@ mod tests {
                 store: None,
                 store_config: None,
                 namespace: None,
+                node_mode: None,
             },
             env: Vec::new(),
             header: Vec::new(),

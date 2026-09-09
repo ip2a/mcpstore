@@ -172,6 +172,7 @@ impl McpServerOptions {
             store: self.store.as_ref().map(|store| store.store.clone()),
             store_config: self.store.as_ref().map(|store| store.config.to_string()),
             namespace: self.namespace.clone(),
+            node_mode: None,
         }
     }
 }

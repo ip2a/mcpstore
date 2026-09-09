@@ -204,6 +204,7 @@ mod tests {
                 store: None,
                 store_config: None,
                 namespace: None,
+                node_mode: None,
             },
             scope: Scope::Store,
             agent: None,

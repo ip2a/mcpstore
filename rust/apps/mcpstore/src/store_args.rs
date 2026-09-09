@@ -10,6 +10,21 @@ pub enum SourceArg {
     Db,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum NodeModeArg {
+    Control,
+    Data,
+}
+
+impl NodeModeArg {
+    fn to_node_mode(self) -> mcpstore::NodeMode {
+        match self {
+            Self::Control => mcpstore::NodeMode::ControlPlane,
+            Self::Data => mcpstore::NodeMode::DataPlane,
+        }
+    }
+}
+
 impl SourceArg {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -39,6 +54,12 @@ pub struct StoreSourceArgs {
     pub store_config: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Node mode: control executes mutations, data queues them"
+    )]
+    pub node_mode: Option<NodeModeArg>,
 }
 
 impl StoreSourceArgs {
@@ -61,7 +82,10 @@ impl StoreSourceArgs {
                 SourceArg::Local => SourceMode::Local,
                 SourceArg::Db => SourceMode::Db,
             },
-            node_mode: mcpstore::NodeMode::ControlPlane,
+            node_mode: self
+                .node_mode
+                .map(|m| m.to_node_mode())
+                .unwrap_or(mcpstore::NodeMode::ControlPlane),
             store,
             namespace: self.namespace.clone(),
         }
@@ -125,6 +149,7 @@ impl StoreSourceArgs {
             || self.store_config.is_some()
             || self.namespace.is_some()
             || self.source != SourceArg::Local
+            || self.node_mode == Some(NodeModeArg::Data)
     }
 }
 
