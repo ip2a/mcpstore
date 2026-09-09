@@ -49,7 +49,14 @@ impl LazyRedisStore {
                         openkeyv::migrate_into_keyspace(&store, &Subspace::new(keyspace), &options)
                             .await?;
                         store
-                            .put(MARKER_KEY, Value::integer(1), Some(MARKER_COLLECTION), None)
+                            .put(
+                                MARKER_KEY,
+                                Value::from_structured(&openkeyv::StructuredValue::from_json(
+                                    &serde_json::json!({ "version": 1 }),
+                                )?)?,
+                                Some(MARKER_COLLECTION),
+                                None,
+                            )
                             .await?;
                     }
                 }
