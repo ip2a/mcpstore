@@ -30,6 +30,7 @@ struct DaemonHost {
 /// Start the KernelHost: create one StoreKernel and accept typed IPC requests.
 pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
     let store = load_kernel(&args).await?.store().clone();
+    crate::daemon::ensure::persist_start_args(&args)?;
     crate::daemon::protocol::cleanup_stale_files();
 
     let pid_path = default_pid_path();

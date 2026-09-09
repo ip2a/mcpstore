@@ -1,16 +1,17 @@
 use clap::{Args, ValueEnum};
 use mcpstore::{JsonStoreConfig, SourceMode, StoreOptions};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::BoxErr;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
 pub enum SourceArg {
     Local,
     Db,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
 pub enum NodeModeArg {
     Control,
     Data,
@@ -34,7 +35,7 @@ impl SourceArg {
     }
 }
 
-#[derive(Clone, Debug, Args)]
+#[derive(Clone, Debug, Args, Serialize, Deserialize)]
 pub struct StoreSourceArgs {
     #[arg(long, help = "Config file path")]
     pub config_path: Option<String>,
