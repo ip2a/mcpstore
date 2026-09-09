@@ -149,7 +149,7 @@ async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error
     if !crate::daemon::protocol::is_daemon_running() {
         return Err("daemon 未运行；修改需经 daemon 热应用。先运行 mcpstore start".into());
     }
-    let mut client = crate::daemon::client::connect_admin().await?;
+    let mut client = crate::daemon::client::connect_admin(None).await?;
     for (key, value) in edits.pairs() {
         client.set_daemon_config(key, value).await?;
         println!("[Success] {key} hot-applied and written to config.toml");
@@ -159,7 +159,7 @@ async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error
 
 /// 裸 `mcpstore config`：daemon 运行面总览。
 async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
-    if let Ok(mut client) = crate::daemon::client::connect_admin().await {
+    if let Ok(mut client) = crate::daemon::client::connect_admin(None).await {
         let status = client.status_host().await?;
         if json {
             println!("{status}");

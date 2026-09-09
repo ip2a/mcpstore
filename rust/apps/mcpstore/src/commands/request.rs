@@ -49,19 +49,24 @@ pub struct RequestWaitArgs {
     pub timeout: u64,
 }
 
-pub async fn run(args: RequestArgs, embedded: bool) -> Result<(), BoxErr> {
+pub async fn run(
+    args: RequestArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     match args.action {
-        RequestAction::List(args) => list(args, embedded).await,
-        RequestAction::Get(args) => get(args, embedded).await,
-        RequestAction::Wait(args) => wait(args, embedded).await,
+        RequestAction::List(args) => list(args, embedded, endpoint.clone()).await,
+        RequestAction::Get(args) => get(args, embedded, endpoint.clone()).await,
+        RequestAction::Wait(args) => wait(args, embedded, endpoint.clone()).await,
     }
 }
 
 async fn get_request(
     args: &RequestTargetArgs,
     embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
 ) -> mcpstore::Result<serde_json::Value> {
-    let mut access = open_store(&args.store, embedded).await?;
+    let mut access = open_store(&args.store, embedded, endpoint.clone()).await?;
     access
         .request(
             KernelOperation::ControlRequestGet,
@@ -70,8 +75,12 @@ async fn get_request(
         .await
 }
 
-async fn list(args: RequestListArgs, embedded: bool) -> Result<(), BoxErr> {
-    let mut access = open_store(&args.store, embedded).await?;
+async fn list(
+    args: RequestListArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
+    let mut access = open_store(&args.store, embedded, endpoint.clone()).await?;
     let result = access
         .request(KernelOperation::ControlRequestList, json!({}))
         .await?;
@@ -92,8 +101,12 @@ async fn list(args: RequestListArgs, embedded: bool) -> Result<(), BoxErr> {
     Ok(())
 }
 
-async fn get(args: RequestTargetArgs, embedded: bool) -> Result<(), BoxErr> {
-    let request = get_request(&args, embedded).await?;
+async fn get(
+    args: RequestTargetArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
+    let request = get_request(&args, embedded, endpoint.clone()).await?;
     match args.output {
         OutputFormat::Human => {
             println!(
@@ -108,7 +121,11 @@ async fn get(args: RequestTargetArgs, embedded: bool) -> Result<(), BoxErr> {
     Ok(())
 }
 
-async fn wait(args: RequestWaitArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn wait(
+    args: RequestWaitArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let deadline = Instant::now() + Duration::from_secs(args.timeout);
     loop {
         let request = get_request(
@@ -118,6 +135,7 @@ async fn wait(args: RequestWaitArgs, embedded: bool) -> Result<(), BoxErr> {
                 output: args.output,
             },
             embedded,
+            endpoint.clone(),
         )
         .await?;
         if matches!(
@@ -131,6 +149,7 @@ async fn wait(args: RequestWaitArgs, embedded: bool) -> Result<(), BoxErr> {
                     output: args.output,
                 },
                 embedded,
+                endpoint.clone(),
             )
             .await;
         }

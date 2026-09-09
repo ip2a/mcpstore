@@ -36,7 +36,7 @@ pub fn run(
     locale_override: Option<Locale>,
 ) -> Result<(), BoxErr> {
     let rt = bootstrap::build_runtime()?;
-    let mut access = rt.block_on(open_store_access(args, embedded))?;
+    let mut access = rt.block_on(open_store_access(args, embedded, None))?;
 
     // 引导信息一次取齐（embedded 也走同一 op 分发）
     let info = rt

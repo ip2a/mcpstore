@@ -3770,6 +3770,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "subtle",
  "tabled",
  "tokio",
  "toml",

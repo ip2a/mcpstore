@@ -73,6 +73,40 @@ async fn handshake_rejects_wrong_namespace() -> TestResult<()> {
 }
 
 #[tokio::test]
+async fn remote_daemon_endpoint_requires_token() -> TestResult<()> {
+    let _guard = HOST_TEST_LOCK.lock().unwrap();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let port = 18000 + (nanos % 2000) as u16;
+    let fixture = HostFixture::start_remote(port, "secret").await?;
+    let ok = run_cli(&[
+        "list".into(),
+        "--output".into(),
+        "json".into(),
+        "--daemon-endpoint".into(),
+        format!("127.0.0.1:{port}"),
+        "--daemon-namespace".into(),
+        "mcpstore".into(),
+        "--daemon-token".into(),
+        "secret".into(),
+    ])?;
+    assert!(ok.status.success(), "remote list failed: {ok:?}");
+    let bad = run_cli(&[
+        "list".into(),
+        "--daemon-endpoint".into(),
+        format!("127.0.0.1:{port}"),
+        "--daemon-namespace".into(),
+        "mcpstore".into(),
+        "--daemon-token".into(),
+        "wrong".into(),
+    ])?;
+    assert!(!bad.status.success(), "wrong token was accepted: {bad:?}");
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("connection_auth"));
+    fixture.stop().await
+}
+
+#[tokio::test]
 async fn request_round_trip_and_deadline_error() -> TestResult<()> {
     let _guard = HOST_TEST_LOCK.lock().unwrap();
     let mut fixture = HostFixture::start().await?;
@@ -563,6 +597,34 @@ struct RedisHostSource {
 impl HostFixture {
     async fn start() -> TestResult<Self> {
         Self::start_local("test").await
+    }
+
+    async fn start_remote(port: u16, token: &str) -> TestResult<Self> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("mcpstore-kernel-host-{nanos}"));
+        std::fs::create_dir_all(&dir)?;
+        let socket = dir.join("kernel.sock");
+        let pid = dir.join("kernel.pid");
+        let config_path = dir.join("config.json");
+        std::fs::write(&config_path, b"{}")?;
+        std::fs::write(
+            dir.join("config.toml"),
+            format!("[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\nkernel_port = {port}\nkernel_token = \"{token}\"\n"),
+        )?;
+        let child = tokio::process::Command::new(repo_root().join("target/debug/mcpstore"))
+            .args(["start", "--source", "local", "--config-path"])
+            .arg(&config_path)
+            .arg("--namespace")
+            .arg("mcpstore")
+            .env("MCPSTORE_SOCKET", &socket)
+            .env("MCPSTORE_PID", &pid)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        Self::wait_for_socket(child, socket, dir).await
     }
 
     async fn start_redis(source: RedisHostSource) -> TestResult<Self> {

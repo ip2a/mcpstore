@@ -14,8 +14,27 @@ pub struct Cli {
     /// 本进程内嵌 kernel 冷启动，不连也不拉 daemon
     #[arg(long, global = true)]
     pub embedded: bool,
+    /// Remote daemon Kernel RPC endpoint, e.g. 10.0.0.2:1840
+    #[arg(long, global = true)]
+    pub daemon_endpoint: Option<String>,
+    /// Namespace on --daemon-endpoint
+    #[arg(long, global = true)]
+    pub daemon_namespace: Option<String>,
+    /// Shared token for --daemon-endpoint
+    #[arg(long, global = true)]
+    pub daemon_token: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
+}
+
+impl Cli {
+    fn daemon_endpoint(&self) -> Option<crate::daemon::client::DaemonEndpoint> {
+        crate::daemon::client::DaemonEndpoint::from_args(
+            self.daemon_endpoint.clone(),
+            self.daemon_namespace.clone(),
+            self.daemon_token.clone(),
+        )
+    }
 }
 
 #[derive(Subcommand)]
@@ -93,9 +112,11 @@ pub fn run() -> Result<(), BoxErr> {
         bootstrap::init_tracing_from_config(app_config.as_ref());
     }
 
+    let endpoint = cli.daemon_endpoint();
+    let embedded = cli.embedded;
     let rt = bootstrap::build_runtime()?;
 
-    let result = rt.block_on(async {
+    let result = rt.block_on(async move {
         match cli.command {
             Commands::Version => {
                 print_banner();
@@ -106,33 +127,55 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Status { json } => commands::daemon_cmd::status(json).await,
             Commands::Daemon { action } => commands::daemon_cmd::run_daemon(action).await,
             Commands::Api { json } => commands::daemon_cmd::face_view("core", json).await,
-            Commands::Auth(args) => commands::auth::run(args, cli.embedded).await,
+            Commands::Auth(args) => commands::auth::run(args, embedded, endpoint.clone()).await,
             Commands::Config {
                 action,
                 edits,
                 json,
             } => commands::config::run(action, edits, json).await,
-            Commands::Add(args) => commands::mcp::add(args, cli.embedded).await,
-            Commands::AddJson(args) => commands::mcp::add_json(args, cli.embedded).await,
-            Commands::Assign(args) => commands::mcp::assign(args, cli.embedded).await,
-            Commands::Unassign(args) => commands::mcp::unassign(args, cli.embedded).await,
-            Commands::List(args) => commands::mcp::list(args, cli.embedded).await,
-            Commands::Get(args) => commands::mcp::get(args, cli.embedded).await,
-            Commands::Remove(args) => commands::mcp::remove(args, cli.embedded).await,
-            Commands::Connect(args) => commands::mcp::connect(args, cli.embedded).await,
-            Commands::Disconnect(args) => commands::mcp::disconnect(args, cli.embedded).await,
-            Commands::Restart(args) => commands::mcp::restart(args, cli.embedded).await,
-            Commands::Check(args) => commands::mcp::check(args, cli.embedded).await,
-            Commands::Wait(args) => commands::mcp::wait(args, cli.embedded).await,
-            Commands::Update(args) => commands::mcp::update(args, cli.embedded).await,
-            Commands::Tools(args) => commands::mcp::tools(args, cli.embedded).await,
-            Commands::Call(args) => commands::mcp::call_tool(args, cli.embedded).await,
-            Commands::Task(args) => commands::task::run(args, cli.embedded).await,
-            Commands::Resource(args) => commands::protocol::run_resource(args, cli.embedded).await,
-            Commands::Prompt(args) => commands::protocol::run_prompt(args, cli.embedded).await,
-            Commands::Complete(args) => commands::protocol::complete(args, cli.embedded).await,
-            Commands::Request(args) => commands::request::run(args, cli.embedded).await,
-            Commands::MigrateStore(args) => commands::mcp::migrate_store(args, cli.embedded).await,
+            Commands::Add(args) => commands::mcp::add(args, embedded, endpoint.clone()).await,
+            Commands::AddJson(args) => {
+                commands::mcp::add_json(args, embedded, endpoint.clone()).await
+            }
+            Commands::Assign(args) => commands::mcp::assign(args, embedded, endpoint.clone()).await,
+            Commands::Unassign(args) => {
+                commands::mcp::unassign(args, embedded, endpoint.clone()).await
+            }
+            Commands::List(args) => commands::mcp::list(args, embedded, endpoint.clone()).await,
+            Commands::Get(args) => commands::mcp::get(args, embedded, endpoint.clone()).await,
+            Commands::Remove(args) => commands::mcp::remove(args, embedded, endpoint.clone()).await,
+            Commands::Connect(args) => {
+                commands::mcp::connect(args, embedded, endpoint.clone()).await
+            }
+            Commands::Disconnect(args) => {
+                commands::mcp::disconnect(args, embedded, endpoint.clone()).await
+            }
+            Commands::Restart(args) => {
+                commands::mcp::restart(args, embedded, endpoint.clone()).await
+            }
+            Commands::Check(args) => commands::mcp::check(args, embedded, endpoint.clone()).await,
+            Commands::Wait(args) => commands::mcp::wait(args, embedded, endpoint.clone()).await,
+            Commands::Update(args) => commands::mcp::update(args, embedded, endpoint.clone()).await,
+            Commands::Tools(args) => commands::mcp::tools(args, embedded, endpoint.clone()).await,
+            Commands::Call(args) => {
+                commands::mcp::call_tool(args, embedded, endpoint.clone()).await
+            }
+            Commands::Task(args) => commands::task::run(args, embedded, endpoint.clone()).await,
+            Commands::Resource(args) => {
+                commands::protocol::run_resource(args, embedded, endpoint.clone()).await
+            }
+            Commands::Prompt(args) => {
+                commands::protocol::run_prompt(args, embedded, endpoint.clone()).await
+            }
+            Commands::Complete(args) => {
+                commands::protocol::complete(args, embedded, endpoint.clone()).await
+            }
+            Commands::Request(args) => {
+                commands::request::run(args, embedded, endpoint.clone()).await
+            }
+            Commands::MigrateStore(args) => {
+                commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
+            }
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
             Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),

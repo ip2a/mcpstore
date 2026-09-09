@@ -1,18 +1,108 @@
+use std::pin::Pin;
+
 use mcpstore::error::{Error, FailureCode};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpStream;
 
-#[cfg(unix)]
-pub type HostStream = tokio::net::UnixStream;
-#[cfg(unix)]
-pub type HostStreamReadHalf = tokio::net::unix::OwnedReadHalf;
-#[cfg(unix)]
-pub type HostStreamWriteHalf = tokio::net::unix::OwnedWriteHalf;
-#[cfg(not(unix))]
-pub type HostStream = tokio::net::TcpStream;
-#[cfg(not(unix))]
-pub type HostStreamReadHalf = tokio::net::tcp::OwnedReadHalf;
-#[cfg(not(unix))]
-pub type HostStreamWriteHalf = tokio::net::tcp::OwnedWriteHalf;
+/// Kernel RPC stream: local Unix socket or authenticated TCP.
+pub enum HostStreamInner {
+    Unix(tokio::net::UnixStream),
+    Tcp(tokio::net::TcpStream),
+}
+
+#[derive(Debug)]
+pub enum HostStreamOwnedRead {
+    Unix(tokio::net::unix::OwnedReadHalf),
+    Tcp(tokio::net::tcp::OwnedReadHalf),
+}
+
+#[derive(Debug)]
+pub enum HostStreamOwnedWrite {
+    Unix(tokio::net::unix::OwnedWriteHalf),
+    Tcp(tokio::net::tcp::OwnedWriteHalf),
+}
+
+impl HostStreamInner {
+    pub fn into_split(self) -> (HostStreamOwnedRead, HostStreamOwnedWrite) {
+        match self {
+            Self::Unix(stream) => {
+                let (read, write) = stream.into_split();
+                (
+                    HostStreamOwnedRead::Unix(read),
+                    HostStreamOwnedWrite::Unix(write),
+                )
+            }
+            Self::Tcp(stream) => {
+                let (read, write) = stream.into_split();
+                (
+                    HostStreamOwnedRead::Tcp(read),
+                    HostStreamOwnedWrite::Tcp(write),
+                )
+            }
+        }
+    }
+}
+
+impl From<tokio::net::UnixStream> for HostStreamInner {
+    fn from(value: tokio::net::UnixStream) -> Self {
+        Self::Unix(value)
+    }
+}
+
+impl From<tokio::net::TcpStream> for HostStreamInner {
+    fn from(value: tokio::net::TcpStream) -> Self {
+        Self::Tcp(value)
+    }
+}
+
+impl tokio::io::AsyncRead for HostStreamOwnedRead {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
+            Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
+        }
+    }
+}
+
+impl tokio::io::AsyncWrite for HostStreamOwnedWrite {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match &mut *self {
+            Self::Unix(stream) => Pin::new(stream).poll_write(cx, buf),
+            Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
+            Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
+        }
+    }
+}
+pub type HostStream = HostStreamInner;
+pub type HostStreamReadHalf = HostStreamOwnedRead;
+pub type HostStreamWriteHalf = HostStreamOwnedWrite;
 
 #[cfg(unix)]
 pub enum HostListener {
@@ -48,6 +138,7 @@ pub async fn connect_endpoint() -> Result<HostStream, Error> {
                     ),
                 )
             })
+            .map(Into::into)
     }
     #[cfg(not(unix))]
     {
@@ -61,6 +152,18 @@ pub async fn connect_endpoint() -> Result<HostStream, Error> {
                 )
             })
     }
+}
+
+pub async fn connect_tcp_endpoint(address: &str) -> Result<HostStream, Error> {
+    TcpStream::connect(address)
+        .await
+        .map_err(|error| {
+            Error::new(
+                FailureCode::ConnectionRefused,
+                format!("failed to connect to KernelHost {address}: {error}"),
+            )
+        })
+        .map(Into::into)
 }
 
 impl HostListener {
@@ -118,7 +221,7 @@ impl HostListener {
         match self {
             #[cfg(unix)]
             Self::Unix(listener) => match listener.accept().await {
-                Ok((stream, _)) => Ok(stream),
+                Ok((stream, _)) => Ok(stream.into()),
                 Err(error) => Err(Error::new(
                     FailureCode::ServiceUnavailable,
                     format!("KernelHost accept failed: {error}"),
@@ -126,7 +229,7 @@ impl HostListener {
             },
             #[cfg(not(unix))]
             Self::Loopback(listener) => match listener.accept().await {
-                Ok((stream, _)) => Ok(stream),
+                Ok((stream, _)) => Ok(stream.into()),
                 Err(error) => Err(Error::new(
                     FailureCode::ServiceUnavailable,
                     format!("KernelHost accept failed: {error}"),

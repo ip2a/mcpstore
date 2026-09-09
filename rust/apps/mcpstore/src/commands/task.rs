@@ -95,30 +95,46 @@ pub struct TaskTargetArgs {
     pub runtime: TaskRuntimeArgs,
 }
 
-pub async fn run(args: TaskArgs, embedded: bool) -> Result<(), BoxErr> {
-    execute(args.action, embedded)
+pub async fn run(
+    args: TaskArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
+    execute(args.action, embedded, endpoint.clone())
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-async fn execute(action: TaskAction, embedded: bool) -> mcpstore::Result<()> {
+async fn execute(
+    action: TaskAction,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     match action {
-        TaskAction::Run(args) => run_task(args, embedded).await,
-        TaskAction::List(args) => list_tasks(args, embedded).await,
-        TaskAction::Status(args) => show_status(args, embedded).await,
-        TaskAction::Result(args) => show_result(args, embedded).await,
-        TaskAction::Cancel(args) => cancel_task(args, embedded).await,
+        TaskAction::Run(args) => run_task(args, embedded, endpoint.clone()).await,
+        TaskAction::List(args) => list_tasks(args, embedded, endpoint.clone()).await,
+        TaskAction::Status(args) => show_status(args, embedded, endpoint.clone()).await,
+        TaskAction::Result(args) => show_result(args, embedded, endpoint.clone()).await,
+        TaskAction::Cancel(args) => cancel_task(args, embedded, endpoint.clone()).await,
     }
 }
 
-async fn loaded_access(runtime: &TaskRuntimeArgs, embedded: bool) -> mcpstore::Result<StoreAccess> {
-    open_store(&runtime.store, embedded).await
+async fn loaded_access(
+    runtime: &TaskRuntimeArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<StoreAccess> {
+    open_store(&runtime.store, embedded, endpoint.clone()).await
 }
 
-async fn run_task(args: TaskRunArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn run_task(
+    args: TaskRunArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let output = args.runtime.output;
     let input = parse_input(&args.input, output)?;
-    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
     let routed_target = args.execution.execute_on.resolve(embedded)?;
     let info = access
         .request(
@@ -499,9 +515,13 @@ fn emit_task_cancellation_requested(
     }
 }
 
-async fn list_tasks(args: TaskInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn list_tasks(
+    args: TaskInstanceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
     let result = access
         .request(
             KernelOperation::TaskList,
@@ -550,9 +570,13 @@ async fn list_tasks(args: TaskInstanceArgs, embedded: bool) -> mcpstore::Result<
     }
 }
 
-async fn show_status(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn show_status(
+    args: TaskTargetArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
     let record = require_task_record(&mut access, args.instance_id, &args.task_id, output).await?;
     emit(
         output,
@@ -561,9 +585,13 @@ async fn show_status(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<(
     )
 }
 
-async fn show_result(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn show_result(
+    args: TaskTargetArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
     let task_value = access
         .request(
             KernelOperation::TaskLive,
@@ -611,9 +639,13 @@ async fn show_result(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<(
     )
 }
 
-async fn cancel_task(args: TaskTargetArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn cancel_task(
+    args: TaskTargetArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let output = args.runtime.output;
-    let mut access = loaded_access(&args.runtime, embedded).await?;
+    let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
     let record_value = access
         .request(
             KernelOperation::TaskGet,

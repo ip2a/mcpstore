@@ -96,7 +96,7 @@ pub async fn status(json: bool) -> Result<(), BoxErr> {
         }
         return Ok(());
     }
-    let mut client = match crate::daemon::client::connect_admin().await {
+    let mut client = match crate::daemon::client::connect_admin(None).await {
         Ok(client) => client,
         Err(error) => {
             println!("[Warning] Daemon process exists but socket unreachable: {error}");
@@ -134,7 +134,7 @@ pub async fn face_view(face: &str, json: bool) -> Result<(), BoxErr> {
         _ => "mcpstore config --web-port <port> | mcpstore config --web <on|off> | mcpstore config --host <ip>",
     };
     let mut client = if is_daemon_running() {
-        crate::daemon::client::connect_admin().await.ok()
+        crate::daemon::client::connect_admin(None).await.ok()
     } else {
         None
     };

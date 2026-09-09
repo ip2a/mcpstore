@@ -167,7 +167,16 @@ pub enum StoreAccess {
 pub async fn open_store_access(
     args: &StoreSourceArgs,
     embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
 ) -> Result<StoreAccess, BoxErr> {
+    if let Some(endpoint) = endpoint {
+        if embedded || args.is_explicit() {
+            return Err("use either --daemon-endpoint or an embedded kernel, not both".into());
+        }
+        return Ok(StoreAccess::Remote(
+            crate::daemon::client::connect_admin(Some(&endpoint)).await?,
+        ));
+    }
     if embedded || args.is_explicit() {
         return Ok(StoreAccess::Embedded(
             load_kernel(args).await?.store().clone(),
@@ -178,7 +187,7 @@ pub async fn open_store_access(
         crate::daemon::ensure::wait_daemon_ready(std::time::Duration::from_secs(30)).await?;
     }
     Ok(StoreAccess::Remote(
-        crate::daemon::client::connect_admin().await?,
+        crate::daemon::client::connect_admin(None).await?,
     ))
 }
 

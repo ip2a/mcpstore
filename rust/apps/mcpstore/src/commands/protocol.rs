@@ -123,20 +123,32 @@ pub struct CompleteArgs {
     pub store: StoreSourceArgs,
 }
 
-pub async fn run_resource(args: ResourceArgs, embedded: bool) -> Result<(), BoxErr> {
-    execute_resource(args, embedded)
+pub async fn run_resource(
+    args: ResourceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
+    execute_resource(args, embedded, endpoint.clone())
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-pub async fn run_prompt(args: PromptArgs, embedded: bool) -> Result<(), BoxErr> {
-    execute_prompt(args, embedded)
+pub async fn run_prompt(
+    args: PromptArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
+    execute_prompt(args, embedded, endpoint.clone())
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-pub async fn complete(args: CompleteArgs, embedded: bool) -> Result<(), BoxErr> {
-    execute_complete(args, embedded)
+pub async fn complete(
+    args: CompleteArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
+    execute_complete(args, embedded, endpoint.clone())
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
@@ -159,22 +171,32 @@ async fn resolve_execution_target(
         .map_err(|error| attach_instance(error, instance_id))
 }
 
-async fn execute_resource(args: ResourceArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_resource(
+    args: ResourceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     match args.action {
-        ResourceAction::List(args) => execute_resource_list(args, embedded).await,
-        ResourceAction::Templates(args) => execute_resource_templates(args, embedded).await,
-        ResourceAction::Read(args) => execute_resource_read(args, embedded).await,
+        ResourceAction::List(args) => execute_resource_list(args, embedded, endpoint.clone()).await,
+        ResourceAction::Templates(args) => {
+            execute_resource_templates(args, embedded, endpoint.clone()).await
+        }
+        ResourceAction::Read(args) => execute_resource_read(args, embedded, endpoint.clone()).await,
     }
 }
 
-async fn execute_resource_list(args: ProtocolInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_resource_list(
+    args: ProtocolInstanceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
-    let mut access = open_store(&args.store, embedded)
+    let mut access = open_store(&args.store, embedded, endpoint.clone())
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
     let result = async {
@@ -223,6 +245,7 @@ async fn execute_resource_list(args: ProtocolInstanceArgs, embedded: bool) -> mc
 async fn execute_resource_templates(
     args: ProtocolInstanceArgs,
     embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
 ) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
@@ -230,7 +253,7 @@ async fn execute_resource_templates(
             error.to_string(),
         )
     })?;
-    let mut access = open_store(&args.store, embedded)
+    let mut access = open_store(&args.store, embedded, endpoint.clone())
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
     let result = async {
@@ -276,7 +299,11 @@ async fn execute_resource_templates(
     result
 }
 
-async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_resource_read(
+    args: ResourceReadArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
@@ -292,7 +319,7 @@ async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpsto
             instance_id,
         ));
     }
-    let mut access = open_store(&args.store, embedded)
+    let mut access = open_store(&args.store, embedded, endpoint.clone())
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
     let result = async {
@@ -328,21 +355,29 @@ async fn execute_resource_read(args: ResourceReadArgs, embedded: bool) -> mcpsto
     result
 }
 
-async fn execute_prompt(args: PromptArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_prompt(
+    args: PromptArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     match args.action {
-        PromptAction::List(args) => execute_prompt_list(args, embedded).await,
-        PromptAction::Get(args) => execute_prompt_get(args, embedded).await,
+        PromptAction::List(args) => execute_prompt_list(args, embedded, endpoint.clone()).await,
+        PromptAction::Get(args) => execute_prompt_get(args, embedded, endpoint.clone()).await,
     }
 }
 
-async fn execute_prompt_list(args: ProtocolInstanceArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_prompt_list(
+    args: ProtocolInstanceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
             error.to_string(),
         )
     })?;
-    let mut access = open_store(&args.store, embedded)
+    let mut access = open_store(&args.store, embedded, endpoint.clone())
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
     let result = async {
@@ -388,7 +423,11 @@ async fn execute_prompt_list(args: ProtocolInstanceArgs, embedded: bool) -> mcps
     result
 }
 
-async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_prompt_get(
+    args: PromptGetArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
@@ -410,7 +449,7 @@ async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Re
             instance_id,
         ));
     }
-    let mut access = open_store(&args.store, embedded)
+    let mut access = open_store(&args.store, embedded, endpoint.clone())
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
     let result = async {
@@ -447,7 +486,11 @@ async fn execute_prompt_get(args: PromptGetArgs, embedded: bool) -> mcpstore::Re
     result
 }
 
-async fn execute_complete(args: CompleteArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_complete(
+    args: CompleteArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     let instance_id = parse_instance_id(&args.instance_id).map_err(|error| {
         mcpstore::Error::new(
             mcpstore::error::FailureCode::InvalidInput,
@@ -487,7 +530,7 @@ async fn execute_complete(args: CompleteArgs, embedded: bool) -> mcpstore::Resul
         value: args.value,
         context,
     };
-    let mut access = open_store(&args.store, embedded)
+    let mut access = open_store(&args.store, embedded, endpoint.clone())
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
     let result = async {

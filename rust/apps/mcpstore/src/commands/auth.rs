@@ -425,16 +425,22 @@ struct LocalCallbackListener {
     callback_uri: Url,
 }
 
-pub async fn run(args: AuthArgs, embedded: bool) -> Result<(), BoxErr> {
+pub async fn run(
+    args: AuthArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.action.output_format();
     let result = match args.action {
-        AuthAction::Status(args) => status(args, embedded).await,
-        AuthAction::Login(args) => login(args, embedded).await,
-        AuthAction::Refresh(args) => refresh(args, embedded).await,
-        AuthAction::Logout(args) => logout(args, embedded).await,
-        AuthAction::ScopeUpgrade(args) => scope_upgrade(args, embedded).await,
-        AuthAction::SetClientSecret(args) => set_client_secret(args, embedded).await,
-        AuthAction::SetPrivateKey(args) => set_private_key(args, embedded).await,
+        AuthAction::Status(args) => status(args, embedded, endpoint.clone()).await,
+        AuthAction::Login(args) => login(args, embedded, endpoint.clone()).await,
+        AuthAction::Refresh(args) => refresh(args, embedded, endpoint.clone()).await,
+        AuthAction::Logout(args) => logout(args, embedded, endpoint.clone()).await,
+        AuthAction::ScopeUpgrade(args) => scope_upgrade(args, embedded, endpoint.clone()).await,
+        AuthAction::SetClientSecret(args) => {
+            set_client_secret(args, embedded, endpoint.clone()).await
+        }
+        AuthAction::SetPrivateKey(args) => set_private_key(args, embedded, endpoint.clone()).await,
     };
     match (output, result) {
         (OutputFormat::Json, Err(error)) => {
@@ -444,17 +450,25 @@ pub async fn run(args: AuthArgs, embedded: bool) -> Result<(), BoxErr> {
     }
 }
 
-async fn status(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn status(
+    args: AuthInstanceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let mut access = loaded_access(&args.store, embedded).await?;
+    let mut access = loaded_access(&args.store, embedded, endpoint.clone()).await?;
     let auth = auth_view(&mut access, args.instance_id).await?;
     print_auth_status(&auth, output)
 }
 
-async fn login(args: AuthLoginArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn login(
+    args: AuthLoginArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.flow_output.output.output;
     let open_browser = !args.flow_output.non_interactive;
-    let mut access = loaded_access(&args.store, embedded).await?;
+    let mut access = loaded_access(&args.store, embedded, endpoint.clone()).await?;
     let auth = auth_view(&mut access, args.instance_id).await?;
     match auth.flow {
         Some(AuthFlow::AuthorizationCode) => {
@@ -502,9 +516,13 @@ async fn login(args: AuthLoginArgs, embedded: bool) -> Result<(), BoxErr> {
     }
 }
 
-async fn refresh(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn refresh(
+    args: AuthInstanceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let mut access = loaded_access(&args.store, embedded).await?;
+    let mut access = loaded_access(&args.store, embedded, endpoint.clone()).await?;
     access
         .request(
             KernelOperation::AuthRefresh,
@@ -515,9 +533,13 @@ async fn refresh(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
     print_auth_status(&auth, output)
 }
 
-async fn logout(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn logout(
+    args: AuthInstanceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.output.output;
-    let mut access = loaded_access(&args.store, embedded).await?;
+    let mut access = loaded_access(&args.store, embedded, endpoint.clone()).await?;
     access
         .request(
             KernelOperation::AuthLogout,
@@ -528,10 +550,14 @@ async fn logout(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
     print_auth_status(&auth, output)
 }
 
-async fn scope_upgrade(args: AuthScopeUpgradeArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn scope_upgrade(
+    args: AuthScopeUpgradeArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.flow_output.output.output;
     let open_browser = !args.flow_output.non_interactive;
-    let mut access = loaded_access(&args.store, embedded).await?;
+    let mut access = loaded_access(&args.store, embedded, endpoint.clone()).await?;
     let auth = auth_view(&mut access, args.instance_id).await?;
     let required_scope = required_scope(args.scope, &auth)?;
     let result = access
@@ -567,10 +593,14 @@ async fn scope_upgrade(args: AuthScopeUpgradeArgs, embedded: bool) -> Result<(),
     .await
 }
 
-async fn set_client_secret(args: AuthInstanceArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn set_client_secret(
+    args: AuthInstanceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.output.output;
     let secret = read_stdin_secret("client secret")?;
-    let mut access = loaded_access(&args.store, embedded).await?;
+    let mut access = loaded_access(&args.store, embedded, endpoint.clone()).await?;
     access
         .request(
             KernelOperation::AuthSaveClientSecret,
@@ -583,13 +613,17 @@ async fn set_client_secret(args: AuthInstanceArgs, embedded: bool) -> Result<(),
     print_credential_stored(output, "client_secret")
 }
 
-async fn set_private_key(args: AuthPrivateKeyArgs, embedded: bool) -> Result<(), BoxErr> {
+async fn set_private_key(
+    args: AuthPrivateKeyArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<(), BoxErr> {
     let output = args.output.output;
     let private_key = match args.file {
         Some(path) => std::fs::read(path)?,
         None => read_stdin_bytes("private key")?,
     };
-    let mut access = loaded_access(&args.store, embedded).await?;
+    let mut access = loaded_access(&args.store, embedded, endpoint.clone()).await?;
     access
         .request(
             KernelOperation::AuthSavePrivateKey,
@@ -602,8 +636,12 @@ async fn set_private_key(args: AuthPrivateKeyArgs, embedded: bool) -> Result<(),
     print_credential_stored(output, "private_key")
 }
 
-async fn loaded_access(args: &StoreSourceArgs, embedded: bool) -> Result<StoreAccess, BoxErr> {
-    Ok(crate::commands::mcp::open_store(args, embedded).await?)
+async fn loaded_access(
+    args: &StoreSourceArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> Result<StoreAccess, BoxErr> {
+    Ok(crate::commands::mcp::open_store(args, embedded, endpoint.clone()).await?)
 }
 
 async fn auth_view(

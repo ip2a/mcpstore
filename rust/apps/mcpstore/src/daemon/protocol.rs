@@ -4,6 +4,7 @@ use std::time::Duration;
 use mcpstore::error::{Error, ErrorContext, FailureCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use subtle::ConstantTimeEq;
 
 pub const KERNEL_PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
@@ -44,6 +45,8 @@ pub struct HandshakeRequest {
     pub namespace: String,
     #[serde(default)]
     pub client_capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -229,6 +232,7 @@ impl KernelResponse {
 pub fn validate_handshake(
     request: &HandshakeRequest,
     namespace: &str,
+    required_token: Option<&str>,
 ) -> Result<HandshakeResponse, KernelError> {
     if request.protocol_version != KERNEL_PROTOCOL_VERSION {
         return Err(KernelError::new(
@@ -247,6 +251,17 @@ pub fn validate_handshake(
                 request.namespace
             ),
         ));
+    }
+    if let Some(required_token) = required_token {
+        let supplied = request.token.as_deref().unwrap_or("");
+        let matches = supplied.len() == required_token.len()
+            && supplied.as_bytes().ct_eq(required_token.as_bytes()).into();
+        if !matches {
+            return Err(KernelError::new(
+                FailureCode::ConnectionAuthRequired,
+                "KernelHost authentication failed",
+            ));
+        }
     }
     Ok(HandshakeResponse {
         protocol_version: KERNEL_PROTOCOL_VERSION,
@@ -372,15 +387,30 @@ mod tests {
             protocol_version: KERNEL_PROTOCOL_VERSION + 1,
             namespace: "demo".to_string(),
             client_capabilities: Vec::new(),
+            token: None,
         };
-        assert!(validate_handshake(&request, "demo").is_err());
+        assert!(validate_handshake(&request, "demo", None).is_err());
 
         let request = HandshakeRequest {
             protocol_version: KERNEL_PROTOCOL_VERSION,
             namespace: "other".to_string(),
             client_capabilities: Vec::new(),
+            token: None,
         };
-        assert!(validate_handshake(&request, "demo").is_err());
+        assert!(validate_handshake(&request, "demo", None).is_err());
+    }
+
+    #[test]
+    fn handshake_validates_tcp_token_in_constant_time_shape() {
+        let request = |token: Option<&str>| HandshakeRequest {
+            protocol_version: KERNEL_PROTOCOL_VERSION,
+            namespace: "demo".to_string(),
+            client_capabilities: Vec::new(),
+            token: token.map(str::to_string),
+        };
+        assert!(validate_handshake(&request(Some("secret")), "demo", Some("secret")).is_ok());
+        assert!(validate_handshake(&request(Some("wrong")), "demo", Some("secret")).is_err());
+        assert!(validate_handshake(&request(None), "demo", Some("secret")).is_err());
     }
 
     #[test]

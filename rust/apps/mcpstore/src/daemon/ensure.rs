@@ -16,7 +16,7 @@ struct DaemonStartState {
 
 /// 探测 daemon 是否就绪：socket 可连且握手通过。
 pub async fn is_daemon_ready() -> bool {
-    crate::daemon::client::connect_admin().await.is_ok()
+    crate::daemon::client::connect_admin(None).await.is_ok()
 }
 
 /// 等待 daemon 就绪，200ms 轮询，超时报错并提示前台排查。

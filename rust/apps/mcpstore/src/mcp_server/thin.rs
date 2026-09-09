@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use mcpstore::{InstanceId, ScopeRef};
+use mcpstore::ScopeRef;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, GetPromptRequestParams,
     GetPromptResponse, Implementation, ListPromptsResult, ListResourceTemplatesResult,
@@ -58,7 +58,7 @@ pub async fn run(scope: ScopeRef) -> Result<(), crate::BoxErr> {
         crate::daemon::ensure::spawn_detached_daemon()?;
         crate::daemon::ensure::wait_daemon_ready(std::time::Duration::from_secs(30)).await?;
     }
-    let client = crate::daemon::client::connect_admin().await?;
+    let client = crate::daemon::client::connect_admin(None).await?;
     let server = ThinAggregate {
         scope,
         client: Mutex::new(client),

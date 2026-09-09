@@ -37,6 +37,10 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     let pid = std::process::id();
     std::fs::write(&pid_path, pid.to_string())?;
     let (listener, endpoint) = HostListener::bind()?;
+    let state = crate::commands::api::state_for_store(Arc::clone(&store));
+    let app_config = store.config_manager().load_app_config_or_default()?;
+    let remote_listener = bind_remote_listener(&app_config).await?;
+    let host_remote_token = app_config.server.kernel_token.clone();
     std::fs::write(&pid_path, pid.to_string())?;
     tracing::info!(
         "[KERNEL_HOST] Started transport={:?} pid={pid}",
@@ -44,8 +48,6 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     );
     println!("[KERNEL_HOST] MCPStore host started (pid={pid})");
 
-    let state = crate::commands::api::state_for_store(Arc::clone(&store));
-    let app_config = store.config_manager().load_app_config_or_default()?;
     let host = Arc::new(DaemonHost {
         store,
         state,
@@ -59,20 +61,24 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     let shutdown_task = shutdown.clone();
 
     loop {
-        let stream = tokio::select! {
-            stream = listener.accept() => match stream {
-                Ok(stream) => stream,
-                Err(error) => {
-                    tracing::error!("[KERNEL_HOST] Accept failed: {error}");
-                    break;
-                }
+        let (stream, required_token) = match remote_listener.as_ref() {
+            Some(remote_listener) => tokio::select! {
+                stream = listener.accept() => (stream, None),
+                stream = accept_remote(remote_listener) => (stream, host_remote_token.clone()),
+                () = shutdown_task.notified() => break,
             },
-            () = shutdown_task.notified() => break,
+            None => tokio::select! {
+                stream = listener.accept() => (stream, None),
+                () = shutdown_task.notified() => break,
+            },
         };
+        let stream = stream?;
         let host = Arc::clone(&host);
         let shutdown = shutdown_task.clone();
         tokio::spawn(async move {
-            if let Err(error) = handle_connection(host, stream, shutdown).await {
+            if let Err(error) =
+                handle_connection(host, stream, shutdown, required_token.as_deref()).await
+            {
                 tracing::warn!("[KERNEL_HOST] Connection error: {error}");
             }
         });
@@ -83,6 +89,44 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     cleanup_paths(endpoint_cleanup_paths());
     tracing::info!("[KERNEL_HOST] Shut down");
     Ok(())
+}
+
+async fn accept_remote(listener: &tokio::net::TcpListener) -> Result<HostStream, Error> {
+    listener
+        .accept()
+        .await
+        .map(|(stream, _)| HostStream::from(stream))
+        .map_err(|error| {
+            Error::new(
+                FailureCode::ServiceUnavailable,
+                format!("KernelHost accept failed: {error}"),
+            )
+        })
+}
+
+async fn bind_remote_listener(
+    app_config: &mcpstore::AppConfig,
+) -> Result<Option<tokio::net::TcpListener>, Box<dyn std::error::Error>> {
+    let port = app_config.server.kernel_port;
+    if port == 0 {
+        return Ok(None);
+    }
+    let token = app_config
+        .server
+        .kernel_token
+        .as_deref()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| {
+            Box::<dyn std::error::Error>::from(
+                "server.kernel_token is required when server.kernel_port is enabled",
+            )
+        })?;
+    let listener = tokio::net::TcpListener::bind((app_config.server.host.as_str(), port)).await?;
+    tracing::info!(
+        "[KERNEL_HOST] Remote TCP enabled on port {port}; token length {}",
+        token.len()
+    );
+    Ok(Some(listener))
 }
 
 #[cfg(unix)]
@@ -134,6 +178,7 @@ async fn handle_connection(
     host: Arc<DaemonHost>,
     stream: HostStream,
     shutdown: Arc<tokio::sync::Notify>,
+    required_token: Option<&str>,
 ) -> Result<(), Error> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -145,7 +190,11 @@ async fn handle_connection(
             format!("invalid KernelHost handshake: {error}"),
         )
     })?;
-    let accepted = crate::daemon::protocol::validate_handshake(&handshake, &host.store.namespace());
+    let accepted = crate::daemon::protocol::validate_handshake(
+        &handshake,
+        &host.store.namespace(),
+        required_token,
+    );
     let response = match accepted {
         Ok(handshake) => {
             KernelResponse::ok(0, serde_json::to_value(handshake).unwrap_or(Value::Null))

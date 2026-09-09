@@ -14,9 +14,36 @@ use crate::daemon::protocol::{
 
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-/// 连接本机 daemon 的管理面（默认 namespace）。
-pub async fn connect_admin() -> Result<KernelClient, Error> {
-    KernelClient::connect(crate::daemon::protocol::DEFAULT_NAMESPACE).await
+#[derive(Clone, Debug)]
+pub struct DaemonEndpoint {
+    pub address: String,
+    pub namespace: String,
+    pub token: Option<String>,
+}
+
+impl DaemonEndpoint {
+    pub fn from_args(
+        endpoint: Option<String>,
+        namespace: Option<String>,
+        token: Option<String>,
+    ) -> Option<Self> {
+        endpoint.map(|address| Self {
+            address,
+            namespace: namespace
+                .unwrap_or_else(|| crate::daemon::protocol::DEFAULT_NAMESPACE.to_string()),
+            token,
+        })
+    }
+}
+
+/// 连接 daemon 管理面；无 remote endpoint 时连本机默认 namespace。
+pub async fn connect_admin(endpoint: Option<&DaemonEndpoint>) -> Result<KernelClient, Error> {
+    match endpoint {
+        Some(endpoint) => {
+            KernelClient::connect_remote(crate::daemon::protocol::DEFAULT_NAMESPACE, endpoint).await
+        }
+        None => KernelClient::connect(crate::daemon::protocol::DEFAULT_NAMESPACE).await,
+    }
 }
 
 #[derive(Debug)]
@@ -28,6 +55,19 @@ pub struct KernelClient {
 impl KernelClient {
     pub async fn connect(namespace: &str) -> Result<Self, Error> {
         let stream = crate::daemon::transport::connect_endpoint().await?;
+        Self::finish_connect(namespace, None, stream).await
+    }
+
+    pub async fn connect_remote(namespace: &str, endpoint: &DaemonEndpoint) -> Result<Self, Error> {
+        let stream = crate::daemon::transport::connect_tcp_endpoint(&endpoint.address).await?;
+        Self::finish_connect(namespace, endpoint.token.as_deref(), stream).await
+    }
+
+    async fn finish_connect(
+        namespace: &str,
+        token: Option<&str>,
+        stream: crate::daemon::transport::HostStream,
+    ) -> Result<Self, Error> {
         let (reader, writer) = stream.into_split();
         let mut client = Self {
             writer,
@@ -38,10 +78,14 @@ impl KernelClient {
             protocol_version: KERNEL_PROTOCOL_VERSION,
             namespace: namespace.to_string(),
             client_capabilities: vec!["requests".into()],
+            token: token.map(str::to_string),
         };
         let line = serde_json::to_string(&handshake).map_err(wire_error)?;
         client.write_line(&line).await?;
         let response = client.read_response(None).await?;
+        if let Some(error) = response.error {
+            return Err(error.into_error());
+        }
         let _: HandshakeResponse = serde_json::from_value(response.result.unwrap_or(Value::Null))
             .map_err(|error| {
             Error::new(

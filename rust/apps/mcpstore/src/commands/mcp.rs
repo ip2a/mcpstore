@@ -30,8 +30,9 @@ use crate::{
 pub(crate) async fn open_store(
     store_args: &StoreSourceArgs,
     embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
 ) -> mcpstore::Result<StoreAccess> {
-    open_store_access(store_args, embedded)
+    open_store_access(store_args, embedded, endpoint)
         .await
         .map_err(|error| {
             Error::new(
@@ -183,7 +184,11 @@ pub struct AddArgs {
     pub allow_execute_on: Vec<mcpstore::config::ExecutionTarget>,
 }
 
-pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn add(
+    a: AddArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     validate_scope_target(&a.scope, a.agent.as_deref())?;
 
     let env_map = parse_env(&a.env)?;
@@ -239,7 +244,7 @@ pub async fn add(a: AddArgs, embedded: bool) -> std::result::Result<(), BoxErr> 
         });
     }
 
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let result = access
         .request(
             KernelOperation::AddService,
@@ -267,7 +272,11 @@ pub struct AddJsonArgs {
     pub agent: Option<String>,
 }
 
-pub async fn add_json(a: AddJsonArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn add_json(
+    a: AddJsonArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let mut config: ServerConfig = serde_json::from_str(&a.json)?;
     let transport = config.infer_transport().to_string();
@@ -299,7 +308,7 @@ pub async fn add_json(a: AddJsonArgs, embedded: bool) -> std::result::Result<(),
                 .unwrap_or_default(),
         });
     }
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let result = access
         .request(
             KernelOperation::AddService,
@@ -330,10 +339,14 @@ pub struct ListArgs {
     pub output: OutputFormat,
 }
 
-pub async fn list(a: ListArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn list(
+    a: ListArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
 
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let result = access
         .request(KernelOperation::ListServices, json!({ "scope": scope }))
         .await?;
@@ -397,12 +410,16 @@ pub struct GetArgs {
     pub output: OutputFormat,
 }
 
-pub async fn get(a: GetArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn get(
+    a: GetArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
         .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
@@ -440,9 +457,13 @@ pub struct RemoveArgs {
     pub agent: Option<String>,
 }
 
-pub async fn remove(a: RemoveArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn remove(
+    a: RemoveArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let result = access
         .request(
             KernelOperation::RemoveServiceScope,
@@ -467,12 +488,16 @@ pub struct ConnectArgs {
     pub output: OutputFormat,
 }
 
-pub async fn connect(a: ConnectArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn connect(
+    a: ConnectArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
         .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
@@ -551,12 +576,16 @@ pub struct DisconnectArgs {
     pub output: OutputFormat,
 }
 
-pub async fn disconnect(a: DisconnectArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn disconnect(
+    a: DisconnectArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
         .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
@@ -594,12 +623,16 @@ pub struct RestartArgs {
     pub output: OutputFormat,
 }
 
-pub async fn restart(a: RestartArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn restart(
+    a: RestartArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
         .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
@@ -644,12 +677,16 @@ pub struct CheckArgs {
     pub quiet: bool,
 }
 
-pub async fn check(a: CheckArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn check(
+    a: CheckArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
         .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
@@ -708,12 +745,16 @@ pub struct WaitArgs {
     pub output: OutputFormat,
 }
 
-pub async fn wait(a: WaitArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn wait(
+    a: WaitArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
         .map_err(|e| Error::new(FailureCode::InvalidInput, e.to_string()))?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
@@ -792,7 +833,11 @@ pub struct UpdateArgs {
     pub allow_execute_on: Vec<mcpstore::config::ExecutionTarget>,
 }
 
-pub async fn update(a: UpdateArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn update(
+    a: UpdateArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     validate_scope_target(&a.scope, a.agent.as_deref())?;
     let env_map = parse_env(&a.env)?;
     let header_map = parse_headers(&a.header)?;
@@ -811,7 +856,7 @@ pub async fn update(a: UpdateArgs, embedded: bool) -> std::result::Result<(), Bo
     if a.scope == Scope::Agent && execution_policy.is_some() {
         return Err("Execution policy is definition-level; use --scope store".into());
     }
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let receipt = match a.scope.to_ref(a.agent.as_deref())? {
         ScopeRef::Store => {
             access
@@ -868,9 +913,13 @@ pub struct ToolsArgs {
     pub schema: bool,
 }
 
-pub async fn tools(a: ToolsArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn tools(
+    a: ToolsArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = a.scope.to_ref(a.agent.as_deref())?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let instance_id = resolve_target(&mut access, &scope, &a.target).await?;
     let result = access
         .request(
@@ -1004,8 +1053,12 @@ pub struct MigrateStoreArgs {
     pub target_config: Option<String>,
 }
 
-pub async fn call_tool(a: CallToolArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    execute_call_tool(a, embedded)
+pub async fn call_tool(
+    a: CallToolArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
+    execute_call_tool(a, embedded, endpoint.clone())
         .await
         .map_err(|error| Box::new(error) as BoxErr)
 }
@@ -1099,7 +1152,11 @@ pub(crate) fn resolve_declared_execution_target(
     Ok(target)
 }
 
-async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<()> {
+async fn execute_call_tool(
+    a: CallToolArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<()> {
     parse_arguments_json_object(&a.arguments, a.output)?;
     // Explicit store arguments force embedded access in open_store_access.
     let embedded = embedded || a.store.is_explicit();
@@ -1108,7 +1165,7 @@ async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<
         .scope
         .to_ref(a.agent.as_deref())
         .map_err(|error| Error::new(FailureCode::InvalidInput, error.to_string()))?;
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let result = async {
         let instance_id = resolve_target(&mut access, &scope, &a.target)
             .await
@@ -1799,8 +1856,12 @@ pub(crate) fn emit_call_value(output: OutputFormat, value: Value) -> mcpstore::R
     Ok(())
 }
 
-pub async fn migrate_store(a: MigrateStoreArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
-    let mut access = open_store(&a.store, embedded).await?;
+pub async fn migrate_store(
+    a: MigrateStoreArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let mut config = json!({});
     if let Some(target_config) = a.target_config {
         config = json!({"config": target_config});
@@ -1840,11 +1901,15 @@ pub struct UnassignArgs {
     pub store: StoreSourceArgs,
 }
 
-pub async fn assign(a: AssignArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn assign(
+    a: AssignArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = ScopeRef::Agent {
         agent_id: a.agent.clone(),
     };
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let result = access
         .request(
             KernelOperation::DeclareServiceScope,
@@ -1865,11 +1930,15 @@ pub async fn assign(a: AssignArgs, embedded: bool) -> std::result::Result<(), Bo
     Ok(())
 }
 
-pub async fn unassign(a: UnassignArgs, embedded: bool) -> std::result::Result<(), BoxErr> {
+pub async fn unassign(
+    a: UnassignArgs,
+    embedded: bool,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> std::result::Result<(), BoxErr> {
     let scope = ScopeRef::Agent {
         agent_id: a.agent.clone(),
     };
-    let mut access = open_store(&a.store, embedded).await?;
+    let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let result = access
         .request(
             KernelOperation::RemoveServiceScope,
@@ -2173,7 +2242,7 @@ mod tests {
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
             allow_execute_on: vec![mcpstore::config::ExecutionTarget::Local],
         };
-        add(add_args, true).await.unwrap();
+        add(add_args, true, None).await.unwrap();
 
         let update_args = UpdateArgs {
             name: "browser".into(),
@@ -2196,7 +2265,7 @@ mod tests {
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Daemon),
             allow_execute_on: vec![mcpstore::config::ExecutionTarget::Daemon],
         };
-        update(update_args, true).await.unwrap();
+        update(update_args, true, None).await.unwrap();
 
         let update_args = UpdateArgs {
             name: "browser".into(),
@@ -2219,7 +2288,7 @@ mod tests {
             default_execute_on: None,
             allow_execute_on: Vec::new(),
         };
-        update(update_args, true).await.unwrap();
+        update(update_args, true, None).await.unwrap();
 
         let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
         store.load_from_source().await.unwrap();
@@ -2263,7 +2332,7 @@ mod tests {
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
             allow_execute_on: Vec::new(),
         };
-        let error = update(args, true).await.unwrap_err().to_string();
+        let error = update(args, true, None).await.unwrap_err().to_string();
         assert!(error.contains("definition-level"), "{error}");
     }
 
@@ -2294,7 +2363,7 @@ mod tests {
             default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
             allow_execute_on: vec![mcpstore::config::ExecutionTarget::Local],
         };
-        add(args, true).await.unwrap();
+        add(args, true, None).await.unwrap();
         let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
         store.load_from_source().await.unwrap();
         let definition = store.find_definition("browser").await.unwrap();

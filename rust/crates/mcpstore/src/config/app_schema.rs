@@ -175,6 +175,12 @@ pub struct ServerSettings {
     pub app_port: u16,
     #[serde(default = "default_web_port")]
     pub web_port: u16,
+    /// Kernel RPC TCP listener port; 0 disables remote daemon access.
+    #[serde(default)]
+    pub kernel_port: u16,
+    /// Required shared secret for Kernel RPC TCP connections.
+    #[serde(default)]
+    pub kernel_token: Option<String>,
     #[serde(default = "default_true")]
     pub core_enabled: bool,
     #[serde(default = "default_true")]
@@ -200,6 +206,8 @@ impl Default for ServerSettings {
             port: default_server_port(),
             app_port: default_app_port(),
             web_port: default_web_port(),
+            kernel_port: 0,
+            kernel_token: None,
             core_enabled: true,
             app_enabled: true,
             web_enabled: true,
