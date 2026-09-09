@@ -254,6 +254,12 @@ pub struct ExecutionPolicy {
     pub required_capabilities: Vec<String>,
 }
 
+impl ExecutionPolicy {
+    pub fn allows(&self, target: &ExecutionTarget) -> bool {
+        self.allowed_targets.is_empty() || self.allowed_targets.contains(target)
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpStoreExtension {
     pub scopes: ScopeDeclarations,

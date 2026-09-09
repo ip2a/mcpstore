@@ -932,11 +932,60 @@ pub async fn call_tool(a: CallToolArgs, embedded: bool) -> std::result::Result<(
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
+fn resolve_declared_execution_target(
+    info: &Value,
+    requested: &ExecutionTargetArg,
+    routed_target: mcpstore::config::ExecutionTarget,
+    embedded: bool,
+) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
+    let policy: Option<mcpstore::config::ExecutionPolicy> = info
+        .get("execution_policy")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+    let target = policy
+        .as_ref()
+        .filter(|_| matches!(requested, ExecutionTargetArg::Auto))
+        .map(|policy| policy.default_target.clone())
+        .unwrap_or(routed_target);
+
+    if embedded && target != mcpstore::config::ExecutionTarget::Local {
+        return Err(Error::new(
+            FailureCode::InvalidInput,
+            "service default execution target requires daemon access; retry with daemon access",
+        ));
+    }
+    if !embedded && target != mcpstore::config::ExecutionTarget::Daemon {
+        return Err(Error::new(
+            FailureCode::InvalidInput,
+            "service default execution target requires embedded access; retry with --embedded",
+        ));
+    }
+    if let Some(policy) = policy {
+        if !policy.allows(&target) {
+            return Err(Error::new(
+                FailureCode::InvalidInput,
+                format!(
+                    "execution target '{target}' not allowed for instance; allowed: {}",
+                    policy
+                        .allowed_targets
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        }
+    }
+    Ok(target)
+}
+
 async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<()> {
     parse_arguments_json_object(&a.arguments, a.output)?;
     // Explicit store arguments force embedded access in open_store_access.
     let embedded = embedded || a.store.is_explicit();
-    let execution_target = a.execute_on.resolve(embedded)?;
+    let routed_target = a.execute_on.resolve(embedded)?;
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
@@ -945,6 +994,15 @@ async fn execute_call_tool(a: CallToolArgs, embedded: bool) -> mcpstore::Result<
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
+    let info = access
+        .request(
+            KernelOperation::GetServiceInfo,
+            json!({"instance_id": instance_id.to_string()}),
+        )
+        .await
+        .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
+    let execution_target =
+        resolve_declared_execution_target(&info, &a.execute_on, routed_target, embedded)?;
     access
         .request(
             KernelOperation::ConnectService,
@@ -1868,6 +1926,60 @@ fn validate_scope_target(scope: &Scope, agent: Option<&str>) -> std::result::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_uses_declared_default_and_enforces_allowlist() {
+        let policy = mcpstore::config::ExecutionPolicy {
+            default_target: mcpstore::config::ExecutionTarget::Daemon,
+            allowed_targets: vec![mcpstore::config::ExecutionTarget::Daemon],
+            required_capabilities: Vec::new(),
+        };
+        let info = json!({"execution_policy": policy});
+        let target = resolve_declared_execution_target(
+            &info,
+            &ExecutionTargetArg::Auto,
+            mcpstore::config::ExecutionTarget::Local,
+            false,
+        )
+        .unwrap();
+        assert_eq!(target, mcpstore::config::ExecutionTarget::Daemon);
+    }
+
+    #[test]
+    fn declared_default_rejected_when_access_cannot_execute_it() {
+        let policy = mcpstore::config::ExecutionPolicy {
+            default_target: mcpstore::config::ExecutionTarget::Daemon,
+            allowed_targets: Vec::new(),
+            required_capabilities: Vec::new(),
+        };
+        let info = json!({"execution_policy": policy});
+        let error = resolve_declared_execution_target(
+            &info,
+            &ExecutionTargetArg::Auto,
+            mcpstore::config::ExecutionTarget::Local,
+            true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("daemon access"), "{error}");
+    }
+
+    #[test]
+    fn explicit_disallowed_target_is_rejected() {
+        let policy = mcpstore::config::ExecutionPolicy {
+            default_target: mcpstore::config::ExecutionTarget::Local,
+            allowed_targets: vec![mcpstore::config::ExecutionTarget::Local],
+            required_capabilities: Vec::new(),
+        };
+        let info = json!({"execution_policy": policy});
+        let error = resolve_declared_execution_target(
+            &info,
+            &ExecutionTargetArg::Daemon,
+            mcpstore::config::ExecutionTarget::Daemon,
+            false,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("not allowed"), "{error}");
+    }
 
     #[test]
     fn capability_summary_reports_protocol_features() {

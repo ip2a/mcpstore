@@ -71,6 +71,15 @@ impl MCPStore {
             .await
     }
 
+    pub async fn find_definition(&self, service_name: &str) -> Option<ServiceDefinition> {
+        self.refresh_from_db_if_needed().await.ok();
+        self.kernel
+            .control
+            .registry
+            .find_definition(service_name)
+            .await
+    }
+
     pub async fn list_tools(
         &self,
         instance_id: InstanceId,

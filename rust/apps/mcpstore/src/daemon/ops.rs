@@ -2,7 +2,8 @@
 //! （单业务协议、双执行位置）。daemon 管理面（status/config/stop）在 server.rs。
 
 use mcpstore::config::{
-    AppConfig, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    AppConfig, ExecutionPolicy, ExecutionTarget, McpStoreExtension, ScopeDeclarations,
+    ScopeDescriptor, ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
 use mcpstore::{AuthFlow, InstanceId, MCPStore, McpCompletionRequest, ScopeRef};
@@ -10,21 +11,64 @@ use serde_json::{json, Value};
 
 use crate::daemon::protocol::KernelOperation;
 
-/// Validate optional execution target at daemon trust boundary.
-/// Missing field remains compatible with older clients.
-pub(crate) fn validate_daemon_execution_target(payload: &Value) -> Result<(), Error> {
-    match payload.get("execute_on") {
-        None => Ok(()),
-        Some(Value::String(target)) if target == "daemon" => Ok(()),
-        Some(Value::String(_)) => Err(Error::new(
+/// Resolve and validate execution target at the daemon trust boundary.
+/// Missing field keeps older clients on the daemon target.
+pub(crate) async fn resolve_daemon_execution_target(
+    store: &MCPStore,
+    instance_id: InstanceId,
+    payload: &Value,
+) -> Result<ExecutionTarget, Error> {
+    let requested = match payload.get("execute_on") {
+        None => ExecutionTarget::Daemon,
+        Some(Value::String(target)) => target
+            .parse()
+            .map_err(|error: String| Error::new(FailureCode::InvalidInput, error))?,
+        Some(_) => {
+            return Err(Error::new(
+                FailureCode::InvalidInput,
+                "execute_on must be a string",
+            ))
+        }
+    };
+    if requested != ExecutionTarget::Daemon {
+        return Err(Error::new(
             FailureCode::CapabilityUnsupported,
             "daemon execution accepts execute_on=daemon only",
-        )),
-        Some(_) => Err(Error::new(
-            FailureCode::InvalidInput,
-            "execute_on must be a string",
-        )),
+        ));
     }
+    if let Some(instance) = store.find_instance(instance_id).await {
+        if let Some(definition) = store.find_definition(&instance.service_name).await {
+            if let Some(policy) = definition.execution_policy {
+                if !policy.allows(&requested) {
+                    return Err(target_not_allowed(
+                        &requested,
+                        &instance.service_name,
+                        &policy,
+                    ));
+                }
+            }
+        }
+    }
+    Ok(requested)
+}
+
+fn target_not_allowed(
+    target: &ExecutionTarget,
+    service_name: &str,
+    policy: &ExecutionPolicy,
+) -> Error {
+    Error::new(
+        FailureCode::InvalidInput,
+        format!(
+            "execution target '{target}' not allowed for service '{service_name}'; allowed: {}",
+            policy
+                .allowed_targets
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    )
 }
 
 /// 执行一个业务 op。请求/响应 op 全部经此；流式 op（StreamToolExecution/
@@ -36,8 +80,8 @@ pub(crate) async fn execute(
 ) -> Result<Value, Error> {
     match operation {
         KernelOperation::CallTool => {
-            validate_daemon_execution_target(&payload)?;
             let instance_id = instance_id(&payload)?;
+            resolve_daemon_execution_target(store, instance_id, &payload).await?;
             let tool_name = required_str(&payload, "tool_name")?;
             let args = payload.get("args").cloned().unwrap_or_else(|| json!({}));
             let result = store.call_tool(instance_id, &tool_name, args).await?;
@@ -677,6 +721,46 @@ pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
             FailureCode::InvalidInput,
             format!("{field} must be on/off, got {other:?}"),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcpstore::ServiceInstanceKey;
+
+    #[tokio::test]
+    async fn daemon_rejects_execution_target_disallowed_by_service() {
+        let path =
+            std::env::temp_dir().join(format!("mcpstore-daemon-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        let config_path = path.join("mcp.json");
+        let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+        let mut config = ServerConfig {
+            command: Some("echo".into()),
+            args: vec!["fixture".into()],
+            transport: Some("stdio".into()),
+            ..ServerConfig::default()
+        };
+        config.mcpstore = Some(McpStoreExtension {
+            execution_policy: Some(ExecutionPolicy {
+                default_target: ExecutionTarget::Local,
+                allowed_targets: vec![ExecutionTarget::Local],
+                required_capabilities: Vec::new(),
+            }),
+            scopes: ScopeDeclarations::store_only(),
+            ..McpStoreExtension::default()
+        });
+        store.add_service("svc", config).await.unwrap();
+        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
+
+        let error =
+            resolve_daemon_execution_target(&store, instance_id, &json!({"execute_on": "daemon"}))
+                .await
+                .unwrap_err();
+
+        assert!(error.to_string().contains("not allowed"), "{error}");
+        std::fs::remove_dir_all(path).ok();
     }
 }
 

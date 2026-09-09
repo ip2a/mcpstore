@@ -22,6 +22,29 @@ fn execution_target_roundtrips_as_stable_string() {
 }
 
 #[test]
+fn execution_policy_empty_allowlist_keeps_backwards_compatibility() {
+    let policy = ExecutionPolicy {
+        default_target: ExecutionTarget::Daemon,
+        allowed_targets: Vec::new(),
+        required_capabilities: Vec::new(),
+    };
+    assert!(policy.allows(&ExecutionTarget::Local));
+    assert!(policy.allows(&ExecutionTarget::Daemon));
+}
+
+#[test]
+fn execution_policy_restricts_declared_targets() {
+    let policy = ExecutionPolicy {
+        default_target: ExecutionTarget::Local,
+        allowed_targets: vec![ExecutionTarget::Local],
+        required_capabilities: Vec::new(),
+    };
+    assert!(policy.allows(&ExecutionTarget::Local));
+    assert!(!policy.allows(&ExecutionTarget::Daemon));
+    assert!(!policy.allows(&ExecutionTarget::Node("other".into())));
+}
+
+#[test]
 fn old_service_config_defaults_without_execution_policy() {
     let config: ServerConfig = serde_json::from_value(json!({
         "command": "demo"

@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
 
 use crate::daemon::ops::{
-    config_error, instance_id, plan_config_change, required_str, validate_daemon_execution_target,
+    config_error, instance_id, plan_config_change, required_str, resolve_daemon_execution_target,
 };
 use crate::daemon::protocol::{
     deadline, default_pid_path, HandshakeRequest, KernelError, KernelEvent, KernelOperation,
@@ -438,9 +438,9 @@ where
     W: AsyncWriteExt + Unpin,
 {
     let instance_id = instance_id(&payload)?;
+    resolve_daemon_execution_target(store, instance_id, &payload).await?;
     let tool_name = required_str(&payload, "tool_name")?;
     let args = payload.get("args").cloned().unwrap_or_else(|| json!({}));
-    validate_daemon_execution_target(&payload)?;
     let task = payload
         .get("task")
         .and_then(Value::as_bool)
