@@ -75,13 +75,18 @@ impl MCPStore {
         // Local source + DataPlane is an invalid combination: queued control
         // requests would be written to a local in-process store that no other
         // node can consume. The user almost certainly meant ControlPlane.
-        if options.source_mode == SourceMode::Local && options.node_mode == NodeMode::DataPlane {
+        if options.node_mode == NodeMode::DataPlane
+            && (options.source_mode == SourceMode::Local
+                || options
+                    .store
+                    .as_ref()
+                    .is_some_and(|store| store.store_name() == "memory"))
+        {
             return Err(Error::new(
                 FailureCode::Internal,
                 concat!(
-                    "Local source (file/memory) cannot be combined with DataPlane mode. ",
-                    "DataPlane requires a shared remote store (e.g. Redis) so that ",
-                    "control requests are visible to a ControlPlane consumer."
+                    "DataPlane requires a shared persistent store (Redis/Valkey); ",
+                    "Local source and in-process memory cannot be used."
                 )
                 .to_string(),
             ));
@@ -104,6 +109,13 @@ impl MCPStore {
                 app_config.cache.config.clone(),
             )
         });
+        #[cfg(test)]
+        let store_name = if store_config.store_name() == "memory-test-shared" {
+            "memory".to_string()
+        } else {
+            store_config.store_name().to_string()
+        };
+        #[cfg(not(test))]
         let store_name = store_config.store_name().to_string();
         if matches!(store_name.as_str(), "redis" | "valkey") {
             store_config.config["keyspace"] = serde_json::Value::String(namespace.clone());

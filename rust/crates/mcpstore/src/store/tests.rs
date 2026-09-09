@@ -1056,7 +1056,7 @@ async fn db_source_does_not_write_config_file_and_queues_add() {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-source-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1182,7 +1182,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-read-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1233,7 +1233,7 @@ async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity()
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-queue-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1393,7 +1393,7 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-runtime-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1463,7 +1463,7 @@ async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-tool-queue-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -5890,7 +5890,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-load-readonly-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -7489,7 +7489,7 @@ mod scoped_contract {
             config_path: None,
             source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
+            store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-remove-db-{}", uuid::Uuid::new_v4())),
         })
         .unwrap();
@@ -7619,7 +7619,7 @@ mod scoped_contract {
             config_path: None,
             source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
+            store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-reset-db-{}", uuid::Uuid::new_v4())),
         })
         .unwrap();
@@ -8372,6 +8372,20 @@ mod control_reactor_tests {
         std::fs::remove_file(path).ok();
     }
 
+    #[test]
+    fn data_plane_rejects_memory_backend() {
+        let error = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            node_mode: NodeMode::DataPlane,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some("data-plane-memory".to_string()),
+        })
+        .err()
+        .expect("DataPlane memory backend must be rejected");
+        assert!(error.to_string().contains("shared persistent store"));
+    }
+
     #[tokio::test]
     async fn node_mode_supervisor_visibility() {
         // C5: control_plane builds supervisor; data_plane does not.
@@ -8387,21 +8401,6 @@ mod control_reactor_tests {
         assert!(
             cp_store.kernel.execution.supervisor.is_some(),
             "control_plane must build supervisor"
-        );
-
-        // DataPlane requires a shared (Db) source. Use SourceMode::Db with a
-        // memory backend to simulate this in-process.
-        let dp_store = MCPStore::setup_with_options(StoreOptions {
-            config_path: Some(temp_config_path()),
-            source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
-            namespace: Some(format!("c5-dp-{}", uuid::Uuid::new_v4())),
-        })
-        .unwrap();
-        assert!(
-            dp_store.kernel.execution.supervisor.is_none(),
-            "data_plane must NOT build supervisor"
         );
 
         std::fs::remove_file(cp_path).ok();

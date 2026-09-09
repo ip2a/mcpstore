@@ -69,6 +69,11 @@ impl JsonStoreConfig {
         Self::new("memory", serde_json::json!({}))
     }
 
+    #[cfg(test)]
+    pub(crate) fn shared_memory() -> Self {
+        Self::new("memory-test-shared", serde_json::json!({}))
+    }
+
     pub fn redis(url: impl Into<String>) -> Self {
         Self::new("redis", serde_json::json!({"url": url.into()}))
     }
