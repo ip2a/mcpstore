@@ -35,6 +35,7 @@ async fn run_reactor_basic() {
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
+        recovery_interval: std::time::Duration::from_secs(60),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -91,6 +92,7 @@ async fn run_reactor_cursor_resume() {
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
+        recovery_interval: std::time::Duration::from_secs(60),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -144,6 +146,7 @@ async fn run_reactor_cursor_resume() {
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
+        recovery_interval: std::time::Duration::from_secs(60),
     };
     let reactor2 = Arc::new(EventReactor::new(store.clone(), config2));
     reactor2
@@ -190,6 +193,7 @@ async fn run_reactor_distributed_claim() {
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
+        recovery_interval: std::time::Duration::from_secs(60),
     };
     let config_b = ReactorConfig {
         subscriber_id: "claim-sub-b".into(),
@@ -197,6 +201,7 @@ async fn run_reactor_distributed_claim() {
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
+        recovery_interval: std::time::Duration::from_secs(60),
     };
 
     let reactor_a = Arc::new(EventReactor::new(store.clone(), config_a));
@@ -252,6 +257,210 @@ async fn run_reactor_distributed_claim() {
     reactor_b.shutdown().await;
 }
 
+/// Recovery loop re-runs a persisted execution after a simulated crash.
+async fn run_reactor_recovers_persisted_execution() {
+    let store = MemoryStore::new();
+    let collection = "mcpstore:event:recovery.test";
+    let execution_collection = "mcpstore:reactor:executions";
+
+    let payload = crate::cache::codec::json_to_value(serde_json::json!({"x": 1})).unwrap();
+    store
+        .put("recover-1", payload, Some(collection), None)
+        .await
+        .unwrap();
+    let execution = crate::cache::codec::json_to_value(serde_json::json!({
+        "change_id": "simulated-crash",
+        "rule_id": "recovery.rule.v1",
+        "collection": collection,
+        "key": "recover-1",
+        "status": "retry_waiting", "retry_at": 0, "reason": "crash"
+    }))
+    .unwrap();
+    store
+        .put(
+            "simulated-crash:recovery.rule.v1",
+            execution,
+            Some(execution_collection),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let attempts = Arc::new(AtomicU32::new(0));
+    let notify = Arc::new(Notify::new());
+    let config = ReactorConfig {
+        subscriber_id: "recovery-sub".into(),
+        owner_id: "recovery-owner".into(),
+        namespace: "mcpstore".into(),
+        watch_collections: vec![collection.into()],
+        max_causation_depth: 16,
+        recovery_interval: Duration::from_millis(50),
+    };
+    let reactor = Arc::new(EventReactor::new(store.clone(), config));
+
+    let attempts_clone = attempts.clone();
+    let notify_clone = notify.clone();
+    reactor
+        .register(Rule::new(
+            "recovery.rule.v1",
+            |_ctx| Box::pin(async { true }),
+            move |_ctx| {
+                let attempts = attempts_clone.clone();
+                let notify = notify_clone.clone();
+                Box::pin(async move {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    notify.notify_one();
+                    ReactionOutcome::Ok
+                })
+            },
+        ))
+        .await;
+
+    reactor.start().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), notify.notified())
+        .await
+        .expect("recovery did not re-run persisted execution");
+    reactor.shutdown().await;
+
+    assert!(attempts.load(Ordering::SeqCst) >= 1);
+    let execution = crate::cache::codec::value_to_json(
+        store
+            .get(
+                "simulated-crash:recovery.rule.v1",
+                Some(execution_collection),
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        execution.get("status").and_then(|value| value.as_str()),
+        Some("succeeded"),
+        "unexpected execution record: {execution}"
+    );
+}
+
+/// Recovery loop requeues an Executing control request left by a crash.
+async fn run_control_reactor_recovers_executing_request() {
+    use crate::store::prelude::*;
+
+    let path =
+        std::env::temp_dir().join(format!("mcpstore-recovery-{}.json", uuid::Uuid::new_v4()));
+    let store = std::sync::Arc::new(
+        crate::store::MCPStore::setup_with_options(crate::store::StoreOptions {
+            config_path: Some(path.to_string_lossy().to_string()),
+            source_mode: crate::store::SourceMode::Local,
+            node_mode: crate::store::NodeMode::ControlPlane,
+            store: Some(crate::store::JsonStoreConfig::memory()),
+            namespace: Some("test-control-recovery".to_string()),
+        })
+        .unwrap(),
+    );
+
+    let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
+    let execution_collection = "test-control-recovery:reactor:executions";
+    let request_key = "recover-executing";
+    let payload = serde_json::json!({
+        "id": request_key,
+        "type": "ServiceAddRequested",
+        "payload": {
+            "service_name": "recovery-svc",
+            "config": {
+                "url": null,
+                "command": "echo",
+                "args": ["fixture"],
+                "env": {},
+                "headers": {},
+                "auth": {"type": "none"},
+                "transport": "stdio",
+                "working_dir": null,
+                "description": "fixture",
+                "mcpstore": null,
+                "extra": {}
+            },
+        },
+        "source": "control_plane",
+        "created_at": 1,
+        "dedup_key": "ServiceAddRequested:recovery-svc",
+        "trace_id": request_key,
+        "status": "executing",
+        "started_at": 1,
+    });
+    store
+        .cache()
+        .put_event(CONTROL_REQUEST_EVENT_TYPE, request_key, payload)
+        .await
+        .unwrap();
+    let execution = crate::cache::codec::json_to_value(serde_json::json!({
+        "change_id": "simulated-crash",
+        "rule_id": "mcpstore:control-requests:v2",
+        "collection": collection,
+        "key": request_key,
+        "status": "running", "owner": "dead-owner", "started_at": 1
+    }))
+    .unwrap();
+    store
+        .kernel
+        .persistence
+        .event_backend
+        .read()
+        .await
+        .clone()
+        .unwrap()
+        .put(
+            "simulated-crash:mcpstore:control-requests:v2",
+            execution,
+            Some(execution_collection),
+            None,
+        )
+        .await
+        .unwrap();
+
+    store
+        .setup_event_reactor(ReactorConfig {
+            subscriber_id: "control-recovery-sub".into(),
+            owner_id: "control-recovery-owner".into(),
+            namespace: "test-control-recovery".into(),
+            watch_collections: vec![collection],
+            max_causation_depth: 16,
+            recovery_interval: Duration::from_millis(50),
+        })
+        .await
+        .unwrap();
+    store
+        .register_rule(store.control_request_rule())
+        .await
+        .unwrap();
+    store.start_reactor().await.unwrap();
+
+    let mut applied = false;
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if let Some(event) = store
+            .cache()
+            .get_event(CONTROL_REQUEST_EVENT_TYPE, request_key)
+            .await
+            .unwrap()
+        {
+            if event.get("status").and_then(|value| value.as_str()) == Some("applied") {
+                applied = true;
+                break;
+            }
+        }
+    }
+    assert!(applied, "Executing control request was not recovered");
+    assert!(store
+        .cache()
+        .get_entity("service_definitions", "recovery-svc")
+        .await
+        .unwrap()
+        .is_some());
+
+    store.stop_reactor().await;
+    std::fs::remove_file(path).ok();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,6 +478,16 @@ mod tests {
     #[tokio::test]
     async fn reactor_distributed_claim() {
         run_reactor_distributed_claim().await;
+    }
+
+    #[tokio::test]
+    async fn reactor_recovers_persisted_execution() {
+        run_reactor_recovers_persisted_execution().await;
+    }
+
+    #[tokio::test]
+    async fn control_reactor_recovers_executing_request() {
+        run_control_reactor_recovers_executing_request().await;
     }
 
     /// Retryable outcome must NOT advance the cursor. The ChangeFeed
@@ -295,6 +514,7 @@ mod tests {
             namespace: "mcpstore".into(),
             watch_collections: vec![collection.into()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
         let reactor = Arc::new(EventReactor::new(store.clone(), config));
 
@@ -321,23 +541,39 @@ mod tests {
 
         reactor.start().await.unwrap();
 
-        // First attempt fires immediately (Retryable). Cursor is NOT advanced,
-        // so the ChangeFeed re-delivers. But the retry delay is 300s — too long for
-        // a test. Instead, verify the cursor was not advanced by checking the
-        // cursor collection directly.
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Read cursor collection to verify it was NOT saved
+        // Retry state is persisted independently from cursor progress.
         let cursor_collection = "mcpstore:reactor:cursors";
         let cursor_key = "retry-sub";
-        let cursor_val = store
-            .get(cursor_key, Some(cursor_collection))
-            .await
-            .unwrap();
         assert!(
-            cursor_val.is_none(),
-            "cursor must NOT be advanced when Retryable; got {:?}",
-            cursor_val
+            store
+                .get(cursor_key, Some(cursor_collection))
+                .await
+                .unwrap()
+                .is_some(),
+            "cursor advances while retry state is persisted separately"
+        );
+        let execution_collection = "mcpstore:reactor:executions";
+        let execution = store
+            .keys(Some(execution_collection), None)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|key| key.ends_with(":retry.rule.v1"))
+            .expect("retry execution record exists");
+        let execution = crate::cache::codec::value_to_json(
+            store
+                .get(&execution, Some(execution_collection))
+                .await
+                .unwrap()
+                .expect("retry execution record exists"),
+        )
+        .unwrap();
+        assert_eq!(
+            execution.get("status").and_then(|value| value.as_str()),
+            Some("retry_waiting"),
+            "retryable execution must persist retry state: {execution}"
         );
 
         // Verify first attempt did fire (Retryable)
@@ -375,6 +611,7 @@ mod tests {
             namespace: "mcpstore".into(),
             watch_collections: vec![collection.into()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
         let reactor =
             Arc::new(EventReactor::new(store.clone(), config).with_event_bus(event_bus.clone()));
@@ -432,6 +669,7 @@ async fn run_reactor_recursion_guard() {
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
         max_causation_depth: 16,
+        recovery_interval: std::time::Duration::from_secs(60),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -493,6 +731,7 @@ async fn run_reactor_depth_limit() {
         namespace: "mcpstore".into(),
         watch_collections: vec![collection.into()],
         max_causation_depth: 3,
+        recovery_interval: std::time::Duration::from_secs(60),
     };
 
     let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -592,6 +831,7 @@ mod m5_tests {
             namespace: "mcpstore".into(),
             watch_collections: vec![collection.into()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
 
         let reactor = Arc::new(EventReactor::new(store.clone(), config));
@@ -685,6 +925,7 @@ mod redis_tests {
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
 
         let reactor = Arc::new(EventReactor::new(reader_store, config));
@@ -764,6 +1005,7 @@ mod redis_tests {
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
         let config_b = ReactorConfig {
             subscriber_id: format!("{ns}-b"),
@@ -771,6 +1013,7 @@ mod redis_tests {
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
 
         let reactor_a = Arc::new(EventReactor::new(store_a, config_a));
@@ -853,6 +1096,7 @@ mod redis_tests {
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
         let store1 = RedisStore::new(&url).await.unwrap();
         let reactor1 = Arc::new(EventReactor::new(store1, config1));
@@ -896,6 +1140,7 @@ mod redis_tests {
             namespace: ns.clone(),
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
         };
         let store2 = RedisStore::new(&url).await.unwrap();
         let reactor2 = Arc::new(EventReactor::new(store2, config2));
