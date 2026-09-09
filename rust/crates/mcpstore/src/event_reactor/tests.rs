@@ -664,6 +664,15 @@ mod tests {
     }
 }
 
+#[test]
+fn keyspace_metadata_is_internal() {
+    assert!(is_internal_collection("__mcpstore_migration", "mcpstore"));
+    assert!(is_internal_collection(
+        "__mcpstore_keyspace_meta",
+        "mcpstore"
+    ));
+}
+
 /// Verify recursion guard: reactor internal collections (cursors, claims) do not trigger user rules.
 /// This test registers a rule that would fire on ANY collection change, writes to an event
 /// collection, and then verifies the cursor/claim writes (which happen during processing)

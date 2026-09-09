@@ -44,6 +44,7 @@ use execution::{ReactionExecutionError, ReactionExecutionStatus, ReactionExecuti
 
 /// Internal collection suffixes that must never trigger reactions.
 const INTERNAL_SUFFIXES: &[&str] = &["reactor:cursors", "reactor:claims", "reactor:executions"];
+const GLOBAL_INTERNAL_COLLECTIONS: &[&str] = &["__mcpstore_migration", "__mcpstore_keyspace_meta"];
 
 /// Configuration for creating an EventReactor.
 #[derive(Clone, Debug)]
@@ -131,9 +132,10 @@ impl std::error::Error for ReactorError {}
 /// Check if a collection belongs to the reactor's internal state.
 /// These must never trigger user rules.
 fn is_internal_collection(collection: &str, namespace: &str) -> bool {
-    INTERNAL_SUFFIXES
-        .iter()
-        .any(|suffix| collection == &format!("{namespace}:{suffix}"))
+    GLOBAL_INTERNAL_COLLECTIONS.contains(&collection)
+        || INTERNAL_SUFFIXES
+            .iter()
+            .any(|suffix| collection == &format!("{namespace}:{suffix}"))
 }
 
 impl<S> EventReactor<S>
@@ -504,7 +506,7 @@ where
             Some(v) => match crate::cache::codec::value_to_json(v.clone()) {
                 Ok(j) => Some(j),
                 Err(e) => {
-                    error!(collection = %collection, key = %key, error = ?e, "failed to decode value, skipping");
+                    debug!(collection = %collection, key = %key, error = ?e, "failed to decode value, skipping");
                     if let Err(e) = self.cursor_store.save(&change_id).await {
                         warn!(error = ?e, "failed to save cursor after decode error");
                     }
