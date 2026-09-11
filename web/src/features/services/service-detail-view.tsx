@@ -136,9 +136,27 @@ export function ServiceDetailView(props: {
   const configArgs = Array.isArray(serviceConfig?.args)
     ? serviceConfig.args.map(String).join(" ")
     : null;
-  const availableToolCount = statusReport?.tools.items.filter(
-    (item) => item.availability === "available",
-  ).length;
+  const totalParamCount = useMemo(() => {
+    if (!tools.length) return null;
+    return tools.reduce((sum, tool) => {
+      const schema = getToolSchema(tool) as { properties?: Record<string, unknown> };
+      return sum + Object.keys(schema.properties || {}).length;
+    }, 0);
+  }, [tools]);
+  const catalogCounts = useMemo(
+    () => ({
+      prompts: prompts.length,
+      tools: tools.length,
+      resources: resources.length + resourceTemplates.length,
+    }),
+    [prompts.length, resourceTemplates.length, resources.length, tools.length],
+  );
+  const catalogTotal =
+    catalogCounts.prompts + catalogCounts.tools + catalogCounts.resources;
+  const goToCatalogTab = (tab: CatalogTab) => {
+    setActiveTab(tab);
+    setRightPaneView("catalog");
+  };
   const selectedTool = useMemo(() => {
     if (!tools.length) return null;
     return (
@@ -338,15 +356,15 @@ export function ServiceDetailView(props: {
             }}
             className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
           >
-            <CatalogTabsList variant="line">
-              <CatalogTabTrigger
-                value="tools"
-                label={t("tools")}
-                variant="text"
-              />
+            <CatalogTabsList variant="line" layout="catalog">
               <CatalogTabTrigger
                 value="prompts"
                 label={t("prompts")}
+                variant="text"
+              />
+              <CatalogTabTrigger
+                value="tools"
+                label={t("tools")}
                 variant="text"
               />
               <CatalogTabTrigger
@@ -589,55 +607,77 @@ export function ServiceDetailView(props: {
             }
           />
           {rightPaneView === "service" ? (
-            <MetricGrid columns="four">
-              <MetricTile
-                variant="compact"
-                label={t("name")}
-                value={service.service_name}
-                title={service.service_name}
-                hint={
-                  service.scope.type === "store"
-                    ? t("store")
-                    : `${t("agent")} ${service.scope.agent_id}`
-                }
-              />
-              <MetricTile
-                variant="compact"
-                label={t("endpoint")}
-                value={String(endpoint)}
-                title={String(endpoint)}
-                hint={
-                  configArgs
-                    ? `${transport} · ${configArgs}`
-                    : t("transportSuffix", { transport })
-                }
-              />
-              <MetricTile
-                variant="compact"
-                label={t("status")}
-                value={String(service.state.readiness.status || t("unknown"))}
-                title={String(service.state.readiness.status || t("unknown"))}
-                hint={statusReport?.health || t("clickToManage")}
-                active={statusDialogOpen}
-                onClick={() => setStatusDialogOpen(true)}
-              />
-              <MetricTile
-                variant="compact"
-                label={t("catalog")}
-                value={String(
-                  tools.length +
-                    resources.length +
-                    resourceTemplates.length +
-                    prompts.length,
-                )}
-                hint={t("catalogSummary", {
-                  tools: tools.length,
-                  resources: resources.length,
-                  templates: resourceTemplates.length,
-                  prompts: prompts.length,
-                })}
-              />
-            </MetricGrid>
+            <section className="shrink-0 border-b pb-4">
+              <MetricGrid columns="four">
+                <MetricTile
+                  variant="compact"
+                  label={t("status")}
+                  value={String(service.state.readiness.status || t("unknown"))}
+                  title={String(service.state.readiness.status || t("unknown"))}
+                  hint={statusReport?.health || t("clickToManage")}
+                  active={statusDialogOpen}
+                  onClick={() => setStatusDialogOpen(true)}
+                />
+                <MetricTile
+                  variant="compact"
+                  label={t("totalParamCount")}
+                  value={
+                    totalParamCount === null ? "" : String(totalParamCount)
+                  }
+                  title={
+                    totalParamCount === null
+                      ? undefined
+                      : t("paramCount", { count: totalParamCount })
+                  }
+                  hint={
+                    tools.length
+                      ? t("itemsCount", { count: tools.length })
+                      : undefined
+                  }
+                />
+                <MetricTile
+                  variant="compact"
+                  label={t("uptime")}
+                  value=""
+                />
+                <MetricTile
+                  variant="compact"
+                  label={t("catalog")}
+                  value={String(catalogTotal)}
+                  hintClassName="flex min-w-0 gap-1 overflow-hidden sm:gap-2"
+                  hint={
+                    <>
+                      {(
+                        [
+                          ["prompts", catalogCounts.prompts, t("prompts")] as const,
+                          ["tools", catalogCounts.tools, t("tools")] as const,
+                          [
+                            "resources",
+                            catalogCounts.resources,
+                            t("resources"),
+                          ] as const,
+                        ] as const
+                      ).map(([tab, count, label]) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          className={cn(
+                            "rounded-sm px-0.5 transition-colors hover:text-foreground",
+                            rightPaneView === "catalog" &&
+                              activeTab === tab &&
+                              "font-semibold text-foreground underline decoration-foreground/40 underline-offset-2",
+                          )}
+                          title={label}
+                          onClick={() => goToCatalogTab(tab)}
+                        >
+                          {count}
+                        </button>
+                      ))}
+                    </>
+                  }
+                />
+              </MetricGrid>
+            </section>
           ) : null}
           {error ? (
             <ScrollPane className="flex-1">
@@ -681,16 +721,16 @@ export function ServiceDetailView(props: {
           ) : (
             <ScrollPane className="flex-1">
               {rightPaneView === "service" ? (
-                <ServiceOverviewPane
-                  service={service}
-                  description={description}
-                  transport={transport}
-                  launchLine={launchLine}
-                  configArgs={configArgs}
-                  endpoint={String(endpoint)}
-                  availableToolCount={availableToolCount}
-                  statusReport={statusReport}
-                />
+                <div className="rounded-lg border border-border/50 bg-muted/15 p-4">
+                  <ServiceOverviewPane
+                    service={service}
+                    description={description}
+                    transport={transport}
+                    launchLine={launchLine}
+                    configArgs={configArgs}
+                    endpoint={String(endpoint)}
+                  />
+                </div>
               ) : activeTab === "tools" ? (
                 <PageEmpty
                   title={t("noToolSelected")}

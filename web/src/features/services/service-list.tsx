@@ -1,7 +1,8 @@
 import { useState } from "react"
-import { LayersIcon, LinkIcon, MoreHorizontalIcon, RotateCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
+import { LayersIcon, MoreHorizontalIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
 
 import { EntityRow } from "@/components/shared/entity-row"
+import { ServiceTransitionIcon } from "@/components/shared/service-transition-icon"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceConnectionMark } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
@@ -64,7 +65,7 @@ function ServiceMoreActionsDialog({
                   onDisconnect(service)
                 }}
               >
-                {disconnecting ? <Spinner data-icon="inline-start" /> : <UnlinkIcon data-icon="inline-start" />}
+                {disconnecting ? <Spinner data-icon="inline-start" /> : <ServiceTransitionIcon direction="disconnect" data-icon="inline-start" />}
                 {disconnecting ? t("disconnecting") : t("disconnect")}
               </Button>
               <Button
@@ -94,7 +95,7 @@ function ServiceMoreActionsDialog({
                 onConnect(service)
               }}
             >
-              <LinkIcon data-icon="inline-start" />
+              <ServiceTransitionIcon direction="connect" data-icon="inline-start" />
               {t("connect")}
             </Button>
           )}
@@ -170,7 +171,8 @@ function ServiceRow({
   return (
     <EntityRow
       variant="inline"
-      className="min-h-14 cursor-pointer py-2.5 hover:bg-muted/60"
+      interactive
+      className="cursor-pointer"
       tabIndex={0}
       onClick={() => onOpen(service)}
       onKeyDown={(event) => {

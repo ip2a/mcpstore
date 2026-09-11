@@ -1,5 +1,4 @@
-import { LinkIcon, UnlinkIcon } from "lucide-react"
-
+import { ServiceTransitionIcon } from "@/components/shared/service-transition-icon"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { isServiceConnected, isServiceConnecting } from "@/features/services/service-display-status"
@@ -16,34 +15,6 @@ export function isServiceStarting(state?: ServiceState, busy?: string | null, in
 
 export function isServiceDisconnecting(busy?: string | null, instanceId?: string) {
   return Boolean(instanceId && busy === `disconnect:${instanceId}`)
-}
-
-/**
- * Inner content wrapper that uses CSS grid stacking to size the button
- * to its widest possible state, avoiding layout shift without a magic width value.
- */
-function ConnectionButtonContent({
-  label,
-  sizerLabel,
-  spinner = false,
-}: {
-  label: string
-  sizerLabel: string
-  spinner?: boolean
-}) {
-  return (
-    <span className="inline-grid [&>*]:col-start-1 [&>*]:row-start-1">
-      {/* Invisible sizer: always renders the longest label to reserve width */}
-      <span className="invisible" aria-hidden="true">
-        {sizerLabel}
-      </span>
-      {/* Visible content */}
-      <span className="flex items-center gap-1.5">
-        {spinner ? <Spinner className="size-4" /> : null}
-        <span>{label}</span>
-      </span>
-    </span>
-  )
 }
 
 export function ServiceConnectionButton({
@@ -71,17 +42,11 @@ export function ServiceConnectionButton({
   const disconnecting = isServiceDisconnecting(busy, instanceId)
   const instanceConnectionBusy = busy === `connect:${instanceId}` || busy === `disconnect:${instanceId}`
 
-  // The longest label across all states — used by the sizer to prevent layout shift
-  const sizerLabel = t("disconnecting")
-
   if (running) {
     return (
       <Button variant={variant} size={size} className={className} onClick={onDisconnect} disabled={disconnecting}>
-        <ConnectionButtonContent
-          spinner={disconnecting}
-          label={disconnecting ? t("disconnecting") : t("disconnect")}
-          sizerLabel={sizerLabel}
-        />
+        {disconnecting ? <Spinner data-icon="inline-start" /> : <ServiceTransitionIcon direction="disconnect" data-icon="inline-start" />}
+        {disconnecting ? t("disconnecting") : t("disconnect")}
       </Button>
     )
   }
@@ -89,14 +54,16 @@ export function ServiceConnectionButton({
   if (starting) {
     return (
       <Button variant={variant} size={size} className={className} disabled>
-        <ConnectionButtonContent spinner label={t("connecting")} sizerLabel={sizerLabel} />
+        <Spinner data-icon="inline-start" />
+        {t("connecting")}
       </Button>
     )
   }
 
   return (
     <Button variant={variant} size={size} className={className} onClick={onConnect} disabled={instanceConnectionBusy}>
-      <ConnectionButtonContent label={t("connect")} sizerLabel={sizerLabel} />
+      <ServiceTransitionIcon direction="connect" data-icon="inline-start" />
+      {t("connect")}
     </Button>
   )
 }
@@ -133,12 +100,13 @@ export function ServiceConnectionButtonForEntry({
     <Button
       variant="outline"
       size="icon-sm"
+      className="h-8 w-auto px-2"
       aria-label={label}
       title={label}
       disabled={pending}
       onClick={() => (running ? onDisconnect(service) : onConnect(service))}
     >
-      {pending ? <Spinner /> : running ? <UnlinkIcon /> : <LinkIcon />}
+      {pending ? <Spinner /> : running ? <ServiceTransitionIcon direction="disconnect" /> : <ServiceTransitionIcon direction="connect" />}
     </Button>
   )
 }

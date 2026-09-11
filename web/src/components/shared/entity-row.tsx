@@ -11,11 +11,22 @@ type EntityRowProps = HTMLAttributes<HTMLElement> & {
   actionsProps?: HTMLAttributes<HTMLDivElement> & DataAttributes
   asChild?: boolean
   children: ReactNode
+  interactive?: boolean
   selected?: boolean
   variant?: "article" | "inline"
 }
 
-export function EntityRow({ actions, actionsProps, asChild = false, children, className, selected = false, variant = "article", ...props }: EntityRowProps) {
+export function EntityRow({
+  actions,
+  actionsProps,
+  asChild = false,
+  children,
+  className,
+  interactive = false,
+  selected = false,
+  variant = "article",
+  ...props
+}: EntityRowProps) {
   if (asChild) {
     return (
       <article className={cn("rounded-md border px-3 py-3", selected && "bg-muted", className)} data-selected={selected ? "true" : "false"} {...props}>
@@ -37,8 +48,20 @@ export function EntityRow({ actions, actionsProps, asChild = false, children, cl
 
   if (variant === "inline") {
     return (
-      <div className={cn("@container border-b py-3", className)} {...props}>
-        <div className="grid gap-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-center">
+      <div
+        className={cn("@container border-b", interactive && "group/row px-1.5 py-0.5", className)}
+        data-selected={selected ? "true" : "false"}
+        {...props}
+      >
+        <div
+          className={cn(
+            "grid gap-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-center",
+            interactive
+              ? "min-h-14 rounded-md px-2.5 py-2.5 transition-colors group-hover/row:bg-muted/60"
+              : "py-3",
+            selected && "bg-muted",
+          )}
+        >
           {content}
         </div>
       </div>

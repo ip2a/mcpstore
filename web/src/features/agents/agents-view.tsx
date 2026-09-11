@@ -25,6 +25,7 @@ import { isServiceConnected } from "@/features/services/service-display-status"
 import { type AgentItem, type ScopeSummary, type ScopeView, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { getServiceEndpointLabel } from "@/lib/service-info"
+import { getToolSchema } from "@/lib/tool-info"
 import { cn } from "@/lib/utils"
 
 type RightPaneView = "overview" | "scope"
@@ -151,6 +152,38 @@ export function AgentsView(props: {
     }
     return counts
   }, [scopeTools])
+
+  const scopeConnectionStats = useMemo(
+    () => connectionStatsForServices(scopeServices),
+    [scopeServices],
+  )
+
+  const scopeTotalParamCount = useMemo(() => {
+    if (!scopeTools.length) return null
+    return scopeTools.reduce((sum, { tool }) => {
+      const schema = getToolSchema(tool) as { properties?: Record<string, unknown> }
+      return sum + Object.keys(schema.properties || {}).length
+    }, 0)
+  }, [scopeTools])
+
+  const scopeReadinessStatus = useMemo(() => {
+    if (!scopeServices.length) return t("unknown")
+    const allReady = scopeServices.every((service) => service.state.readiness.status === "ready")
+    if (allReady && scopeConnectionStats.connected === scopeConnectionStats.services) return "ready"
+    if (scopeConnectionStats.connected === 0) return t("statusDisconnected")
+    return t("agentServicesConnectionCount", {
+      connected: scopeConnectionStats.connected,
+      services: scopeConnectionStats.services,
+    })
+  }, [scopeConnectionStats.connected, scopeConnectionStats.services, scopeServices, t])
+
+  const scopeHealthHint = useMemo(() => {
+    if (!scopeServices.length) return undefined
+    const healthyCount = scopeServices.filter((service) => service.state.health === "healthy").length
+    if (healthyCount === scopeServices.length) return "healthy"
+    if (healthyCount === 0) return "unhealthy"
+    return `${healthyCount}/${scopeServices.length}`
+  }, [scopeServices])
 
   useEffect(() => {
     setPreviewServiceId(null)
@@ -324,6 +357,44 @@ export function AgentsView(props: {
               scopeTitle={scopeTitle}
             />
 
+            <section className="shrink-0 border-b pb-4">
+              <MetricGrid columns="four">
+                <MetricTile
+                  variant="compact"
+                  label={t("status")}
+                  value={scopeReadinessStatus}
+                  title={scopeReadinessStatus}
+                  hint={scopeHealthHint}
+                />
+                <MetricTile
+                  variant="compact"
+                  label={t("totalParamCount")}
+                  value={scopeTotalParamCount === null ? "" : String(scopeTotalParamCount)}
+                  title={
+                    scopeTotalParamCount === null
+                      ? undefined
+                      : t("paramCount", { count: scopeTotalParamCount })
+                  }
+                  hint={
+                    scopeTools.length
+                      ? t("itemsCount", { count: scopeTools.length })
+                      : undefined
+                  }
+                />
+                <MetricTile variant="compact" label={t("uptime")} value="" />
+                <MetricTile
+                  variant="compact"
+                  label={t("catalog")}
+                  value={String(scopeTools.length)}
+                  hint={
+                    scopeServices.length
+                      ? `${scopeServices.length} ${t("services").toLowerCase()}`
+                      : undefined
+                  }
+                />
+              </MetricGrid>
+            </section>
+
             <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
               <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-4 overflow-hidden sm:max-w-2xl">
                 <DialogHeader className="shrink-0">
@@ -357,8 +428,9 @@ export function AgentsView(props: {
                           <EntityRow
                             key={service.instance_id}
                             variant="inline"
+                            interactive
                             selected={selected}
-                            className="min-h-14 cursor-pointer py-2.5 hover:bg-muted/60"
+                            className="cursor-pointer"
                             tabIndex={0}
                             onClick={() => setPreviewServiceId(service.instance_id)}
                             onKeyDown={(event) => {
@@ -542,7 +614,7 @@ function AgentPreviewHeader({
         </Button>
         <Button size="sm" variant="outline" onClick={onDetails} disabled={loading}>
           <EyeIcon data-icon="inline-start" />
-          详情
+          {t("details")}
         </Button>
         <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
           <RefreshCwIcon data-icon="inline-start" />
