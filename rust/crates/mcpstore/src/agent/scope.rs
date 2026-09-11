@@ -217,7 +217,7 @@ impl MCPStore {
             })
     }
 
-    /// 作用域注册表：root + store + 各 agent，每项带运行时服务数（来自 registry）。
+    /// Scope registry: root + store + each agent, each entry with its runtime service count (from the registry).
     pub async fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {
         self.refresh_from_db_if_needed().await?;
         let instances = self.registry.list_instances().await;
@@ -251,13 +251,13 @@ impl MCPStore {
         Ok(summaries)
     }
 
-    /// 单个作用域摘要（root = 全部服务的聚合视图）；未声明返回 None。
+    /// Single scope summary (root = aggregate view of all services); returns None when undeclared.
     pub async fn scope_info(&self, view: &ScopeView) -> Result<Option<ScopeSummary>> {
         let scopes = self.list_scopes().await?;
         Ok(scopes.into_iter().find(|summary| &summary.scope == view))
     }
 
-    /// 单个 agent 实体（agent_id + 其下实例 id）；不存在返回 None。
+    /// Single agent entity (agent_id + its instance ids); returns None when absent.
     pub async fn find_agent(&self, agent_id: &str) -> Result<Option<AgentInfo>> {
         self.refresh_from_db_if_needed().await?;
         let instance_ids = self.registry.list_agent_instance_ids(agent_id).await;

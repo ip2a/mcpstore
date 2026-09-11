@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 const OAUTH_CALLBACK_TIMEOUT_SECS: u64 = 300;
 
-/// OAuth 回调（GET）：浏览器跳转带来 `code/state/iss`，同时携带 `scope/agent_id` 用于定位服务。
+/// OAuth callback (GET): the browser redirect carries `code/state/iss` plus `scope/agent_id` to locate the service.
 #[derive(Deserialize)]
 pub(super) struct AuthCallbackQuery {
     scope: Option<String>,

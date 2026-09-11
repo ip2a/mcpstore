@@ -221,8 +221,9 @@ impl MCPStore {
             .retain_statuses(&active_instance_ids)
             .await;
 
-        // 增量合并连接池，而非清空重建：只移除已删除的实例，
-        // 只对配置变更的实例重连，其余保留活连接。
+        // Merge the connection pool incrementally instead of clearing and rebuilding:
+        // remove only deleted instances, reconnect only instances whose config changed,
+        // and keep live connections for the rest.
         let current_ids = self.pool.instance_ids().await;
         for stale_id in current_ids.difference(&active_instance_ids) {
             self.pool.remove(*stale_id).await.ok();
@@ -264,7 +265,7 @@ impl MCPStore {
             self.auth_coordinator
                 .initialize_status(instance_id, &transport_config.auth)
                 .await;
-            // 只在配置实际变化或实例首次注册时才重建连接池条目
+            // Rebuild a pool entry only when the config actually changed or the instance is newly registered
             if instance.restart_required() || !self.pool.contains(instance_id).await {
                 self.pool.remove(instance_id).await.ok();
                 self.pool.add(instance_id, transport_config).await;

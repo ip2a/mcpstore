@@ -53,7 +53,7 @@ pub(super) struct SessionExtendRequest {
     lease_seconds: i64,
 }
 
-/// 绑定/解绑服务：以 `service_name + scope` 寻址（不再要求调用方传 instance_id）。
+/// Bind/unbind services: addressed by `service_name + scope` (callers no longer pass an instance_id).
 #[derive(Deserialize)]
 pub(super) struct SessionBindServiceRequest {
     session_key: Option<String>,

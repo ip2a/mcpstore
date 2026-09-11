@@ -67,17 +67,17 @@ impl ServiceInstance {
     }
 }
 
-/// 作用域注册表条目（`list_scopes` / `scope_info` 返回）。
+/// Scope registry entry (returned by `list_scopes` / `scope_info`).
 ///
-/// 把“作用域”当一等公民：每个 scope（root / store / agent）一个条目，
-/// 带它在运行时 registry 里的服务数。
+/// Treats "scope" as a first-class citizen: one entry per scope (root / store / agent),
+/// carrying its service count in the runtime registry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScopeSummary {
     pub scope: ScopeView,
     pub service_count: usize,
 }
 
-/// Agent 实体（`find_agent` 返回）。
+/// Agent entity (returned by `find_agent`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentInfo {
     pub agent_id: String,

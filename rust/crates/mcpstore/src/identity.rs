@@ -31,10 +31,11 @@ impl ScopeRef {
     }
 }
 
-/// 读视图 / 注册表作用域：在实例作用域 [`ScopeRef`] 之上加 `Root`。
+/// Read-view / registry scope: adds `Root` on top of the instance scopes ([`ScopeRef`]).
 ///
-/// `Root` 不是实例作用域——服务不会“声明在 root”，它只表示读聚合（store ∪ 所有 agent）。
-/// 因此 `Root` 仅用于列表 / 注册表 / 读视图；声明类操作仍走 [`ScopeRef`]。
+/// `Root` is not an instance scope — services are never "declared in root"; it only denotes the
+/// read aggregate (store ∪ all agents). `Root` is therefore only used for listing / registry /
+/// read views; declaration operations still go through [`ScopeRef`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ScopeView {
@@ -44,7 +45,7 @@ pub enum ScopeView {
 }
 
 impl ScopeView {
-    /// `Root` 没有对应的实例作用域；`Store` / `Agent` 返回对应 [`ScopeRef`]。
+    /// `Root` has no matching instance scope; `Store` / `Agent` return the corresponding [`ScopeRef`].
     pub fn as_scope_ref(&self) -> Option<ScopeRef> {
         match self {
             ScopeView::Root => None,
