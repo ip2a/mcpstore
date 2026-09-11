@@ -39,8 +39,8 @@ pub use mcp_schema::McpConfig;
 pub use merge::merge_config;
 pub use monitoring_schema::MonitoringConfig;
 pub use service_schema::{
-    ExecutionPolicy, ExecutionTarget, HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle,
-    RestartPolicy, RestartPolicyKind, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,
+    Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
     ServiceLifecycleConfig, ServiceLifecycleDefaults, StartupPolicy,
 };
 pub use standalone_schema::StandaloneConfig;

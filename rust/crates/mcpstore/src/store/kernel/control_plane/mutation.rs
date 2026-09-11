@@ -79,7 +79,7 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         mut config: ServerConfig,
-        execution_policy: Option<crate::config::ExecutionPolicy>,
+        runtime_policy: Option<crate::config::RuntimePolicy>,
     ) -> Result<String> {
         if config.mcpstore.is_some() {
             return Err(Error::new(
@@ -94,7 +94,7 @@ impl ControlPlane {
                     serde_json::json!({
                         "service_name": service_name,
                         "config": config,
-                        "execution_policy": execution_policy,
+                        "runtime_policy": runtime_policy,
                     }),
                 )
                 .await;
@@ -126,8 +126,8 @@ impl ControlPlane {
             .mcpstore
             .as_mut()
             .expect("current definition must have materialized _mcpstore scopes");
-        if let Some(policy) = execution_policy {
-            extension.execution_policy = Some(policy);
+        if let Some(policy) = runtime_policy {
+            extension.runtime_policy = Some(policy);
         }
         extension.revision = if base_changed {
             current.definition_revision().saturating_add(1)

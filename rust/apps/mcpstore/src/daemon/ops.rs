@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use mcpstore::config::{
-    AppConfig, ExecutionPolicy, ExecutionTarget, McpStoreExtension, ScopeDeclarations,
+    AppConfig, McpStoreExtension, Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations,
     ScopeDescriptor, ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
@@ -12,68 +12,95 @@ use serde_json::{json, Value};
 
 use crate::daemon::protocol::KernelOperation;
 
-/// Resolve and validate execution target at the daemon trust boundary.
-/// Missing field keeps older clients on the daemon target.
-pub(crate) async fn resolve_daemon_execution_target(
+/// Resolve and validate the runtime selection at the daemon trust boundary.
+/// A missing `runtime` keeps older clients on the daemon runtime.
+pub(crate) async fn resolve_daemon_runtime(
     store: &MCPStore,
     instance_id: InstanceId,
     payload: &Value,
-) -> Result<ExecutionTarget, Error> {
-    let requested = match payload.get("execute_on") {
-        None | Some(Value::Null) => ExecutionTarget::Daemon,
-        Some(Value::String(target)) => target
+) -> Result<RuntimeSelection, Error> {
+    let runtime = match payload.get("runtime") {
+        None | Some(Value::Null) => Runtime::Daemon,
+        Some(Value::String(value)) => value
             .parse()
             .map_err(|error: String| Error::new(FailureCode::InvalidInput, error))?,
         Some(_) => {
             return Err(Error::new(
                 FailureCode::InvalidInput,
-                "execute_on must be a string",
+                "runtime must be a string",
             ))
         }
     };
-    if !matches!(
-        requested,
-        ExecutionTarget::Daemon | ExecutionTarget::Node(_)
-    ) {
+    let daemon_node = match payload.get("daemon_node") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if !value.trim().is_empty() => Some(value.clone()),
+        Some(_) => {
+            return Err(Error::new(
+                FailureCode::InvalidInput,
+                "daemon_node must be a non-empty string",
+            ))
+        }
+    };
+    if daemon_node.is_some() && runtime != Runtime::Daemon {
         return Err(Error::new(
-            FailureCode::CapabilityUnsupported,
-            "daemon execution accepts execute_on=daemon or node:NODE_ID only",
+            FailureCode::InvalidInput,
+            "daemon_node requires runtime=daemon",
         ));
     }
+    let selection = RuntimeSelection {
+        runtime,
+        daemon_node,
+    };
     if let Some(instance) = store.find_instance(instance_id).await {
         if let Some(definition) = store.find_definition(&instance.service_name).await {
-            if let Some(policy) = definition.execution_policy {
-                if let Some(missing) = missing_local_capabilities(&policy, &requested) {
+            if let Some(policy) = definition.runtime_policy {
+                if let Some(missing) = missing_local_capabilities(&policy, &selection) {
                     return Err(capabilities_unsupported(missing));
                 }
-                if !policy.allows(&requested) {
-                    return Err(target_not_allowed(
-                        &requested,
+                if !policy.allows_runtime(selection.runtime) {
+                    return Err(runtime_not_allowed(
+                        &selection,
                         &instance.service_name,
                         &policy,
                     ));
                 }
+                if let Some(node) = &selection.daemon_node {
+                    if !policy.allows_daemon(node) {
+                        return Err(daemon_not_allowed(node, &instance.service_name, &policy));
+                    }
+                }
             }
         }
     }
-    Ok(requested)
+    Ok(selection)
 }
 
-fn target_not_allowed(
-    target: &ExecutionTarget,
+fn runtime_not_allowed(
+    selection: &RuntimeSelection,
     service_name: &str,
-    policy: &ExecutionPolicy,
+    policy: &RuntimePolicy,
 ) -> Error {
     Error::new(
         FailureCode::InvalidInput,
         format!(
-            "execution target '{target}' not allowed for service '{service_name}'; allowed: {}",
+            "runtime '{}' not allowed for service '{service_name}'; allowed: {}",
+            selection.runtime,
             policy
-                .allowed_targets
+                .allowed_runtimes
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", ")
+        ),
+    )
+}
+
+fn daemon_not_allowed(node: &str, service_name: &str, policy: &RuntimePolicy) -> Error {
+    Error::new(
+        FailureCode::InvalidInput,
+        format!(
+            "daemon node '{node}' not allowed for service '{service_name}'; allowed: {}",
+            policy.allowed_daemons.join(", ")
         ),
     )
 }
@@ -96,7 +123,7 @@ pub(crate) async fn execute(
     match operation {
         KernelOperation::CallTool => {
             let instance_id = instance_id(&payload)?;
-            resolve_daemon_execution_target(store, instance_id, &payload).await?;
+            resolve_daemon_runtime(store, instance_id, &payload).await?;
             let tool_name = required_str(&payload, "tool_name")?;
             let args = payload.get("args").cloned().unwrap_or_else(|| json!({}));
             let result = store.call_tool(instance_id, &tool_name, args).await?;
@@ -222,11 +249,9 @@ pub(crate) async fn execute(
         KernelOperation::UpdateService => {
             let name = required_str(&payload, "name")?;
             let config = payload_field::<ServerConfig>(&payload, "config")?;
-            let execution_policy =
-                payload_field::<Option<ExecutionPolicy>>(&payload, "execution_policy")?;
-            let request_id = store
-                .update_service(&name, config, execution_policy)
-                .await?;
+            let runtime_policy =
+                payload_field::<Option<RuntimePolicy>>(&payload, "runtime_policy")?;
+            let request_id = store.update_service(&name, config, runtime_policy).await?;
             Ok(
                 json!({"service_name": name, "request_id": request_id, "status": mutation_status(store)}),
             )
@@ -323,31 +348,31 @@ pub(crate) async fn execute(
         }
         KernelOperation::ResourcesList => {
             let instance_id = instance_id(&payload)?;
-            resolve_daemon_execution_target(store, instance_id, &payload).await?;
+            resolve_daemon_runtime(store, instance_id, &payload).await?;
             let resources = store.list_resources(instance_id).await?;
             Ok(json!({"resources": resources, "total": resources.len()}))
         }
         KernelOperation::ResourcesTemplates => {
             let instance_id = instance_id(&payload)?;
-            resolve_daemon_execution_target(store, instance_id, &payload).await?;
+            resolve_daemon_runtime(store, instance_id, &payload).await?;
             let templates = store.list_resource_templates(instance_id).await?;
             Ok(json!({"templates": templates, "total": templates.len()}))
         }
         KernelOperation::ResourcesRead => {
             let instance_id = instance_id(&payload)?;
-            resolve_daemon_execution_target(store, instance_id, &payload).await?;
+            resolve_daemon_runtime(store, instance_id, &payload).await?;
             let uri = required_str(&payload, "uri")?;
             Ok(json!({"resource": store.read_resource(instance_id, &uri).await?}))
         }
         KernelOperation::PromptsList => {
             let instance_id = instance_id(&payload)?;
-            resolve_daemon_execution_target(store, instance_id, &payload).await?;
+            resolve_daemon_runtime(store, instance_id, &payload).await?;
             let prompts = store.list_prompts(instance_id).await?;
             Ok(json!({"prompts": prompts, "total": prompts.len()}))
         }
         KernelOperation::PromptGet => {
             let instance_id = instance_id(&payload)?;
-            resolve_daemon_execution_target(store, instance_id, &payload).await?;
+            resolve_daemon_runtime(store, instance_id, &payload).await?;
             let prompt_name = required_str(&payload, "prompt_name")?;
             let arguments = payload
                 .get("arguments")
@@ -360,7 +385,7 @@ pub(crate) async fn execute(
         }
         KernelOperation::CompleteArgument => {
             let instance_id = instance_id(&payload)?;
-            resolve_daemon_execution_target(store, instance_id, &payload).await?;
+            resolve_daemon_runtime(store, instance_id, &payload).await?;
             let request = payload_field::<McpCompletionRequest>(&payload, "request")?;
             let completion = store.complete_mcp_argument(instance_id, request).await?;
             Ok(json!({"completion": completion}))
@@ -524,9 +549,9 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            execution_policy: previous
+            runtime_policy: previous
                 .as_ref()
-                .and_then(|extension| extension.execution_policy.clone()),
+                .and_then(|extension| extension.runtime_policy.clone()),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -777,15 +802,15 @@ fn host_capabilities() -> HashSet<&'static str> {
 }
 
 fn missing_local_capabilities(
-    policy: &ExecutionPolicy,
-    target: &ExecutionTarget,
+    policy: &RuntimePolicy,
+    selection: &RuntimeSelection,
 ) -> Option<String> {
-    if !matches!(target, ExecutionTarget::Local | ExecutionTarget::Node(_)) {
+    if selection.runtime != Runtime::Local && selection.daemon_node.is_none() {
         return None;
     }
     let capabilities = host_capabilities();
     let missing: Vec<_> = policy
-        .required_capabilities
+        .required_host_capabilities
         .iter()
         .filter(|capability| !capabilities.contains(capability.as_str()))
         .cloned()
@@ -818,12 +843,13 @@ mod tests {
 
     #[test]
     fn local_execution_rejects_missing_host_capability() {
-        let policy = ExecutionPolicy {
-            default_target: ExecutionTarget::Local,
-            allowed_targets: Vec::new(),
-            required_capabilities: vec!["definitely-missing-capability".into()],
+        let policy = RuntimePolicy {
+            allowed_runtimes: Vec::new(),
+            allowed_daemons: Vec::new(),
+            required_host_capabilities: vec!["definitely-missing-capability".into()],
         };
-        let error = missing_local_capabilities(&policy, &ExecutionTarget::Local).unwrap();
+        let error = missing_local_capabilities(&policy, &RuntimeSelection::runtime(Runtime::Local))
+            .unwrap();
         assert_eq!(error, "definitely-missing-capability");
     }
 
@@ -836,15 +862,15 @@ mod tests {
         let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
         let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
 
-        let target = resolve_daemon_execution_target(
+        let selection = resolve_daemon_runtime(
             &store,
             instance_id,
-            &json!({"execute_on": "node:remote"}),
+            &json!({"runtime": "daemon", "daemon_node": "remote"}),
         )
         .await
         .unwrap();
 
-        assert_eq!(target, ExecutionTarget::Node("remote".into()));
+        assert_eq!(selection, RuntimeSelection::daemon_node("remote"));
         std::fs::remove_dir_all(path).ok();
     }
 
@@ -862,10 +888,10 @@ mod tests {
             ..ServerConfig::default()
         };
         config.mcpstore = Some(McpStoreExtension {
-            execution_policy: Some(ExecutionPolicy {
-                default_target: ExecutionTarget::Local,
-                allowed_targets: vec![ExecutionTarget::Local],
-                required_capabilities: Vec::new(),
+            runtime_policy: Some(RuntimePolicy {
+                allowed_runtimes: vec![Runtime::Local],
+                allowed_daemons: Vec::new(),
+                required_host_capabilities: Vec::new(),
             }),
             scopes: ScopeDeclarations::store_only(),
             ..McpStoreExtension::default()
@@ -873,10 +899,9 @@ mod tests {
         store.add_service("svc", config).await.unwrap();
         let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
 
-        let error =
-            resolve_daemon_execution_target(&store, instance_id, &json!({"execute_on": "daemon"}))
-                .await
-                .unwrap_err();
+        let error = resolve_daemon_runtime(&store, instance_id, &json!({"runtime": "daemon"}))
+            .await
+            .unwrap_err();
 
         assert!(error.to_string().contains("not allowed"), "{error}");
         std::fs::remove_dir_all(path).ok();

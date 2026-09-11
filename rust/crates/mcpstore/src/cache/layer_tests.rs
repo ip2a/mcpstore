@@ -192,7 +192,7 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
             scopes: ScopeDeclarations::store_only(),
             lifecycle: None,
             handshake_mode: None,
-            execution_policy: None,
+            runtime_policy: None,
             metadata: serde_json::Map::new(),
             base_revision: 1,
             added_time: 100,

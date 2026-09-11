@@ -24,7 +24,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub server: ServerSettings,
     #[serde(default)]
-    pub daemon_nodes: BTreeMap<String, DaemonNodeSettings>,
+    pub daemons: BTreeMap<String, DaemonNodeSettings>,
     #[serde(default)]
     pub mcp_aggregate: McpAggregateConfig,
     #[serde(default)]
@@ -50,7 +50,7 @@ impl Default for AppConfig {
             created_at: default_created_at(),
             cache: CacheConfig::default(),
             server: ServerSettings::default(),
-            daemon_nodes: BTreeMap::new(),
+            daemons: BTreeMap::new(),
             mcp_aggregate: McpAggregateConfig::default(),
             health_check: HealthCheckConfig::default(),
             monitoring: MonitoringConfig::default(),
@@ -191,10 +191,10 @@ pub struct ServerSettings {
     pub web_port: u16,
     /// Kernel RPC TCP listener port; 0 disables remote daemon access.
     #[serde(default)]
-    pub kernel_port: u16,
+    pub rpc_port: u16,
     /// Required shared secret for Kernel RPC TCP connections.
     #[serde(default)]
-    pub kernel_token: Option<String>,
+    pub rpc_token: Option<String>,
     #[serde(default = "default_true")]
     pub core_enabled: bool,
     #[serde(default = "default_true")]
@@ -220,8 +220,8 @@ impl Default for ServerSettings {
             port: default_server_port(),
             app_port: default_app_port(),
             web_port: default_web_port(),
-            kernel_port: 0,
-            kernel_token: None,
+            rpc_port: 0,
+            rpc_token: None,
             core_enabled: true,
             app_enabled: true,
             web_enabled: true,

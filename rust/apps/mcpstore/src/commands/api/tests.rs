@@ -95,7 +95,7 @@ async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle,
                 handshake_mode: None,
-                execution_policy: None,
+                runtime_policy: None,
                 metadata,
                 base_revision: 1,
                 added_time: 111,

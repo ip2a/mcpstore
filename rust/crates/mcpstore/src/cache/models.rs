@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::config::{ExecutionPolicy, HandshakeMode, ScopeDeclarations, ServiceLifecycleConfig};
+use crate::config::{HandshakeMode, RuntimePolicy, ScopeDeclarations, ServiceLifecycleConfig};
 use crate::identity::{InstanceId, ScopeRef};
 use crate::registry::{ConfigRevision, ServiceDefinition};
 
@@ -22,7 +22,7 @@ pub struct ServiceDefinitionEntity {
     pub lifecycle: Option<ServiceLifecycleConfig>,
     pub handshake_mode: Option<HandshakeMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub execution_policy: Option<ExecutionPolicy>,
+    pub runtime_policy: Option<RuntimePolicy>,
     pub metadata: serde_json::Map<String, serde_json::Value>,
     pub base_revision: u64,
     pub added_time: i64,
@@ -36,7 +36,7 @@ impl From<&ServiceDefinition> for ServiceDefinitionEntity {
             scopes: definition.scopes.clone(),
             lifecycle: definition.lifecycle.clone(),
             handshake_mode: definition.handshake_mode,
-            execution_policy: definition.execution_policy.clone(),
+            runtime_policy: definition.runtime_policy.clone(),
             metadata: definition.metadata.clone(),
             base_revision: definition.base_revision,
             added_time: definition.added_time,
@@ -52,7 +52,7 @@ impl From<ServiceDefinitionEntity> for ServiceDefinition {
             scopes: entity.scopes,
             lifecycle: entity.lifecycle,
             handshake_mode: entity.handshake_mode,
-            execution_policy: entity.execution_policy,
+            runtime_policy: entity.runtime_policy,
             metadata: entity.metadata,
             base_revision: entity.base_revision,
             added_time: entity.added_time,

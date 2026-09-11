@@ -190,51 +190,40 @@ impl HandshakeMode {
     }
 }
 
-/// Placement selected for an MCP tool/resource execution.
+/// Runtime selected for an MCP tool/resource execution.
 ///
 /// This is deliberately separate from node mode: a DataPlane may still execute
 /// locally, while a ControlPlane may execute through its daemon.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ExecutionTarget {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Runtime {
     Local,
     Daemon,
-    Node(String),
 }
 
-impl ExecutionTarget {}
-
-impl std::fmt::Display for ExecutionTarget {
+impl std::fmt::Display for Runtime {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Local => write!(formatter, "local"),
             Self::Daemon => write!(formatter, "daemon"),
-            Self::Node(node_id) => write!(formatter, "node:{node_id}"),
         }
     }
 }
 
-impl std::str::FromStr for ExecutionTarget {
+impl std::str::FromStr for Runtime {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "local" => Ok(Self::Local),
             "daemon" => Ok(Self::Daemon),
-            value
-                if value
-                    .strip_prefix("node:")
-                    .is_some_and(|node| !node.trim().is_empty()) =>
-            {
-                Ok(Self::Node(value[5..].trim().to_string()))
-            }
             _ => Err(format!(
-                "invalid execution target '{value}'; expected local, daemon, or node:NODE_ID"
+                "invalid runtime '{value}'; expected local or daemon"
             )),
         }
     }
 }
 
-impl Serialize for ExecutionTarget {
+impl Serialize for Runtime {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -243,7 +232,7 @@ impl Serialize for ExecutionTarget {
     }
 }
 
-impl<'de> Deserialize<'de> for ExecutionTarget {
+impl<'de> Deserialize<'de> for Runtime {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -253,18 +242,48 @@ impl<'de> Deserialize<'de> for ExecutionTarget {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ExecutionPolicy {
-    pub default_target: ExecutionTarget,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub allowed_targets: Vec<ExecutionTarget>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub required_capabilities: Vec<String>,
+/// A runtime plus an optional daemon node id to route execution to.
+///
+/// Invariant: `daemon_node.is_some()` implies `runtime == Runtime::Daemon`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSelection {
+    pub runtime: Runtime,
+    pub daemon_node: Option<String>,
 }
 
-impl ExecutionPolicy {
-    pub fn allows(&self, target: &ExecutionTarget) -> bool {
-        self.allowed_targets.is_empty() || self.allowed_targets.contains(target)
+impl RuntimeSelection {
+    pub fn runtime(runtime: Runtime) -> Self {
+        Self {
+            runtime,
+            daemon_node: None,
+        }
+    }
+
+    pub fn daemon_node(node: impl Into<String>) -> Self {
+        Self {
+            runtime: Runtime::Daemon,
+            daemon_node: Some(node.into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimePolicy {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_runtimes: Vec<Runtime>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_daemons: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_host_capabilities: Vec<String>,
+}
+
+impl RuntimePolicy {
+    pub fn allows_runtime(&self, runtime: Runtime) -> bool {
+        self.allowed_runtimes.is_empty() || self.allowed_runtimes.contains(&runtime)
+    }
+
+    pub fn allows_daemon(&self, node: &str) -> bool {
+        self.allowed_daemons.is_empty() || self.allowed_daemons.iter().any(|d| d == node)
     }
 }
 
@@ -277,7 +296,7 @@ pub struct McpStoreExtension {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handshake_mode: Option<HandshakeMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub execution_policy: Option<ExecutionPolicy>,
+    pub runtime_policy: Option<RuntimePolicy>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub revision: u64,
     #[serde(flatten)]
@@ -470,13 +489,19 @@ impl ServerConfig {
         if let Some(policy) = self
             .mcpstore
             .as_ref()
-            .and_then(|extension| extension.execution_policy.as_ref())
+            .and_then(|extension| extension.runtime_policy.as_ref())
         {
-            if !policy.allows(&policy.default_target) {
-                return Err(format!(
-                    "execution_policy.default_target '{}' is not in allowed_targets",
-                    policy.default_target
-                ));
+            // `allowed_runtimes`/`allowed_daemons` use serde defaults: an empty list
+            // means "unrestricted". A declared policy that restricts nothing is a
+            // mistake, so reject a runtime_policy that carries no fields at all.
+            if policy.allowed_runtimes.is_empty()
+                && policy.allowed_daemons.is_empty()
+                && policy.required_host_capabilities.is_empty()
+            {
+                return Err(
+                    "runtime_policy must declare allowed_runtimes, allowed_daemons, or required_host_capabilities"
+                        .to_string(),
+                );
             }
         }
         Ok(())
@@ -501,7 +526,7 @@ impl ServerConfig {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle: None,
                 handshake_mode: None,
-                execution_policy: None,
+                runtime_policy: None,
                 revision: 1,
                 extra: Map::new(),
             });

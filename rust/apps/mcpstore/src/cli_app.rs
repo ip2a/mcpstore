@@ -161,7 +161,7 @@ pub fn run() -> Result<(), BoxErr> {
                 let endpoint = execution_endpoint(
                     endpoint.clone(),
                     app_config.as_ref(),
-                    &args.execution.execute_on,
+                    args.execution.daemon_node.as_deref(),
                 )?;
                 commands::mcp::call_tool(args.clone(), embedded, endpoint).await
             }
@@ -181,7 +181,7 @@ pub fn run() -> Result<(), BoxErr> {
                 let endpoint = execution_endpoint(
                     endpoint.clone(),
                     app_config.as_ref(),
-                    &args.execution.execute_on,
+                    args.execution.daemon_node.as_deref(),
                 )?;
                 commands::protocol::complete(args.clone(), embedded, endpoint).await
             }
@@ -209,16 +209,16 @@ pub fn run() -> Result<(), BoxErr> {
 fn execution_endpoint(
     endpoint: Option<crate::daemon::client::DaemonEndpoint>,
     app_config: Option<&mcpstore::AppConfig>,
-    requested: &commands::mcp::ExecutionTargetArg,
+    daemon_node: Option<&str>,
 ) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
     if endpoint.is_some() {
         return Ok(endpoint);
     }
-    let commands::mcp::ExecutionTargetArg::Node(node_id) = requested else {
+    let Some(node_id) = daemon_node else {
         return Ok(None);
     };
     let endpoint = app_config
-        .and_then(|config| config.daemon_nodes.get(node_id))
+        .and_then(|config| config.daemons.get(node_id))
         .map(crate::daemon::client::DaemonEndpoint::from_node);
     if let Some(endpoint) = endpoint {
         return Ok(Some(endpoint));
@@ -234,11 +234,11 @@ fn task_endpoint(
     args: &commands::task::TaskArgs,
     endpoint: Option<crate::daemon::client::DaemonEndpoint>,
 ) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
-    let requested = match &args.action {
-        commands::task::TaskAction::Run(args) => &args.execution.execute_on,
-        _ => &commands::mcp::ExecutionTargetArg::Auto,
+    let daemon_node = match &args.action {
+        commands::task::TaskAction::Run(args) => args.execution.daemon_node.as_deref(),
+        _ => None,
     };
-    execution_endpoint(endpoint, app_config, requested)
+    execution_endpoint(endpoint, app_config, daemon_node)
 }
 
 fn protocol_endpoint<T: ProtocolExecutionArgs>(
@@ -246,28 +246,30 @@ fn protocol_endpoint<T: ProtocolExecutionArgs>(
     args: &T,
     endpoint: Option<crate::daemon::client::DaemonEndpoint>,
 ) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
-    execution_endpoint(endpoint, app_config, args.execution_target())
+    execution_endpoint(endpoint, app_config, args.daemon_node())
 }
 
 trait ProtocolExecutionArgs {
-    fn execution_target(&self) -> &commands::mcp::ExecutionTargetArg;
+    fn daemon_node(&self) -> Option<&str>;
 }
 
 impl ProtocolExecutionArgs for commands::protocol::ResourceArgs {
-    fn execution_target(&self) -> &commands::mcp::ExecutionTargetArg {
+    fn daemon_node(&self) -> Option<&str> {
         match &self.action {
-            commands::protocol::ResourceAction::List(args) => &args.execution.execute_on,
-            commands::protocol::ResourceAction::Templates(args) => &args.execution.execute_on,
-            commands::protocol::ResourceAction::Read(args) => &args.execution.execute_on,
+            commands::protocol::ResourceAction::List(args) => args.execution.daemon_node.as_deref(),
+            commands::protocol::ResourceAction::Templates(args) => {
+                args.execution.daemon_node.as_deref()
+            }
+            commands::protocol::ResourceAction::Read(args) => args.execution.daemon_node.as_deref(),
         }
     }
 }
 
 impl ProtocolExecutionArgs for commands::protocol::PromptArgs {
-    fn execution_target(&self) -> &commands::mcp::ExecutionTargetArg {
+    fn daemon_node(&self) -> Option<&str> {
         match &self.action {
-            commands::protocol::PromptAction::List(args) => &args.execution.execute_on,
-            commands::protocol::PromptAction::Get(args) => &args.execution.execute_on,
+            commands::protocol::PromptAction::List(args) => args.execution.daemon_node.as_deref(),
+            commands::protocol::PromptAction::Get(args) => args.execution.daemon_node.as_deref(),
         }
     }
 }
@@ -417,7 +419,7 @@ mod tests {
     #[test]
     fn named_execution_node_resolves_endpoint_from_config() {
         let mut config = mcpstore::AppConfig::default();
-        config.daemon_nodes.insert(
+        config.daemons.insert(
             "remote".into(),
             mcpstore::DaemonNodeSettings {
                 endpoint: "127.0.0.1:1840".into(),
@@ -430,16 +432,19 @@ mod tests {
             "call",
             "svc",
             "noop",
-            "--execute-on",
-            "node:remote",
+            "--runtime",
+            "daemon",
+            "--daemon-node",
+            "remote",
         ])
         .unwrap();
         let Commands::Call(args) = &cli.command else {
             panic!("expected call command");
         };
-        let endpoint = execution_endpoint(None, Some(&config), &args.execution.execute_on)
-            .unwrap()
-            .unwrap();
+        let endpoint =
+            execution_endpoint(None, Some(&config), args.execution.daemon_node.as_deref())
+                .unwrap()
+                .unwrap();
         assert_eq!(endpoint.address, "127.0.0.1:1840");
         assert_eq!(endpoint.namespace, "ns");
         assert_eq!(endpoint.token.as_deref(), Some("secret"));
@@ -551,22 +556,40 @@ mod tests {
     }
 
     #[test]
-    fn parses_call_execution_targets() {
+    fn parses_call_runtime_and_daemon_node() {
         for (value, expected) in [
-            ("local", commands::mcp::ExecutionTargetArg::Local),
-            ("daemon", commands::mcp::ExecutionTargetArg::Daemon),
-            (
-                "node:browser-host",
-                commands::mcp::ExecutionTargetArg::Node("browser-host".into()),
-            ),
+            ("local", commands::mcp::RuntimeArg::Local),
+            ("daemon", commands::mcp::RuntimeArg::Daemon),
         ] {
             let cli =
-                Cli::try_parse_from(["mcpstore", "call", "service", "tool", "--execute-on", value])
+                Cli::try_parse_from(["mcpstore", "call", "service", "tool", "--runtime", value])
                     .unwrap();
             match cli.command {
-                Commands::Call(args) => assert_eq!(args.execution.execute_on, expected),
+                Commands::Call(args) => assert_eq!(args.execution.runtime, Some(expected)),
                 _ => panic!("Expected to parse as call command"),
             }
+        }
+
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "service",
+            "tool",
+            "--runtime",
+            "daemon",
+            "--daemon-node",
+            "browser-host",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Call(args) => {
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(commands::mcp::RuntimeArg::Daemon)
+                );
+                assert_eq!(args.execution.daemon_node.as_deref(), Some("browser-host"));
+            }
+            _ => panic!("Expected to parse as call command"),
         }
     }
 
@@ -666,7 +689,7 @@ mod tests {
             "--output",
             "jsonl",
             "--non-interactive",
-            "--execute-on",
+            "--runtime",
             "daemon",
         ])
         .unwrap();
@@ -682,10 +705,10 @@ mod tests {
                 assert_eq!(args.max_total_timeout, Some(90));
                 assert_eq!(args.runtime.output, crate::error::OutputFormat::Jsonl);
                 assert!(args.runtime.non_interactive);
-                assert!(matches!(
-                    args.execution.execute_on,
-                    crate::commands::mcp::ExecutionTargetArg::Daemon
-                ));
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(crate::commands::mcp::RuntimeArg::Daemon)
+                );
             }
             _ => panic!("Expected to parse as task run command"),
         }
@@ -820,14 +843,7 @@ mod tests {
     #[test]
     fn parses_data_plane_node_mode() {
         let cli = Cli::try_parse_from([
-            "mcpstore",
-            "list",
-            "--source",
-            "db",
-            "--store",
-            "redis",
-            "--node-mode",
-            "data",
+            "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data",
         ])
         .unwrap();
 
@@ -991,7 +1007,7 @@ mod tests {
             "read",
             "c81af510-755b-55c7-8487-5668ab36e06e",
             "repo://mcp/store",
-            "--execute-on",
+            "--runtime",
             "local",
             "--output",
             "json",
@@ -1005,10 +1021,10 @@ mod tests {
                 assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.uri, "repo://mcp/store");
                 assert_eq!(args.output.output, crate::error::OutputFormat::Json);
-                assert!(matches!(
-                    args.execution.execute_on,
-                    crate::commands::mcp::ExecutionTargetArg::Local
-                ));
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(crate::commands::mcp::RuntimeArg::Local)
+                );
             }
             _ => panic!("Expected resource read command"),
         }

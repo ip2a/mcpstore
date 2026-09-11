@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
 
 use crate::daemon::ops::{
-    config_error, instance_id, plan_config_change, required_str, resolve_daemon_execution_target,
+    config_error, instance_id, plan_config_change, required_str, resolve_daemon_runtime,
 };
 use crate::daemon::protocol::{
     deadline, default_pid_path, HandshakeRequest, KernelError, KernelEvent, KernelOperation,
@@ -40,7 +40,7 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     let state = crate::commands::api::state_for_store(Arc::clone(&store));
     let app_config = store.config_manager().load_app_config_or_default()?;
     let remote_listener = bind_remote_listener(&app_config).await?;
-    let host_remote_token = app_config.server.kernel_token.clone();
+    let host_remote_token = app_config.server.rpc_token.clone();
     std::fs::write(&pid_path, pid.to_string())?;
     tracing::info!(
         "[KERNEL_HOST] Started transport={:?} pid={pid}",
@@ -107,18 +107,18 @@ async fn accept_remote(listener: &tokio::net::TcpListener) -> Result<HostStream,
 async fn bind_remote_listener(
     app_config: &mcpstore::AppConfig,
 ) -> Result<Option<tokio::net::TcpListener>, Box<dyn std::error::Error>> {
-    let port = app_config.server.kernel_port;
+    let port = app_config.server.rpc_port;
     if port == 0 {
         return Ok(None);
     }
     let token = app_config
         .server
-        .kernel_token
+        .rpc_token
         .as_deref()
         .filter(|token| !token.is_empty())
         .ok_or_else(|| {
             Box::<dyn std::error::Error>::from(
-                "server.kernel_token is required when server.kernel_port is enabled",
+                "server.rpc_token is required when server.rpc_port is enabled",
             )
         })?;
     let listener = tokio::net::TcpListener::bind((app_config.server.host.as_str(), port)).await?;
@@ -499,7 +499,7 @@ where
     W: AsyncWriteExt + Unpin,
 {
     let instance_id = instance_id(&payload)?;
-    resolve_daemon_execution_target(store, instance_id, &payload).await?;
+    resolve_daemon_runtime(store, instance_id, &payload).await?;
     let tool_name = required_str(&payload, "tool_name")?;
     let args = payload.get("args").cloned().unwrap_or_else(|| json!({}));
     let task = payload

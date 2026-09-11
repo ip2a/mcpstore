@@ -32,9 +32,9 @@ impl MCPStore {
                 .find_definition(&instance.service_name)
                 .await
             {
-                if let Some(policy) = definition.execution_policy {
+                if let Some(policy) = definition.runtime_policy {
                     object.insert(
-                        "execution_policy".to_string(),
+                        "runtime_policy".to_string(),
                         serde_json::to_value(policy).map_err(|error| {
                             Error::new(FailureCode::Internal, error.to_string())
                         })?,
@@ -88,9 +88,9 @@ impl MCPStore {
                 .find_definition(&instance.service_name)
                 .await
             {
-                if let Some(policy) = definition.execution_policy {
+                if let Some(policy) = definition.runtime_policy {
                     object.insert(
-                        "execution_policy".to_string(),
+                        "runtime_policy".to_string(),
                         serde_json::to_value(policy).map_err(|error| {
                             Error::new(FailureCode::Internal, error.to_string())
                         })?,

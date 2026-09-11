@@ -120,7 +120,7 @@ async fn named_execution_node_routes_to_configured_daemon() -> TestResult<()> {
     std::fs::write(
         client_dir.join("config.toml"),
         format!(
-            "[daemon_nodes.remote]\nendpoint = \"127.0.0.1:{port}\"\nnamespace = \"remote-node-ns\"\ntoken = \"secret\"\n"
+            "[daemons.remote]\nendpoint = \"127.0.0.1:{port}\"\nnamespace = \"remote-node-ns\"\ntoken = \"secret\"\n"
         ),
     )?;
     let call = run_cli_in_dir(
@@ -131,8 +131,10 @@ async fn named_execution_node_routes_to_configured_daemon() -> TestResult<()> {
             "noop".into(),
             "--output".into(),
             "json".into(),
-            "--execute-on".into(),
-            "node:remote".into(),
+            "--runtime".into(),
+            "daemon".into(),
+            "--daemon-node".into(),
+            "remote".into(),
         ],
     )?;
     assert!(
@@ -151,8 +153,10 @@ async fn named_execution_node_routes_to_configured_daemon() -> TestResult<()> {
             "noop".into(),
             "--output".into(),
             "json".into(),
-            "--execute-on".into(),
-            "node:missing".into(),
+            "--runtime".into(),
+            "daemon".into(),
+            "--daemon-node".into(),
+            "missing".into(),
         ],
     )?;
     assert!(
@@ -307,7 +311,7 @@ async fn dataplane_queue_consumed_by_daemon(
         format!(r#"{{"url":"{redis_url}"}}"#),
         "--namespace".to_string(),
         namespace,
-        "--node-mode".to_string(),
+        "--plane".to_string(),
         "data".to_string(),
     ];
     let mut add_args = vec![
@@ -678,7 +682,7 @@ impl HostFixture {
         std::fs::write(&config_path, b"{}")?;
         std::fs::write(
             dir.join("config.toml"),
-            format!("[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\nkernel_port = {port}\nkernel_token = \"{token}\"\n"),
+            format!("[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\nrpc_port = {port}\nrpc_token = \"{token}\"\n"),
         )?;
         let child = tokio::process::Command::new(repo_root().join("target/debug/mcpstore"))
             .args(["start", "--source", "local", "--config-path"])

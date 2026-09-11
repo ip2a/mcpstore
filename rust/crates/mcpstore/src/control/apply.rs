@@ -17,8 +17,8 @@ impl MCPStore {
             }
             "ServiceUpdateRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
-                let execution_policy = payload
-                    .get("execution_policy")
+                let runtime_policy = payload
+                    .get("runtime_policy")
                     .cloned()
                     .map(serde_json::from_value)
                     .transpose()
@@ -26,7 +26,7 @@ impl MCPStore {
                 self.update_service(
                     &service_name,
                     request::required_config(payload)?,
-                    execution_policy,
+                    runtime_policy,
                 )
                 .await?;
             }

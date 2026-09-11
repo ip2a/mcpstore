@@ -56,7 +56,7 @@ pub struct StoreSourceArgs {
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
     #[arg(
-        long,
+        long = "plane",
         value_enum,
         help = "Node mode: control executes mutations, data queues them"
     )]

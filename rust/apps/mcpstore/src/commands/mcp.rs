@@ -1,6 +1,6 @@
 use clap::{Args, ValueEnum};
 use mcpstore::config::{
-    ExecutionPolicy, McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    McpStoreExtension, RuntimePolicy, ScopeDeclarations, ScopeDescriptor, ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
@@ -81,51 +81,17 @@ pub enum Scope {
     Agent,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExecutionTargetArg {
-    Auto,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum RuntimeArg {
     Local,
     Daemon,
-    Node(String),
 }
 
-impl FromStr for ExecutionTargetArg {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if value == "auto" {
-            return Ok(Self::Auto);
-        }
-        mcpstore::config::ExecutionTarget::from_str(value).map(|target| match target {
-            mcpstore::config::ExecutionTarget::Local => Self::Local,
-            mcpstore::config::ExecutionTarget::Daemon => Self::Daemon,
-            mcpstore::config::ExecutionTarget::Node(node_id) => Self::Node(node_id),
-        })
-    }
-}
-
-impl ExecutionTargetArg {
-    pub(crate) fn resolve(
-        &self,
-        embedded: bool,
-    ) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
-        if let Self::Node(node_id) = self {
-            return Ok(mcpstore::config::ExecutionTarget::Node(node_id.clone()));
-        }
+impl RuntimeArg {
+    fn to_runtime(self) -> mcpstore::config::Runtime {
         match self {
-            Self::Auto if embedded => Ok(mcpstore::config::ExecutionTarget::Local),
-            Self::Auto => Ok(mcpstore::config::ExecutionTarget::Daemon),
-            Self::Local if embedded => Ok(mcpstore::config::ExecutionTarget::Local),
-            Self::Daemon if !embedded => Ok(mcpstore::config::ExecutionTarget::Daemon),
-            Self::Local => Err(Error::new(
-                FailureCode::InvalidInput,
-                "local execution is available only with embedded access",
-            )),
-            Self::Daemon => Err(Error::new(
-                FailureCode::InvalidInput,
-                "daemon execution is available only with daemon access",
-            )),
-            Self::Node(_) => unreachable!("named node target is handled above"),
+            Self::Local => mcpstore::config::Runtime::Local,
+            Self::Daemon => mcpstore::config::Runtime::Daemon,
         }
     }
 }
@@ -176,12 +142,12 @@ pub struct AddArgs {
     )]
     pub handshake: Option<HandshakeArg>,
     /// Repeatable host capability required by local execution (for example browser)
-    #[arg(long = "require-capability", value_name = "CAPABILITY")]
-    pub require_capability: Vec<String>,
-    #[arg(long, help = "Default execution target: local or daemon")]
-    pub default_execute_on: Option<mcpstore::config::ExecutionTarget>,
-    #[arg(long, help = "Allowed execution targets; repeatable")]
-    pub allow_execute_on: Vec<mcpstore::config::ExecutionTarget>,
+    #[arg(long = "require-host-capability", value_name = "CAPABILITY")]
+    pub require_host_capability: Vec<String>,
+    #[arg(long = "allow-runtime", value_name = "RUNTIME")]
+    pub allow_runtime: Vec<mcpstore::config::Runtime>,
+    #[arg(long = "allow-daemon", value_name = "ID")]
+    pub allow_daemon: Vec<String>,
 }
 
 pub async fn add(
@@ -205,15 +171,15 @@ pub async fn add(
         let extension = config.mcpstore.get_or_insert_with(Default::default);
         extension.handshake_mode = Some(handshake);
     }
-    if let Some(policy) = execution_policy_from_flags(
-        a.default_execute_on,
-        &a.allow_execute_on,
-        &a.require_capability,
+    if let Some(policy) = runtime_policy_from_flags(
+        &a.allow_runtime,
+        &a.allow_daemon,
+        &a.require_host_capability,
     ) {
         config
             .mcpstore
             .get_or_insert_with(Default::default)
-            .execution_policy = Some(policy);
+            .runtime_policy = Some(policy);
     }
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     if let ScopeRef::Agent { agent_id } = &scope {
@@ -230,9 +196,9 @@ pub async fn add(
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            execution_policy: previous
+            runtime_policy: previous
                 .as_ref()
-                .and_then(|extension| extension.execution_policy.clone()),
+                .and_then(|extension| extension.runtime_policy.clone()),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -295,9 +261,9 @@ pub async fn add_json(
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            execution_policy: previous
+            runtime_policy: previous
                 .as_ref()
-                .and_then(|extension| extension.execution_policy.clone()),
+                .and_then(|extension| extension.runtime_policy.clone()),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -825,12 +791,12 @@ pub struct UpdateArgs {
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
     /// Repeatable host capability required by local execution (for example browser)
-    #[arg(long = "require-capability", value_name = "CAPABILITY")]
-    pub require_capability: Vec<String>,
-    #[arg(long, help = "Default execution target: local or daemon")]
-    pub default_execute_on: Option<mcpstore::config::ExecutionTarget>,
-    #[arg(long, help = "Allowed execution targets; repeatable")]
-    pub allow_execute_on: Vec<mcpstore::config::ExecutionTarget>,
+    #[arg(long = "require-host-capability", value_name = "CAPABILITY")]
+    pub require_host_capability: Vec<String>,
+    #[arg(long = "allow-runtime", value_name = "RUNTIME")]
+    pub allow_runtime: Vec<mcpstore::config::Runtime>,
+    #[arg(long = "allow-daemon", value_name = "ID")]
+    pub allow_daemon: Vec<String>,
 }
 
 pub async fn update(
@@ -848,13 +814,13 @@ pub async fn update(
         &env_map,
         &header_map,
     )?;
-    let execution_policy = execution_policy_from_flags(
-        a.default_execute_on,
-        &a.allow_execute_on,
-        &a.require_capability,
+    let runtime_policy = runtime_policy_from_flags(
+        &a.allow_runtime,
+        &a.allow_daemon,
+        &a.require_host_capability,
     );
-    if a.scope == Scope::Agent && execution_policy.is_some() {
-        return Err("Execution policy is definition-level; use --scope store".into());
+    if a.scope == Scope::Agent && runtime_policy.is_some() {
+        return Err("Runtime policy is definition-level; use --scope store".into());
     }
     let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let receipt = match a.scope.to_ref(a.agent.as_deref())? {
@@ -865,7 +831,7 @@ pub async fn update(
                     json!({
                         "name": a.name,
                         "config": config,
-                        "execution_policy": execution_policy,
+                        "runtime_policy": runtime_policy,
                     }),
                 )
                 .await?
@@ -976,15 +942,57 @@ fn call_error_from_store(
 }
 
 #[derive(Clone, Debug, Args)]
-pub struct ExecuteOnArgs {
+pub struct RuntimeArgs {
     #[arg(
-        long = "execute-on",
-        default_value = "auto",
-        value_name = "TARGET",
-        value_parser = ExecutionTargetArg::from_str,
-        help = "Execution target: auto, local, daemon, or node:NODE_ID",
+        long = "runtime",
+        value_enum,
+        value_name = "RUNTIME",
+        help = "Execution runtime: local or daemon (default: auto)"
     )]
-    pub execute_on: ExecutionTargetArg,
+    pub runtime: Option<RuntimeArg>,
+    #[arg(
+        long = "daemon-node",
+        value_name = "ID",
+        help = "Route execution to a configured daemon node (implies --runtime daemon)"
+    )]
+    pub daemon_node: Option<String>,
+}
+
+impl RuntimeArgs {
+    pub(crate) fn resolve(
+        &self,
+        embedded: bool,
+    ) -> mcpstore::Result<mcpstore::config::RuntimeSelection> {
+        use mcpstore::config::{Runtime, RuntimeSelection};
+        if let Some(node) = &self.daemon_node {
+            if self.runtime == Some(RuntimeArg::Local) {
+                return Err(Error::new(
+                    FailureCode::InvalidInput,
+                    "--daemon-node requires --runtime daemon",
+                ));
+            }
+            return Ok(RuntimeSelection::daemon_node(node.clone()));
+        }
+        let runtime = match self.runtime.map(RuntimeArg::to_runtime) {
+            None if embedded => Runtime::Local,
+            None => Runtime::Daemon,
+            Some(Runtime::Local) if embedded => Runtime::Local,
+            Some(Runtime::Daemon) if !embedded => Runtime::Daemon,
+            Some(Runtime::Local) => {
+                return Err(Error::new(
+                    FailureCode::InvalidInput,
+                    "local execution is available only with embedded access",
+                ))
+            }
+            Some(Runtime::Daemon) => {
+                return Err(Error::new(
+                    FailureCode::InvalidInput,
+                    "daemon execution is available only with daemon access",
+                ))
+            }
+        };
+        Ok(RuntimeSelection::runtime(runtime))
+    }
 }
 
 #[derive(Clone, Args)]
@@ -1022,7 +1030,7 @@ pub struct CallToolArgs {
     )]
     pub output: OutputFormat,
     #[command(flatten)]
-    pub execution: ExecuteOnArgs,
+    pub execution: RuntimeArgs,
     #[arg(
         long,
         value_name = "SECONDS",
@@ -1075,14 +1083,14 @@ pub(crate) fn host_capabilities() -> &'static HashSet<&'static str> {
 }
 
 fn ensure_host_capabilities(
-    policy: &mcpstore::config::ExecutionPolicy,
-    target: mcpstore::config::ExecutionTarget,
+    policy: &mcpstore::config::RuntimePolicy,
+    runtime: mcpstore::config::Runtime,
 ) -> mcpstore::Result<()> {
-    if target != mcpstore::config::ExecutionTarget::Local {
+    if runtime != mcpstore::config::Runtime::Local {
         return Ok(());
     }
     let missing: Vec<_> = policy
-        .required_capabilities
+        .required_host_capabilities
         .iter()
         .filter(|capability| !host_capabilities().contains(capability.as_str()))
         .collect();
@@ -1102,46 +1110,26 @@ fn ensure_host_capabilities(
     ))
 }
 
-pub(crate) fn resolve_declared_execution_target(
+pub(crate) fn resolve_declared_runtime(
     info: &Value,
-    requested: &ExecutionTargetArg,
-    routed_target: mcpstore::config::ExecutionTarget,
-    embedded: bool,
-) -> mcpstore::Result<mcpstore::config::ExecutionTarget> {
-    let policy: Option<mcpstore::config::ExecutionPolicy> = info
-        .get("execution_policy")
+    selection: mcpstore::config::RuntimeSelection,
+) -> mcpstore::Result<mcpstore::config::RuntimeSelection> {
+    let policy: Option<mcpstore::config::RuntimePolicy> = info
+        .get("runtime_policy")
         .cloned()
         .map(serde_json::from_value)
         .transpose()
         .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-    let target = policy
-        .as_ref()
-        .filter(|_| matches!(requested, ExecutionTargetArg::Auto))
-        .map(|policy| policy.default_target.clone())
-        .unwrap_or(routed_target);
-
-    let remote_node = matches!(target, mcpstore::config::ExecutionTarget::Node(_));
-    if embedded && target != mcpstore::config::ExecutionTarget::Local && !remote_node {
-        return Err(Error::new(
-            FailureCode::InvalidInput,
-            "service default execution target requires daemon access; retry with daemon access",
-        ));
-    }
-    if !embedded && target != mcpstore::config::ExecutionTarget::Daemon && !remote_node {
-        return Err(Error::new(
-            FailureCode::InvalidInput,
-            "service default execution target requires embedded access; retry with --embedded",
-        ));
-    }
     if let Some(policy) = policy {
-        ensure_host_capabilities(&policy, target.clone())?;
-        if !policy.allows(&target) {
+        ensure_host_capabilities(&policy, selection.runtime)?;
+        if !policy.allows_runtime(selection.runtime) {
             return Err(Error::new(
                 FailureCode::InvalidInput,
                 format!(
-                    "execution target '{target}' not allowed for instance; allowed: {}",
+                    "runtime '{}' not allowed for instance; allowed: {}",
+                    selection.runtime,
                     policy
-                        .allowed_targets
+                        .allowed_runtimes
                         .iter()
                         .map(ToString::to_string)
                         .collect::<Vec<_>>()
@@ -1149,8 +1137,28 @@ pub(crate) fn resolve_declared_execution_target(
                 ),
             ));
         }
+        if let Some(node) = &selection.daemon_node {
+            if !policy.allows_daemon(node) {
+                return Err(Error::new(
+                    FailureCode::InvalidInput,
+                    format!(
+                        "daemon node '{node}' not allowed for instance; allowed: {}",
+                        policy.allowed_daemons.join(", ")
+                    ),
+                ));
+            }
+        }
     }
-    Ok(target)
+    Ok(selection)
+}
+
+/// Inject the resolved runtime selection into a daemon op payload as the
+/// `runtime` (+ optional `daemon_node`) keys.
+pub(crate) fn insert_runtime(payload: &mut Value, selection: &mcpstore::config::RuntimeSelection) {
+    payload["runtime"] = json!(selection.runtime);
+    if let Some(node) = &selection.daemon_node {
+        payload["daemon_node"] = json!(node);
+    }
 }
 
 async fn execute_call_tool(
@@ -1161,7 +1169,7 @@ async fn execute_call_tool(
     parse_arguments_json_object(&a.arguments, a.output)?;
     // Explicit store arguments force embedded access in open_store_access.
     let embedded = embedded || a.store.is_explicit();
-    let routed_target = a.execution.execute_on.resolve(embedded)?;
+    let selection = a.execution.resolve(embedded)?;
     let scope = a
         .scope
         .to_ref(a.agent.as_deref())
@@ -1178,12 +1186,7 @@ async fn execute_call_tool(
             )
             .await
             .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
-        let execution_target = resolve_declared_execution_target(
-            &info,
-            &a.execution.execute_on,
-            routed_target,
-            embedded,
-        )?;
+        let selection = resolve_declared_runtime(&info, selection)?;
         access
             .request(
                 KernelOperation::ConnectService,
@@ -1207,7 +1210,7 @@ async fn execute_call_tool(
                 call_embedded(&store, instance_id, &a, args, options).await
             }
             StoreAccess::Remote(ref mut client) => {
-                call_remote(client, instance_id, &a, args, options, execution_target).await
+                call_remote(client, instance_id, &a, args, options, selection).await
             }
         }
     };
@@ -1314,15 +1317,15 @@ async fn call_remote(
     a: &CallToolArgs,
     args: Value,
     options: McpExecutionOptions,
-    execution_target: mcpstore::config::ExecutionTarget,
+    selection: mcpstore::config::RuntimeSelection,
 ) -> mcpstore::Result<()> {
     let tool_name = a.tool_name.as_str();
     let mut payload = json!({
-        "execute_on": execution_target,
         "instance_id": instance_id.to_string(),
         "tool_name": tool_name,
         "args": args,
     });
+    insert_runtime(&mut payload, &selection);
     if let Some(timeout) = options.idle_timeout {
         payload["idle_timeout"] = json!(timeout.as_millis() as u64);
     }
@@ -1981,17 +1984,18 @@ fn parse_key_values(
     Ok(map)
 }
 
-fn execution_policy_from_flags(
-    default: Option<mcpstore::config::ExecutionTarget>,
-    allowed: &[mcpstore::config::ExecutionTarget],
-    required_capabilities: &[String],
-) -> Option<ExecutionPolicy> {
-    (default.is_some() || !allowed.is_empty() || !required_capabilities.is_empty()).then(|| {
-        ExecutionPolicy {
-            default_target: default.unwrap_or(mcpstore::config::ExecutionTarget::Local),
-            allowed_targets: allowed.to_vec(),
-            required_capabilities: required_capabilities.to_vec(),
-        }
+fn runtime_policy_from_flags(
+    allowed_runtimes: &[mcpstore::config::Runtime],
+    allowed_daemons: &[String],
+    required_host_capabilities: &[String],
+) -> Option<RuntimePolicy> {
+    (!allowed_runtimes.is_empty()
+        || !allowed_daemons.is_empty()
+        || !required_host_capabilities.is_empty())
+    .then(|| RuntimePolicy {
+        allowed_runtimes: allowed_runtimes.to_vec(),
+        allowed_daemons: allowed_daemons.to_vec(),
+        required_host_capabilities: required_host_capabilities.to_vec(),
     })
 }
 
@@ -2151,72 +2155,66 @@ mod tests {
 
     #[test]
     fn local_execution_rejects_missing_host_capability() {
-        let policy = ExecutionPolicy {
-            default_target: mcpstore::config::ExecutionTarget::Local,
-            allowed_targets: Vec::new(),
-            required_capabilities: vec!["definitely-missing-capability".into()],
+        let policy = RuntimePolicy {
+            allowed_runtimes: Vec::new(),
+            allowed_daemons: Vec::new(),
+            required_host_capabilities: vec!["definitely-missing-capability".into()],
         };
-        let error = ensure_host_capabilities(&policy, mcpstore::config::ExecutionTarget::Local)
-            .unwrap_err();
+        let error =
+            ensure_host_capabilities(&policy, mcpstore::config::Runtime::Local).unwrap_err();
         assert!(error.to_string().contains("definitely-missing-capability"));
     }
 
     #[test]
-    fn auto_uses_declared_default_and_enforces_allowlist() {
-        let policy = mcpstore::config::ExecutionPolicy {
-            default_target: mcpstore::config::ExecutionTarget::Daemon,
-            allowed_targets: vec![mcpstore::config::ExecutionTarget::Daemon],
-            required_capabilities: Vec::new(),
+    fn daemon_selection_passes_allowlist() {
+        let policy = mcpstore::config::RuntimePolicy {
+            allowed_runtimes: vec![mcpstore::config::Runtime::Daemon],
+            allowed_daemons: Vec::new(),
+            required_host_capabilities: Vec::new(),
         };
-        let info = json!({"execution_policy": policy});
-        let target = resolve_declared_execution_target(
+        let info = json!({"runtime_policy": policy});
+        let selection = resolve_declared_runtime(
             &info,
-            &ExecutionTargetArg::Auto,
-            mcpstore::config::ExecutionTarget::Local,
-            false,
+            mcpstore::config::RuntimeSelection::runtime(mcpstore::config::Runtime::Daemon),
         )
         .unwrap();
-        assert_eq!(target, mcpstore::config::ExecutionTarget::Daemon);
+        assert_eq!(selection.runtime, mcpstore::config::Runtime::Daemon);
     }
 
     #[test]
-    fn declared_default_rejected_when_access_cannot_execute_it() {
-        let policy = mcpstore::config::ExecutionPolicy {
-            default_target: mcpstore::config::ExecutionTarget::Daemon,
-            allowed_targets: Vec::new(),
-            required_capabilities: Vec::new(),
+    fn disallowed_daemon_node_is_rejected() {
+        let policy = mcpstore::config::RuntimePolicy {
+            allowed_runtimes: Vec::new(),
+            allowed_daemons: vec!["approved".into()],
+            required_host_capabilities: Vec::new(),
         };
-        let info = json!({"execution_policy": policy});
-        let error = resolve_declared_execution_target(
+        let info = json!({"runtime_policy": policy});
+        let error = resolve_declared_runtime(
             &info,
-            &ExecutionTargetArg::Auto,
-            mcpstore::config::ExecutionTarget::Local,
-            true,
+            mcpstore::config::RuntimeSelection::daemon_node("other"),
         )
         .unwrap_err();
-        assert!(error.to_string().contains("daemon access"), "{error}");
+        assert!(error.to_string().contains("not allowed"), "{error}");
     }
 
     #[test]
-    fn explicit_disallowed_target_is_rejected() {
-        let policy = mcpstore::config::ExecutionPolicy {
-            default_target: mcpstore::config::ExecutionTarget::Local,
-            allowed_targets: vec![mcpstore::config::ExecutionTarget::Local],
-            required_capabilities: Vec::new(),
+    fn explicit_disallowed_runtime_is_rejected() {
+        let policy = mcpstore::config::RuntimePolicy {
+            allowed_runtimes: vec![mcpstore::config::Runtime::Local],
+            allowed_daemons: Vec::new(),
+            required_host_capabilities: Vec::new(),
         };
-        let info = json!({"execution_policy": policy});
-        let error = resolve_declared_execution_target(
+        let info = json!({"runtime_policy": policy});
+        let error = resolve_declared_runtime(
             &info,
-            &ExecutionTargetArg::Daemon,
-            mcpstore::config::ExecutionTarget::Daemon,
-            false,
+            mcpstore::config::RuntimeSelection::runtime(mcpstore::config::Runtime::Daemon),
         )
         .unwrap_err();
         assert!(error.to_string().contains("not allowed"), "{error}");
     }
 
     #[tokio::test]
-    async fn update_changes_execution_policy_on_store_scope_only() {
+    async fn update_changes_runtime_policy_on_store_scope_only() {
         let path =
             std::env::temp_dir().join(format!("mcpstore-update-policy-{}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
@@ -2239,9 +2237,9 @@ mod tests {
             scope: Scope::Store,
             agent: None,
             handshake: None,
-            require_capability: Vec::new(),
-            default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
-            allow_execute_on: vec![mcpstore::config::ExecutionTarget::Local],
+            require_host_capability: Vec::new(),
+            allow_runtime: vec![mcpstore::config::Runtime::Local],
+            allow_daemon: Vec::new(),
         };
         add(add_args, true, None).await.unwrap();
 
@@ -2262,9 +2260,9 @@ mod tests {
             header: Vec::new(),
             scope: Scope::Store,
             agent: None,
-            require_capability: Vec::new(),
-            default_execute_on: Some(mcpstore::config::ExecutionTarget::Daemon),
-            allow_execute_on: vec![mcpstore::config::ExecutionTarget::Daemon],
+            require_host_capability: Vec::new(),
+            allow_runtime: vec![mcpstore::config::Runtime::Daemon],
+            allow_daemon: Vec::new(),
         };
         update(update_args, true, None).await.unwrap();
 
@@ -2285,9 +2283,9 @@ mod tests {
             header: Vec::new(),
             scope: Scope::Store,
             agent: None,
-            require_capability: Vec::new(),
-            default_execute_on: None,
-            allow_execute_on: Vec::new(),
+            require_host_capability: Vec::new(),
+            allow_runtime: Vec::new(),
+            allow_daemon: Vec::new(),
         };
         update(update_args, true, None).await.unwrap();
 
@@ -2297,21 +2295,17 @@ mod tests {
             .find_definition("browser")
             .await
             .unwrap()
-            .execution_policy
+            .runtime_policy
             .unwrap();
         assert_eq!(
-            policy.default_target,
-            mcpstore::config::ExecutionTarget::Daemon
-        );
-        assert_eq!(
-            policy.allowed_targets,
-            vec![mcpstore::config::ExecutionTarget::Daemon]
+            policy.allowed_runtimes,
+            vec![mcpstore::config::Runtime::Daemon]
         );
         std::fs::remove_dir_all(path).ok();
     }
 
     #[tokio::test]
-    async fn update_rejects_execution_policy_on_agent_scope() {
+    async fn update_rejects_runtime_policy_on_agent_scope() {
         let args = UpdateArgs {
             name: "browser".into(),
             command_or_url: Some("echo".into()),
@@ -2329,16 +2323,16 @@ mod tests {
             header: Vec::new(),
             scope: Scope::Agent,
             agent: Some("agent".into()),
-            require_capability: Vec::new(),
-            default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
-            allow_execute_on: Vec::new(),
+            require_host_capability: Vec::new(),
+            allow_runtime: vec![mcpstore::config::Runtime::Local],
+            allow_daemon: Vec::new(),
         };
         let error = update(args, true, None).await.unwrap_err().to_string();
         assert!(error.contains("definition-level"), "{error}");
     }
 
     #[tokio::test]
-    async fn add_declares_execution_policy() {
+    async fn add_declares_runtime_policy() {
         let path = std::env::temp_dir().join(format!("mcpstore-add-policy-{}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         let config_path = path.join("mcp.json");
@@ -2360,9 +2354,9 @@ mod tests {
             scope: Scope::Store,
             agent: None,
             handshake: None,
-            require_capability: Vec::new(),
-            default_execute_on: Some(mcpstore::config::ExecutionTarget::Local),
-            allow_execute_on: vec![mcpstore::config::ExecutionTarget::Local],
+            require_host_capability: Vec::new(),
+            allow_runtime: vec![mcpstore::config::Runtime::Local],
+            allow_daemon: Vec::new(),
         };
         add(args, true, None).await.unwrap();
         let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
@@ -2370,9 +2364,9 @@ mod tests {
         let definition = store.find_definition("browser").await.unwrap();
         assert_eq!(
             definition
-                .execution_policy
-                .map(|policy| policy.default_target),
-            Some(mcpstore::config::ExecutionTarget::Local)
+                .runtime_policy
+                .map(|policy| policy.allowed_runtimes),
+            Some(vec![mcpstore::config::Runtime::Local])
         );
         std::fs::remove_dir_all(path).ok();
     }

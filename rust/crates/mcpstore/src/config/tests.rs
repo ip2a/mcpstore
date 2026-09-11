@@ -4,64 +4,60 @@ use super::{examples::default_server_config, *};
 use crate::identity::ScopeRef;
 
 #[test]
-fn execution_target_roundtrips_as_stable_string() {
-    for (target, encoded) in [
-        (ExecutionTarget::Local, "\"local\""),
-        (ExecutionTarget::Daemon, "\"daemon\""),
-        (
-            ExecutionTarget::Node("browser-host".into()),
-            "\"node:browser-host\"",
-        ),
+fn runtime_roundtrips_as_stable_string() {
+    for (runtime, encoded) in [
+        (Runtime::Local, "\"local\""),
+        (Runtime::Daemon, "\"daemon\""),
     ] {
-        assert_eq!(serde_json::to_string(&target).unwrap(), encoded);
-        assert_eq!(
-            serde_json::from_str::<ExecutionTarget>(encoded).unwrap(),
-            target
-        );
+        assert_eq!(serde_json::to_string(&runtime).unwrap(), encoded);
+        assert_eq!(serde_json::from_str::<Runtime>(encoded).unwrap(), runtime);
     }
+    assert!(serde_json::from_str::<Runtime>("\"node:browser-host\"").is_err());
 }
 
 #[test]
-fn execution_policy_empty_allowlist_keeps_backwards_compatibility() {
-    let policy = ExecutionPolicy {
-        default_target: ExecutionTarget::Daemon,
-        allowed_targets: Vec::new(),
-        required_capabilities: Vec::new(),
+fn runtime_policy_empty_allowlist_keeps_backwards_compatibility() {
+    let policy = RuntimePolicy {
+        allowed_runtimes: Vec::new(),
+        allowed_daemons: Vec::new(),
+        required_host_capabilities: Vec::new(),
     };
-    assert!(policy.allows(&ExecutionTarget::Local));
-    assert!(policy.allows(&ExecutionTarget::Daemon));
+    assert!(policy.allows_runtime(Runtime::Local));
+    assert!(policy.allows_runtime(Runtime::Daemon));
+    assert!(policy.allows_daemon("any-node"));
 }
 
 #[test]
-fn execution_policy_restricts_declared_targets() {
-    let policy = ExecutionPolicy {
-        default_target: ExecutionTarget::Local,
-        allowed_targets: vec![ExecutionTarget::Local],
-        required_capabilities: Vec::new(),
+fn runtime_policy_restricts_declared_runtimes_and_daemons() {
+    let policy = RuntimePolicy {
+        allowed_runtimes: vec![Runtime::Daemon],
+        allowed_daemons: vec!["browser-host".into()],
+        required_host_capabilities: Vec::new(),
     };
-    assert!(policy.allows(&ExecutionTarget::Local));
-    assert!(!policy.allows(&ExecutionTarget::Daemon));
-    assert!(!policy.allows(&ExecutionTarget::Node("other".into())));
+    assert!(!policy.allows_runtime(Runtime::Local));
+    assert!(policy.allows_runtime(Runtime::Daemon));
+    assert!(policy.allows_daemon("browser-host"));
+    assert!(!policy.allows_daemon("other"));
 }
 
 #[test]
-fn execution_policy_rejects_default_outside_allowlist() {
+fn runtime_policy_rejects_empty_declaration() {
     let mut config = ServerConfig::default();
     config.mcpstore = Some(McpStoreExtension {
-        execution_policy: Some(ExecutionPolicy {
-            default_target: ExecutionTarget::Local,
-            allowed_targets: vec![ExecutionTarget::Daemon],
-            required_capabilities: Vec::new(),
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: Vec::new(),
+            allowed_daemons: Vec::new(),
+            required_host_capabilities: Vec::new(),
         }),
         ..McpStoreExtension::default()
     });
 
     let error = config.validate_structure().unwrap_err();
-    assert!(error.contains("not in allowed_targets"), "{error}");
+    assert!(error.contains("runtime_policy must declare"), "{error}");
 }
 
 #[test]
-fn old_service_config_defaults_without_execution_policy() {
+fn old_service_config_defaults_without_runtime_policy() {
     let config: ServerConfig = serde_json::from_value(json!({
         "command": "demo"
     }))
@@ -399,12 +395,12 @@ fn test_default_template_contains_runtime_sections() {
 }
 
 #[test]
-fn test_daemon_nodes_roundtrip_and_validation() {
+fn test_daemons_roundtrip_and_validation() {
     let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let mgr = ConfigManager::with_path(dir.join("mcp.json"));
     let config = concat!(
-        "[daemon_nodes.remote]\n",
+        "[daemons.remote]\n",
         "endpoint = \"127.0.0.1:1840\"\n",
         "namespace = \"ns\"\n",
         "token = \"secret\"\n"
@@ -412,19 +408,15 @@ fn test_daemon_nodes_roundtrip_and_validation() {
     std::fs::write(mgr.app_config_path(), config).unwrap();
 
     let loaded = mgr.load_app_config().unwrap();
-    let node = loaded.daemon_nodes.get("remote").unwrap();
+    let node = loaded.daemons.get("remote").unwrap();
     assert_eq!(node.endpoint, "127.0.0.1:1840");
     assert_eq!(node.namespace.as_deref(), Some("ns"));
     assert_eq!(node.token.as_deref(), Some("secret"));
 
-    std::fs::write(
-        mgr.app_config_path(),
-        "[daemon_nodes.bad]\nendpoint = \" \"\n",
-    )
-    .unwrap();
+    std::fs::write(mgr.app_config_path(), "[daemons.bad]\nendpoint = \" \"\n").unwrap();
     let error = mgr.load_app_config().unwrap_err();
     assert!(
-        error.to_string().contains("daemon_nodes.bad.endpoint"),
+        error.to_string().contains("daemons.bad.endpoint"),
         "{error}"
     );
     std::fs::remove_dir_all(&dir).ok();

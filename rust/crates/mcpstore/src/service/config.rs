@@ -364,7 +364,7 @@ impl MCPStore {
             scopes: config.scopes(),
             lifecycle: extension.and_then(|value| value.lifecycle.clone()),
             handshake_mode: extension.and_then(|value| value.handshake_mode),
-            execution_policy: extension.and_then(|value| value.execution_policy.clone()),
+            runtime_policy: extension.and_then(|value| value.runtime_policy.clone()),
             base_revision: config.definition_revision(),
             metadata: extension
                 .map(|value| value.extra.clone())
@@ -396,7 +396,7 @@ impl MCPStore {
             scopes: definition.scopes.clone(),
             lifecycle: definition.lifecycle.clone(),
             handshake_mode: definition.handshake_mode,
-            execution_policy: definition.execution_policy.clone(),
+            runtime_policy: definition.runtime_policy.clone(),
             revision: definition.base_revision,
             extra: definition.metadata.clone(),
         });

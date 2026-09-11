@@ -13,7 +13,7 @@ use crate::commands::elicitation::{
     handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
     ElicitationCommandError, ElicitationErrorKind,
 };
-use crate::commands::mcp::{open_store, resolve_declared_execution_target, ExecuteOnArgs};
+use crate::commands::mcp::{insert_runtime, open_store, resolve_declared_runtime, RuntimeArgs};
 use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_instance, attach_task, OutputFormat};
 use crate::store_args::{StoreAccess, StoreSourceArgs};
@@ -70,7 +70,7 @@ pub struct TaskRunArgs {
     )]
     pub max_total_timeout: Option<u64>,
     #[command(flatten)]
-    pub execution: ExecuteOnArgs,
+    pub execution: RuntimeArgs,
     #[command(flatten)]
     pub elicitation: ElicitationArgs,
     #[command(flatten)]
@@ -135,7 +135,7 @@ async fn run_task(
     let output = args.runtime.output;
     let input = parse_input(&args.input, output)?;
     let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
-    let routed_target = args.execution.execute_on.resolve(embedded)?;
+    let selection = args.execution.resolve(embedded)?;
     let info = access
         .request(
             KernelOperation::GetServiceInfo,
@@ -143,13 +143,8 @@ async fn run_task(
         )
         .await
         .map_err(|error| attach_instance(error, args.instance_id))?;
-    let execution_target = resolve_declared_execution_target(
-        &info,
-        &args.execution.execute_on,
-        routed_target,
-        embedded,
-    )
-    .map_err(|error| attach_instance(error, args.instance_id))?;
+    let selection = resolve_declared_runtime(&info, selection)
+        .map_err(|error| attach_instance(error, args.instance_id))?;
     let mut options = McpExecutionOptions::default();
     if let Some(timeout) = args.timeout {
         options = options.with_idle_timeout(Duration::from_secs(timeout));
@@ -164,7 +159,7 @@ async fn run_task(
             .clone();
         run_task_embedded(&mut access, store, args, input, options).await
     } else {
-        run_task_remote(&mut access, args, input, options, execution_target).await
+        run_task_remote(&mut access, args, input, options, selection).await
     };
     access.close().await;
     result
@@ -276,7 +271,7 @@ async fn run_task_remote(
     args: TaskRunArgs,
     input: Value,
     options: McpExecutionOptions,
-    execution_target: mcpstore::config::ExecutionTarget,
+    selection: mcpstore::config::RuntimeSelection,
 ) -> mcpstore::Result<()> {
     use crate::daemon::protocol::KernelEvent;
 
@@ -287,8 +282,8 @@ async fn run_task_remote(
         "tool_name": tool_name,
         "args": input,
         "task": true,
-        "execute_on": execution_target,
     });
+    insert_runtime(&mut payload, &selection);
     if let Some(timeout) = options.idle_timeout {
         payload["idle_timeout"] = json!(timeout.as_millis() as u64);
     }

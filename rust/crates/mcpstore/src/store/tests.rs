@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use crate::config::{
-    ExecutionPolicy, ExecutionTarget, McpStoreExtension, ScopeDeclarations, ScopeDescriptor,
+    McpStoreExtension, Runtime, RuntimePolicy, ScopeDeclarations, ScopeDescriptor,
 };
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
@@ -144,7 +144,7 @@ fn config_with_lifecycle(
             keep_alive: None,
         }),
         handshake_mode: None,
-        execution_policy: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -884,7 +884,7 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
         },
         lifecycle: None,
         handshake_mode: None,
-        execution_policy: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -892,7 +892,7 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
 }
 
 #[tokio::test]
-async fn service_info_exposes_declared_execution_policy() {
+async fn service_info_exposes_declared_runtime_policy() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     let mut config = stdio_config();
@@ -900,10 +900,10 @@ async fn service_info_exposes_declared_execution_policy() {
         scopes: ScopeDeclarations::store_only(),
         lifecycle: None,
         handshake_mode: None,
-        execution_policy: Some(ExecutionPolicy {
-            default_target: ExecutionTarget::Local,
-            allowed_targets: vec![ExecutionTarget::Local, ExecutionTarget::Daemon],
-            required_capabilities: Vec::new(),
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: vec![Runtime::Local, Runtime::Daemon],
+            allowed_daemons: Vec::new(),
+            required_host_capabilities: Vec::new(),
         }),
         revision: 1,
         extra: Map::new(),
@@ -917,16 +917,15 @@ async fn service_info_exposes_declared_execution_policy() {
         .find_definition("svc")
         .await
         .unwrap();
-    assert!(definition.execution_policy.is_some());
+    assert!(definition.runtime_policy.is_some());
 
     let info = store
         .service_info_scoped(store_instance_id("svc"))
         .await
         .unwrap();
 
-    assert_eq!(info["execution_policy"]["default_target"], "local");
-    assert_eq!(info["execution_policy"]["allowed_targets"][0], "local");
-    assert_eq!(info["execution_policy"]["allowed_targets"][1], "daemon");
+    assert_eq!(info["runtime_policy"]["allowed_runtimes"][0], "local");
+    assert_eq!(info["runtime_policy"]["allowed_runtimes"][1], "daemon");
 
     std::fs::remove_file(path).ok();
 }
@@ -1004,7 +1003,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
         },
         lifecycle: None,
         handshake_mode: None,
-        execution_policy: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -1843,7 +1842,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         },
         lifecycle: None,
         handshake_mode: None,
-        execution_policy: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -6156,7 +6155,7 @@ mod scoped_contract {
                 scopes,
                 lifecycle: None,
                 handshake_mode: None,
-                execution_policy: None,
+                runtime_policy: None,
                 revision: 1,
                 extra: Map::new(),
             }),

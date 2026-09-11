@@ -19,11 +19,11 @@ impl MCPStore {
         &self,
         service_name: &str,
         config: ServerConfig,
-        execution_policy: Option<crate::config::ExecutionPolicy>,
+        runtime_policy: Option<crate::config::RuntimePolicy>,
     ) -> Result<String> {
         self.kernel
             .control
-            .update_service(self, service_name, config, execution_policy)
+            .update_service(self, service_name, config, runtime_policy)
             .await
     }
 
