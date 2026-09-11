@@ -1,8 +1,8 @@
 # src/mcpstore/adapters/langchain_adapter.py
 """
-LangChain 适配器模块
+LangChain adapter module.
 
-将 MCPStore 工具转换为 LangChain 工具格式，支持同步和异步执行。
+Converts MCPStore tools into the LangChain tool format, with sync and async execution.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any, Type, List
 
 from pydantic import BaseModel
 
-# 导入公共函数
+# Shared helpers
 from .common import (
     build_tool_error_payload,
     to_tool_call_view,
@@ -48,20 +48,21 @@ def _require_langchain() -> None:
 
 class LangChainAdapter:
     """
-    MCPStore 与 LangChain 之间的适配器。
-    将 mcpstore 的原生对象转换为 LangChain 可直接使用的对象。
+    Adapter between MCPStore and LangChain.
+
+    Converts MCPStore native objects into objects LangChain can consume directly.
     """
 
     def __init__(self, context: Any, instance_id: str | None = None, response_format: str = "text"):
         _require_langchain()
         self._context = context
         self._instance_id = instance_id
-        # 工具输出格式偏好
+        # Preferred tool output format
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
 
     @staticmethod
     def _serialize_unknown(obj):
-        """序列化未知类型对象。"""
+        """Serialize an object of unknown type."""
         if obj is None:
             return None
         if hasattr(obj, "model_dump"):
@@ -87,7 +88,7 @@ class LangChainAdapter:
         return str(obj)
 
     def _normalize_structured_value(self, value):
-        """确保 structured/data 字段始终是 LangChain 能消费的基础类型。"""
+        """Ensure structured/data values are always basic types LangChain can consume."""
         if value is None:
             return None
         if isinstance(value, (str, int, float, bool)):
@@ -130,17 +131,17 @@ class LangChainAdapter:
         args_schema: Type[BaseModel],
     ):
         """
-        创建健壮的同步执行函数，智能处理各种参数传递方式。
+        Build a robust sync executor that handles every argument passing style.
         """
-        adapter_self = self  # 闭包捕获
+        adapter_self = self  # captured by the closure
 
         def _tool_executor(*args, **kwargs):
             tool_input = {}
             try:
-                # 使用公共函数处理参数
+                # Process arguments with the shared helper
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
-                # 调用 mcpstore 核心方法
+                # Invoke the MCPStore core method
                 if adapter_self._instance_id is None:
                     result = adapter_self._context.call_tool(tool_name, tool_input)
                 else:
@@ -189,17 +190,17 @@ class LangChainAdapter:
         args_schema: Type[BaseModel],
     ):
         """
-        创建健壮的异步执行函数，智能处理各种参数传递方式。
+        Build a robust async executor that handles every argument passing style.
         """
-        adapter_self = self  # 闭包捕获
+        adapter_self = self  # captured by the closure
 
         async def _tool_executor(*args, **kwargs):
             tool_input = {}
             try:
-                # 使用公共函数处理参数
+                # Process arguments with the shared helper
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
-                # 调用 mcpstore 核心方法（通过 to_thread 在线程池中执行同步版本）
+                # Invoke the MCPStore core method (run the sync version via to_thread)
                 if adapter_self._instance_id is None:
                     result = await asyncio.to_thread(
                         adapter_self._context.call_tool,
@@ -251,7 +252,7 @@ class LangChainAdapter:
         return _tool_executor
 
     def list_tools(self) -> List[Tool]:
-        """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
+        """List all available MCPStore tools as a LangChain Tool list (sync version)."""
         if self._instance_id is None:
             return self._build_langchain_tools(self._context.list_tools())
         return self._build_langchain_tools(self._context.list_tools(self._instance_id))
@@ -260,17 +261,17 @@ class LangChainAdapter:
     def _build_langchain_tools(self, mcp_tools_info: List[Any]) -> List[Tool]:
         langchain_tools = []
         for tool_info in mcp_tools_info:
-            # 使用公共函数
+            # Use the shared helpers
             enhanced_description = enhance_description(tool_info)
             args_schema = create_args_schema(tool_info)
             name = tool_name(tool_info)
             instance_id = tool_instance_id(tool_info)
 
-            # 创建同步和异步函数
+            # Create the sync and async callables
             sync_func = self._create_tool_function(instance_id, name, args_schema)
             async_coroutine = self._create_tool_coroutine(instance_id, name, args_schema)
 
-            # 创建 LangChain StructuredTool
+            # Create the LangChain StructuredTool
             lc_tool = StructuredTool(
                 name=name,
                 description=enhanced_description,
