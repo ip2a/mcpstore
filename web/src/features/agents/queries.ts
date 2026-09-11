@@ -11,12 +11,12 @@ export function useAgentServicesQuery(agentId: string) {
   })
 }
 
-/** 作用域注册表（root + store + 各 agent）。文档 §17.3。 */
+/** Scope registry (root + store + each agent). Reference §17.3. */
 export function useScopesQuery() {
   return useQuery({ queryKey: queryKeys.scopes, queryFn: () => listScopes() })
 }
 
-/** 某个读视图下的服务列表（root 聚合 / store / agent）。 */
+/** Service list under a read view (root aggregate / store / agent). */
 export function useScopeServicesQuery(view: ScopeView) {
   return useQuery({
     enabled: view.type !== "agent" || Boolean(view.agent_id),

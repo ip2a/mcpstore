@@ -1,16 +1,16 @@
 # src/mcpstore/adapters/openai_adapter.py
 """
-OpenAI 适配器模块
+OpenAI adapter module.
 
-将 MCPStore 工具转换为 OpenAI function calling 格式。
-兼容 langchain-openai 的 bind_tools 方法和直接 OpenAI API 调用。
+Converts MCPStore tools into the OpenAI function calling format.
+Compatible with langchain-openai's bind_tools and direct OpenAI API calls.
 """
 from __future__ import annotations
 
 import json
 from typing import List, Dict, Any, Tuple
 
-# 导入公共函数
+# Shared helpers
 from .common import (
     build_async_executor,
     build_sync_executor,
@@ -26,8 +26,9 @@ from .common import (
 
 class OpenAIAdapter:
     """
-    将 MCPStore 工具转换为 OpenAI function calling 格式的适配器。
-    兼容 langchain-openai 的 bind_tools 方法和直接 OpenAI API。
+    Adapter that converts MCPStore tools into the OpenAI function calling format.
+
+    Compatible with langchain-openai's bind_tools and the direct OpenAI API.
     """
 
     def __init__(self, context: Any, instance_id: str | None = None):
@@ -35,7 +36,7 @@ class OpenAIAdapter:
         self._instance_id = instance_id
 
     def list_tools(self) -> List[Dict[str, Any]]:
-        """获取所有 MCPStore 工具并转换为 OpenAI function 格式（同步版本）。"""
+        """List all MCPStore tools and convert them to the OpenAI function format (sync version)."""
         if self._instance_id is None:
             tools = self._context.list_tools()
         else:
@@ -48,9 +49,9 @@ class OpenAIAdapter:
 
     def _convert_to_openai_format(self, tool_info: Any) -> Dict[str, Any]:
         """
-        将 MCPStore 工具元数据转换为 OpenAI function calling 格式。
+        Convert MCPStore tool metadata into the OpenAI function calling format.
 
-        OpenAI function 格式:
+        OpenAI function format:
         {
             "type": "function",
             "function": {
@@ -64,31 +65,31 @@ class OpenAIAdapter:
             }
         }
         """
-        # 增强描述
+        # Enhanced description
         enhanced_description = enhance_description(tool_info)
 
-        # 获取输入参数 schema
+        # Read the input arguments schema
         input_schema = tool_input_schema(tool_info)
         properties = input_schema.get("properties", {})
         required = input_schema.get("required", [])
 
-        # 转换参数 schema 为 OpenAI 格式
+        # Convert the parameters schema to the OpenAI format
         openai_parameters = {
             "type": "object",
             "properties": {},
             "required": required
         }
 
-        # 透传顶层 additionalProperties
+        # Pass through the top-level additionalProperties
         if "additionalProperties" in input_schema:
             openai_parameters["additionalProperties"] = input_schema["additionalProperties"]
 
         def _process_schema(p: Dict[str, Any]) -> Dict[str, Any]:
-            """递归处理 JSON Schema 节点为 OpenAI 兼容格式。"""
+            """Recursively process a JSON Schema node into an OpenAI-compatible format."""
             out: Dict[str, Any] = {}
             declared_type = p.get("type", "string")
 
-            # 使用公共函数检查 nullability
+            # Check nullability with the shared helper
             nullable = is_nullable(p)
 
             if nullable:
@@ -106,7 +107,7 @@ class OpenAIAdapter:
             if "default" in p:
                 out["default"] = p["default"]
 
-            # 数组处理
+            # Array handling
             if (
                 declared_type == "array" or (isinstance(declared_type, list) and "array" in declared_type)
             ) and "items" in p:
@@ -115,7 +116,7 @@ class OpenAIAdapter:
                     if k in p:
                         out[k] = p[k]
 
-            # 对象处理
+            # Object handling
             is_object_type = (
                 declared_type == "object"
                 or (isinstance(declared_type, list) and "object" in declared_type)
@@ -134,14 +135,14 @@ class OpenAIAdapter:
 
             return out
 
-        # 处理每个参数
+        # Process each parameter
         for param_name, param_info in properties.items():
             openai_param: Dict[str, Any] = {"description": param_info.get("description", "")}
-            # 合并处理后的 schema（type/anyOf, enum/default, 嵌套 items/properties）
+            # Merge the processed schema (type/anyOf, enum/default, nested items/properties)
             openai_param.update(_process_schema(param_info))
             openai_parameters["properties"][param_name] = openai_param
 
-        # 如果没有参数，创建空参数结构
+        # When there are no parameters, build the empty parameter structure
         if not properties:
             openai_parameters = {
                 "type": "object",
@@ -149,7 +150,7 @@ class OpenAIAdapter:
                 "required": []
             }
 
-        # 构建 OpenAI function 格式
+        # Build the OpenAI function payload
         openai_tool = {
             "type": "function",
             "function": {
@@ -163,10 +164,10 @@ class OpenAIAdapter:
 
     def get_callable_tools(self) -> List[Dict[str, Any]]:
         """
-        获取带可调用函数的工具。
+        Get tools with callable executors attached.
 
         Returns:
-            包含 'tool'（OpenAI 格式）和 'callable'（执行函数）的字典列表
+            A list of dicts containing 'tool' (OpenAI format) and 'callable' (executor function).
         """
         callable_tools = []
         tools = self._context.list_tools() if self._instance_id is None else self._context.list_tools(self._instance_id)
@@ -199,10 +200,10 @@ class OpenAIAdapter:
 
     def create_tool_registry(self) -> Dict[str, Any]:
         """
-        创建工具注册表，便于按名称执行工具。
+        Build a tool registry for executing tools by name.
 
         Returns:
-            工具名到执行器和元数据的映射字典
+            A dict mapping tool names to executors and metadata.
         """
         return self._registry_from_callable_tools(self.get_callable_tools())
 
@@ -221,13 +222,13 @@ class OpenAIAdapter:
 
     def execute_tool_call(self, tool_call: Dict[str, Any]) -> str:
         """
-        执行来自 OpenAI 响应格式的工具调用。
+        Execute a tool call from the OpenAI response format.
 
         Args:
-            tool_call: 包含 'name' 和 'arguments' 的 OpenAI 工具调用格式
+            tool_call: The OpenAI tool call payload with 'name' and 'arguments'.
 
         Returns:
-            str: 工具执行结果
+            str: The tool execution result.
         """
         tool_name = None
         try:
@@ -242,13 +243,13 @@ class OpenAIAdapter:
 
     def batch_execute_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[str]:
         """
-        批量执行多个工具调用。
+        Execute multiple tool calls in batch.
 
         Args:
-            tool_calls: OpenAI 工具调用格式列表
+            tool_calls: A list of OpenAI tool call payloads.
 
         Returns:
-            List[str]: 工具执行结果列表
+            List[str]: The list of tool execution results.
         """
         results = []
         for tool_call in tool_calls:

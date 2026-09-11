@@ -5,10 +5,10 @@ import { PageSkeleton } from "@/components/shared/page-states"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { useI18n } from "@/lib/i18n-context"
 
-/** 配置重置目标：store 全局 / 某个 agent 作用域。 */
+/** Config reset target: the store globally / a specific agent scope. */
 export type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
 
-/** 单个作用域配置树的只读展示。 */
+/** Read-only display of a single scope's config tree. */
 export function ConfigDetailPane({
   loading,
   value,

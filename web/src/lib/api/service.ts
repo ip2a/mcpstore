@@ -16,7 +16,7 @@ import type {
   ToolVisibilityFilter,
 } from "../api";
 
-/** 拼 `/services/:name<suffix>` + 作用域 query（+ 可选额外参数）。文档 §17。 */
+/** Build `/services/:name<suffix>` + scope query (+ optional extra params). Reference §17. */
 function svcPath(
   addr: ServiceAddress,
   suffix: string,
@@ -47,7 +47,7 @@ export async function listServices(
   return data.services;
 }
 
-/** 作用域注册表（root + store + 各 agent，每项带 service_count）。文档 §17.3。 */
+/** Scope registry (root + store + each agent, each entry with service_count). Reference §17.3. */
 export async function listScopes(): Promise<ScopeSummary[]> {
   const data = await request<{ scopes: ScopeSummary[] }>("/scopes/list");
   return data.scopes;

@@ -12,7 +12,7 @@ type SearchBoxProps = {
   onBlur?: (event: React.FocusEvent<HTMLInputElement>) => void
 }
 
-// 受控搜索输入框，forwardRef 以便父组件聚焦/收起控制
+// Controlled search input; forwardRef lets the parent drive focus/collapse
 export const SearchBox = forwardRef<HTMLInputElement, SearchBoxProps>(function SearchBox(
   { id, placeholder, value, onChange, onKeyDown, onBlur },
   ref,

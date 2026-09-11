@@ -19,7 +19,7 @@ export function useAgentScope({
   const scopeServicesQuery = useScopeServicesQuery(selectedScope)
   const scopeServices = scopeServicesQuery.data || []
 
-  // 可加入某 agent scope 的服务 = store 里声明、但该 agent 下还没有的。
+  // Services that can join an agent scope = declared in the store but not yet present under that agent.
   const storeServiceNames = useMemo(
     () =>
       [

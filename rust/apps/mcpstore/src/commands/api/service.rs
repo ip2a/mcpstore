@@ -11,9 +11,9 @@ use super::{
     ApiState,
 };
 
-// ===== 请求体/查询结构 =====
+// ===== Request body / query structures =====
 
-/// `GET /services/{name}/tools/list?scope=&filter=` —— 作用域 + 工具过滤。
+/// `GET /services/{name}/tools/list?scope=&filter=` — scope + tool filtering.
 #[derive(Deserialize)]
 pub(super) struct ServiceToolsListQuery {
     scope: Option<String>,
@@ -53,7 +53,7 @@ pub(super) struct ResourceTemplateOverrideQuery {
     uri_template: String,
 }
 
-/// `GET /tools/list?service_name=&scope=&filter=` —— 顶层工具列表。
+/// `GET /tools/list?service_name=&scope=&filter=` — top-level tool listing.
 #[derive(Deserialize)]
 pub(super) struct ToolsListQuery {
     service_name: String,
@@ -62,7 +62,7 @@ pub(super) struct ToolsListQuery {
     filter: Option<String>,
 }
 
-// —— 工具策略 / 配置查询结构 ——
+// —— Tool policy / config query structures ——
 #[derive(Deserialize)]
 pub(super) struct ToolVisibilityRequest {
     available_tools: Vec<String>,
@@ -81,7 +81,7 @@ pub(super) struct ResourceSubscriptionRequest {
     uri: String,
 }
 
-// ===== 工具过滤解析 =====
+// ===== Tool filter parsing =====
 
 fn parse_tool_filter(value: &str) -> ApiResult<mcpstore::ToolVisibilityFilter> {
     match value {
@@ -110,9 +110,9 @@ fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
         .map_err(ApiError::from_store)
 }
 
-// ===== 列表类 =====
+// ===== Listing endpoints =====
 
-/// `GET /services/list?scope=root|store|agent&agent_id=` —— 服务列表（root = 聚合全部作用域）。
+/// `GET /services/list?scope=root|store|agent&agent_id=` — service list (root aggregates all scopes).
 pub(super) async fn service_list_services(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ScopeQuery>,
@@ -129,7 +129,7 @@ pub(super) async fn service_list_services(
     ))
 }
 
-/// `GET /scopes/list` —— 作用域注册表（root + store + 各 agent），每项带服务数。
+/// `GET /scopes/list` — scope registry (root + store + each agent), each entry with its service count.
 pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult {
     let scopes = state
         .store
@@ -143,7 +143,7 @@ pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult
     ))
 }
 
-/// `GET /scopes/root` · `GET /scopes/store` · `GET /scopes/agents/:agent_id` —— 单个作用域详情。
+/// `GET /scopes/root` · `GET /scopes/store` · `GET /scopes/agents/:agent_id` — single scope details.
 pub(super) async fn scope_info_root(State(state): State<Arc<ApiState>>) -> ApiResult {
     scope_info_for(&state, ScopeView::Root).await
 }
@@ -176,7 +176,7 @@ async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
     Ok(success("作用域详情获取成功", json!(scope)))
 }
 
-/// `GET /agents/list` —— agent 列表（保留）。
+/// `GET /agents/list` — agent list (legacy, kept).
 pub(super) async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult {
     let agents = state
         .store
@@ -189,7 +189,7 @@ pub(super) async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult
     ))
 }
 
-/// `GET /agents/:agent_id` —— agent 详情（agent_id + 其下实例 id）。
+/// `GET /agents/:agent_id` — agent details (agent_id + its instance ids).
 pub(super) async fn agent_info(
     State(state): State<Arc<ApiState>>,
     Path(agent_id): Path<String>,
@@ -210,7 +210,7 @@ pub(super) async fn agent_info(
     Ok(success("Agent 详情获取成功", json!(agent)))
 }
 
-// ===== 服务实例：信息 / 状态 / 生命周期（服务名 + scope 寻址）=====
+// ===== Service instances: info / status / lifecycle (addressed by service name + scope) =====
 
 pub(super) async fn service_info(
     State(state): State<Arc<ApiState>>,
@@ -320,7 +320,7 @@ pub(super) async fn service_check(
     Ok(success("服务检查完成", json!(result)))
 }
 
-// ===== 工具 =====
+// ===== Tools =====
 
 /// `GET /services/{name}/tools/list?scope=&filter=`
 pub(super) async fn service_list_tools(
@@ -343,7 +343,7 @@ pub(super) async fn service_list_tools(
     ))
 }
 
-/// `GET /tools/list?service_name=&scope=&filter=` —— 顶层入口，等价于上面的服务嵌套形态。
+/// `GET /tools/list?service_name=&scope=&filter=` — top-level entry, equivalent to the service-nested form above.
 pub(super) async fn tools_list(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ToolsListQuery>,
@@ -424,7 +424,7 @@ pub(super) async fn tools_call(
     ))
 }
 
-// ===== 资源 / Prompt =====
+// ===== Resources / Prompts =====
 
 /// `GET /services/{name}/resources/list?scope=`
 pub(super) async fn service_list_resources(
@@ -522,7 +522,7 @@ pub(super) async fn service_get_prompt(
     Ok(success("Prompt 获取成功", result))
 }
 
-// ===== 服务定义（根级 CRUD，保留）=====
+// ===== Service definitions (root-level CRUD, legacy but kept) =====
 
 pub(super) async fn add_service_definition(
     State(state): State<Arc<ApiState>>,
@@ -574,7 +574,7 @@ pub(super) async fn remove_service_definition(
     Ok(success("服务定义删除成功", json!({ "status": "ok" })))
 }
 
-// ===== Scope 声明（保留）=====
+// ===== Scope declarations (legacy but kept) =====
 
 pub(super) async fn declare_store_scope(
     State(state): State<Arc<ApiState>>,
@@ -626,7 +626,7 @@ pub(super) async fn remove_agent_scope(
     Ok(success("Agent 作用域已删除", json!({ "status": "ok" })))
 }
 
-// ===== 工具策略（服务名 + scope 寻址）=====
+// ===== Tool policies (addressed by service name + scope) =====
 
 pub(super) async fn service_get_tool_policy(
     State(state): State<Arc<ApiState>>,
@@ -674,7 +674,7 @@ pub(super) async fn service_clear_tool_policy(
     Ok(success("工具策略已清除", json!({ "policy": null })))
 }
 
-// ===== 组件覆盖规则（全局列表 + 按服务名+scope 管理）=====
+// ===== Component override rules (global listing + per service-name+scope management) =====
 
 pub(super) async fn store_list_tool_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
     let rules = state
@@ -949,7 +949,7 @@ pub(super) async fn service_delete_resource_template_override(
     ))
 }
 
-// ===== 参数补全（服务名 + scope 寻址）=====
+// ===== Argument completion (addressed by service name + scope) =====
 
 pub(super) async fn service_complete_argument(
     State(state): State<Arc<ApiState>>,
@@ -967,7 +967,7 @@ pub(super) async fn service_complete_argument(
     Ok(success("参数补全成功", json!(completion)))
 }
 
-// ===== 资源订阅（服务名 + scope 寻址）=====
+// ===== Resource subscriptions (addressed by service name + scope) =====
 
 pub(super) async fn service_subscribe_resource(
     State(state): State<Arc<ApiState>>,
@@ -1015,7 +1015,7 @@ pub(super) async fn service_unsubscribe_resource(
     Ok(success("资源更新订阅已取消", json!({ "uri": uri })))
 }
 
-// ===== 配置查看 / 重置（保留）=====
+// ===== Config view / reset (legacy but kept) =====
 
 pub(super) async fn store_show_config(
     State(state): State<Arc<ApiState>>,

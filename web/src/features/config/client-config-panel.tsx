@@ -38,7 +38,7 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
   const [transport, setTransport] = useState<"stdio" | "streamable-http">("streamable-http")
   const [scopeState, setScopeState] = useState<"store" | "agent">("store")
   const [agentIdState, setAgentIdState] = useState("")
-  // 传入 scope 时锁定到该作用域（per-scope 模式，隐藏选择器）；不传则用内部选择器（全局模式）。
+  // With a scope prop, lock to that scope (per-scope mode, selector hidden); without one, use the internal selector (global mode).
   const locked = Boolean(scopeProp)
   const scope: "store" | "agent" = scopeProp
     ? scopeProp.type === "agent"

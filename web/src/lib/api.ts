@@ -139,19 +139,19 @@ export type ResourceTemplateOverrideRule = ResourceTemplateOverridePatch & {
   updated_at: number; version: number;
 };
 
-/** 服务寻址（文档 §0.4：服务名 + 作用域；URL 中无 instance_id）。ServiceInstance 结构上兼容。 */
+/** Service addressing (reference §0.4: service name + scope; no instance_id in URLs). Structurally compatible with ServiceInstance. */
 export type ServiceAddress = {
   service_name: string;
   scope: ScopeRef;
 };
 
-/** 读视图作用域（文档 §17.2）：root 聚合 / store / agent。Root 是只读聚合，不能用于声明。 */
+/** Read-view scope (reference §17.2): root aggregate / store / agent. Root is a read-only aggregate and cannot be used for declarations. */
 export type ScopeView =
   | { type: "root" }
   | { type: "store" }
   | { type: "agent"; agent_id: string };
 
-/** 作用域注册表条目（GET /scopes/list）。 */
+/** Scope registry entry (GET /scopes/list). */
 export type ScopeSummary = {
   scope: ScopeView;
   service_count: number;
