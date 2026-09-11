@@ -4,14 +4,14 @@ import { getApiBase, getAppApiBase } from "./backend";
 type FlexibleEnvelope<T> =
   ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string };
 
-/** Core 后端 base（可切换，默认 /api；指向本地 lib 或远程 mcpstore）。 */
+/** Core backend base (switchable, defaults to /api; points at the local lib or a remote mcpstore). */
 export function apiUrl(path: string) {
   return `${getApiBase()}${path}`;
 }
 
 /**
- * App 自有接口 base（固定指向本 app 进程，不随 core 后端切换）。
- * 用于 v1/meta、v1/settings、client-config、mcp-hub —— 见 接口文档 §附录C。
+ * Base for the app's own endpoints (fixed to this app process; does not follow core backend switching).
+ * Serves v1/meta, v1/settings, client-config, and mcp-hub — see the API reference, Appendix C.
  */
 export function appApiUrl(path: string) {
   return `${getAppApiBase()}${path}`;
@@ -29,14 +29,14 @@ export function buildQuery(
   return query ? `?${query}` : "";
 }
 
-/** 作用域 query 参数对象（文档 §17.2：?scope=store | ?scope=agent&agent_id=…）。 */
+/** Scope query parameter object (reference §17.2: ?scope=store | ?scope=agent&agent_id=…). */
 export function scopeParams(scope: ScopeRef): Record<string, string | undefined> {
   return scope.type === "agent"
     ? { scope: "agent", agent_id: scope.agent_id }
     : { scope: "store" };
 }
 
-/** 作用域 query 串；需附加更多参数时展开 scopeParams(...) 传入 buildQuery。 */
+/** Scope query string; spread scopeParams(...) into buildQuery to append more parameters. */
 export function scopeQuery(scope: ScopeRef): string {
   return buildQuery(scopeParams(scope));
 }
@@ -104,12 +104,12 @@ async function apiAt<T>(
   return payload as T;
 }
 
-/** Core 接口调用（走可切换的 apiUrl）。 */
+/** Core API call (goes through the switchable apiUrl). */
 export function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   return apiAt<T>(path, options, apiUrl);
 }
 
-/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
+/** App-owned API call (always uses appApiUrl; does not follow core backend switching). */
 export function appApi<T>(
   path: string,
   options: RequestInit = {},
@@ -137,12 +137,12 @@ async function requestAt<T>(
   return payload.data as T;
 }
 
-/** Core 接口调用（走可切换的 apiUrl）。 */
+/** Core API call (goes through the switchable apiUrl). */
 export function request<T>(path: string, init?: RequestInit): Promise<T> {
   return requestAt<T>(path, init, apiUrl);
 }
 
-/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
+/** App-owned API call (always uses appApiUrl; does not follow core backend switching). */
 export function appRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return requestAt<T>(path, init, appApiUrl);
 }

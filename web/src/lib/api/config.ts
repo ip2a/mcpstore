@@ -1,5 +1,7 @@
-// 本模块全部为 app 自有接口（聚合服务 spawn 本地子进程 + 读取并导入本地编辑器配置），
-// 固定走 appRequest（本 app 进程），不随 core 后端切换 —— 见 接口文档 §附录C。
+// Every endpoint in this module is app-owned (the aggregate service spawns local
+// subprocesses and reads/imports local editor configs). They always go through
+// appRequest (this app process) and never follow core backend switching —
+// see the API reference, Appendix C.
 import { appRequest as request, buildQuery } from "./client";
 import type {
   AddServiceInput,

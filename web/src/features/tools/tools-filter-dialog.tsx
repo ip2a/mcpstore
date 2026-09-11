@@ -64,12 +64,12 @@ export function ToolsFilterDialog(props: {
           <DialogTitle>{t("filter")}</DialogTitle>
         </DialogHeader>
         <FieldGroup>
-          {/* 搜索：独占一行 */}
+          {/* Search: its own row */}
           <Field>
             <FieldLabel>{t("search")}</FieldLabel>
             <SearchBox placeholder={t("searchTools")} value={props.query} onChange={props.onQueryChange} />
           </Field>
-          {/* 其余筛选项：两列网格 */}
+          {/* Remaining filters: two-column grid */}
           <div className="grid grid-cols-2 gap-4">
             <Field>
               <FieldLabel>{t("availability")}</FieldLabel>

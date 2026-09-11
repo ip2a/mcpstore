@@ -15,7 +15,7 @@ type ToolParameterDocListProps = {
   className?: string
   values?: Record<string, unknown>
   onChange?: (name: string, value: unknown) => void
-  /** Args/Parameters 段解析出的 `name: text` 说明，与 schema description 是并列来源。 */
+  /** `name: text` docs parsed from the Args/Parameters section; a peer source alongside the schema description. */
   proseParamDocs?: Record<string, string>
 }
 
