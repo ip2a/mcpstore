@@ -125,6 +125,10 @@ pub struct ServiceLifecycleConfig {
     pub startup_policy: Option<StartupPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restart_policy: Option<RestartPolicy>,
+    /// Keep the MCP client connection alive after use instead of tearing it down.
+    /// `None` preserves the legacy ephemeral behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -133,6 +137,8 @@ pub struct ServiceLifecycleDefaults {
     pub startup_policy: StartupPolicy,
     #[serde(default)]
     pub restart_policy: RestartPolicy,
+    #[serde(default)]
+    pub keep_alive: bool,
 }
 
 impl Default for ServiceLifecycleDefaults {
@@ -140,6 +146,7 @@ impl Default for ServiceLifecycleDefaults {
         Self {
             startup_policy: StartupPolicy::Lazy,
             restart_policy: RestartPolicy::default(),
+            keep_alive: false,
         }
     }
 }
@@ -148,6 +155,7 @@ impl Default for ServiceLifecycleDefaults {
 pub struct ResolvedServiceLifecycle {
     pub startup_policy: StartupPolicy,
     pub restart_policy: RestartPolicy,
+    pub keep_alive: bool,
 }
 
 /// Client lifecycle handshake mode for an MCP service.
@@ -409,6 +417,10 @@ impl ServerConfig {
                 .and_then(|value| value.restart_policy.clone())
                 .or_else(|| definition_lifecycle.and_then(|value| value.restart_policy.clone()))
                 .unwrap_or_else(|| defaults.restart_policy.clone()),
+            keep_alive: scope_lifecycle
+                .and_then(|value| value.keep_alive)
+                .or_else(|| definition_lifecycle.and_then(|value| value.keep_alive))
+                .unwrap_or(defaults.keep_alive),
         }
     }
 

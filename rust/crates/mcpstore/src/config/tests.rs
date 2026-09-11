@@ -612,6 +612,58 @@ fn test_service_lifecycle_ignores_old_draft_field_names() {
 }
 
 #[test]
+fn test_service_lifecycle_keep_alive_defaults_and_resolves() {
+    // Not configured: preserves legacy ephemeral behavior.
+    let raw = r#"{ "command": "node" }"#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        config
+            .mcpstore
+            .as_ref()
+            .and_then(|ext| ext.lifecycle.as_ref())
+            .and_then(|lc| lc.keep_alive),
+        None
+    );
+    assert!(
+        !config
+            .resolved_lifecycle(&ServiceLifecycleDefaults::default())
+            .keep_alive
+    );
+
+    // Configured true: parses and flows through to the resolved lifecycle.
+    let raw = r#"
+    {
+      "command": "node",
+      "_mcpstore": { "scopes": {}, "lifecycle": { "keep_alive": true } }
+    }
+    "#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        config
+            .mcpstore
+            .as_ref()
+            .unwrap()
+            .lifecycle
+            .as_ref()
+            .unwrap()
+            .keep_alive,
+        Some(true)
+    );
+    assert!(
+        config
+            .resolved_lifecycle(&ServiceLifecycleDefaults::default())
+            .keep_alive
+    );
+
+    // Field name is preserved on serialization.
+    let serialized = serde_json::to_value(&config).unwrap();
+    assert_eq!(
+        serialized["_mcpstore"]["lifecycle"]["keep_alive"],
+        serde_json::json!(true)
+    );
+}
+
+#[test]
 fn test_app_config_service_lifecycle_defaults_from_toml() {
     let config: AppConfig = toml::from_str(
         r#"

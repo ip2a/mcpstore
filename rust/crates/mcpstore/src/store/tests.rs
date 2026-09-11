@@ -141,6 +141,7 @@ fn config_with_lifecycle(
         lifecycle: Some(crate::config::ServiceLifecycleConfig {
             startup_policy,
             restart_policy,
+            keep_alive: None,
         }),
         handshake_mode: None,
         execution_policy: None,
@@ -6412,6 +6413,7 @@ mod scoped_contract {
                 kind: crate::config::RestartPolicyKind::OnFailure,
                 max_retries: None,
             }),
+            keep_alive: None,
         });
         let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
         store.add_service("svc", config).await.unwrap();

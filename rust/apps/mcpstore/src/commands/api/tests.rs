@@ -59,6 +59,7 @@ fn stdio_config_with_lifecycle() -> ServerConfig {
                 kind: mcpstore::config::RestartPolicyKind::OnFailure,
                 max_retries: Some(3),
             }),
+            keep_alive: None,
         }),
         ..mcpstore::config::McpStoreExtension::default()
     });
