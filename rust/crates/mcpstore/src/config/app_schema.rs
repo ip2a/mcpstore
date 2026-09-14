@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::cache_schema::CacheConfig;
@@ -21,6 +23,8 @@ pub struct AppConfig {
     pub cache: CacheConfig,
     #[serde(default)]
     pub server: ServerSettings,
+    #[serde(default)]
+    pub daemons: BTreeMap<String, DaemonNodeSettings>,
     #[serde(default)]
     pub mcp_aggregate: McpAggregateConfig,
     #[serde(default)]
@@ -46,6 +50,7 @@ impl Default for AppConfig {
             created_at: default_created_at(),
             cache: CacheConfig::default(),
             server: ServerSettings::default(),
+            daemons: BTreeMap::new(),
             mcp_aggregate: McpAggregateConfig::default(),
             health_check: HealthCheckConfig::default(),
             monitoring: MonitoringConfig::default(),
@@ -63,6 +68,8 @@ pub struct McpAggregateConfig {
     pub transport: String,
     #[serde(default = "default_mcp_aggregate_port")]
     pub port: u16,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl Default for McpAggregateConfig {
@@ -70,6 +77,7 @@ impl Default for McpAggregateConfig {
         Self {
             transport: default_mcp_aggregate_transport(),
             port: default_mcp_aggregate_port(),
+            enabled: false,
         }
     }
 }
@@ -163,13 +171,36 @@ impl Default for UiConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonNodeSettings {
+    pub endpoint: String,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerSettings {
     #[serde(default = "default_server_host")]
     pub host: String,
     #[serde(default = "default_server_port")]
     pub port: u16,
+    #[serde(default = "default_app_port")]
+    pub app_port: u16,
     #[serde(default = "default_web_port")]
     pub web_port: u16,
+    /// Kernel RPC TCP listener port; 0 disables remote daemon access.
+    #[serde(default)]
+    pub rpc_port: u16,
+    /// Required shared secret for Kernel RPC TCP connections.
+    #[serde(default)]
+    pub rpc_token: Option<String>,
+    #[serde(default = "default_true")]
+    pub core_enabled: bool,
+    #[serde(default = "default_true")]
+    pub app_enabled: bool,
+    #[serde(default = "default_true")]
+    pub web_enabled: bool,
     #[serde(default)]
     pub reload: bool,
     #[serde(default)]
@@ -187,7 +218,13 @@ impl Default for ServerSettings {
         Self {
             host: default_server_host(),
             port: default_server_port(),
+            app_port: default_app_port(),
             web_port: default_web_port(),
+            rpc_port: 0,
+            rpc_token: None,
+            core_enabled: true,
+            app_enabled: true,
+            web_enabled: true,
             reload: false,
             auto_open_browser: false,
             show_startup_info: true,

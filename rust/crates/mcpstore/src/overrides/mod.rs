@@ -102,7 +102,13 @@ impl MCPStore {
             .await?;
         let key = Self::component_override_key(instance_id, original_key);
         for attempt in 0..8 {
-            let Some(value) = self.cache.get_state(kind.state_type(), &key).await? else {
+            let Some(value) = self
+                .kernel
+                .persistence
+                .cache
+                .get_state(kind.state_type(), &key)
+                .await?
+            else {
                 match self
                     .dispatch_set_enabled_when_no_rule(kind, instance_id, original_key, enabled)
                     .await
@@ -139,6 +145,8 @@ impl MCPStore {
                 serde_json::json!(Self::now_timestamp()),
             );
             match self
+                .kernel
+                .persistence
                 .cache
                 .compare_and_put_state(kind.state_type(), &key, Some(version), Value::Object(obj))
                 .await

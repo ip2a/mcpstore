@@ -11,8 +11,30 @@ use crate::{bootstrap, commands, BoxErr};
     version = env!("CARGO_PKG_VERSION"),
 )]
 pub struct Cli {
+    /// 本进程内嵌 kernel 冷启动，不连也不拉 daemon
+    #[arg(long, global = true)]
+    pub embedded: bool,
+    /// Remote daemon Kernel RPC endpoint, e.g. 10.0.0.2:1840
+    #[arg(long, global = true)]
+    pub daemon_endpoint: Option<String>,
+    /// Namespace on --daemon-endpoint
+    #[arg(long, global = true)]
+    pub daemon_namespace: Option<String>,
+    /// Shared token for --daemon-endpoint
+    #[arg(long, global = true)]
+    pub daemon_token: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
+}
+
+impl Cli {
+    fn daemon_endpoint(&self) -> Option<crate::daemon::client::DaemonEndpoint> {
+        crate::daemon::client::DaemonEndpoint::from_args(
+            self.daemon_endpoint.clone(),
+            self.daemon_namespace.clone(),
+            self.daemon_token.clone(),
+        )
+    }
 }
 
 #[derive(Subcommand)]
@@ -20,11 +42,26 @@ pub enum Commands {
     Version,
     Start(commands::daemon_cmd::StartArgs),
     Stop,
-    Api(commands::api::ApiArgs),
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    Daemon {
+        #[command(subcommand)]
+        action: commands::daemon_cmd::DaemonAction,
+    },
+    Api {
+        #[arg(long)]
+        json: bool,
+    },
     Auth(commands::auth::AuthArgs),
     Config {
         #[command(subcommand)]
-        action: commands::config::ConfigAction,
+        action: Option<commands::config::ConfigAction>,
+        #[command(flatten)]
+        edits: commands::config::ConfigEdits,
+        #[arg(long)]
+        json: bool,
     },
     Add(commands::mcp::AddArgs),
     AddJson(commands::mcp::AddJsonArgs),
@@ -45,11 +82,15 @@ pub enum Commands {
     Resource(commands::protocol::ResourceArgs),
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
+    Request(commands::request::RequestArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
     #[command(name = "mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
     #[command(visible_alias = "ui")]
-    Web(commands::web::WebArgs),
+    Web {
+        #[arg(long)]
+        json: bool,
+    },
     Tui(crate::tui::TuiArgs),
 }
 
@@ -58,7 +99,8 @@ pub fn run() -> Result<(), BoxErr> {
 
     // TUI runs its own blocking event loop and creates its own runtime,
     // so it must be handled outside the async block to avoid nested runtimes.
-    if let Commands::Tui(args) = cli.command {
+    if let Commands::Tui(mut args) = cli.command {
+        args.embedded = args.embedded || cli.embedded;
         return crate::tui::run_from_args(&args);
     }
 
@@ -70,9 +112,11 @@ pub fn run() -> Result<(), BoxErr> {
         bootstrap::init_tracing_from_config(app_config.as_ref());
     }
 
+    let endpoint = cli.daemon_endpoint();
+    let embedded = cli.embedded;
     let rt = bootstrap::build_runtime()?;
 
-    let result = rt.block_on(async {
+    let result = rt.block_on(async move {
         match cli.command {
             Commands::Version => {
                 print_banner();
@@ -80,31 +124,75 @@ pub fn run() -> Result<(), BoxErr> {
             }
             Commands::Start(args) => commands::daemon_cmd::start(args).await,
             Commands::Stop => commands::daemon_cmd::stop().await,
-            Commands::Api(args) => commands::api::run(args).await,
-            Commands::Auth(args) => commands::auth::run(args).await,
-            Commands::Config { action } => commands::config::run(action).await,
-            Commands::Add(args) => commands::mcp::add(args).await,
-            Commands::AddJson(args) => commands::mcp::add_json(args).await,
-            Commands::Assign(args) => commands::mcp::assign(args).await,
-            Commands::Unassign(args) => commands::mcp::unassign(args).await,
-            Commands::List(args) => commands::mcp::list(args).await,
-            Commands::Get(args) => commands::mcp::get(args).await,
-            Commands::Remove(args) => commands::mcp::remove(args).await,
-            Commands::Connect(args) => commands::mcp::connect(args).await,
-            Commands::Disconnect(args) => commands::mcp::disconnect(args).await,
-            Commands::Restart(args) => commands::mcp::restart(args).await,
-            Commands::Check(args) => commands::mcp::check(args).await,
-            Commands::Wait(args) => commands::mcp::wait(args).await,
-            Commands::Update(args) => commands::mcp::update(args).await,
-            Commands::Tools(args) => commands::mcp::tools(args).await,
-            Commands::Call(args) => commands::mcp::call_tool(args).await,
-            Commands::Task(args) => commands::task::run(args).await,
-            Commands::Resource(args) => commands::protocol::run_resource(args).await,
-            Commands::Prompt(args) => commands::protocol::run_prompt(args).await,
-            Commands::Complete(args) => commands::protocol::complete(args).await,
-            Commands::MigrateStore(args) => commands::mcp::migrate_store(args).await,
+            Commands::Status { json } => commands::daemon_cmd::status(json).await,
+            Commands::Daemon { action } => commands::daemon_cmd::run_daemon(action).await,
+            Commands::Api { json } => commands::daemon_cmd::face_view("core", json).await,
+            Commands::Auth(args) => commands::auth::run(args, embedded, endpoint.clone()).await,
+            Commands::Config {
+                action,
+                edits,
+                json,
+            } => commands::config::run(action, edits, json).await,
+            Commands::Add(args) => commands::mcp::add(args, embedded, endpoint.clone()).await,
+            Commands::AddJson(args) => {
+                commands::mcp::add_json(args, embedded, endpoint.clone()).await
+            }
+            Commands::Assign(args) => commands::mcp::assign(args, embedded, endpoint.clone()).await,
+            Commands::Unassign(args) => {
+                commands::mcp::unassign(args, embedded, endpoint.clone()).await
+            }
+            Commands::List(args) => commands::mcp::list(args, embedded, endpoint.clone()).await,
+            Commands::Get(args) => commands::mcp::get(args, embedded, endpoint.clone()).await,
+            Commands::Remove(args) => commands::mcp::remove(args, embedded, endpoint.clone()).await,
+            Commands::Connect(args) => {
+                commands::mcp::connect(args, embedded, endpoint.clone()).await
+            }
+            Commands::Disconnect(args) => {
+                commands::mcp::disconnect(args, embedded, endpoint.clone()).await
+            }
+            Commands::Restart(args) => {
+                commands::mcp::restart(args, embedded, endpoint.clone()).await
+            }
+            Commands::Check(args) => commands::mcp::check(args, embedded, endpoint.clone()).await,
+            Commands::Wait(args) => commands::mcp::wait(args, embedded, endpoint.clone()).await,
+            Commands::Update(args) => commands::mcp::update(args, embedded, endpoint.clone()).await,
+            Commands::Tools(args) => commands::mcp::tools(args, embedded, endpoint.clone()).await,
+            Commands::Call(ref args) => {
+                let endpoint = execution_endpoint(
+                    endpoint.clone(),
+                    app_config.as_ref(),
+                    args.execution.daemon_node.as_deref(),
+                )?;
+                commands::mcp::call_tool(args.clone(), embedded, endpoint).await
+            }
+            Commands::Task(args) => {
+                let endpoint = task_endpoint(app_config.as_ref(), &args, endpoint.clone())?;
+                commands::task::run(args, embedded, endpoint).await
+            }
+            Commands::Resource(args) => {
+                let endpoint = protocol_endpoint(app_config.as_ref(), &args, endpoint.clone())?;
+                commands::protocol::run_resource(args, embedded, endpoint).await
+            }
+            Commands::Prompt(args) => {
+                let endpoint = protocol_endpoint(app_config.as_ref(), &args, endpoint.clone())?;
+                commands::protocol::run_prompt(args, embedded, endpoint).await
+            }
+            Commands::Complete(ref args) => {
+                let endpoint = execution_endpoint(
+                    endpoint.clone(),
+                    app_config.as_ref(),
+                    args.execution.daemon_node.as_deref(),
+                )?;
+                commands::protocol::complete(args.clone(), embedded, endpoint).await
+            }
+            Commands::Request(args) => {
+                commands::request::run(args, embedded, endpoint.clone()).await
+            }
+            Commands::MigrateStore(args) => {
+                commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
+            }
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
-            Commands::Web(args) => commands::web::run(args).await,
+            Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
     });
@@ -116,6 +204,74 @@ pub fn run() -> Result<(), BoxErr> {
         }
     }
     result
+}
+
+fn execution_endpoint(
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+    app_config: Option<&mcpstore::AppConfig>,
+    daemon_node: Option<&str>,
+) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
+    if endpoint.is_some() {
+        return Ok(endpoint);
+    }
+    let Some(node_id) = daemon_node else {
+        return Ok(None);
+    };
+    let endpoint = app_config
+        .and_then(|config| config.daemons.get(node_id))
+        .map(crate::daemon::client::DaemonEndpoint::from_node);
+    if let Some(endpoint) = endpoint {
+        return Ok(Some(endpoint));
+    }
+    Err(mcpstore::Error::new(
+        mcpstore::FailureCode::ConfigInvalid,
+        format!("unknown execution node '{node_id}'"),
+    ))
+}
+
+fn task_endpoint(
+    app_config: Option<&mcpstore::AppConfig>,
+    args: &commands::task::TaskArgs,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
+    let daemon_node = match &args.action {
+        commands::task::TaskAction::Run(args) => args.execution.daemon_node.as_deref(),
+        _ => None,
+    };
+    execution_endpoint(endpoint, app_config, daemon_node)
+}
+
+fn protocol_endpoint<T: ProtocolExecutionArgs>(
+    app_config: Option<&mcpstore::AppConfig>,
+    args: &T,
+    endpoint: Option<crate::daemon::client::DaemonEndpoint>,
+) -> mcpstore::Result<Option<crate::daemon::client::DaemonEndpoint>> {
+    execution_endpoint(endpoint, app_config, args.daemon_node())
+}
+
+trait ProtocolExecutionArgs {
+    fn daemon_node(&self) -> Option<&str>;
+}
+
+impl ProtocolExecutionArgs for commands::protocol::ResourceArgs {
+    fn daemon_node(&self) -> Option<&str> {
+        match &self.action {
+            commands::protocol::ResourceAction::List(args) => args.execution.daemon_node.as_deref(),
+            commands::protocol::ResourceAction::Templates(args) => {
+                args.execution.daemon_node.as_deref()
+            }
+            commands::protocol::ResourceAction::Read(args) => args.execution.daemon_node.as_deref(),
+        }
+    }
+}
+
+impl ProtocolExecutionArgs for commands::protocol::PromptArgs {
+    fn daemon_node(&self) -> Option<&str> {
+        match &self.action {
+            commands::protocol::PromptAction::List(args) => args.execution.daemon_node.as_deref(),
+            commands::protocol::PromptAction::Get(args) => args.execution.daemon_node.as_deref(),
+        }
+    }
 }
 
 fn output_format(command: &Commands) -> crate::error::OutputFormat {
@@ -138,6 +294,11 @@ fn output_format(command: &Commands) -> crate::error::OutputFormat {
             commands::protocol::PromptAction::Get(args) => args.output.output,
         },
         Commands::Complete(args) => args.output.output,
+        Commands::Request(args) => match &args.action {
+            commands::request::RequestAction::List(args) => args.output,
+            commands::request::RequestAction::Get(args) => args.output,
+            commands::request::RequestAction::Wait(args) => args.output,
+        },
         Commands::List(args) => args.output,
         Commands::Tools(args) => args.output,
         Commands::Get(args) => args.output,
@@ -256,6 +417,40 @@ mod tests {
     }
 
     #[test]
+    fn named_execution_node_resolves_endpoint_from_config() {
+        let mut config = mcpstore::AppConfig::default();
+        config.daemons.insert(
+            "remote".into(),
+            mcpstore::DaemonNodeSettings {
+                endpoint: "127.0.0.1:1840".into(),
+                namespace: Some("ns".into()),
+                token: Some("secret".into()),
+            },
+        );
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "svc",
+            "noop",
+            "--runtime",
+            "daemon",
+            "--daemon-node",
+            "remote",
+        ])
+        .unwrap();
+        let Commands::Call(args) = &cli.command else {
+            panic!("expected call command");
+        };
+        let endpoint =
+            execution_endpoint(None, Some(&config), args.execution.daemon_node.as_deref())
+                .unwrap()
+                .unwrap();
+        assert_eq!(endpoint.address, "127.0.0.1:1840");
+        assert_eq!(endpoint.namespace, "ns");
+        assert_eq!(endpoint.token.as_deref(), Some("secret"));
+    }
+
+    #[test]
     fn parses_stdio_command_after_separator() {
         let cli = Cli::try_parse_from([
             "mcpstore",
@@ -347,7 +542,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Call(args) => {
+            Commands::Call(ref args) => {
                 assert_eq!(args.target, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.tool_name, "get_repo_status");
                 assert_eq!(args.arguments, "{}");
@@ -355,6 +550,44 @@ mod tests {
                 assert_eq!(args.timeout, Some(15));
                 assert_eq!(args.max_total_timeout, Some(60));
                 assert!(args.non_interactive);
+            }
+            _ => panic!("Expected to parse as call command"),
+        }
+    }
+
+    #[test]
+    fn parses_call_runtime_and_daemon_node() {
+        for (value, expected) in [
+            ("local", commands::mcp::RuntimeArg::Local),
+            ("daemon", commands::mcp::RuntimeArg::Daemon),
+        ] {
+            let cli =
+                Cli::try_parse_from(["mcpstore", "call", "service", "tool", "--runtime", value])
+                    .unwrap();
+            match cli.command {
+                Commands::Call(args) => assert_eq!(args.execution.runtime, Some(expected)),
+                _ => panic!("Expected to parse as call command"),
+            }
+        }
+
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "call",
+            "service",
+            "tool",
+            "--runtime",
+            "daemon",
+            "--daemon-node",
+            "browser-host",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Call(args) => {
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(commands::mcp::RuntimeArg::Daemon)
+                );
+                assert_eq!(args.execution.daemon_node.as_deref(), Some("browser-host"));
             }
             _ => panic!("Expected to parse as call command"),
         }
@@ -377,7 +610,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Call(args) => {
+            Commands::Call(ref args) => {
                 assert_eq!(args.target, "github");
                 assert_eq!(args.tool_name, "get_repo");
                 assert_eq!(args.args, vec!["owner:ip2a", "repo:mcp/store"]);
@@ -456,6 +689,8 @@ mod tests {
             "--output",
             "jsonl",
             "--non-interactive",
+            "--runtime",
+            "daemon",
         ])
         .unwrap();
 
@@ -470,6 +705,10 @@ mod tests {
                 assert_eq!(args.max_total_timeout, Some(90));
                 assert_eq!(args.runtime.output, crate::error::OutputFormat::Jsonl);
                 assert!(args.runtime.non_interactive);
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(crate::commands::mcp::RuntimeArg::Daemon)
+                );
             }
             _ => panic!("Expected to parse as task run command"),
         }
@@ -602,6 +841,54 @@ mod tests {
     }
 
     #[test]
+    fn parses_data_plane_node_mode() {
+        let cli = Cli::try_parse_from([
+            "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Commands::List(args) => {
+                assert_eq!(
+                    args.store.node_mode,
+                    Some(crate::store_args::NodeModeArg::Data)
+                );
+                assert!(args.store.is_explicit());
+            }
+            _ => panic!("Expected to parse as list command"),
+        }
+    }
+
+    #[test]
+    fn parses_request_get_and_wait_commands() {
+        let cli = Cli::try_parse_from(["mcpstore", "request", "get", "req-1", "--output", "json"])
+            .unwrap();
+        match cli.command {
+            Commands::Request(args) => match args.action {
+                commands::request::RequestAction::Get(args) => {
+                    assert_eq!(args.request_id, "req-1");
+                    assert_eq!(args.output, OutputFormat::Json);
+                }
+                _ => panic!("Expected request get"),
+            },
+            _ => panic!("Expected request command"),
+        }
+
+        let cli = Cli::try_parse_from(["mcpstore", "request", "wait", "req-1", "--timeout", "7"])
+            .unwrap();
+        match cli.command {
+            Commands::Request(args) => match args.action {
+                commands::request::RequestAction::Wait(args) => {
+                    assert_eq!(args.request_id, "req-1");
+                    assert_eq!(args.timeout, 7);
+                }
+                _ => panic!("Expected request wait"),
+            },
+            _ => panic!("Expected request command"),
+        }
+    }
+
+    #[test]
     fn parses_migrate_store_command() {
         let cli = Cli::try_parse_from([
             "mcpstore",
@@ -630,12 +917,13 @@ mod tests {
 
     #[test]
     fn parses_web_command() {
-        let cli = Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).unwrap();
-
+        let cli = Cli::try_parse_from(["mcpstore", "web", "--json"]).unwrap();
         match cli.command {
-            Commands::Web(args) => assert_eq!(args.port, Some(9090)),
-            _ => panic!("Expected to parse as web command"),
+            Commands::Web { json } => assert!(json),
+            _ => panic!("Expected to parse as web view command"),
         }
+        // 启动语义已删除：旧 flag 必须解析失败
+        assert!(Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).is_err());
     }
 
     #[test]
@@ -671,17 +959,44 @@ mod tests {
 
     #[test]
     fn parses_api_command() {
-        let cli =
-            Cli::try_parse_from(["mcpstore", "api", "--port", "9091", "--url-prefix", "/mcp"])
-                .unwrap();
-
+        let cli = Cli::try_parse_from(["mcpstore", "api", "--json"]).unwrap();
         match cli.command {
-            Commands::Api(args) => {
-                assert_eq!(args.port, Some(9091));
-                assert_eq!(args.url_prefix, "/mcp");
-                assert!(!args.allow_remote);
+            Commands::Api { json } => assert!(json),
+            _ => panic!("Expected to parse as api view command"),
+        }
+        // 启动语义已删除：旧 flag 必须解析失败
+        assert!(
+            Cli::try_parse_from(["mcpstore", "api", "--port", "9091", "--url-prefix", "/mcp"])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn parses_config_edit_flags() {
+        let cli =
+            Cli::try_parse_from(["mcpstore", "config", "--web-port", "1829", "--core", "off"])
+                .unwrap();
+        match cli.command {
+            Commands::Config { action, edits, .. } => {
+                assert!(action.is_none());
+                assert_eq!(edits.web_port, Some(1829));
+                assert_eq!(edits.core.as_deref(), Some("off"));
             }
-            _ => panic!("Expected to parse as api command"),
+            _ => panic!("Expected to parse as config edit command"),
+        }
+    }
+
+    #[test]
+    fn parses_daemon_restart() {
+        let cli = Cli::try_parse_from(["mcpstore", "daemon", "restart"]).unwrap();
+        match cli.command {
+            Commands::Daemon { action } => {
+                assert!(matches!(
+                    action,
+                    commands::daemon_cmd::DaemonAction::Restart
+                ));
+            }
+            _ => panic!("Expected to parse as daemon restart"),
         }
     }
     #[test]
@@ -692,6 +1007,8 @@ mod tests {
             "read",
             "c81af510-755b-55c7-8487-5668ab36e06e",
             "repo://mcp/store",
+            "--runtime",
+            "local",
             "--output",
             "json",
         ])
@@ -704,6 +1021,10 @@ mod tests {
                 assert_eq!(args.instance_id, "c81af510-755b-55c7-8487-5668ab36e06e");
                 assert_eq!(args.uri, "repo://mcp/store");
                 assert_eq!(args.output.output, crate::error::OutputFormat::Json);
+                assert_eq!(
+                    args.execution.runtime,
+                    Some(crate::commands::mcp::RuntimeArg::Local)
+                );
             }
             _ => panic!("Expected resource read command"),
         }
@@ -755,7 +1076,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Complete(args) => {
+            Commands::Complete(ref args) => {
                 assert_eq!(
                     args.reference_kind,
                     commands::protocol::CompletionReferenceKind::Resource

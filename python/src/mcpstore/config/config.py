@@ -63,7 +63,7 @@ class LoggingConfig:
         level = _to_level(debug)
 
         if cls._configured and not force_reconfigure:
-            # 若仅调整等级则快速返回；格式变更需重新配置
+            # Return early when only the level changes; format changes require reconfiguration.
             if level == cls._current_level and use_rich == cls._use_rich and rich_traceback == cls._rich_traceback:
                 return
             if level != cls._current_level:
@@ -164,7 +164,7 @@ class LoggingConfig:
             module_logger = logging.getLogger(logger_name)
             module_logger.setLevel(level)
             module_logger.propagate = propagate
-            # 清空子 logger 自带的 handler，避免重复输出
+            # Clear handlers inherited by child loggers to avoid duplicate output.
             for h in module_logger.handlers[:]:
                 module_logger.removeHandler(h)
 

@@ -8,7 +8,9 @@ use crate::store::prelude::*;
 impl MCPStore {
     pub async fn health_check(&self, instance_id: InstanceId) -> Result<ServiceState> {
         let current = self
-            .state_manager
+            .kernel
+            .control
+            .state
             .get(instance_id)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
@@ -16,7 +18,7 @@ impl MCPStore {
             return Ok(current);
         }
 
-        if !self.pool.is_connected(instance_id).await {
+        if !self.kernel.execution.pool.is_connected(instance_id).await {
             if current.desired == crate::state::DesiredState::Running
                 && matches!(current.recovery, RecoveryState::Idle)
             {
@@ -35,16 +37,26 @@ impl MCPStore {
 
         let started_at = std::time::Instant::now();
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let timeout = std::time::Duration::from_secs_f64(
-            self.runtime_config
+            self.kernel
+                .runtime
+                .runtime_config
                 .ping_timeout_for_transport(instance.transport.as_str())
                 .max(0.1),
         );
-        let ok = self.pool.ping(instance_id, timeout).await.is_ok();
+        let ok = self
+            .kernel
+            .execution
+            .pool
+            .ping(instance_id, timeout)
+            .await
+            .is_ok();
         let latency_ms = Some(started_at.elapsed().as_secs_f64() * 1000.0);
         self.record_health_check_result(
             instance_id,
@@ -62,7 +74,14 @@ impl MCPStore {
         _latency_ms: Option<f64>,
         error: Option<String>,
     ) -> Result<ServiceState> {
-        if self.registry.find_instance(instance_id).await.is_none() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
@@ -70,7 +89,9 @@ impl MCPStore {
         }
         if self.is_data_plane() {
             return self
-                .state_manager
+                .kernel
+                .control
+                .state
                 .get(instance_id)
                 .await?
                 .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
@@ -78,7 +99,9 @@ impl MCPStore {
 
         let now = Self::now_timestamp();
         Ok(self
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::HealthObserved {
@@ -143,7 +166,14 @@ impl MCPStore {
         latency_ms: Option<f64>,
         error: Option<String>,
     ) -> Result<ServiceState> {
-        if self.registry.find_instance(instance_id).await.is_none() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
@@ -151,13 +181,15 @@ impl MCPStore {
         }
         if self.is_data_plane() {
             return self
-                .state_manager
+                .kernel
+                .control
+                .state
                 .get(instance_id)
                 .await?
                 .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
-        if let Some(supervisor) = &self.supervisor {
+        if let Some(supervisor) = &self.kernel.execution.supervisor {
             supervisor
                 .observe_and_commit(
                     instance_id,
@@ -170,7 +202,9 @@ impl MCPStore {
                 )
                 .await;
             return self
-                .state_manager
+                .kernel
+                .control
+                .state
                 .get(instance_id)
                 .await?
                 .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
@@ -178,7 +212,13 @@ impl MCPStore {
 
         let health = if ok {
             if latency_ms.is_some_and(|value| {
-                value >= self.runtime_config.supervisor_policy.latency_p95_warn_ms
+                value
+                    >= self
+                        .kernel
+                        .runtime
+                        .runtime_config
+                        .supervisor_policy
+                        .latency_p95_warn_ms
             }) {
                 HealthState::Degraded
             } else {
@@ -189,7 +229,9 @@ impl MCPStore {
         };
         let now = Self::now_timestamp();
         Ok(self
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::HealthObserved {

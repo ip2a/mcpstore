@@ -10,7 +10,12 @@ impl MCPStore {
         now: i64,
     ) -> Result<()> {
         for _ in 0..3 {
-            let current = self.cache.get_relation("agent_instances", agent_id).await?;
+            let current = self
+                .kernel
+                .persistence
+                .cache
+                .get_relation("agent_instances", agent_id)
+                .await?;
             let expected_version = current.as_ref().map(|value| {
                 value
                     .get("version")
@@ -43,6 +48,8 @@ impl MCPStore {
             });
             relation.version += 1;
             match self
+                .kernel
+                .persistence
                 .cache
                 .compare_and_put_relation(
                     "agent_instances",
@@ -67,6 +74,8 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<()> {
         let relations = self
+            .kernel
+            .persistence
             .cache
             .get_all_relations_async("agent_instances")
             .await?;
@@ -74,6 +83,8 @@ impl MCPStore {
             let mut complete = false;
             for _ in 0..3 {
                 let Some(value) = self
+                    .kernel
+                    .persistence
                     .cache
                     .get_relation("agent_instances", &agent_id)
                     .await?
@@ -102,6 +113,8 @@ impl MCPStore {
                 }
                 relation.version += 1;
                 match self
+                    .kernel
+                    .persistence
                     .cache
                     .compare_and_put_relation(
                         "agent_instances",

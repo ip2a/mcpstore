@@ -105,7 +105,7 @@ pub(super) async fn update_settings(
             if let Some(max_size_bytes) = runtime_log.max_size_bytes {
                 if max_size_bytes == 0 {
                     return Err(ApiError::invalid_parameter(
-                        "运行日志大小上限必须大于 0",
+                        "运行Logs大小上限必须大于 0",
                         Some("diagnostics.runtime_log.max_size_bytes"),
                     ));
                 }

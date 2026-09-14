@@ -27,8 +27,8 @@ pub use backend::EventBackend;
 use std::sync::Arc;
 
 use openkeyv::{
-    AsyncChangeFeed, AsyncCompareAndSwap, AsyncKeyValue, ChangeFeedRequest, ChangeFilter,
-    ChangeOperation, ChangeStart, ChangeSubscription,
+    AsyncChangeFeed, AsyncCompareAndSwap, AsyncEnumerateKeys, AsyncKeyValue, ChangeFeedRequest,
+    ChangeFilter, ChangeOperation, ChangeStart, ChangeSubscription,
 };
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
@@ -40,10 +40,11 @@ use crate::events::{Event, EventBus};
 
 use claim::{ClaimResult, ClaimStore};
 use cursor::CursorStore;
-use execution::{ReactionExecutionStatus, ReactionExecutionStore};
+use execution::{ReactionExecutionError, ReactionExecutionStatus, ReactionExecutionStore};
 
 /// Internal collection suffixes that must never trigger reactions.
 const INTERNAL_SUFFIXES: &[&str] = &["reactor:cursors", "reactor:claims", "reactor:executions"];
+const GLOBAL_INTERNAL_COLLECTIONS: &[&str] = &["__mcpstore_migration", "__mcpstore_keyspace_meta"];
 
 /// Configuration for creating an EventReactor.
 #[derive(Clone, Debug)]
@@ -60,6 +61,10 @@ pub struct ReactorConfig {
     /// trigger further reactions, the depth increases. At `max_causation_depth`
     /// the reactor stops the chain to prevent infinite recursion.
     pub max_causation_depth: u32,
+    /// Interval for recovering persisted RetryWaiting/Running reactions.
+    pub recovery_interval: std::time::Duration,
+    /// Delay before resubscribing after the feed closes or errors.
+    pub feed_retry_interval: std::time::Duration,
 }
 
 impl Default for ReactorConfig {
@@ -70,6 +75,8 @@ impl Default for ReactorConfig {
             namespace: "mcpstore".into(),
             watch_collections: Vec::new(),
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         }
     }
 }
@@ -77,7 +84,14 @@ impl Default for ReactorConfig {
 /// The EventReactor: owns the feed subscription loop and dispatches reactions.
 pub struct EventReactor<S>
 where
-    S: AsyncChangeFeed + AsyncCompareAndSwap + AsyncKeyValue + Clone + Send + Sync + 'static,
+    S: AsyncChangeFeed
+        + AsyncCompareAndSwap
+        + AsyncEnumerateKeys
+        + AsyncKeyValue
+        + Clone
+        + Send
+        + Sync
+        + 'static,
 {
     store: S,
     config: ReactorConfig,
@@ -89,7 +103,9 @@ where
     /// here so they become visible via `/events/history` and TUI.
     event_bus: Option<crate::events::EventBus>,
     shutdown_tx: RwLock<Option<mpsc::Sender<()>>>,
+    recovery_shutdown_tx: RwLock<Option<mpsc::Sender<()>>>,
     feed_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
+    recovery_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
 }
 
 #[derive(Debug)]
@@ -116,14 +132,22 @@ impl std::error::Error for ReactorError {}
 /// Check if a collection belongs to the reactor's internal state.
 /// These must never trigger user rules.
 fn is_internal_collection(collection: &str, namespace: &str) -> bool {
-    INTERNAL_SUFFIXES
-        .iter()
-        .any(|suffix| collection == &format!("{namespace}:{suffix}"))
+    GLOBAL_INTERNAL_COLLECTIONS.contains(&collection)
+        || INTERNAL_SUFFIXES
+            .iter()
+            .any(|suffix| collection == &format!("{namespace}:{suffix}"))
 }
 
 impl<S> EventReactor<S>
 where
-    S: AsyncChangeFeed + AsyncCompareAndSwap + AsyncKeyValue + Clone + Send + Sync + 'static,
+    S: AsyncChangeFeed
+        + AsyncCompareAndSwap
+        + AsyncEnumerateKeys
+        + AsyncKeyValue
+        + Clone
+        + Send
+        + Sync
+        + 'static,
 {
     pub fn new(store: S, config: ReactorConfig) -> Self {
         let cursor_store =
@@ -139,7 +163,9 @@ where
             execution_store,
             event_bus: None,
             shutdown_tx: RwLock::new(None),
+            recovery_shutdown_tx: RwLock::new(None),
             feed_task: RwLock::new(None),
+            recovery_task: RwLock::new(None),
         }
     }
 
@@ -221,26 +247,35 @@ where
 
         let this = self.clone();
         let handle = tokio::spawn(async move {
-            this.feed_loop(subscription, rx).await;
+            let mut rx = rx;
+            this.feed_loop(subscription, &mut rx).await;
         });
         *self.feed_task.write().await = Some(handle);
+
+        let (recovery_tx, recovery_rx) = mpsc::channel::<()>(1);
+        let this = self.clone();
+        let recovery_handle = tokio::spawn(async move {
+            this.recovery_loop(recovery_rx).await;
+        });
+        *self.recovery_shutdown_tx.write().await = Some(recovery_tx);
+        *self.recovery_task.write().await = Some(recovery_handle);
 
         Ok(())
     }
 
     pub async fn shutdown(&self) {
-        let tx = {
-            let mut shutdown = self.shutdown_tx.write().await;
-            shutdown.take()
-        };
-        if let Some(tx) = tx {
+        let senders = [
+            self.shutdown_tx.write().await.take(),
+            self.recovery_shutdown_tx.write().await.take(),
+        ];
+        for tx in senders.into_iter().flatten() {
             let _ = tx.send(()).await;
         }
-        let handle = {
-            let mut feed = self.feed_task.write().await;
-            feed.take()
-        };
-        if let Some(handle) = handle {
+        let handles = [
+            self.feed_task.write().await.take(),
+            self.recovery_task.write().await.take(),
+        ];
+        for handle in handles.into_iter().flatten() {
             let _ = handle.await;
         }
     }
@@ -248,8 +283,12 @@ where
     async fn feed_loop(
         self: Arc<Self>,
         mut subscription: ChangeSubscription,
-        mut shutdown_rx: mpsc::Receiver<()>,
+        shutdown_rx: &mut mpsc::Receiver<()>,
     ) {
+        let filter = ChangeFilter {
+            collections: self.config.watch_collections.clone(),
+            operations: Vec::new(),
+        };
         loop {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
@@ -269,31 +308,30 @@ where
                                 .cursor_store
                                 .save(&openkeyv::ChangeCursor::new(&oldest).to_string())
                                 .await;
-                            let cursor = openkeyv::ChangeCursor::new(oldest);
-                            match self.store.subscribe(ChangeFeedRequest {
-                                start: ChangeStart::After(cursor),
-                                filter: ChangeFilter {
-                                    collections: self.config.watch_collections.clone(),
-                                    operations: Vec::new(),
-                                },
-                            }).await {
-                                Ok(new_sub) => {
-                                    info!("resubscribed after cursor expiry");
-                                    subscription = new_sub;
-                                }
-                                Err(e) => {
-                                    error!(error = %e, "failed to resubscribe after cursor expiry, reactor stopping");
-                                    break;
-                                }
+                            if !self
+                                .resubscribe(&mut subscription, filter.clone(), shutdown_rx)
+                                .await
+                            {
+                                break;
                             }
                         }
                         Err(e) => {
-                            error!(error = %e, "change feed error, reactor stopping");
-                            break;
+                            error!(error = %e, "change feed error");
+                            if !self
+                                .resubscribe(&mut subscription, filter.clone(), shutdown_rx)
+                                .await
+                            {
+                                break;
+                            }
                         }
                         Ok(None) => {
-                            info!("change feed closed, reactor stopping");
-                            break;
+                            info!("change feed closed");
+                            if !self
+                                .resubscribe(&mut subscription, filter.clone(), shutdown_rx)
+                                .await
+                            {
+                                break;
+                            }
                         }
                         Ok(Some(change)) => {
                             self.handle_change(change).await;
@@ -302,6 +340,132 @@ where
                 }
             }
         }
+    }
+
+    async fn resubscribe(
+        self: &Arc<Self>,
+        subscription: &mut ChangeSubscription,
+        filter: ChangeFilter,
+        shutdown_rx: &mut mpsc::Receiver<()>,
+    ) -> bool {
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.recv() => return false,
+                _ = tokio::time::sleep(self.config.feed_retry_interval) => {}
+            }
+            let cursor = self.cursor_store.load().await.ok().flatten();
+            let start = cursor.map_or(ChangeStart::Beginning, |cursor| {
+                ChangeStart::After(openkeyv::ChangeCursor::new(cursor))
+            });
+            match self
+                .store
+                .subscribe(ChangeFeedRequest {
+                    start,
+                    filter: filter.clone(),
+                })
+                .await
+            {
+                Ok(new_sub) => {
+                    *subscription = new_sub;
+                    return true;
+                }
+                Err(openkeyv::Error::ChangeCursorExpired { oldest, .. }) => {
+                    let _ = self
+                        .cursor_store
+                        .save(&openkeyv::ChangeCursor::new(&oldest).to_string())
+                        .await;
+                }
+                Err(error) => error!(%error, "failed to resubscribe change feed"),
+            }
+        }
+    }
+
+    async fn recovery_loop(self: Arc<Self>, mut shutdown_rx: mpsc::Receiver<()>) {
+        loop {
+            if let Err(error) = self.recover_reactions().await {
+                error!(%error, "reaction recovery scan failed");
+            }
+            tokio::select! {
+                _ = shutdown_rx.recv() => break,
+                _ = tokio::time::sleep(self.config.recovery_interval) => {}
+            }
+        }
+    }
+
+    async fn recover_reactions(&self) -> Result<(), ReactionExecutionError> {
+        let records = self.execution_store.list().await?;
+        for record in records {
+            let (Some(collection), Some(key)) = (record.collection, record.key) else {
+                continue;
+            };
+            let value = match self.store.get(&key, Some(&collection)).await {
+                Ok(Some(value)) => Some(crate::cache::codec::value_to_json(value)?),
+                Ok(None) => None,
+                Err(error) => {
+                    warn!(collection = %collection, key = %key, error = %error, "failed to read reaction source");
+                    continue;
+                }
+            };
+            let mut ctx = ChangeContext {
+                collection: collection.clone(),
+                key: key.clone(),
+                value,
+            };
+            // A control request is moved to Executing before its side effect runs.
+            // A crash leaves the source record non-terminal but no longer Queued,
+            // so reset it once before rule matching. Reactions themselves must be
+            // idempotent; this is the same guarantee as re-executing a retry.
+            if let Some(value) = ctx.value.as_mut() {
+                if value.get("status").and_then(serde_json::Value::as_str) == Some("executing") {
+                    if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
+                        if key == id {
+                            if let Some(object) = value.as_object_mut() {
+                                object.insert(
+                                    "status".into(),
+                                    serde_json::Value::String("queued".into()),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            let rules = self.rules.read().await;
+            let mut matched = Vec::new();
+            for rule in rules.iter() {
+                if rule.matches(ctx.clone()).await {
+                    matched.push(rule.clone());
+                }
+            }
+            drop(rules);
+            if matched.is_empty() {
+                let status = ReactionExecutionStatus::Failed {
+                    finished_at: chrono::Utc::now().timestamp_millis(),
+                    reason: "reaction source no longer matches its rule".to_string(),
+                };
+                self.execution_store
+                    .set(
+                        &record.change_id,
+                        &record.rule_id,
+                        &collection,
+                        &key,
+                        status,
+                    )
+                    .await?;
+                continue;
+            }
+            for rule in matched {
+                self.execute_rule(
+                    rule,
+                    &collection,
+                    &key,
+                    ctx.value.clone(),
+                    &record.change_id,
+                )
+                .await;
+            }
+        }
+        Ok(())
     }
 
     /// Process a single StoreChange: filter internals, read value, match rules,
@@ -342,7 +506,7 @@ where
             Some(v) => match crate::cache::codec::value_to_json(v.clone()) {
                 Ok(j) => Some(j),
                 Err(e) => {
-                    error!(collection = %collection, key = %key, error = ?e, "failed to decode value, skipping");
+                    debug!(collection = %collection, key = %key, error = ?e, "failed to decode value, skipping");
                     if let Err(e) = self.cursor_store.save(&change_id).await {
                         warn!(error = ?e, "failed to save cursor after decode error");
                     }
@@ -392,111 +556,126 @@ where
 
         debug!(collection = %collection, key = %key, matched = matched.len(), "rule matching complete");
 
-        // ── Claim + execute each matched rule ──
         let mut any_retryable = false;
-
         for rule in matched {
-            let rule_id = rule.id();
-            let now = chrono::Utc::now().timestamp_millis();
-            let execution = match self
-                .execution_store
-                .ensure_pending(&change_id, rule_id)
+            if self
+                .execute_rule(rule, &collection, &key, json_value.clone(), &change_id)
                 .await
             {
-                Ok(execution) => execution,
-                Err(error) => {
-                    error!(rule = rule_id, change = %change_id, error = ?error, "execution state error");
-                    any_retryable = true;
-                    continue;
-                }
-            };
-            match execution {
-                ReactionExecutionStatus::Succeeded { .. }
-                | ReactionExecutionStatus::Failed { .. } => continue,
-                ReactionExecutionStatus::RetryWaiting { retry_at, .. } if retry_at > now => {
-                    any_retryable = true;
-                    continue;
-                }
-                ReactionExecutionStatus::Pending
-                | ReactionExecutionStatus::Running { .. }
-                | ReactionExecutionStatus::RetryWaiting { .. } => {}
-            }
-
-            match self.claim_store.try_claim(&change_id, rule_id).await {
-                Ok(ClaimResult::Claimed) => {}
-                Ok(ClaimResult::AlreadyClaimed { owner }) => {
-                    debug!(rule = rule_id, change = %change_id, owner = %owner, "reaction lease held");
-                    any_retryable = true;
-                    continue;
-                }
-                Err(error) => {
-                    error!(rule = rule_id, change = %change_id, error = ?error, "reaction lease error");
-                    any_retryable = true;
-                    continue;
-                }
-            }
-
-            let running = ReactionExecutionStatus::Running {
-                owner: self.config.owner_id.clone(),
-                started_at: now,
-            };
-            if let Err(error) = self.execution_store.set(&change_id, rule_id, running).await {
-                error!(rule = rule_id, change = %change_id, error = ?error, "failed to persist running reaction");
-                let _ = self.claim_store.release(&change_id, rule_id).await;
                 any_retryable = true;
-                continue;
-            }
-
-            let reaction_ctx = ReactionContext {
-                collection: collection.clone(),
-                key: key.clone(),
-                value: json_value.clone(),
-                change_id: change_id.clone(),
-            };
-            let outcome = rule.execute(reaction_ctx).await;
-            let finished_at = chrono::Utc::now().timestamp_millis();
-            let execution = match outcome {
-                ReactionOutcome::Ok => ReactionExecutionStatus::Succeeded { finished_at },
-                ReactionOutcome::Retryable(reason) => {
-                    any_retryable = true;
-                    ReactionExecutionStatus::RetryWaiting {
-                        retry_at: finished_at + 300_000,
-                        reason,
-                    }
-                }
-                ReactionOutcome::Failed(reason) => ReactionExecutionStatus::Failed {
-                    finished_at,
-                    reason,
-                },
-            };
-
-            if let Err(error) = self
-                .execution_store
-                .set(&change_id, rule_id, execution.clone())
-                .await
-            {
-                error!(rule = rule_id, change = %change_id, error = ?error, "failed to persist reaction result");
-                any_retryable = true;
-            } else {
-                self.publish_outcome(rule_id, &change_id, &collection, &key, &execution)
-                    .await;
-            }
-            if let Err(error) = self.claim_store.release(&change_id, rule_id).await {
-                warn!(rule = rule_id, change = %change_id, error = ?error, "failed to release reaction lease");
             }
         }
 
-        // ── Advance cursor (ack point) ──
-        // Cursor advances only when every matched reaction has a persisted
-        // terminal execution state.
+        // Cursor tracks feed progress. Retries live in reaction execution state,
+        // so a retry must not block later changes from being observed.
         if any_retryable {
-            debug!(change = %change_id, "cursor held back due to retryable outcome");
-            return;
+            debug!(change = %change_id, "reaction left persisted retry state");
         }
-
         if let Err(e) = self.cursor_store.save(&change_id).await {
             warn!(error = ?e, "failed to save cursor after processing");
         }
+    }
+
+    async fn execute_rule(
+        &self,
+        rule: Rule,
+        collection: &str,
+        event_key: &str,
+        json_value: Option<serde_json::Value>,
+        change_id: &str,
+    ) -> bool {
+        let rule_id = rule.id().to_string();
+        let now = chrono::Utc::now().timestamp_millis();
+        let execution = match self
+            .execution_store
+            .ensure_pending(change_id, &rule_id, collection, event_key)
+            .await
+        {
+            Ok(execution) => execution,
+            Err(error) => {
+                error!(rule = %rule_id, change = %change_id, error = ?error, "execution state error");
+                return true;
+            }
+        };
+        match execution {
+            ReactionExecutionStatus::Succeeded { .. } | ReactionExecutionStatus::Failed { .. } => {
+                return false
+            }
+            ReactionExecutionStatus::RetryWaiting { retry_at, .. } if retry_at > now => {
+                return true
+            }
+            ReactionExecutionStatus::Pending
+            | ReactionExecutionStatus::Running { .. }
+            | ReactionExecutionStatus::RetryWaiting { .. } => {}
+        }
+
+        match self.claim_store.try_claim(change_id, &rule_id).await {
+            Ok(ClaimResult::Claimed) => {}
+            Ok(ClaimResult::AlreadyClaimed { owner }) => {
+                debug!(rule = %rule_id, change = %change_id, owner = %owner, "reaction lease held");
+                return true;
+            }
+            Err(error) => {
+                error!(rule = %rule_id, change = %change_id, error = ?error, "reaction lease error");
+                return true;
+            }
+        }
+
+        let running = ReactionExecutionStatus::Running {
+            owner: self.config.owner_id.clone(),
+            started_at: now,
+        };
+        if let Err(error) = self
+            .execution_store
+            .set(change_id, &rule_id, collection, event_key, running)
+            .await
+        {
+            error!(rule = %rule_id, change = %change_id, error = ?error, "failed to persist running reaction");
+            let _ = self.claim_store.release(change_id, &rule_id).await;
+            return true;
+        }
+
+        let reaction_ctx = ReactionContext {
+            collection: collection.to_string(),
+            key: event_key.to_string(),
+            value: json_value,
+            change_id: change_id.to_string(),
+        };
+        let outcome = rule.execute(reaction_ctx).await;
+        let finished_at = chrono::Utc::now().timestamp_millis();
+        let execution = match outcome {
+            ReactionOutcome::Ok => ReactionExecutionStatus::Succeeded { finished_at },
+            ReactionOutcome::Retryable(reason) => ReactionExecutionStatus::RetryWaiting {
+                retry_at: finished_at + 300_000,
+                reason,
+            },
+            ReactionOutcome::Failed(reason) => ReactionExecutionStatus::Failed {
+                finished_at,
+                reason,
+            },
+        };
+        let retryable = matches!(execution, ReactionExecutionStatus::RetryWaiting { .. });
+
+        if let Err(error) = self
+            .execution_store
+            .set(
+                change_id,
+                &rule_id,
+                collection,
+                event_key,
+                execution.clone(),
+            )
+            .await
+        {
+            error!(rule = %rule_id, change = %change_id, error = ?error, "failed to persist reaction result");
+            return true;
+        }
+        self.publish_outcome(&rule_id, change_id, collection, event_key, &execution)
+            .await;
+        if let Err(error) = self.claim_store.release(change_id, &rule_id).await {
+            warn!(rule = %rule_id, change = %change_id, error = %error, "failed to release reaction lease");
+        }
+        retryable
     }
 
     /// Publish a reaction outcome event to the EventBus bridge.

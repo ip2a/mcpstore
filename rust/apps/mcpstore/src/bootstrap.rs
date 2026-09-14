@@ -214,7 +214,12 @@ impl Write for RotatingGuard {
 }
 
 pub fn build_runtime() -> std::io::Result<tokio::runtime::Runtime> {
-    tokio::runtime::Runtime::new()
+    // store→rmcp 的深层 async future 链在 debug 构建下超过 tokio 默认 2MB worker 栈
+    // （embedded 路径跑在 8MB 主线程上无恙）。显式放大 worker 栈对齐主线程并留余量。
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(16 * 1024 * 1024)
+        .build()
 }
 
 #[cfg(test)]

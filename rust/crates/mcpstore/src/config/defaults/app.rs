@@ -33,11 +33,15 @@ pub(in crate::config) fn default_true() -> bool {
 }
 
 pub(in crate::config) fn default_server_host() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 pub(in crate::config) fn default_server_port() -> u16 {
     1820
+}
+
+pub(in crate::config) fn default_app_port() -> u16 {
+    1821
 }
 
 pub(in crate::config) fn default_mcp_aggregate_transport() -> String {

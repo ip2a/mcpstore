@@ -15,7 +15,7 @@ from typing import Any, Type, List
 
 from pydantic import BaseModel
 
-# 导入公共函数
+# Import shared helpers
 from .common import (
     build_tool_error_payload,
     to_tool_call_view,
@@ -56,7 +56,7 @@ class LangChainAdapter:
         _require_langchain()
         self._context = context
         self._instance_id = instance_id
-        # 工具输出格式偏好
+        # Preferred tool output format
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
 
     @staticmethod
@@ -137,10 +137,10 @@ class LangChainAdapter:
         def _tool_executor(*args, **kwargs):
             tool_input = {}
             try:
-                # 使用公共函数处理参数
+                # Process arguments with shared helpers
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
-                # 调用 mcpstore 核心方法
+                # Call the mcpstore core method
                 if adapter_self._instance_id is None:
                     result = adapter_self._context.call_tool(tool_name, tool_input)
                 else:
@@ -196,10 +196,10 @@ class LangChainAdapter:
         async def _tool_executor(*args, **kwargs):
             tool_input = {}
             try:
-                # 使用公共函数处理参数
+                # Process arguments with shared helpers
                 tool_input = process_tool_args(args_schema, args, kwargs)
 
-                # 调用 mcpstore 核心方法（通过 to_thread 在线程池中执行同步版本）
+                # Call the synchronous mcpstore core method through the to_thread pool
                 if adapter_self._instance_id is None:
                     result = await asyncio.to_thread(
                         adapter_self._context.call_tool,
@@ -260,17 +260,17 @@ class LangChainAdapter:
     def _build_langchain_tools(self, mcp_tools_info: List[Any]) -> List[Tool]:
         langchain_tools = []
         for tool_info in mcp_tools_info:
-            # 使用公共函数
+            # Use shared helpers
             enhanced_description = enhance_description(tool_info)
             args_schema = create_args_schema(tool_info)
             name = tool_name(tool_info)
             instance_id = tool_instance_id(tool_info)
 
-            # 创建同步和异步函数
+            # Create synchronous and asynchronous functions
             sync_func = self._create_tool_function(instance_id, name, args_schema)
             async_coroutine = self._create_tool_coroutine(instance_id, name, args_schema)
 
-            # 创建 LangChain StructuredTool
+            # Create the LangChain StructuredTool
             lc_tool = StructuredTool(
                 name=name,
                 description=enhanced_description,

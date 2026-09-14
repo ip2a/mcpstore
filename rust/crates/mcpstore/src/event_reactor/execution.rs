@@ -1,4 +1,4 @@
-use openkeyv::{AsyncCompareAndSwap, AsyncKeyValue};
+use openkeyv::{AsyncCompareAndSwap, AsyncEnumerateKeys, AsyncKeyValue};
 use serde::{Deserialize, Serialize};
 
 use crate::cache::codec;
@@ -16,11 +16,15 @@ pub(crate) enum ReactionExecutionStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct ReactionExecution {
-    change_id: String,
-    rule_id: String,
+pub(crate) struct ReactionExecutionRecord {
+    pub change_id: String,
+    pub rule_id: String,
+    #[serde(default)]
+    pub collection: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
     #[serde(flatten)]
-    status: ReactionExecutionStatus,
+    pub status: ReactionExecutionStatus,
 }
 
 pub(crate) struct ReactionExecutionStore<S> {
@@ -30,7 +34,7 @@ pub(crate) struct ReactionExecutionStore<S> {
 
 impl<S> ReactionExecutionStore<S>
 where
-    S: AsyncKeyValue + AsyncCompareAndSwap + Clone + Send + Sync,
+    S: AsyncKeyValue + AsyncCompareAndSwap + AsyncEnumerateKeys + Clone + Send + Sync,
 {
     pub(crate) fn new(store: S, namespace: &str) -> Self {
         Self {
@@ -43,14 +47,18 @@ where
         &self,
         change_id: &str,
         rule_id: &str,
+        collection: &str,
+        event_key: &str,
     ) -> Result<ReactionExecutionStatus, ReactionExecutionError> {
         let key = execution_key(change_id, rule_id);
         if let Some(status) = self.get(change_id, rule_id).await? {
             return Ok(status);
         }
-        let record = ReactionExecution {
+        let record = ReactionExecutionRecord {
             change_id: change_id.to_string(),
             rule_id: rule_id.to_string(),
+            collection: Some(collection.to_string()),
+            key: Some(event_key.to_string()),
             status: ReactionExecutionStatus::Pending,
         };
         let value = codec::json_to_value(serde_json::to_value(record)?)?;
@@ -62,7 +70,7 @@ where
             openkeyv::CompareAndSwapResult::Applied { .. } => Ok(ReactionExecutionStatus::Pending),
             openkeyv::CompareAndSwapResult::Conflict { current } => {
                 let current = current.ok_or(ReactionExecutionError::MissingConflictValue)?;
-                decode_status(current.value)
+                Ok(decode_record(current.value)?.status)
             }
         }
     }
@@ -72,10 +80,12 @@ where
         change_id: &str,
         rule_id: &str,
     ) -> Result<Option<ReactionExecutionStatus>, ReactionExecutionError> {
-        self.store
+        let value = self
+            .store
             .get(&execution_key(change_id, rule_id), Some(&self.collection))
-            .await?
-            .map(decode_status)
+            .await?;
+        value
+            .map(|value| Ok(decode_record(value)?.status))
             .transpose()
     }
 
@@ -83,11 +93,15 @@ where
         &self,
         change_id: &str,
         rule_id: &str,
+        collection: &str,
+        event_key: &str,
         status: ReactionExecutionStatus,
     ) -> Result<(), ReactionExecutionError> {
-        let record = ReactionExecution {
+        let record = ReactionExecutionRecord {
             change_id: change_id.to_string(),
             rule_id: rule_id.to_string(),
+            collection: Some(collection.to_string()),
+            key: Some(event_key.to_string()),
             status,
         };
         self.store
@@ -100,17 +114,30 @@ where
             .await?;
         Ok(())
     }
+
+    pub(crate) async fn list(
+        &self,
+    ) -> Result<Vec<ReactionExecutionRecord>, ReactionExecutionError> {
+        let keys = self.store.keys(Some(&self.collection), None).await?;
+        let mut records = Vec::with_capacity(keys.len());
+        for key in keys {
+            let Some(value) = self.store.get(&key, Some(&self.collection)).await? else {
+                continue;
+            };
+            records.push(decode_record(value)?);
+        }
+        Ok(records)
+    }
 }
 
 fn execution_key(change_id: &str, rule_id: &str) -> String {
     format!("{change_id}:{rule_id}")
 }
 
-fn decode_status(
+fn decode_record(
     value: openkeyv::Value,
-) -> Result<ReactionExecutionStatus, ReactionExecutionError> {
-    let record: ReactionExecution = serde_json::from_value(codec::value_to_json(value)?)?;
-    Ok(record.status)
+) -> Result<ReactionExecutionRecord, ReactionExecutionError> {
+    Ok(serde_json::from_value(codec::value_to_json(value)?)?)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -135,7 +162,10 @@ mod tests {
     async fn execution_statuses_round_trip() {
         let store = ReactionExecutionStore::new(MemoryStore::new(), "test");
         assert_eq!(
-            store.ensure_pending("change", "rule").await.unwrap(),
+            store
+                .ensure_pending("change", "rule", "collection", "event")
+                .await
+                .unwrap(),
             ReactionExecutionStatus::Pending
         );
 
@@ -156,7 +186,10 @@ mod tests {
         ];
 
         for status in statuses {
-            store.set("change", "rule", status.clone()).await.unwrap();
+            store
+                .set("change", "rule", "collection", "event", status.clone())
+                .await
+                .unwrap();
             assert_eq!(store.get("change", "rule").await.unwrap(), Some(status));
         }
     }

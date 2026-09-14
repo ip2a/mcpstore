@@ -1,13 +1,15 @@
 use crate::store::prelude::*;
+use crate::store::ControlPlane;
 
-impl MCPStore {
+impl ControlPlane {
     pub async fn add_service(
         &self,
+        store: &MCPStore,
         service_name: &str,
         mut config: ServerConfig,
     ) -> Result<String> {
-        if self.is_data_plane() {
-            return self
+        if store.is_data_plane() {
+            return store
                 .queue_control_request(
                     "ServiceAddRequested",
                     serde_json::json!({
@@ -18,7 +20,14 @@ impl MCPStore {
                 .await;
         }
 
-        if self.registry.find_definition(service_name).await.is_some() {
+        if store
+            .kernel
+            .control
+            .registry
+            .find_definition(service_name)
+            .await
+            .is_some()
+        {
             return Err(Error::new(
                 FailureCode::Internal,
                 format!("Service definition already exists: {service_name}"),
@@ -26,8 +35,8 @@ impl MCPStore {
         }
 
         config.ensure_native_scopes();
-        if self.source_mode == SourceMode::Local {
-            let mut stored = self.config_manager.load_or_empty()?;
+        if store.kernel.runtime.source_mode == SourceMode::Local {
+            let mut stored = store.kernel.control.config_manager.load_or_empty()?;
             if stored.mcp_servers.contains_key(service_name) {
                 return Err(Error::new(
                     FailureCode::Internal,
@@ -37,12 +46,16 @@ impl MCPStore {
             stored
                 .mcp_servers
                 .insert(service_name.to_string(), config.clone());
-            self.config_manager.save(&stored)?;
+            store.kernel.control.config_manager.save(&stored)?;
         }
 
-        self.register_configured_definition(service_name, &config)
+        store
+            .register_configured_definition(service_name, &config)
             .await?;
-        self.event_bus
+        store
+            .kernel
+            .execution
+            .event_bus
             .publish(
                 Event::new(
                     "SERVICE_ADD_REQUESTED",

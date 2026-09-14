@@ -6,7 +6,9 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<ServiceInstance> {
         self.refresh_from_db_if_needed().await?;
-        self.registry
+        self.kernel
+            .control
+            .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))

@@ -2,13 +2,16 @@ use super::*;
 use base64::Engine;
 use serde_json::Map;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
+use crate::config::{
+    McpStoreExtension, Runtime, RuntimePolicy, ScopeDeclarations, ScopeDescriptor,
+};
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
 fn temp_config_path() -> String {
@@ -101,7 +104,7 @@ fn setup_scopes_redis_config_to_store_namespace() {
     .unwrap();
 
     assert_eq!(store.namespace(), "tenant-a");
-    let config = store.store_config.try_read().unwrap();
+    let config = store.kernel.persistence.store_config.try_read().unwrap();
     assert_eq!(config.config["keyspace"], "tenant-a");
 }
 
@@ -138,8 +141,10 @@ fn config_with_lifecycle(
         lifecycle: Some(crate::config::ServiceLifecycleConfig {
             startup_policy,
             restart_policy,
+            keep_alive: None,
         }),
         handshake_mode: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -879,10 +884,50 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
         },
         lifecycle: None,
         handshake_mode: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
     config
+}
+
+#[tokio::test]
+async fn service_info_exposes_declared_runtime_policy() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let mut config = stdio_config();
+    config.mcpstore = Some(McpStoreExtension {
+        scopes: ScopeDeclarations::store_only(),
+        lifecycle: None,
+        handshake_mode: None,
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: Some(vec![Runtime::Local, Runtime::Daemon]),
+            allowed_daemons: None,
+            required_host_capabilities: Vec::new(),
+        }),
+        revision: 1,
+        extra: Map::new(),
+    });
+    store.add_service("svc", config).await.unwrap();
+
+    let definition = store
+        .kernel
+        .control
+        .registry
+        .find_definition("svc")
+        .await
+        .unwrap();
+    assert!(definition.runtime_policy.is_some());
+
+    let info = store
+        .service_info_scoped(store_instance_id("svc"))
+        .await
+        .unwrap();
+
+    assert_eq!(info["runtime_policy"]["allowed_runtimes"][0], "local");
+    assert_eq!(info["runtime_policy"]["allowed_runtimes"][1], "daemon");
+
+    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
@@ -958,6 +1003,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
         },
         lifecycle: None,
         handshake_mode: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
@@ -1010,7 +1056,7 @@ async fn db_source_does_not_write_config_file_and_queues_add() {
         config_path: Some(path.clone()),
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-source-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1033,6 +1079,19 @@ async fn db_source_does_not_write_config_file_and_queues_add() {
     assert_eq!(event["type"], "ServiceAddRequested");
     assert_eq!(event["status"], "queued");
     assert_eq!(event["payload"]["service_name"], "svc");
+    assert_eq!(event["id"], event["trace_id"]);
+    assert!(event["id"]
+        .as_str()
+        .unwrap()
+        .starts_with("ServiceAddRequested:"));
+    assert!(event["id"].as_str().unwrap().ends_with(
+        event["trace_id"]
+            .as_str()
+            .unwrap()
+            .rsplit(':')
+            .next()
+            .unwrap()
+    ));
 }
 
 #[tokio::test]
@@ -1058,13 +1117,20 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         annotations: None,
         meta: None,
     }];
-    source.registry.register_instance(instance).await;
+    source
+        .kernel
+        .control
+        .registry
+        .register_instance(instance)
+        .await;
     source
         .cache_instance_connected(instance_id, &source.list_tools(instance_id).await.unwrap())
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::StartRequested,
@@ -1073,7 +1139,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::TransportConnected,
@@ -1082,7 +1150,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::HealthObserved {
@@ -1095,7 +1165,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .await
         .unwrap();
     source
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::ToolSyncSucceeded {
@@ -1110,7 +1182,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-read-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1120,7 +1192,14 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     assert_eq!(instances.len(), 1);
     assert_eq!(instances[0].instance_id, instance_id);
     assert_eq!(db.list_tools(instance_id).await.unwrap()[0].name, "echo");
-    let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = db
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.health, crate::state::HealthState::Healthy);
     let unchanged = db
         .record_instance_failure(
@@ -1131,7 +1210,13 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .unwrap();
     assert_eq!(unchanged, state);
     assert_eq!(
-        db.state_manager.get(instance_id).await.unwrap().unwrap(),
+        db.kernel
+            .control
+            .state
+            .get(instance_id)
+            .await
+            .unwrap()
+            .unwrap(),
         state
     );
     assert_eq!(
@@ -1148,14 +1233,17 @@ async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity()
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-queue-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
     let scope = agent_scope("agent-a");
     let instance_id = instance_id("svc", scope.clone());
 
-    store.update_service("svc", stdio_config()).await.unwrap();
+    store
+        .update_service("svc", stdio_config(), None)
+        .await
+        .unwrap();
     store
         .patch_service("svc", serde_json::json!({"description": "patched"}))
         .await
@@ -1203,6 +1291,44 @@ async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity()
         by_type["ServiceConnectRequested"]["payload"]["instance_id"],
         instance_id.to_string()
     );
+}
+
+#[tokio::test]
+async fn local_reset_preserves_pending_control_requests() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    store
+        .cache()
+        .put_event(
+            CONTROL_REQUEST_EVENT_TYPE,
+            "queued-request",
+            serde_json::json!({
+                "id": "queued-request",
+                "type": "ServiceAddRequested",
+                "payload": {},
+                "source": "data_plane",
+                "created_at": 1,
+                "dedup_key": "ServiceAddRequested:null",
+                "trace_id": "queued-request",
+                "status": "queued",
+            }),
+        )
+        .await
+        .unwrap();
+
+    store.reset_config().await.unwrap();
+
+    assert_eq!(
+        store
+            .cache()
+            .get_event(CONTROL_REQUEST_EVENT_TYPE, "queued-request")
+            .await
+            .unwrap()
+            .unwrap()["status"],
+        serde_json::json!("queued")
+    );
+
+    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
@@ -1255,7 +1381,9 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
     source.add_service("svc", stdio_config()).await.unwrap();
     let instance_id = store_instance_id("svc");
     let original_state = source
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(instance_id)
         .await
         .unwrap()
@@ -1265,7 +1393,7 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-runtime-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1286,7 +1414,14 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
     .await
     .unwrap();
 
-    let state = db.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = db
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.desired, original_state.desired);
     assert_eq!(state.phase, original_state.phase);
     assert_eq!(state.health, original_state.health);
@@ -1328,7 +1463,7 @@ async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-tool-queue-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -1401,6 +1536,8 @@ async fn openapi_import_persists_shared_analysis_result() {
     assert_eq!(pending.applied_config_revision, None);
     assert!(pending.tools.is_empty());
     assert!(store
+        .kernel
+        .runtime
         .applied_openapi_configs
         .read()
         .await
@@ -1413,7 +1550,14 @@ async fn openapi_import_persists_shared_analysis_result() {
         .unwrap()
         .unwrap();
     assert!(pending_entity["applied_config_revision"].is_null());
-    let pending_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let pending_state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(pending_state.phase, crate::state::RuntimePhase::Stopped);
     assert!(store
         .cache()
@@ -1433,7 +1577,14 @@ async fn openapi_import_persists_shared_analysis_result() {
 
     let service = store.find_instance(instance_id).await.unwrap();
     assert_eq!(service.transport, "openapi");
-    let connected_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let connected_state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(connected_state.phase, crate::state::RuntimePhase::Running);
     assert_eq!(connected_state.health, crate::state::HealthState::Unknown);
     assert_eq!(
@@ -1475,7 +1626,14 @@ async fn openapi_import_persists_shared_analysis_result() {
         serde_json::from_str::<serde_json::Value>(text).unwrap()["created"],
         serde_json::json!(true)
     );
-    let observed_state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let observed_state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(observed_state.health, crate::state::HealthState::Healthy);
     assert_eq!(
         observed_state.health_metrics,
@@ -1684,13 +1842,22 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         },
         lifecycle: None,
         handshake_mode: None,
+        runtime_policy: None,
         revision: 1,
         extra: Map::new(),
     });
     store.add_service("inventory", config).await.unwrap();
 
-    let definition_before = store.registry.find_definition("inventory").await.unwrap();
+    let definition_before = store
+        .kernel
+        .control
+        .registry
+        .find_definition("inventory")
+        .await
+        .unwrap();
     let instances_before = store
+        .kernel
+        .control
         .registry
         .list_instances()
         .await
@@ -1715,7 +1882,10 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
                 .unwrap()
                 .unwrap(),
         );
-        connectivity_before.insert(instance_id, store.pool.is_connected(instance_id).await);
+        connectivity_before.insert(
+            instance_id,
+            store.kernel.execution.pool.is_connected(instance_id).await,
+        );
     }
     let config_before = store.show_config().await.unwrap();
 
@@ -1740,11 +1910,19 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         .to_string()
         .contains("Service definition already exists: inventory"));
     assert_eq!(
-        store.registry.find_definition("inventory").await.unwrap(),
+        store
+            .kernel
+            .control
+            .registry
+            .find_definition("inventory")
+            .await
+            .unwrap(),
         definition_before
     );
     assert_eq!(
         store
+            .kernel
+            .control
             .registry
             .list_instances()
             .await
@@ -1773,7 +1951,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
             cached_before
         );
         assert_eq!(
-            store.pool.is_connected(instance_id).await,
+            store.kernel.execution.pool.is_connected(instance_id).await,
             connectivity_before[&instance_id]
         );
     }
@@ -2661,7 +2839,9 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
         .await
         .unwrap();
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(service.instance_id)
         .await
         .unwrap()
@@ -4261,6 +4441,35 @@ async fn local_source_processes_control_requests() {
 }
 
 #[tokio::test]
+async fn swap_store_failure_keeps_active_source_usable() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    store
+        .add_service("svc", agent_only_config("agent-a"))
+        .await
+        .unwrap();
+
+    let error = store
+        .swap_store(&JsonStoreConfig::new(
+            "does-not-exist",
+            serde_json::Value::Null,
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("does-not-exist"));
+    assert_eq!(store.current_store_name().await, "memory");
+    assert!(store
+        .cache()
+        .get_entity("service_definitions", "svc")
+        .await
+        .unwrap()
+        .is_some());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn swap_store_migrates_runtime_cache() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
@@ -4574,7 +4783,7 @@ async fn update_and_patch_service_update_runtime_cache() {
 
     let mut updated = stdio_config();
     updated.args = vec!["updated".to_string()];
-    store.update_service("svc", updated).await.unwrap();
+    store.update_service("svc", updated, None).await.unwrap();
     let config = store
         .get_effective_config("svc", &store_scope())
         .await
@@ -4668,9 +4877,20 @@ async fn install_registry_tools(
     instance_id: InstanceId,
     tools: Vec<crate::registry::ToolInfo>,
 ) {
-    let mut instance = store.registry.find_instance(instance_id).await.unwrap();
+    let mut instance = store
+        .kernel
+        .control
+        .registry
+        .find_instance(instance_id)
+        .await
+        .unwrap();
     instance.tools = tools;
-    store.registry.register_instance(instance).await;
+    store
+        .kernel
+        .control
+        .registry
+        .register_instance(instance)
+        .await;
 }
 
 #[tokio::test]
@@ -4825,6 +5045,8 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
         .await
         .unwrap();
     store
+        .kernel
+        .control
         .registry
         .replace_instance_tools(
             instance_id,
@@ -4854,6 +5076,8 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
     assert!(policy.stale.is_empty());
 
     store
+        .kernel
+        .control
         .registry
         .replace_instance_tools(instance_id, vec![registry_tool("gamma")])
         .await;
@@ -5082,7 +5306,9 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
             == crate::error::FailureCategory::Connection
     ));
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5159,7 +5385,9 @@ async fn connect_service_times_out_hanging_stdio_startup() {
         .unwrap_err()
         .to_string();
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("hanging"))
         .await
         .unwrap()
@@ -5213,7 +5441,9 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
     assert!(blocked.contains("backoff active"));
 
     let state = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5223,7 +5453,9 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
         other => panic!("expected waiting recovery, got {other:?}"),
     };
     let transitioned = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             store_instance_id("broken"),
             crate::state::ServiceStateEvent::RecoveryProbeStarted { attempt },
@@ -5265,7 +5497,14 @@ async fn manual_startup_policy_blocks_implicit_connect() {
         .to_string();
 
     assert!(err.contains("startup_policy=manual"));
-    assert!(!store.pool.is_connected(store_instance_id("manual")).await);
+    assert!(
+        !store
+            .kernel
+            .execution
+            .pool
+            .is_connected(store_instance_id("manual"))
+            .await
+    );
 
     std::fs::remove_file(path).ok();
 }
@@ -5297,7 +5536,9 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
         .await
         .unwrap_err();
     let first = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5308,7 +5549,9 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
     ));
 
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             store_instance_id("broken"),
             crate::state::ServiceStateEvent::RecoveryProbeStarted { attempt: 1 },
@@ -5321,7 +5564,9 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
         .await
         .unwrap_err();
     let second = store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(store_instance_id("broken"))
         .await
         .unwrap()
@@ -5368,12 +5613,16 @@ async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
     }
 
     store
-        .auth_coordinator
+        .kernel
+        .control
+        .auth
         .set_status(instance_id, crate::auth::AuthStatus::Authenticated)
         .await;
     store.remove_service("protected").await.unwrap();
     assert!(store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(instance_id)
         .await
         .unwrap()
@@ -5447,7 +5696,14 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
 
     store.record_failure(instance_id, &error).await.unwrap();
 
-    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
     assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
     assert_eq!(state.failure, None);
@@ -5486,7 +5742,14 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
 
     store.record_failure(instance_id, &error).await.unwrap();
 
-    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
     assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
     assert_eq!(state.failure, None);
@@ -5521,7 +5784,9 @@ async fn successful_health_check_records_canonical_health() {
     store.add_service("svc", stdio_config()).await.unwrap();
     let instance_id = store_instance_id("svc");
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::StartRequested,
@@ -5530,7 +5795,9 @@ async fn successful_health_check_records_canonical_health() {
         .await
         .unwrap();
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             crate::state::ServiceStateEvent::TransportConnected,
@@ -5623,7 +5890,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-load-readonly-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
@@ -5640,6 +5907,124 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
     assert_eq!(relation_after, relation_before);
 
     std::fs::remove_file(source_path).ok();
+}
+
+#[tokio::test]
+async fn embedded_tool_hot_path_baseline() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("hot-path-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/mcpstore/tests/fixtures/execution_mcp_server.py")
+        .canonicalize()
+        .unwrap();
+    let config = {
+        let mut config = stdio_config();
+        config.command = Some("python3".to_string());
+        config.args = vec![fixture.to_string_lossy().to_string()];
+        config
+    };
+    store.add_service("hot-path", config).await.unwrap();
+    let instance_id = store_instance_id("hot-path");
+    store.connect_service(instance_id).await.unwrap();
+
+    let warmup = 50;
+    let measured = 1_000;
+    for _ in 0..warmup {
+        store
+            .call_tool(instance_id, "noop", serde_json::json!({}))
+            .await
+            .unwrap();
+    }
+    let mut latency_ms = Vec::with_capacity(measured);
+    for _ in 0..measured {
+        let started_at = Instant::now();
+        store
+            .call_tool(instance_id, "noop", serde_json::json!({}))
+            .await
+            .unwrap();
+        latency_ms.push(started_at.elapsed().as_secs_f64() * 1000.0);
+    }
+    let elapsed_ms = latency_ms.iter().sum::<f64>();
+    let throughput = measured as f64 / (elapsed_ms / 1000.0);
+    latency_ms.sort_by(f64::total_cmp);
+    let percentile =
+        |fraction: f64| latency_ms[((measured as f64 * fraction) as usize).min(measured - 1)];
+    println!(
+        "embedded tool baseline: calls={measured} p50={:.3}ms p95={:.3}ms throughput={throughput:.0}/s",
+        percentile(0.50),
+        percentile(0.95)
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("migration-hot-path-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    for index in 0..5_000 {
+        store
+            .cache()
+            .put_entity(
+                "clients",
+                &format!("seed-{index}"),
+                serde_json::json!({"index": index}),
+            )
+            .await
+            .unwrap();
+    }
+    store.cache().reset_request_metrics();
+
+    let writer_store = store.clone();
+    let writer = async move {
+        let mut max_ms = 0.0f64;
+        for index in 0..200 {
+            let started_at = Instant::now();
+            writer_store
+                .cache()
+                .put_entity(
+                    "clients",
+                    &format!("live-{index}"),
+                    serde_json::json!({"index": index}),
+                )
+                .await
+                .unwrap();
+            max_ms = max_ms.max(started_at.elapsed().as_secs_f64() * 1000.0);
+            tokio::task::yield_now().await;
+        }
+        max_ms
+    };
+    let target = JsonStoreConfig::memory();
+    let migration = store.swap_store(&target);
+    let (max_write_ms, result) = tokio::join!(writer, migration);
+    result.unwrap();
+
+    let metrics = store.cache().request_metrics_snapshot();
+    println!(
+        "migration write pause: p50={:.3}ms p95={:.3}ms max={max_write_ms:.3}ms",
+        metrics.p50_latency_ms.unwrap_or(0.0),
+        metrics.p95_latency_ms.unwrap_or(0.0),
+    );
+    assert!(
+        max_write_ms < 250.0,
+        "ordinary writes must not wait for the full snapshot copy: {max_write_ms}ms"
+    );
+
+    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
@@ -5770,6 +6155,7 @@ mod scoped_contract {
                 scopes,
                 lifecycle: None,
                 handshake_mode: None,
+                runtime_policy: None,
                 revision: 1,
                 extra: Map::new(),
             }),
@@ -5806,7 +6192,12 @@ mod scoped_contract {
     async fn install_tool(store: &MCPStore, instance_id: InstanceId, tool_info: ToolInfo) {
         let mut instance = store.find_instance(instance_id).await.unwrap();
         instance.tools = vec![tool_info];
-        store.registry.register_instance(instance).await;
+        store
+            .kernel
+            .control
+            .registry
+            .register_instance(instance)
+            .await;
     }
 
     async fn spawn_openapi_auth_fixture() -> String {
@@ -6021,6 +6412,7 @@ mod scoped_contract {
                 kind: crate::config::RestartPolicyKind::OnFailure,
                 max_retries: None,
             }),
+            keep_alive: None,
         });
         let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
         store.add_service("svc", config).await.unwrap();
@@ -6029,7 +6421,14 @@ mod scoped_contract {
         let agent_id = instance_id("svc", agent_scope("agent-1"));
         store.connect_service(store_id).await.unwrap_err();
 
-        let failed = store.state_manager.get(store_id).await.unwrap().unwrap();
+        let failed = store
+            .kernel
+            .control
+            .state
+            .get(store_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(failed.health, crate::state::HealthState::Unhealthy);
         assert!(matches!(
             failed.recovery,
@@ -6037,7 +6436,14 @@ mod scoped_contract {
         ));
         assert!(failed.failure.is_some());
 
-        let sibling = store.state_manager.get(agent_id).await.unwrap().unwrap();
+        let sibling = store
+            .kernel
+            .control
+            .state
+            .get(agent_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(sibling.desired, crate::state::DesiredState::Stopped);
         assert_eq!(sibling.phase, crate::state::RuntimePhase::Stopped);
         assert_eq!(sibling.health, crate::state::HealthState::Unknown);
@@ -6122,13 +6528,21 @@ mod scoped_contract {
         let applied_revision = connected.config_revision;
         connected.tools = vec![tool("echo")];
         connected.applied_config_revision = Some(applied_revision);
-        store.registry.register_instance(connected).await;
+        store
+            .kernel
+            .control
+            .registry
+            .register_instance(connected)
+            .await;
 
         let mut updated = original;
         updated.mcpstore = None;
         updated.command = Some("changed-command".to_string());
         updated.args = vec!["--changed".to_string()];
-        store.update_service("svc", updated.clone()).await.unwrap();
+        store
+            .update_service("svc", updated.clone(), None)
+            .await
+            .unwrap();
 
         let instance = store.find_instance(store_instance_id).await.unwrap();
         assert_eq!(instance.tools, vec![tool("echo")]);
@@ -6149,13 +6563,25 @@ mod scoped_contract {
         assert_eq!(agent_instance.scope, agent_scope("agent-1"));
         assert_eq!(agent_instance.effective_config["env"]["AGENT"], "one");
 
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(definition.scopes.store.is_some());
         assert!(definition.scopes.agents.contains_key("agent-1"));
         assert_eq!(definition.base_revision, 2);
 
-        store.update_service("svc", updated).await.unwrap();
-        let unchanged = store.registry.find_definition("svc").await.unwrap();
+        store.update_service("svc", updated, None).await.unwrap();
+        let unchanged = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert_eq!(unchanged.base_revision, 2);
         assert!(unchanged.scopes.store.is_some());
         assert!(unchanged.scopes.agents.contains_key("agent-1"));
@@ -6193,7 +6619,7 @@ mod scoped_contract {
         updated
             .env
             .insert("SHARED".to_string(), "changed-base".to_string());
-        store.update_service("svc", updated).await.unwrap();
+        store.update_service("svc", updated, None).await.unwrap();
 
         let store_after_base = store.find_instance(store_id).await.unwrap();
         let agent_1_after_base = store.find_instance(agent_1_id).await.unwrap();
@@ -6245,12 +6671,18 @@ mod scoped_contract {
             .unwrap();
 
         let error = store
-            .update_service("svc", native_config(ScopeDeclarations::default()))
+            .update_service("svc", native_config(ScopeDeclarations::default()), None)
             .await
             .unwrap_err();
 
         assert!(error.to_string().contains("Use scope APIs"));
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert_eq!(definition.base_revision, 1);
         assert!(definition.scopes.store.is_some());
 
@@ -6268,7 +6700,9 @@ mod scoped_contract {
         let instance_id = instance_id("svc", store_scope());
 
         store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::StartRequested,
@@ -6277,7 +6711,9 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::TransportConnected,
@@ -6286,7 +6722,9 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::StopRequested,
@@ -6295,7 +6733,9 @@ mod scoped_contract {
             .await
             .unwrap();
         let observed = store
-            .state_manager
+            .kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 crate::state::ServiceStateEvent::TransportStopped,
@@ -6307,11 +6747,23 @@ mod scoped_contract {
         let mut runtime_instance = store.find_instance(instance_id).await.unwrap();
         runtime_instance.tools = vec![tool("echo")];
         runtime_instance.applied_config_revision = Some(runtime_instance.config_revision);
-        store.registry.register_instance(runtime_instance).await;
+        store
+            .kernel
+            .control
+            .registry
+            .register_instance(runtime_instance)
+            .await;
 
         store.load_from_config().await.unwrap();
 
-        let rebuilt = store.state_manager.get(instance_id).await.unwrap().unwrap();
+        let rebuilt = store
+            .kernel
+            .control
+            .state
+            .get(instance_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(rebuilt.desired, observed.desired);
         assert_eq!(rebuilt.phase, observed.phase);
         assert_eq!(rebuilt.health, observed.health);
@@ -6398,7 +6850,13 @@ mod scoped_contract {
             2
         );
 
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert_eq!(definition.base_revision, 1);
 
         std::fs::remove_file(path).ok();
@@ -6475,6 +6933,8 @@ mod scoped_contract {
             serde_json::to_value(connected.config_revision).unwrap()
         );
         let applied_before = store
+            .kernel
+            .runtime
             .applied_openapi_configs
             .read()
             .await
@@ -6517,7 +6977,9 @@ mod scoped_contract {
         let pending = store.find_instance(instance_id).await.unwrap();
         assert_eq!(
             store
-                .state_manager
+                .kernel
+                .control
+                .state
                 .get(instance_id)
                 .await
                 .unwrap()
@@ -6536,7 +6998,13 @@ mod scoped_contract {
             serde_json::to_value(pending.applied_config_revision.unwrap()).unwrap()
         );
         assert_eq!(
-            store.applied_openapi_configs.read().await.get(&instance_id),
+            store
+                .kernel
+                .runtime
+                .applied_openapi_configs
+                .read()
+                .await
+                .get(&instance_id),
             Some(&applied_before)
         );
         assert!(
@@ -6567,6 +7035,8 @@ mod scoped_contract {
             serde_json::to_value(restarted.config_revision).unwrap()
         );
         let applied_after = store
+            .kernel
+            .runtime
             .applied_openapi_configs
             .read()
             .await
@@ -6696,10 +7166,24 @@ mod scoped_contract {
         assert!(!untouched.is_error);
 
         store.disconnect_service(agent_1_id).await.unwrap();
-        let stopped = store.state_manager.get(agent_1_id).await.unwrap().unwrap();
+        let stopped = store
+            .kernel
+            .control
+            .state
+            .get(agent_1_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(stopped.desired, crate::state::DesiredState::Stopped);
         assert_eq!(stopped.phase, crate::state::RuntimePhase::Stopped);
-        let sibling = store.state_manager.get(agent_2_id).await.unwrap().unwrap();
+        let sibling = store
+            .kernel
+            .control
+            .state
+            .get(agent_2_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(sibling.desired, crate::state::DesiredState::Running);
         assert_eq!(sibling.phase, crate::state::RuntimePhase::Running);
         assert_eq!(sibling.health, crate::state::HealthState::Healthy);
@@ -6738,11 +7222,17 @@ mod scoped_contract {
         assert!(store.find_instance(store_id).await.is_none());
         assert!(store.find_instance(agent_1_id).await.is_some());
         assert!(store.find_instance(agent_2_id).await.is_some());
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(definition.scopes.store.is_none());
         assert!(definition.scopes.agents.contains_key("agent-1"));
         assert!(definition.scopes.agents.contains_key("agent-2"));
-        let config = store.config_manager.load_or_empty().unwrap();
+        let config = store.kernel.control.config_manager.load_or_empty().unwrap();
         let config_scopes = config.mcp_servers["svc"].scopes();
         assert!(config_scopes.store.is_none());
         assert!(config_scopes.agents.contains_key("agent-1"));
@@ -6970,11 +7460,17 @@ mod scoped_contract {
                 .is_some());
         }
 
-        let definition = store.registry.find_definition("svc").await.unwrap();
+        let definition = store
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(definition.scopes.store.is_some());
         assert!(!definition.scopes.agents.contains_key("agent-1"));
         assert!(definition.scopes.agents.contains_key("agent-2"));
-        let config = store.config_manager.load_or_empty().unwrap();
+        let config = store.kernel.control.config_manager.load_or_empty().unwrap();
         let config_scopes = config.mcp_servers["svc"].scopes();
         assert!(config_scopes.store.is_some());
         assert!(!config_scopes.agents.contains_key("agent-1"));
@@ -6994,13 +7490,19 @@ mod scoped_contract {
             config_path: None,
             source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
+            store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-remove-db-{}", uuid::Uuid::new_v4())),
         })
         .unwrap();
         copy_cache_snapshot(&store, &db).await;
         db.load_from_db().await.unwrap();
-        let db_definition = db.registry.find_definition("svc").await.unwrap();
+        let db_definition = db
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .unwrap();
         assert!(db_definition.scopes.store.is_some());
         assert!(!db_definition.scopes.agents.contains_key("agent-1"));
         assert!(db_definition.scopes.agents.contains_key("agent-2"));
@@ -7074,14 +7576,20 @@ mod scoped_contract {
         let agent_1_scope = agent_scope("agent-1");
         store.reset_scope(&agent_1_scope).await.unwrap();
 
-        let saved = store.config_manager.load_or_empty().unwrap();
+        let saved = store.kernel.control.config_manager.load_or_empty().unwrap();
         for service_name in ["alpha", "beta"] {
             let config_scopes = saved.mcp_servers[service_name].scopes();
             assert!(config_scopes.store.is_some());
             assert!(!config_scopes.agents.contains_key("agent-1"));
             assert!(config_scopes.agents.contains_key("agent-2"));
 
-            let definition = store.registry.find_definition(service_name).await.unwrap();
+            let definition = store
+                .kernel
+                .control
+                .registry
+                .find_definition(service_name)
+                .await
+                .unwrap();
             assert_eq!(definition.scopes, config_scopes);
             let cached: ServiceDefinitionEntity = serde_json::from_value(
                 store
@@ -7112,7 +7620,7 @@ mod scoped_contract {
             config_path: None,
             source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
+            store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-reset-db-{}", uuid::Uuid::new_v4())),
         })
         .unwrap();
@@ -7135,7 +7643,13 @@ mod scoped_contract {
             2
         );
         for service_name in ["alpha", "beta"] {
-            let definition = db.registry.find_definition(service_name).await.unwrap();
+            let definition = db
+                .kernel
+                .control
+                .registry
+                .find_definition(service_name)
+                .await
+                .unwrap();
             assert!(definition.scopes.store.is_some());
             assert!(!definition.scopes.agents.contains_key("agent-1"));
             assert!(definition.scopes.agents.contains_key("agent-2"));
@@ -7188,7 +7702,13 @@ mod scoped_contract {
         store.reset_scope(&scope).await.unwrap();
         store.load_from_db().await.unwrap();
         for service_name in ["alpha", "beta"] {
-            let definition = store.registry.find_definition(service_name).await.unwrap();
+            let definition = store
+                .kernel
+                .control
+                .registry
+                .find_definition(service_name)
+                .await
+                .unwrap();
             assert!(definition.scopes.store.is_some());
             assert!(!definition.scopes.agents.contains_key("agent-1"));
         }
@@ -7462,7 +7982,14 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     tokio::time::sleep(Duration::from_millis(25)).await;
     assert_eq!(requests.load(Ordering::SeqCst), 0);
 
-    let state = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let state = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(state.phase, crate::state::RuntimePhase::Stopped);
     assert_eq!(state.recovery, crate::state::RecoveryState::Idle);
     assert_eq!(state.failure, None);
@@ -7498,6 +8025,8 @@ mod event_reactor_facade {
             namespace: "mcpstore".into(),
             watch_collections: vec!["mcpstore:event:facade.test".into()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
 
         store.setup_event_reactor(config).await.unwrap();
@@ -7528,6 +8057,8 @@ mod event_reactor_facade {
         // Write a value to the watched collection via the cache layer — the
         // EventReactor's independent backend will see it via ChangeFeed.
         store
+            .kernel
+            .persistence
             .cache
             .put_event(
                 "facade.test",
@@ -7593,6 +8124,8 @@ mod control_reactor_tests {
             namespace: "test-control-reactor".into(),
             watch_collections: vec![collection.clone()],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         store.setup_event_reactor(config).await.unwrap();
         let rule = store.control_request_rule();
@@ -7705,6 +8238,8 @@ mod control_reactor_tests {
             namespace: "test-control-reactor-skip".into(),
             watch_collections: vec![collection],
             max_causation_depth: 16,
+            recovery_interval: std::time::Duration::from_secs(60),
+            feed_retry_interval: std::time::Duration::from_secs(1),
         };
         store.setup_event_reactor(config).await.unwrap();
         let rule = store.control_request_rule();
@@ -7801,6 +8336,25 @@ mod control_reactor_tests {
     }
 
     #[tokio::test]
+    async fn cache_identity_separates_backends_and_namespaces() {
+        let path = temp_config_path();
+        let options = |namespace: &str| StoreOptions {
+            config_path: Some(path.clone()),
+            source_mode: SourceMode::Local,
+            node_mode: NodeMode::ControlPlane,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some(namespace.to_string()),
+        };
+        let first = MCPStore::setup_with_options(options("tenant-a")).unwrap();
+        let second = MCPStore::setup_with_options(options("tenant-a")).unwrap();
+        let third = MCPStore::setup_with_options(options("tenant-b")).unwrap();
+        assert_eq!(first.cache_identity().await, second.cache_identity().await);
+        assert_ne!(first.cache_identity().await, third.cache_identity().await);
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
     async fn swap_store_memory_to_redis_db9_and_back() {
         let Ok(url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
             return;
@@ -7841,6 +8395,20 @@ mod control_reactor_tests {
         std::fs::remove_file(path).ok();
     }
 
+    #[test]
+    fn data_plane_rejects_memory_backend() {
+        let error = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            node_mode: NodeMode::DataPlane,
+            store: Some(JsonStoreConfig::memory()),
+            namespace: Some("data-plane-memory".to_string()),
+        })
+        .err()
+        .expect("DataPlane memory backend must be rejected");
+        assert!(error.to_string().contains("shared persistent store"));
+    }
+
     #[tokio::test]
     async fn node_mode_supervisor_visibility() {
         // C5: control_plane builds supervisor; data_plane does not.
@@ -7854,25 +8422,82 @@ mod control_reactor_tests {
         })
         .unwrap();
         assert!(
-            cp_store.supervisor.is_some(),
+            cp_store.kernel.execution.supervisor.is_some(),
             "control_plane must build supervisor"
-        );
-
-        // DataPlane requires a shared (Db) source. Use SourceMode::Db with a
-        // memory backend to simulate this in-process.
-        let dp_store = MCPStore::setup_with_options(StoreOptions {
-            config_path: Some(temp_config_path()),
-            source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
-            namespace: Some(format!("c5-dp-{}", uuid::Uuid::new_v4())),
-        })
-        .unwrap();
-        assert!(
-            dp_store.supervisor.is_none(),
-            "data_plane must NOT build supervisor"
         );
 
         std::fs::remove_file(cp_path).ok();
     }
+}
+
+#[tokio::test]
+async fn data_plane_closes_only_connections_started_by_this_process() {
+    let source_path = temp_config_path();
+    let source = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(source_path.clone()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("ephemeral-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = || {
+        serde_json::json!({
+            "openapi": "3.0.0",
+            "info": {"title": "fixture", "version": "1.0"},
+            "paths": {
+                "/ping": {"get": {"operationId": "ping"}}
+            }
+        })
+    };
+    source
+        .import_openapi_service_from_spec("owned", "memory://owned", spec())
+        .await
+        .unwrap();
+    source
+        .import_openapi_service_from_spec("other", "memory://other", spec())
+        .await
+        .unwrap();
+    source
+        .connect_service(store_instance_id("other"))
+        .await
+        .unwrap();
+
+    let db = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(format!("ephemeral-db-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    copy_cache_snapshot(&source, &db).await;
+    db.load_from_db().await.unwrap();
+    let owned_id = store_instance_id("owned");
+    let other_id = store_instance_id("other");
+    db.ensure_instance_connected(owned_id).await.unwrap();
+
+    db.close_local_connections().await;
+
+    let owned = db
+        .kernel
+        .control
+        .state
+        .get(owned_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let other = db
+        .kernel
+        .control
+        .state
+        .get(other_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(owned.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(other.phase, crate::state::RuntimePhase::Running);
+    assert!(db.kernel.runtime.local_connections.read().await.is_empty());
+
+    std::fs::remove_file(source_path).ok();
 }

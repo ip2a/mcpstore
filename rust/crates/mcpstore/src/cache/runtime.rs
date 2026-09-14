@@ -33,6 +33,23 @@ impl MCPStore {
     }
 
     pub async fn current_store_name(&self) -> String {
-        self.store_config.read().await.store_name().to_string()
+        self.kernel
+            .persistence
+            .store_config
+            .read()
+            .await
+            .store_name()
+            .to_string()
+    }
+
+    /// Stable identity for caller-side caches. It distinguishes backend config
+    /// and namespace even when service instance IDs collide.
+    pub async fn cache_identity(&self) -> String {
+        let config = self.kernel.persistence.store_config.read().await;
+        let serialized = format!("{}:{}", config.store_name(), config.config);
+        drop(config);
+        blake3::hash(format!("{serialized}:{}", self.namespace()).as_bytes())
+            .to_hex()
+            .to_string()
     }
 }

@@ -8,7 +8,14 @@ impl MCPStore {
         options: McpElicitationSessionOptions,
     ) -> Result<Option<McpElicitationSession>> {
         self.refresh_from_db_if_needed().await?;
-        if self.registry.find_instance(instance_id).await.is_none() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
@@ -18,7 +25,9 @@ impl MCPStore {
             return Ok(None);
         }
         self.ensure_instance_connected(instance_id).await?;
-        self.pool
+        self.kernel
+            .execution
+            .pool
             .open_elicitation_session(instance_id, options)
             .await
     }

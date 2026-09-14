@@ -4,6 +4,119 @@ use super::{examples::default_server_config, *};
 use crate::identity::ScopeRef;
 
 #[test]
+fn runtime_roundtrips_as_stable_string() {
+    for (runtime, encoded) in [
+        (Runtime::Local, "\"local\""),
+        (Runtime::Daemon, "\"daemon\""),
+    ] {
+        assert_eq!(serde_json::to_string(&runtime).unwrap(), encoded);
+        assert_eq!(serde_json::from_str::<Runtime>(encoded).unwrap(), runtime);
+    }
+    assert!(serde_json::from_str::<Runtime>("\"node:browser-host\"").is_err());
+}
+
+#[test]
+fn runtime_policy_empty_allowlist_keeps_backwards_compatibility() {
+    let policy = RuntimePolicy {
+        allowed_runtimes: None,
+        allowed_daemons: None,
+        required_host_capabilities: Vec::new(),
+    };
+    assert!(policy.allows_runtime(Runtime::Local));
+    assert!(policy.allows_runtime(Runtime::Daemon));
+    assert!(policy.allows_daemon("any-node"));
+}
+
+#[test]
+fn runtime_policy_restricts_declared_runtimes_and_daemons() {
+    let policy = RuntimePolicy {
+        allowed_runtimes: Some(vec![Runtime::Daemon]),
+        allowed_daemons: Some(vec!["browser-host".into()]),
+        required_host_capabilities: Vec::new(),
+    };
+    assert!(!policy.allows_runtime(Runtime::Local));
+    assert!(policy.allows_runtime(Runtime::Daemon));
+    assert!(policy.allows_daemon("browser-host"));
+    assert!(!policy.allows_daemon("other"));
+}
+
+#[test]
+fn runtime_policy_rejects_empty_declaration() {
+    let mut config = ServerConfig::default();
+    config.mcpstore = Some(McpStoreExtension {
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: None,
+            allowed_daemons: None,
+            required_host_capabilities: Vec::new(),
+        }),
+        ..McpStoreExtension::default()
+    });
+
+    let error = config.validate_structure().unwrap_err();
+    assert!(error.contains("runtime_policy must declare"), "{error}");
+}
+
+#[test]
+fn runtime_policy_rejects_explicitly_empty_allowlists() {
+    // Explicit empty runtime list is a restriction that restricts nothing.
+    let mut config = ServerConfig::default();
+    config.mcpstore = Some(McpStoreExtension {
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: Some(Vec::new()),
+            allowed_daemons: None,
+            required_host_capabilities: vec!["browser".to_string()],
+        }),
+        ..McpStoreExtension::default()
+    });
+    let error = config.validate_structure().unwrap_err();
+    assert!(
+        error.contains("allowed_runtimes must not be empty"),
+        "{error}"
+    );
+
+    // Explicit empty daemon list likewise.
+    let mut config = ServerConfig::default();
+    config.mcpstore = Some(McpStoreExtension {
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: None,
+            allowed_daemons: Some(Vec::new()),
+            required_host_capabilities: Vec::new(),
+        }),
+        ..McpStoreExtension::default()
+    });
+    let error = config.validate_structure().unwrap_err();
+    assert!(
+        error.contains("allowed_daemons must not be empty"),
+        "{error}"
+    );
+
+    // An explicit [] round-trips through JSON as Some(empty) and still errors.
+    let config: std::result::Result<ServerConfig, _> = serde_json::from_value(json!({
+        "command": "demo",
+        "_mcpstore": {
+            "scopes": {},
+            "runtime_policy": { "allowed_runtimes": [] }
+        }
+    }));
+    // Deserialization succeeds; validation is where the empty list is rejected.
+    let config = config.unwrap();
+    let error = config.validate_structure().unwrap_err();
+    assert!(
+        error.contains("allowed_runtimes must not be empty"),
+        "{error}"
+    );
+}
+
+#[test]
+fn old_service_config_defaults_without_runtime_policy() {
+    let config: ServerConfig = serde_json::from_value(json!({
+        "command": "demo"
+    }))
+    .unwrap();
+    assert!(config.mcpstore.is_none());
+}
+
+#[test]
 fn test_load_save_roundtrip() {
     let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -333,6 +446,34 @@ fn test_default_template_contains_runtime_sections() {
 }
 
 #[test]
+fn test_daemons_roundtrip_and_validation() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    let config = concat!(
+        "[daemons.remote]\n",
+        "endpoint = \"127.0.0.1:1840\"\n",
+        "namespace = \"ns\"\n",
+        "token = \"secret\"\n"
+    );
+    std::fs::write(mgr.app_config_path(), config).unwrap();
+
+    let loaded = mgr.load_app_config().unwrap();
+    let node = loaded.daemons.get("remote").unwrap();
+    assert_eq!(node.endpoint, "127.0.0.1:1840");
+    assert_eq!(node.namespace.as_deref(), Some("ns"));
+    assert_eq!(node.token.as_deref(), Some("secret"));
+
+    std::fs::write(mgr.app_config_path(), "[daemons.bad]\nendpoint = \" \"\n").unwrap();
+    let error = mgr.load_app_config().unwrap_err();
+    assert!(
+        error.to_string().contains("daemons.bad.endpoint"),
+        "{error}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn test_flatten_raw_app_config_only_contains_explicit_keys() {
     let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -514,6 +655,58 @@ fn test_service_lifecycle_ignores_old_draft_field_names() {
 }
 
 #[test]
+fn test_service_lifecycle_keep_alive_defaults_and_resolves() {
+    // Not configured: preserves legacy ephemeral behavior.
+    let raw = r#"{ "command": "node" }"#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        config
+            .mcpstore
+            .as_ref()
+            .and_then(|ext| ext.lifecycle.as_ref())
+            .and_then(|lc| lc.keep_alive),
+        None
+    );
+    assert!(
+        !config
+            .resolved_lifecycle(&ServiceLifecycleDefaults::default())
+            .keep_alive
+    );
+
+    // Configured true: parses and flows through to the resolved lifecycle.
+    let raw = r#"
+    {
+      "command": "node",
+      "_mcpstore": { "scopes": {}, "lifecycle": { "keep_alive": true } }
+    }
+    "#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    assert_eq!(
+        config
+            .mcpstore
+            .as_ref()
+            .unwrap()
+            .lifecycle
+            .as_ref()
+            .unwrap()
+            .keep_alive,
+        Some(true)
+    );
+    assert!(
+        config
+            .resolved_lifecycle(&ServiceLifecycleDefaults::default())
+            .keep_alive
+    );
+
+    // Field name is preserved on serialization.
+    let serialized = serde_json::to_value(&config).unwrap();
+    assert_eq!(
+        serialized["_mcpstore"]["lifecycle"]["keep_alive"],
+        serde_json::json!(true)
+    );
+}
+
+#[test]
 fn test_app_config_service_lifecycle_defaults_from_toml() {
     let config: AppConfig = toml::from_str(
         r#"
@@ -576,6 +769,40 @@ fn test_add_examples_only_inserts_missing_entries() {
     assert!(loaded.mcp_servers.contains_key("local-command-service"));
     assert!(loaded.mcp_servers.contains_key("npm-package-service"));
     assert!(loaded.mcp_servers.contains_key("custom-service"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn test_server_settings_daemon_surfaces_default() {
+    let server = ServerSettings::default();
+    assert_eq!(server.host, "127.0.0.1");
+    assert_eq!(server.port, 1820);
+    assert_eq!(server.app_port, 1821);
+    assert_eq!(server.web_port, 1828);
+    assert!(server.core_enabled);
+    assert!(server.app_enabled);
+    assert!(server.web_enabled);
+    assert!(!server.auto_open_browser);
+    assert!(!McpAggregateConfig::default().enabled);
+}
+
+#[test]
+fn test_save_app_config_round_trips_without_tmp_residue() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    let mut config = AppConfig::default();
+    config.server.web_port = 1829;
+    config.mcp_aggregate.enabled = true;
+    mgr.save_app_config(&config).unwrap();
+
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(loaded.server.web_port, 1829);
+    assert!(loaded.mcp_aggregate.enabled);
+    assert_eq!(loaded.server.app_port, 1821);
+    assert!(!mgr.app_config_path().with_extension("toml.tmp").exists());
 
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -6,7 +6,7 @@ pub mod elicitation;
 pub mod mcp;
 pub mod mcp_server;
 pub mod protocol;
+pub mod request;
 pub mod task;
 pub mod ui_web;
-pub mod web;
 pub mod web_assets;

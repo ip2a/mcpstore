@@ -59,7 +59,7 @@ def resolve_rust_cli_binary() -> str:
         if not candidate.exists():
             continue
         if not os.access(candidate, os.X_OK):
-            raise RuntimeError(f"Rust CLI 不可执行: {candidate}")
+            raise RuntimeError(f"Rust CLI is not executable: {candidate}")
         return str(candidate)
 
     raise RuntimeError(

@@ -42,6 +42,16 @@ def run_tool(request_id, params):
     name = params.get("name")
     token = progress_token(params)
     mark("call_started:" + str(name))
+    if name == "noop":
+        respond(
+            request_id,
+            {
+                "content": [{"type": "text", "text": "fixture-noop"}],
+                "isError": False,
+            },
+        )
+        return
+
     if name == "progress":
         for step in (1, 2):
             time.sleep(0.05)
@@ -252,6 +262,11 @@ def handle(message):
                     {
                         "name": "progress",
                         "description": "Emit progress and complete",
+                        "inputSchema": {"type": "object"},
+                    },
+                    {
+                        "name": "noop",
+                        "description": "Return immediately",
                         "inputSchema": {"type": "object"},
                     },
                     {

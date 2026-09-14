@@ -10,7 +10,14 @@ impl MCPStore {
         force_refresh: bool,
     ) -> Result<ToolChangeSummary> {
         self.refresh_from_db_if_needed().await?;
-        if self.registry.find_instance(instance_id).await.is_none() {
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
@@ -110,13 +117,21 @@ impl MCPStore {
         force_refresh: bool,
     ) -> Result<ToolChangeServiceResult> {
         self.refresh_from_db_if_needed().await?;
-        let Some(instance) = self.registry.find_instance(instance_id).await else {
+        let Some(instance) = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+        else {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
             ));
         };
-        self.state_manager
+        self.kernel
+            .control
+            .state
             .dispatch(
                 instance_id,
                 ServiceStateEvent::ToolSyncStarted,
@@ -129,16 +144,27 @@ impl MCPStore {
             let is_openapi = self.is_openapi_virtual_instance(instance_id).await?;
 
             if force_refresh {
-                self.pool.disconnect(instance_id).await.ok();
+                self.kernel
+                    .execution
+                    .pool
+                    .disconnect(instance_id)
+                    .await
+                    .ok();
                 self.connect_service_internal(instance_id, false).await?;
-            } else if is_openapi || !self.pool.is_connected(instance_id).await {
+            } else if is_openapi || !self.kernel.execution.pool.is_connected(instance_id).await {
                 self.ensure_instance_connected(instance_id).await?;
             }
 
             let tool_infos = if is_openapi {
-                self.registry.list_instance_tools(instance_id).await
+                self.kernel
+                    .control
+                    .registry
+                    .list_instance_tools(instance_id)
+                    .await
             } else {
-                self.pool
+                self.kernel
+                    .execution
+                    .pool
                     .list_tools(instance_id)
                     .await?
                     .into_iter()
@@ -148,17 +174,30 @@ impl MCPStore {
 
             let diff = Self::diff_tool_infos(&old_tools, &tool_infos);
             let mut updated = self
+                .kernel
+                .control
                 .registry
                 .find_instance(instance_id)
                 .await
                 .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
             updated.tools = tool_infos;
             let service_name = updated.service_name.clone();
-            self.registry.register_instance(updated).await;
+            self.kernel
+                .control
+                .registry
+                .register_instance(updated)
+                .await;
 
-            let tools = self.registry.list_instance_tools(instance_id).await;
+            let tools = self
+                .kernel
+                .control
+                .registry
+                .list_instance_tools(instance_id)
+                .await;
             self.cache_instance_connected(instance_id, &tools).await?;
-            self.state_manager
+            self.kernel
+                .control
+                .state
                 .dispatch(
                     instance_id,
                     ServiceStateEvent::ToolSyncSucceeded {
@@ -169,7 +208,9 @@ impl MCPStore {
                 .await?;
 
             let timestamp = chrono::Utc::now().timestamp();
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .put_event(
                     "service_instance",
                     &format!("{instance_id}:tools_refreshed:{timestamp}"),
@@ -202,7 +243,9 @@ impl MCPStore {
         match result {
             Ok(result) => Ok(result),
             Err(error) => {
-                self.state_manager
+                self.kernel
+                    .control
+                    .state
                     .dispatch(
                         instance_id,
                         ServiceStateEvent::ToolSyncFailed(FailureInfo {

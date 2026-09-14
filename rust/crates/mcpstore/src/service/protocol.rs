@@ -7,7 +7,11 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<Option<McpServerMetadata>> {
         self.require_instance(instance_id).await?;
-        self.pool.server_metadata(instance_id).await
+        self.kernel
+            .execution
+            .pool
+            .server_metadata(instance_id)
+            .await
     }
 
     pub async fn complete_mcp_argument(
@@ -16,7 +20,11 @@ impl MCPStore {
         request: McpCompletionRequest,
     ) -> Result<McpCompletion> {
         self.ensure_instance_connected(instance_id).await?;
-        self.pool.complete(instance_id, request).await
+        self.kernel
+            .execution
+            .pool
+            .complete(instance_id, request)
+            .await
     }
 
     pub async fn subscribe_resource_updates(
@@ -25,7 +33,11 @@ impl MCPStore {
         uri: &str,
     ) -> Result<()> {
         self.ensure_instance_connected(instance_id).await?;
-        self.pool.subscribe_resource(instance_id, uri).await
+        self.kernel
+            .execution
+            .pool
+            .subscribe_resource(instance_id, uri)
+            .await
     }
 
     pub async fn unsubscribe_resource_updates(
@@ -34,6 +46,10 @@ impl MCPStore {
         uri: &str,
     ) -> Result<()> {
         self.ensure_instance_connected(instance_id).await?;
-        self.pool.unsubscribe_resource(instance_id, uri).await
+        self.kernel
+            .execution
+            .pool
+            .unsubscribe_resource(instance_id, uri)
+            .await
     }
 }

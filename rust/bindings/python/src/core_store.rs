@@ -873,7 +873,7 @@ impl PyMCPStore {
     ) -> PyResult<String> {
         let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.update_service(service_name, base_config))
+            .block_on(self.inner.update_service(service_name, base_config, None))
             .map_err(map_store_err)
     }
 

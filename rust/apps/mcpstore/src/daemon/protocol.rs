@@ -1,9 +1,19 @@
+use std::path::PathBuf;
+use std::time::Duration;
+
 use mcpstore::error::{Error, ErrorContext, FailureCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::PathBuf;
+use subtle::ConstantTimeEq;
 
-/// Default Unix socket path for daemon IPC.
+pub const KERNEL_PROTOCOL_VERSION: u32 = 1;
+pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// daemon 握手默认 namespace；v1 单 daemon 假设下 CLI 与 daemon 共用它。
+pub const DEFAULT_NAMESPACE: &str = "mcpstore";
+
+/// Default Unix socket path for KernelHost IPC.
+#[cfg(unix)]
 pub fn default_socket_path() -> PathBuf {
     std::env::var("MCPSTORE_SOCKET")
         .map(PathBuf::from)
@@ -17,39 +27,149 @@ pub fn default_pid_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("/tmp/mcpstore.pid"))
 }
 
-/// A request sent from the CLI client to the daemon.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaemonRequest {
-    pub method: String,
-    pub params: Value,
+/// Default loopback address used by the KernelHost stream transport.
+pub fn default_endpoint_address() -> String {
+    std::env::var("MCPSTORE_KERNEL_ENDPOINT").unwrap_or_else(|_| "127.0.0.1:0".to_string())
 }
 
-impl DaemonRequest {
-    pub fn new(method: impl Into<String>, params: Value) -> Self {
-        Self {
-            method: method.into(),
-            params,
-        }
-    }
-
-    pub fn to_json_line(&self) -> Result<String, serde_json::Error> {
-        let mut s = serde_json::to_string(self)?;
-        s.push('\n');
-        Ok(s)
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum KernelTransport {
+    UnixSocket,
+    LoopbackTcp,
 }
 
-/// Structured error carried on the daemon wire protocol.
-/// Mirrors `mcpstore::Error` (code + context); the source chain is not
-/// serializable and stays daemon-side.
+/// First message on every KernelHost connection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaemonError {
+pub struct HandshakeRequest {
+    pub protocol_version: u32,
+    pub namespace: String,
+    #[serde(default)]
+    pub client_capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HandshakeResponse {
+    pub protocol_version: u32,
+    pub namespace: String,
+    pub kernel_revision: String,
+    pub host_capabilities: Vec<String>,
+}
+
+/// Typed process-boundary request. `payload` is the DTO for `operation`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KernelRequest {
+    pub request_id: u64,
+    pub operation: KernelOperation,
+    pub payload: Value,
+    #[serde(default = "default_deadline_ms")]
+    pub deadline_ms: u64,
+}
+
+fn default_deadline_ms() -> u64 {
+    DEFAULT_REQUEST_TIMEOUT.as_millis() as u64
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum KernelOperation {
+    CallTool,
+    StreamToolExecution,
+    ListTools,
+    ListServices,
+    GetService,
+    ConnectService,
+    DisconnectService,
+    RestartService,
+    CheckService,
+    WaitService,
+    AddService,
+    DeclareServiceScope,
+    RemoveServiceScope,
+    ListAgents,
+    ShowConfig,
+    ResetConfig,
+    AuthStatus,
+    AuthCallbackUri,
+    AuthBegin,
+    AuthCallback,
+    AuthRefresh,
+    AuthLogout,
+    AuthScopeUpgrade,
+    AuthSaveClientSecret,
+    AuthSavePrivateKey,
+    SubscribeEvents,
+    StopHost,
+    StatusHost,
+    GetDaemonConfig,
+    SetDaemonConfig,
+    GetServiceInfo,
+    UpdateService,
+    ResourcesList,
+    ResourcesTemplates,
+    ResourcesRead,
+    PromptsList,
+    PromptGet,
+    CompleteArgument,
+    TaskList,
+    TaskGet,
+    TaskLive,
+    TaskResult,
+    TaskCancel,
+    SwapStore,
+    ListInstances,
+    ListAllTools,
+    EventHistory,
+    EventCapabilityReport,
+    CacheHealth,
+    HealthCheck,
+    GetDefinitionConfig,
+    LoadFromSource,
+    GetAppConfig,
+    SaveAppConfig,
+    ListScopeTools,
+    ListScopeResources,
+    ListScopeResourceTemplates,
+    ListScopePrompts,
+    ControlRequestGet,
+    ControlRequestList,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum KernelEvent {
+    Started {
+        request_id: Value,
+        instance_id: mcpstore::InstanceId,
+        cancellation: bool,
+    },
+    Progress {
+        request_id: Value,
+        #[serde(flatten)]
+        progress: mcpstore::McpExecutionProgress,
+    },
+    Finished {
+        #[serde(flatten)]
+        result: Value,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KernelResponse {
+    pub request_id: Option<u64>,
+    pub event: Option<KernelEvent>,
+    pub result: Option<Value>,
+    pub error: Option<KernelError>,
+    pub kernel_revision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KernelError {
     pub code: FailureCode,
     pub message: String,
     pub context: ErrorContext,
 }
 
-impl DaemonError {
+impl KernelError {
     pub fn new(code: FailureCode, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -71,98 +191,234 @@ impl DaemonError {
     }
 }
 
-/// A response sent from the daemon back to the CLI client.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaemonResponse {
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<DaemonError>,
-}
-
-impl DaemonResponse {
-    pub fn ok(data: impl Into<Option<Value>>) -> Self {
+impl KernelResponse {
+    pub fn ok(request_id: u64, result: impl Into<Option<Value>>) -> Self {
         Self {
-            success: true,
-            data: data.into(),
+            request_id: Some(request_id),
+            event: None,
+            result: result.into(),
             error: None,
+            kernel_revision: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
 
-    pub fn err(error: impl Into<DaemonError>) -> Self {
+    pub fn event(event: KernelEvent) -> Self {
         Self {
-            success: false,
-            data: None,
+            request_id: None,
+            event: Some(event),
+            result: None,
+            error: None,
+            kernel_revision: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+
+    pub fn error(request_id: Option<u64>, error: impl Into<KernelError>) -> Self {
+        Self {
+            request_id,
+            event: None,
+            result: None,
             error: Some(error.into()),
+            kernel_revision: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
 
     pub fn to_json_line(&self) -> Result<String, serde_json::Error> {
-        let mut s = serde_json::to_string(self)?;
-        s.push('\n');
-        Ok(s)
+        let mut line = serde_json::to_string(self)?;
+        line.push('\n');
+        Ok(line)
     }
 }
 
-/// Check whether the daemon appears to be alive by reading its PID file
+pub fn validate_handshake(
+    request: &HandshakeRequest,
+    namespace: &str,
+    required_token: Option<&str>,
+) -> Result<HandshakeResponse, KernelError> {
+    if request.protocol_version != KERNEL_PROTOCOL_VERSION {
+        return Err(KernelError::new(
+            FailureCode::HandshakeIncompatible,
+            format!(
+                "KernelHost protocol {} is incompatible with client protocol {}",
+                KERNEL_PROTOCOL_VERSION, request.protocol_version
+            ),
+        ));
+    }
+    if request.namespace != namespace {
+        return Err(KernelError::new(
+            FailureCode::ConnectionScope,
+            format!(
+                "KernelHost namespace mismatch: host={namespace} client={}",
+                request.namespace
+            ),
+        ));
+    }
+    if let Some(required_token) = required_token {
+        let supplied = request.token.as_deref().unwrap_or("");
+        let matches = supplied.len() == required_token.len()
+            && supplied.as_bytes().ct_eq(required_token.as_bytes()).into();
+        if !matches {
+            return Err(KernelError::new(
+                FailureCode::ConnectionAuthRequired,
+                "KernelHost authentication failed",
+            ));
+        }
+    }
+    Ok(HandshakeResponse {
+        protocol_version: KERNEL_PROTOCOL_VERSION,
+        namespace: namespace.to_string(),
+        kernel_revision: env!("CARGO_PKG_VERSION").to_string(),
+        host_capabilities: vec!["requests".into(), "streams".into(), "events".into()],
+    })
+}
+
+pub fn deadline(deadline_ms: u64) -> Duration {
+    Duration::from_millis(deadline_ms.min(DEFAULT_REQUEST_TIMEOUT.as_millis() as u64))
+}
+
+/// Check whether the host appears to be alive by reading its PID file
 /// and verifying the process exists.
 pub fn is_daemon_running() -> bool {
+    is_host_running()
+}
+
+pub fn is_host_running() -> bool {
     let pid_path = default_pid_path();
     let Ok(pid_str) = std::fs::read_to_string(&pid_path) else {
         return false;
     };
-    let Ok(_pid) = pid_str.trim().parse::<u32>() else {
+    let Ok(pid) = pid_str.trim().parse::<u32>() else {
         return false;
     };
-    // Check if process exists (send signal 0)
     #[cfg(unix)]
     {
-        use std::process::Command;
-        Command::new("kill")
+        std::process::Command::new("kill")
             .arg("-0")
-            .arg(_pid.to_string())
+            .arg(pid.to_string())
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
     }
     #[cfg(not(unix))]
     {
-        // On non-Unix, just check the socket exists as a fallback.
-        default_socket_path().exists()
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string()])
+            .output()
+            .is_ok()
     }
 }
 
-/// Remove stale PID and socket files if the daemon is not actually running.
+/// Remove stale PID and endpoint files if the host is not actually running.
 pub fn cleanup_stale_files() {
-    if !is_daemon_running() {
+    if !is_host_running() {
         let _ = std::fs::remove_file(default_pid_path());
+        #[cfg(unix)]
         let _ = std::fs::remove_file(default_socket_path());
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::*;
+
+    #[test]
+    fn is_host_running_ignores_empty_and_malformed_pid_files() {
+        let old_socket = std::env::var("MCPSTORE_SOCKET").ok();
+        let old_pid = std::env::var("MCPSTORE_PID").ok();
+        let dir = std::env::temp_dir().join(format!(
+            "mcpstore-host-pid-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("MCPSTORE_SOCKET", dir.join("kernel.sock"));
+        std::env::set_var("MCPSTORE_PID", dir.join("kernel.pid"));
+
+        let pid_path = default_pid_path();
+        std::fs::write(&pid_path, "").unwrap();
+        assert!(!is_host_running());
+        std::fs::write(&pid_path, "not-a-pid").unwrap();
+        assert!(!is_host_running());
+        std::fs::remove_file(&pid_path).unwrap();
+        assert!(!is_host_running());
+
+        if let Some(value) = old_socket {
+            std::env::set_var("MCPSTORE_SOCKET", value);
+        } else {
+            std::env::remove_var("MCPSTORE_SOCKET");
+        }
+        if let Some(value) = old_pid {
+            std::env::set_var("MCPSTORE_PID", value);
+        } else {
+            std::env::remove_var("MCPSTORE_PID");
+        }
+        let _ = std::fs::remove_dir(dir);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mcpstore::error::ErrorContext;
 
     #[test]
-    fn daemon_error_serializes_as_code_message_context_object() {
+    fn kernel_error_serializes_as_code_message_context_object() {
         let error =
             mcpstore::Error::new(FailureCode::ServiceNotFound, "service instance not found")
                 .with_context(ErrorContext::Service {
                     instance_id: "127ce370-1ed6-5b00-9713-e88d01b3010d".parse().unwrap(),
                     service_name: "demo".to_string(),
                 });
-        let wire = serde_json::to_value(DaemonError::from_error(&error)).unwrap();
+        let wire = serde_json::to_value(KernelError::from_error(&error)).unwrap();
         assert_eq!(wire["code"], "service_not_found");
         assert_eq!(wire["message"], "service instance not found");
         assert_eq!(wire["context"]["kind"], "service");
         assert_eq!(wire["context"]["service_name"], "demo");
 
-        let round_trip: DaemonError = serde_json::from_value(wire).unwrap();
+        let round_trip: KernelError = serde_json::from_value(wire).unwrap();
         let restored = round_trip.into_error();
         assert_eq!(restored.code(), FailureCode::ServiceNotFound);
         assert!(restored.message().contains("service instance"));
+    }
+
+    #[test]
+    fn handshake_rejects_wrong_protocol_and_namespace() {
+        let request = HandshakeRequest {
+            protocol_version: KERNEL_PROTOCOL_VERSION + 1,
+            namespace: "demo".to_string(),
+            client_capabilities: Vec::new(),
+            token: None,
+        };
+        assert!(validate_handshake(&request, "demo", None).is_err());
+
+        let request = HandshakeRequest {
+            protocol_version: KERNEL_PROTOCOL_VERSION,
+            namespace: "other".to_string(),
+            client_capabilities: Vec::new(),
+            token: None,
+        };
+        assert!(validate_handshake(&request, "demo", None).is_err());
+    }
+
+    #[test]
+    fn handshake_validates_tcp_token_in_constant_time_shape() {
+        let request = |token: Option<&str>| HandshakeRequest {
+            protocol_version: KERNEL_PROTOCOL_VERSION,
+            namespace: "demo".to_string(),
+            client_capabilities: Vec::new(),
+            token: token.map(str::to_string),
+        };
+        assert!(validate_handshake(&request(Some("secret")), "demo", Some("secret")).is_ok());
+        assert!(validate_handshake(&request(Some("wrong")), "demo", Some("secret")).is_err());
+        assert!(validate_handshake(&request(None), "demo", Some("secret")).is_err());
+    }
+
+    #[test]
+    fn deadline_is_bounded() {
+        assert_eq!(deadline(250), Duration::from_millis(250));
+        assert_eq!(
+            deadline(DEFAULT_REQUEST_TIMEOUT.as_millis() as u64 + 1),
+            DEFAULT_REQUEST_TIMEOUT
+        );
     }
 }

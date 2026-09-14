@@ -3,7 +3,7 @@ fn main() {
         if error.is::<mcpstore_cli::commands::auth::JsonAuthError>() {
             eprintln!("{error}");
         } else {
-            eprintln!("[错误] {error}");
+            eprintln!("[Error] {error}");
         }
         std::process::exit(1);
     }

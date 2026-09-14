@@ -62,7 +62,9 @@ impl MCPStore {
         let instance = self.require_instance(instance_id).await?;
         let context_key = Self::build_tool_visibility_context_key(&instance.scope)?;
         let state_key = Self::context_tool_visibility_state_key(&context_key, instance_id);
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .delete_state(CONTEXT_TOOL_VISIBILITY_STATE_TYPE, &state_key)
             .await
             .map_err(Into::into)
@@ -125,6 +127,8 @@ impl MCPStore {
     ) -> Result<Option<ContextToolVisibilityState>> {
         let state_key = Self::context_tool_visibility_state_key(context_key, instance_id);
         match self
+            .kernel
+            .persistence
             .cache
             .get_state(CONTEXT_TOOL_VISIBILITY_STATE_TYPE, &state_key)
             .await?
@@ -169,6 +173,8 @@ impl MCPStore {
             let value = serde_json::to_value(&state)
                 .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
             match self
+                .kernel
+                .persistence
                 .cache
                 .compare_and_put_state(
                     CONTEXT_TOOL_VISIBILITY_STATE_TYPE,

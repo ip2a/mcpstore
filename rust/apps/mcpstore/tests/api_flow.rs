@@ -606,7 +606,7 @@ async fn api_processes_share_session_state_through_redis_backend(
     let write_after_close_payload = write_after_close_from_a.json::<Value>().await?;
     assert_eq!(
         write_after_close_payload["errors"][0]["code"],
-        "SESSION_NOT_ACTIVE"
+        "session_not_active"
     );
 
     let _ = api_a.take().unwrap().stop().await?;

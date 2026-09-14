@@ -20,8 +20,8 @@ fn cache_dir() -> PathBuf {
         .join("schema-cache")
 }
 
-fn cache_path(instance_id: &str) -> PathBuf {
-    cache_dir().join(format!("{instance_id}.json"))
+fn cache_path(identity: &str, instance_id: &str) -> PathBuf {
+    cache_dir().join(format!("{identity}:{instance_id}.json"))
 }
 
 fn now_secs() -> u64 {
@@ -33,9 +33,10 @@ fn now_secs() -> u64 {
 
 /// Load the cached tool list for an instance. Returns `None` on miss, parse
 /// failure, or TTL expiry.
-pub fn load(instance_id: &str) -> Option<Vec<Value>> {
+pub fn load(identity: &str, instance_id: &str) -> Option<Vec<Value>> {
     let data: Value =
-        serde_json::from_str(&std::fs::read_to_string(cache_path(instance_id)).ok()?).ok()?;
+        serde_json::from_str(&std::fs::read_to_string(cache_path(identity, instance_id)).ok()?)
+            .ok()?;
     let ts = data.get("ts")?.as_u64()?;
     if now_secs().saturating_sub(ts) > TTL_SECS {
         return None;
@@ -45,11 +46,11 @@ pub fn load(instance_id: &str) -> Option<Vec<Value>> {
 
 /// Persist the full tool list for an instance. Failures are silently ignored —
 /// the cache is a performance optimization, not a correctness requirement.
-pub fn save(instance_id: &str, tools: &[Value]) {
+pub fn save(identity: &str, instance_id: &str, tools: &[Value]) {
     let dir = cache_dir();
     let _ = std::fs::create_dir_all(&dir);
     let data = serde_json::json!({ "ts": now_secs(), "tools": tools });
-    let _ = std::fs::write(cache_path(instance_id), data.to_string());
+    let _ = std::fs::write(cache_path(identity, instance_id), data.to_string());
 }
 
 /// Extract a single tool's `schema` field from a cached list.
@@ -62,15 +63,15 @@ pub fn find_schema(tools: &[Value], tool_name: &str) -> Option<Value> {
 
 // ── Target (name→instance) cache ──────────────────────────────────────────
 
-fn target_cache_path() -> PathBuf {
-    cache_dir().join("target-cache.json")
+fn target_cache_path(identity: &str) -> PathBuf {
+    cache_dir().join(format!("{identity}-target-cache.json"))
 }
 
 /// Load a cached name→instance mapping. Returns `None` on miss or TTL expiry.
-pub fn load_target(scope: &str, name: &str) -> Option<String> {
+pub fn load_target(identity: &str, scope: &str, name: &str) -> Option<String> {
     let key = format!("{scope}:{name}");
     let data: Value =
-        serde_json::from_str(&std::fs::read_to_string(target_cache_path()).ok()?).ok()?;
+        serde_json::from_str(&std::fs::read_to_string(target_cache_path(identity)).ok()?).ok()?;
     let ts = data.get("ts")?.as_u64()?;
     if now_secs().saturating_sub(ts) > TTL_SECS {
         return None;
@@ -82,9 +83,9 @@ pub fn load_target(scope: &str, name: &str) -> Option<String> {
 }
 
 /// Persist a name→instance mapping. Failures are silently ignored.
-pub fn save_target(scope: &str, name: &str, instance_id: &str) {
+pub fn save_target(identity: &str, scope: &str, name: &str, instance_id: &str) {
     let key = format!("{scope}:{name}");
-    let path = target_cache_path();
+    let path = target_cache_path(identity);
     let mut data: Value = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())

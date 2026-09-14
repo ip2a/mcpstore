@@ -13,7 +13,9 @@ impl MCPStore {
     }
 
     pub async fn service_state_entry(&self, instance_id: InstanceId) -> Result<ServiceState> {
-        self.state_manager
+        self.kernel
+            .control
+            .state
             .get(instance_id)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))
@@ -38,7 +40,7 @@ impl MCPStore {
             if state.readiness.status == ReadinessStatus::Ready {
                 return Ok(state);
             }
-            if !self.pool.is_connected(instance_id).await {
+            if !self.kernel.execution.pool.is_connected(instance_id).await {
                 match self.ensure_instance_connected(instance_id).await {
                     Ok(()) => continue,
                     Err(_) if tokio::time::Instant::now() < deadline => {

@@ -508,6 +508,8 @@ impl MCPStore {
 
     pub async fn get_session(&self, session_key: &str) -> Result<Option<SessionEntity>> {
         let Some(value) = self
+            .kernel
+            .persistence
             .cache
             .get_entity(SESSION_ENTITY_TYPE, session_key)
             .await?
@@ -672,6 +674,8 @@ impl MCPStore {
         agent_id: Option<&str>,
     ) -> Result<Vec<SessionEntity>> {
         let entries = self
+            .kernel
+            .persistence
             .cache
             .get_all_entities_async(SESSION_ENTITY_TYPE)
             .await?;
@@ -1212,7 +1216,7 @@ impl MCPStore {
     }
 
     pub async fn export_sessions_snapshot(&self) -> Result<serde_json::Value> {
-        let snapshot = self.cache.snapshot().await?;
+        let snapshot = self.kernel.persistence.cache.snapshot().await?;
         let mut relations = serde_json::Map::new();
         relations.insert(
             SESSION_SERVICES_RELATION_TYPE.to_string(),
@@ -1293,7 +1297,13 @@ impl MCPStore {
         let mut unchanged_events = HashSet::new();
 
         for (key, _, value) in &snapshot.entities {
-            match self.cache.get_entity(SESSION_ENTITY_TYPE, key).await? {
+            match self
+                .kernel
+                .persistence
+                .cache
+                .get_entity(SESSION_ENTITY_TYPE, key)
+                .await?
+            {
                 Some(current) if current == *value => {
                     unchanged_entities.insert(key.clone());
                     report.sessions_unchanged += 1;
@@ -1306,6 +1316,8 @@ impl MCPStore {
         }
         for (key, _, value) in &snapshot.service_relations {
             match self
+                .kernel
+                .persistence
                 .cache
                 .get_relation(SESSION_SERVICES_RELATION_TYPE, key)
                 .await?
@@ -1320,6 +1332,8 @@ impl MCPStore {
         }
         for (key, _, value) in &snapshot.tool_relations {
             match self
+                .kernel
+                .persistence
                 .cache
                 .get_relation(SESSION_TOOLS_RELATION_TYPE, key)
                 .await?
@@ -1333,7 +1347,13 @@ impl MCPStore {
             }
         }
         for (key, _, value) in &snapshot.status_states {
-            match self.cache.get_state(SESSION_STATUS_STATE_TYPE, key).await? {
+            match self
+                .kernel
+                .persistence
+                .cache
+                .get_state(SESSION_STATUS_STATE_TYPE, key)
+                .await?
+            {
                 Some(current) if current == *value => {
                     unchanged_status_states.insert(key.clone());
                     report.session_status_states_unchanged += 1;
@@ -1343,7 +1363,13 @@ impl MCPStore {
             }
         }
         for (key, _, value) in &snapshot.session_states {
-            match self.cache.get_state(SESSION_STATE_TYPE, key).await? {
+            match self
+                .kernel
+                .persistence
+                .cache
+                .get_state(SESSION_STATE_TYPE, key)
+                .await?
+            {
                 Some(current) if current == *value => {
                     unchanged_session_states.insert(key.clone());
                     report.session_state_records_unchanged += 1;
@@ -1354,6 +1380,8 @@ impl MCPStore {
         }
         for (key, _, value) in &snapshot.context_states {
             match self
+                .kernel
+                .persistence
                 .cache
                 .get_state(SESSION_CONTEXT_STATE_TYPE, key)
                 .await?
@@ -1367,7 +1395,13 @@ impl MCPStore {
             }
         }
         for (key, _, value) in &snapshot.events {
-            match self.cache.get_event(SESSION_EVENT_TYPE, key).await? {
+            match self
+                .kernel
+                .persistence
+                .cache
+                .get_event(SESSION_EVENT_TYPE, key)
+                .await?
+            {
                 Some(current) if current == *value => {
                     unchanged_events.insert(key.clone());
                     report.session_events_unchanged += 1;
@@ -1381,7 +1415,9 @@ impl MCPStore {
             if unchanged_entities.contains(&key) {
                 continue;
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .compare_and_put_entity(SESSION_ENTITY_TYPE, &key, None, value)
                 .await?;
             report.sessions_imported += 1;
@@ -1390,7 +1426,9 @@ impl MCPStore {
             if unchanged_service_relations.contains(&key) {
                 continue;
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .compare_and_put_relation(SESSION_SERVICES_RELATION_TYPE, &key, None, value)
                 .await?;
             report.session_service_relations_imported += 1;
@@ -1399,7 +1437,9 @@ impl MCPStore {
             if unchanged_tool_relations.contains(&key) {
                 continue;
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .compare_and_put_relation(SESSION_TOOLS_RELATION_TYPE, &key, None, value)
                 .await?;
             report.session_tool_relations_imported += 1;
@@ -1408,7 +1448,9 @@ impl MCPStore {
             if unchanged_status_states.contains(&key) {
                 continue;
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .compare_and_put_state(SESSION_STATUS_STATE_TYPE, &key, None, value)
                 .await?;
             report.session_status_states_imported += 1;
@@ -1417,7 +1459,9 @@ impl MCPStore {
             if unchanged_session_states.contains(&key) {
                 continue;
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .compare_and_put_state(SESSION_STATE_TYPE, &key, None, value)
                 .await?;
             report.session_state_records_imported += 1;
@@ -1426,7 +1470,9 @@ impl MCPStore {
             if unchanged_context_states.contains(&key) {
                 continue;
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .compare_and_put_state(SESSION_CONTEXT_STATE_TYPE, &key, None, value)
                 .await?;
             report.session_context_states_imported += 1;
@@ -1435,7 +1481,9 @@ impl MCPStore {
             if unchanged_events.contains(&key) {
                 continue;
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .compare_and_put_event(SESSION_EVENT_TYPE, &key, None, value)
                 .await?;
             report.session_events_imported += 1;
@@ -1739,6 +1787,8 @@ impl MCPStore {
     ) -> Result<ServiceInstance> {
         self.refresh_from_db_if_needed().await?;
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
@@ -1890,6 +1940,8 @@ impl MCPStore {
         context_key: &str,
     ) -> Result<Option<SessionContextState>> {
         match self
+            .kernel
+            .persistence
             .cache
             .get_state(SESSION_CONTEXT_STATE_TYPE, context_key)
             .await?
@@ -1928,6 +1980,8 @@ impl MCPStore {
             let value = serde_json::to_value(&state)
                 .map_err(|e| Error::new(FailureCode::Internal, e.to_string()))?;
             match self
+                .kernel
+                .persistence
                 .cache
                 .compare_and_put_state(
                     SESSION_CONTEXT_STATE_TYPE,
@@ -1999,7 +2053,9 @@ impl MCPStore {
         session: &SessionEntity,
         expected_version: Option<u64>,
     ) -> Result<()> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_entity(
                 SESSION_ENTITY_TYPE,
                 &session.session_key,
@@ -2013,6 +2069,8 @@ impl MCPStore {
 
     async fn load_session_status(&self, session_key: &str) -> Result<Option<SessionStatusState>> {
         let Some(value) = self
+            .kernel
+            .persistence
             .cache
             .get_state(SESSION_STATUS_STATE_TYPE, session_key)
             .await?
@@ -2032,7 +2090,9 @@ impl MCPStore {
         status: &SessionStatusState,
         expected_version: Option<u64>,
     ) -> Result<()> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_state(
                 SESSION_STATUS_STATE_TYPE,
                 &status.session_key,
@@ -2046,6 +2106,8 @@ impl MCPStore {
 
     async fn load_session_state(&self, session_key: &str) -> Result<Option<SessionStateData>> {
         let Some(value) = self
+            .kernel
+            .persistence
             .cache
             .get_state(SESSION_STATE_TYPE, session_key)
             .await?
@@ -2065,7 +2127,9 @@ impl MCPStore {
         state: &SessionStateData,
         expected_version: Option<u64>,
     ) -> Result<()> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_state(
                 SESSION_STATE_TYPE,
                 &state.session_key,
@@ -2082,6 +2146,8 @@ impl MCPStore {
         session_key: &str,
     ) -> Result<Option<SessionServiceRelation>> {
         let Some(value) = self
+            .kernel
+            .persistence
             .cache
             .get_relation(SESSION_SERVICES_RELATION_TYPE, session_key)
             .await?
@@ -2101,7 +2167,9 @@ impl MCPStore {
         relation: &SessionServiceRelation,
         expected_version: Option<u64>,
     ) -> Result<()> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_relation(
                 SESSION_SERVICES_RELATION_TYPE,
                 &relation.session_key,
@@ -2118,6 +2186,8 @@ impl MCPStore {
         session_key: &str,
     ) -> Result<Option<SessionToolVisibility>> {
         let Some(value) = self
+            .kernel
+            .persistence
             .cache
             .get_relation(SESSION_TOOLS_RELATION_TYPE, session_key)
             .await?
@@ -2137,7 +2207,9 @@ impl MCPStore {
         visibility: &SessionToolVisibility,
         expected_version: Option<u64>,
     ) -> Result<()> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_relation(
                 SESSION_TOOLS_RELATION_TYPE,
                 &visibility.session_key,
@@ -2163,7 +2235,9 @@ impl MCPStore {
             occurred_at,
             payload,
         };
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_event(
                 SESSION_EVENT_TYPE,
                 &key,

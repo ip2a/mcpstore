@@ -1,10 +1,11 @@
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 use mcpstore::{
     client_config::{import_selected_services, inspect_client_config, ClientKind},
     config::ConfigManager,
 };
+use serde_json::{json, Value};
 
-use crate::store_args::{build_store, StoreSourceArgs};
+use crate::store_args::{load_kernel, StoreSourceArgs};
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -44,7 +45,86 @@ pub enum ConfigAction {
     },
 }
 
-pub async fn run(action: ConfigAction) -> std::result::Result<(), Box<dyn std::error::Error>> {
+/// daemon 运行面修改 flags（设计 §7 key 表）。修改一律经 daemon 热应用并回写 config.toml。
+#[derive(Args, Debug, Default)]
+pub struct ConfigEdits {
+    #[arg(long)]
+    pub host: Option<String>,
+    #[arg(long = "core")]
+    pub core: Option<String>,
+    #[arg(long = "core-port")]
+    pub core_port: Option<u16>,
+    #[arg(long = "app")]
+    pub app: Option<String>,
+    #[arg(long = "app-port")]
+    pub app_port: Option<u16>,
+    #[arg(long = "web")]
+    pub web: Option<String>,
+    #[arg(long = "web-port")]
+    pub web_port: Option<u16>,
+    #[arg(long = "mcp")]
+    pub mcp: Option<String>,
+    #[arg(long = "mcp-port")]
+    pub mcp_port: Option<u16>,
+    #[arg(long = "mcp-transport")]
+    pub mcp_transport: Option<String>,
+}
+
+impl ConfigEdits {
+    pub fn pairs(&self) -> Vec<(&'static str, Value)> {
+        let mut pairs = Vec::new();
+        if let Some(value) = &self.host {
+            pairs.push(("host", json!(value)));
+        }
+        if let Some(value) = &self.core {
+            pairs.push(("core", json!(value)));
+        }
+        if let Some(value) = self.core_port {
+            pairs.push(("core-port", json!(value)));
+        }
+        if let Some(value) = &self.app {
+            pairs.push(("app", json!(value)));
+        }
+        if let Some(value) = self.app_port {
+            pairs.push(("app-port", json!(value)));
+        }
+        if let Some(value) = &self.web {
+            pairs.push(("web", json!(value)));
+        }
+        if let Some(value) = self.web_port {
+            pairs.push(("web-port", json!(value)));
+        }
+        if let Some(value) = &self.mcp {
+            pairs.push(("mcp", json!(value)));
+        }
+        if let Some(value) = self.mcp_port {
+            pairs.push(("mcp-port", json!(value)));
+        }
+        if let Some(value) = &self.mcp_transport {
+            pairs.push(("mcp-transport", json!(value)));
+        }
+        pairs
+    }
+}
+
+pub async fn run(
+    action: Option<ConfigAction>,
+    edits: ConfigEdits,
+    json: bool,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if let Some(action) = action {
+        if !edits.pairs().is_empty() {
+            return Err("config 子命令与修改 flag 不能同时使用".into());
+        }
+        return run_action(action).await;
+    }
+    if !edits.pairs().is_empty() {
+        return apply_edits(edits).await;
+    }
+    overview(json).await
+}
+
+async fn run_action(action: ConfigAction) -> std::result::Result<(), Box<dyn std::error::Error>> {
     match action {
         ConfigAction::Show { path } => show(path),
         ConfigAction::Validate { path } => validate(path),
@@ -64,6 +144,96 @@ pub async fn run(action: ConfigAction) -> std::result::Result<(), Box<dyn std::e
     }
 }
 
+/// 修改面唯一入口：daemon 未运行时拒绝（不悄悄改文件）。
+async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error>> {
+    if !crate::daemon::protocol::is_daemon_running() {
+        return Err("daemon 未运行；修改需经 daemon 热应用。先运行 mcpstore start".into());
+    }
+    let mut client = crate::daemon::client::connect_admin(None).await?;
+    for (key, value) in edits.pairs() {
+        client.set_daemon_config(key, value).await?;
+        println!("[Success] {key} hot-applied and written to config.toml");
+    }
+    Ok(())
+}
+
+/// 裸 `mcpstore config`：daemon 运行面总览。
+async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(mut client) = crate::daemon::client::connect_admin(None).await {
+        let status = client.status_host().await?;
+        if json {
+            println!("{status}");
+            return Ok(());
+        }
+        println!(
+            "[Success] Daemon running (pid={}, uptime={}s, namespace={})",
+            status["pid"], status["uptime_s"], status["namespace"]
+        );
+        println!("  host: {}", host_from_status(&status));
+        for listener in status["listeners"].as_array().into_iter().flatten() {
+            let key = listener["key"].as_str().unwrap_or("?");
+            match listener["bind"].as_str() {
+                Some(bind) => println!("  {key}: http://{bind}"),
+                None => println!("  {key}: off"),
+            }
+        }
+        println!("Use this command to change settings: mcpstore config --<key> <value>");
+        return Ok(());
+    }
+
+    let config = ConfigManager::new().load_app_config_or_default()?;
+    if json {
+        println!("{}", serde_json::to_value(&config.server)?);
+        return Ok(());
+    }
+    println!("[Info] Daemon not running（showing config.toml values; takes effect after restart）");
+    println!("  host: {}", config.server.host);
+    println!(
+        "  core: {} port={}",
+        on_off(config.server.core_enabled),
+        config.server.port
+    );
+    println!(
+        "  app:  {} port={}",
+        on_off(config.server.app_enabled),
+        config.server.app_port
+    );
+    println!(
+        "  web:  {} port={}",
+        on_off(config.server.web_enabled),
+        config.server.web_port
+    );
+    println!(
+        "  mcp:  {} transport={} port={}",
+        on_off(config.mcp_aggregate.enabled),
+        config.mcp_aggregate.transport,
+        config.mcp_aggregate.port
+    );
+    println!("Use this command to change settings: mcpstore config --<key> <value>");
+    Ok(())
+}
+
+fn host_from_status(status: &Value) -> Value {
+    let empty = json!({});
+    status
+        .get("listeners")
+        .and_then(|listeners| listeners.as_array())
+        .and_then(|listeners| listeners.first())
+        .and_then(|listener| listener.get("bind"))
+        .and_then(|bind| bind.as_str())
+        .and_then(|bind| bind.rsplit_once(':'))
+        .map(|(host, _)| json!(host))
+        .unwrap_or(empty)
+}
+
+fn on_off(enabled: bool) -> &'static str {
+    if enabled {
+        "on"
+    } else {
+        "off"
+    }
+}
+
 async fn import_client(
     client: String,
     path: String,
@@ -73,8 +243,7 @@ async fn import_client(
     let inspection = inspect_client_config(parse_client(&client)?, &path)?;
     let names: Vec<String> = serde_json::from_str(&std::fs::read_to_string(names_file)?)?;
     let services = import_selected_services(&inspection, &names)?;
-    let store = build_store(&source)?;
-    store.load_from_source().await?;
+    let store = load_kernel(&source).await?.store().clone();
     for (name, _) in &services {
         if store.get_definition_config(name).await?.is_some() {
             return Err(format!("MCPStore service already exists: {name}").into());

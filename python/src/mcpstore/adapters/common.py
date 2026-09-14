@@ -20,7 +20,7 @@ from typing import Callable, Any, Type, List, Dict, Optional
 from pydantic import BaseModel, create_model, Field, ConfigDict
 
 __all__ = [
-    # 公共工具函数
+    # Shared helpers
     'is_nullable',
     'process_tool_args',
     'enhance_description',
@@ -33,17 +33,17 @@ __all__ = [
     'tool_instance_id',
     'tool_service_name',
     'tool_input_schema',
-    # 执行器构建
+    # Executor construction
     'build_sync_executor',
     'build_async_executor',
     'attach_signature_from_schema',
-    # 数据类
+    # Data classes
     'ToolCallView',
 ]
 
 
 # ============================================================================
-# 数据类
+# Data classes
 # ============================================================================
 
 class ToolCallView(BaseModel):
@@ -87,7 +87,7 @@ def service_name(service_info: Any) -> str:
 
 
 def service_status_value(service_info: Any) -> str:
-    """读取服务状态值，统一返回字符串。"""
+    """读取服务Status值，统一返回字符串。"""
     status = _read_field(service_info, "status", default="")
     if isinstance(status, dict):
         value = status.get("value") or status.get("status") or status.get("name")
@@ -126,7 +126,7 @@ def tool_input_schema(tool_info: Any) -> Dict[str, Any]:
 
 
 # ============================================================================
-# JSON Schema 工具函数
+# JSON Schema helpers
 # ============================================================================
 
 def is_nullable(prop: Dict[str, Any]) -> bool:
@@ -147,30 +147,30 @@ def is_nullable(prop: Dict[str, Any]) -> bool:
         bool: 是否可为 null
     """
     try:
-        # 显式 nullable 标记
+        # Explicit nullable marker
         if prop.get("nullable") is True:
             return True
 
-        # type 数组包含 "null"
+        # The type array includes "null"
         t = prop.get("type")
         if isinstance(t, list) and "null" in t:
             return True
 
-        # anyOf 包含 null 类型
+        # anyOf includes a null type
         any_of = prop.get("anyOf") or []
         if isinstance(any_of, list) and any(
             (isinstance(x, dict) and x.get("type") == "null") for x in any_of
         ):
             return True
 
-        # oneOf 包含 null 类型
+        # oneOf includes a null type
         one_of = prop.get("oneOf") or []
         if isinstance(one_of, list) and any(
             (isinstance(x, dict) and x.get("type") == "null") for x in one_of
         ):
             return True
 
-        # default 值为 null
+        # The default value is null
         if prop.get("default", object()) is None:
             return True
 
@@ -181,7 +181,7 @@ def is_nullable(prop: Dict[str, Any]) -> bool:
 
 
 # ============================================================================
-# 参数处理
+# Argument handling
 # ============================================================================
 
 def process_tool_args(
@@ -193,7 +193,7 @@ def process_tool_args(
     统一处理工具参数转换。
 
     将各种参数传递方式（位置参数、关键字参数、字典）转换为标准的工具输入字典。
-    支持无参数工具和开放 schema 工具。
+    支持No parameters工具和开放 schema 工具。
 
     Args:
         args_schema: Pydantic 参数模型
@@ -206,13 +206,13 @@ def process_tool_args(
     tool_input: Dict[str, Any] = {}
 
     try:
-        # 获取模型字段信息
+        # Get model field metadata
         schema_info = args_schema.model_json_schema()
         schema_fields = schema_info.get('properties', {})
         field_names = list(schema_fields.keys())
         allow_extra = bool(schema_info.get("additionalProperties", False))
 
-        # 处理无参数工具 / 开放 schema 工具
+        # Handle parameterless tools and tools with open schemas
         if not field_names:
             if allow_extra:
                 if kwargs:
@@ -224,7 +224,7 @@ def process_tool_args(
             else:
                 tool_input = {}
         else:
-            # 有声明字段时的参数处理
+            # Argument handling when fields are declared
             if kwargs:
                 tool_input = dict(kwargs)
             elif args:
@@ -232,10 +232,10 @@ def process_tool_args(
                     if isinstance(args[0], dict):
                         tool_input = dict(args[0])
                     else:
-                        # 单个位置参数映射到第一个字段
+                        # Map a single positional argument to the first field
                         tool_input = {field_names[0]: args[0]}
                 else:
-                    # 多个位置参数按顺序映射到字段
+                    # Map positional arguments to fields in order
                     for i, arg_value in enumerate(args):
                         if i < len(field_names):
                             tool_input[field_names[i]] = arg_value
@@ -248,7 +248,7 @@ def process_tool_args(
 
 
 # ============================================================================
-# 结果处理
+# Result handling
 # ============================================================================
 
 def _extract_text_blocks(contents: list) -> List[str]:
@@ -373,10 +373,10 @@ def build_tool_error_payload(
 
 
 # ============================================================================
-# Schema 构建
+# Schema construction
 # ============================================================================
 
-# 类型映射表
+# Type mapping table
 TYPE_MAPPING = {
     "string": str,
     "number": float,
@@ -386,7 +386,7 @@ TYPE_MAPPING = {
     "object": dict,
 }
 
-# 保留字段名（避免与 BaseModel 属性冲突）
+# Reserved field names to avoid BaseModel attribute conflicts
 RESERVED_NAMES = set(dir(BaseModel)) | {
     "schema", "model_json_schema", "model_dump", "dict", "json",
     "copy", "parse_obj", "parse_raw", "construct", "validate",
@@ -434,13 +434,13 @@ def create_args_schema(tool_info: Any) -> Type[BaseModel]:
 
         field_type = TYPE_MAPPING.get(prop.get("type", "string"), str)
 
-        # 使用公共函数检查 nullability
+        # Use shared helpers to check nullability
         nullable = is_nullable(prop)
 
-        # 获取默认值
+        # Get the default value
         default_value = prop.get("default", ...)
 
-        # 应用 Optional 类型
+        # Apply the Optional type
         if nullable and field_type is not Any:
             try:
                 from typing import Optional as _Optional
@@ -450,7 +450,7 @@ def create_args_schema(tool_info: Any) -> Type[BaseModel]:
 
         field_kwargs: Dict[str, Any] = {"description": prop.get("description", "")}
 
-        # 保留嵌套 schema 提示（数组/对象）
+        # Preserve nested schema hints for arrays and objects
         try:
             declared_type = prop.get("type")
             is_array = declared_type == "array" or (isinstance(declared_type, list) and "array" in declared_type)
@@ -475,28 +475,28 @@ def create_args_schema(tool_info: Any) -> Type[BaseModel]:
         except Exception:
             pass
 
-        # 构建字段定义
+        # Build field definitions
         if default_value != ...:
             fields[original_name] = (field_type, Field(default=default_value, **field_kwargs))
         else:
             fields[original_name] = (field_type, Field(**field_kwargs))
 
-    # 检查是否允许额外属性
+    # Check whether extra properties are allowed
     additional_properties = input_schema.get("additionalProperties", False)
     allow_extra = bool(additional_properties)
 
-    # 构建模型
+    # Build the model
     model_name = f"{tool_name(tool_info).capitalize().replace('_', '')}Input"
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
         if (not fields or has_invalid_field) and allow_extra:
-            # 无字段但开放对象：创建允许 extra 的宽松模型
+            # Open object without fields: create a permissive model that allows extras
             base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
             return create_model(model_name, __base__=base)
 
-        # 正常模型
+        # Standard model
         base = BaseModel
         if allow_extra:
             base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
@@ -505,7 +505,7 @@ def create_args_schema(tool_info: Any) -> Type[BaseModel]:
 
 
 # ============================================================================
-# 执行器构建
+# Executor construction
 # ============================================================================
 
 def build_sync_executor(

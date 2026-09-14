@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::error::{Error, ErrorContext, FailureCode};
 use crate::store::prelude::*;
+use crate::store::ExecutionEngine;
 use crate::transport::{
     McpExecutionOptions, McpExecutionProgress, McpExecutionUpdate, McpToolExecution,
     McpToolExecutionHandle, ToolCallResult,
@@ -18,7 +19,7 @@ enum McpStoreExecutionInner {
     Ready(Option<Result<McpToolExecution>>),
 }
 
-enum ToolExecutionMode {
+pub(crate) enum ToolExecutionMode {
     Immediate,
     Task,
 }
@@ -134,7 +135,11 @@ impl<'a> McpStoreToolExecutionHandle<'a> {
                     .take()
                     .expect("transport execution context must exist until completion");
                 Some(McpStoreExecutionUpdate::Finished(
-                    self.store.finish_tool_execution(context, result).await,
+                    self.store
+                        .kernel
+                        .execution
+                        .finish_tool_execution(self.store, context, result)
+                        .await,
                 ))
             }
             None => {
@@ -144,7 +149,11 @@ impl<'a> McpStoreToolExecutionHandle<'a> {
                     "tool execution ended without a result",
                 );
                 Some(McpStoreExecutionUpdate::Finished(
-                    self.store.finish_tool_execution(context, Err(error)).await,
+                    self.store
+                        .kernel
+                        .execution
+                        .finish_tool_execution(self.store, context, Err(error))
+                        .await,
                 ))
             }
         }
@@ -172,15 +181,10 @@ impl MCPStore {
         meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
-        self.start_tool_execution_inner(
-            instance_id,
-            tool_name,
-            args,
-            meta,
-            ToolExecutionMode::Immediate,
-            options,
-        )
-        .await
+        self.kernel
+            .execution
+            .start_tool_execution(self, instance_id, tool_name, args, meta, options)
+            .await
     }
 
     pub(crate) async fn start_task_tool_execution(
@@ -191,7 +195,58 @@ impl MCPStore {
         meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'_>> {
+        self.kernel
+            .execution
+            .start_task_tool_execution(self, instance_id, tool_name, args, meta, options)
+            .await
+    }
+
+    pub async fn call_tool(
+        &self,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult> {
+        self.kernel
+            .execution
+            .call_tool(self, instance_id, tool_name, args)
+            .await
+    }
+}
+
+impl ExecutionEngine {
+    pub async fn start_tool_execution<'a>(
+        &self,
+        store: &'a MCPStore,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'a>> {
         self.start_tool_execution_inner(
+            store,
+            instance_id,
+            tool_name,
+            args,
+            meta,
+            ToolExecutionMode::Immediate,
+            options,
+        )
+        .await
+    }
+
+    pub(crate) async fn start_task_tool_execution<'a>(
+        &self,
+        store: &'a MCPStore,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: serde_json::Value,
+        meta: Option<rmcp::model::RequestMetaObject>,
+        options: McpExecutionOptions,
+    ) -> Result<McpStoreToolExecutionHandle<'a>> {
+        self.start_tool_execution_inner(
+            store,
             instance_id,
             tool_name,
             args,
@@ -202,29 +257,33 @@ impl MCPStore {
         .await
     }
 
-    async fn start_tool_execution_inner(
+    async fn start_tool_execution_inner<'a>(
         &self,
+        store: &'a MCPStore,
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
         meta: Option<rmcp::model::RequestMetaObject>,
         mode: ToolExecutionMode,
         options: McpExecutionOptions,
-    ) -> Result<McpStoreToolExecutionHandle<'_>> {
-        self.refresh_from_db_if_needed().await?;
+    ) -> Result<McpStoreToolExecutionHandle<'a>> {
+        store.refresh_from_db_if_needed().await?;
         let requested_instance_id = instance_id;
-        let (instance_id, tool_name, args) = self
+        let (instance_id, tool_name, args) = store
             .resolve_override_tool_call(requested_instance_id, tool_name, args)
             .await?;
-        self.ensure_context_tool_allowed(instance_id, &tool_name)
+        store
+            .ensure_context_tool_allowed(instance_id, &tool_name)
             .await?;
-        self.ensure_instance_connected(instance_id).await?;
-        let instance = self
+        store.ensure_instance_connected(instance_id).await?;
+        let instance = store
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        let is_openapi_virtual = self.is_openapi_virtual_instance(instance_id).await?;
+        let is_openapi_virtual = store.is_openapi_virtual_instance(instance_id).await?;
         if matches!(mode, ToolExecutionMode::Task) && is_openapi_virtual {
             return Err(Error::new(
                 FailureCode::CapabilityUnsupported,
@@ -248,12 +307,12 @@ impl MCPStore {
 
         if is_openapi_virtual {
             let result = self
-                .call_openapi_virtual_tool(instance_id, &tool_name, args)
+                .call_openapi_virtual_tool(store, instance_id, &tool_name, args)
                 .await
                 .map(|result| McpToolExecution::Immediate { result });
-            let result = self.finish_tool_execution(context, result).await;
+            let result = self.finish_tool_execution(store, context, result).await;
             return Ok(McpStoreToolExecutionHandle::ready(
-                self,
+                store,
                 instance_id,
                 result,
             ));
@@ -273,12 +332,12 @@ impl MCPStore {
         };
         match started {
             Ok(handle) => Ok(McpStoreToolExecutionHandle::transport(
-                self, handle, context,
+                store, handle, context,
             )),
             Err(error) => {
-                let result = self.finish_tool_execution(context, Err(error)).await;
+                let result = self.finish_tool_execution(store, context, Err(error)).await;
                 Ok(McpStoreToolExecutionHandle::ready(
-                    self,
+                    store,
                     instance_id,
                     result,
                 ))
@@ -288,12 +347,14 @@ impl MCPStore {
 
     pub async fn call_tool(
         &self,
+        store: &MCPStore,
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
         match self
             .start_tool_execution(
+                store,
                 instance_id,
                 tool_name,
                 args,
@@ -314,6 +375,7 @@ impl MCPStore {
 
     async fn finish_tool_execution(
         &self,
+        store: &MCPStore,
         context: ToolExecutionContext,
         result: Result<McpToolExecution>,
     ) -> Result<McpToolExecution> {
@@ -330,15 +392,17 @@ impl MCPStore {
                         .await?;
                 }
                 if context.is_openapi_virtual {
-                    self.record_openapi_availability(
-                        context.instance_id,
-                        true,
-                        Some(latency_ms),
-                        None,
-                    )
-                    .await?;
+                    store
+                        .record_openapi_availability(
+                            context.instance_id,
+                            true,
+                            Some(latency_ms),
+                            None,
+                        )
+                        .await?;
                 } else {
-                    self.record_tool_observation(context.instance_id, true, Some(latency_ms), None)
+                    store
+                        .record_tool_observation(context.instance_id, true, Some(latency_ms), None)
                         .await?;
                 }
                 let (is_error, status, task_id) = match &execution {
@@ -374,18 +438,19 @@ impl MCPStore {
             }
             Err(error) => {
                 let status = if context.is_openapi_virtual {
-                    self.record_openapi_availability(
-                        context.instance_id,
-                        false,
-                        Some(latency_ms),
-                        Some(format!("OpenAPI tool call failed: {error}")),
-                    )
-                    .await?;
+                    store
+                        .record_openapi_availability(
+                            context.instance_id,
+                            false,
+                            Some(latency_ms),
+                            Some(format!("OpenAPI tool call failed: {error}")),
+                        )
+                        .await?;
                     "error"
                 } else {
                     if execution_failure_impairs_connection(&error) {
                         self.pool.disconnect(context.instance_id).await.ok();
-                        self.record_failure(context.instance_id, &error).await?;
+                        store.record_failure(context.instance_id, &error).await?;
                     }
                     error.code().as_str()
                 };
@@ -415,16 +480,19 @@ impl MCPStore {
 
     async fn call_openapi_virtual_tool(
         &self,
+        store: &MCPStore,
         instance_id: InstanceId,
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
-        let instance = self
+        let instance = store
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        let import = self
+        let import = store
             .get_openapi_import(&instance.service_name)
             .await?
             .ok_or_else(|| {
@@ -433,7 +501,7 @@ impl MCPStore {
                     format!("OpenAPI import not found for instance {instance_id}"),
                 )
             })?;
-        let options = self
+        let options = store
             .openapi_runtime_options_for_instance(instance_id)
             .await?;
         crate::openapi_runtime::call_openapi_tool(&import, tool_name, args, &options).await

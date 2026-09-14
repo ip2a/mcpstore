@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import List, Dict, Any, Tuple
 
-# 导入公共函数
+# Import shared helpers
 from .common import (
     build_async_executor,
     build_sync_executor,
@@ -64,22 +64,22 @@ class OpenAIAdapter:
             }
         }
         """
-        # 增强描述
+        # Enhance the description
         enhanced_description = enhance_description(tool_info)
 
-        # 获取输入参数 schema
+        # Get the input parameter schema
         input_schema = tool_input_schema(tool_info)
         properties = input_schema.get("properties", {})
         required = input_schema.get("required", [])
 
-        # 转换参数 schema 为 OpenAI 格式
+        # Convert the parameter schema to OpenAI format
         openai_parameters = {
             "type": "object",
             "properties": {},
             "required": required
         }
 
-        # 透传顶层 additionalProperties
+        # Pass through top-level additionalProperties
         if "additionalProperties" in input_schema:
             openai_parameters["additionalProperties"] = input_schema["additionalProperties"]
 
@@ -88,7 +88,7 @@ class OpenAIAdapter:
             out: Dict[str, Any] = {}
             declared_type = p.get("type", "string")
 
-            # 使用公共函数检查 nullability
+            # Use shared helpers to check nullability
             nullable = is_nullable(p)
 
             if nullable:
@@ -106,7 +106,7 @@ class OpenAIAdapter:
             if "default" in p:
                 out["default"] = p["default"]
 
-            # 数组处理
+            # Handle arrays
             if (
                 declared_type == "array" or (isinstance(declared_type, list) and "array" in declared_type)
             ) and "items" in p:
@@ -115,7 +115,7 @@ class OpenAIAdapter:
                     if k in p:
                         out[k] = p[k]
 
-            # 对象处理
+            # Handle objects
             is_object_type = (
                 declared_type == "object"
                 or (isinstance(declared_type, list) and "object" in declared_type)
@@ -134,14 +134,14 @@ class OpenAIAdapter:
 
             return out
 
-        # 处理每个参数
+        # Process each parameter
         for param_name, param_info in properties.items():
             openai_param: Dict[str, Any] = {"description": param_info.get("description", "")}
-            # 合并处理后的 schema（type/anyOf, enum/default, 嵌套 items/properties）
+            # Merge processed schema details: type/anyOf, enum/default, and nested items/properties
             openai_param.update(_process_schema(param_info))
             openai_parameters["properties"][param_name] = openai_param
 
-        # 如果没有参数，创建空参数结构
+        # Create an empty parameter structure when no parameters exist
         if not properties:
             openai_parameters = {
                 "type": "object",
@@ -149,7 +149,7 @@ class OpenAIAdapter:
                 "required": []
             }
 
-        # 构建 OpenAI function 格式
+        # Build the OpenAI function format
         openai_tool = {
             "type": "function",
             "function": {

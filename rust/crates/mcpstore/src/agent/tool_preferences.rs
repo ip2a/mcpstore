@@ -52,7 +52,9 @@ impl MCPStore {
             })
             .await?;
         if state.preferences.is_empty() {
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .delete_state(TOOL_PREFERENCES_STATE_TYPE, &target.state_key)
                 .await?;
             return Ok(None);
@@ -76,6 +78,8 @@ impl MCPStore {
     ) -> Result<ToolPreferenceTarget> {
         let instance = self.require_instance(instance_id).await?;
         if self
+            .kernel
+            .control
             .registry
             .find_tool(instance_id, tool_name)
             .await
@@ -122,7 +126,9 @@ impl MCPStore {
     }
 
     async fn load_tool_preferences(&self, state_key: &str) -> Result<Option<ToolPreferenceState>> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .get_state(TOOL_PREFERENCES_STATE_TYPE, state_key)
             .await?
             .map(|value| {
@@ -164,6 +170,8 @@ impl MCPStore {
             let value = serde_json::to_value(&state)
                 .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
             match self
+                .kernel
+                .persistence
                 .cache
                 .compare_and_put_state(
                     TOOL_PREFERENCES_STATE_TYPE,

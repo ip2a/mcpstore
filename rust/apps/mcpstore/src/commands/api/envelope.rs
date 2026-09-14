@@ -66,7 +66,7 @@ impl ApiError {
         Self::new(
             StatusCode::BAD_REQUEST,
             FailureCode::InvalidInput,
-            format!("缺少 {field}"),
+            format!("Missing {field}"),
             Some(field),
             None,
         )

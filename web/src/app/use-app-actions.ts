@@ -11,14 +11,14 @@ export function useAppActions(refresh: () => Promise<void>) {
     setBusy(label)
     try {
       await action()
-      toast.success("操作已完成")
+      toast.success("Operation completed")
       if (onSuccess) {
         await onSuccess()
       } else {
         await refresh()
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败")
+      toast.error(err instanceof Error ? err.message : "Operation failed")
     } finally {
       setBusy(null)
     }

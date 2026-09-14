@@ -15,11 +15,15 @@ use crate::store::prelude::*;
 impl MCPStore {
     pub(crate) async fn cache_instance_added(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let definition = self
+            .kernel
+            .control
             .registry
             .find_definition(&instance.service_name)
             .await
@@ -28,7 +32,9 @@ impl MCPStore {
             })?;
 
         self.cache_definition(&definition).await?;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_entity(
                 "service_instances",
                 &instance_id.to_string(),
@@ -41,7 +47,7 @@ impl MCPStore {
                 .await?;
         }
 
-        if self.state_manager.get(instance_id).await?.is_none() {
+        if self.kernel.control.state.get(instance_id).await?.is_none() {
             let config: crate::config::ServerConfig = serde_json::from_value(
                 serde_json::Value::Object(instance.effective_config.clone()),
             )
@@ -58,7 +64,11 @@ impl MCPStore {
             };
             let lifecycle = config.resolved_lifecycle_for_scope(
                 &instance.scope,
-                &self.runtime_config.service_lifecycle_defaults,
+                &self
+                    .kernel
+                    .runtime
+                    .runtime_config
+                    .service_lifecycle_defaults,
             );
             let desired = if lifecycle.startup_policy == crate::config::StartupPolicy::OnStoreStart
             {
@@ -66,7 +76,9 @@ impl MCPStore {
             } else {
                 DesiredState::Stopped
             };
-            self.state_manager
+            self.kernel
+                .control
+                .state
                 .create(ServiceState::new(
                     instance_id,
                     instance.service_name.clone(),
@@ -77,7 +89,9 @@ impl MCPStore {
                 ))
                 .await?;
         }
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_event(
                 "instance",
                 &format!("{instance_id}:added:{}", instance.added_time),
@@ -103,6 +117,8 @@ impl MCPStore {
         }
 
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
@@ -124,7 +140,9 @@ impl MCPStore {
                 created_time: now,
                 tool_hash: Self::tool_content_hash(instance_id, tool),
             };
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .put_entity(
                     "tools",
                     &Self::instance_tool_key(instance_id, &tool.name),
@@ -140,14 +158,18 @@ impl MCPStore {
             scope: instance.scope.clone(),
             tools: relation_tools,
         };
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_relation(
                 "instance_tools",
                 &instance_id.to_string(),
                 serde_json::to_value(relation).unwrap_or_default(),
             )
             .await?;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_event(
                 "instance",
                 &format!("{instance_id}:connected:{now}"),
@@ -165,10 +187,12 @@ impl MCPStore {
     }
 
     pub(crate) async fn cache_instance_removed(&self, instance_id: InstanceId) -> Result<()> {
-        if let Some(supervisor) = &self.supervisor {
+        if let Some(supervisor) = &self.kernel.execution.supervisor {
             supervisor.remove(instance_id).await;
         }
         if let Some(value) = self
+            .kernel
+            .persistence
             .cache
             .get_relation("instance_tools", &instance_id.to_string())
             .await?
@@ -181,19 +205,25 @@ impl MCPStore {
                     )
                 })?;
             for tool_name in relation.tools {
-                self.cache
+                self.kernel
+                    .persistence
+                    .cache
                     .delete_entity("tools", &Self::instance_tool_key(instance_id, &tool_name))
                     .await?;
             }
         }
 
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .delete_entity("service_instances", &instance_id.to_string())
             .await?;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .delete_relation("instance_tools", &instance_id.to_string())
             .await?;
-        self.state_manager.delete(instance_id).await?;
+        self.kernel.control.state.delete(instance_id).await?;
         self.remove_instance_from_session_relations(instance_id)
             .await?;
         self.remove_instance_owned_states(instance_id).await?;
@@ -201,7 +231,9 @@ impl MCPStore {
             .await?;
 
         let now = chrono::Utc::now().timestamp();
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_event(
                 "instance",
                 &format!("{instance_id}:removed:{now}"),
@@ -216,13 +248,17 @@ impl MCPStore {
     }
 
     pub(crate) async fn mark_instance_applied(&self, instance_id: InstanceId) -> Result<()> {
-        self.registry.mark_applied(instance_id).await;
+        self.kernel.control.registry.mark_applied(instance_id).await;
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_entity(
                 "service_instances",
                 &instance_id.to_string(),
@@ -233,7 +269,9 @@ impl MCPStore {
     }
 
     pub(crate) async fn cache_definition_removed(&self, service_name: &str) -> Result<()> {
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .delete_entity("service_definitions", service_name)
             .await?;
         Ok(())
@@ -241,7 +279,9 @@ impl MCPStore {
 
     pub(crate) async fn cache_definition(&self, definition: &ServiceDefinition) -> Result<()> {
         let entity = ServiceDefinitionEntity::from(definition);
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_entity(
                 "service_definitions",
                 &definition.service_name,
@@ -254,13 +294,21 @@ impl MCPStore {
     async fn remove_instance_from_session_relations(&self, instance_id: InstanceId) -> Result<()> {
         let now = chrono::Utc::now().timestamp();
         for (key, _) in self
+            .kernel
+            .persistence
             .cache
             .get_all_relations_async("session_services")
             .await?
         {
             let mut complete = false;
             for _ in 0..3 {
-                let Some(value) = self.cache.get_relation("session_services", &key).await? else {
+                let Some(value) = self
+                    .kernel
+                    .persistence
+                    .cache
+                    .get_relation("session_services", &key)
+                    .await?
+                else {
                     complete = true;
                     break;
                 };
@@ -285,6 +333,8 @@ impl MCPStore {
                 relation.updated_at = now;
                 relation.version += 1;
                 match self
+                    .kernel
+                    .persistence
                     .cache
                     .compare_and_put_relation(
                         "session_services",
@@ -309,10 +359,22 @@ impl MCPStore {
             }
         }
 
-        for (key, _) in self.cache.get_all_relations_async("session_tools").await? {
+        for (key, _) in self
+            .kernel
+            .persistence
+            .cache
+            .get_all_relations_async("session_tools")
+            .await?
+        {
             let mut complete = false;
             for _ in 0..3 {
-                let Some(value) = self.cache.get_relation("session_tools", &key).await? else {
+                let Some(value) = self
+                    .kernel
+                    .persistence
+                    .cache
+                    .get_relation("session_tools", &key)
+                    .await?
+                else {
                     complete = true;
                     break;
                 };
@@ -337,6 +399,8 @@ impl MCPStore {
                 relation.updated_at = now;
                 relation.version += 1;
                 match self
+                    .kernel
+                    .persistence
                     .cache
                     .compare_and_put_relation(
                         "session_tools",
@@ -382,9 +446,19 @@ impl MCPStore {
                 Self::resource_template_override_matches_instance,
             ),
         ] {
-            for (key, value) in self.cache.get_all_states_async(state_type).await? {
+            for (key, value) in self
+                .kernel
+                .persistence
+                .cache
+                .get_all_states_async(state_type)
+                .await?
+            {
                 if matches_instance(&value, instance_id)? {
-                    self.cache.delete_state(state_type, &key).await?;
+                    self.kernel
+                        .persistence
+                        .cache
+                        .delete_state(state_type, &key)
+                        .await?;
                 }
             }
         }
