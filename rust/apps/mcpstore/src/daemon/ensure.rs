@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use mcpstore::error::{Error, FailureCode};
 
-use crate::store_args::StoreSourceArgs;
+use crate::store_args::{NodeModeArg, StoreSourceArgs};
 
 #[derive(Serialize, Deserialize)]
 struct DaemonStartState {
@@ -116,6 +116,10 @@ fn append_start_args(command: &mut std::process::Command, args: &StoreSourceArgs
     if let Some(namespace) = &args.namespace {
         command.arg("--namespace").arg(namespace);
     }
+    // ControlPlane 是缺省值，只需回放显式 data 模式，detached 重启才不会退回控制面。
+    if args.node_mode == Some(NodeModeArg::Data) {
+        command.arg("--plane").arg("data");
+    }
 }
 
 fn default_runtime_path() -> PathBuf {
@@ -163,5 +167,28 @@ mod tests {
         assert_eq!(restored.store.store.as_deref(), Some("redis"));
         assert_eq!(restored.store.namespace.as_deref(), Some("tenant-a"));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn append_start_args_replays_data_plane_mode() {
+        let args = StoreSourceArgs {
+            config_path: None,
+            source: crate::store_args::SourceArg::Db,
+            store: Some("redis".into()),
+            store_config: None,
+            namespace: None,
+            node_mode: Some(crate::store_args::NodeModeArg::Data),
+        };
+        let mut command = std::process::Command::new("mcpstore");
+        append_start_args(&mut command, &args);
+        let argv: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let plane = argv
+            .iter()
+            .position(|arg| arg == "--plane")
+            .expect("detached restart must replay --plane");
+        assert_eq!(argv[plane + 1], "data");
     }
 }

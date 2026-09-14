@@ -297,6 +297,113 @@ async fn redis_dataplane_queue_is_consumed_by_control_plane_daemon() -> TestResu
     result
 }
 
+/// v3 第 1 步验收：data 模式常驻 daemon（C）接收请求、排队控制变更，
+/// 但不启动 reactor、不消费控制队列；消费只发生在控制面 daemon（A）上线后。
+#[tokio::test]
+async fn data_plane_daemon_serves_requests_but_never_consumes_control_queue() -> TestResult<()> {
+    let _guard = HOST_TEST_LOCK.lock().unwrap();
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        eprintln!("skipping redis integration test: MCPSTORE_TEST_REDIS_URL is not set");
+        return Ok(());
+    };
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    // CLI 本地 socket 握手固定用 DEFAULT_NAMESPACE，C 必须与其一致 CLI 才能直连；
+    // 共享 redis 下用 nanos 服务名避免与其他使用者撞 key。
+    let namespace = "mcpstore".to_string();
+    let service_name = format!("shared-service-{nanos}");
+    // C：只有 data 模式 daemon 在跑，场景内不存在任何控制面消费者
+    let worker = HostFixture::start_redis_plane(
+        RedisHostSource {
+            url: redis_url.clone(),
+            namespace: namespace.clone(),
+        },
+        Some("data"),
+    )
+    .await?;
+
+    // B 不带显式 store 参数，经 C 的 kernel socket 提交 add → C 排队并回执
+    let worker_pid = worker.dir.join("kernel.pid");
+    let add = run_cli_on_daemon(
+        &worker.socket,
+        &worker_pid,
+        &[
+            "add".to_string(),
+            service_name.clone(),
+            "--transport".to_string(),
+            "stdio".to_string(),
+            "--".to_string(),
+            "python3".to_string(),
+            fixture_script().display().to_string(),
+        ],
+    )?;
+    assert!(
+        add.status.success(),
+        "add via data-plane daemon failed: {add:?}"
+    );
+    let request_id = queued_request_id(&add)?;
+
+    // C 侧自证：无 reactor，控制队列有待处理请求（共享 ns 可能有他人残留，只验 >=1）
+    let status = run_cli_on_daemon(
+        &worker.socket,
+        &worker_pid,
+        &["status".to_string(), "--json".to_string()],
+    )?;
+    assert!(
+        status.status.success(),
+        "status via data-plane daemon failed: {status:?}"
+    );
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout)?;
+    assert_eq!(status["reactor_running"], false, "{status}");
+    assert!(
+        status["control_queue"]["pending"].as_u64().unwrap_or(0) >= 1,
+        "{status}"
+    );
+
+    // C 存活 2 秒后，embedded 控制面视角直读共享队列仍是 Queued：C 不消费
+    let direct_source_args = [
+        "--source".to_string(),
+        "db".to_string(),
+        "--store".to_string(),
+        "redis".to_string(),
+        "--store-config".to_string(),
+        format!(r#"{{"url":"{redis_url}"}}"#),
+        "--namespace".to_string(),
+        namespace.clone(),
+    ];
+    std::thread::sleep(Duration::from_secs(2));
+    let mut get_args = vec![
+        "request".to_string(),
+        "get".to_string(),
+        request_id.clone(),
+        "--output".to_string(),
+        "json".to_string(),
+    ];
+    get_args.extend(direct_source_args.iter().cloned());
+    let get = run_cli(&get_args)?;
+    assert!(get.status.success(), "request get failed: {get:?}");
+    let get: serde_json::Value = serde_json::from_slice(&get.stdout)?;
+    assert_eq!(get["status"], "queued", "{get}");
+
+    // A 上线：唯一消费者，同一请求被消费到 applied
+    let control = HostFixture::start_redis_plane(
+        RedisHostSource {
+            url: redis_url.clone(),
+            namespace,
+        },
+        None,
+    )
+    .await?;
+    let applied = wait_for_applied(&request_id, &direct_source_args);
+
+    let worker_stop = worker.stop().await;
+    let control_stop = control.stop().await;
+    worker_stop?;
+    control_stop?;
+    applied
+}
+
 async fn dataplane_queue_consumed_by_daemon(
     fixture: HostFixture,
     redis_url: String,
@@ -573,6 +680,20 @@ fn run_cli_in_dir(
         .map_err(Into::into)
 }
 
+/// 把 CLI 指到指定 daemon 的 socket/pid（不传显式 store 参数，请求由该 daemon 执行）。
+fn run_cli_on_daemon(
+    socket: &Path,
+    pid: &Path,
+    args: &[String],
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    std::process::Command::new(repo_root().join("target/debug/mcpstore"))
+        .args(args)
+        .env("MCPSTORE_SOCKET", socket)
+        .env("MCPSTORE_PID", pid)
+        .output()
+        .map_err(Into::into)
+}
+
 struct HostConnection {
     reader: BufReader<tokio::net::unix::OwnedReadHalf>,
     writer: tokio::net::unix::OwnedWriteHalf,
@@ -691,6 +812,10 @@ impl HostFixture {
             .arg(namespace)
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
+            // cargo test 进程带着 DYLD_FALLBACK_LIBRARY_PATH（多为构建目录，常在慢速卷），
+            // 子进程继承后 dyld 逐目录回查会把 daemon 启动拖慢数秒，超过 wait_for_socket 预算。
+            // 独立二进制的 rpath 已内嵌，剥掉该变量即生产等价环境。
+            .env_remove("DYLD_FALLBACK_LIBRARY_PATH")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -699,6 +824,10 @@ impl HostFixture {
     }
 
     async fn start_redis(source: RedisHostSource) -> TestResult<Self> {
+        Self::start_redis_plane(source, None).await
+    }
+
+    async fn start_redis_plane(source: RedisHostSource, plane: Option<&str>) -> TestResult<Self> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos();
@@ -714,22 +843,31 @@ impl HostFixture {
             dir.join("config.toml"),
             "[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\n",
         )?;
+        let mut daemon_args = vec![
+            "start".to_string(),
+            "--source".to_string(),
+            "db".to_string(),
+            "--config-path".to_string(),
+            config_path.to_string_lossy().into_owned(),
+            "--store".to_string(),
+            "redis".to_string(),
+            "--store-config".to_string(),
+            format!(r#"{{"url":"{}"}}"#, source.url),
+            "--namespace".to_string(),
+            source.namespace,
+        ];
+        if let Some(plane) = plane {
+            daemon_args.push("--plane".to_string());
+            daemon_args.push(plane.to_string());
+        }
         let child = tokio::process::Command::new(cli)
-            .args([
-                "start",
-                "--source",
-                "db",
-                "--config-path",
-                config_path.to_string_lossy().as_ref(),
-                "--store",
-                "redis",
-                "--store-config",
-                &format!(r#"{{"url":"{}"}}"#, source.url),
-                "--namespace",
-                &source.namespace,
-            ])
+            .args(&daemon_args)
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
+            // cargo test 进程带着 DYLD_FALLBACK_LIBRARY_PATH（多为构建目录，常在慢速卷），
+            // 子进程继承后 dyld 逐目录回查会把 daemon 启动拖慢数秒，超过 wait_for_socket 预算。
+            // 独立二进制的 rpath 已内嵌，剥掉该变量即生产等价环境。
+            .env_remove("DYLD_FALLBACK_LIBRARY_PATH")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -777,6 +915,10 @@ impl HostFixture {
             ])
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
+            // cargo test 进程带着 DYLD_FALLBACK_LIBRARY_PATH（多为构建目录，常在慢速卷），
+            // 子进程继承后 dyld 逐目录回查会把 daemon 启动拖慢数秒，超过 wait_for_socket 预算。
+            // 独立二进制的 rpath 已内嵌，剥掉该变量即生产等价环境。
+            .env_remove("DYLD_FALLBACK_LIBRARY_PATH")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -789,6 +931,7 @@ impl HostFixture {
         socket: PathBuf,
         dir: PathBuf,
     ) -> TestResult<Self> {
+        // 冷启动预算：外置卷上的 debug 二进制首次 exec（冷页缓存 + 逐页验签）可达数秒。
         for _ in 0..100 {
             if socket.exists() {
                 return Ok(Self {
@@ -816,7 +959,7 @@ impl HostFixture {
                 )
                 .into());
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
         Err("KernelHost socket did not appear".into())
     }
