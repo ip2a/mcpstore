@@ -87,6 +87,8 @@ fn runtime_not_allowed(
             selection.runtime,
             policy
                 .allowed_runtimes
+                .as_deref()
+                .unwrap_or(&[])
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
@@ -100,7 +102,7 @@ fn daemon_not_allowed(node: &str, service_name: &str, policy: &RuntimePolicy) ->
         FailureCode::InvalidInput,
         format!(
             "daemon node '{node}' not allowed for service '{service_name}'; allowed: {}",
-            policy.allowed_daemons.join(", ")
+            policy.allowed_daemons.as_deref().unwrap_or(&[]).join(", ")
         ),
     )
 }
@@ -844,8 +846,8 @@ mod tests {
     #[test]
     fn local_execution_rejects_missing_host_capability() {
         let policy = RuntimePolicy {
-            allowed_runtimes: Vec::new(),
-            allowed_daemons: Vec::new(),
+            allowed_runtimes: None,
+            allowed_daemons: None,
             required_host_capabilities: vec!["definitely-missing-capability".into()],
         };
         let error = missing_local_capabilities(&policy, &RuntimeSelection::runtime(Runtime::Local))
@@ -889,8 +891,8 @@ mod tests {
         };
         config.mcpstore = Some(McpStoreExtension {
             runtime_policy: Some(RuntimePolicy {
-                allowed_runtimes: vec![Runtime::Local],
-                allowed_daemons: Vec::new(),
+                allowed_runtimes: Some(vec![Runtime::Local]),
+                allowed_daemons: None,
                 required_host_capabilities: Vec::new(),
             }),
             scopes: ScopeDeclarations::store_only(),

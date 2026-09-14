@@ -901,8 +901,8 @@ async fn service_info_exposes_declared_runtime_policy() {
         lifecycle: None,
         handshake_mode: None,
         runtime_policy: Some(RuntimePolicy {
-            allowed_runtimes: vec![Runtime::Local, Runtime::Daemon],
-            allowed_daemons: Vec::new(),
+            allowed_runtimes: Some(vec![Runtime::Local, Runtime::Daemon]),
+            allowed_daemons: None,
             required_host_capabilities: Vec::new(),
         }),
         revision: 1,

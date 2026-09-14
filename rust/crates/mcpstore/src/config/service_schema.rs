@@ -269,21 +269,27 @@ impl RuntimeSelection {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimePolicy {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub allowed_runtimes: Vec<Runtime>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub allowed_daemons: Vec<String>,
+    /// `None` means unrestricted; `Some(vec)` must be non-empty (empty lists are
+    /// rejected by `validate_structure`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_runtimes: Option<Vec<Runtime>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_daemons: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_host_capabilities: Vec<String>,
 }
 
 impl RuntimePolicy {
     pub fn allows_runtime(&self, runtime: Runtime) -> bool {
-        self.allowed_runtimes.is_empty() || self.allowed_runtimes.contains(&runtime)
+        self.allowed_runtimes
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(&runtime))
     }
 
     pub fn allows_daemon(&self, node: &str) -> bool {
-        self.allowed_daemons.is_empty() || self.allowed_daemons.iter().any(|d| d == node)
+        self.allowed_daemons
+            .as_ref()
+            .is_none_or(|allowed| allowed.iter().any(|daemon| daemon == node))
     }
 }
 
@@ -491,11 +497,27 @@ impl ServerConfig {
             .as_ref()
             .and_then(|extension| extension.runtime_policy.as_ref())
         {
-            // `allowed_runtimes`/`allowed_daemons` use serde defaults: an empty list
-            // means "unrestricted". A declared policy that restricts nothing is a
-            // mistake, so reject a runtime_policy that carries no fields at all.
-            if policy.allowed_runtimes.is_empty()
-                && policy.allowed_daemons.is_empty()
+            // Absent allowlists mean "unrestricted"; an explicitly declared empty
+            // list restricts nothing while looking like a restriction, so reject it.
+            if let Some(allowed) = &policy.allowed_runtimes {
+                if allowed.is_empty() {
+                    return Err(
+                        "runtime_policy.allowed_runtimes must not be empty; omit the field to allow all runtimes"
+                            .to_string(),
+                    );
+                }
+            }
+            if let Some(allowed) = &policy.allowed_daemons {
+                if allowed.is_empty() {
+                    return Err(
+                        "runtime_policy.allowed_daemons must not be empty; omit the field to allow all daemons"
+                            .to_string(),
+                    );
+                }
+            }
+            // A declared policy that restricts nothing is a mistake.
+            if policy.allowed_runtimes.is_none()
+                && policy.allowed_daemons.is_none()
                 && policy.required_host_capabilities.is_empty()
             {
                 return Err(

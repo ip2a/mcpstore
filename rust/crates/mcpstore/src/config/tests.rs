@@ -18,8 +18,8 @@ fn runtime_roundtrips_as_stable_string() {
 #[test]
 fn runtime_policy_empty_allowlist_keeps_backwards_compatibility() {
     let policy = RuntimePolicy {
-        allowed_runtimes: Vec::new(),
-        allowed_daemons: Vec::new(),
+        allowed_runtimes: None,
+        allowed_daemons: None,
         required_host_capabilities: Vec::new(),
     };
     assert!(policy.allows_runtime(Runtime::Local));
@@ -30,8 +30,8 @@ fn runtime_policy_empty_allowlist_keeps_backwards_compatibility() {
 #[test]
 fn runtime_policy_restricts_declared_runtimes_and_daemons() {
     let policy = RuntimePolicy {
-        allowed_runtimes: vec![Runtime::Daemon],
-        allowed_daemons: vec!["browser-host".into()],
+        allowed_runtimes: Some(vec![Runtime::Daemon]),
+        allowed_daemons: Some(vec!["browser-host".into()]),
         required_host_capabilities: Vec::new(),
     };
     assert!(!policy.allows_runtime(Runtime::Local));
@@ -45,8 +45,8 @@ fn runtime_policy_rejects_empty_declaration() {
     let mut config = ServerConfig::default();
     config.mcpstore = Some(McpStoreExtension {
         runtime_policy: Some(RuntimePolicy {
-            allowed_runtimes: Vec::new(),
-            allowed_daemons: Vec::new(),
+            allowed_runtimes: None,
+            allowed_daemons: None,
             required_host_capabilities: Vec::new(),
         }),
         ..McpStoreExtension::default()
@@ -54,6 +54,57 @@ fn runtime_policy_rejects_empty_declaration() {
 
     let error = config.validate_structure().unwrap_err();
     assert!(error.contains("runtime_policy must declare"), "{error}");
+}
+
+#[test]
+fn runtime_policy_rejects_explicitly_empty_allowlists() {
+    // Explicit empty runtime list is a restriction that restricts nothing.
+    let mut config = ServerConfig::default();
+    config.mcpstore = Some(McpStoreExtension {
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: Some(Vec::new()),
+            allowed_daemons: None,
+            required_host_capabilities: vec!["browser".to_string()],
+        }),
+        ..McpStoreExtension::default()
+    });
+    let error = config.validate_structure().unwrap_err();
+    assert!(
+        error.contains("allowed_runtimes must not be empty"),
+        "{error}"
+    );
+
+    // Explicit empty daemon list likewise.
+    let mut config = ServerConfig::default();
+    config.mcpstore = Some(McpStoreExtension {
+        runtime_policy: Some(RuntimePolicy {
+            allowed_runtimes: None,
+            allowed_daemons: Some(Vec::new()),
+            required_host_capabilities: Vec::new(),
+        }),
+        ..McpStoreExtension::default()
+    });
+    let error = config.validate_structure().unwrap_err();
+    assert!(
+        error.contains("allowed_daemons must not be empty"),
+        "{error}"
+    );
+
+    // An explicit [] round-trips through JSON as Some(empty) and still errors.
+    let config: std::result::Result<ServerConfig, _> = serde_json::from_value(json!({
+        "command": "demo",
+        "_mcpstore": {
+            "scopes": {},
+            "runtime_policy": { "allowed_runtimes": [] }
+        }
+    }));
+    // Deserialization succeeds; validation is where the empty list is rejected.
+    let config = config.unwrap();
+    let error = config.validate_structure().unwrap_err();
+    assert!(
+        error.contains("allowed_runtimes must not be empty"),
+        "{error}"
+    );
 }
 
 #[test]

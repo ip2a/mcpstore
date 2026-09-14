@@ -1130,6 +1130,8 @@ pub(crate) fn resolve_declared_runtime(
                     selection.runtime,
                     policy
                         .allowed_runtimes
+                        .as_deref()
+                        .unwrap_or(&[])
                         .iter()
                         .map(ToString::to_string)
                         .collect::<Vec<_>>()
@@ -1143,7 +1145,7 @@ pub(crate) fn resolve_declared_runtime(
                     FailureCode::InvalidInput,
                     format!(
                         "daemon node '{node}' not allowed for instance; allowed: {}",
-                        policy.allowed_daemons.join(", ")
+                        policy.allowed_daemons.as_deref().unwrap_or(&[]).join(", ")
                     ),
                 ));
             }
@@ -1993,8 +1995,8 @@ fn runtime_policy_from_flags(
         || !allowed_daemons.is_empty()
         || !required_host_capabilities.is_empty())
     .then(|| RuntimePolicy {
-        allowed_runtimes: allowed_runtimes.to_vec(),
-        allowed_daemons: allowed_daemons.to_vec(),
+        allowed_runtimes: (!allowed_runtimes.is_empty()).then(|| allowed_runtimes.to_vec()),
+        allowed_daemons: (!allowed_daemons.is_empty()).then(|| allowed_daemons.to_vec()),
         required_host_capabilities: required_host_capabilities.to_vec(),
     })
 }
@@ -2156,8 +2158,8 @@ mod tests {
     #[test]
     fn local_execution_rejects_missing_host_capability() {
         let policy = RuntimePolicy {
-            allowed_runtimes: Vec::new(),
-            allowed_daemons: Vec::new(),
+            allowed_runtimes: None,
+            allowed_daemons: None,
             required_host_capabilities: vec!["definitely-missing-capability".into()],
         };
         let error =
@@ -2168,8 +2170,8 @@ mod tests {
     #[test]
     fn daemon_selection_passes_allowlist() {
         let policy = mcpstore::config::RuntimePolicy {
-            allowed_runtimes: vec![mcpstore::config::Runtime::Daemon],
-            allowed_daemons: Vec::new(),
+            allowed_runtimes: Some(vec![mcpstore::config::Runtime::Daemon]),
+            allowed_daemons: None,
             required_host_capabilities: Vec::new(),
         };
         let info = json!({"runtime_policy": policy});
@@ -2184,8 +2186,8 @@ mod tests {
     #[test]
     fn disallowed_daemon_node_is_rejected() {
         let policy = mcpstore::config::RuntimePolicy {
-            allowed_runtimes: Vec::new(),
-            allowed_daemons: vec!["approved".into()],
+            allowed_runtimes: None,
+            allowed_daemons: Some(vec!["approved".into()]),
             required_host_capabilities: Vec::new(),
         };
         let info = json!({"runtime_policy": policy});
@@ -2200,8 +2202,8 @@ mod tests {
     #[test]
     fn explicit_disallowed_runtime_is_rejected() {
         let policy = mcpstore::config::RuntimePolicy {
-            allowed_runtimes: vec![mcpstore::config::Runtime::Local],
-            allowed_daemons: Vec::new(),
+            allowed_runtimes: Some(vec![mcpstore::config::Runtime::Local]),
+            allowed_daemons: None,
             required_host_capabilities: Vec::new(),
         };
         let info = json!({"runtime_policy": policy});
@@ -2299,7 +2301,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             policy.allowed_runtimes,
-            vec![mcpstore::config::Runtime::Daemon]
+            Some(vec![mcpstore::config::Runtime::Daemon])
         );
         std::fs::remove_dir_all(path).ok();
     }
@@ -2365,7 +2367,7 @@ mod tests {
         assert_eq!(
             definition
                 .runtime_policy
-                .map(|policy| policy.allowed_runtimes),
+                .and_then(|policy| policy.allowed_runtimes),
             Some(vec![mcpstore::config::Runtime::Local])
         );
         std::fs::remove_dir_all(path).ok();
