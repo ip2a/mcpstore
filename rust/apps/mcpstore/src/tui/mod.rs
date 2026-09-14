@@ -16,12 +16,14 @@ pub mod widgets;
 #[derive(Parser)]
 #[command(
     name = "mcpstore-tui",
-    about = "MCPStore 终端服务管理界面",
+    about = "MCPStore 终端Service management界面",
     version = env!("CARGO_PKG_VERSION"),
 )]
 pub struct TuiArgs {
     #[command(flatten)]
     pub store: StoreSourceArgs,
+    #[arg(long, help = "本进程内嵌 kernel 冷启动，不连 daemon")]
+    pub embedded: bool,
     #[arg(long, default_value_t = 250, help = "事件轮询间隔（毫秒）")]
     pub tick_ms: u64,
     #[arg(long, value_enum, help = "TUI language")]
@@ -49,5 +51,10 @@ pub fn run() -> Result<(), BoxErr> {
 }
 
 pub fn run_from_args(args: &TuiArgs) -> Result<(), BoxErr> {
-    app::run(&args.store, args.tick_ms, args.locale.map(Into::into))
+    app::run(
+        &args.store,
+        args.embedded,
+        args.tick_ms,
+        args.locale.map(Into::into),
+    )
 }

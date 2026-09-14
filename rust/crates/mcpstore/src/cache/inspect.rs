@@ -33,7 +33,7 @@ const EVENT_TYPES: &[&str] = &["session_events", "openapi_imports"];
 impl MCPStore {
     pub async fn cache_inspect(&self) -> Result<serde_json::Value> {
         let namespace = self.namespace();
-        let snapshot = self.cache.snapshot().await?;
+        let snapshot = self.kernel.persistence.cache.snapshot().await?;
         let mut collections = Vec::new();
         let mut entities = Vec::new();
         let mut relations = Vec::new();
@@ -137,7 +137,7 @@ impl MCPStore {
             "store": self.current_store_name().await,
             "namespace": namespace,
             "scope": "store",
-            "request_metrics": self.cache.request_metrics_snapshot(),
+            "request_metrics": self.kernel.persistence.cache.request_metrics_snapshot(),
             "counts": {
                 "entities": entity_counts,
                 "relations": relation_counts,
@@ -153,7 +153,7 @@ impl MCPStore {
     }
 
     pub async fn reset_cache_request_metrics(&self) -> Result<()> {
-        self.cache.reset_request_metrics();
+        self.kernel.persistence.cache.reset_request_metrics();
         Ok(())
     }
 }

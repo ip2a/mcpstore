@@ -29,8 +29,8 @@ pub use crate::auth::{
     OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
 pub use app_schema::{
-    AppConfig, DiagnosticsConfig, McpAggregateConfig, RuntimeLogConfig, ServerSettings,
-    ServiceDefaultsConfig, SourceLogConfig, UiConfig,
+    AppConfig, DaemonNodeSettings, DiagnosticsConfig, McpAggregateConfig, RuntimeLogConfig,
+    ServerSettings, ServiceDefaultsConfig, SourceLogConfig, UiConfig,
 };
 pub use cache_schema::CacheConfig;
 pub use health_schema::HealthCheckConfig;
@@ -40,8 +40,8 @@ pub use merge::merge_config;
 pub use monitoring_schema::MonitoringConfig;
 pub use service_schema::{
     HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,
-    ScopeDeclarations, ScopeDescriptor, ServerConfig, ServiceLifecycleConfig,
-    ServiceLifecycleDefaults, StartupPolicy,
+    Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    ServiceLifecycleConfig, ServiceLifecycleDefaults, StartupPolicy,
 };
 pub use standalone_schema::StandaloneConfig;
 

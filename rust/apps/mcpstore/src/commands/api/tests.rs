@@ -59,6 +59,7 @@ fn stdio_config_with_lifecycle() -> ServerConfig {
                 kind: mcpstore::config::RestartPolicyKind::OnFailure,
                 max_retries: Some(3),
             }),
+            keep_alive: None,
         }),
         ..mcpstore::config::McpStoreExtension::default()
     });
@@ -94,6 +95,7 @@ async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle,
                 handshake_mode: None,
+                runtime_policy: None,
                 metadata,
                 base_revision: 1,
                 added_time: 111,
@@ -182,13 +184,93 @@ async fn spawn_test_api_with_state(
     let addr = listener.local_addr().unwrap();
     let state = Arc::new(ApiState {
         store,
-        mcp_hub_process: Arc::new(Mutex::new(None)),
+        mcp_hub: Arc::new(Mutex::new(None)),
     });
-    let app = router(Arc::clone(&state), "");
+    let app = full_router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
     (addr, handle, state)
+}
+
+#[tokio::test]
+async fn app_and_core_routers_are_disjoint() {
+    let store_path = unique_temp_dir_path("split-api-store").with_extension("json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+    })
+    .unwrap();
+    let state = Arc::new(ApiState {
+        store,
+        mcp_hub: Arc::new(Mutex::new(None)),
+    });
+    let client = reqwest::Client::new();
+
+    let app_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let app_addr = app_listener.local_addr().unwrap();
+    let app_state = Arc::clone(&state);
+    let app_handle = tokio::spawn(async move {
+        axum::serve(app_listener, app_router(app_state))
+            .await
+            .unwrap();
+    });
+    let core_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let core_addr = core_listener.local_addr().unwrap();
+    let core_state = Arc::clone(&state);
+    let core_handle = tokio::spawn(async move {
+        axum::serve(core_listener, core_router(core_state))
+            .await
+            .unwrap();
+    });
+
+    // App 面只承载 daemon 自身；业务路由不在其中。
+    assert_eq!(
+        client
+            .get(format!("http://{app_addr}/health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .get(format!("http://{app_addr}/services/list"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::NOT_FOUND
+    );
+
+    // Core 那面相反：业务在，app 专用路由不在。
+    assert_eq!(
+        client
+            .get(format!("http://{core_addr}/services/list"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .get(format!("http://{core_addr}/health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::NOT_FOUND
+    );
+
+    app_handle.abort();
+    core_handle.abort();
+    let _ = std::fs::remove_file(store_path);
 }
 
 #[tokio::test]
@@ -332,7 +414,10 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -423,7 +508,10 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -605,7 +693,10 @@ async fn third_party_config_export_requires_service_name() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1009,7 +1100,10 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1075,7 +1169,10 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1130,7 +1227,10 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1219,7 +1319,10 @@ async fn store_routes_manage_rust_core_tool_overrides() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1319,7 +1422,10 @@ async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1359,7 +1465,10 @@ async fn store_routes_manage_rust_core_openapi_imports() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1496,7 +1605,10 @@ async fn store_route_bundles_openapi_without_importing() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();
@@ -1575,7 +1687,10 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::memory()),
+        store: Some(JsonStoreConfig::new(
+            "memory-test-shared",
+            serde_json::json!({}),
+        )),
         namespace: Some(unique_namespace()),
     })
     .unwrap();

@@ -5,7 +5,7 @@ use crate::{Error, FailureCode, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "snake_case")]
-pub(in crate::control) enum ControlRequestStatus {
+pub enum ControlRequestStatus {
     Queued,
     Executing { started_at: i64 },
     Applied { applied_at: i64 },
@@ -14,7 +14,7 @@ pub(in crate::control) enum ControlRequestStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(in crate::control) struct ControlRequest {
+pub struct ControlRequest {
     pub id: String,
     #[serde(rename = "type")]
     pub request_type: String,
@@ -25,6 +25,17 @@ pub(in crate::control) struct ControlRequest {
     pub trace_id: String,
     #[serde(flatten)]
     pub status: ControlRequestStatus,
+}
+
+impl ControlRequest {
+    pub fn is_pending(&self) -> bool {
+        matches!(
+            self.status,
+            ControlRequestStatus::Queued
+                | ControlRequestStatus::Executing { .. }
+                | ControlRequestStatus::RetryScheduled { .. }
+        )
+    }
 }
 
 pub(in crate::control) fn dedup_key(request_type: &str, payload: &serde_json::Value) -> String {

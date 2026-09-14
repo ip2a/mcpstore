@@ -62,7 +62,7 @@ export function useAgentScope({
       ? scopeToolsError.message
       : scopeToolsError
         ? String(scopeToolsError)
-        : "作用域工具加载失败"
+        : "作用域Failed to load tools"
   const loadingScopeServices = scopeServicesQuery.isFetching
   const loadingScopeTools = scopeToolQueries.some((result) => result.isFetching)
 
@@ -80,7 +80,7 @@ export function useAgentScope({
       const failed = toolResults.find((result) => result.error)
       if (failed?.error) throw failed.error
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "作用域加载失败")
+      toast.error(err instanceof Error ? err.message : "Failed to load scope")
     }
   }
 

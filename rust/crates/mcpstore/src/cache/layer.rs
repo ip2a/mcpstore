@@ -9,11 +9,13 @@
 //! P0 priority for Rust migration. Uses openkeyv-backed storage with
 //! serde_json::Value as the universal business value type.
 
+use arc_swap::ArcSwap;
+use arc_swap::ArcSwapAny;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock as SyncRwLock;
+use std::sync::{Arc as StdArc, RwLock as SyncRwLock};
 use std::time::{Duration, Instant};
-use tokio::sync::{OnceCell, RwLock as AsyncRwLock};
+use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::cache::metrics::{CacheRequestMetrics, CacheRequestMetricsSnapshot};
 use crate::cache::CacheStore;
@@ -45,28 +47,36 @@ const CACHE_SCHEMA_KEY: &str = "current";
 // ==================== CacheLayerManager ====================
 
 /// Central cache manager with four logical layers over a single openkeyv store.
+pub struct ActiveCacheStore(pub(crate) Arc<dyn CacheStore>);
+
+#[derive(Clone)]
+pub(crate) enum SchemaState {
+    Unverified,
+    Ready,
+}
+
 pub struct CacheLayerManager {
     pub(crate) route: AsyncRwLock<()>,
-    pub(crate) store: AsyncRwLock<Arc<dyn CacheStore>>,
+    pub(crate) store: ArcSwapAny<StdArc<ActiveCacheStore>>,
     pub(crate) namespace: SyncRwLock<String>,
     pub(crate) last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
     pub(crate) last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
     pub(crate) metrics: CacheRequestMetrics,
     pub(crate) log_interval: Duration,
-    pub(crate) schema_ready: OnceCell<()>,
+    pub(crate) schema_ready: ArcSwap<SchemaState>,
 }
 
 impl CacheLayerManager {
     pub(crate) fn new(store: Arc<dyn CacheStore>, namespace: impl Into<String>) -> Self {
         Self {
             route: AsyncRwLock::new(()),
-            store: AsyncRwLock::new(store),
+            store: ArcSwapAny::from(StdArc::new(ActiveCacheStore(store))),
             namespace: SyncRwLock::new(namespace.into()),
             last_empty_log: AsyncRwLock::new(HashMap::new()),
             last_state_snapshot: AsyncRwLock::new(HashMap::new()),
             metrics: CacheRequestMetrics::default(),
             log_interval: Duration::from_secs(60),
-            schema_ready: OnceCell::new(),
+            schema_ready: ArcSwap::from(Arc::new(SchemaState::Unverified)),
         }
     }
 
@@ -75,6 +85,18 @@ impl CacheLayerManager {
             .read()
             .expect("cache namespace lock poisoned")
             .clone()
+    }
+
+    pub(crate) fn active_store(&self) -> Arc<dyn CacheStore> {
+        let active = self.store.load_full();
+        active.0.clone()
+    }
+
+    pub(crate) async fn activate_store(&self, store: Arc<dyn CacheStore>) {
+        let _barrier = self.route.write().await;
+        self.store.store(StdArc::new(ActiveCacheStore(store)));
+        self.schema_ready.store(Arc::new(SchemaState::Unverified));
+        self.last_state_snapshot.write().await.clear();
     }
 
     pub fn request_metrics_snapshot(&self) -> CacheRequestMetricsSnapshot {
@@ -116,7 +138,7 @@ impl CacheLayerManager {
         collection: &str,
     ) -> Result<HashMap<String, serde_json::Value>> {
         self.ensure_current_schema().await?;
-        let store = self.store.read().await;
+        let store = self.active_store();
         let started_at = Instant::now();
         let keys = match store.keys(collection).await {
             Ok(keys) => {
@@ -172,57 +194,61 @@ impl CacheLayerManager {
     }
 
     pub(in crate::cache) async fn ensure_current_schema(&self) -> Result<()> {
-        self.schema_ready
-            .get_or_try_init(|| async {
-                let namespace = self.namespace();
-                let collection =
-                    Self::state_collection_with_namespace(&namespace, CACHE_SCHEMA_STATE);
-                let store = self.store.read().await;
-                let current = store.get(CACHE_SCHEMA_KEY, &collection).await?;
-                let version = current
-                    .as_ref()
-                    .and_then(|value| value.get("version"))
-                    .and_then(serde_json::Value::as_u64);
+        let ready = self.schema_ready.load_full();
+        if matches!(*ready, SchemaState::Ready) {
+            return Ok(());
+        }
+        self.ensure_schema().await?;
+        self.schema_ready.rcu(|current| {
+            if matches!(**current, SchemaState::Ready) {
+                Arc::clone(current)
+            } else {
+                Arc::new(SchemaState::Ready)
+            }
+        });
+        Ok(())
+    }
 
-                match version {
-                    None if current.is_none() => {
-                        let prefix = format!("{namespace}:");
-                        let mut has_business_data = false;
-                        for name in store.collections().await? {
-                            if name.starts_with(&prefix)
-                                && name != collection
-                                && !store.keys(&name).await?.is_empty()
-                            {
-                                has_business_data = true;
-                                break;
-                            }
-                        }
-                        if has_business_data {
-                            return Err(CacheError::Validation(
-                                "cache schema marker is missing for non-empty namespace"
-                                    .to_string(),
-                            ));
-                        }
-                        store
-                            .put(
-                                CACHE_SCHEMA_KEY,
-                                serde_json::json!({ "version": CACHE_SCHEMA_VERSION }),
-                                &collection,
-                            )
-                            .await?;
-                    }
-                    Some(version) if version == u64::from(CACHE_SCHEMA_VERSION) => {}
-                    _ => {
-                        return Err(CacheError::Validation(format!(
-                            "cache schema mismatch: expected {}, found {version:?}",
-                            CACHE_SCHEMA_VERSION
-                        )));
+    async fn ensure_schema(&self) -> Result<()> {
+        let namespace = self.namespace();
+        let collection = Self::state_collection_with_namespace(&namespace, CACHE_SCHEMA_STATE);
+        let store = self.active_store();
+        let current = store.get(CACHE_SCHEMA_KEY, &collection).await?;
+        let version = current
+            .as_ref()
+            .and_then(|value| value.get("version"))
+            .and_then(serde_json::Value::as_u64);
+
+        match version {
+            None if current.is_none() => {
+                let prefix = format!("{namespace}:");
+                for name in store.collections().await? {
+                    if name.starts_with(&prefix)
+                        && name != collection
+                        && !store.keys(&name).await?.is_empty()
+                    {
+                        return Err(CacheError::Validation(
+                            "cache schema marker is missing for non-empty namespace".to_string(),
+                        ));
                     }
                 }
-                Ok(())
-            })
-            .await
-            .map(|_| ())
+                store
+                    .put(
+                        CACHE_SCHEMA_KEY,
+                        serde_json::json!({ "version": CACHE_SCHEMA_VERSION }),
+                        &collection,
+                    )
+                    .await?;
+            }
+            Some(version) if version == u64::from(CACHE_SCHEMA_VERSION) => {}
+            _ => {
+                return Err(CacheError::Validation(format!(
+                    "cache schema mismatch: expected {}, found {version:?}",
+                    CACHE_SCHEMA_VERSION
+                )));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) async fn clear_namespace(store: &dyn CacheStore, namespace: &str) -> Result<()> {

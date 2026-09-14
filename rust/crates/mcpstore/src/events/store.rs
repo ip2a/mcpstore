@@ -8,14 +8,16 @@ impl MCPStore {
         payload: serde_json::Value,
         wait: bool,
     ) -> Result<()> {
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(Event::new(event_type, payload), wait)
             .await;
         Ok(())
     }
 
     pub async fn event_history(&self, count: usize) -> Vec<Event> {
-        self.event_bus.get_history(count).await
+        self.kernel.execution.event_bus.get_history(count).await
     }
 
     pub async fn event_capability_report(&self) -> serde_json::Value {
@@ -31,8 +33,13 @@ impl MCPStore {
     pub async fn event_capability_report_entry(&self) -> EventCapabilityReport {
         EventCapabilityReport {
             event_bus: true,
-            history: self.event_bus.history_capacity().is_some(),
-            history_capacity: self.event_bus.history_capacity().unwrap_or(0),
+            history: self.kernel.execution.event_bus.history_capacity().is_some(),
+            history_capacity: self
+                .kernel
+                .execution
+                .event_bus
+                .history_capacity()
+                .unwrap_or(0),
             cache_event_layer: true,
         }
     }

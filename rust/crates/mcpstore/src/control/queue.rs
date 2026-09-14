@@ -1,5 +1,3 @@
-use std::sync::atomic::Ordering;
-
 use crate::control::request::{self, ControlRequest, ControlRequestStatus};
 use crate::store::prelude::*;
 
@@ -10,6 +8,8 @@ impl MCPStore {
         }
 
         let mut requests = self
+            .kernel
+            .persistence
             .cache
             .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
             .await?
@@ -40,7 +40,9 @@ impl MCPStore {
             request.status = ControlRequestStatus::Executing {
                 started_at: chrono::Utc::now().timestamp_millis(),
             };
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .put_event(
                     CONTROL_REQUEST_EVENT_TYPE,
                     &key,
@@ -63,7 +65,9 @@ impl MCPStore {
                     };
                 }
             }
-            self.cache
+            self.kernel
+                .persistence
+                .cache
                 .put_event(
                     CONTROL_REQUEST_EVENT_TYPE,
                     &key,
@@ -82,8 +86,7 @@ impl MCPStore {
         payload: serde_json::Value,
     ) -> Result<String> {
         let created_at = chrono::Utc::now().timestamp_millis();
-        let sequence = CONTROL_EVENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let event_id = format!("{request_type}:{created_at}:{sequence}");
+        let event_id = format!("{request_type}:{}", uuid::Uuid::new_v4());
         let request = ControlRequest {
             id: event_id.clone(),
             request_type: request_type.to_string(),
@@ -99,7 +102,9 @@ impl MCPStore {
             trace_id: event_id.clone(),
             status: ControlRequestStatus::Queued,
         };
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .put_event(
                 CONTROL_REQUEST_EVENT_TYPE,
                 &event_id,
@@ -107,7 +112,9 @@ impl MCPStore {
                     .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
             )
             .await?;
-        self.event_bus
+        self.kernel
+            .execution
+            .event_bus
             .publish(
                 Event::new(
                     request_type,

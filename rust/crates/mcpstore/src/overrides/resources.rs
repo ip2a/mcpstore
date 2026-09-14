@@ -119,7 +119,9 @@ impl MCPStore {
         rule.mime_type = patch.mime_type;
         rule.updated_at = Self::now_timestamp();
         rule.version += 1;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_state(
                 RESOURCE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, &uri),
@@ -140,7 +142,9 @@ impl MCPStore {
     }
     pub async fn delete_resource_override(&self, instance_id: InstanceId, uri: &str) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .delete_state(
                 RESOURCE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, uri),
@@ -150,9 +154,11 @@ impl MCPStore {
     }
     pub async fn list_resource_overrides(&self) -> Result<Vec<ResourceOverrideRule>> {
         self.refresh_from_db_if_needed().await?;
-        list_rules::<ResourceOverrideRule, _>(&self.cache, RESOURCE_OVERRIDES_STATE_TYPE, |a, b| {
-            (a.instance_id, a.uri.as_str()).cmp(&(b.instance_id, b.uri.as_str()))
-        })
+        list_rules::<ResourceOverrideRule, _>(
+            &self.kernel.persistence.cache,
+            RESOURCE_OVERRIDES_STATE_TYPE,
+            |a, b| (a.instance_id, a.uri.as_str()).cmp(&(b.instance_id, b.uri.as_str())),
+        )
         .await
     }
     pub async fn enable_resource(&self, i: InstanceId, u: &str) -> Result<()> {
@@ -168,7 +174,14 @@ impl MCPStore {
         i: InstanceId,
         u: &str,
     ) -> Result<Option<ResourceOverrideRule>> {
-        load_rule(&self.cache, RESOURCE_OVERRIDES_STATE_TYPE, i, u, "Resource").await
+        load_rule(
+            &self.kernel.persistence.cache,
+            RESOURCE_OVERRIDES_STATE_TYPE,
+            i,
+            u,
+            "Resource",
+        )
+        .await
     }
     pub(crate) async fn apply_resource_override(
         &self,
@@ -220,7 +233,9 @@ impl MCPStore {
         rule.mime_type = patch.mime_type;
         rule.updated_at = Self::now_timestamp();
         rule.version += 1;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .compare_and_put_state(
                 RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(i, &u),
@@ -241,7 +256,9 @@ impl MCPStore {
     }
     pub async fn delete_resource_template_override(&self, i: InstanceId, u: &str) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
-        self.cache
+        self.kernel
+            .persistence
+            .cache
             .delete_state(
                 RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(i, u),
@@ -254,7 +271,7 @@ impl MCPStore {
     ) -> Result<Vec<ResourceTemplateOverrideRule>> {
         self.refresh_from_db_if_needed().await?;
         list_rules::<ResourceTemplateOverrideRule, _>(
-            &self.cache,
+            &self.kernel.persistence.cache,
             RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
             |a, b| {
                 (a.instance_id, a.uri_template.as_str())
@@ -277,7 +294,7 @@ impl MCPStore {
         u: &str,
     ) -> Result<Option<ResourceTemplateOverrideRule>> {
         load_rule(
-            &self.cache,
+            &self.kernel.persistence.cache,
             RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
             i,
             u,

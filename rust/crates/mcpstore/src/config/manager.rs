@@ -107,7 +107,10 @@ impl ConfigManager {
             std::fs::create_dir_all(parent)?;
         }
         let content = toml::to_string_pretty(config)?;
-        std::fs::write(&self.app_config_path, content)?;
+        // 回写必须原子（临时文件 + rename），避免写一半崩溃损坏配置文件。
+        let tmp = self.app_config_path.with_extension("toml.tmp");
+        std::fs::write(&tmp, content)?;
+        std::fs::rename(&tmp, &self.app_config_path)?;
         Ok(())
     }
 
