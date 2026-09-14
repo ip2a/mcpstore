@@ -120,6 +120,9 @@ fn append_start_args(command: &mut std::process::Command, args: &StoreSourceArgs
     if args.node_mode == Some(NodeModeArg::Data) {
         command.arg("--plane").arg("data");
     }
+    if let Some(node_id) = &args.node_id {
+        command.arg("--node-id").arg(node_id);
+    }
 }
 
 fn default_runtime_path() -> PathBuf {
@@ -156,6 +159,7 @@ mod tests {
                 store_config: Some(r#"{"url":"redis://127.0.0.1"}"#.into()),
                 namespace: Some("tenant-a".into()),
                 node_mode: None,
+                node_id: Some("worker-1".into()),
             },
         };
 
@@ -166,6 +170,7 @@ mod tests {
         assert_eq!(restored.store.config_path.as_deref(), Some("/tmp/mcp.json"));
         assert_eq!(restored.store.store.as_deref(), Some("redis"));
         assert_eq!(restored.store.namespace.as_deref(), Some("tenant-a"));
+        assert_eq!(restored.store.node_id.as_deref(), Some("worker-1"));
         let _ = std::fs::remove_file(path);
     }
 
@@ -178,6 +183,7 @@ mod tests {
             store_config: None,
             namespace: None,
             node_mode: Some(crate::store_args::NodeModeArg::Data),
+            node_id: None,
         };
         let mut command = std::process::Command::new("mcpstore");
         append_start_args(&mut command, &args);

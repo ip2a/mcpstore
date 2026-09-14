@@ -254,14 +254,43 @@ async fn data_plane_daemon_serves_requests_but_never_consumes_control_queue() ->
     let namespace = "mcpstore".to_string();
     let service_name = format!("shared-service-{nanos}");
     // C：只有 data 模式 daemon 在跑，场景内不存在任何控制面消费者
-    let worker = HostFixture::start_redis_plane(
+    let worker = HostFixture::start_redis_node(
         RedisHostSource {
             url: redis_url.clone(),
             namespace: namespace.clone(),
         },
         Some("data"),
+        Some("worker-c"),
     )
     .await?;
+
+    // C 的心跳/能力自报行已写入共享存储（首拍立即写），读侧可验证其身份
+    let reader = mcpstore::MCPStore::setup_with_options(mcpstore::StoreOptions {
+        node_id: None,
+        config_path: None,
+        source_mode: mcpstore::SourceMode::Db,
+        node_mode: mcpstore::NodeMode::ControlPlane,
+        store: Some(mcpstore::JsonStoreConfig::new(
+            "redis",
+            serde_json::json!({"url": redis_url.clone()}),
+        )),
+        namespace: Some(namespace.clone()),
+    })
+    .unwrap();
+    let mut heartbeat = reader.read_node_status("worker-c").await.unwrap();
+    for _ in 0..50 {
+        if heartbeat.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        heartbeat = reader.read_node_status("worker-c").await.unwrap();
+    }
+    let heartbeat = heartbeat.expect("worker-c heartbeat row in shared store");
+    assert_eq!(heartbeat["node"], "worker-c", "{heartbeat}");
+    assert!(
+        heartbeat["payload"]["capabilities"].as_array().is_some(),
+        "{heartbeat}"
+    );
 
     // B 不带显式 store 参数，经 C 的 kernel socket 提交 add → C 排队并回执
     let worker_pid = worker.dir.join("kernel.pid");
@@ -768,6 +797,14 @@ impl HostFixture {
     }
 
     async fn start_redis_plane(source: RedisHostSource, plane: Option<&str>) -> TestResult<Self> {
+        Self::start_redis_node(source, plane, None).await
+    }
+
+    async fn start_redis_node(
+        source: RedisHostSource,
+        plane: Option<&str>,
+        node_id: Option<&str>,
+    ) -> TestResult<Self> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos();
@@ -799,6 +836,10 @@ impl HostFixture {
         if let Some(plane) = plane {
             daemon_args.push("--plane".to_string());
             daemon_args.push(plane.to_string());
+        }
+        if let Some(node_id) = node_id {
+            daemon_args.push("--node-id".to_string());
+            daemon_args.push(node_id.to_string());
         }
         let child = tokio::process::Command::new(cli)
             .args(&daemon_args)

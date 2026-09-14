@@ -761,7 +761,7 @@ pub(crate) fn required_str_value(value: &Value, field: &str) -> Result<String, E
         })
 }
 
-fn host_capabilities() -> HashSet<&'static str> {
+pub(crate) fn host_capabilities() -> HashSet<&'static str> {
     let mut capabilities = HashSet::from(["browser"]);
     if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
         capabilities.insert("display");

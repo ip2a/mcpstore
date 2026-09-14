@@ -97,6 +97,7 @@ fn broken_stdio_config() -> ServerConfig {
 #[test]
 fn setup_scopes_redis_config_to_store_namespace() {
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         store: Some(JsonStoreConfig::redis("redis://127.0.0.1/")),
         namespace: Some("tenant-a".to_string()),
         ..StoreOptions::default()
@@ -950,7 +951,7 @@ async fn add_service_writes_definition_and_instance_cache_layers() {
         .is_some());
     assert!(store
         .cache()
-        .get_state("service_state", &instance_id.to_string())
+        .get_state("service_state", &format!("{instance_id}@control"))
         .await
         .unwrap()
         .is_some());
@@ -1027,7 +1028,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
             .is_none());
         assert!(store
             .cache()
-            .get_state("service_state", &instance_id.to_string())
+            .get_state("service_state", &format!("{instance_id}@control"))
             .await
             .unwrap()
             .is_none());
@@ -1052,6 +1053,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
 async fn db_source_does_not_write_config_file_and_queues_add() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
@@ -1097,6 +1099,7 @@ async fn db_source_does_not_write_config_file_and_queues_add() {
 async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -1178,6 +1181,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .unwrap();
 
     let db = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
@@ -1195,11 +1199,20 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .kernel
         .control
         .state
-        .get(instance_id)
+        .get_display(instance_id)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(state.health, crate::state::HealthState::Healthy);
+    // record_instance_failure 是数据面只读 no-op：返回并保持本节点自己的栏不变
+    let own_before = db
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     let unchanged = db
         .record_instance_failure(
             instance_id,
@@ -1207,7 +1220,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         )
         .await
         .unwrap();
-    assert_eq!(unchanged, state);
+    assert_eq!(unchanged, own_before);
     assert_eq!(
         db.kernel
             .control
@@ -1216,7 +1229,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
             .await
             .unwrap()
             .unwrap(),
-        state
+        own_before
     );
     assert_eq!(
         db.show_config().await.unwrap()["mcpServers"]["svc"]["command"],
@@ -1229,6 +1242,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
 #[tokio::test]
 async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity() {
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
@@ -1370,6 +1384,7 @@ async fn local_reset_preserves_cache_schema_marker() {
 async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -1389,6 +1404,7 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
         .unwrap();
 
     let db = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
@@ -1448,6 +1464,7 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
 async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -1459,6 +1476,7 @@ async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
     let instance_id = store_instance_id("svc");
 
     let db = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
@@ -1502,6 +1520,7 @@ async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
 async fn openapi_import_persists_shared_analysis_result() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -1727,6 +1746,7 @@ async fn openapi_import_persists_shared_analysis_result() {
 #[tokio::test]
 async fn openapi_last_import_tracks_latest_successful_import() {
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -1781,6 +1801,7 @@ async fn openapi_last_import_tracks_latest_successful_import() {
 #[tokio::test]
 async fn removing_openapi_service_clears_import_state() {
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -1823,6 +1844,7 @@ async fn removing_openapi_service_clears_import_state() {
 async fn openapi_import_rejects_existing_definition_without_mutating_sibling_scopes() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -1975,6 +1997,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
 async fn openapi_import_bundles_external_http_refs() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2030,6 +2053,7 @@ async fn openapi_import_bundles_external_http_refs() {
 async fn openapi_import_bundles_external_yaml_http_refs() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2148,6 +2172,7 @@ paths:
         .unwrap()
         .to_string();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2194,6 +2219,7 @@ paths:
     );
 
     let path_store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2268,6 +2294,7 @@ paths:
         .unwrap()
         .to_string();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2344,6 +2371,7 @@ paths:
 async fn openapi_bundle_spec_returns_external_refs_without_importing() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2381,6 +2409,7 @@ async fn openapi_bundle_spec_returns_external_refs_without_importing() {
 async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2423,6 +2452,7 @@ async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
 async fn openapi_bundle_writes_external_ref_document_cache() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2474,6 +2504,7 @@ async fn openapi_bundle_writes_external_ref_document_cache() {
 async fn openapi_bundle_ref_cache_policy_sets_ttl() {
     let (base_url, _components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2515,6 +2546,7 @@ async fn openapi_bundle_ref_cache_policy_sets_ttl() {
 async fn openapi_bundle_ref_cache_policy_can_disable_shared_cache() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2557,6 +2589,7 @@ async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
     let (base_url, components_requests, conditional_requests) =
         spawn_openapi_conditional_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2632,6 +2665,7 @@ async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let namespace = format!("openapi-ref-document-cache-{}", uuid::Uuid::new_v4());
     let first = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2640,6 +2674,7 @@ async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances
     })
     .unwrap();
     let second = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2666,6 +2701,7 @@ async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances
 async fn openapi_import_parses_yaml_from_url() {
     let base_url = spawn_openapi_yaml_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2722,6 +2758,7 @@ paths:
 "#
     );
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2764,6 +2801,7 @@ paths:
 async fn openapi_tool_http_error_returns_tool_error_without_marking_service_failed() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2853,6 +2891,7 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
 async fn openapi_runtime_honors_import_timeout() {
     let base_url = spawn_openapi_slow_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2907,6 +2946,7 @@ async fn openapi_runtime_honors_import_timeout() {
 async fn openapi_import_honors_fetch_timeout() {
     let base_url = spawn_openapi_slow_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2937,6 +2977,7 @@ async fn openapi_import_honors_fetch_timeout() {
 async fn openapi_bundle_honors_fetch_timeout() {
     let base_url = spawn_openapi_slow_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -2966,6 +3007,7 @@ async fn openapi_bundle_honors_fetch_timeout() {
 async fn openapi_resources_preserve_response_mime_type() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3055,6 +3097,7 @@ async fn openapi_resources_preserve_response_mime_type() {
 async fn openapi_json_responses_filter_write_only_fields() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3159,6 +3202,7 @@ async fn openapi_json_responses_filter_write_only_fields() {
 async fn openapi_json_responses_validate_declared_schema() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3250,6 +3294,7 @@ async fn openapi_json_responses_validate_declared_schema() {
 async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3315,6 +3360,7 @@ async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
 async fn openapi_tool_returns_image_content_for_binary_image_response() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3376,6 +3422,7 @@ async fn openapi_tool_returns_image_content_for_binary_image_response() {
 async fn openapi_resource_returns_blob_for_binary_response() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3439,6 +3486,7 @@ async fn openapi_resource_returns_blob_for_binary_response() {
 async fn openapi_tools_support_common_request_body_media_types() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3659,6 +3707,7 @@ async fn openapi_tools_support_common_request_body_media_types() {
 async fn openapi_tools_serialize_parameters_by_openapi_style() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3721,6 +3770,7 @@ async fn openapi_tools_serialize_parameters_by_openapi_style() {
 async fn openapi_query_parameters_honor_allow_reserved() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3779,6 +3829,7 @@ async fn openapi_query_parameters_honor_allow_reserved() {
 async fn openapi_query_parameters_support_deep_object_style() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3838,6 +3889,7 @@ async fn openapi_query_parameters_support_deep_object_style() {
 async fn openapi_path_parameters_support_label_and_matrix_styles() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3896,6 +3948,7 @@ async fn openapi_path_parameters_support_label_and_matrix_styles() {
 async fn openapi_tools_reject_missing_required_arguments_before_request() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -3954,6 +4007,7 @@ async fn openapi_tools_reject_missing_required_arguments_before_request() {
 async fn openapi_tools_honor_read_only_and_write_only_request_fields() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4049,6 +4103,7 @@ async fn openapi_tools_honor_read_only_and_write_only_request_fields() {
 async fn openapi_tools_validate_input_schema_before_request() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4273,6 +4328,7 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
     });
 
     let missing_auth_store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4300,6 +4356,7 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         .contains("missing auth value"));
 
     let header_store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4334,6 +4391,7 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         .is_ok());
 
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4391,6 +4449,7 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
 async fn local_source_processes_control_requests() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4502,6 +4561,7 @@ async fn swap_store_migrates_runtime_cache() {
 async fn swap_store_updates_namespace() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4533,6 +4593,7 @@ async fn swap_store_updates_namespace() {
 async fn swap_store_preserves_concurrent_writes() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4591,6 +4652,7 @@ async fn swap_store_preserves_concurrent_writes() {
 async fn cache_inspect_includes_session_collections() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4720,6 +4782,7 @@ async fn cache_inspect_includes_session_collections() {
 async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4739,7 +4802,10 @@ async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
         .is_some());
     assert!(store
         .cache()
-        .get_state("service_state", &store_instance_id("svc").to_string())
+        .get_state(
+            "service_state",
+            &format!("{}@control", store_instance_id("svc")),
+        )
         .await
         .unwrap()
         .is_some());
@@ -4771,6 +4837,7 @@ async fn swap_store_to_openkeyv_memory_migrates_runtime_cache() {
 async fn update_and_patch_service_update_runtime_cache() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4806,6 +4873,7 @@ async fn update_and_patch_service_update_runtime_cache() {
 async fn event_history_and_cache_health_are_reported() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -4837,6 +4905,7 @@ async fn event_history_and_cache_health_are_reported() {
 async fn list_tools_uses_registry_without_transport_connection() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5283,6 +5352,7 @@ async fn tool_preferences_are_stored_by_instance_and_tool() {
 async fn connect_service_failure_uses_default_no_restart_policy() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5356,6 +5426,7 @@ async fn connect_service_times_out_hanging_stdio_startup() {
     let app_path = fixture_dir.join("config.toml");
     std::fs::write(&app_path, "[health_check]\nstartup_timeout = 1\n").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5410,6 +5481,7 @@ async fn connect_service_times_out_hanging_stdio_startup() {
 async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5474,6 +5546,7 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
 async fn manual_startup_policy_blocks_implicit_connect() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5512,6 +5585,7 @@ async fn manual_startup_policy_blocks_implicit_connect() {
 async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5582,6 +5656,7 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
 async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5634,6 +5709,7 @@ async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
 async fn authorization_callback_uri_only_exposes_authorization_code_redirect_uri() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5670,6 +5746,7 @@ async fn authorization_callback_uri_only_exposes_authorization_code_redirect_uri
 async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5718,6 +5795,7 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
 async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5773,6 +5851,7 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
 async fn successful_health_check_records_canonical_health() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5823,6 +5902,7 @@ async fn successful_health_check_records_canonical_health() {
 async fn export_instance_config_projects_third_party_config_without_mcpstore_extension() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5867,6 +5947,7 @@ async fn export_instance_config_projects_third_party_config_without_mcpstore_ext
 async fn db_load_does_not_rewrite_cached_agent_relations() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5886,6 +5967,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
         .unwrap();
 
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
@@ -5912,6 +5994,7 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
 async fn embedded_tool_hot_path_baseline() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -5968,6 +6051,7 @@ async fn embedded_tool_hot_path_baseline() {
 async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -6102,6 +6186,7 @@ mod scoped_contract {
 
     fn store_options(path: Option<String>) -> StoreOptions {
         StoreOptions {
+            node_id: None,
             config_path: path,
             source_mode: SourceMode::Local,
             node_mode: NodeMode::ControlPlane,
@@ -7486,6 +7571,7 @@ mod scoped_contract {
         assert_eq!(cached_definition.scopes, definition.scopes);
 
         let db = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: None,
             source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
@@ -7616,6 +7702,7 @@ mod scoped_contract {
         }
 
         let db = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: None,
             source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
@@ -7661,6 +7748,7 @@ mod scoped_contract {
     async fn db_source_scope_writes_use_definition_projection() {
         let config_path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: Some(config_path.clone()),
             source_mode: SourceMode::Db,
             node_mode: NodeMode::ControlPlane,
@@ -7954,6 +8042,7 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
 
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -8013,6 +8102,7 @@ mod event_reactor_facade {
     #[tokio::test]
     async fn facade_reactor_end_to_end_memory() {
         let store = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             store: Some(JsonStoreConfig::memory()),
             ..StoreOptions::default()
         })
@@ -8078,6 +8168,7 @@ mod event_reactor_facade {
     #[tokio::test]
     async fn facade_reactor_not_initialized_errors() {
         let store = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             store: Some(JsonStoreConfig::memory()),
             ..StoreOptions::default()
         })
@@ -8106,6 +8197,7 @@ mod control_reactor_tests {
         let path = temp_config_path();
         let store = std::sync::Arc::new(
             MCPStore::setup_with_options(StoreOptions {
+                node_id: None,
                 config_path: Some(path.clone()),
                 source_mode: SourceMode::Local,
                 node_mode: NodeMode::ControlPlane,
@@ -8196,6 +8288,7 @@ mod control_reactor_tests {
         let path = temp_config_path();
         let store = std::sync::Arc::new(
             MCPStore::setup_with_options(StoreOptions {
+                node_id: None,
                 config_path: Some(path.clone()),
                 source_mode: SourceMode::Local,
                 node_mode: NodeMode::ControlPlane,
@@ -8267,6 +8360,7 @@ mod control_reactor_tests {
     async fn swap_store_migrates_data_to_new_memory_store() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
             node_mode: NodeMode::ControlPlane,
@@ -8308,6 +8402,7 @@ mod control_reactor_tests {
     async fn swap_store_uses_online_feed_for_memory_store() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
             node_mode: NodeMode::ControlPlane,
@@ -8338,6 +8433,7 @@ mod control_reactor_tests {
     async fn cache_identity_separates_backends_and_namespaces() {
         let path = temp_config_path();
         let options = |namespace: &str| StoreOptions {
+            node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
             node_mode: NodeMode::ControlPlane,
@@ -8360,6 +8456,7 @@ mod control_reactor_tests {
         };
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
             node_mode: NodeMode::ControlPlane,
@@ -8397,6 +8494,7 @@ mod control_reactor_tests {
     #[test]
     fn data_plane_rejects_memory_backend() {
         let error = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: None,
             source_mode: SourceMode::Db,
             node_mode: NodeMode::DataPlane,
@@ -8413,6 +8511,7 @@ mod control_reactor_tests {
         // C5: control_plane builds supervisor; data_plane does not.
         let cp_path = temp_config_path();
         let cp_store = MCPStore::setup_with_options(StoreOptions {
+            node_id: None,
             config_path: Some(cp_path.clone()),
             source_mode: SourceMode::Local,
             node_mode: NodeMode::ControlPlane,
@@ -8433,6 +8532,7 @@ mod control_reactor_tests {
 async fn data_plane_closes_only_connections_started_by_this_process() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
@@ -8463,6 +8563,7 @@ async fn data_plane_closes_only_connections_started_by_this_process() {
         .unwrap();
 
     let db = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
         node_mode: NodeMode::DataPlane,
@@ -8478,6 +8579,7 @@ async fn data_plane_closes_only_connections_started_by_this_process() {
 
     db.close_local_connections().await;
 
+    // 分栏语义：owned 看本节点自己的栏（Stopped）；other 的权威态在 control 栏
     let owned = db
         .kernel
         .control
@@ -8490,7 +8592,7 @@ async fn data_plane_closes_only_connections_started_by_this_process() {
         .kernel
         .control
         .state
-        .get(other_id)
+        .get_display(other_id)
         .await
         .unwrap()
         .unwrap();

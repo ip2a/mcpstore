@@ -16,7 +16,7 @@ impl MCPStore {
         self.kernel
             .control
             .state
-            .get(instance_id)
+            .get_display(instance_id)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))
     }

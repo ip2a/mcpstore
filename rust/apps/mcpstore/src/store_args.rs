@@ -61,6 +61,12 @@ pub struct StoreSourceArgs {
         help = "Node mode: control executes mutations, data queues them"
     )]
     pub node_mode: Option<NodeModeArg>,
+    #[arg(
+        long = "node-id",
+        value_name = "ID",
+        help = "Column id for per-node state (defaults: control / data)"
+    )]
+    pub node_id: Option<String>,
 }
 
 impl StoreSourceArgs {
@@ -89,6 +95,7 @@ impl StoreSourceArgs {
                 .unwrap_or(mcpstore::NodeMode::ControlPlane),
             store,
             namespace: self.namespace.clone(),
+            node_id: self.node_id.clone(),
         }
     }
 }
@@ -151,6 +158,7 @@ impl StoreSourceArgs {
             || self.namespace.is_some()
             || self.source != SourceArg::Local
             || self.node_mode == Some(NodeModeArg::Data)
+            || self.node_id.is_some()
     }
 }
 

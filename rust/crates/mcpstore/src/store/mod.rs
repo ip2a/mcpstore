@@ -160,9 +160,17 @@ impl MCPStore {
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(10_000);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
+        let node_id = options
+            .node_id
+            .clone()
+            .unwrap_or_else(|| match options.node_mode {
+                NodeMode::ControlPlane => crate::state::CONTROL_NODE_ID.to_string(),
+                NodeMode::DataPlane => "data".to_string(),
+            });
         let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
             cache.clone(),
             event_bus.clone(),
+            node_id,
         ));
         #[cfg(not(test))]
         let auth_coordinator = crate::auth::AuthCoordinator::new(state_manager.clone())?;
@@ -249,6 +257,29 @@ impl MCPStore {
 
     pub fn node_mode(&self) -> NodeMode {
         self.kernel.runtime.node_mode
+    }
+
+    pub fn node_id(&self) -> String {
+        self.kernel.control.state.node_id().to_string()
+    }
+
+    /// data 面板心跳/能力自报：写本节点的 node_status 行（updated_at 即存活信号）。
+    pub async fn write_node_status(&self, payload: serde_json::Value) -> Result<()> {
+        self.kernel
+            .control
+            .state
+            .write_node_status(payload)
+            .await
+            .map_err(Error::from)
+    }
+
+    pub async fn read_node_status(&self, node_id: &str) -> Result<Option<serde_json::Value>> {
+        self.kernel
+            .control
+            .state
+            .read_node_status(node_id)
+            .await
+            .map_err(Error::from)
     }
 
     pub fn is_data_plane(&self) -> bool {

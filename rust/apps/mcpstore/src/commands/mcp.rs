@@ -2164,6 +2164,7 @@ mod tests {
             args: vec!["fixture".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2187,6 +2188,7 @@ mod tests {
             args: vec!["changed".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2209,6 +2211,7 @@ mod tests {
             args: vec!["preserved".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2248,6 +2251,7 @@ mod tests {
             args: Vec::new(),
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: None,
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2277,6 +2281,7 @@ mod tests {
             args: vec!["fixture".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
