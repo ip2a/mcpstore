@@ -159,6 +159,7 @@ impl McpServerOptions {
             node_mode: mcpstore::NodeMode::ControlPlane,
             store: self.store.clone(),
             namespace: self.namespace.clone(),
+            node_id: None,
         }
     }
 
@@ -173,6 +174,7 @@ impl McpServerOptions {
             store_config: self.store.as_ref().map(|store| store.config.to_string()),
             namespace: self.namespace.clone(),
             node_mode: None,
+            node_id: None,
         }
     }
 }

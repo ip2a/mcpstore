@@ -20,6 +20,9 @@ pub struct StoreOptions {
     pub node_mode: NodeMode,
     pub store: Option<JsonStoreConfig>,
     pub namespace: Option<String>,
+    /// 状态分栏的节点标识：每个节点只写自己的栏（`instance@node`），
+    /// 缺省 ControlPlane -> "control"（权威栏），DataPlane -> "data"。
+    pub node_id: Option<String>,
 }
 
 impl Default for StoreOptions {
@@ -30,6 +33,7 @@ impl Default for StoreOptions {
             node_mode: NodeMode::ControlPlane,
             store: None,
             namespace: None,
+            node_id: None,
         }
     }
 }

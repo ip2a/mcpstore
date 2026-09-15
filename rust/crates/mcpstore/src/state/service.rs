@@ -167,6 +167,9 @@ pub struct ServiceState {
     pub instance_id: InstanceId,
     pub service_name: String,
     pub scope: ScopeRef,
+    /// 本栏所属节点（状态分栏）：`control` 为权威栏，其余为各数据节点自己的观测栏。
+    #[serde(default = "default_state_node")]
+    pub node: String,
     pub desired: DesiredState,
     pub phase: RuntimePhase,
     pub health: HealthState,
@@ -179,6 +182,10 @@ pub struct ServiceState {
     pub failure: Option<FailureInfo>,
     pub version: u64,
     pub updated_at: i64,
+}
+
+pub fn default_state_node() -> String {
+    "control".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -245,6 +252,7 @@ impl ServiceState {
             instance_id,
             service_name,
             scope,
+            node: default_state_node(),
             desired,
             phase,
             health: HealthState::Unknown,

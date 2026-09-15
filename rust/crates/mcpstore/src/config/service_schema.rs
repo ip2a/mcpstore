@@ -242,28 +242,15 @@ impl<'de> Deserialize<'de> for Runtime {
     }
 }
 
-/// A runtime plus an optional daemon node id to route execution to.
-///
-/// Invariant: `daemon_node.is_some()` implies `runtime == Runtime::Daemon`.
+/// The runtime that carries an MCP request: local process or a daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSelection {
     pub runtime: Runtime,
-    pub daemon_node: Option<String>,
 }
 
 impl RuntimeSelection {
     pub fn runtime(runtime: Runtime) -> Self {
-        Self {
-            runtime,
-            daemon_node: None,
-        }
-    }
-
-    pub fn daemon_node(node: impl Into<String>) -> Self {
-        Self {
-            runtime: Runtime::Daemon,
-            daemon_node: Some(node.into()),
-        }
+        Self { runtime }
     }
 }
 
@@ -273,8 +260,6 @@ pub struct RuntimePolicy {
     /// rejected by `validate_structure`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_runtimes: Option<Vec<Runtime>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_daemons: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_host_capabilities: Vec<String>,
 }
@@ -284,12 +269,6 @@ impl RuntimePolicy {
         self.allowed_runtimes
             .as_ref()
             .is_none_or(|allowed| allowed.contains(&runtime))
-    }
-
-    pub fn allows_daemon(&self, node: &str) -> bool {
-        self.allowed_daemons
-            .as_ref()
-            .is_none_or(|allowed| allowed.iter().any(|daemon| daemon == node))
     }
 }
 
@@ -507,21 +486,10 @@ impl ServerConfig {
                     );
                 }
             }
-            if let Some(allowed) = &policy.allowed_daemons {
-                if allowed.is_empty() {
-                    return Err(
-                        "runtime_policy.allowed_daemons must not be empty; omit the field to allow all daemons"
-                            .to_string(),
-                    );
-                }
-            }
             // A declared policy that restricts nothing is a mistake.
-            if policy.allowed_runtimes.is_none()
-                && policy.allowed_daemons.is_none()
-                && policy.required_host_capabilities.is_empty()
-            {
+            if policy.allowed_runtimes.is_none() && policy.required_host_capabilities.is_empty() {
                 return Err(
-                    "runtime_policy must declare allowed_runtimes, allowed_daemons, or required_host_capabilities"
+                    "runtime_policy must declare allowed_runtimes or required_host_capabilities"
                         .to_string(),
                 );
             }

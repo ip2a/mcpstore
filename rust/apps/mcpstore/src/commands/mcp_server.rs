@@ -199,6 +199,7 @@ mod tests {
     fn default_args() -> McpServerArgs {
         McpServerArgs {
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: None,
                 source: SourceArg::Local,
                 store: None,

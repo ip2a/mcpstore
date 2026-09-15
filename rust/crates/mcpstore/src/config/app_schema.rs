@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 
 use super::cache_schema::CacheConfig;
@@ -23,8 +21,6 @@ pub struct AppConfig {
     pub cache: CacheConfig,
     #[serde(default)]
     pub server: ServerSettings,
-    #[serde(default)]
-    pub daemons: BTreeMap<String, DaemonNodeSettings>,
     #[serde(default)]
     pub mcp_aggregate: McpAggregateConfig,
     #[serde(default)]
@@ -50,7 +46,6 @@ impl Default for AppConfig {
             created_at: default_created_at(),
             cache: CacheConfig::default(),
             server: ServerSettings::default(),
-            daemons: BTreeMap::new(),
             mcp_aggregate: McpAggregateConfig::default(),
             health_check: HealthCheckConfig::default(),
             monitoring: MonitoringConfig::default(),
@@ -168,15 +163,6 @@ impl Default for UiConfig {
             default_backup_dir: default_backup_dir(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaemonNodeSettings {
-    pub endpoint: String,
-    #[serde(default)]
-    pub namespace: Option<String>,
-    #[serde(default)]
-    pub token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

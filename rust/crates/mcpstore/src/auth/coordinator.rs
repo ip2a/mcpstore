@@ -837,6 +837,7 @@ pub(crate) fn test_state_manager() -> Arc<ServiceStateManager> {
             "auth-test-state",
         )),
         EventBus::with_history(10),
+        crate::state::CONTROL_NODE_ID.to_string(),
     ))
 }
 

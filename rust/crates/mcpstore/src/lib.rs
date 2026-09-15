@@ -35,8 +35,8 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, CacheConfig, ConfigManager, DaemonNodeSettings, McpAggregateConfig, McpConfig,
-    RuntimeLogConfig, ServerConfig,
+    AppConfig, CacheConfig, ConfigManager, McpAggregateConfig, McpConfig, RuntimeLogConfig,
+    ServerConfig,
 };
 
 // Facade re-exports: cache layer

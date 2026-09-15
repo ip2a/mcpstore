@@ -91,6 +91,7 @@ impl PyAsyncMCPStore {
             config_path,
             source_mode: parse_source_mode(source_mode.as_deref())?,
             node_mode: parse_node_mode(node_mode.as_deref())?,
+            node_id: None,
             store: store
                 .map(|name| {
                     let config = store_config

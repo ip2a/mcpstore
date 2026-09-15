@@ -324,7 +324,11 @@ mod tests {
 
     async fn supervisor(name: &str) -> (Arc<InstanceSupervisor>, InstanceId) {
         let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), name));
-        let manager = Arc::new(ServiceStateManager::new(cache, EventBus::new()));
+        let manager = Arc::new(ServiceStateManager::new(
+            cache,
+            EventBus::new(),
+            crate::state::CONTROL_NODE_ID.to_string(),
+        ));
         let id = ServiceInstanceKey::new(name, ScopeRef::Store).instance_id();
         manager
             .create(ServiceState::new(

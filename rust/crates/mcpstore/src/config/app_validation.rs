@@ -9,7 +9,6 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
 
     validate_ui_config(config, &mut errors);
     validate_server_settings(&config.server, &mut errors);
-    validate_daemons(config, &mut errors);
     validate_mcp_aggregate_config(config, &mut errors);
     validate_health_check_config(&config.health_check, &mut errors);
     validate_monitoring_config(&config.monitoring, &mut errors);
@@ -20,28 +19,6 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
         return Err(ConfigError::Invalid(errors.join("; ")));
     }
     Ok(())
-}
-
-fn validate_daemons(config: &AppConfig, errors: &mut Vec<String>) {
-    for (id, node) in &config.daemons {
-        if node.endpoint.trim().is_empty() {
-            errors.push(format!("daemons.{id}.endpoint cannot be empty"));
-        }
-        if node
-            .namespace
-            .as_deref()
-            .is_some_and(|value| value.trim().is_empty())
-        {
-            errors.push(format!("daemons.{id}.namespace cannot be empty"));
-        }
-        if node
-            .token
-            .as_deref()
-            .is_some_and(|value| value.trim().is_empty())
-        {
-            errors.push(format!("daemons.{id}.token cannot be empty"));
-        }
-    }
 }
 
 fn validate_mcp_aggregate_config(config: &AppConfig, errors: &mut Vec<String>) {
