@@ -34,17 +34,6 @@ impl DaemonEndpoint {
             token,
         })
     }
-
-    pub fn from_node(node: &mcpstore::DaemonNodeSettings) -> Self {
-        Self {
-            address: node.endpoint.clone(),
-            namespace: node
-                .namespace
-                .clone()
-                .unwrap_or_else(|| crate::daemon::protocol::DEFAULT_NAMESPACE.to_string()),
-            token: node.token.clone(),
-        }
-    }
 }
 
 /// 连接 daemon 管理面；无 remote endpoint 时连本机默认 namespace。

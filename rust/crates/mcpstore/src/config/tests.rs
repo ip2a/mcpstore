@@ -19,25 +19,20 @@ fn runtime_roundtrips_as_stable_string() {
 fn runtime_policy_empty_allowlist_keeps_backwards_compatibility() {
     let policy = RuntimePolicy {
         allowed_runtimes: None,
-        allowed_daemons: None,
         required_host_capabilities: Vec::new(),
     };
     assert!(policy.allows_runtime(Runtime::Local));
     assert!(policy.allows_runtime(Runtime::Daemon));
-    assert!(policy.allows_daemon("any-node"));
 }
 
 #[test]
-fn runtime_policy_restricts_declared_runtimes_and_daemons() {
+fn runtime_policy_restricts_declared_runtimes() {
     let policy = RuntimePolicy {
         allowed_runtimes: Some(vec![Runtime::Daemon]),
-        allowed_daemons: Some(vec!["browser-host".into()]),
         required_host_capabilities: Vec::new(),
     };
     assert!(!policy.allows_runtime(Runtime::Local));
     assert!(policy.allows_runtime(Runtime::Daemon));
-    assert!(policy.allows_daemon("browser-host"));
-    assert!(!policy.allows_daemon("other"));
 }
 
 #[test]
@@ -46,7 +41,6 @@ fn runtime_policy_rejects_empty_declaration() {
     config.mcpstore = Some(McpStoreExtension {
         runtime_policy: Some(RuntimePolicy {
             allowed_runtimes: None,
-            allowed_daemons: None,
             required_host_capabilities: Vec::new(),
         }),
         ..McpStoreExtension::default()
@@ -63,7 +57,6 @@ fn runtime_policy_rejects_explicitly_empty_allowlists() {
     config.mcpstore = Some(McpStoreExtension {
         runtime_policy: Some(RuntimePolicy {
             allowed_runtimes: Some(Vec::new()),
-            allowed_daemons: None,
             required_host_capabilities: vec!["browser".to_string()],
         }),
         ..McpStoreExtension::default()
@@ -71,22 +64,6 @@ fn runtime_policy_rejects_explicitly_empty_allowlists() {
     let error = config.validate_structure().unwrap_err();
     assert!(
         error.contains("allowed_runtimes must not be empty"),
-        "{error}"
-    );
-
-    // Explicit empty daemon list likewise.
-    let mut config = ServerConfig::default();
-    config.mcpstore = Some(McpStoreExtension {
-        runtime_policy: Some(RuntimePolicy {
-            allowed_runtimes: None,
-            allowed_daemons: Some(Vec::new()),
-            required_host_capabilities: Vec::new(),
-        }),
-        ..McpStoreExtension::default()
-    });
-    let error = config.validate_structure().unwrap_err();
-    assert!(
-        error.contains("allowed_daemons must not be empty"),
         "{error}"
     );
 
@@ -443,34 +420,6 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[diagnostics.runtime_log]"));
     assert!(template.contains("max_size_bytes = 5242880"));
     assert!(template.contains("log_level = \"info\""));
-}
-
-#[test]
-fn test_daemons_roundtrip_and_validation() {
-    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
-    let config = concat!(
-        "[daemons.remote]\n",
-        "endpoint = \"127.0.0.1:1840\"\n",
-        "namespace = \"ns\"\n",
-        "token = \"secret\"\n"
-    );
-    std::fs::write(mgr.app_config_path(), config).unwrap();
-
-    let loaded = mgr.load_app_config().unwrap();
-    let node = loaded.daemons.get("remote").unwrap();
-    assert_eq!(node.endpoint, "127.0.0.1:1840");
-    assert_eq!(node.namespace.as_deref(), Some("ns"));
-    assert_eq!(node.token.as_deref(), Some("secret"));
-
-    std::fs::write(mgr.app_config_path(), "[daemons.bad]\nendpoint = \" \"\n").unwrap();
-    let error = mgr.load_app_config().unwrap_err();
-    assert!(
-        error.to_string().contains("daemons.bad.endpoint"),
-        "{error}"
-    );
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

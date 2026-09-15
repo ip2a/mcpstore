@@ -146,8 +146,6 @@ pub struct AddArgs {
     pub require_host_capability: Vec<String>,
     #[arg(long = "allow-runtime", value_name = "RUNTIME")]
     pub allow_runtime: Vec<mcpstore::config::Runtime>,
-    #[arg(long = "allow-daemon", value_name = "ID")]
-    pub allow_daemon: Vec<String>,
 }
 
 pub async fn add(
@@ -171,11 +169,7 @@ pub async fn add(
         let extension = config.mcpstore.get_or_insert_with(Default::default);
         extension.handshake_mode = Some(handshake);
     }
-    if let Some(policy) = runtime_policy_from_flags(
-        &a.allow_runtime,
-        &a.allow_daemon,
-        &a.require_host_capability,
-    ) {
+    if let Some(policy) = runtime_policy_from_flags(&a.allow_runtime, &a.require_host_capability) {
         config
             .mcpstore
             .get_or_insert_with(Default::default)
@@ -795,8 +789,6 @@ pub struct UpdateArgs {
     pub require_host_capability: Vec<String>,
     #[arg(long = "allow-runtime", value_name = "RUNTIME")]
     pub allow_runtime: Vec<mcpstore::config::Runtime>,
-    #[arg(long = "allow-daemon", value_name = "ID")]
-    pub allow_daemon: Vec<String>,
 }
 
 pub async fn update(
@@ -814,11 +806,7 @@ pub async fn update(
         &env_map,
         &header_map,
     )?;
-    let runtime_policy = runtime_policy_from_flags(
-        &a.allow_runtime,
-        &a.allow_daemon,
-        &a.require_host_capability,
-    );
+    let runtime_policy = runtime_policy_from_flags(&a.allow_runtime, &a.require_host_capability);
     if a.scope == Scope::Agent && runtime_policy.is_some() {
         return Err("Runtime policy is definition-level; use --scope store".into());
     }
@@ -950,12 +938,6 @@ pub struct RuntimeArgs {
         help = "Execution runtime: local or daemon (default: auto)"
     )]
     pub runtime: Option<RuntimeArg>,
-    #[arg(
-        long = "daemon-node",
-        value_name = "ID",
-        help = "Route execution to a configured daemon node (implies --runtime daemon)"
-    )]
-    pub daemon_node: Option<String>,
 }
 
 impl RuntimeArgs {
@@ -964,15 +946,6 @@ impl RuntimeArgs {
         embedded: bool,
     ) -> mcpstore::Result<mcpstore::config::RuntimeSelection> {
         use mcpstore::config::{Runtime, RuntimeSelection};
-        if let Some(node) = &self.daemon_node {
-            if self.runtime == Some(RuntimeArg::Local) {
-                return Err(Error::new(
-                    FailureCode::InvalidInput,
-                    "--daemon-node requires --runtime daemon",
-                ));
-            }
-            return Ok(RuntimeSelection::daemon_node(node.clone()));
-        }
         let runtime = match self.runtime.map(RuntimeArg::to_runtime) {
             None if embedded => Runtime::Local,
             None => Runtime::Daemon,
@@ -1139,28 +1112,14 @@ pub(crate) fn resolve_declared_runtime(
                 ),
             ));
         }
-        if let Some(node) = &selection.daemon_node {
-            if !policy.allows_daemon(node) {
-                return Err(Error::new(
-                    FailureCode::InvalidInput,
-                    format!(
-                        "daemon node '{node}' not allowed for instance; allowed: {}",
-                        policy.allowed_daemons.as_deref().unwrap_or(&[]).join(", ")
-                    ),
-                ));
-            }
-        }
     }
     Ok(selection)
 }
 
 /// Inject the resolved runtime selection into a daemon op payload as the
-/// `runtime` (+ optional `daemon_node`) keys.
+/// `runtime` key.
 pub(crate) fn insert_runtime(payload: &mut Value, selection: &mcpstore::config::RuntimeSelection) {
     payload["runtime"] = json!(selection.runtime);
-    if let Some(node) = &selection.daemon_node {
-        payload["daemon_node"] = json!(node);
-    }
 }
 
 async fn execute_call_tool(
@@ -1988,16 +1947,13 @@ fn parse_key_values(
 
 fn runtime_policy_from_flags(
     allowed_runtimes: &[mcpstore::config::Runtime],
-    allowed_daemons: &[String],
     required_host_capabilities: &[String],
 ) -> Option<RuntimePolicy> {
-    (!allowed_runtimes.is_empty()
-        || !allowed_daemons.is_empty()
-        || !required_host_capabilities.is_empty())
-    .then(|| RuntimePolicy {
-        allowed_runtimes: (!allowed_runtimes.is_empty()).then(|| allowed_runtimes.to_vec()),
-        allowed_daemons: (!allowed_daemons.is_empty()).then(|| allowed_daemons.to_vec()),
-        required_host_capabilities: required_host_capabilities.to_vec(),
+    (!allowed_runtimes.is_empty() || !required_host_capabilities.is_empty()).then(|| {
+        RuntimePolicy {
+            allowed_runtimes: (!allowed_runtimes.is_empty()).then(|| allowed_runtimes.to_vec()),
+            required_host_capabilities: required_host_capabilities.to_vec(),
+        }
     })
 }
 
@@ -2159,7 +2115,6 @@ mod tests {
     fn local_execution_rejects_missing_host_capability() {
         let policy = RuntimePolicy {
             allowed_runtimes: None,
-            allowed_daemons: None,
             required_host_capabilities: vec!["definitely-missing-capability".into()],
         };
         let error =
@@ -2171,7 +2126,6 @@ mod tests {
     fn daemon_selection_passes_allowlist() {
         let policy = mcpstore::config::RuntimePolicy {
             allowed_runtimes: Some(vec![mcpstore::config::Runtime::Daemon]),
-            allowed_daemons: None,
             required_host_capabilities: Vec::new(),
         };
         let info = json!({"runtime_policy": policy});
@@ -2184,26 +2138,9 @@ mod tests {
     }
 
     #[test]
-    fn disallowed_daemon_node_is_rejected() {
-        let policy = mcpstore::config::RuntimePolicy {
-            allowed_runtimes: None,
-            allowed_daemons: Some(vec!["approved".into()]),
-            required_host_capabilities: Vec::new(),
-        };
-        let info = json!({"runtime_policy": policy});
-        let error = resolve_declared_runtime(
-            &info,
-            mcpstore::config::RuntimeSelection::daemon_node("other"),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("not allowed"), "{error}");
-    }
-
-    #[test]
     fn explicit_disallowed_runtime_is_rejected() {
         let policy = mcpstore::config::RuntimePolicy {
             allowed_runtimes: Some(vec![mcpstore::config::Runtime::Local]),
-            allowed_daemons: None,
             required_host_capabilities: Vec::new(),
         };
         let info = json!({"runtime_policy": policy});
@@ -2227,6 +2164,7 @@ mod tests {
             args: vec!["fixture".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2241,7 +2179,6 @@ mod tests {
             handshake: None,
             require_host_capability: Vec::new(),
             allow_runtime: vec![mcpstore::config::Runtime::Local],
-            allow_daemon: Vec::new(),
         };
         add(add_args, true, None).await.unwrap();
 
@@ -2251,6 +2188,7 @@ mod tests {
             args: vec!["changed".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2264,7 +2202,6 @@ mod tests {
             agent: None,
             require_host_capability: Vec::new(),
             allow_runtime: vec![mcpstore::config::Runtime::Daemon],
-            allow_daemon: Vec::new(),
         };
         update(update_args, true, None).await.unwrap();
 
@@ -2274,6 +2211,7 @@ mod tests {
             args: vec!["preserved".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2287,7 +2225,6 @@ mod tests {
             agent: None,
             require_host_capability: Vec::new(),
             allow_runtime: Vec::new(),
-            allow_daemon: Vec::new(),
         };
         update(update_args, true, None).await.unwrap();
 
@@ -2314,6 +2251,7 @@ mod tests {
             args: Vec::new(),
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: None,
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2327,7 +2265,6 @@ mod tests {
             agent: Some("agent".into()),
             require_host_capability: Vec::new(),
             allow_runtime: vec![mcpstore::config::Runtime::Local],
-            allow_daemon: Vec::new(),
         };
         let error = update(args, true, None).await.unwrap_err().to_string();
         assert!(error.contains("definition-level"), "{error}");
@@ -2344,6 +2281,7 @@ mod tests {
             args: vec!["fixture".into()],
             transport: Some("stdio".into()),
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: Some(config_path.to_str().unwrap().into()),
                 source: crate::store_args::SourceArg::Local,
                 store: None,
@@ -2358,7 +2296,6 @@ mod tests {
             handshake: None,
             require_host_capability: Vec::new(),
             allow_runtime: vec![mcpstore::config::Runtime::Local],
-            allow_daemon: Vec::new(),
         };
         add(args, true, None).await.unwrap();
         let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();

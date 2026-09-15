@@ -31,26 +31,7 @@ pub(crate) async fn resolve_daemon_runtime(
             ))
         }
     };
-    let daemon_node = match payload.get("daemon_node") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(value)) if !value.trim().is_empty() => Some(value.clone()),
-        Some(_) => {
-            return Err(Error::new(
-                FailureCode::InvalidInput,
-                "daemon_node must be a non-empty string",
-            ))
-        }
-    };
-    if daemon_node.is_some() && runtime != Runtime::Daemon {
-        return Err(Error::new(
-            FailureCode::InvalidInput,
-            "daemon_node requires runtime=daemon",
-        ));
-    }
-    let selection = RuntimeSelection {
-        runtime,
-        daemon_node,
-    };
+    let selection = RuntimeSelection::runtime(runtime);
     if let Some(instance) = store.find_instance(instance_id).await {
         if let Some(definition) = store.find_definition(&instance.service_name).await {
             if let Some(policy) = definition.runtime_policy {
@@ -63,11 +44,6 @@ pub(crate) async fn resolve_daemon_runtime(
                         &instance.service_name,
                         &policy,
                     ));
-                }
-                if let Some(node) = &selection.daemon_node {
-                    if !policy.allows_daemon(node) {
-                        return Err(daemon_not_allowed(node, &instance.service_name, &policy));
-                    }
                 }
             }
         }
@@ -93,16 +69,6 @@ fn runtime_not_allowed(
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", ")
-        ),
-    )
-}
-
-fn daemon_not_allowed(node: &str, service_name: &str, policy: &RuntimePolicy) -> Error {
-    Error::new(
-        FailureCode::InvalidInput,
-        format!(
-            "daemon node '{node}' not allowed for service '{service_name}'; allowed: {}",
-            policy.allowed_daemons.as_deref().unwrap_or(&[]).join(", ")
         ),
     )
 }
@@ -795,7 +761,7 @@ pub(crate) fn required_str_value(value: &Value, field: &str) -> Result<String, E
         })
 }
 
-fn host_capabilities() -> HashSet<&'static str> {
+pub(crate) fn host_capabilities() -> HashSet<&'static str> {
     let mut capabilities = HashSet::from(["browser"]);
     if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
         capabilities.insert("display");
@@ -807,7 +773,7 @@ fn missing_local_capabilities(
     policy: &RuntimePolicy,
     selection: &RuntimeSelection,
 ) -> Option<String> {
-    if selection.runtime != Runtime::Local && selection.daemon_node.is_none() {
+    if selection.runtime != Runtime::Local {
         return None;
     }
     let capabilities = host_capabilities();
@@ -847,7 +813,6 @@ mod tests {
     fn local_execution_rejects_missing_host_capability() {
         let policy = RuntimePolicy {
             allowed_runtimes: None,
-            allowed_daemons: None,
             required_host_capabilities: vec!["definitely-missing-capability".into()],
         };
         let error = missing_local_capabilities(&policy, &RuntimeSelection::runtime(Runtime::Local))
@@ -856,7 +821,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn daemon_accepts_named_execution_node_as_local_host_execution() {
+    async fn daemon_accepts_daemon_runtime_selection() {
         let path =
             std::env::temp_dir().join(format!("mcpstore-daemon-node-{}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
@@ -864,15 +829,10 @@ mod tests {
         let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
         let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
 
-        let selection = resolve_daemon_runtime(
-            &store,
-            instance_id,
-            &json!({"runtime": "daemon", "daemon_node": "remote"}),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(selection, RuntimeSelection::daemon_node("remote"));
+        let selection = resolve_daemon_runtime(&store, instance_id, &json!({"runtime": "daemon"}))
+            .await
+            .unwrap();
+        assert_eq!(selection, RuntimeSelection::runtime(Runtime::Daemon));
         std::fs::remove_dir_all(path).ok();
     }
 
@@ -892,7 +852,6 @@ mod tests {
         config.mcpstore = Some(McpStoreExtension {
             runtime_policy: Some(RuntimePolicy {
                 allowed_runtimes: Some(vec![Runtime::Local]),
-                allowed_daemons: None,
                 required_host_capabilities: Vec::new(),
             }),
             scopes: ScopeDeclarations::store_only(),

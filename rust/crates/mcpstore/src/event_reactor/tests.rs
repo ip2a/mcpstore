@@ -355,6 +355,7 @@ async fn run_control_reactor_recovers_executing_request() {
         std::env::temp_dir().join(format!("mcpstore-recovery-{}.json", uuid::Uuid::new_v4()));
     let store = std::sync::Arc::new(
         crate::store::MCPStore::setup_with_options(crate::store::StoreOptions {
+            node_id: None,
             config_path: Some(path.to_string_lossy().to_string()),
             source_mode: crate::store::SourceMode::Local,
             node_mode: crate::store::NodeMode::ControlPlane,
