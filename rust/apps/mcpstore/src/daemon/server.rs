@@ -386,6 +386,12 @@ async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
             "pending": pending.unwrap_or(0),
             "requests": requests.len(),
         },
+        "node": {
+            "id": host.store.node_id(),
+            "mode": if host.store.is_data_plane() { "data" } else { "control" },
+            "heartbeat": host.store.read_node_status(&host.store.node_id()).await?,
+            "nodes": host.store.node_liveness(45).await?,
+        },
         "listeners": host.faces.snapshot(),
     }))
 }

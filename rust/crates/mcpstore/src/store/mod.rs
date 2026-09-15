@@ -282,6 +282,27 @@ impl MCPStore {
             .map_err(Error::from)
     }
 
+    pub async fn list_node_statuses(
+        &self,
+    ) -> Result<std::collections::HashMap<String, serde_json::Value>> {
+        self.kernel
+            .control
+            .state
+            .list_node_statuses()
+            .await
+            .map_err(Error::from)
+    }
+
+    pub async fn node_liveness(&self, stale_after_secs: i64) -> Result<serde_json::Value> {
+        let now = chrono::Utc::now().timestamp();
+        self.kernel
+            .control
+            .state
+            .node_liveness(stale_after_secs, now)
+            .await
+            .map_err(Error::from)
+    }
+
     pub fn is_data_plane(&self) -> bool {
         self.kernel.runtime.node_mode == NodeMode::DataPlane
     }
