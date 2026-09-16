@@ -62,14 +62,17 @@ impl MCPStore {
                 crate::auth::AuthConfig::OAuthAuthorizationCode(_)
                 | crate::auth::AuthConfig::OAuthClientCredentials(_) => AuthState::Unauthenticated,
             };
-            let lifecycle = config.resolved_lifecycle_for_scope(
-                &instance.scope,
-                &self
-                    .kernel
-                    .runtime
-                    .runtime_config
-                    .service_lifecycle_defaults,
-            );
+            // effective_config 是连接用基础配置，不含 _mcpstore 扩展；
+            // lifecycle 必须从定义解析（与 resolved_instance_lifecycle 同源）。
+            let lifecycle = Self::server_config_from_definition(&definition)?
+                .resolved_lifecycle_for_scope(
+                    &instance.scope,
+                    &self
+                        .kernel
+                        .runtime
+                        .runtime_config
+                        .service_lifecycle_defaults,
+                );
             // keep_alive=true 隐含期望常驻：desired=Running 交给现有自愈循环维持
             // （断开即重连）；显式 disconnect 置 Stopped 后仍优先，不会被覆盖。
             let desired = if lifecycle.startup_policy == crate::config::StartupPolicy::OnStoreStart
