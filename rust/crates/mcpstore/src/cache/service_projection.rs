@@ -70,7 +70,10 @@ impl MCPStore {
                     .runtime_config
                     .service_lifecycle_defaults,
             );
+            // keep_alive=true 隐含期望常驻：desired=Running 交给现有自愈循环维持
+            // （断开即重连）；显式 disconnect 置 Stopped 后仍优先，不会被覆盖。
             let desired = if lifecycle.startup_policy == crate::config::StartupPolicy::OnStoreStart
+                || lifecycle.keep_alive
             {
                 DesiredState::Running
             } else {

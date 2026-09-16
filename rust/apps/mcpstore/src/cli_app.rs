@@ -451,6 +451,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_add_keep_alive_flag() {
+        let cli = Cli::try_parse_from([
+            "mcpstore",
+            "add",
+            "browser",
+            "--transport",
+            "stdio",
+            "--keep-alive",
+            "--",
+            "npx",
+            "server",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Add(args) => assert!(args.keep_alive),
+            _ => panic!("Expected to parse as add command"),
+        }
+    }
+
+    #[test]
     fn parses_call_runtime_values() {
         for (value, expected) in [
             ("local", commands::mcp::RuntimeArg::Local),
