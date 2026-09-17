@@ -54,7 +54,8 @@ __pycache__/
 *.pyd
 target/
 dist/
-web/node_modules/
+web/node_modules
+python/.venv
 web/dist/
 docs/.venv/
 docs/site/

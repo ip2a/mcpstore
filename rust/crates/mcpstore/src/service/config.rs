@@ -379,7 +379,9 @@ impl MCPStore {
         self.cache_definition(&definition).await
     }
 
-    fn server_config_from_definition(definition: &ServiceDefinition) -> Result<ServerConfig> {
+    pub(crate) fn server_config_from_definition(
+        definition: &ServiceDefinition,
+    ) -> Result<ServerConfig> {
         let mut config: ServerConfig = serde_json::from_value(Value::Object(
             definition.base_config.clone(),
         ))

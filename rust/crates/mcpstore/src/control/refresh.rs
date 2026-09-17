@@ -274,7 +274,10 @@ impl MCPStore {
                         .runtime_config
                         .service_lifecycle_defaults,
                 );
-                let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart {
+                // keep_alive=true 隐含期望常驻（与 cache_instance_added 的判定一致）
+                let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart
+                    || lifecycle.keep_alive
+                {
                     DesiredState::Running
                 } else {
                     DesiredState::Stopped

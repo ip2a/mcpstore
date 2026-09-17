@@ -146,6 +146,9 @@ pub struct AddArgs {
     pub require_host_capability: Vec<String>,
     #[arg(long = "allow-runtime", value_name = "RUNTIME")]
     pub allow_runtime: Vec<mcpstore::config::Runtime>,
+    /// Maintain the connection on the control plane (desired=connected; reconnect on drop)
+    #[arg(long = "keep-alive")]
+    pub keep_alive: bool,
 }
 
 pub async fn add(
@@ -174,6 +177,11 @@ pub async fn add(
             .mcpstore
             .get_or_insert_with(Default::default)
             .runtime_policy = Some(policy);
+    }
+    if a.keep_alive {
+        let extension = config.mcpstore.get_or_insert_with(Default::default);
+        let lifecycle = extension.lifecycle.get_or_insert_with(Default::default);
+        lifecycle.keep_alive = Some(true);
     }
     let scope = a.scope.to_ref(a.agent.as_deref())?;
     if let ScopeRef::Agent { agent_id } = &scope {
@@ -2179,6 +2187,7 @@ mod tests {
             handshake: None,
             require_host_capability: Vec::new(),
             allow_runtime: vec![mcpstore::config::Runtime::Local],
+            keep_alive: false,
         };
         add(add_args, true, None).await.unwrap();
 
@@ -2296,6 +2305,7 @@ mod tests {
             handshake: None,
             require_host_capability: Vec::new(),
             allow_runtime: vec![mcpstore::config::Runtime::Local],
+            keep_alive: false,
         };
         add(args, true, None).await.unwrap();
         let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();

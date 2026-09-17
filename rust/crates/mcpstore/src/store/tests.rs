@@ -6481,6 +6481,51 @@ mod scoped_contract {
     }
 
     #[tokio::test]
+    async fn keep_alive_implies_desired_running_on_add() {
+        // keep_alive=true：add 后期望常驻（desired=Running，交给自愈循环维持）；
+        // 缺省（非 OnStoreStart）：desired=Stopped 保持现状。
+        let path = temp_config_path();
+        let mut keep_alive_config = native_config(ScopeDeclarations::store_only());
+        keep_alive_config.mcpstore.as_mut().unwrap().lifecycle =
+            Some(crate::config::ServiceLifecycleConfig {
+                startup_policy: None,
+                restart_policy: None,
+                keep_alive: Some(true),
+            });
+        let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
+        store.add_service("svc", keep_alive_config).await.unwrap();
+        let state = store
+            .kernel
+            .control
+            .state
+            .get(instance_id("svc", store_scope()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.desired, crate::state::DesiredState::Running);
+
+        let mut lazy_config = native_config(ScopeDeclarations::store_only());
+        lazy_config.mcpstore.as_mut().unwrap().lifecycle =
+            Some(crate::config::ServiceLifecycleConfig {
+                startup_policy: None,
+                restart_policy: None,
+                keep_alive: None,
+            });
+        store.add_service("lazy", lazy_config).await.unwrap();
+        let lazy = store
+            .kernel
+            .control
+            .state
+            .get(instance_id("lazy", store_scope()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(lazy.desired, crate::state::DesiredState::Stopped);
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
     async fn retry_state_is_isolated_between_sibling_instances() {
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
