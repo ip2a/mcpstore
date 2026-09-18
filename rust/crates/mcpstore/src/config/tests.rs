@@ -285,7 +285,6 @@ fn test_app_config_roundtrip() {
     config.mcp_aggregate.transport = "streamable-http".to_string();
     config.mcp_aggregate.port = 19400;
     config.ui.language = "en".to_string();
-    config.ui.default_backup_dir = "./snapshots".to_string();
     config.diagnostics.runtime_log.max_size_bytes = 8 * 1024 * 1024;
     config.diagnostics.runtime_log.retention_days = Some(14);
 
@@ -298,7 +297,6 @@ fn test_app_config_roundtrip() {
     assert_eq!(loaded.mcp_aggregate.transport, "streamable-http");
     assert_eq!(loaded.mcp_aggregate.port, 19400);
     assert_eq!(loaded.ui.language, "en");
-    assert_eq!(loaded.ui.default_backup_dir, "./snapshots");
     assert_eq!(
         loaded.diagnostics.runtime_log.max_size_bytes,
         8 * 1024 * 1024
@@ -326,10 +324,78 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[standalone]"));
     assert!(template.contains("[ui]"));
     assert!(template.contains("language = \"en\""));
-    assert!(template.contains("default_backup_dir = \"./backups\""));
     assert!(template.contains("[diagnostics.runtime_log]"));
     assert!(template.contains("max_size_bytes = 5242880"));
     assert!(template.contains("log_level = \"info\""));
+    assert!(template.contains("[hosts]"));
+    assert!(template.contains("active = \"local\""));
+}
+
+#[test]
+fn test_hosts_config_roundtrip() {
+    use std::collections::HashMap;
+
+    use super::{HostEntry, HostsConfig};
+
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        r#"
+[hosts]
+active = "测试 A"
+
+[hosts.local]
+url = "/api"
+
+[hosts."测试 A"]
+url = "http://115.191.69.41:8021"
+"#,
+    )
+    .unwrap();
+
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(loaded.hosts.active, "测试 A");
+    assert_eq!(loaded.hosts.entries.len(), 2);
+    assert_eq!(
+        loaded.hosts.entries.get("local").map(|entry| entry.url.as_str()),
+        Some("/api")
+    );
+    assert_eq!(
+        loaded
+            .hosts
+            .entries
+            .get("测试 A")
+            .map(|entry| entry.url.as_str()),
+        Some("http://115.191.69.41:8021")
+    );
+    assert_eq!(loaded.hosts.active_url(), "http://115.191.69.41:8021");
+
+    let mut config = AppConfig::default();
+    config.hosts = HostsConfig {
+        active: "remote".to_string(),
+        entries: HashMap::from([
+            (
+                "local".to_string(),
+                HostEntry {
+                    url: "/api".to_string(),
+                },
+            ),
+            (
+                "remote".to_string(),
+                HostEntry {
+                    url: "http://127.0.0.1:1820".to_string(),
+                },
+            ),
+        ]),
+    };
+    mgr.save_app_config(&config).unwrap();
+    let saved = mgr.load_app_config().unwrap();
+    assert_eq!(saved.hosts.active, "remote");
+    assert_eq!(saved.hosts.entries.len(), 2);
+
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

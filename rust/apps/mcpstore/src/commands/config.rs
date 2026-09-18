@@ -114,9 +114,6 @@ fn show(path: Option<String>) -> std::result::Result<(), Box<dyn std::error::Err
     println!("{}", "─".repeat(50));
     println!("MCP config file: {}", m.mcp_path().display());
     println!("Global config file: {}", m.app_config_path().display());
-    println!("Version: {}", app_config.version);
-    println!("Description: {}", app_config.description);
-    println!("Created by: {}", app_config.created_by);
 
     println!("\nCache:");
     println!("  Store: {}", app_config.cache.store);
