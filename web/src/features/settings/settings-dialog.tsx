@@ -420,11 +420,11 @@ function BackendFields({ draft, patchDraft }: { draft: SettingsDraft; patchDraft
     <FieldGroup>
       <Field orientation="responsive">
         <FieldContent><FieldTitle>默认后端启动端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
-        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.api.port} onChange={(event) => patchDraft({ api: { ...draft.api, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
       </Field>
       <Field orientation="responsive">
         <FieldContent><FieldTitle>默认前端启动端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
-        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.web.port} onChange={(event) => patchDraft({ web: { ...draft.web, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
       </Field>
     </FieldGroup>
   )

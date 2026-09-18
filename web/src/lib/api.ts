@@ -276,7 +276,8 @@ export type HostsPayload = {
 
 export type SettingsPayload = {
   language?: UiLanguage;
-  server?: { host?: string; port?: number; web_port?: number };
+  api?: { host?: string; port?: number; url_prefix?: string };
+  web?: { host?: string; port?: number };
   diagnostics?: DiagnosticsSettingsPayload;
   hosts?: HostsPayload;
   [key: string]: unknown;
@@ -313,7 +314,8 @@ export type MetaPayload = {
 
 export type UpdateSettingsPayload = {
   language?: UiLanguage;
-  server?: { port?: number; web_port?: number };
+  api?: { port?: number };
+  web?: { port?: number };
   diagnostics?: DiagnosticsSettingsPayload;
   hosts?: HostsPayload;
   [key: string]: unknown;

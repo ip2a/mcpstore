@@ -18,9 +18,11 @@ export type HostDraft = {
 export type SettingsDraft = {
   language: UiLanguage
   hosts: HostsConfig
-  server: {
+  api: {
     port: number
-    web_port: number
+  }
+  web: {
+    port: number
   }
   diagnostics: {
     enabled: boolean
@@ -56,9 +58,11 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
   return {
     language: settings?.language || "auto",
     hosts,
-    server: {
-      port: settings?.server?.port || 1820,
-      web_port: settings?.server?.web_port || 1828,
+    api: {
+      port: settings?.api?.port || 1820,
+    },
+    web: {
+      port: settings?.web?.port || 1828,
     },
     diagnostics: {
       enabled: settings?.diagnostics?.enabled !== false,
@@ -72,7 +76,8 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
 export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
   return {
     language: draft.language,
-    server: draft.server,
+    api: draft.api,
+    web: draft.web,
     hosts: serializeHostsPayload(draft.hosts) as HostsPayload,
     diagnostics: {
       enabled: draft.diagnostics.enabled,
