@@ -51,10 +51,10 @@ use parse::{
 pub struct ApiArgs {
     #[arg(long, help = "API 服务端口；未指定时读取 app 配置")]
     pub port: Option<u16>,
-    #[arg(long, default_value = "127.0.0.1", help = "绑定地址")]
-    pub host: String,
-    #[arg(long, default_value = "", help = "URL 前缀，例如 /mcp")]
-    pub url_prefix: String,
+    #[arg(long, help = "绑定地址；未指定时读取 app 配置")]
+    pub host: Option<String>,
+    #[arg(long, help = "URL 前缀，例如 /mcp；未指定时读取 app 配置")]
+    pub url_prefix: Option<String>,
     #[arg(long, help = "显式允许非 loopback API 绑定")]
     pub allow_remote: bool,
     #[command(flatten)]
@@ -107,25 +107,33 @@ async fn resolve_instance(
 }
 
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
-    let loopback = args.host == "localhost"
-        || args
-            .host
+    let store = build_store(&args.store)?;
+    store.load_from_source().await?;
+
+    let config = store.config_manager().load_app_config_or_default()?;
+    let host = args
+        .host
+        .as_deref()
+        .unwrap_or(&config.api.host)
+        .to_string();
+    let port = args.port.unwrap_or(config.api.port);
+    let prefix = normalize_prefix(
+        args.url_prefix
+            .as_deref()
+            .unwrap_or(&config.api.url_prefix),
+    );
+
+    let loopback = host == "localhost"
+        || host
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback());
     if !loopback && !args.allow_remote {
         return Err("API 默认只允许 loopback 绑定；使用 --allow-remote 明确开启远程暴露".into());
     }
 
-    let store = build_store(&args.store)?;
-    store.load_from_source().await?;
-
-    let config = store.config_manager().load_app_config_or_default()?;
-    let port = args.port.unwrap_or(config.server.port);
-
-    let prefix = normalize_prefix(&args.url_prefix);
     let app = router_for_store(store, &prefix);
 
-    let addr = format!("{}:{}", args.host, port);
+    let addr = format!("{}:{}", host, port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let display_prefix = if prefix.is_empty() {
         "/".to_string()

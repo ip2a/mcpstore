@@ -17,14 +17,19 @@ use super::{
 pub(super) struct UpdateSettingsRequest {
     language: Option<String>,
     diagnostics: Option<UpdateDiagnosticsRequest>,
-    server: Option<UpdateServerRequest>,
+    api: Option<UpdateApiRequest>,
+    web: Option<UpdateWebRequest>,
     hosts: Option<HostsConfig>,
 }
 
 #[derive(Deserialize)]
-struct UpdateServerRequest {
+struct UpdateApiRequest {
     port: Option<u16>,
-    web_port: Option<u16>,
+}
+
+#[derive(Deserialize)]
+struct UpdateWebRequest {
+    port: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -65,24 +70,27 @@ pub(super) async fn update_settings(
         config.ui.language = normalize_ui_language(&language)?;
     }
 
-    if let Some(server) = payload.server {
-        if let Some(port) = server.port {
+    if let Some(api) = payload.api {
+        if let Some(port) = api.port {
             if port == 0 {
                 return Err(ApiError::invalid_parameter(
                     "后端端口必须大于 0",
-                    Some("server.port"),
+                    Some("api.port"),
                 ));
             }
-            config.server.port = port;
+            config.api.port = port;
         }
-        if let Some(web_port) = server.web_port {
-            if web_port == 0 {
+    }
+
+    if let Some(web) = payload.web {
+        if let Some(port) = web.port {
+            if port == 0 {
                 return Err(ApiError::invalid_parameter(
                     "前端端口必须大于 0",
-                    Some("server.web_port"),
+                    Some("web.port"),
                 ));
             }
-            config.server.web_port = web_port;
+            config.web.port = port;
         }
     }
 
@@ -149,10 +157,14 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
 fn settings_payload(config: &AppConfig) -> Value {
     json!({
         "language": api_ui_language(&config.ui.language),
-        "server": {
-            "host": config.server.host,
-            "port": config.server.port,
-            "web_port": config.server.web_port,
+        "api": {
+            "host": config.api.host,
+            "port": config.api.port,
+            "url_prefix": config.api.url_prefix,
+        },
+        "web": {
+            "host": config.web.host,
+            "port": config.web.port,
         },
         "diagnostics": {
             "enabled": config.diagnostics.enabled,

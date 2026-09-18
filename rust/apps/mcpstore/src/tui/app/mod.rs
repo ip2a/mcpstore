@@ -301,22 +301,19 @@ impl TuiApp {
         self.log_config = vec![
             (
                 TextKey::SettingsServerLogLevel,
-                value(&|config| config.server.log_level.clone()),
+                value(&|config| config.diagnostics.runtime_log.level.clone()),
             ),
             (
-                TextKey::SettingsStandaloneLogLevel,
-                value(&|config| config.standalone.log_level.clone()),
+                TextKey::SettingsTracingSink,
+                value(&|config| {
+                    if config.diagnostics.enabled && config.diagnostics.runtime_log.enabled {
+                        "file".to_string()
+                    } else {
+                        "stderr".to_string()
+                    }
+                }),
             ),
-            (
-                TextKey::SettingsStandaloneLogFormat,
-                value(&|config| config.standalone.log_format.clone()),
-            ),
-            (
-                TextKey::SettingsDebugEnabled,
-                value(&|config| config.standalone.enable_debug.to_string()),
-            ),
-            (TextKey::SettingsTracingSink, "stderr".to_string()),
-            (TextKey::SettingsLogFile, "not configured".to_string()),
+            (TextKey::SettingsLogFile, "logs/mcpstore.log".to_string()),
             (TextKey::SettingsConfigFile, self.app_config_path.clone()),
         ];
     }
