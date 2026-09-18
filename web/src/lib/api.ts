@@ -265,11 +265,20 @@ export type LogSettingsPayload = {
   retention_days?: number | null;
 };
 
+export type HostEntry = {
+  url: string;
+};
+
+export type HostsPayload = {
+  active: string;
+  [name: string]: string | HostEntry;
+};
+
 export type SettingsPayload = {
   language?: UiLanguage;
-  default_backup_dir?: string;
   server?: { host?: string; port?: number; web_port?: number };
   diagnostics?: DiagnosticsSettingsPayload;
+  hosts?: HostsPayload;
   [key: string]: unknown;
 };
 
@@ -283,9 +292,6 @@ export type DiagnosticsSettingsPayload = {
 };
 
 export type SettingsPathsPayload = {
-  backup_dir_base?: string | null;
-  backup_dir_input?: string | null;
-  backup_dir_resolved?: string | null;
   log_dir?: string | null;
   log_file_name?: string | null;
   log_file_path?: string | null;
@@ -307,9 +313,9 @@ export type MetaPayload = {
 
 export type UpdateSettingsPayload = {
   language?: UiLanguage;
-  default_backup_dir?: string;
   server?: { port?: number; web_port?: number };
   diagnostics?: DiagnosticsSettingsPayload;
+  hosts?: HostsPayload;
   [key: string]: unknown;
 };
 
