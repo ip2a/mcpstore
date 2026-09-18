@@ -38,10 +38,13 @@ ScopeView = Annotated[
     Union[RootScope, StoreScope, AgentScope], Field(discriminator="type")
 ]
 
+HandshakeMode = Literal["auto", "discover", "initialize"]
+
 
 class ScopeDescriptor(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict)
     lifecycle: Optional[Dict[str, Any]] = None
+    handshake_mode: Optional[HandshakeMode] = None
 
     model_config = ConfigDict(extra="forbid")
 

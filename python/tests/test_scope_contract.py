@@ -108,6 +108,7 @@ class ScopeContractTests(unittest.TestCase):
                     {
                         "config": {"env": {"TOKEN": "agent"}},
                         "lifecycle": None,
+                        "handshake_mode": None,
                     },
                 ),
                 (
@@ -116,6 +117,27 @@ class ScopeContractTests(unittest.TestCase):
                     {"type": "agent", "agent_id": "agent-a"},
                 ),
             ],
+        )
+
+    def test_declare_service_scope_accepts_handshake_mode(self) -> None:
+        self.store.declare_service_scope(
+            "demo",
+            {"type": "store"},
+            ScopeDescriptor(config={"url": "https://example.test/mcp"}, handshake_mode="auto"),
+        )
+
+        self.assertEqual(
+            self.core.calls[-1],
+            (
+                "declare_service_scope",
+                "demo",
+                {"type": "store"},
+                {
+                    "config": {"url": "https://example.test/mcp"},
+                    "lifecycle": None,
+                    "handshake_mode": "auto",
+                },
+            ),
         )
 
     def test_update_and_patch_reject_mcpstore(self) -> None:
