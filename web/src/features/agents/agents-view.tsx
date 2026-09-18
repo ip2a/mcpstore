@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { EyeIcon, LinkIcon, PlusIcon, RefreshCwIcon, UnlinkIcon } from "lucide-react"
+import { EyeIcon, LinkIcon, PlusIcon, RefreshCwIcon, UnlinkIcon, WaypointsIcon } from "lucide-react"
 
 import { EntityRow } from "@/components/shared/entity-row"
 import { JsonBlock } from "@/components/shared/json-block"
@@ -610,7 +610,8 @@ function AgentPreviewHeader({
           </Button>
         ) : null}
         <Button size="sm" variant="outline" onClick={onHub} disabled={loading}>
-          HUB
+          <WaypointsIcon data-icon="inline-start" />
+          hub
         </Button>
         <Button size="sm" variant="outline" onClick={onDetails} disabled={loading}>
           <EyeIcon data-icon="inline-start" />

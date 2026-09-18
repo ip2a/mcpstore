@@ -20,6 +20,7 @@ import { TwoPanePage } from "@/components/shared/two-pane-page";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
+  useServiceAuthQuery,
   useServiceDetailQuery,
   useServicePromptsQuery,
   useServiceResourceTemplatesQuery,
@@ -104,6 +105,7 @@ export function ServiceDetailView(props: {
   );
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const detailQuery = useServiceDetailQuery(props.service);
+  const authQuery = useServiceAuthQuery(props.service);
   const statusQuery = useServiceStatusQuery(props.service);
   const resourcesQuery = useServiceResourcesQuery(props.service);
   const resourceTemplatesQuery = useServiceResourceTemplatesQuery(props.service);
@@ -295,6 +297,9 @@ export function ServiceDetailView(props: {
   }
 
   function refreshCurrentView() {
+    if (rightPaneView === "service") {
+      return Promise.all([loadDetail(), authQuery.refetch()]);
+    }
     return activeTab === "tools" ? loadDetail() : loadCatalog();
   }
 
@@ -333,9 +338,9 @@ export function ServiceDetailView(props: {
               </button>
               <p
                 className="mt-1 truncate font-mono text-xs text-muted-foreground"
-                title={launchLine}
+                title={transport}
               >
-                {launchLine}
+                {transport}
               </p>
               {description ? (
                 <p
@@ -394,7 +399,6 @@ export function ServiceDetailView(props: {
                       const key = toolKey(service.instance_id, tool);
                       const schema = getToolSchema(tool) as {
                         properties?: Record<string, unknown>;
-                        required?: string[];
                       };
                       const paramCount = Object.keys(
                         schema.properties || {},
@@ -413,13 +417,6 @@ export function ServiceDetailView(props: {
                               toolKey(service.instance_id, selectedTool || tool)
                           }
                           title={tool.name}
-                          trailing={
-                            schema.required?.length ? (
-                              <Badge variant="outline">
-                                {schema.required.length}
-                              </Badge>
-                            ) : null
-                          }
                         />
                       );
                     })}
@@ -477,7 +474,6 @@ export function ServiceDetailView(props: {
               ) : (
                 <PageEmpty
                   title={t("noPromptsFound")}
-                  description={t("noPromptsFoundDescription")}
                   onRefresh={refreshCurrentView}
                 />
               )}
@@ -768,7 +764,6 @@ export function ServiceDetailView(props: {
               ) : (
                 <PageEmpty
                   title={t("noPromptSelected")}
-                  description={t("noPromptSelectedDescription")}
                   onRefresh={refreshCurrentView}
                 />
               )}

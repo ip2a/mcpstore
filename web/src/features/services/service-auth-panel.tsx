@@ -128,19 +128,6 @@ function ServiceAuthActionsView({
   const { t, authQuery, auth, busy, run } = controller;
 
   if (authQuery.isLoading || authQuery.error || !auth) {
-    if (authQuery.error || (!authQuery.isLoading && !auth)) {
-      return (
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-fit"
-          onClick={() => authQuery.refetch()}
-        >
-          <RefreshCwIcon data-icon="inline-start" />
-          {t("retry")}
-        </Button>
-      );
-    }
     return null;
   }
 
