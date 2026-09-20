@@ -404,6 +404,7 @@ fn test_default_template_contains_runtime_sections() {
 
     assert!(template.contains("[api]"));
     assert!(template.contains("[web]"));
+    assert!(template.contains("[server]"));
     assert!(template.contains("[mcp_aggregate]"));
     assert!(template.contains("transport = \"stdio\""));
     assert!(template.contains("port = 1830"));
@@ -416,7 +417,6 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[diagnostics.runtime_log]"));
     assert!(template.contains("max_size_bytes = 5242880"));
     assert!(template.contains("level = \"info\""));
-    assert!(!template.contains("[server]"));
     assert!(!template.contains("[monitoring]"));
     assert!(!template.contains("[standalone]"));
     assert!(template.contains("[hosts]"));
