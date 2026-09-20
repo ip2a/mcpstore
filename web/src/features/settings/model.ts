@@ -1,8 +1,6 @@
 import type { HostsPayload, SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/api"
 import {
   type HostsConfig,
-  isDefaultHostsOnly,
-  migrateHostsFromLegacyStorage,
   parseHostsPayload,
   serializeHostsPayload,
 } from "@/lib/api/hosts"
@@ -48,27 +46,30 @@ export function hostsToList(hosts: HostsConfig): HostDraft[] {
   }))
 }
 
-export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
-  let hosts = parseHostsPayload(settings?.hosts)
-  if (isDefaultHostsOnly(hosts)) {
-    const migrated = migrateHostsFromLegacyStorage()
-    if (migrated) hosts = migrated
+export function settingsDraft(settings: SettingsPayload): SettingsDraft {
+  if (!settings.hosts || !settings.api || !settings.web) {
+    throw new Error("Settings payload is missing required sections")
   }
 
+  const hosts = parseHostsPayload(settings.hosts)
+
   return {
-    language: settings?.language || "auto",
+    language: settings.language ?? "auto",
     hosts,
     api: {
-      port: settings?.api?.port || 1820,
+      port: settings.api.port!,
     },
     web: {
-      port: settings?.web?.port || 1828,
+      port: settings.web.port!,
     },
     diagnostics: {
-      enabled: settings?.diagnostics?.enabled !== false,
-      runtime_enabled: settings?.diagnostics?.runtime_log?.enabled === true,
-      runtime_max_size_bytes: settings?.diagnostics?.runtime_log?.max_size_bytes || 5 * 1024 * 1024,
-      runtime_retention_days: typeof settings?.diagnostics?.runtime_log?.retention_days === "number" ? settings.diagnostics.runtime_log.retention_days : null,
+      enabled: settings.diagnostics?.enabled !== false,
+      runtime_enabled: settings.diagnostics?.runtime_log?.enabled === true,
+      runtime_max_size_bytes: settings.diagnostics?.runtime_log?.max_size_bytes ?? 5 * 1024 * 1024,
+      runtime_retention_days:
+        typeof settings.diagnostics?.runtime_log?.retention_days === "number"
+          ? settings.diagnostics.runtime_log.retention_days
+          : null,
     },
   }
 }

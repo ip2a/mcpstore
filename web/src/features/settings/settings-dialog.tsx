@@ -78,11 +78,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       await settingsMutation.mutateAsync(payloadFromDraft(draft))
       setLanguageOverride(draft.language)
       syncApiBaseFromHosts(draft.hosts)
-      try {
-        localStorage.removeItem("mcpstore:connections")
-      } catch {
-        // ignore
-      }
       if (apiBaseChanged) {
         toast.success(t("coreBackendApplied"))
         window.location.reload()

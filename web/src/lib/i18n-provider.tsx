@@ -19,8 +19,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   useEffect(() => {
-    if (!meta.data?.settings?.hosts) return
-    syncApiBaseFromHosts(parseHostsPayload(meta.data.settings.hosts))
+    const hosts = meta.data?.settings?.hosts
+    if (!hosts) return
+    syncApiBaseFromHosts(parseHostsPayload(hosts))
   }, [meta.data?.settings?.hosts])
 
   const value = useMemo<I18nContextValue>(
