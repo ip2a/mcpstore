@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ClipboardIcon,
   EyeIcon,
@@ -36,7 +36,7 @@ import {
   useServiceResourcesQuery,
   useServiceStatusQuery,
 } from "@/features/services/queries";
-import { ServiceAuthPanel } from "@/features/services/service-auth-panel";
+import { ServiceAuthConnectionFields } from "@/features/services/service-auth-panel";
 import { ServiceConnectionButton } from "@/features/services/service-connection-button";
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
 import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args";
@@ -56,7 +56,6 @@ import {
   type ResourceInfo,
   type ResourceTemplateInfo,
   type ServiceInstance,
-  type ServiceState,
   type ToolInfo,
 } from "@/lib/api";
 import { formatServiceLaunchLine } from "@/lib/service-info";
@@ -262,6 +261,29 @@ export function ServicePreviewHeader({
   );
 }
 
+function ServiceDetailField({
+  label,
+  value,
+  mono = true,
+  span = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  span?: boolean;
+}) {
+  return (
+    <div className={cn("grid gap-1", span && "@min-[32rem]:col-span-2")}>
+      <dt className="font-mono text-xs uppercase text-muted-foreground">
+        {label}
+      </dt>
+      <dd className={cn("break-words text-sm", mono && "font-mono")}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 export function ServiceOverviewPane({
   service,
   description,
@@ -269,8 +291,6 @@ export function ServiceOverviewPane({
   launchLine,
   configArgs,
   endpoint,
-  availableToolCount,
-  statusReport,
 }: {
   service: ServiceInstance;
   description: string;
@@ -278,8 +298,6 @@ export function ServiceOverviewPane({
   launchLine: string;
   configArgs: string | null;
   endpoint: string;
-  availableToolCount: number | undefined;
-  statusReport: ServiceState | null | undefined;
 }) {
   const { t } = useI18n();
   const capabilities = service.mcp?.capabilities;
@@ -293,108 +311,106 @@ export function ServiceOverviewPane({
         capabilities.tasks && t("tasks"),
       ].filter((label): label is string => Boolean(label))
     : [];
+  const scopeLabel =
+    service.scope.type === "store"
+      ? t("store")
+      : `${t("agent")} ${service.scope.agent_id}`;
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <ServiceAuthPanel service={service} />
-      <section className="border-b pb-4">
+    <div className="@container flex min-w-0 flex-col gap-5">
+      <section className="flex flex-col gap-3">
         <SectionHeading
-          title={t("service")}
+          title={t("serviceDetail")}
           titleAs="h2"
-          className="border-b-0 pb-3"
+          className="border-b-0 pb-0"
         />
-        <dl className="grid gap-3 text-sm">
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("name")}</dt>
-            <dd className="break-words font-mono">{service.service_name}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">Instance ID</dt>
-            <dd className="break-all font-mono">{service.instance_id}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("agentScope")}</dt>
-            <dd className="font-mono">
-              {service.scope.type === "store"
-                ? t("store")
-                : `${t("agent")} ${service.scope.agent_id}`}
-            </dd>
-          </div>
+        <dl className="grid gap-3 @min-[32rem]:grid-cols-2">
+          <ServiceDetailField label={t("name")} value={service.service_name} />
+          <ServiceDetailField label={t("agentScope")} value={scopeLabel} />
+          <ServiceDetailField
+            label="Instance ID"
+            value={service.instance_id}
+            span
+          />
           {description ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("description")}</dt>
-              <dd>{description}</dd>
-            </div>
-          ) : null}
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("launch")}</dt>
-            <dd className="font-mono break-all">{launchLine}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("endpoint")}</dt>
-            <dd className="font-mono break-all">{endpoint}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("transport")}</dt>
-            <dd className="font-mono">
-              {transport}
-              {configArgs ? ` · ${configArgs}` : ""}
-            </dd>
-          </div>
-          {availableToolCount !== undefined ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("availableTools")}</dt>
-              <dd>{availableToolCount}</dd>
-            </div>
-          ) : null}
-          {statusReport?.health ? (
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("health")}</dt>
-              <dd>{statusReport.health}</dd>
-            </div>
+            <ServiceDetailField
+              label={t("description")}
+              value={description}
+              mono={false}
+              span
+            />
           ) : null}
         </dl>
       </section>
+
+      <section className="flex flex-col gap-3 border-t border-border/50 pt-5">
+        <SectionHeading
+          title={t("connection")}
+          titleAs="h2"
+          className="border-b-0 pb-0"
+        />
+        <ServiceAuthConnectionFields
+          service={service}
+          render={({ statusField, actions }) => (
+            <>
+              <dl className="grid gap-3 @min-[32rem]:grid-cols-2">
+                <ServiceDetailField
+                  label={t("transport")}
+                  value={
+                    configArgs ? `${transport} · ${configArgs}` : transport
+                  }
+                />
+                {statusField}
+                <ServiceDetailField label={t("endpoint")} value={endpoint} span />
+                <ServiceDetailField label={t("launch")} value={launchLine} span />
+              </dl>
+              {actions}
+            </>
+          )}
+        />
+      </section>
+
       {service.mcp ? (
-        <section className="border-b pb-4">
+        <section className="flex flex-col gap-3 border-t border-border/50 pt-5">
           <SectionHeading
             title={t("mcpServer")}
             titleAs="h2"
-            className="border-b-0 pb-3"
+            className="border-b-0 pb-0"
           />
-          <dl className="grid gap-3 text-sm">
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">
-                {t("serverImplementation")}
-              </dt>
-              <dd className="font-mono">
-                {service.mcp.serverInfo.title || service.mcp.serverInfo.name} ·{" "}
-                {service.mcp.serverInfo.version}
-              </dd>
-            </div>
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("protocolVersion")}</dt>
-              <dd className="font-mono">{service.mcp.protocolVersion}</dd>
-            </div>
-            <div className="grid gap-1">
-              <dt className="text-muted-foreground">{t("capabilities")}</dt>
-              <dd className="flex flex-wrap gap-2">
-                {capabilityLabels.map((label) => (
-                  <Badge key={label} variant="outline">
-                    {label}
-                  </Badge>
-                ))}
-              </dd>
-            </div>
-            {service.mcp.instructions ? (
-              <div className="grid gap-1">
-                <dt className="text-muted-foreground">
-                  {t("serverInstructions")}
+          <dl className="grid gap-3 @min-[32rem]:grid-cols-2">
+            <ServiceDetailField
+              label={t("serverImplementation")}
+              value={`${service.mcp.serverInfo.title || service.mcp.serverInfo.name} · ${service.mcp.serverInfo.version}`}
+            />
+            <ServiceDetailField
+              label={t("protocolVersion")}
+              value={service.mcp.protocolVersion}
+            />
+            {capabilityLabels.length ? (
+              <div className="@min-[32rem]:col-span-2">
+                <dt className="font-mono text-xs uppercase text-muted-foreground">
+                  {t("capabilities")}
                 </dt>
-                <dd className="whitespace-pre-wrap">
-                  {service.mcp.instructions}
+                <dd className="mt-1 flex flex-wrap gap-2">
+                  {capabilityLabels.map((label) => (
+                    <Badge key={label} variant="outline">
+                      {label}
+                    </Badge>
+                  ))}
                 </dd>
               </div>
+            ) : null}
+            {service.mcp.instructions ? (
+              <ServiceDetailField
+                label={t("serverInstructions")}
+                value={
+                  <span className="whitespace-pre-wrap font-sans text-sm">
+                    {service.mcp.instructions}
+                  </span>
+                }
+                mono={false}
+                span
+              />
             ) : null}
           </dl>
         </section>

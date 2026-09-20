@@ -112,7 +112,8 @@ function CacheKeyRow({
   return (
     <EntityRow
       variant="inline"
-      className="min-h-14 cursor-pointer py-2.5 hover:bg-muted/60"
+      interactive
+      className="cursor-pointer"
       tabIndex={0}
       onClick={() => onView(entry)}
       onKeyDown={(event) => {

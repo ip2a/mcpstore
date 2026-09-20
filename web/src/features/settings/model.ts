@@ -1,18 +1,26 @@
-import type { SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/api"
-import { getApiBase, getConnections, type StoredConnection } from "@/lib/api/backend"
+import type { HostsPayload, SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/api"
+import {
+  type HostsConfig,
+  parseHostsPayload,
+  serializeHostsPayload,
+} from "@/lib/api/hosts"
 import type { I18nKey } from "@/lib/i18n-core"
 
 export type SectionId = "overview" | "general" | "connection" | "diagnostics" | "config" | "about"
 
-export type ConnectionDraft = StoredConnection
+export type HostDraft = {
+  name: string
+  url: string
+}
 
 export type SettingsDraft = {
   language: UiLanguage
-  connections: ConnectionDraft[]
-  activeConnectionId: string
-  server: {
+  hosts: HostsConfig
+  api: {
     port: number
-    web_port: number
+  }
+  web: {
+    port: number
   }
   diagnostics: {
     enabled: boolean
@@ -31,24 +39,37 @@ export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
   { id: "about", labelKey: "about" },
 ]
 
-export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
-  const connections = getConnections()
-  const apiBase = getApiBase()
-  const active = connections.find((item) => item.url === apiBase) ?? connections[0]
+export function hostsToList(hosts: HostsConfig): HostDraft[] {
+  return Object.entries(hosts.entries).map(([name, entry]) => ({
+    name,
+    url: entry.url,
+  }))
+}
+
+export function settingsDraft(settings: SettingsPayload): SettingsDraft {
+  if (!settings.hosts || !settings.api || !settings.web) {
+    throw new Error("Settings payload is missing required sections")
+  }
+
+  const hosts = parseHostsPayload(settings.hosts)
 
   return {
-    language: settings?.language || "auto",
-    connections,
-    activeConnectionId: active?.id ?? connections[0]?.id ?? "",
-    server: {
-      port: settings?.server?.port || 1820,
-      web_port: settings?.server?.web_port || 1828,
+    language: settings.language ?? "auto",
+    hosts,
+    api: {
+      port: settings.api.port!,
+    },
+    web: {
+      port: settings.web.port!,
     },
     diagnostics: {
-      enabled: settings?.diagnostics?.enabled !== false,
-      runtime_enabled: settings?.diagnostics?.runtime_log?.enabled === true,
-      runtime_max_size_bytes: settings?.diagnostics?.runtime_log?.max_size_bytes || 5 * 1024 * 1024,
-      runtime_retention_days: typeof settings?.diagnostics?.runtime_log?.retention_days === "number" ? settings.diagnostics.runtime_log.retention_days : null,
+      enabled: settings.diagnostics?.enabled !== false,
+      runtime_enabled: settings.diagnostics?.runtime_log?.enabled === true,
+      runtime_max_size_bytes: settings.diagnostics?.runtime_log?.max_size_bytes ?? 5 * 1024 * 1024,
+      runtime_retention_days:
+        typeof settings.diagnostics?.runtime_log?.retention_days === "number"
+          ? settings.diagnostics.runtime_log.retention_days
+          : null,
     },
   }
 }
@@ -56,7 +77,9 @@ export function settingsDraft(settings?: SettingsPayload): SettingsDraft {
 export function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
   return {
     language: draft.language,
-    server: draft.server,
+    api: draft.api,
+    web: draft.web,
+    hosts: serializeHostsPayload(draft.hosts) as HostsPayload,
     diagnostics: {
       enabled: draft.diagnostics.enabled,
       runtime_log: {

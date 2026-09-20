@@ -28,11 +28,6 @@ function formatHeroStats(
   return statItems.map(({ key, label }) => `${label}=${stats.loading ? "-" : stats[key]}`).join(" · ")
 }
 
-function HeroStats({ stats }: { stats: HomeHeroStats }) {
-  const statItems = useStatItems()
-  return <PathText value={formatHeroStats(statItems, stats)} className="block w-full min-w-0 text-left" wrap="all" />
-}
-
 export function HomeHero({ stats }: { stats: HomeHeroStats }) {
   const { t } = useI18n()
   const statItems = useStatItems()
@@ -86,12 +81,9 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
           {MCPSTORE_ASCII}
         </pre>
       </button>
-      <div className="flex min-w-0 flex-col items-start justify-start gap-3 self-stretch border-l pl-4">
-        <div className="flex w-full min-w-0 flex-col gap-2">
-          <h1 className="m-0 w-full truncate text-left text-2xl font-semibold leading-none">mcpstore</h1>
-          <PathText value={subtitle} className="block w-full min-w-0 text-left" wrap="all" />
-        </div>
-        <HeroStats stats={stats} />
+      <div className="flex min-w-0 flex-col items-start justify-center gap-2 self-stretch border-l pl-4">
+        <h1 className="m-0 w-full truncate text-left text-2xl font-semibold leading-none">mcpstore</h1>
+        <PathText value={subtitle} className="block w-full min-w-0 text-left" wrap="all" />
       </div>
     </section>
   )

@@ -15,11 +15,12 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
-import { payloadFromDraft, sections, settingsDraft, type ConnectionDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
+import { hostsToList, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
 import { isDesktopShell, UpdateButton, useAppUpdater } from "@/features/settings/updater"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
-import { getApiBase, resolveActiveConnectionUrl, setApiBase, setConnections } from "@/lib/api/backend"
+import { getApiBase, syncApiBaseFromHosts } from "@/lib/api/backend"
+import { resolveActiveHostUrl, validateHostsConfig } from "@/lib/api/hosts"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/query-keys"
@@ -52,7 +53,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const configContent = useMemo(() => configFile?.content || "", [configFile?.content])
 
   useEffect(() => {
-    if (open && meta) setDraft(settingsDraft(meta.settings))
+    if (open && meta?.settings) setDraft(settingsDraft(meta.settings))
   }, [meta, open])
 
   function patchDraft(patch: Partial<SettingsDraft>) {
@@ -66,14 +67,18 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft) return
-    const activeUrl = resolveActiveConnectionUrl(draft.connections, draft.activeConnectionId)
+    const validationError = validateHostsConfig(draft.hosts)
+    if (validationError) {
+      toast.error(validationError)
+      return
+    }
+    const activeUrl = resolveActiveHostUrl(draft.hosts)
     const apiBaseChanged = activeUrl.trim() !== getApiBase()
     try {
       await settingsMutation.mutateAsync(payloadFromDraft(draft))
       setLanguageOverride(draft.language)
-      setConnections(draft.connections)
+      syncApiBaseFromHosts(draft.hosts)
       if (apiBaseChanged) {
-        setApiBase(activeUrl)
         toast.success(t("coreBackendApplied"))
         window.location.reload()
         return
@@ -336,15 +341,16 @@ function SettingsError({ message, onRetry }: { message: string; onRetry: () => v
 function OverviewSection({ draft }: { draft: SettingsDraft }) {
   const { t } = useI18n()
   const [statuses, setStatuses] = useState<Record<string, HostStatus>>({})
+  const hosts = useMemo(() => hostsToList(draft.hosts), [draft.hosts])
 
   useEffect(() => {
     let cancelled = false
 
     async function probeAll() {
       await Promise.all(
-        draft.connections.map(async (connection) => {
-          const status = await probeHost(connection.url)
-          if (!cancelled) setStatuses((current) => ({ ...current, [connection.id]: status }))
+        hosts.map(async (host) => {
+          const status = await probeHost(host.url)
+          if (!cancelled) setStatuses((current) => ({ ...current, [host.name]: status }))
         }),
       )
     }
@@ -355,23 +361,23 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [draft.connections])
+  }, [hosts])
 
   return (
     <section className="flex flex-col gap-5">
       <SectionHead title={t("overview")} description={t("overviewDescription")} />
       <div className="flex flex-col gap-3">
-        {draft.connections.map((connection) => {
-          const status = statuses[connection.id]
-          const isActive = connection.id === draft.activeConnectionId
+        {hosts.map((host) => {
+          const status = statuses[host.name]
+          const isActive = host.name === draft.hosts.active
           const online = status?.online === true
 
           return (
             <div
-              key={connection.id}
+              key={host.name}
               className={cn("rounded-md border p-4", isActive && "border-primary/40 bg-primary/5")}
             >
-              <h4 className="truncate text-sm font-medium">{formatConnectionLabel(connection.url)}</h4>
+              <h4 className="truncate text-sm font-medium">{host.name}</h4>
               <div className="mt-2.5 flex min-w-0 items-center gap-2 overflow-hidden">
                 <Badge variant="secondary" className="gap-1.5">
                   <span
@@ -384,7 +390,7 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
                 </Badge>
                 <Badge variant="secondary">
                   <MonitorIcon />
-                  {formatHostAddress(connection.url)}
+                  {formatHostAddress(host.url)}
                 </Badge>
                 <Badge variant="secondary">{status?.version ? `v${status.version}` : "-"}</Badge>
                 {online && status?.latencyMs != null ? (
@@ -409,24 +415,14 @@ function BackendFields({ draft, patchDraft }: { draft: SettingsDraft; patchDraft
     <FieldGroup>
       <Field orientation="responsive">
         <FieldContent><FieldTitle>默认后端启动端口</FieldTitle><FieldDescription>保存到 app 配置，CLI 未指定 --port 时使用。</FieldDescription></FieldContent>
-        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.server.port} onChange={(event) => patchDraft({ server: { ...draft.server, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.api.port} onChange={(event) => patchDraft({ api: { ...draft.api, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
       </Field>
       <Field orientation="responsive">
         <FieldContent><FieldTitle>默认前端启动端口</FieldTitle><FieldDescription>内置 Web 和开发脚本使用的默认端口。</FieldDescription></FieldContent>
-        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.server.web_port} onChange={(event) => patchDraft({ server: { ...draft.server, web_port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.web.port} onChange={(event) => patchDraft({ web: { ...draft.web, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
       </Field>
     </FieldGroup>
   )
-}
-
-function formatConnectionLabel(base: string): string {
-  try {
-    const url = base.startsWith("http://") || base.startsWith("https://") ? new URL(base) : new URL(base, window.location.origin)
-    const host = url.port ? `${url.hostname}:${url.port}` : url.hostname
-    return `HTTP (${host}${url.pathname !== "/" ? url.pathname : ""})`
-  } catch {
-    return `HTTP (${base})`
-  }
 }
 
 function formatLatency(ms: number): string {
@@ -548,23 +544,30 @@ function parseConnectionUrl(url: string): { host: string; port: string; secure: 
 
 function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchDraft: (patch: Partial<SettingsDraft>) => void }) {
   const { t } = useI18n()
+  const hosts = useMemo(() => hostsToList(draft.hosts), [draft.hosts])
   const [addingOpen, setAddingOpen] = useState(false)
+  const [pendingName, setPendingName] = useState("")
   const [pendingHost, setPendingHost] = useState("")
   const [pendingPort, setPendingPort] = useState("")
   const [pendingSecure, setPendingSecure] = useState(false)
   const [pendingPath, setPendingPath] = useState("")
   const [pendingFullUrlMode, setPendingFullUrlMode] = useState(false)
   const [pendingFullUrlBody, setPendingFullUrlBody] = useState("")
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState<string | null>(null)
+  const [editName, setEditName] = useState("")
   const [editUrl, setEditUrl] = useState("")
   const [latencies, setLatencies] = useState<Record<string, number | null>>({})
   const [checking, setChecking] = useState<Record<string, boolean>>({})
 
-  async function refreshLatency(id: string, url: string, options?: { notify?: boolean }) {
-    setChecking((current) => ({ ...current, [id]: true }))
+  function patchHosts(nextEntries: Record<string, { url: string }>, active = draft.hosts.active) {
+    patchDraft({ hosts: { active, entries: nextEntries } })
+  }
+
+  async function refreshLatency(name: string, url: string, options?: { notify?: boolean }) {
+    setChecking((current) => ({ ...current, [name]: true }))
     const latency = await measureConnectionLatency(url)
-    setLatencies((current) => ({ ...current, [id]: latency }))
-    setChecking((current) => ({ ...current, [id]: false }))
+    setLatencies((current) => ({ ...current, [name]: latency }))
+    setChecking((current) => ({ ...current, [name]: false }))
     if (options?.notify) {
       if (latency != null) toast.success(t("connectionRefreshOk", { latency: formatLatency(latency) }))
       else toast.error(t("connectionRefreshFailed"))
@@ -576,9 +579,9 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
 
     async function measureAll() {
       await Promise.all(
-        draft.connections.map(async (connection) => {
+        hosts.map(async (host) => {
           if (cancelled) return
-          await refreshLatency(connection.id, connection.url)
+          await refreshLatency(host.name, host.url)
         }),
       )
     }
@@ -589,14 +592,19 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [draft.connections])
+  }, [hosts])
 
   const pendingUrl = composeConnectionUrl(pendingHost, pendingPort, pendingSecure, pendingPath)
   const pendingFullUrl = composeFullUrlFromBody(pendingFullUrlBody, pendingSecure)
   const parsedRawUrl = pendingFullUrlMode ? parseConnectionUrl(pendingFullUrl) : null
-  const pendingValid = pendingFullUrlMode ? parsedRawUrl != null : pendingUrl !== ""
+  const pendingUrlValue = pendingFullUrlMode ? pendingFullUrl : pendingUrl
+  const pendingValid =
+    pendingName.trim() !== "" &&
+    !Object.prototype.hasOwnProperty.call(draft.hosts.entries, pendingName.trim()) &&
+    (pendingFullUrlMode ? parsedRawUrl != null : pendingUrl !== "")
 
   function resetPending() {
+    setPendingName("")
     setPendingHost("")
     setPendingPort("")
     setPendingSecure(false)
@@ -605,11 +613,14 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     setPendingFullUrlBody("")
   }
 
-  function addConnection() {
-    const url = pendingFullUrlMode ? pendingFullUrl : pendingUrl
-    if (!pendingValid || !url) return
-    const connection: ConnectionDraft = { id: crypto.randomUUID(), url }
-    patchDraft({ connections: [...draft.connections, connection] })
+  function addHost() {
+    const name = pendingName.trim()
+    const url = pendingUrlValue.trim()
+    if (!pendingValid || !name || !url) return
+    patchHosts({
+      ...draft.hosts.entries,
+      [name]: { url },
+    })
     resetPending()
     setAddingOpen(false)
   }
@@ -633,44 +644,49 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
   }
 
   function saveEdit() {
-    if (!editingId) return
+    if (!editingName) return
+    const name = editName.trim()
     const url = editUrl.trim()
-    if (!url) return
-    patchDraft({
-      connections: draft.connections.map((connection) =>
-        connection.id === editingId ? { ...connection, url } : connection,
-      ),
-    })
-    setEditingId(null)
+    if (!name || !url) return
+    if (name !== editingName && Object.prototype.hasOwnProperty.call(draft.hosts.entries, name)) {
+      toast.error(t("saveFailed"))
+      return
+    }
+    const entries = { ...draft.hosts.entries }
+    delete entries[editingName]
+    entries[name] = { url }
+    const active = draft.hosts.active === editingName ? name : draft.hosts.active
+    patchHosts(entries, active)
+    setEditingName(null)
+    setEditName("")
     setEditUrl("")
   }
 
-  function removeConnection(id: string) {
-    if (draft.connections.length <= 1) return
-    const next = draft.connections.filter((connection) => connection.id !== id)
-    patchDraft({
-      connections: next,
-      activeConnectionId: draft.activeConnectionId === id ? next[0].id : draft.activeConnectionId,
-    })
-    if (editingId === id) {
-      setEditingId(null)
+  function removeHost(name: string) {
+    if (hosts.length <= 1) return
+    const entries = { ...draft.hosts.entries }
+    delete entries[name]
+    const remaining = Object.keys(entries)
+    const active = draft.hosts.active === name ? remaining[0]! : draft.hosts.active
+    patchHosts(entries, active)
+    if (editingName === name) {
+      setEditingName(null)
+      setEditName("")
       setEditUrl("")
     }
     toast.success(t("connectionDeleted"))
   }
 
-  function toggleEdit(connection: ConnectionDraft) {
-    if (editingId === connection.id) {
-      setEditingId(null)
+  function toggleEdit(host: { name: string; url: string }) {
+    if (editingName === host.name) {
+      setEditingName(null)
+      setEditName("")
       setEditUrl("")
       return
     }
-    startEdit(connection)
-  }
-
-  function startEdit(connection: ConnectionDraft) {
-    setEditingId(connection.id)
-    setEditUrl(connection.url)
+    setEditingName(host.name)
+    setEditName(host.name)
+    setEditUrl(host.url)
     setAddingOpen(false)
   }
 
@@ -686,7 +702,8 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
             size="sm"
             className="shrink-0"
             onClick={() => {
-              setEditingId(null)
+              setEditingName(null)
+              setEditName("")
               setEditUrl("")
               resetPending()
               setAddingOpen(true)
@@ -701,14 +718,14 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
       <div className="flex flex-col gap-2">
         <p className="text-xs text-muted-foreground">{t("connection")}</p>
         <div className="flex flex-col gap-2">
-          {draft.connections.map((connection) => {
-            const isActive = connection.id === draft.activeConnectionId
-            const isEditing = editingId === connection.id
-            const canDelete = draft.connections.length > 1
-            const isChecking = checking[connection.id] === true
+          {hosts.map((host) => {
+            const isActive = host.name === draft.hosts.active
+            const isEditing = editingName === host.name
+            const canDelete = hosts.length > 1
+            const isChecking = checking[host.name] === true
 
             return (
-              <div key={connection.id} className="flex flex-col gap-2">
+              <div key={host.name} className="flex flex-col gap-2">
                 <div
                   className={cn(
                     "flex items-center justify-between gap-3 rounded-md border px-3 py-2.5",
@@ -717,17 +734,18 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                 >
                   <button
                     type="button"
-                    className="min-w-0 flex-1 truncate text-left text-sm"
-                    onClick={() => patchDraft({ activeConnectionId: connection.id })}
+                    className="min-w-0 flex-1 truncate text-left"
+                    onClick={() => patchDraft({ hosts: { ...draft.hosts, active: host.name } })}
                   >
-                    {formatConnectionLabel(connection.url)}
+                    <span className="block truncate text-sm font-medium">{host.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{host.url}</span>
                   </button>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {isChecking && latencies[connection.id] == null
+                      {isChecking && latencies[host.name] == null
                         ? "…"
-                        : latencies[connection.id] != null
-                          ? formatLatency(latencies[connection.id]!)
+                        : latencies[host.name] != null
+                          ? formatLatency(latencies[host.name]!)
                           : "-"}
                     </span>
                     <Button
@@ -736,7 +754,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                       size="icon-sm"
                       aria-label={t("refresh")}
                       disabled={isChecking}
-                      onClick={() => void refreshLatency(connection.id, connection.url, { notify: true })}
+                      onClick={() => void refreshLatency(host.name, host.url, { notify: true })}
                     >
                       <RefreshCwIcon className={cn("size-3.5", isChecking && "animate-spin")} />
                     </Button>
@@ -746,7 +764,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                       size="icon-sm"
                       aria-label={t("edit")}
                       aria-pressed={isEditing}
-                      onClick={() => toggleEdit(connection)}
+                      onClick={() => toggleEdit(host)}
                     >
                       <PencilIcon className="size-3.5" />
                     </Button>
@@ -757,7 +775,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                       aria-label={t("delete")}
                       disabled={!canDelete}
                       title={!canDelete ? t("connectionDeleteLastHint") : undefined}
-                      onClick={() => removeConnection(connection.id)}
+                      onClick={() => removeHost(host.name)}
                     >
                       <Trash2Icon className={cn("size-3.5", canDelete ? "text-destructive" : "text-muted-foreground")} />
                     </Button>
@@ -765,25 +783,42 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                 </div>
 
                 {isEditing ? (
-                  <Collapsible open onOpenChange={(open) => !open && setEditingId(null)}>
+                  <Collapsible open onOpenChange={(open) => !open && setEditingName(null)}>
                     <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-out data-[state=open]:animate-in">
                       <div className="rounded-md border px-3 py-3">
                         <p className="mb-2 text-xs text-muted-foreground">{t("edit")}</p>
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                          <InputGroup className="min-w-0 flex-1">
-                            <InputGroupInput
-                              value={editUrl}
-                              onChange={(event) => setEditUrl(event.target.value)}
-                              placeholder={t("coreBackendUrlPlaceholder")}
-                            />
-                          </InputGroup>
-                          <div className="flex gap-2">
-                            <Button type="button" size="sm" onClick={saveEdit}>
-                              {t("save")}
-                            </Button>
-                            <Button type="button" size="sm" variant="outline" onClick={() => setEditingId(null)}>
-                              {t("cancel")}
-                            </Button>
+                        <div className="flex flex-col gap-3">
+                          <div className="flex flex-col gap-1.5">
+                            <Label htmlFor={`host-name-${host.name}`}>{t("host")}</Label>
+                            <InputGroup>
+                              <InputGroupInput
+                                id={`host-name-${host.name}`}
+                                value={editName}
+                                onChange={(event) => setEditName(event.target.value)}
+                                placeholder={t("host")}
+                              />
+                            </InputGroup>
+                          </div>
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                              <Label htmlFor={`host-url-${host.name}`}>{t("coreBackendUrlLabel")}</Label>
+                              <InputGroup>
+                                <InputGroupInput
+                                  id={`host-url-${host.name}`}
+                                  value={editUrl}
+                                  onChange={(event) => setEditUrl(event.target.value)}
+                                  placeholder={t("coreBackendUrlPlaceholder")}
+                                />
+                              </InputGroup>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button type="button" size="sm" onClick={saveEdit}>
+                                {t("save")}
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" onClick={() => setEditingName(null)}>
+                                {t("cancel")}
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -798,6 +833,24 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
 
       {addingOpen ? (
         <div className="flex flex-col gap-4 rounded-md border p-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="pending-host-name">{t("host")}</Label>
+            <InputGroup>
+              <InputGroupInput
+                id="pending-host-name"
+                autoFocus
+                value={pendingName}
+                onChange={(event) => setPendingName(event.target.value)}
+                placeholder={t("host")}
+                className={cn(
+                  pendingName.trim() &&
+                    Object.prototype.hasOwnProperty.call(draft.hosts.entries, pendingName.trim()) &&
+                    "border-destructive/50",
+                )}
+              />
+            </InputGroup>
+          </div>
+
           {pendingFullUrlMode ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="connection-full-url">{t("fullUrl")}</Label>
@@ -806,7 +859,6 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                 <InputGroup className="min-w-0 flex-1">
                   <InputGroupInput
                     id="connection-full-url"
-                    autoFocus
                     value={pendingFullUrlBody}
                     onChange={(event) => {
                       const next = parseFullUrlBodyInput(event.target.value)
@@ -822,13 +874,12 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
           ) : (
             <div className="flex flex-col gap-4 sm:flex-row">
               <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <Label htmlFor="connection-host">{t("host")}</Label>
+                <Label htmlFor="connection-host">{t("coreBackendUrlLabel")}</Label>
                 <div className="flex items-center gap-2">
                   <span className="shrink-0 font-mono text-sm text-muted-foreground">{pendingSecure ? "https://" : "http://"}</span>
                   <InputGroup className="min-w-0 flex-1">
                     <InputGroupInput
                       id="connection-host"
-                      autoFocus
                       value={pendingHost}
                       onChange={(event) => setPendingHost(event.target.value)}
                       placeholder="127.0.0.1"
@@ -864,7 +915,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
               <Button type="button" variant="ghost" size="icon-sm" aria-label={t("delete")} onClick={() => { resetPending(); setAddingOpen(false) }}>
                 <Trash2Icon className="size-3.5 text-destructive" />
               </Button>
-              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("add")} disabled={!pendingValid} onClick={addConnection}>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("add")} disabled={!pendingValid} onClick={addHost}>
                 <CheckIcon className="size-3.5" />
               </Button>
             </div>

@@ -16,7 +16,7 @@ export function PageSkeleton() {
   )
 }
 
-export function PageEmpty({ title, description, onRefresh }: { title: string; description: string; onRefresh?: () => void }) {
+export function PageEmpty({ title, description, onRefresh }: { title: string; description?: string; onRefresh?: () => void }) {
   const { t } = useI18n()
 
   return (
@@ -26,7 +26,7 @@ export function PageEmpty({ title, description, onRefresh }: { title: string; de
           <FolderSearchIcon />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{description}</EmptyDescription>
+        {description ? <EmptyDescription>{description}</EmptyDescription> : null}
       </EmptyHeader>
       {onRefresh ? (
         <EmptyContent>
