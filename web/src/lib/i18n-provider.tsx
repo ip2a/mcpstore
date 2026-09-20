@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { getMeta, type UiLanguage } from "@/lib/api"
+import { parseHostsPayload } from "@/lib/api/hosts"
+import { syncApiBaseFromHosts } from "@/lib/api/backend"
 import { I18nContext, type I18nContextValue } from "@/lib/i18n-context"
 import { resolveLanguage, translate } from "@/lib/i18n-core"
 import { queryKeys } from "@/lib/query-keys"
@@ -15,6 +17,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en"
   }, [language])
+
+  useEffect(() => {
+    const hosts = meta.data?.settings?.hosts
+    if (!hosts) return
+    syncApiBaseFromHosts(parseHostsPayload(hosts))
+  }, [meta.data?.settings?.hosts])
 
   const value = useMemo<I18nContextValue>(
     () => ({

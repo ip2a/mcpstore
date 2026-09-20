@@ -370,12 +370,11 @@ fn test_app_config_roundtrip() {
     let mut config = AppConfig::default();
     config.cache.store = "redis".to_string();
     config.cache.config = serde_json::json!({"url": "redis://127.0.0.1/"});
-    config.server.log_level = "debug".to_string();
-    config.server.url_prefix = "/demo".to_string();
+    config.api.url_prefix = "/demo".to_string();
+    config.diagnostics.runtime_log.level = "debug".to_string();
     config.mcp_aggregate.transport = "streamable-http".to_string();
     config.mcp_aggregate.port = 19400;
     config.ui.language = "en".to_string();
-    config.ui.default_backup_dir = "./snapshots".to_string();
     config.diagnostics.runtime_log.max_size_bytes = 8 * 1024 * 1024;
     config.diagnostics.runtime_log.retention_days = Some(14);
 
@@ -383,12 +382,11 @@ fn test_app_config_roundtrip() {
     let loaded = mgr.load_app_config().unwrap();
     assert_eq!(loaded.cache.store, "redis");
     assert_eq!(loaded.cache.namespace, "mcpstore");
-    assert_eq!(loaded.server.log_level, "debug");
-    assert_eq!(loaded.server.url_prefix, "/demo");
+    assert_eq!(loaded.api.url_prefix, "/demo");
+    assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
     assert_eq!(loaded.mcp_aggregate.transport, "streamable-http");
     assert_eq!(loaded.mcp_aggregate.port, 19400);
     assert_eq!(loaded.ui.language, "en");
-    assert_eq!(loaded.ui.default_backup_dir, "./snapshots");
     assert_eq!(
         loaded.diagnostics.runtime_log.max_size_bytes,
         8 * 1024 * 1024
@@ -404,22 +402,92 @@ fn test_default_template_contains_runtime_sections() {
     let mgr = ConfigManager::with_path(dir.join("mcp.json"));
     let template = mgr.default_app_config_toml().unwrap();
 
+    assert!(template.contains("[api]"));
+    assert!(template.contains("[web]"));
     assert!(template.contains("[server]"));
     assert!(template.contains("[mcp_aggregate]"));
     assert!(template.contains("transport = \"stdio\""));
     assert!(template.contains("port = 1830"));
     assert!(template.contains("[health_check]"));
-    assert!(template.contains("[monitoring]"));
     assert!(template.contains("[service_defaults.lifecycle]"));
     assert!(template.contains("startup_policy = \"lazy\""));
     assert!(template.contains("restart_policy = \"no\""));
-    assert!(template.contains("[standalone]"));
     assert!(template.contains("[ui]"));
     assert!(template.contains("language = \"en\""));
-    assert!(template.contains("default_backup_dir = \"./backups\""));
     assert!(template.contains("[diagnostics.runtime_log]"));
     assert!(template.contains("max_size_bytes = 5242880"));
-    assert!(template.contains("log_level = \"info\""));
+    assert!(template.contains("level = \"info\""));
+    assert!(!template.contains("[monitoring]"));
+    assert!(!template.contains("[standalone]"));
+    assert!(template.contains("[hosts]"));
+    assert!(template.contains("active = \"local\""));
+}
+
+#[test]
+fn test_hosts_config_roundtrip() {
+    use std::collections::HashMap;
+
+    use super::{HostEntry, HostsConfig};
+
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+    std::fs::write(
+        mgr.app_config_path(),
+        r#"
+[hosts]
+active = "测试 A"
+
+[hosts.local]
+url = "/api"
+
+[hosts."测试 A"]
+url = "http://115.191.69.41:8021"
+"#,
+    )
+    .unwrap();
+
+    let loaded = mgr.load_app_config().unwrap();
+    assert_eq!(loaded.hosts.active, "测试 A");
+    assert_eq!(loaded.hosts.entries.len(), 2);
+    assert_eq!(
+        loaded.hosts.entries.get("local").map(|entry| entry.url.as_str()),
+        Some("/api")
+    );
+    assert_eq!(
+        loaded
+            .hosts
+            .entries
+            .get("测试 A")
+            .map(|entry| entry.url.as_str()),
+        Some("http://115.191.69.41:8021")
+    );
+    assert_eq!(loaded.hosts.active_url(), "http://115.191.69.41:8021");
+
+    let mut config = AppConfig::default();
+    config.hosts = HostsConfig {
+        active: "remote".to_string(),
+        entries: HashMap::from([
+            (
+                "local".to_string(),
+                HostEntry {
+                    url: "/api".to_string(),
+                },
+            ),
+            (
+                "remote".to_string(),
+                HostEntry {
+                    url: "http://127.0.0.1:1820".to_string(),
+                },
+            ),
+        ]),
+    };
+    mgr.save_app_config(&config).unwrap();
+    let saved = mgr.load_app_config().unwrap();
+    assert_eq!(saved.hosts.active, "remote");
+    assert_eq!(saved.hosts.entries.len(), 2);
+
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
@@ -429,20 +497,20 @@ fn test_flatten_raw_app_config_only_contains_explicit_keys() {
     let mgr = ConfigManager::with_path(dir.join("mcp.json"));
     std::fs::write(
         mgr.app_config_path(),
-        "[server]\nhost = \"127.0.0.1\"\n[health_check]\nstartup_interval = 2.5\n",
+        "[api]\nhost = \"127.0.0.1\"\n[health_check]\nstartup_interval = 2.5\n",
     )
     .unwrap();
 
     let flattened = mgr.flatten_raw_app_config().unwrap();
     assert_eq!(
-        flattened.get("server.host"),
+        flattened.get("api.host"),
         Some(&Value::String("127.0.0.1".to_string()))
     );
     assert_eq!(
         flattened.get("health_check.startup_interval"),
         Some(&serde_json::json!(2.5))
     );
-    assert!(!flattened.contains_key("server.port"));
+    assert!(!flattened.contains_key("api.port"));
 }
 
 #[test]

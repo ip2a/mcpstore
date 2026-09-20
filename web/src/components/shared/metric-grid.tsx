@@ -11,6 +11,7 @@ type MetricTileProps = {
   active?: boolean
   className?: string
   hint?: ReactNode
+  hintClassName?: string
   label: ReactNode
   onClick?: () => void
   title?: string
@@ -22,7 +23,7 @@ const gridColumns = {
   auto: "grid min-w-0 grid-cols-1 gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-4 @min-[28rem]:gap-3",
   two: "grid grid-cols-2 gap-3",
   three: "grid grid-cols-3 gap-2",
-  four: "grid min-w-0 grid-cols-1 gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-4 @min-[28rem]:gap-3 [&>*]:min-w-0 [&>*]:overflow-hidden",
+  four: "grid min-w-0 grid-cols-4 gap-1.5 sm:gap-2 [&>*]:min-w-0 [&>*]:overflow-hidden",
 }
 
 export function MetricGrid({ columns = "auto", className, ...props }: MetricGridProps) {
@@ -35,6 +36,7 @@ export function MetricTile({
   active = false,
   className,
   hint,
+  hintClassName,
   label,
   onClick,
   title,
@@ -72,8 +74,20 @@ export function MetricTile({
   const content = (
     <span className="flex min-w-0 w-full max-w-full flex-col items-start gap-1 overflow-hidden text-left">
       <span className={cn("font-mono text-xs uppercase text-muted-foreground", tileText)}>{label}</span>
-      <strong className={cn("font-semibold", tileText, variant === "compact" ? "text-base" : "text-sm")}>{value ?? "-"}</strong>
-      {hint ? <span className={cn("font-mono text-xs text-muted-foreground", tileText)}>{hint}</span> : null}
+      <strong
+        className={cn(
+          "font-semibold",
+          tileText,
+          variant === "compact" ? "text-sm sm:text-base" : "text-sm",
+        )}
+      >
+        {value ?? "-"}
+      </strong>
+      {hint ? (
+        <span className={cn("font-mono text-xs text-muted-foreground", tileText, hintClassName)}>
+          {hint}
+        </span>
+      ) : null}
     </span>
   )
 
@@ -82,7 +96,10 @@ export function MetricTile({
       <Button
         type="button"
         variant={active ? "secondary" : "outline"}
-        className={cn("h-auto min-w-0 max-w-full justify-start overflow-hidden px-3 py-2", className)}
+        className={cn(
+          "h-auto min-w-0 max-w-full justify-start overflow-hidden px-2 py-1.5 sm:px-3 sm:py-2",
+          className,
+        )}
         title={title}
         onClick={onClick}
       >
@@ -94,7 +111,7 @@ export function MetricTile({
   return (
     <div
       className={cn(
-        variant === "compact" && "min-w-0 overflow-hidden rounded-md border px-3 py-2",
+        variant === "compact" && "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
         variant === "plain" && "min-w-0 overflow-hidden border-b pb-3",
         className,
       )}

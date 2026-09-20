@@ -1,15 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ExternalLinkIcon,
   LogInIcon,
   LogOutIcon,
   RefreshCwIcon,
-  ShieldCheckIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { SectionHeading } from "@/components/shared/section-heading";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useServiceAuthQuery } from "@/features/services/queries";
@@ -39,7 +36,7 @@ function authStatusLabel(status: AuthStatus, t: Translate) {
   return labels[status];
 }
 
-export function ServiceAuthPanel({ service }: { service: ServiceInstance }) {
+function useServiceAuthController(service: ServiceInstance) {
   const { t } = useI18n();
   const authQuery = useServiceAuthQuery(service);
   const [busy, setBusy] = useState<string | null>(null);
@@ -83,45 +80,55 @@ export function ServiceAuthPanel({ service }: { service: ServiceInstance }) {
     }
   }
 
+  return { t, authQuery, auth, busy, run };
+}
+
+function ServiceAuthStatusView({
+  t,
+  authQuery,
+  auth,
+}: ReturnType<typeof useServiceAuthController>) {
   if (authQuery.isLoading) {
     return (
-      <section className="border-b pb-4">
-        <SectionHeading
-          title={t("authentication")}
-          titleAs="h2"
-          className="border-b-0 pb-3"
-        />
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner /> {t("loadingAuthenticationStatus")}
-        </p>
-      </section>
+      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner /> {t("loadingAuthenticationStatus")}
+      </span>
     );
   }
 
   if (authQuery.error || !auth) {
     return (
-      <section className="border-b pb-4">
-        <SectionHeading
-          title={t("authentication")}
-          titleAs="h2"
-          className="border-b-0 pb-3"
-        />
-        <p className="text-sm text-destructive">
-          {authQuery.error instanceof Error
-            ? authQuery.error.message
-            : t("authenticationStatusUnavailable")}
-        </p>
-        <Button
-          className="mt-3"
-          size="sm"
-          variant="outline"
-          onClick={() => authQuery.refetch()}
-        >
-          <RefreshCwIcon data-icon="inline-start" />
-          {t("retry")}
-        </Button>
-      </section>
+      <span className="text-sm text-destructive">
+        {authQuery.error instanceof Error
+          ? authQuery.error.message
+          : t("authenticationStatusUnavailable")}
+      </span>
     );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2 text-sm">
+      <span>{authStatusLabel(auth.status, t)}</span>
+      {auth.flow ? (
+        <span className="font-mono text-xs text-muted-foreground">
+          {auth.flow}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function ServiceAuthActionsView({
+  service,
+  controller,
+}: {
+  service: ServiceInstance;
+  controller: ReturnType<typeof useServiceAuthController>;
+}) {
+  const { t, authQuery, auth, busy, run } = controller;
+
+  if (authQuery.isLoading || authQuery.error || !auth) {
+    return null;
   }
 
   const pending =
@@ -134,40 +141,32 @@ export function ServiceAuthPanel({ service }: { service: ServiceInstance }) {
     auth.status === "authenticated" || auth.status === "scope_upgrade_required";
   const canUpgrade =
     auth.status === "scope_upgrade_required" && Boolean(auth.required_scope);
+  const hasMeta =
+    Boolean(auth.scopes?.length) ||
+    Boolean(auth.required_scope) ||
+    canLogin ||
+    canUpgrade ||
+    canRefresh ||
+    canLogout ||
+    auth.status === "authorizing";
+
+  if (!hasMeta) return null;
 
   return (
-    <section className="border-b pb-4">
-      <SectionHeading
-        title={t("authentication")}
-        titleAs="h2"
-        className="border-b-0 pb-3"
-      />
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge
-          variant={auth.status === "authenticated" ? "default" : "outline"}
-        >
-          <ShieldCheckIcon />
-          {authStatusLabel(auth.status, t)}
-        </Badge>
-        {auth.flow ? (
-          <span className="font-mono text-xs text-muted-foreground">
-            {auth.flow}
-          </span>
-        ) : null}
-      </div>
+    <div className="flex flex-col gap-3">
       {auth.scopes?.length ? (
-        <p className="mt-3 break-words text-sm text-muted-foreground">
+        <p className="break-words text-sm text-muted-foreground">
           {t("oauthScopes")}:{" "}
           <span className="font-mono">{auth.scopes.join(" ")}</span>
         </p>
       ) : null}
       {auth.required_scope ? (
-        <p className="mt-2 break-words text-sm text-muted-foreground">
+        <p className="break-words text-sm text-muted-foreground">
           {t("oauthRequiredScope")}:{" "}
           <span className="font-mono">{auth.required_scope}</span>
         </p>
       ) : null}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2">
         {canLogin ? (
           <Button
             size="sm"
@@ -254,6 +253,44 @@ export function ServiceAuthPanel({ service }: { service: ServiceInstance }) {
           </Button>
         ) : null}
       </div>
-    </section>
+    </div>
+  );
+}
+
+export function ServiceAuthConnectionFields({
+  service,
+  render,
+}: {
+  service: ServiceInstance;
+  render: (parts: { statusField: ReactNode; actions: ReactNode }) => ReactNode;
+}) {
+  const controller = useServiceAuthController(service);
+  const { t } = controller;
+
+  return render({
+    statusField: (
+      <div className="grid gap-1">
+        <dt className="font-mono text-xs uppercase text-muted-foreground">
+          {t("authentication")}
+        </dt>
+        <dd className="text-sm">
+          <ServiceAuthStatusView {...controller} />
+        </dd>
+      </div>
+    ),
+    actions: (
+      <ServiceAuthActionsView service={service} controller={controller} />
+    ),
+  });
+}
+
+export function ServiceAuthPanel({ service }: { service: ServiceInstance }) {
+  const controller = useServiceAuthController(service);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ServiceAuthStatusView {...controller} />
+      <ServiceAuthActionsView service={service} controller={controller} />
+    </div>
   );
 }

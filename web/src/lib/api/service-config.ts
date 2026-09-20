@@ -116,7 +116,9 @@ export async function updateServiceScope(input: UpdateServiceScopeInput) {
   const descriptor: ScopeDescriptor = {
     config: input.config ?? buildServiceConfig(input),
     ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
-    ...(input.handshakeMode ? { handshake_mode: input.handshakeMode } : {}),
+    ...(input.handshakeMode && input.handshakeMode !== "auto"
+      ? { handshake_mode: input.handshakeMode }
+      : {}),
   };
   const path =
     input.scope.type === "store"

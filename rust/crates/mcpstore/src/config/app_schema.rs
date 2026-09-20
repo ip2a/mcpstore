@@ -1,24 +1,20 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::cache_schema::CacheConfig;
 use super::defaults::*;
 use super::health_schema::HealthCheckConfig;
-use super::monitoring_schema::MonitoringConfig;
 use super::service_schema::ServiceLifecycleDefaults;
-use super::standalone_schema::StandaloneConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    #[serde(default = "default_version")]
-    pub version: String,
-    #[serde(default = "default_app_description")]
-    pub description: String,
-    #[serde(default = "default_created_by")]
-    pub created_by: String,
-    #[serde(default = "default_created_at")]
-    pub created_at: String,
     #[serde(default)]
     pub cache: CacheConfig,
+    #[serde(default)]
+    pub api: ApiSettings,
+    #[serde(default)]
+    pub web: WebSettings,
     #[serde(default)]
     pub server: ServerSettings,
     #[serde(default)]
@@ -26,34 +22,74 @@ pub struct AppConfig {
     #[serde(default)]
     pub health_check: HealthCheckConfig,
     #[serde(default)]
-    pub monitoring: MonitoringConfig,
-    #[serde(default)]
     pub service_defaults: ServiceDefaultsConfig,
-    #[serde(default)]
-    pub standalone: StandaloneConfig,
     #[serde(default)]
     pub ui: UiConfig,
     #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
+    #[serde(default)]
+    pub hosts: HostsConfig,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            version: default_version(),
-            description: default_app_description(),
-            created_by: default_created_by(),
-            created_at: default_created_at(),
             cache: CacheConfig::default(),
+            api: ApiSettings::default(),
+            web: WebSettings::default(),
             server: ServerSettings::default(),
             mcp_aggregate: McpAggregateConfig::default(),
             health_check: HealthCheckConfig::default(),
-            monitoring: MonitoringConfig::default(),
             service_defaults: ServiceDefaultsConfig::default(),
-            standalone: StandaloneConfig::default(),
             ui: UiConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
+            hosts: HostsConfig::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostEntry {
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostsConfig {
+    #[serde(default = "default_hosts_active")]
+    pub active: String,
+    #[serde(flatten)]
+    #[serde(default)]
+    pub entries: HashMap<String, HostEntry>,
+}
+
+impl Default for HostsConfig {
+    fn default() -> Self {
+        let mut entries = HashMap::new();
+        entries.insert(
+            default_hosts_active(),
+            HostEntry {
+                url: default_host_url(),
+            },
+        );
+        Self {
+            active: default_hosts_active(),
+            entries,
+        }
+    }
+}
+
+impl HostsConfig {
+    pub fn active_url(&self) -> String {
+        self.entries
+            .get(&self.active)
+            .map(|entry| entry.url.clone())
+            .or_else(|| {
+                self.entries
+                    .values()
+                    .next()
+                    .map(|entry| entry.url.clone())
+            })
+            .unwrap_or_else(default_host_url)
     }
 }
 
@@ -82,8 +118,6 @@ pub struct DiagnosticsConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
-    pub source_log: SourceLogConfig,
-    #[serde(default)]
     pub runtime_log: RuntimeLogConfig,
 }
 
@@ -91,22 +125,7 @@ impl Default for DiagnosticsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            source_log: SourceLogConfig::default(),
             runtime_log: RuntimeLogConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceLogConfig {
-    #[serde(default = "default_server_log_level_value")]
-    pub level: String,
-}
-
-impl Default for SourceLogConfig {
-    fn default() -> Self {
-        Self {
-            level: default_server_log_level_value(),
         }
     }
 }
@@ -115,7 +134,7 @@ impl Default for SourceLogConfig {
 pub struct RuntimeLogConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_server_log_level_value")]
+    #[serde(default = "default_runtime_log_level")]
     pub level: String,
     #[serde(default = "default_log_max_size_bytes")]
     pub max_size_bytes: u64,
@@ -127,7 +146,7 @@ impl Default for RuntimeLogConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            level: default_server_log_level_value(),
+            level: default_runtime_log_level(),
             max_size_bytes: default_log_max_size_bytes(),
             retention_days: None,
         }
@@ -152,15 +171,49 @@ impl Default for ServiceDefaultsConfig {
 pub struct UiConfig {
     #[serde(default = "default_ui_language")]
     pub language: String,
-    #[serde(default = "default_backup_dir")]
-    pub default_backup_dir: String,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             language: default_ui_language(),
-            default_backup_dir: default_backup_dir(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiSettings {
+    #[serde(default = "default_api_host")]
+    pub host: String,
+    #[serde(default = "default_api_port")]
+    pub port: u16,
+    #[serde(default = "default_api_url_prefix")]
+    pub url_prefix: String,
+}
+
+impl Default for ApiSettings {
+    fn default() -> Self {
+        Self {
+            host: default_api_host(),
+            port: default_api_port(),
+            url_prefix: default_api_url_prefix(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSettings {
+    #[serde(default = "default_web_host")]
+    pub host: String,
+    #[serde(default = "default_web_port")]
+    pub port: u16,
+}
+
+impl Default for WebSettings {
+    fn default() -> Self {
+        Self {
+            host: default_web_host(),
+            port: default_web_port(),
         }
     }
 }

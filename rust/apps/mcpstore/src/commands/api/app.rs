@@ -1,7 +1,10 @@
 use std::{path::Path as FsPath, sync::Arc};
 
 use axum::{extract::State, Json};
-use mcpstore::{config::ConfigError, AppConfig};
+use mcpstore::{
+    config::{ConfigError, HostsConfig},
+    AppConfig,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -13,15 +16,20 @@ use super::{
 #[derive(Deserialize)]
 pub(super) struct UpdateSettingsRequest {
     language: Option<String>,
-    default_backup_dir: Option<String>,
     diagnostics: Option<UpdateDiagnosticsRequest>,
-    server: Option<UpdateServerRequest>,
+    api: Option<UpdateApiRequest>,
+    web: Option<UpdateWebRequest>,
+    hosts: Option<HostsConfig>,
 }
 
 #[derive(Deserialize)]
-struct UpdateServerRequest {
+struct UpdateApiRequest {
     port: Option<u16>,
-    web_port: Option<u16>,
+}
+
+#[derive(Deserialize)]
+struct UpdateWebRequest {
+    port: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -62,36 +70,32 @@ pub(super) async fn update_settings(
         config.ui.language = normalize_ui_language(&language)?;
     }
 
-    if let Some(default_backup_dir) = payload.default_backup_dir {
-        let value = default_backup_dir.trim();
-        if value.is_empty() {
-            return Err(ApiError::invalid_parameter(
-                "默认备份目录不能为空",
-                Some("default_backup_dir"),
-            ));
-        }
-        config.ui.default_backup_dir = value.to_string();
-    }
-
-    if let Some(server) = payload.server {
-        if let Some(port) = server.port {
+    if let Some(api) = payload.api {
+        if let Some(port) = api.port {
             if port == 0 {
                 return Err(ApiError::invalid_parameter(
                     "后端端口必须大于 0",
-                    Some("server.port"),
+                    Some("api.port"),
                 ));
             }
-            config.server.port = port;
+            config.api.port = port;
         }
-        if let Some(web_port) = server.web_port {
-            if web_port == 0 {
+    }
+
+    if let Some(web) = payload.web {
+        if let Some(port) = web.port {
+            if port == 0 {
                 return Err(ApiError::invalid_parameter(
                     "前端端口必须大于 0",
-                    Some("server.web_port"),
+                    Some("web.port"),
                 ));
             }
-            config.server.web_port = web_port;
+            config.web.port = port;
         }
+    }
+
+    if let Some(hosts) = payload.hosts {
+        config.hosts = hosts;
     }
 
     if let Some(diagnostics) = payload.diagnostics {
@@ -141,7 +145,7 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "settings": settings_payload(&config),
-        "settings_paths": settings_paths_payload(config_manager.mcp_path(), &config),
+        "settings_paths": settings_paths_payload(config_manager.mcp_path()),
         "config_file": {
             "path": config_path.display().to_string(),
             "format": "toml",
@@ -153,11 +157,14 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
 fn settings_payload(config: &AppConfig) -> Value {
     json!({
         "language": api_ui_language(&config.ui.language),
-        "default_backup_dir": config.ui.default_backup_dir,
-        "server": {
-            "host": config.server.host,
-            "port": config.server.port,
-            "web_port": config.server.web_port,
+        "api": {
+            "host": config.api.host,
+            "port": config.api.port,
+            "url_prefix": config.api.url_prefix,
+        },
+        "web": {
+            "host": config.web.host,
+            "port": config.web.port,
         },
         "diagnostics": {
             "enabled": config.diagnostics.enabled,
@@ -167,24 +174,25 @@ fn settings_payload(config: &AppConfig) -> Value {
                 "retention_days": config.diagnostics.runtime_log.retention_days,
             },
         },
+        "hosts": hosts_payload(&config.hosts),
     })
 }
 
-fn settings_paths_payload(mcp_path: &FsPath, config: &AppConfig) -> Value {
+fn hosts_payload(hosts: &HostsConfig) -> Value {
+    let mut value = serde_json::Map::new();
+    value.insert("active".to_string(), json!(hosts.active));
+    for (name, entry) in &hosts.entries {
+        value.insert(name.clone(), json!({ "url": entry.url }));
+    }
+    Value::Object(value)
+}
+
+fn settings_paths_payload(mcp_path: &FsPath) -> Value {
     let base = mcp_path.parent().unwrap_or_else(|| FsPath::new("."));
-    let backup_dir = FsPath::new(&config.ui.default_backup_dir);
-    let backup_dir_resolved = if backup_dir.is_absolute() {
-        backup_dir.to_path_buf()
-    } else {
-        base.join(backup_dir)
-    };
     let log_dir = base.join("logs");
     let log_file_name = "mcpstore.log";
 
     json!({
-        "backup_dir_base": base.display().to_string(),
-        "backup_dir_input": config.ui.default_backup_dir,
-        "backup_dir_resolved": backup_dir_resolved.display().to_string(),
         "log_dir": log_dir.display().to_string(),
         "log_file_name": log_file_name,
         "log_file_path": log_dir.join(log_file_name).display().to_string(),
