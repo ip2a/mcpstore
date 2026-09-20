@@ -159,6 +159,22 @@ impl McpServerOptions {
             node_mode: mcpstore::NodeMode::ControlPlane,
             store: self.store.clone(),
             namespace: self.namespace.clone(),
+            node_id: None,
+        }
+    }
+
+    pub fn store_args(&self) -> crate::store_args::StoreSourceArgs {
+        crate::store_args::StoreSourceArgs {
+            config_path: self.config_path.clone(),
+            source: match self.source_mode {
+                SourceMode::Local => crate::store_args::SourceArg::Local,
+                SourceMode::Db => crate::store_args::SourceArg::Db,
+            },
+            store: self.store.as_ref().map(|store| store.store.clone()),
+            store_config: self.store.as_ref().map(|store| store.config.to_string()),
+            namespace: self.namespace.clone(),
+            node_mode: None,
+            node_id: None,
         }
     }
 }
@@ -247,7 +263,7 @@ impl EventHandler for AggregateToolsChangedNotification {
 }
 
 #[derive(Clone)]
-struct McpStoreServer {
+pub(crate) struct McpStoreServer {
     store: Arc<MCPStore>,
     scope: ScopeRef,
     instance_id: Option<InstanceId>,
@@ -269,7 +285,9 @@ mod catalog;
 mod handler;
 mod search;
 mod tests;
+pub(crate) mod thin;
 mod tools;
 mod transport;
 
 pub use transport::run;
+pub(crate) use transport::{run_streamable_http, streamable_http_router};

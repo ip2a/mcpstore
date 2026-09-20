@@ -50,24 +50,29 @@ pub struct McpServerArgs {
     pub transport: Option<McpServerTransport>,
     #[arg(
         long,
+        help = "本进程内嵌 kernel（默认 stdio 为转发 daemon 的 thin client）"
+    )]
+    pub embedded: bool,
+    #[arg(
+        long,
         default_value = "127.0.0.1",
-        help = "绑定地址，仅 streamable-http 使用"
+        help = "Bind address, used only by streamable-http"
     )]
     pub host: String,
     #[arg(
         long,
-        help = "监听端口，仅 streamable-http 使用；默认读取 mcp_aggregate.port"
+        help = "Listen port, used only by streamable-http; defaults to mcp_aggregate.port"
     )]
     pub port: Option<u16>,
     #[arg(
         long,
         default_value = "/mcp",
-        help = "HTTP 路径，仅 streamable-http 使用"
+        help = "HTTP path, used only by streamable-http"
     )]
     pub path: String,
     #[arg(
         long,
-        help = "MCPStore 业务 session key；与 rmcp transport session 分离"
+        help = "MCPStore business session key, separate from the rmcp transport session"
     )]
     pub session_key: Option<String>,
     #[arg(
@@ -172,7 +177,18 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
         None => ConfigManager::new(),
     };
     let app_config = config_manager.load_app_config_or_default()?;
-    crate::mcp_server::run(args.to_core_options(&app_config)?).await
+    let options = args.to_core_options(&app_config)?;
+    // stdio 默认是 thin client：转发 daemon，共享其连接池。--embedded、显式 store
+    // 参数或 instance/session 定向模式保持本进程 kernel。
+    if options.transport == crate::mcp_server::McpServerTransport::Stdio
+        && options.instance_id.is_none()
+        && options.session_key.is_none()
+        && !args.embedded
+        && !args.store.is_explicit()
+    {
+        return crate::mcp_server::thin::run(options.scope).await;
+    }
+    crate::mcp_server::run(options).await
 }
 
 #[cfg(test)]
@@ -183,16 +199,19 @@ mod tests {
     fn default_args() -> McpServerArgs {
         McpServerArgs {
             store: StoreSourceArgs {
+                node_id: None,
                 config_path: None,
                 source: SourceArg::Local,
                 store: None,
                 store_config: None,
                 namespace: None,
+                node_mode: None,
             },
             scope: Scope::Store,
             agent: None,
             instance_id: None,
             transport: None,
+            embedded: false,
             host: "127.0.0.1".to_string(),
             port: None,
             path: "/mcp".to_string(),

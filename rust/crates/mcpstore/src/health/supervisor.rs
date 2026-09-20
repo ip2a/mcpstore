@@ -261,9 +261,15 @@ impl InstanceSupervisor {
         if assessment.health == HealthState::Unhealthy {
             if let Some(store) = self.store.get().and_then(Weak::upgrade) {
                 if !store.is_data_plane()
-                    && store.registry.find_instance(instance_id).await.is_some()
+                    && store
+                        .kernel
+                        .control
+                        .registry
+                        .find_instance(instance_id)
+                        .await
+                        .is_some()
                 {
-                    if let Err(error) = store.pool.disconnect(instance_id).await {
+                    if let Err(error) = store.kernel.execution.pool.disconnect(instance_id).await {
                         tracing::warn!(%instance_id, %error, "failed to disconnect unhealthy service");
                     }
                     if let Err(record_error) = store
@@ -318,7 +324,11 @@ mod tests {
 
     async fn supervisor(name: &str) -> (Arc<InstanceSupervisor>, InstanceId) {
         let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), name));
-        let manager = Arc::new(ServiceStateManager::new(cache, EventBus::new()));
+        let manager = Arc::new(ServiceStateManager::new(
+            cache,
+            EventBus::new(),
+            crate::state::CONTROL_NODE_ID.to_string(),
+        ));
         let id = ServiceInstanceKey::new(name, ScopeRef::Store).instance_id();
         manager
             .create(ServiceState::new(

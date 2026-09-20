@@ -125,6 +125,10 @@ pub struct ServiceLifecycleConfig {
     pub startup_policy: Option<StartupPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restart_policy: Option<RestartPolicy>,
+    /// Keep the MCP client connection alive after use instead of tearing it down.
+    /// `None` preserves the legacy ephemeral behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -133,6 +137,8 @@ pub struct ServiceLifecycleDefaults {
     pub startup_policy: StartupPolicy,
     #[serde(default)]
     pub restart_policy: RestartPolicy,
+    #[serde(default)]
+    pub keep_alive: bool,
 }
 
 impl Default for ServiceLifecycleDefaults {
@@ -140,6 +146,7 @@ impl Default for ServiceLifecycleDefaults {
         Self {
             startup_policy: StartupPolicy::Lazy,
             restart_policy: RestartPolicy::default(),
+            keep_alive: false,
         }
     }
 }
@@ -148,6 +155,7 @@ impl Default for ServiceLifecycleDefaults {
 pub struct ResolvedServiceLifecycle {
     pub startup_policy: StartupPolicy,
     pub restart_policy: RestartPolicy,
+    pub keep_alive: bool,
 }
 
 /// Client lifecycle handshake mode for an MCP service.
@@ -182,6 +190,88 @@ impl HandshakeMode {
     }
 }
 
+/// Runtime selected for an MCP tool/resource execution.
+///
+/// This is deliberately separate from node mode: a DataPlane may still execute
+/// locally, while a ControlPlane may execute through its daemon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Runtime {
+    Local,
+    Daemon,
+}
+
+impl std::fmt::Display for Runtime {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Local => write!(formatter, "local"),
+            Self::Daemon => write!(formatter, "daemon"),
+        }
+    }
+}
+
+impl std::str::FromStr for Runtime {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "local" => Ok(Self::Local),
+            "daemon" => Ok(Self::Daemon),
+            _ => Err(format!(
+                "invalid runtime '{value}'; expected local or daemon"
+            )),
+        }
+    }
+}
+
+impl Serialize for Runtime {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Runtime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// The runtime that carries an MCP request: local process or a daemon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSelection {
+    pub runtime: Runtime,
+}
+
+impl RuntimeSelection {
+    pub fn runtime(runtime: Runtime) -> Self {
+        Self { runtime }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimePolicy {
+    /// `None` means unrestricted; `Some(vec)` must be non-empty (empty lists are
+    /// rejected by `validate_structure`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_runtimes: Option<Vec<Runtime>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_host_capabilities: Vec<String>,
+}
+
+impl RuntimePolicy {
+    pub fn allows_runtime(&self, runtime: Runtime) -> bool {
+        self.allowed_runtimes
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(&runtime))
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpStoreExtension {
     pub scopes: ScopeDeclarations,
@@ -190,6 +280,8 @@ pub struct McpStoreExtension {
     /// Client lifecycle handshake mode. Defaults to `auto` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handshake_mode: Option<HandshakeMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_policy: Option<RuntimePolicy>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub revision: u64,
     #[serde(flatten)]
@@ -329,6 +421,10 @@ impl ServerConfig {
                 .and_then(|value| value.restart_policy.clone())
                 .or_else(|| definition_lifecycle.and_then(|value| value.restart_policy.clone()))
                 .unwrap_or_else(|| defaults.restart_policy.clone()),
+            keep_alive: scope_lifecycle
+                .and_then(|value| value.keep_alive)
+                .or_else(|| definition_lifecycle.and_then(|value| value.keep_alive))
+                .unwrap_or(defaults.keep_alive),
         }
     }
 
@@ -375,6 +471,29 @@ impl ServerConfig {
                 return Err("scopes.agents contains an empty agent id".to_string());
             }
         }
+        if let Some(policy) = self
+            .mcpstore
+            .as_ref()
+            .and_then(|extension| extension.runtime_policy.as_ref())
+        {
+            // Absent allowlists mean "unrestricted"; an explicitly declared empty
+            // list restricts nothing while looking like a restriction, so reject it.
+            if let Some(allowed) = &policy.allowed_runtimes {
+                if allowed.is_empty() {
+                    return Err(
+                        "runtime_policy.allowed_runtimes must not be empty; omit the field to allow all runtimes"
+                            .to_string(),
+                    );
+                }
+            }
+            // A declared policy that restricts nothing is a mistake.
+            if policy.allowed_runtimes.is_none() && policy.required_host_capabilities.is_empty() {
+                return Err(
+                    "runtime_policy must declare allowed_runtimes or required_host_capabilities"
+                        .to_string(),
+                );
+            }
+        }
         Ok(())
     }
 
@@ -397,6 +516,7 @@ impl ServerConfig {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle: None,
                 handshake_mode: None,
+                runtime_policy: None,
                 revision: 1,
                 extra: Map::new(),
             });

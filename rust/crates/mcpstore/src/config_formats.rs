@@ -80,6 +80,7 @@ mod tests {
                         kind: RestartPolicyKind::OnFailure,
                         max_retries: Some(3),
                     }),
+                    keep_alive: None,
                 }),
                 ..McpStoreExtension::default()
             }),

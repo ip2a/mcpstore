@@ -63,11 +63,11 @@ fn truncate(value: &str, limit: u16) -> String {
 }
 
 fn status_style(message: &str) -> Style {
-    if message.starts_with("[错误]") || message.starts_with("[Error]") {
+    if message.starts_with("[Error]") || message.starts_with("[Error]") {
         theme::error()
-    } else if message.starts_with("[警告]") || message.starts_with("[Warning]") {
+    } else if message.starts_with("[Warning]") || message.starts_with("[Warning]") {
         theme::warning()
-    } else if message.starts_with("[成功]") || message.starts_with("[Success]") {
+    } else if message.starts_with("[Success]") || message.starts_with("[Success]") {
         theme::success()
     } else {
         theme::muted()

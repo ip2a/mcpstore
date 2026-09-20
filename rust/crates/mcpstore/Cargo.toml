@@ -20,6 +20,7 @@ thiserror = "2.0"
 tracing = "0.1"
 async-trait = "0.1"
 uuid = { version = "1.10", features = ["v4", "v5", "serde"] }
+arc-swap = "1.9"
 chrono = { version = "0.4", features = ["serde"] }
 
 # MCP protocol
@@ -42,6 +43,7 @@ zeroize = { version = "1", features = ["derive"] }
 jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 
 [features]
+test-shared-memory = []
 default = ["light", "redis", "valkey"]
 
 # Backend passthrough: enable the openkeyv feature for each store type.

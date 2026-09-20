@@ -16,6 +16,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub web: WebSettings,
     #[serde(default)]
+    pub server: ServerSettings,
+    #[serde(default)]
     pub mcp_aggregate: McpAggregateConfig,
     #[serde(default)]
     pub health_check: HealthCheckConfig,
@@ -35,6 +37,7 @@ impl Default for AppConfig {
             cache: CacheConfig::default(),
             api: ApiSettings::default(),
             web: WebSettings::default(),
+            server: ServerSettings::default(),
             mcp_aggregate: McpAggregateConfig::default(),
             health_check: HealthCheckConfig::default(),
             service_defaults: ServiceDefaultsConfig::default(),
@@ -96,6 +99,8 @@ pub struct McpAggregateConfig {
     pub transport: String,
     #[serde(default = "default_mcp_aggregate_port")]
     pub port: u16,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl Default for McpAggregateConfig {
@@ -103,6 +108,7 @@ impl Default for McpAggregateConfig {
         Self {
             transport: default_mcp_aggregate_transport(),
             port: default_mcp_aggregate_port(),
+            enabled: false,
         }
     }
 }
@@ -208,6 +214,61 @@ impl Default for WebSettings {
         Self {
             host: default_web_host(),
             port: default_web_port(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerSettings {
+    #[serde(default = "default_server_host")]
+    pub host: String,
+    #[serde(default = "default_server_port")]
+    pub port: u16,
+    #[serde(default = "default_app_port")]
+    pub app_port: u16,
+    #[serde(default = "default_web_port")]
+    pub web_port: u16,
+    /// Kernel RPC TCP listener port; 0 disables remote daemon access.
+    #[serde(default)]
+    pub rpc_port: u16,
+    /// Required shared secret for Kernel RPC TCP connections.
+    #[serde(default)]
+    pub rpc_token: Option<String>,
+    #[serde(default = "default_true")]
+    pub core_enabled: bool,
+    #[serde(default = "default_true")]
+    pub app_enabled: bool,
+    #[serde(default = "default_true")]
+    pub web_enabled: bool,
+    #[serde(default)]
+    pub reload: bool,
+    #[serde(default)]
+    pub auto_open_browser: bool,
+    #[serde(default = "default_true")]
+    pub show_startup_info: bool,
+    #[serde(default = "default_server_log_level_value")]
+    pub log_level: String,
+    #[serde(default = "default_server_url_prefix_value")]
+    pub url_prefix: String,
+}
+
+impl Default for ServerSettings {
+    fn default() -> Self {
+        Self {
+            host: default_server_host(),
+            port: default_server_port(),
+            app_port: default_app_port(),
+            web_port: default_web_port(),
+            rpc_port: 0,
+            rpc_token: None,
+            core_enabled: true,
+            app_enabled: true,
+            web_enabled: true,
+            reload: false,
+            auto_open_browser: false,
+            show_startup_info: true,
+            log_level: default_server_log_level_value(),
+            url_prefix: default_server_url_prefix_value(),
         }
     }
 }

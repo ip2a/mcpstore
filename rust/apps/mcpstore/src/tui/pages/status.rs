@@ -21,7 +21,7 @@ pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
             },
             theme::accent(),
         ),
-        Span::styled("状态", theme::field_label()),
+        Span::styled("Status", theme::field_label()),
         Span::raw("  "),
         Span::styled(
             "h/l Focus  j/k Section  r Refresh  Enter Open  Esc Back  q Quit",
@@ -95,7 +95,7 @@ fn render_body(frame: &mut Frame, area: Rect, app: &TuiApp) {
 fn overview_lines(app: &TuiApp) -> Vec<Line<'static>> {
     let stats = app.header_stats();
     vec![
-        kv("运行状态", "ready".to_string()),
+        kv("运行Status", "ready".to_string()),
         kv("配置来源", app.source_label.clone()),
         kv("缓存存储", app.cache_storage_label.clone()),
         kv("命名空间", app.namespace.clone()),
@@ -105,33 +105,36 @@ fn overview_lines(app: &TuiApp) -> Vec<Line<'static>> {
         kv("Not Ready", stats.not_ready.to_string()),
         kv("Unknown", stats.unknown.to_string()),
         kv("Agent数量", app.agents.len().to_string()),
-        kv("当前焦点", app.focus_area.label(app.locale).to_string()),
+        kv("当前Focus", app.focus_area.label(app.locale).to_string()),
     ]
 }
 
 fn capability_lines(app: &TuiApp) -> Vec<Line<'static>> {
     vec![
         kv(
-            "服务管理",
+            "Service management",
             "列表 / 添加 / 详情 / 连接 / 断开 / 重启 / 删除".to_string(),
         ),
         kv(
-            "工具管理",
-            "全局工具列表 / 按服务工具列表 / 工具详情 / 工具测试".to_string(),
-        ),
-        kv("Agent", "Agent列表 / 授权服务 / 解除授权".to_string()),
-        kv(
-            "日志",
-            "运行消息 / Store事件 / 服务状态 / 日志配置".to_string(),
+            "Tool management",
+            "全局Tool list / 按服务Tool list / 工具详情 / 工具测试".to_string(),
         ),
         kv(
-            "状态",
+            "Agent",
+            "Agent list / Authorized services / Revoke authorization".to_string(),
+        ),
+        kv(
+            "Logs",
+            "运行消息 / Store事件 / 服务Status / Logs配置".to_string(),
+        ),
+        kv(
+            "Status",
             "运行概览 / 缓存健康 / 事件能力 / 功能清单".to_string(),
         ),
-        kv("设置", "安装状态 / 常规配置 / 日志配置".to_string()),
+        kv("设置", "安装Status / 常规配置 / Logs配置".to_string()),
         kv(
             "资源/Prompt",
-            "Store API 已具备，TUI 暂以状态能力展示".to_string(),
+            "Store API 已具备，TUI 暂以Status能力展示".to_string(),
         ),
         kv("后端迁移", "CLI/API 已具备，TUI 暂不绑定快捷键".to_string()),
         kv(

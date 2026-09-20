@@ -2,6 +2,7 @@ use super::{
     api_web_validation::{validate_api_settings, validate_web_settings},
     field_validation::validate_allowed,
     health_validation::validate_health_check_config,
+    server_validation::validate_server_settings,
     AppConfig, ConfigError, Result,
 };
 
@@ -11,6 +12,7 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
     validate_ui_config(config, &mut errors);
     validate_api_settings(&config.api, &mut errors);
     validate_web_settings(&config.web, &mut errors);
+    validate_server_settings(&config.server, &mut errors);
     validate_mcp_aggregate_config(config, &mut errors);
     validate_health_check_config(&config.health_check, &mut errors);
     validate_diagnostics_config(config, &mut errors);

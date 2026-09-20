@@ -769,6 +769,7 @@ impl PyMCPStore {
             config_path,
             source_mode: parse_source_mode(source_mode.as_deref())?,
             node_mode: parse_node_mode(node_mode.as_deref())?,
+            node_id: None,
             store: store
                 .map(|name| {
                     let config = store_config
@@ -873,7 +874,7 @@ impl PyMCPStore {
     ) -> PyResult<String> {
         let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.update_service(service_name, base_config))
+            .block_on(self.inner.update_service(service_name, base_config, None))
             .map_err(map_store_err)
     }
 

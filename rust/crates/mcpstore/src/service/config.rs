@@ -22,6 +22,8 @@ impl MCPStore {
         }
         self.refresh_from_db_if_needed().await?;
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
@@ -41,13 +43,18 @@ impl MCPStore {
     }
 
     pub async fn show_config_entry(&self) -> Result<crate::config::McpConfig> {
-        if self.source_mode != SourceMode::Db {
-            return self.config_manager.load_or_empty().map_err(Into::into);
+        if self.kernel.runtime.source_mode != SourceMode::Db {
+            return self
+                .kernel
+                .control
+                .config_manager
+                .load_or_empty()
+                .map_err(Into::into);
         }
 
         self.refresh_from_db_if_needed().await?;
         let mut config = crate::config::McpConfig::default();
-        for definition in self.registry.list_definitions().await {
+        for definition in self.kernel.control.registry.list_definitions().await {
             let server = Self::server_config_from_definition(&definition)?;
             config
                 .mcp_servers
@@ -85,130 +92,32 @@ impl MCPStore {
         self.show_scope_config(&scope).await
     }
 
-    pub async fn reset_config(&self) -> Result<String> {
-        if self.is_data_plane() {
-            return self
-                .queue_control_request("StoreResetRequested", serde_json::json!({}))
-                .await;
-        }
-
-        if self.source_mode == SourceMode::Local {
-            self.config_manager
-                .save(&crate::config::McpConfig::default())?;
-        }
-        self.pool.clear().await;
-        self.applied_openapi_configs.write().await.clear();
-        self.registry.clear().await;
-        self.auth_coordinator.clear_statuses().await;
-        let snapshot = self.cache.snapshot().await?;
-        for (entity_type, entries) in snapshot.entities {
-            for key in entries.keys() {
-                self.cache.delete_entity(&entity_type, key).await?;
-            }
-        }
-        for (relation_type, entries) in snapshot.relations {
-            for key in entries.keys() {
-                self.cache.delete_relation(&relation_type, key).await?;
-            }
-        }
-        for (state_type, entries) in snapshot.states {
-            if state_type == crate::cache::layer::CACHE_SCHEMA_STATE {
-                continue;
-            }
-            for key in entries.keys() {
-                self.cache.delete_state(&state_type, key).await?;
-            }
-        }
-        for (event_type, entries) in snapshot.events {
-            for key in entries.keys() {
-                self.cache.delete_event(&event_type, key).await?;
-            }
-        }
-        Ok(String::new())
-    }
-
-    pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<String> {
-        if self.is_data_plane() {
-            return self
-                .queue_control_request("ScopeResetRequested", serde_json::json!({ "scope": scope }))
-                .await;
-        }
-
-        let mut config = self.show_config_entry().await?;
-        let mut removed = Vec::new();
-        let mut changed_definitions = Vec::new();
-        for (service_name, server) in &mut config.mcp_servers {
-            let Some(extension) = server.mcpstore.as_mut() else {
-                if matches!(scope, ScopeRef::Store) {
-                    server.ensure_native_scopes();
-                    if let Some(extension) = server.mcpstore.as_mut() {
-                        extension.scopes.store = None;
-                    }
-                    removed.push(ServiceInstanceKey::new(
-                        service_name.clone(),
-                        ScopeRef::Store,
-                    ));
-                    changed_definitions.push((service_name.clone(), server.clone()));
-                }
-                continue;
-            };
-            let existed = match scope {
-                ScopeRef::Store => extension.scopes.store.take().is_some(),
-                ScopeRef::Agent { agent_id } => extension.scopes.agents.remove(agent_id).is_some(),
-            };
-            if existed {
-                removed.push(ServiceInstanceKey::new(service_name.clone(), scope.clone()));
-                changed_definitions.push((service_name.clone(), server.clone()));
-            }
-        }
-        if self.source_mode == SourceMode::Local {
-            self.config_manager.save(&config)?;
-        }
-
-        let instance_ids = removed
-            .into_iter()
-            .map(|key| key.instance_id())
-            .collect::<Vec<_>>();
-        for instance_id in &instance_ids {
-            self.pool.remove(*instance_id).await.ok();
-            self.applied_openapi_configs
-                .write()
-                .await
-                .remove(instance_id);
-            self.registry.unregister_instance(*instance_id).await;
-            self.auth_coordinator.remove_status(*instance_id).await;
-        }
-
-        let now = chrono::Utc::now().timestamp();
-        for (service_name, server) in changed_definitions {
-            self.sync_definition_projection(&service_name, &server, now)
-                .await?;
-        }
-        for instance_id in instance_ids {
-            self.cache_instance_removed(instance_id).await?;
-        }
-        Ok(String::new())
-    }
-
     pub async fn load_from_config(&self) -> Result<()> {
-        if self.is_data_plane() || self.source_mode == SourceMode::Db {
+        if self.is_data_plane() || self.kernel.runtime.source_mode == SourceMode::Db {
             return self.load_from_db().await;
         }
 
-        let config = self.config_manager.load_or_empty()?;
-        self.pool.clear().await;
-        self.applied_openapi_configs.write().await.clear();
-        self.registry.clear().await;
-        self.auth_coordinator.clear_statuses().await;
+        let config = self.kernel.control.config_manager.load_or_empty()?;
+        self.kernel.execution.pool.clear().await;
+        self.kernel
+            .runtime
+            .applied_openapi_configs
+            .write()
+            .await
+            .clear();
+        self.kernel.control.registry.clear().await;
+        self.kernel.control.auth.clear_statuses().await;
 
         for (service_name, server) in &config.mcp_servers {
             self.register_configured_definition(service_name, server)
                 .await?;
         }
 
-        for instance in self.registry.list_instances().await {
+        for instance in self.kernel.control.registry.list_instances().await {
             let state = self
-                .state_manager
+                .kernel
+                .control
+                .state
                 .get(instance.instance_id)
                 .await?
                 .ok_or_else(|| {
@@ -240,7 +149,13 @@ impl MCPStore {
 
     pub async fn get_definition_config(&self, service_name: &str) -> Result<Option<Value>> {
         self.refresh_from_db_if_needed().await?;
-        let Some(definition) = self.registry.find_definition(service_name).await else {
+        let Some(definition) = self
+            .kernel
+            .control
+            .registry
+            .find_definition(service_name)
+            .await
+        else {
             return Ok(None);
         };
         Ok(Some(
@@ -256,6 +171,8 @@ impl MCPStore {
     ) -> Result<Option<Value>> {
         self.refresh_from_db_if_needed().await?;
         Ok(self
+            .kernel
+            .control
             .registry
             .find_instance_by_key(service_name, scope)
             .await
@@ -267,11 +184,15 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<crate::config::ResolvedServiceLifecycle> {
         let instance = self
+            .kernel
+            .control
             .registry
             .find_instance(instance_id)
             .await
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let definition = self
+            .kernel
+            .control
             .registry
             .find_definition(&instance.service_name)
             .await
@@ -281,7 +202,11 @@ impl MCPStore {
         let config = Self::server_config_from_definition(&definition)?;
         Ok(config.resolved_lifecycle_for_scope(
             &instance.scope,
-            &self.runtime_config.service_lifecycle_defaults,
+            &self
+                .kernel
+                .runtime
+                .runtime_config
+                .service_lifecycle_defaults,
         ))
     }
 
@@ -290,7 +215,9 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<()> {
         let state = self
-            .state_manager
+            .kernel
+            .control
+            .state
             .get(instance_id)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
@@ -314,6 +241,8 @@ impl MCPStore {
         let now = chrono::Utc::now().timestamp();
         let scopes = config.scopes();
         let existing_instances = self
+            .kernel
+            .control
             .registry
             .list_instances()
             .await
@@ -379,9 +308,15 @@ impl MCPStore {
                 instance.applied_config_revision = existing.applied_config_revision;
                 instance.added_time = existing.added_time;
             }
-            self.registry.register_instance(instance).await;
+            self.kernel
+                .control
+                .registry
+                .register_instance(instance)
+                .await;
             self.cache_instance_added(instance_id).await?;
-            self.auth_coordinator
+            self.kernel
+                .control
+                .auth
                 .initialize_status(instance_id, &effective_auth)
                 .await;
         }
@@ -390,13 +325,19 @@ impl MCPStore {
             if declared_instance_ids.contains(&instance_id) {
                 continue;
             }
-            self.pool.remove(instance_id).await.ok();
-            self.applied_openapi_configs
+            self.kernel.execution.pool.remove(instance_id).await.ok();
+            self.kernel
+                .runtime
+                .applied_openapi_configs
                 .write()
                 .await
                 .remove(&instance_id);
-            self.registry.unregister_instance(instance_id).await;
-            self.auth_coordinator.remove_status(instance_id).await;
+            self.kernel
+                .control
+                .registry
+                .unregister_instance(instance_id)
+                .await;
+            self.kernel.control.auth.remove_status(instance_id).await;
             self.cache_instance_removed(instance_id).await?;
         }
         Ok(())
@@ -410,6 +351,8 @@ impl MCPStore {
     ) -> Result<()> {
         let extension = config.mcpstore.as_ref();
         let added_time = self
+            .kernel
+            .control
             .registry
             .find_definition(service_name)
             .await
@@ -421,17 +364,24 @@ impl MCPStore {
             scopes: config.scopes(),
             lifecycle: extension.and_then(|value| value.lifecycle.clone()),
             handshake_mode: extension.and_then(|value| value.handshake_mode),
+            runtime_policy: extension.and_then(|value| value.runtime_policy.clone()),
             base_revision: config.definition_revision(),
             metadata: extension
                 .map(|value| value.extra.clone())
                 .unwrap_or_default(),
             added_time,
         };
-        self.registry.register_definition(definition.clone()).await;
+        self.kernel
+            .control
+            .registry
+            .register_definition(definition.clone())
+            .await;
         self.cache_definition(&definition).await
     }
 
-    fn server_config_from_definition(definition: &ServiceDefinition) -> Result<ServerConfig> {
+    pub(crate) fn server_config_from_definition(
+        definition: &ServiceDefinition,
+    ) -> Result<ServerConfig> {
         let mut config: ServerConfig = serde_json::from_value(Value::Object(
             definition.base_config.clone(),
         ))
@@ -448,6 +398,7 @@ impl MCPStore {
             scopes: definition.scopes.clone(),
             lifecycle: definition.lifecycle.clone(),
             handshake_mode: definition.handshake_mode,
+            runtime_policy: definition.runtime_policy.clone(),
             revision: definition.base_revision,
             extra: definition.metadata.clone(),
         });

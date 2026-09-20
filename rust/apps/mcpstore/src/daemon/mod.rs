@@ -1,31 +1,7 @@
-#[cfg(unix)]
 pub mod client;
+pub mod ensure;
+pub mod listeners;
+pub mod ops;
 pub mod protocol;
-#[cfg(unix)]
 pub mod server;
-
-#[cfg(not(unix))]
-pub mod client {
-    use mcpstore::error::{Error, FailureCode};
-    use serde_json::Value;
-
-    pub fn daemon_socket_exists() -> bool {
-        false
-    }
-
-    pub async fn call_daemon(_method: impl Into<String>, _params: Value) -> Result<Value, Error> {
-        Err(Error::new(
-            FailureCode::ServiceUnavailable,
-            "daemon mode is only available on Unix platforms",
-        ))
-    }
-}
-
-#[cfg(not(unix))]
-pub mod server {
-    use crate::store_args::StoreSourceArgs;
-
-    pub async fn start_daemon(_args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
-        Err("Daemon mode is only available on Unix platforms.".into())
-    }
-}
+pub mod transport;

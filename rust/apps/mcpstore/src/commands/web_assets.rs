@@ -110,3 +110,31 @@ fn mime_for_path(path: &str) -> &'static str {
     }
     "application/octet-stream"
 }
+
+/// SPA 静态回退：命中嵌入资源返回资源；带扩展名未命中返回 404；其余回 index.html。
+pub async fn serve_react_app(request: axum::extract::Request) -> Response {
+    let path = request.uri().path().trim_start_matches('/');
+    let asset_path = if path.is_empty() { "index.html" } else { path };
+
+    if has_override_assets() && asset_path == "index.html" {
+        return response_for_asset(asset_path);
+    }
+
+    if find(asset_path).is_some() {
+        return response_for_asset(asset_path);
+    }
+
+    if !has_assets() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mcpstore web assets are missing. Run `cd web && npm run build` before building or set MCPSTORE_WEB_ASSETS_DIR.",
+        )
+            .into_response();
+    }
+
+    if Path::new(asset_path).extension().is_some() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    response_for_asset("index.html")
+}

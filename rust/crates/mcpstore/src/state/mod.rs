@@ -7,4 +7,6 @@ pub use service::{
     ServiceStateEvent, ToolAvailability, ToolStateItem, ToolsState, ToolsStatus,
 };
 
-pub use manager::{ServiceStateManager, ServiceStateManagerError};
+pub use manager::{
+    ServiceStateManager, ServiceStateManagerError, CONTROL_NODE_ID, NODE_STATUS_TYPE,
+};

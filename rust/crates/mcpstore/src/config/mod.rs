@@ -3,6 +3,7 @@ use std::path::PathBuf;
 mod api_web_validation;
 mod app_schema;
 mod app_validation;
+mod server_validation;
 mod cache_schema;
 mod defaults;
 mod examples;
@@ -26,7 +27,7 @@ pub use crate::auth::{
 };
 pub use app_schema::{
     ApiSettings, AppConfig, DiagnosticsConfig, HostEntry, HostsConfig, McpAggregateConfig,
-    RuntimeLogConfig, ServiceDefaultsConfig, UiConfig, WebSettings,
+    RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, UiConfig, WebSettings,
 };
 pub use cache_schema::CacheConfig;
 pub use health_schema::HealthCheckConfig;
@@ -35,12 +36,14 @@ pub use mcp_schema::McpConfig;
 pub use merge::merge_config;
 pub use service_schema::{
     HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,
-    ScopeDeclarations, ScopeDescriptor, ServerConfig, ServiceLifecycleConfig,
-    ServiceLifecycleDefaults, StartupPolicy,
+    Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    ServiceLifecycleConfig, ServiceLifecycleDefaults, StartupPolicy,
 };
 
 pub const DEFAULT_RUNTIME_LOG_LEVEL: &str = "info";
 pub const DEFAULT_API_URL_PREFIX: &str = "";
+pub const DEFAULT_SERVER_LOG_LEVEL: &str = "info";
+pub const DEFAULT_SERVER_URL_PREFIX: &str = "";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {

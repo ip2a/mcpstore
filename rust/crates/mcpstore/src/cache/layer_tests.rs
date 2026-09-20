@@ -176,6 +176,7 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
 #[tokio::test]
 async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     let store = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("cache-instance-status-upsert".to_string()),
         ..StoreOptions::default()
@@ -183,6 +184,8 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     .unwrap();
     let instance_id = store_instance_id();
     store
+        .kernel
+        .control
         .registry
         .register_definition(ServiceDefinition {
             service_name: "svc".to_string(),
@@ -190,12 +193,15 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
             scopes: ScopeDeclarations::store_only(),
             lifecycle: None,
             handshake_mode: None,
+            runtime_policy: None,
             metadata: serde_json::Map::new(),
             base_revision: 1,
             added_time: 100,
         })
         .await;
     store
+        .kernel
+        .control
         .registry
         .register_instance(ServiceInstance {
             instance_id,
@@ -219,23 +225,36 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
         .await;
     store.cache_instance_added(instance_id).await.unwrap();
 
-    let canonical = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let canonical = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(canonical.desired, DesiredState::Stopped);
     assert_eq!(canonical.phase, RuntimePhase::Stopped);
     assert_eq!(canonical.auth, AuthState::NotRequired);
 
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(instance_id, ServiceStateEvent::StartRequested, 201)
         .await
         .unwrap();
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(instance_id, ServiceStateEvent::TransportConnected, 202)
         .await
         .unwrap();
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             ServiceStateEvent::HealthObserved {
@@ -253,7 +272,9 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
         .await
         .unwrap();
     store
-        .state_manager
+        .kernel
+        .control
+        .state
         .dispatch(
             instance_id,
             ServiceStateEvent::ToolSyncSucceeded {
@@ -263,25 +284,45 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
         )
         .await
         .unwrap();
-    let observed = store.state_manager.get(instance_id).await.unwrap().unwrap();
+    let observed = store
+        .kernel
+        .control
+        .state
+        .get(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
 
-    let mut updated = store.registry.find_instance(instance_id).await.unwrap();
+    let mut updated = store
+        .kernel
+        .control
+        .registry
+        .find_instance(instance_id)
+        .await
+        .unwrap();
     updated.command = Some("updated-command".to_string());
     updated.config_revision = ConfigRevision {
         base_revision: 2,
         scope_revision: 1,
     };
-    store.registry.register_instance(updated).await;
+    store
+        .kernel
+        .control
+        .registry
+        .register_instance(updated)
+        .await;
     store.cache_instance_added(instance_id).await.unwrap();
 
     assert_eq!(
-        store.state_manager.get(instance_id).await.unwrap(),
+        store.kernel.control.state.get(instance_id).await.unwrap(),
         Some(observed)
     );
 
     store.cache_instance_removed(instance_id).await.unwrap();
     assert!(store
-        .state_manager
+        .kernel
+        .control
+        .state
         .get(instance_id)
         .await
         .unwrap()

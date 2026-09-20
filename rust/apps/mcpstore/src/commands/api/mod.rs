@@ -1,17 +1,17 @@
 use std::{
     collections::HashMap,
-    net::IpAddr,
-    process::Stdio,
     sync::{Arc, Mutex},
 };
 
-use crate::mcp_server::{McpServerLaunchDescriptor, McpServerOptions, McpServerTransport};
+use crate::mcp_server::{
+    run_streamable_http, McpServerLaunchDescriptor, McpServerOptions, McpServerTransport,
+    McpStoreServer,
+};
 use axum::{
     extract::State,
     routing::{get, post, put},
     Router,
 };
-use clap::Args;
 use mcpstore::{
     client_config::{import_selected_services, inspect_client_config, ClientKind},
     config::ScopeDescriptor,
@@ -22,13 +22,8 @@ use mcpstore::{
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
-use tokio::process::{Child, Command};
+use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
-
-use crate::{
-    store_args::{build_store, StoreSourceArgs},
-    BoxErr,
-};
 
 mod app;
 mod auth;
@@ -44,38 +39,18 @@ use envelope::{success, ApiError, ApiResult};
 
 use parse::{
     extract_prompt_args, extract_prompt_name, extract_tool_args, extract_tool_name,
-    normalize_prefix, parse_scope_ref, ScopeQuery,
+    parse_scope_ref, ScopeQuery,
 };
-
-#[derive(Args)]
-pub struct ApiArgs {
-    #[arg(long, help = "API 服务端口；未指定时读取 app 配置")]
-    pub port: Option<u16>,
-    #[arg(long, help = "绑定地址；未指定时读取 app 配置")]
-    pub host: Option<String>,
-    #[arg(long, help = "URL 前缀，例如 /mcp；未指定时读取 app 配置")]
-    pub url_prefix: Option<String>,
-    #[arg(long, help = "显式允许非 loopback API 绑定")]
-    pub allow_remote: bool,
-    #[command(flatten)]
-    pub store: StoreSourceArgs,
-}
 
 #[derive(Clone)]
 pub struct ApiState {
     store: Arc<MCPStore>,
-    mcp_hub_process: Arc<Mutex<Option<McpHubProcess>>>,
+    mcp_hub: Arc<Mutex<Option<McpHub>>>,
 }
 
-struct McpHubProcess {
-    child: Child,
+struct McpHub {
+    task: JoinHandle<()>,
     descriptor: McpServerLaunchDescriptor,
-}
-
-impl Drop for McpHubProcess {
-    fn drop(&mut self) {
-        let _ = self.child.start_kill();
-    }
 }
 
 /// 把 `(service_name, scope)` 解析成 instance_id；服务未在该 scope 声明时返回 404。
@@ -93,7 +68,7 @@ async fn resolve_instance(
             if error.code() == mcpstore::error::FailureCode::ServiceNotFound {
                 ApiError::not_found(
                     mcpstore::error::FailureCode::ServiceNotFound,
-                    format!("服务 {service_name} 未在该作用域声明"),
+                    format!("Service {service_name} is not declared in this scope"),
                     Some("service_name"),
                     Some(json!({
                         "service_name": service_name,
@@ -106,50 +81,11 @@ async fn resolve_instance(
         })
 }
 
-pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
-    let store = build_store(&args.store)?;
-    store.load_from_source().await?;
-
-    let config = store.config_manager().load_app_config_or_default()?;
-    let host = args
-        .host
-        .as_deref()
-        .unwrap_or(&config.api.host)
-        .to_string();
-    let port = args.port.unwrap_or(config.api.port);
-    let prefix = normalize_prefix(
-        args.url_prefix
-            .as_deref()
-            .unwrap_or(&config.api.url_prefix),
-    );
-
-    let loopback = host == "localhost"
-        || host
-            .parse::<IpAddr>()
-            .is_ok_and(|address| address.is_loopback());
-    if !loopback && !args.allow_remote {
-        return Err("API 默认只允许 loopback 绑定；使用 --allow-remote 明确开启远程暴露".into());
-    }
-
-    let app = router_for_store(store, &prefix);
-
-    let addr = format!("{}:{}", host, port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    let display_prefix = if prefix.is_empty() {
-        "/".to_string()
-    } else {
-        prefix.clone()
-    };
-    println!("[API] Starting at http://{addr}{display_prefix}");
-
-    axum::serve(listener, app).await?;
-    Ok(())
-}
-
-pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
+/// 构建 daemon 共享的 ApiState；非数据面时恢复事件 reactor。
+pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     let state = Arc::new(ApiState {
         store,
-        mcp_hub_process: Arc::new(Mutex::new(None)),
+        mcp_hub: Arc::new(Mutex::new(None)),
     });
     if !state.store.is_data_plane() {
         let store = state.store.clone();
@@ -161,15 +97,62 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
             }
         });
     }
-    router(state, prefix)
+    state
 }
 
-fn router(state: Arc<ApiState>, prefix: &str) -> Router {
-    let base = Router::new()
+impl ApiState {
+    pub(crate) fn store(&self) -> &Arc<MCPStore> {
+        &self.store
+    }
+}
+
+pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
+    full_router(state_for_store(store), prefix)
+}
+
+/// App 面：daemon 自身（健康/元信息/设置/配置/客户端导入/聚合/缓存），固定本地。
+pub fn app_router(state: Arc<ApiState>) -> Router {
+    app_routes(state).layer(CorsLayer::permissive())
+}
+
+/// Core 面：全部 store 业务，可随 core base 指向远程 daemon。
+pub fn core_router(state: Arc<ApiState>) -> Router {
+    core_routes(state).layer(CorsLayer::permissive())
+}
+
+fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
+    let full = app_routes(state.clone())
+        .merge(core_routes(state))
+        .layer(CorsLayer::permissive());
+    if prefix.is_empty() {
+        full
+    } else {
+        Router::new().nest(prefix, full)
+    }
+}
+
+fn app_routes(state: Arc<ApiState>) -> Router {
+    Router::new()
         // ===== app：应用配置 / 元信息 / 历史（app 专用，非 core）=====
         .route("/health", get(app::health))
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
+        // ===== 配置 / 客户端导入 / 聚合 / 缓存（app 专用，非 core）=====
+        .route("/config", get(service::store_show_config))
+        .route("/config/reset", post(service::store_reset_config))
+        .route("/client-config/import", post(client::client_config_import))
+        .route("/mcp-hub/descriptor", get(client::mcp_hub_descriptor))
+        .route("/mcp-hub/status", get(client::mcp_hub_status))
+        .route("/mcp-hub/start", post(client::mcp_hub_start))
+        .route("/mcp-hub/stop", post(client::mcp_hub_stop))
+        .route("/cache/health", get(cache::health))
+        .route("/cache/inspect", get(cache::inspect))
+        .route("/cache/switch", post(cache::switch))
+        .with_state(state)
+}
+
+fn core_routes(state: Arc<ApiState>) -> Router {
+    Router::new()
         // ===== agents / scopes =====
         .route("/agents/list", get(service::list_agents))
         .route("/agents/:agent_id", get(service::agent_info))
@@ -396,26 +379,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             "/openapi_imports/bundle_artifact",
             post(openapi::store_bundle_openapi_artifact),
         )
-        // ===== 配置 / 编程助手 / 聚合 / 缓存（app 专用，非 core）=====
-        .route("/config", get(service::store_show_config))
-        .route("/config/reset", post(service::store_reset_config))
-        .route("/client-config/import", post(client::client_config_import))
-        .route("/mcp-hub/descriptor", get(client::mcp_hub_descriptor))
-        .route("/mcp-hub/status", get(client::mcp_hub_status))
-        .route("/mcp-hub/start", post(client::mcp_hub_start))
-        .route("/mcp-hub/stop", post(client::mcp_hub_stop))
-        .route("/cache/health", get(cache::health))
-        .route("/cache/inspect", get(cache::inspect))
-        .route("/cache/switch", post(cache::switch))
-        .with_state(state);
-
-    if prefix.is_empty() {
-        base.layer(CorsLayer::permissive())
-    } else {
-        Router::new()
-            .nest(prefix, base)
-            .layer(CorsLayer::permissive())
-    }
+        .with_state(state)
 }
 
 #[cfg(test)]

@@ -657,12 +657,7 @@ export function ServiceDetailView(props: {
                         <button
                           key={tab}
                           type="button"
-                          className={cn(
-                            "rounded-sm px-0.5 transition-colors hover:text-foreground",
-                            rightPaneView === "catalog" &&
-                              activeTab === tab &&
-                              "font-semibold text-foreground underline decoration-foreground/40 underline-offset-2",
-                          )}
+                          className="rounded-sm px-0.5 transition-colors hover:text-foreground"
                           title={label}
                           onClick={() => goToCatalogTab(tab)}
                         >

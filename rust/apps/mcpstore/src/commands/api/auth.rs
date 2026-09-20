@@ -51,7 +51,7 @@ pub(super) async fn service_auth_status(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("认证状态获取成功", json!({ "auth": auth })))
+    Ok(success("认证Status获取成功", json!({ "auth": auth })))
 }
 
 pub(super) async fn service_auth_start(

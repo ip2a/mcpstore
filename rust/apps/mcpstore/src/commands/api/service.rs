@@ -89,7 +89,7 @@ fn parse_tool_filter(value: &str) -> ApiResult<mcpstore::ToolVisibilityFilter> {
         "available" => Ok(mcpstore::ToolVisibilityFilter::Available),
         "removed" => Ok(mcpstore::ToolVisibilityFilter::Removed),
         other => Err(ApiError::invalid_parameter(
-            format!("不支持的工具过滤器: {other}"),
+            format!("Unsupported tool filter: {other}"),
             Some("filter"),
         )),
     }
@@ -124,7 +124,7 @@ pub(super) async fn service_list_services(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "服务列表获取成功",
+        "Service list获取成功",
         json!({ "services": services, "total": services.len() }),
     ))
 }
@@ -202,7 +202,7 @@ pub(super) async fn agent_info(
         .ok_or_else(|| {
             ApiError::not_found(
                 mcpstore::error::FailureCode::ServiceNotFound,
-                format!("Agent '{agent_id}' 不存在"),
+                format!("Agent '{agent_id}' does not exist"),
                 Some("agent_id"),
                 None,
             )
@@ -239,7 +239,7 @@ pub(super) async fn service_state(
         .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务状态获取成功", service_state))
+    Ok(success("服务Status获取成功", service_state))
 }
 
 pub(super) async fn service_connect(
@@ -300,8 +300,9 @@ pub(super) async fn service_wait(
         .wait_instance_ready(instance_id, std::time::Duration::from_secs(timeout))
         .await
         .map_err(ApiError::from_store)?;
-    let status = serde_json::to_value(status)
-        .map_err(|error| ApiError::invalid_request(format!("服务状态序列化失败: {error}")))?;
+    let status = serde_json::to_value(status).map_err(|error| {
+        ApiError::invalid_request(format!("Failed to serialize service status: {error}"))
+    })?;
     Ok(success("服务等待完成", status))
 }
 
@@ -338,7 +339,7 @@ pub(super) async fn service_list_tools(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "工具列表获取成功",
+        "Tool list获取成功",
         json!({ "filter": filter_name, "tools": tools, "total": tools.len() }),
     ))
 }
@@ -362,7 +363,7 @@ pub(super) async fn tools_list(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "工具列表获取成功",
+        "Tool list获取成功",
         json!({
             "service_name": service_name,
             "filter": filter_name,
@@ -529,8 +530,9 @@ pub(super) async fn add_service_definition(
     Path(service_name): Path<String>,
     Json(payload): Json<Value>,
 ) -> ApiResult {
-    let config: ServerConfig = serde_json::from_value(payload)
-        .map_err(|error| ApiError::invalid_request(format!("服务配置无效: {error}")))?;
+    let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
+        ApiError::invalid_request(format!("Invalid service configuration: {error}"))
+    })?;
     state
         .store
         .add_service(&service_name, config)
@@ -552,11 +554,12 @@ pub(super) async fn update_service_definition(
             "基础配置更新不能包含 _mcpstore；请使用作用域接口修改 scope",
         ));
     }
-    let config: ServerConfig = serde_json::from_value(payload)
-        .map_err(|error| ApiError::invalid_request(format!("服务配置无效: {error}")))?;
+    let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
+        ApiError::invalid_request(format!("Invalid service configuration: {error}"))
+    })?;
     state
         .store
-        .update_service(&service_name, config)
+        .update_service(&service_name, config, None)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("服务定义更新成功", json!({ "status": "ok" })))

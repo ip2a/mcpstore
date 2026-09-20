@@ -13,15 +13,29 @@ use crate::{Error, FailureCode, Result, ServiceInstanceKey};
 impl MCPStore {
     pub(crate) async fn load_from_db(&self) -> Result<()> {
         let definition_values = self
+            .kernel
+            .persistence
             .cache
             .get_all_entities_async("service_definitions")
             .await?;
         let instance_values = self
+            .kernel
+            .persistence
             .cache
             .get_all_entities_async("service_instances")
             .await?;
-        let tool_values = self.cache.get_all_entities_async("tools").await?;
-        let tool_relation_values = self.cache.get_all_relations_async("instance_tools").await?;
+        let tool_values = self
+            .kernel
+            .persistence
+            .cache
+            .get_all_entities_async("tools")
+            .await?;
+        let tool_relation_values = self
+            .kernel
+            .persistence
+            .cache
+            .get_all_relations_async("instance_tools")
+            .await?;
 
         let mut definitions = HashMap::with_capacity(definition_values.len());
         for (key, value) in definition_values {
@@ -217,25 +231,36 @@ impl MCPStore {
             .iter()
             .map(|(instance, _)| instance.instance_id)
             .collect::<std::collections::HashSet<_>>();
-        self.auth_coordinator
+        self.kernel
+            .control
+            .auth
             .retain_statuses(&active_instance_ids)
             .await;
 
         // 增量合并连接池，而非清空重建：只移除已删除的实例，
         // 只对配置变更的实例重连，其余保留活连接。
-        let current_ids = self.pool.instance_ids().await;
+        let current_ids = self.kernel.execution.pool.instance_ids().await;
         for stale_id in current_ids.difference(&active_instance_ids) {
-            self.pool.remove(*stale_id).await.ok();
+            self.kernel.execution.pool.remove(*stale_id).await.ok();
         }
 
-        self.applied_openapi_configs.write().await.clear();
-        self.registry.clear().await;
+        self.kernel
+            .runtime
+            .applied_openapi_configs
+            .write()
+            .await
+            .clear();
+        self.kernel.control.registry.clear().await;
         for definition in definitions.into_values() {
-            self.registry.register_definition(definition).await;
+            self.kernel
+                .control
+                .registry
+                .register_definition(definition)
+                .await;
         }
         for (instance, transport_config) in instances {
             let instance_id = instance.instance_id;
-            if self.state_manager.get(instance_id).await?.is_none() {
+            if self.kernel.control.state.get(instance_id).await?.is_none() {
                 let auth = match transport_config.auth {
                     AuthConfig::None => AuthState::NotRequired,
                     AuthConfig::OAuthAuthorizationCode(_)
@@ -243,14 +268,23 @@ impl MCPStore {
                 };
                 let lifecycle = transport_config.resolved_lifecycle_for_scope(
                     &instance.scope,
-                    &self.runtime_config.service_lifecycle_defaults,
+                    &self
+                        .kernel
+                        .runtime
+                        .runtime_config
+                        .service_lifecycle_defaults,
                 );
-                let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart {
+                // keep_alive=true 隐含期望常驻（与 cache_instance_added 的判定一致）
+                let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart
+                    || lifecycle.keep_alive
+                {
                     DesiredState::Running
                 } else {
                     DesiredState::Stopped
                 };
-                self.state_manager
+                self.kernel
+                    .control
+                    .state
                     .create(ServiceState::new(
                         instance_id,
                         instance.service_name.clone(),
@@ -261,21 +295,33 @@ impl MCPStore {
                     ))
                     .await?;
             }
-            self.auth_coordinator
+            self.kernel
+                .control
+                .auth
                 .initialize_status(instance_id, &transport_config.auth)
                 .await;
             // 只在配置实际变化或实例首次注册时才重建连接池条目
-            if instance.restart_required() || !self.pool.contains(instance_id).await {
-                self.pool.remove(instance_id).await.ok();
-                self.pool.add(instance_id, transport_config).await;
+            if instance.restart_required()
+                || !self.kernel.execution.pool.contains(instance_id).await
+            {
+                self.kernel.execution.pool.remove(instance_id).await.ok();
+                self.kernel
+                    .execution
+                    .pool
+                    .add(instance_id, transport_config)
+                    .await;
             }
-            self.registry.register_instance(instance).await;
+            self.kernel
+                .control
+                .registry
+                .register_instance(instance)
+                .await;
         }
         Ok(())
     }
 
     pub(crate) async fn refresh_from_db_if_needed(&self) -> Result<()> {
-        if self.source_mode == SourceMode::Db {
+        if self.kernel.runtime.source_mode == SourceMode::Db {
             self.load_from_db().await?;
         }
         Ok(())

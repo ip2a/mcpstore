@@ -2,10 +2,9 @@ mod callback_listener;
 mod config;
 mod coordinator;
 mod credentials;
-mod discovery;
+pub(crate) mod discovery;
 mod key;
 mod keyring;
-mod lifecycle;
 mod models;
 mod state;
 

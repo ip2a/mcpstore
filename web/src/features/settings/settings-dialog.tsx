@@ -53,7 +53,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const configContent = useMemo(() => configFile?.content || "", [configFile?.content])
 
   useEffect(() => {
-    if (open && meta) setDraft(settingsDraft(meta.settings))
+    if (open && meta?.settings) setDraft(settingsDraft(meta.settings))
   }, [meta, open])
 
   function patchDraft(patch: Partial<SettingsDraft>) {
