@@ -102,7 +102,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = RustStoreBackend.setup(FileConfig(path=str(config_path)), "local", "control_plane")
+            store = RustStoreBackend.setup(FileConfig(path=str(config_path)), "local")
             store.add_service(
                 "gitodo",
                 {"command": "command-that-must-not-run", "args": [], "_mcpstore": {"scopes": {"store": {}, "agents": {"agent1": {}}}}},
@@ -215,7 +215,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            store = RustStoreBackend.setup(FileConfig(path=str(config_path)), "local", "control_plane")
+            store = RustStoreBackend.setup(FileConfig(path=str(config_path)), "local")
             context = store.for_agent("agent-a").add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             service = context.list_services()[0]
             self.assertIsInstance(context, AgentContext)

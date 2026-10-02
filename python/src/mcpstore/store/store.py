@@ -16,15 +16,14 @@ class RustStoreBackend:
     def __init__(self, rust_store: Any):
         self._inner = rust_store
         self._source_mode: Optional[str] = None   # "local" | "db"
-        self._node_mode: Optional[str] = None     # "control_plane" | "data_plane"
 
     # ------------------------------------------------------------------
     # Setup entry point
     # ------------------------------------------------------------------
     @classmethod
-    def setup(cls, source: Any, source_mode: str, node_mode: str):
+    def setup(cls, source: Any, source_mode: str):
         """Construct the Rust-backed store from resolved source + modes."""
-        return setup_module.setup_backend(cls, source, source_mode, node_mode)
+        return setup_module.setup_backend(cls, source, source_mode)
 
     @staticmethod
     def setup_store(source: Any = None, mode: Optional[str] = None, *,
@@ -44,9 +43,6 @@ class RustStoreBackend:
     def source_mode(self) -> Optional[str]:
         return self._source_mode
 
-    @property
-    def node_mode(self) -> Optional[str]:
-        return self._node_mode
 
     def restart_control_reactor(self) -> None:
         """Start the control-plane EventReactor that consumes queued control requests."""

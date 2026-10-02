@@ -1,4 +1,4 @@
-"""Python setup facade: resolve ``source`` + ``mode`` and hand off to Rust."""
+"""Python setup facade: resolve ``source`` and hand off to Rust."""
 
 from __future__ import annotations
 
@@ -6,9 +6,6 @@ import importlib
 import json
 import os
 from typing import Any, Dict, Optional
-
-
-_VALID_MODES = {"control_plane", "data_plane"}
 
 
 # ---------------------------------------------------------------------------
@@ -42,18 +39,6 @@ def _resolve_source_mode(source: Any) -> str:
     return "db"
 
 
-def _resolve_node_mode(mode: Optional[str]) -> str:
-    """Resolve user-facing mode; nodes are control-plane unless explicitly configured."""
-    if mode is not None:
-        resolved = mode.strip().lower()
-        if resolved not in _VALID_MODES:
-            raise ValueError(
-                f"mode must be one of {_VALID_MODES}, got: {mode!r}"
-            )
-        return resolved
-    return "control_plane"
-
-
 def _extract_file_path(source: Any) -> Optional[str]:
     """If source is a FileConfig carrying a path, return it; else None."""
     path = getattr(source, "path", None)
@@ -66,19 +51,12 @@ def _extract_file_path(source: Any) -> Optional[str]:
 # Backend construction
 # ---------------------------------------------------------------------------
 
-def setup_backend(
-    backend_cls: type,
-    source: Any,
-    source_mode: str,
-    node_mode: str,
-):
+def setup_backend(backend_cls: type, source: Any, source_mode: str):
     """Build the Rust-backed store.
 
     ``source_mode`` selects where service definitions are read from
-    (``local`` vs ``db``); ``node_mode`` selects the node role
-    (``control_plane`` maintains clients/supervisor and runs writes
-    directly; ``data_plane`` queues writes and skips local connection
-    state). Both are passed through to the Rust core verbatim.
+    (``local`` vs ``db``). Roles are composed externally via ControlPanel/
+    DataPanel components; setup carries no role.
     """
     rust_mod = importlib.import_module("mcpstore._rust")
     file_path = _extract_file_path(source)
@@ -89,14 +67,10 @@ def setup_backend(
         store_name,
         json.dumps(store_config or {}, separators=(",", ":")),
         namespace,
-        node_mode,
     )
     store = backend_cls(rust_store)
     store._source_mode = source_mode
-    store._node_mode = node_mode
     store.load_from_config()
-    if node_mode == "control_plane":
-        store.restart_control_reactor()
     return store
 
 
@@ -106,7 +80,6 @@ class StoreSetupManager:
     @staticmethod
     def setup_store(
         source: Any = None,
-        mode: Optional[str] = None,
         *,
         debug: bool | str = False,
         static_config: Optional[Dict[str, Any]] = None,
@@ -121,10 +94,6 @@ class StoreSetupManager:
             the standard local ``mcp.json`` path. Its type decides where
             definitions come from: ``FileConfig`` -> local file,
             ``RedisConfig`` -> remote DB, ``MemoryConfig`` -> in-process, etc.
-        mode:
-            Node role: ``"control_plane"`` by default. Pass
-            ``"data_plane"`` explicitly for a node that does not maintain
-            clients and queues writes for a control-plane node to consume.
         """
         from mcpstore.config.config import LoggingConfig
 
@@ -140,10 +109,9 @@ class StoreSetupManager:
             source = FileConfig()
 
         source_mode = _resolve_source_mode(source)
-        node_mode = _resolve_node_mode(mode)
 
         from mcpstore.store.store import MCPStore as PyMCPStore
-        store = PyMCPStore.setup(source=source, source_mode=source_mode, node_mode=node_mode)
+        store = PyMCPStore.setup(source=source, source_mode=source_mode)
 
         if static_config:
             StoreSetupManager._add_static_config(store, static_config)
