@@ -135,11 +135,8 @@ impl PyAsyncMCPStore {
         let inner = self.inner.clone();
         let service_name = service_name.to_string();
         future_into_py(py, async move {
-            let request_id = inner
-                .add_service(&service_name, config)
-                .await
-                .map_err(map_store_err)?;
-            Ok(Python::with_gil(|py| request_id.into_py(py)))
+            inner.add_service(&service_name, config).await.map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
         })
     }
 
@@ -147,11 +144,8 @@ impl PyAsyncMCPStore {
         let inner = self.inner.clone();
         let service_name = service_name.to_string();
         future_into_py(py, async move {
-            let request_id = inner
-                .remove_service(&service_name)
-                .await
-                .map_err(map_store_err)?;
-            Ok(Python::with_gil(|py| request_id.into_py(py)))
+            inner.remove_service(&service_name).await.map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
         })
     }
 
@@ -159,11 +153,8 @@ impl PyAsyncMCPStore {
         let instance_id = parse_instance_id(instance_id)?;
         let inner = self.inner.clone();
         future_into_py(py, async move {
-            let request_id = inner
-                .restart_service(instance_id)
-                .await
-                .map_err(map_store_err)?;
-            Ok(Python::with_gil(|py| request_id.into_py(py)))
+            inner.restart_service(instance_id).await.map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
         })
     }
 
@@ -178,8 +169,8 @@ impl PyAsyncMCPStore {
     fn reset_config<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyAny>> {
         let inner = self.inner.clone();
         future_into_py(py, async move {
-            let request_id = inner.reset_config().await.map_err(map_store_err)?;
-            Ok(Python::with_gil(|py| request_id.into_py(py)))
+            inner.reset_config().await.map_err(map_store_err)?;
+            Ok(Python::with_gil(|py| py.None()))
         })
     }
 

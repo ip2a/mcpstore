@@ -1050,13 +1050,13 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
 }
 
 #[tokio::test]
-async fn db_source_does_not_write_config_file_and_queues_add() {
+async fn db_source_writes_definition_without_touching_config_file() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
+        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-source-{}", uuid::Uuid::new_v4())),
     })
@@ -1070,29 +1070,7 @@ async fn db_source_does_not_write_config_file_and_queues_add() {
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
-        .is_none());
-    let events = store
-        .cache()
-        .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
-        .await
-        .unwrap();
-    let event = events.values().next().unwrap();
-    assert_eq!(event["type"], "ServiceAddRequested");
-    assert_eq!(event["status"], "queued");
-    assert_eq!(event["payload"]["service_name"], "svc");
-    assert_eq!(event["id"], event["trace_id"]);
-    assert!(event["id"]
-        .as_str()
-        .unwrap()
-        .starts_with("ServiceAddRequested:"));
-    assert!(event["id"].as_str().unwrap().ends_with(
-        event["trace_id"]
-            .as_str()
-            .unwrap()
-            .rsplit(':')
-            .next()
-            .unwrap()
-    ));
+        .is_some());
 }
 
 #[tokio::test]
@@ -1240,111 +1218,6 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
 }
 
 #[tokio::test]
-async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity() {
-    let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("db-queue-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    let scope = agent_scope("agent-a");
-    let instance_id = instance_id("svc", scope.clone());
-
-    store
-        .update_service("svc", stdio_config(), None)
-        .await
-        .unwrap();
-    store
-        .patch_service("svc", serde_json::json!({"description": "patched"}))
-        .await
-        .unwrap();
-    store
-        .declare_service_scope("svc", &scope, ScopeDescriptor::default())
-        .await
-        .unwrap();
-    store.remove_service_scope("svc", &scope).await.unwrap();
-    store.reset_scope(&scope).await.unwrap();
-    store.connect_service(instance_id).await.unwrap();
-    store.disconnect_service(instance_id).await.unwrap();
-    store.restart_service(instance_id).await.unwrap();
-    store.remove_service("svc").await.unwrap();
-    store.reset_config().await.unwrap();
-
-    let events = store
-        .cache()
-        .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
-        .await
-        .unwrap();
-    let by_type = events
-        .values()
-        .map(|event| (event["type"].as_str().unwrap(), event))
-        .collect::<HashMap<_, _>>();
-    for expected in [
-        "ServiceUpdateRequested",
-        "ServicePatchRequested",
-        "ServiceScopeDeclareRequested",
-        "ServiceScopeRemoveRequested",
-        "ScopeResetRequested",
-        "ServiceConnectRequested",
-        "ServiceDisconnectRequested",
-        "ServiceRestartRequested",
-        "ServiceRemoveRequested",
-        "StoreResetRequested",
-    ] {
-        assert!(by_type.contains_key(expected), "missing {expected}");
-    }
-    assert_eq!(
-        by_type["ServiceScopeDeclareRequested"]["payload"]["scope"],
-        serde_json::json!({"type": "agent", "agent_id": "agent-a"})
-    );
-    assert_eq!(
-        by_type["ServiceConnectRequested"]["payload"]["instance_id"],
-        instance_id.to_string()
-    );
-}
-
-#[tokio::test]
-async fn local_reset_preserves_pending_control_requests() {
-    let path = temp_config_path();
-    let store = MCPStore::setup(Some(&path)).unwrap();
-    store
-        .cache()
-        .put_event(
-            CONTROL_REQUEST_EVENT_TYPE,
-            "queued-request",
-            serde_json::json!({
-                "id": "queued-request",
-                "type": "ServiceAddRequested",
-                "payload": {},
-                "source": "data_plane",
-                "created_at": 1,
-                "dedup_key": "ServiceAddRequested:null",
-                "trace_id": "queued-request",
-                "status": "queued",
-            }),
-        )
-        .await
-        .unwrap();
-
-    store.reset_config().await.unwrap();
-
-    assert_eq!(
-        store
-            .cache()
-            .get_event(CONTROL_REQUEST_EVENT_TYPE, "queued-request")
-            .await
-            .unwrap()
-            .unwrap()["status"],
-        serde_json::json!("queued")
-    );
-
-    std::fs::remove_file(path).ok();
-}
-
-#[tokio::test]
 async fn local_reset_preserves_cache_schema_marker() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
@@ -1456,62 +1329,6 @@ async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
         .await
         .unwrap()
         .is_none());
-
-    std::fs::remove_file(source_path).ok();
-}
-
-#[tokio::test]
-async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
-    let source_path = temp_config_path();
-    let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(source_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some(format!("db-tool-seed-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    source.add_service("svc", stdio_config()).await.unwrap();
-    let instance_id = store_instance_id("svc");
-
-    let db = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("db-tool-queue-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    copy_cache_snapshot(&source, &db).await;
-
-    let summary = db.list_changed_tools(instance_id, true).await.unwrap();
-
-    assert!(!summary.changed);
-    assert_eq!(summary.trigger, "queued_manual_force");
-    assert_eq!(summary.details["queued"], true);
-    assert_eq!(
-        summary.details["queued_instances"],
-        serde_json::json!([instance_id])
-    );
-    assert!(db
-        .cache()
-        .get_relation("instance_tools", &instance_id.to_string())
-        .await
-        .unwrap()
-        .is_none());
-    let events = db
-        .cache()
-        .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
-        .await
-        .unwrap();
-    let event = events
-        .values()
-        .find(|event| event["type"] == "ServiceRefreshToolsRequested")
-        .unwrap();
-    assert_eq!(event["payload"]["instance_id"], instance_id.to_string());
-    assert_eq!(event["payload"]["force_refresh"], true);
 
     std::fs::remove_file(source_path).ok();
 }
@@ -4443,59 +4260,6 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         .as_str()
         .unwrap()
         .contains("secured"));
-}
-
-#[tokio::test]
-async fn local_source_processes_control_requests() {
-    let path = temp_config_path();
-    let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some("test-control-request-worker".to_string()),
-    })
-    .unwrap();
-    store
-        .cache()
-        .put_event(
-            CONTROL_REQUEST_EVENT_TYPE,
-            "evt-add",
-            serde_json::json!({
-                "id": "evt-add",
-                "type": "ServiceAddRequested",
-                "payload": {
-                    "service_name": "queued",
-                    "config": stdio_config(),
-                },
-                "source": "onlydb",
-                "created_at": 111,
-                "dedup_key": "ServiceAddRequested:queued",
-                "trace_id": "evt-add",
-                "status": "queued",
-            }),
-        )
-        .await
-        .unwrap();
-
-    let processed = store.process_control_requests().await.unwrap();
-    assert_eq!(processed, 1);
-    assert!(store
-        .cache()
-        .get_entity("service_definitions", "queued")
-        .await
-        .unwrap()
-        .is_some());
-    let event = store
-        .cache()
-        .get_event(CONTROL_REQUEST_EVENT_TYPE, "evt-add")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(event["status"], serde_json::json!("applied"));
-
-    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
@@ -8228,178 +7992,85 @@ mod event_reactor_facade {
     }
 }
 
-#[cfg(test)]
-mod control_reactor_tests {
-    use super::*;
-    use crate::event_reactor::ReactorConfig;
-    use crate::store::JsonStoreConfig;
-    use tokio::time::Duration;
-
-    /// Full pipeline: setup reactor → register control_request_rule → start →
-    /// queue a pending control request → verify it's auto-processed to completed.
-    #[tokio::test]
-    async fn control_reactor_auto_processes_pending_request() {
-        let path = temp_config_path();
-        let store = std::sync::Arc::new(
-            MCPStore::setup_with_options(StoreOptions {
-                node_id: None,
-                config_path: Some(path.clone()),
-                source_mode: SourceMode::Local,
-                node_mode: NodeMode::ControlPlane,
-                store: Some(JsonStoreConfig::memory()),
-                namespace: Some("test-control-reactor".to_string()),
-            })
-            .unwrap(),
-        );
-
-        let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
-
-        let config = ReactorConfig {
-            subscriber_id: "control-test-sub".into(),
-            owner_id: "control-test-owner".into(),
-            namespace: "test-control-reactor".into(),
-            watch_collections: vec![collection.clone()],
-            max_causation_depth: 16,
-            recovery_interval: std::time::Duration::from_secs(60),
-            feed_retry_interval: std::time::Duration::from_secs(1),
-        };
-        store.setup_event_reactor(config).await.unwrap();
-        let rule = store.control_request_rule();
-        store.register_rule(rule).await.unwrap();
-        store.start_reactor().await.unwrap();
-
-        // Give subscription a moment to establish.
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        // Queue a pending control request (ServiceAddRequested).
-        store
-            .cache()
-            .put_event(
-                CONTROL_REQUEST_EVENT_TYPE,
-                "reactor-add",
-                serde_json::json!({
-                    "id": "reactor-add",
-                    "type": "ServiceAddRequested",
-                    "payload": {
-                        "service_name": "reactor-svc",
-                        "config": stdio_config(),
-                    },
-                    "source": "onlydb",
-                    "created_at": 222,
-                    "dedup_key": "ServiceAddRequested:reactor-svc",
-                    "trace_id": "reactor-add",
-                    "status": "queued",
-                }),
-            )
-            .await
-            .unwrap();
-
-        // Poll for completion (the reactor processes asynchronously).
-        let mut completed = false;
-        for _ in 0..50 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            if let Some(evt) = store
-                .cache()
-                .get_event(CONTROL_REQUEST_EVENT_TYPE, "reactor-add")
-                .await
-                .unwrap()
-            {
-                if evt["status"] == serde_json::json!("applied") {
-                    completed = true;
-                    break;
-                }
+#[tokio::test]
+async fn data_plane_closes_only_connections_started_by_this_process() {
+    let source_path = temp_config_path();
+    let source = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
+        config_path: Some(source_path.clone()),
+        source_mode: SourceMode::Local,
+        node_mode: NodeMode::ControlPlane,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("ephemeral-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = || {
+        serde_json::json!({
+            "openapi": "3.0.0",
+            "info": {"title": "fixture", "version": "1.0"},
+            "paths": {
+                "/ping": {"get": {"operationId": "ping"}}
             }
-        }
-        assert!(
-            completed,
-            "control request was not auto-processed by reactor"
-        );
+        })
+    };
+    source
+        .import_openapi_service_from_spec("owned", "memory://owned", spec())
+        .await
+        .unwrap();
+    source
+        .import_openapi_service_from_spec("other", "memory://other", spec())
+        .await
+        .unwrap();
+    source
+        .connect_service(store_instance_id("other"))
+        .await
+        .unwrap();
 
-        // Verify the service was actually added.
-        assert!(store
-            .cache()
-            .get_entity("service_definitions", "reactor-svc")
-            .await
-            .unwrap()
-            .is_some());
+    let db = MCPStore::setup_with_options(StoreOptions {
+        node_id: None,
+        config_path: None,
+        source_mode: SourceMode::Db,
+        node_mode: NodeMode::DataPlane,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(format!("ephemeral-db-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    copy_cache_snapshot(&source, &db).await;
+    db.load_from_db().await.unwrap();
+    let owned_id = store_instance_id("owned");
+    let other_id = store_instance_id("other");
+    db.ensure_instance_connected(owned_id).await.unwrap();
 
-        store.stop_reactor().await;
-        std::fs::remove_file(path).ok();
-    }
+    db.close_local_connections().await;
 
-    /// Verify the Rule's `when` predicate rejects non-pending requests (recursion guard).
-    #[tokio::test]
-    async fn control_reactor_skips_non_pending_requests() {
-        let path = temp_config_path();
-        let store = std::sync::Arc::new(
-            MCPStore::setup_with_options(StoreOptions {
-                node_id: None,
-                config_path: Some(path.clone()),
-                source_mode: SourceMode::Local,
-                node_mode: NodeMode::ControlPlane,
-                store: Some(JsonStoreConfig::memory()),
-                namespace: Some("test-control-reactor-skip".to_string()),
-            })
-            .unwrap(),
-        );
+    // 分栏语义：owned 看本节点自己的栏（Stopped）；other 的权威态在 control 栏
+    let owned = db
+        .kernel
+        .control
+        .state
+        .get(owned_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let other = db
+        .kernel
+        .control
+        .state
+        .get_display(other_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(owned.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(other.phase, crate::state::RuntimePhase::Running);
+    assert!(db.kernel.runtime.local_connections.read().await.is_empty());
 
-        // Insert a request that's already completed.
-        store
-            .cache()
-            .put_event(
-                CONTROL_REQUEST_EVENT_TYPE,
-                "already-done",
-                serde_json::json!({
-                    "id": "already-done",
-                    "type": "ServiceAddRequested",
-                    "payload": {
-                        "service_name": "should-not-run",
-                        "config": stdio_config(),
-                    },
-                    "source": "onlydb",
-                    "created_at": 333,
-                    "dedup_key": "ServiceAddRequested:should-not-run",
-                    "trace_id": "already-done",
-                    "status": "applied",
-                    "applied_at": 333,
-                }),
-            )
-            .await
-            .unwrap();
+    std::fs::remove_file(source_path).ok();
+}
 
-        let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
-
-        let config = ReactorConfig {
-            subscriber_id: "control-skip-sub".into(),
-            owner_id: "control-skip-owner".into(),
-            namespace: "test-control-reactor-skip".into(),
-            watch_collections: vec![collection],
-            max_causation_depth: 16,
-            recovery_interval: std::time::Duration::from_secs(60),
-            feed_retry_interval: std::time::Duration::from_secs(1),
-        };
-        store.setup_event_reactor(config).await.unwrap();
-        let rule = store.control_request_rule();
-        store.register_rule(rule).await.unwrap();
-        store.start_reactor().await.unwrap();
-
-        // Wait enough time for any (incorrect) reaction to fire.
-        tokio::time::sleep(Duration::from_millis(300)).await;
-
-        // Verify no new "should-not-run" service was created.
-        let svc = store
-            .cache()
-            .get_entity("service_definitions", "should-not-run")
-            .await
-            .unwrap();
-        assert!(
-            svc.is_none(),
-            "rule should have skipped non-pending request, but service was created"
-        );
-
-        store.stop_reactor().await;
-        std::fs::remove_file(path).ok();
-    }
+#[cfg(test)]
+mod swap_and_cache_tests {
+    use super::*;
+    use crate::store::JsonStoreConfig;
 
     #[tokio::test]
     async fn swap_store_migrates_data_to_new_memory_store() {
@@ -8535,115 +8206,29 @@ mod control_reactor_tests {
             .is_some());
         std::fs::remove_file(path).ok();
     }
-
-    #[test]
-    fn data_plane_rejects_memory_backend() {
-        let error = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
-            config_path: None,
-            source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
-            namespace: Some("data-plane-memory".to_string()),
-        })
-        .err()
-        .expect("DataPlane memory backend must be rejected");
-        assert!(error.to_string().contains("shared persistent store"));
-    }
-
-    #[tokio::test]
-    async fn node_mode_supervisor_visibility() {
-        // C5: control_plane builds supervisor; data_plane does not.
-        let cp_path = temp_config_path();
-        let cp_store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
-            config_path: Some(cp_path.clone()),
-            source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
-            store: Some(JsonStoreConfig::memory()),
-            namespace: Some(format!("c5-cp-{}", uuid::Uuid::new_v4())),
-        })
-        .unwrap();
-        assert!(
-            cp_store.kernel.execution.supervisor.is_some(),
-            "control_plane must build supervisor"
-        );
-
-        std::fs::remove_file(cp_path).ok();
-    }
 }
 
 #[tokio::test]
-async fn data_plane_closes_only_connections_started_by_this_process() {
-    let source_path = temp_config_path();
-    let source = MCPStore::setup_with_options(StoreOptions {
+async fn control_panel_supervisor_attach_is_explicit_and_idempotent() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
         node_id: None,
-        config_path: Some(source_path.clone()),
+        config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
         node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
-        namespace: Some(format!("ephemeral-{}", uuid::Uuid::new_v4())),
+        namespace: Some("supervisor-attach".to_string()),
     })
     .unwrap();
-    let spec = || {
-        serde_json::json!({
-            "openapi": "3.0.0",
-            "info": {"title": "fixture", "version": "1.0"},
-            "paths": {
-                "/ping": {"get": {"operationId": "ping"}}
-            }
-        })
-    };
-    source
-        .import_openapi_service_from_spec("owned", "memory://owned", spec())
-        .await
-        .unwrap();
-    source
-        .import_openapi_service_from_spec("other", "memory://other", spec())
-        .await
-        .unwrap();
-    source
-        .connect_service(store_instance_id("other"))
-        .await
-        .unwrap();
 
-    let db = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("ephemeral-db-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    copy_cache_snapshot(&source, &db).await;
-    db.load_from_db().await.unwrap();
-    let owned_id = store_instance_id("owned");
-    let other_id = store_instance_id("other");
-    db.ensure_instance_connected(owned_id).await.unwrap();
+    // 未挂载即无自愈
+    assert!(store.control_supervisor().is_none());
 
-    db.close_local_connections().await;
+    // ControlPanel 挂载（幂等）
+    crate::runtime::ControlPanel::new(store.clone()).start().unwrap();
+    assert!(store.control_supervisor().is_some());
+    crate::runtime::ControlPanel::new(store.clone()).start().unwrap();
+    assert!(store.control_supervisor().is_some());
 
-    // 分栏语义：owned 看本节点自己的栏（Stopped）；other 的权威态在 control 栏
-    let owned = db
-        .kernel
-        .control
-        .state
-        .get(owned_id)
-        .await
-        .unwrap()
-        .unwrap();
-    let other = db
-        .kernel
-        .control
-        .state
-        .get_display(other_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(owned.phase, crate::state::RuntimePhase::Stopped);
-    assert_eq!(other.phase, crate::state::RuntimePhase::Running);
-    assert!(db.kernel.runtime.local_connections.read().await.is_empty());
-
-    std::fs::remove_file(source_path).ok();
+    std::fs::remove_file(path).ok();
 }

@@ -814,7 +814,7 @@ impl PyMCPStore {
     }
 
     /// Add a service definition. Native configs declare scopes in `_mcpstore.scopes`.
-    fn add_service(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<String> {
+    fn add_service(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<()> {
         let config = py_to_server_config(config, "Service config")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.add_service(service_name, config))
@@ -844,7 +844,7 @@ impl PyMCPStore {
         &self,
         service_name: &str,
         scope: &Bound<'_, PyAny>,
-    ) -> PyResult<String> {
+    ) -> PyResult<()> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service_scope(service_name, &scope))
@@ -856,7 +856,7 @@ impl PyMCPStore {
         &self,
         service_name: &str,
         base_updates: &Bound<'_, PyAny>,
-    ) -> PyResult<String> {
+    ) -> PyResult<()> {
         let base_updates = py_to_serde_value(base_updates, "Service base config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.patch_service(service_name, base_updates))
@@ -871,27 +871,27 @@ impl PyMCPStore {
         &self,
         service_name: &str,
         base_config: &Bound<'_, PyAny>,
-    ) -> PyResult<String> {
+    ) -> PyResult<()> {
         let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.update_service(service_name, base_config, None))
             .map_err(map_store_err)
     }
 
-    fn remove_service(&self, service_name: &str) -> PyResult<String> {
+    fn remove_service(&self, service_name: &str) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service(service_name))
             .map_err(map_store_err)
     }
 
-    fn connect_service(&self, instance_id: &str) -> PyResult<String> {
+    fn connect_service(&self, instance_id: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.connect_service(instance_id))
             .map_err(map_store_err)
     }
 
-    fn disconnect_service(&self, instance_id: &str) -> PyResult<String> {
+    fn disconnect_service(&self, instance_id: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.disconnect_service(instance_id))
@@ -913,7 +913,7 @@ impl PyMCPStore {
         serializable_to_py(py, &report, "event_capability_report")
     }
 
-    fn restart_service(&self, instance_id: &str) -> PyResult<String> {
+    fn restart_service(&self, instance_id: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.restart_service(instance_id))
@@ -923,15 +923,6 @@ impl PyMCPStore {
     fn load_from_config(&self) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.load_from_config())
-            .map_err(map_store_err)
-    }
-
-    /// Start (or restart) the EventReactor that consumes `control_requests`
-    /// via push-based ChangeFeed. Only meaningful on a control-plane node;
-    /// a data-plane node has no reactor to run.
-    fn restart_control_reactor(&self) -> PyResult<()> {
-        pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.restart_control_reactor())
             .map_err(map_store_err)
     }
 
@@ -2497,13 +2488,13 @@ impl PyMCPStore {
         )
     }
 
-    fn reset_config(&self) -> PyResult<String> {
+    fn reset_config(&self) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_config())
             .map_err(map_store_err)
     }
 
-    fn reset_scope(&self, scope: &Bound<'_, PyAny>) -> PyResult<String> {
+    fn reset_scope(&self, scope: &Bound<'_, PyAny>) -> PyResult<()> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_scope(&scope))

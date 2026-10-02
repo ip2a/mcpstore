@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{extract::State, Json};
-use mcpstore::{JsonStoreConfig, MCPStore};
+use mcpstore::JsonStoreConfig;
 use serde::Deserialize;
 
 use super::{

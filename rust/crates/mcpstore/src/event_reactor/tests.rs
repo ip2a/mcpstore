@@ -347,127 +347,6 @@ async fn run_reactor_recovers_persisted_execution() {
     );
 }
 
-/// Recovery loop requeues an Executing control request left by a crash.
-async fn run_control_reactor_recovers_executing_request() {
-    use crate::store::prelude::*;
-
-    let path =
-        std::env::temp_dir().join(format!("mcpstore-recovery-{}.json", uuid::Uuid::new_v4()));
-    let store = std::sync::Arc::new(
-        crate::store::MCPStore::setup_with_options(crate::store::StoreOptions {
-            node_id: None,
-            config_path: Some(path.to_string_lossy().to_string()),
-            source_mode: crate::store::SourceMode::Local,
-            node_mode: crate::store::NodeMode::ControlPlane,
-            store: Some(crate::store::JsonStoreConfig::memory()),
-            namespace: Some("test-control-recovery".to_string()),
-        })
-        .unwrap(),
-    );
-
-    let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
-    let execution_collection = "test-control-recovery:reactor:executions";
-    let request_key = "recover-executing";
-    let payload = serde_json::json!({
-        "id": request_key,
-        "type": "ServiceAddRequested",
-        "payload": {
-            "service_name": "recovery-svc",
-            "config": {
-                "url": null,
-                "command": "echo",
-                "args": ["fixture"],
-                "env": {},
-                "headers": {},
-                "auth": {"type": "none"},
-                "transport": "stdio",
-                "working_dir": null,
-                "description": "fixture",
-                "mcpstore": null,
-                "extra": {}
-            },
-        },
-        "source": "control_plane",
-        "created_at": 1,
-        "dedup_key": "ServiceAddRequested:recovery-svc",
-        "trace_id": request_key,
-        "status": "executing",
-        "started_at": 1,
-    });
-    store
-        .cache()
-        .put_event(CONTROL_REQUEST_EVENT_TYPE, request_key, payload)
-        .await
-        .unwrap();
-    let execution = crate::cache::codec::json_to_value(serde_json::json!({
-        "change_id": "simulated-crash",
-        "rule_id": "mcpstore:control-requests:v2",
-        "collection": collection,
-        "key": request_key,
-        "status": "running", "owner": "dead-owner", "started_at": 1
-    }))
-    .unwrap();
-    store
-        .kernel
-        .persistence
-        .event_backend
-        .read()
-        .await
-        .clone()
-        .unwrap()
-        .put(
-            "simulated-crash:mcpstore:control-requests:v2",
-            execution,
-            Some(execution_collection),
-            None,
-        )
-        .await
-        .unwrap();
-
-    store
-        .setup_event_reactor(ReactorConfig {
-            subscriber_id: "control-recovery-sub".into(),
-            owner_id: "control-recovery-owner".into(),
-            namespace: "test-control-recovery".into(),
-            watch_collections: vec![collection],
-            max_causation_depth: 16,
-            recovery_interval: Duration::from_millis(50),
-            feed_retry_interval: std::time::Duration::from_secs(1),
-        })
-        .await
-        .unwrap();
-    store
-        .register_rule(store.control_request_rule())
-        .await
-        .unwrap();
-    store.start_reactor().await.unwrap();
-
-    let mut applied = false;
-    for _ in 0..100 {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        if let Some(event) = store
-            .cache()
-            .get_event(CONTROL_REQUEST_EVENT_TYPE, request_key)
-            .await
-            .unwrap()
-        {
-            if event.get("status").and_then(|value| value.as_str()) == Some("applied") {
-                applied = true;
-                break;
-            }
-        }
-    }
-    assert!(applied, "Executing control request was not recovered");
-    assert!(store
-        .cache()
-        .get_entity("service_definitions", "recovery-svc")
-        .await
-        .unwrap()
-        .is_some());
-
-    store.stop_reactor().await;
-    std::fs::remove_file(path).ok();
-}
 
 #[cfg(test)]
 mod tests {
@@ -493,10 +372,6 @@ mod tests {
         run_reactor_recovers_persisted_execution().await;
     }
 
-    #[tokio::test]
-    async fn control_reactor_recovers_executing_request() {
-        run_control_reactor_recovers_executing_request().await;
-    }
 
     /// Retryable outcome must NOT advance the cursor. The ChangeFeed
     /// re-delivers the same change; until the typed retry schedule becomes due, then the reaction re-executes.

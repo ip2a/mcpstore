@@ -189,7 +189,7 @@ impl MCPStore {
                 .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
-        if let Some(supervisor) = &self.kernel.execution.supervisor {
+        if let Some(supervisor) = self.kernel.execution.supervisor.get() {
             supervisor
                 .observe_and_commit(
                     instance_id,

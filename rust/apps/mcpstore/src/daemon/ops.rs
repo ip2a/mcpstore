@@ -232,8 +232,8 @@ pub(crate) async fn execute(
         }
         KernelOperation::ShowConfig => store.show_config().await,
         KernelOperation::ResetConfig => {
-            let request_id = store.reset_config().await?;
-            Ok(json!({"request_id": request_id, "status": mutation_status(store)}))
+            store.reset_config().await?;
+            Ok(json!({"status": "ok"}))
         }
         KernelOperation::AuthStatus => {
             let instance_id = instance_id(&payload)?;
@@ -391,16 +391,6 @@ pub(crate) async fn execute(
         }
         KernelOperation::EventCapabilityReport => Ok(store.event_capability_report().await),
         KernelOperation::CacheHealth => store.cache_health_check().await,
-        KernelOperation::ControlRequestGet => {
-            let request_id = required_str(&payload, "request_id")?;
-            let request = store.control_request(&request_id).await?;
-            Ok(serde_json::to_value(request)
-                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?)
-        }
-        KernelOperation::ControlRequestList => {
-            let requests = store.control_requests().await?;
-            Ok(json!({"requests": requests, "total": requests.len()}))
-        }
         KernelOperation::HealthCheck => {
             let instance_id = instance_id(&payload)?;
             Ok(json!({"state": store.health_check(instance_id).await?}))
@@ -507,13 +497,12 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
         });
     }
     let definition_exists = store.get_definition_config(&name).await?.is_some();
-    let request_id;
     if definition_exists {
         let lifecycle = config
             .mcpstore
             .as_ref()
             .and_then(|extension| extension.lifecycle.clone());
-        request_id = store
+        store
             .declare_service_scope(
                 &name,
                 &scope,
@@ -524,18 +513,15 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
                     ..Default::default()
                 },
             )
-            .await?
-            .to_string();
+            .await?;
     } else {
-        request_id = store.add_service(&name, config).await?;
+        store.add_service(&name, config).await?;
     }
     let instance_id = mcpstore::ServiceInstanceKey::new(name.clone(), scope.clone()).instance_id();
     Ok(json!({
         "service_name": name,
         "scope": scope,
         "instance_id": instance_id,
-        "request_id": request_id,
-        "status": mutation_status(store),
     }))
 }
 

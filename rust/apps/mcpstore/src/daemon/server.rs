@@ -54,6 +54,10 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         faces: crate::daemon::listeners::ListenerManager::new(),
         started_at: Instant::now(),
     });
+    if !host.store.is_data_plane() {
+        // 控制面板：挂载自愈监督器（keep_alive 断线重连、健康状态机）。
+        host.store.attach_control_supervisor()?;
+    }
     if host.store.is_data_plane() {
         // data 面板唯一的对外信号：DataPanel 心跳+能力自报写进 node_status 行。
         // 读侧（控制面）按 updated_at 时间戳判失联，沉默即异常。
@@ -359,22 +363,11 @@ async fn execute_operation(
 }
 
 async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
-    let reactor_running = host.store.has_reactor().await;
-    let requests = host.store.control_requests().await?;
-    let pending = requests
-        .iter()
-        .any(|request| request.is_pending())
-        .then(|| requests.len());
     Ok(json!({
         "pid": std::process::id(),
         "version": env!("CARGO_PKG_VERSION"),
         "uptime_s": host.started_at.elapsed().as_secs(),
         "namespace": host.store.namespace(),
-        "reactor_running": reactor_running,
-        "control_queue": {
-            "pending": pending.unwrap_or(0),
-            "requests": requests.len(),
-        },
         "node": {
             "id": host.store.node_id(),
             "mode": if host.store.is_data_plane() { "data" } else { "control" },

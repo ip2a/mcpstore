@@ -82,7 +82,6 @@ pub enum Commands {
     Resource(commands::protocol::ResourceArgs),
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
-    Request(commands::request::RequestArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
     #[command(name = "mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
@@ -170,9 +169,6 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Complete(ref args) => {
                 commands::protocol::complete(args.clone(), embedded, endpoint.clone()).await
             }
-            Commands::Request(args) => {
-                commands::request::run(args, embedded, endpoint.clone()).await
-            }
             Commands::MigrateStore(args) => {
                 commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
             }
@@ -211,11 +207,6 @@ fn output_format(command: &Commands) -> crate::error::OutputFormat {
             commands::protocol::PromptAction::Get(args) => args.output.output,
         },
         Commands::Complete(args) => args.output.output,
-        Commands::Request(args) => match &args.action {
-            commands::request::RequestAction::List(args) => args.output,
-            commands::request::RequestAction::Get(args) => args.output,
-            commands::request::RequestAction::Wait(args) => args.output,
-        },
         Commands::List(args) => args.output,
         Commands::Tools(args) => args.output,
         Commands::Get(args) => args.output,
@@ -753,32 +744,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_request_get_and_wait_commands() {
-        let cli = Cli::try_parse_from(["mcpstore", "request", "get", "req-1", "--output", "json"])
-            .unwrap();
-        match cli.command {
-            Commands::Request(args) => match args.action {
-                commands::request::RequestAction::Get(args) => {
-                    assert_eq!(args.request_id, "req-1");
-                    assert_eq!(args.output, OutputFormat::Json);
-                }
-                _ => panic!("Expected request get"),
-            },
-            _ => panic!("Expected request command"),
-        }
-
-        let cli = Cli::try_parse_from(["mcpstore", "request", "wait", "req-1", "--timeout", "7"])
-            .unwrap();
-        match cli.command {
-            Commands::Request(args) => match args.action {
-                commands::request::RequestAction::Wait(args) => {
-                    assert_eq!(args.request_id, "req-1");
-                    assert_eq!(args.timeout, 7);
-                }
-                _ => panic!("Expected request wait"),
-            },
-            _ => panic!("Expected request command"),
-        }
+    fn request_command_is_removed() {
+        // 控制请求队列已删除，request 命令必须解析失败
+        assert!(Cli::try_parse_from(["mcpstore", "request", "list"]).is_err());
     }
 
     #[test]

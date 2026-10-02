@@ -230,7 +230,7 @@ impl MCPStore {
             .runtime
             .runtime_config
             .ping_timeout_for_transport(instance.transport.as_str());
-        if let Some(supervisor) = &self.kernel.execution.supervisor {
+        if let Some(supervisor) = self.kernel.execution.supervisor.get() {
             supervisor.reset(instance_id).await;
             supervisor.register(instance_id).await;
             supervisor
@@ -347,7 +347,7 @@ impl MCPStore {
         // Run startup probe before declaring the service connected. For OpenAPI virtual
         // instances this is skipped; availability is determined by HTTP requests.
         if !self.is_openapi_virtual_instance(instance_id).await? {
-            if let Some(supervisor) = &self.kernel.execution.supervisor {
+            if let Some(supervisor) = self.kernel.execution.supervisor.get() {
                 match supervisor
                     .run_startup_probe(probe_runner, instance_id)
                     .await

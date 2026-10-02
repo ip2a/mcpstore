@@ -182,15 +182,6 @@ impl MCPStore {
             event_bus.clone(),
             cache.clone(),
         );
-        let supervisor = (options.node_mode == NodeMode::ControlPlane).then(|| {
-            std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
-                runtime_config.supervisor_policy,
-                state_manager.clone(),
-            ))
-        });
-        if let Some(supervisor) = &supervisor {
-            pool.attach_supervisor(supervisor.clone());
-        }
 
         let store = std::sync::Arc::new(Self {
             kernel: StoreKernel {
@@ -202,7 +193,7 @@ impl MCPStore {
                 },
                 execution: ExecutionEngine {
                     pool,
-                    supervisor,
+                    supervisor: Default::default(),
                     event_bus: event_bus.clone(),
                 },
                 persistence: PersistenceRouter {
@@ -221,10 +212,30 @@ impl MCPStore {
                 },
             },
         });
-        if let Some(supervisor) = &store.kernel.execution.supervisor {
-            supervisor.attach_store(std::sync::Arc::downgrade(&store));
-        }
         Ok(store)
+    }
+
+    /// 挂载控制面板的自愈监督器（幂等）。
+    /// 由 ControlPanel 调用；未挂载即无自愈行为。
+    pub fn attach_control_supervisor(self: &std::sync::Arc<Self>) -> Result<()> {
+        if self.kernel.execution.supervisor.get().is_some() {
+            return Ok(());
+        }
+        let supervisor = std::sync::Arc::new(crate::health::supervisor::InstanceSupervisor::new(
+            self.kernel.runtime.runtime_config.supervisor_policy,
+            self.kernel.control.state.clone(),
+        ));
+        supervisor.attach_store(std::sync::Arc::downgrade(self));
+        self.kernel.execution.pool.attach_supervisor(supervisor.clone());
+        let _ = self.kernel.execution.supervisor.set(supervisor);
+        Ok(())
+    }
+
+    /// 当前挂载的自愈监督器（可能未挂载）。
+    pub(crate) fn control_supervisor(
+        &self,
+    ) -> Option<std::sync::Arc<crate::health::supervisor::InstanceSupervisor>> {
+        self.kernel.execution.supervisor.get().cloned()
     }
 
     pub fn config_manager(&self) -> &ConfigManager {
@@ -421,9 +432,6 @@ impl MCPStore {
         let guard = self.kernel.runtime.event_reactor.read().await;
         if let Some(reactor) = guard.as_ref() {
             reactor.shutdown().await;
-        }
-        if let Some(supervisor) = &self.kernel.execution.supervisor {
-            supervisor.shutdown().await;
         }
     }
 
