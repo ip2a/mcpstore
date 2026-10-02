@@ -1,0 +1,113 @@
+//! Role components: ControlPanel (self-heal supervision) and DataPanel
+//! (execution + heartbeat), composable from Python code.
+
+use std::sync::Arc;
+
+use mcpstore::{ControlPanel, DataPanel, MCPStore};
+use pyo3::prelude::*;
+use pyo3_async_runtimes::tokio::future_into_py;
+
+use crate::core_store::{map_store_err, PyMCPStore};
+
+/// 接受 pyclass 或其 Python 门面包装（持有 `_inner`）。
+fn unwrap_store(store: &Bound<'_, PyAny>) -> PyResult<Arc<MCPStore>> {
+    if let Ok(inner) = store.extract::<PyRef<'_, PyMCPStore>>() {
+        return Ok(inner.inner().clone());
+    }
+    if let Ok(wrapped) = store.getattr("_inner") {
+        if let Ok(inner) = wrapped.extract::<PyRef<'_, PyMCPStore>>() {
+            return Ok(inner.inner().clone());
+        }
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "expected an MCPStore instance",
+    ))
+}
+
+#[pyclass(name = "ControlPanel")]
+pub struct PyControlPanel {
+    store: Arc<MCPStore>,
+}
+
+#[pymethods]
+impl PyControlPanel {
+    /// Decision/scheduling role: attach the self-heal supervisor
+    /// (keep_alive reconnect, health state machine). Idempotent.
+    #[new]
+    fn new(store: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            store: unwrap_store(store)?,
+        })
+    }
+
+    /// Attach the supervision loop. Idempotent; until attached, no self-heal.
+    fn start(&self) -> PyResult<()> {
+        ControlPanel::new(self.store.clone())
+            .start()
+            .map_err(map_store_err)
+    }
+
+    /// Detach supervision; established connections keep their current state.
+    fn stop<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let panel = ControlPanel::new(self.store.clone());
+        future_into_py(py, async move {
+            panel.stop().await;
+            Ok(())
+        })
+    }
+}
+
+#[pyclass(name = "DataPanel")]
+pub struct PyDataPanel {
+    store: Arc<MCPStore>,
+    node_id: String,
+    capabilities: Vec<String>,
+}
+
+#[pymethods]
+impl PyDataPanel {
+    /// Execution/heartbeat role: advertise capabilities via a periodic
+    /// node_status row (updated_at is the liveness signal).
+    #[new]
+    fn new(store: &Bound<'_, PyAny>, node_id: String, capabilities: Vec<String>) -> PyResult<Self> {
+        Ok(Self {
+            store: unwrap_store(store)?,
+            node_id,
+            capabilities,
+        })
+    }
+
+    fn node_id(&self) -> &str {
+        &self.node_id
+    }
+
+    fn capabilities(&self) -> Vec<String> {
+        self.capabilities.clone()
+    }
+
+    /// Write one heartbeat now.
+    fn heartbeat<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let panel = DataPanel::new(
+            self.store.clone(),
+            self.node_id.clone(),
+            self.capabilities.clone(),
+        );
+        future_into_py(py, async move {
+            panel.heartbeat().await.map_err(map_store_err)?;
+            Ok(())
+        })
+    }
+
+    /// Tear down transports started by this process only.
+    fn stop<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let panel = DataPanel::new(
+            self.store.clone(),
+            self.node_id.clone(),
+            self.capabilities.clone(),
+        );
+        future_into_py(py, async move {
+            panel.stop().await;
+            Ok(())
+        })
+    }
+}

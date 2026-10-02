@@ -145,7 +145,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "mcp.json"
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
-            context = _rust.MCPStore.setup_with_options(str(config_path), 'local', 'memory', '{}', None, None).for_store()
+            context = _rust.MCPStore.setup_with_options(str(config_path), 'local', 'memory', '{}', None).for_store()
             context = context.add_service_config("svc", {"command": "command-that-must-not-run", "args": []})
             self.assertEqual(context.scope(), {"type": "store"})
             service = context.find_service(service_name="svc")
@@ -196,7 +196,7 @@ class ScopeBindingIntegrationTests(unittest.TestCase):
             config_path.write_text('{"mcpServers": {}}', encoding="utf-8")
             json_path.write_text('{"mcpServers": {"from-json-file": {"command": "command-that-must-not-run"}}}', encoding="utf-8")
             toml_path.write_text('[mcpServers.from-toml-file]\ncommand = "command-that-must-not-run"\n', encoding="utf-8")
-            context = _rust.MCPStore.setup_with_options(str(config_path), 'local', 'memory', '{}', None, None).for_store()
+            context = _rust.MCPStore.setup_with_options(str(config_path), 'local', 'memory', '{}', None).for_store()
             for config in (
                 {"mcpServers": {"document": {"command": "command-that-must-not-run"}}},
                 {"name": "single", "command": "command-that-must-not-run"},

@@ -26,13 +26,13 @@ class RustStoreBackend:
         return setup_module.setup_backend(cls, source, source_mode)
 
     @staticmethod
-    def setup_store(source: Any = None, mode: Optional[str] = None, *,
+    def setup_store(source: Any = None, *,
                     debug: bool | str = False,
                     static_config: Optional[Dict[str, Any]] = None, **kwargs: Any):
         """Public entry point. Delegates to StoreSetupManager."""
         from mcpstore.store.setup import StoreSetupManager
         return StoreSetupManager.setup_store(
-            source=source, mode=mode, debug=debug,
+            source=source, debug=debug,
             static_config=static_config, **kwargs,
         )
 
@@ -42,11 +42,6 @@ class RustStoreBackend:
     @property
     def source_mode(self) -> Optional[str]:
         return self._source_mode
-
-
-    def restart_control_reactor(self) -> None:
-        """Start the control-plane EventReactor that consumes queued control requests."""
-        self._inner.restart_control_reactor()
 
     namespace = configuration.namespace
     current_store = configuration.current_store
