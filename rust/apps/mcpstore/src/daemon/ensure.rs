@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use mcpstore::error::{Error, FailureCode};
 
-use crate::store_args::{NodeModeArg, StoreSourceArgs};
+use crate::store_args::StoreSourceArgs;
 
 #[derive(Serialize, Deserialize)]
 struct DaemonStartState {
@@ -116,9 +116,13 @@ fn append_start_args(command: &mut std::process::Command, args: &StoreSourceArgs
     if let Some(namespace) = &args.namespace {
         command.arg("--namespace").arg(namespace);
     }
-    // ControlPlane 是缺省值，只需回放显式 data 模式，detached 重启才不会退回控制面。
-    if args.node_mode == Some(NodeModeArg::Data) {
-        command.arg("--plane").arg("data");
+    // 双面板是缺省值，只需回放显式面板 flag，detached 重启才不会退回默认形态。
+    let (control_panel, data_panel) = args.effective_panels();
+    if control_panel && !data_panel {
+        command.arg("--control-panel");
+    }
+    if data_panel && !control_panel {
+        command.arg("--data-panel");
     }
     if let Some(node_id) = &args.node_id {
         command.arg("--node-id").arg(node_id);
@@ -158,7 +162,8 @@ mod tests {
                 store: Some("redis".into()),
                 store_config: Some(r#"{"url":"redis://127.0.0.1"}"#.into()),
                 namespace: Some("tenant-a".into()),
-                node_mode: None,
+                control_panel: false,
+                data_panel: false,
                 node_id: Some("worker-1".into()),
             },
         };
@@ -175,14 +180,15 @@ mod tests {
     }
 
     #[test]
-    fn append_start_args_replays_data_plane_mode() {
+    fn append_start_args_replays_explicit_data_panel() {
         let args = StoreSourceArgs {
             config_path: None,
             source: crate::store_args::SourceArg::Db,
             store: Some("redis".into()),
             store_config: None,
             namespace: None,
-            node_mode: Some(crate::store_args::NodeModeArg::Data),
+            control_panel: false,
+            data_panel: true,
             node_id: None,
         };
         let mut command = std::process::Command::new("mcpstore");
@@ -191,10 +197,7 @@ mod tests {
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
-        let plane = argv
-            .iter()
-            .position(|arg| arg == "--plane")
-            .expect("detached restart must replay --plane");
-        assert_eq!(argv[plane + 1], "data");
+        assert!(argv.contains(&"--data-panel".to_string()));
+        assert!(!argv.contains(&"--control-panel".to_string()));
     }
 }

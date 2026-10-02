@@ -156,7 +156,6 @@ impl McpServerOptions {
         StoreOptions {
             config_path: self.config_path.clone(),
             source_mode: self.source_mode,
-            node_mode: mcpstore::NodeMode::ControlPlane,
             store: self.store.clone(),
             namespace: self.namespace.clone(),
             node_id: None,
@@ -165,6 +164,8 @@ impl McpServerOptions {
 
     pub fn store_args(&self) -> crate::store_args::StoreSourceArgs {
         crate::store_args::StoreSourceArgs {
+            control_panel: false,
+            data_panel: false,
             config_path: self.config_path.clone(),
             source: match self.source_mode {
                 SourceMode::Local => crate::store_args::SourceArg::Local,
@@ -173,7 +174,6 @@ impl McpServerOptions {
             store: self.store.as_ref().map(|store| store.store.clone()),
             store_config: self.store.as_ref().map(|store| store.config.to_string()),
             namespace: self.namespace.clone(),
-            node_mode: None,
             node_id: None,
         }
     }

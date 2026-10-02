@@ -117,7 +117,6 @@ pub use overrides::{
 pub use runtime::{ControlPanel, DataPanel, Runtime};
 pub use store::swap::SwapResult;
 pub use store::{
-    JsonStoreConfig, MCPStore, MemoryStoreConfig, NodeMode, OpenApiImportInput,
-    OpenApiImportSource, RedisStoreConfig, SourceMode, StoreConfig, StoreOptions,
-    ToolVisibilityFilter,
+    JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
+    RedisStoreConfig, SourceMode, StoreConfig, StoreOptions, ToolVisibilityFilter,
 };

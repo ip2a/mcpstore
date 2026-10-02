@@ -199,13 +199,14 @@ mod tests {
     fn default_args() -> McpServerArgs {
         McpServerArgs {
             store: StoreSourceArgs {
+                control_panel: false,
+                data_panel: false,
                 node_id: None,
                 config_path: None,
                 source: SourceArg::Local,
                 store: None,
                 store_config: None,
                 namespace: None,
-                node_mode: None,
             },
             scope: Scope::Store,
             agent: None,

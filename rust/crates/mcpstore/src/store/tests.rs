@@ -1056,7 +1056,6 @@ async fn db_source_writes_definition_without_touching_config_file() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Db,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-source-{}", uuid::Uuid::new_v4())),
     })
@@ -1080,7 +1079,6 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("db-seed-{}", uuid::Uuid::new_v4())),
     })
@@ -1162,7 +1160,6 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-read-{}", uuid::Uuid::new_v4())),
     })
@@ -1234,7 +1231,6 @@ async fn openapi_import_persists_shared_analysis_result() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-import-{}", uuid::Uuid::new_v4())),
     })
@@ -1460,7 +1456,6 @@ async fn openapi_last_import_tracks_latest_successful_import() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-last-import-{}", uuid::Uuid::new_v4())),
     })
@@ -1515,7 +1510,6 @@ async fn removing_openapi_service_clears_import_state() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-remove-import-{}", uuid::Uuid::new_v4())),
     })
@@ -1558,7 +1552,6 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-duplicate-{}", uuid::Uuid::new_v4())),
     })
@@ -1711,7 +1704,6 @@ async fn openapi_import_bundles_external_http_refs() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-external-ref-{}", uuid::Uuid::new_v4())),
     })
@@ -1767,7 +1759,6 @@ async fn openapi_import_bundles_external_yaml_http_refs() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-external-yaml-ref-{}",
@@ -1886,7 +1877,6 @@ paths:
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-file-ref-{}", uuid::Uuid::new_v4())),
     })
@@ -1933,7 +1923,6 @@ paths:
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-path-ref-{}", uuid::Uuid::new_v4())),
     })
@@ -2008,7 +1997,6 @@ paths:
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-file-ref-document-cache-{}",
@@ -2085,7 +2073,6 @@ async fn openapi_bundle_spec_returns_external_refs_without_importing() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-bundle-{}", uuid::Uuid::new_v4())),
     })
@@ -2123,7 +2110,6 @@ async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-bundle-artifact-{}", uuid::Uuid::new_v4())),
     })
@@ -2166,7 +2152,6 @@ async fn openapi_bundle_writes_external_ref_document_cache() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-ref-document-cache-{}",
@@ -2218,7 +2203,6 @@ async fn openapi_bundle_ref_cache_policy_sets_ttl() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-ref-cache-policy-{}", uuid::Uuid::new_v4())),
     })
@@ -2260,7 +2244,6 @@ async fn openapi_bundle_ref_cache_policy_can_disable_shared_cache() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-ref-cache-disabled-{}",
@@ -2303,7 +2286,6 @@ async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-ref-document-revalidate-{}",
@@ -2379,7 +2361,6 @@ async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
     })
@@ -2388,7 +2369,6 @@ async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
     })
@@ -2415,7 +2395,6 @@ async fn openapi_import_parses_yaml_from_url() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-yaml-url-{}", uuid::Uuid::new_v4())),
     })
@@ -2472,7 +2451,6 @@ paths:
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-yaml-text-{}", uuid::Uuid::new_v4())),
     })
@@ -2515,7 +2493,6 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-http-error-{}", uuid::Uuid::new_v4())),
     })
@@ -2605,7 +2582,6 @@ async fn openapi_runtime_honors_import_timeout() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-timeout-{}", uuid::Uuid::new_v4())),
     })
@@ -2660,7 +2636,6 @@ async fn openapi_import_honors_fetch_timeout() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-fetch-timeout-{}", uuid::Uuid::new_v4())),
     })
@@ -2691,7 +2666,6 @@ async fn openapi_bundle_honors_fetch_timeout() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-bundle-timeout-{}", uuid::Uuid::new_v4())),
     })
@@ -2721,7 +2695,6 @@ async fn openapi_resources_preserve_response_mime_type() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-response-mime-{}", uuid::Uuid::new_v4())),
     })
@@ -2811,7 +2784,6 @@ async fn openapi_json_responses_filter_write_only_fields() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-response-write-only-{}",
@@ -2916,7 +2888,6 @@ async fn openapi_json_responses_validate_declared_schema() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-response-schema-{}", uuid::Uuid::new_v4())),
     })
@@ -3008,7 +2979,6 @@ async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-response-accept-{}", uuid::Uuid::new_v4())),
     })
@@ -3074,7 +3044,6 @@ async fn openapi_tool_returns_image_content_for_binary_image_response() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-image-response-{}", uuid::Uuid::new_v4())),
     })
@@ -3136,7 +3105,6 @@ async fn openapi_resource_returns_blob_for_binary_response() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-blob-response-{}", uuid::Uuid::new_v4())),
     })
@@ -3200,7 +3168,6 @@ async fn openapi_tools_support_common_request_body_media_types() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-body-media-{}", uuid::Uuid::new_v4())),
     })
@@ -3421,7 +3388,6 @@ async fn openapi_tools_serialize_parameters_by_openapi_style() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-parameter-style-{}", uuid::Uuid::new_v4())),
     })
@@ -3484,7 +3450,6 @@ async fn openapi_query_parameters_honor_allow_reserved() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-allow-reserved-{}", uuid::Uuid::new_v4())),
     })
@@ -3543,7 +3508,6 @@ async fn openapi_query_parameters_support_deep_object_style() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-deep-object-{}", uuid::Uuid::new_v4())),
     })
@@ -3603,7 +3567,6 @@ async fn openapi_path_parameters_support_label_and_matrix_styles() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-path-style-{}", uuid::Uuid::new_v4())),
     })
@@ -3662,7 +3625,6 @@ async fn openapi_tools_reject_missing_required_arguments_before_request() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-required-{}", uuid::Uuid::new_v4())),
     })
@@ -3721,7 +3683,6 @@ async fn openapi_tools_honor_read_only_and_write_only_request_fields() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-read-write-only-{}", uuid::Uuid::new_v4())),
     })
@@ -3817,7 +3778,6 @@ async fn openapi_tools_validate_input_schema_before_request() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-schema-validation-{}",
@@ -4042,7 +4002,6 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-auth-missing-{}", uuid::Uuid::new_v4())),
     })
@@ -4070,7 +4029,6 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-auth-header-{}", uuid::Uuid::new_v4())),
     })
@@ -4105,7 +4063,6 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-auth-{}", uuid::Uuid::new_v4())),
     })
@@ -4222,7 +4179,6 @@ async fn swap_store_updates_namespace() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("before-switch".to_string()),
     })
@@ -4254,7 +4210,6 @@ async fn swap_store_preserves_concurrent_writes() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("concurrent-before".to_string()),
     })
@@ -4313,7 +4268,6 @@ async fn cache_inspect_includes_session_collections() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("inspect-sessions".to_string()),
     })
@@ -4443,7 +4397,6 @@ async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-openkeyv-memory".to_string()),
     })
@@ -4498,7 +4451,6 @@ async fn update_and_patch_service_update_runtime_cache() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-update-patch".to_string()),
     })
@@ -4534,7 +4486,6 @@ async fn event_history_and_cache_health_are_reported() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-event-health".to_string()),
     })
@@ -4566,7 +4517,6 @@ async fn list_tools_uses_registry_without_transport_connection() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-list-tools-registry".to_string()),
     })
@@ -5013,7 +4963,6 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-connect-failure-status".to_string()),
     })
@@ -5087,7 +5036,6 @@ async fn connect_service_times_out_hanging_stdio_startup() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-connect-timeout-status".to_string()),
     })
@@ -5142,7 +5090,6 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-retry-backoff".to_string()),
     })
@@ -5207,7 +5154,6 @@ async fn manual_startup_policy_blocks_implicit_connect() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-manual-startup-policy".to_string()),
     })
@@ -5246,7 +5192,6 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-on-failure-max-retries".to_string()),
     })
@@ -5317,7 +5262,6 @@ async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-oauth-status-projection".to_string()),
     })
@@ -5370,7 +5314,6 @@ async fn authorization_callback_uri_only_exposes_authorization_code_redirect_uri
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-oauth-callback-uri".to_string()),
     })
@@ -5407,7 +5350,6 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-auth-required-lifecycle".to_string()),
     })
@@ -5456,7 +5398,6 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-insufficient-scope-lifecycle".to_string()),
     })
@@ -5512,7 +5453,6 @@ async fn successful_health_check_records_canonical_health() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-health-observation".to_string()),
     })
@@ -5563,7 +5503,6 @@ async fn export_instance_config_projects_third_party_config_without_mcpstore_ext
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-config-format-projection".to_string()),
     })
@@ -5608,7 +5547,6 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
         node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("test-db-load-seed-{}", uuid::Uuid::new_v4())),
     })
@@ -5628,7 +5566,6 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-load-readonly-{}", uuid::Uuid::new_v4())),
     })
@@ -5655,7 +5592,6 @@ async fn embedded_tool_hot_path_baseline() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("hot-path-{}", uuid::Uuid::new_v4())),
     })
@@ -5712,7 +5648,6 @@ async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("migration-hot-path-{}", uuid::Uuid::new_v4())),
     })
@@ -5847,7 +5782,6 @@ mod scoped_contract {
             node_id: None,
             config_path: path,
             source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("store-tests-{}", uuid::Uuid::new_v4())),
         }
@@ -7277,7 +7211,6 @@ mod scoped_contract {
             node_id: None,
             config_path: None,
             source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
             store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-remove-db-{}", uuid::Uuid::new_v4())),
         })
@@ -7408,7 +7341,6 @@ mod scoped_contract {
             node_id: None,
             config_path: None,
             source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
             store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-reset-db-{}", uuid::Uuid::new_v4())),
         })
@@ -7454,7 +7386,6 @@ mod scoped_contract {
             node_id: None,
             config_path: Some(config_path.clone()),
             source_mode: SourceMode::Db,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("scope-write-db-{}", uuid::Uuid::new_v4())),
         })
@@ -7748,7 +7679,6 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-first-oauth-auth-required".to_string()),
     })
@@ -7893,7 +7823,6 @@ async fn data_plane_closes_only_connections_started_by_this_process() {
         node_id: None,
         config_path: Some(source_path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("ephemeral-{}", uuid::Uuid::new_v4())),
     })
@@ -7924,7 +7853,6 @@ async fn data_plane_closes_only_connections_started_by_this_process() {
         node_id: None,
         config_path: None,
         source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("ephemeral-db-{}", uuid::Uuid::new_v4())),
     })
@@ -7973,7 +7901,6 @@ mod swap_and_cache_tests {
             node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some("swap-test".to_string()),
         })
@@ -8015,7 +7942,6 @@ mod swap_and_cache_tests {
             node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some("online-swap".to_string()),
         })
@@ -8046,7 +7972,6 @@ mod swap_and_cache_tests {
             node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(namespace.to_string()),
         };
@@ -8069,7 +7994,6 @@ mod swap_and_cache_tests {
             node_id: None,
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("swap-db9-{}", uuid::Uuid::new_v4())),
         })
@@ -8109,7 +8033,6 @@ async fn control_panel_supervisor_attach_is_explicit_and_idempotent() {
         node_id: None,
         config_path: Some(path.clone()),
         source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("supervisor-attach".to_string()),
     })

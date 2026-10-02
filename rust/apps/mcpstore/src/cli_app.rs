@@ -725,22 +725,33 @@ mod tests {
     }
 
     #[test]
-    fn parses_data_plane_node_mode() {
+    fn parses_explicit_data_panel_flag() {
         let cli = Cli::try_parse_from([
-            "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data",
+            "mcpstore",
+            "list",
+            "--source",
+            "db",
+            "--store",
+            "redis",
+            "--data-panel",
         ])
         .unwrap();
 
         match cli.command {
             Commands::List(args) => {
-                assert_eq!(
-                    args.store.node_mode,
-                    Some(crate::store_args::NodeModeArg::Data)
-                );
+                assert!(args.store.data_panel);
+                assert!(!args.store.control_panel);
+                assert_eq!(args.store.effective_panels(), (false, true));
                 assert!(args.store.is_explicit());
             }
             _ => panic!("Expected to parse as list command"),
         }
+
+        // --plane 已随 NodeMode 删除，必须解析失败
+        assert!(Cli::try_parse_from([
+            "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data"
+        ])
+        .is_err());
     }
 
     #[test]

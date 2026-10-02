@@ -25,8 +25,8 @@ struct DaemonHost {
     state: Arc<crate::commands::api::ApiState>,
     faces: crate::daemon::listeners::ListenerManager,
     started_at: Instant,
-    /// 启动形态：data 面板节点（只执行+心跳）；否则为控制面板节点。
-    data_plane: bool,
+    /// (控制面板, 数据面板)：本进程组装的角色。
+    panels: (bool, bool),
 }
 
 /// Start the KernelHost: create one StoreKernel and accept typed IPC requests.
@@ -50,18 +50,19 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     );
     println!("[KERNEL_HOST] MCPStore host started (pid={pid})");
 
-    let data_plane = matches!(args.node_mode, Some(crate::store_args::NodeModeArg::Data));
+    let (control_panel, data_panel) = args.effective_panels();
     let host = Arc::new(DaemonHost {
         store,
         state,
         faces: crate::daemon::listeners::ListenerManager::new(),
         started_at: Instant::now(),
-        data_plane,
+        panels: (control_panel, data_panel),
     });
-    if !data_plane {
+    if control_panel {
         // 控制面板：挂载自愈监督器（keep_alive 断线重连、健康状态机）。
         host.store.attach_control_supervisor()?;
-    } else {
+    }
+    if data_panel {
         // 数据面板唯一的对外信号：DataPanel 心跳+能力自报写进 node_status 行。
         // 读侧（控制面）按 updated_at 时间戳判失联，沉默即异常。
         let capabilities: Vec<String> = crate::daemon::ops::host_capabilities()
@@ -373,7 +374,12 @@ async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
         "namespace": host.store.namespace(),
         "node": {
             "id": host.store.node_id(),
-            "mode": if host.data_plane { "data" } else { "control" },
+            "mode": match host.panels {
+                (true, true) => "control+data",
+                (true, false) => "control",
+                (false, true) => "data",
+                (false, false) => "none",
+            },
             "heartbeat": host.store.read_node_status(&host.store.node_id()).await?,
             "nodes": host.store.node_liveness(45).await?,
         },

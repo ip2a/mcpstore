@@ -39,7 +39,7 @@ pub use crate::openapi::{
     OpenApiImportOptions, OpenApiImportResult,
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
-pub use options::{NodeMode, SourceMode, StoreOptions};
+pub use options::{SourceMode, StoreOptions};
 pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
@@ -70,26 +70,6 @@ impl MCPStore {
     }
 
     pub fn setup_with_options(options: StoreOptions) -> Result<std::sync::Arc<Self>> {
-        // Local source + DataPlane is an invalid combination: queued control
-        // requests would be written to a local in-process store that no other
-        // node can consume. The user almost certainly meant ControlPlane.
-        if options.node_mode == NodeMode::DataPlane
-            && (options.source_mode == SourceMode::Local
-                || options
-                    .store
-                    .as_ref()
-                    .is_some_and(|store| store.store_name() == "memory"))
-        {
-            return Err(Error::new(
-                FailureCode::Internal,
-                concat!(
-                    "DataPlane requires a shared persistent store (Redis/Valkey); ",
-                    "Local source and in-process memory cannot be used."
-                )
-                .to_string(),
-            ));
-        }
-
         let config_manager = match options.config_path.as_deref() {
             Some(p) => ConfigManager::with_path(p),
             None => ConfigManager::new(),
@@ -160,10 +140,7 @@ impl MCPStore {
         let node_id = options
             .node_id
             .clone()
-            .unwrap_or_else(|| match options.node_mode {
-                NodeMode::ControlPlane => crate::state::CONTROL_NODE_ID.to_string(),
-                NodeMode::DataPlane => "data".to_string(),
-            });
+            .unwrap_or_else(|| crate::state::CONTROL_NODE_ID.to_string());
         let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
             cache.clone(),
             event_bus.clone(),
@@ -207,7 +184,6 @@ impl MCPStore {
                     event_reactor: tokio::sync::RwLock::new(None),
                     local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
                     source_mode: options.source_mode,
-                    node_mode: options.node_mode,
                     runtime_config,
                 },
             },
@@ -261,10 +237,6 @@ impl MCPStore {
 
     pub fn source_mode(&self) -> SourceMode {
         self.kernel.runtime.source_mode
-    }
-
-    pub fn node_mode(&self) -> NodeMode {
-        self.kernel.runtime.node_mode
     }
 
     pub fn node_id(&self) -> String {

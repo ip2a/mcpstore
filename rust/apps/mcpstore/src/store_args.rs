@@ -11,21 +11,6 @@ pub enum SourceArg {
     Db,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
-pub enum NodeModeArg {
-    Control,
-    Data,
-}
-
-impl NodeModeArg {
-    fn to_node_mode(self) -> mcpstore::NodeMode {
-        match self {
-            Self::Control => mcpstore::NodeMode::ControlPlane,
-            Self::Data => mcpstore::NodeMode::DataPlane,
-        }
-    }
-}
-
 impl SourceArg {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -55,18 +40,29 @@ pub struct StoreSourceArgs {
     pub store_config: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
-    #[arg(
-        long = "plane",
-        value_enum,
-        help = "Node mode: control executes mutations, data queues them"
-    )]
-    pub node_mode: Option<NodeModeArg>,
+    /// 挂载控制面板（自愈监督器：keep_alive 断线重连、健康状态机）
+    #[arg(long = "control-panel", help = "Run control panel (self-heal supervision)")]
+    pub control_panel: bool,
+    /// 挂载数据面板（执行 + 15s 心跳能力自报）
+    #[arg(long = "data-panel", help = "Run data panel (execution + heartbeat)")]
+    pub data_panel: bool,
     #[arg(
         long = "node-id",
         value_name = "ID",
-        help = "Column id for per-node state (defaults: control / data)"
+        help = "Node identity for state writes and node_status heartbeat"
     )]
     pub node_id: Option<String>,
+}
+
+impl StoreSourceArgs {
+    /// 未指定任何面板 flag 时默认双面板（单机形态）；指定任一则只跑指定面板。
+    pub fn effective_panels(&self) -> (bool, bool) {
+        if !self.control_panel && !self.data_panel {
+            (true, true)
+        } else {
+            (self.control_panel, self.data_panel)
+        }
+    }
 }
 
 impl StoreSourceArgs {
@@ -89,10 +85,6 @@ impl StoreSourceArgs {
                 SourceArg::Local => SourceMode::Local,
                 SourceArg::Db => SourceMode::Db,
             },
-            node_mode: self
-                .node_mode
-                .map(|m| m.to_node_mode())
-                .unwrap_or(mcpstore::NodeMode::ControlPlane),
             store,
             namespace: self.namespace.clone(),
             node_id: self.node_id.clone(),
@@ -157,7 +149,8 @@ impl StoreSourceArgs {
             || self.store_config.is_some()
             || self.namespace.is_some()
             || self.source != SourceArg::Local
-            || self.node_mode == Some(NodeModeArg::Data)
+            || self.control_panel
+            || self.data_panel
             || self.node_id.is_some()
     }
 }
