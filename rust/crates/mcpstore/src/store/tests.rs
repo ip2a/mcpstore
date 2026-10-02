@@ -1182,33 +1182,6 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .unwrap()
         .unwrap();
     assert_eq!(state.health, crate::state::HealthState::Healthy);
-    // record_instance_failure 是数据面只读 no-op：返回并保持本节点自己的栏不变
-    let own_before = db
-        .kernel
-        .control
-        .state
-        .get(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-    let unchanged = db
-        .record_instance_failure(
-            instance_id,
-            &crate::error::Error::new(crate::error::FailureCode::Internal, "must stay read-only"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(unchanged, own_before);
-    assert_eq!(
-        db.kernel
-            .control
-            .state
-            .get(instance_id)
-            .await
-            .unwrap()
-            .unwrap(),
-        own_before
-    );
     assert_eq!(
         db.show_config().await.unwrap()["mcpServers"]["svc"]["command"],
         "echo"
@@ -1253,85 +1226,6 @@ async fn local_reset_preserves_cache_schema_marker() {
     std::fs::remove_file(path).ok();
 }
 
-#[tokio::test]
-async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
-    let source_path = temp_config_path();
-    let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(source_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some(format!("db-runtime-seed-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    source.add_service("svc", stdio_config()).await.unwrap();
-    let instance_id = store_instance_id("svc");
-    let original_state = source
-        .kernel
-        .control
-        .state
-        .get(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let db = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("db-runtime-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    copy_cache_snapshot(&source, &db).await;
-    db.load_from_db().await.unwrap();
-    db.cache_instance_connected(
-        instance_id,
-        &[crate::registry::ToolInfo {
-            name: "echo".to_string(),
-            title: None,
-            description: "echo".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: None,
-            annotations: None,
-            meta: None,
-        }],
-    )
-    .await
-    .unwrap();
-
-    let state = db
-        .kernel
-        .control
-        .state
-        .get(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(state.desired, original_state.desired);
-    assert_eq!(state.phase, original_state.phase);
-    assert_eq!(state.health, original_state.health);
-    assert_eq!(state.recovery, original_state.recovery);
-    assert_eq!(state.auth, original_state.auth);
-    assert_eq!(state.tools, original_state.tools);
-    assert_eq!(state.failure, original_state.failure);
-    assert!(db
-        .cache()
-        .get_entity("tools", &format!("{instance_id}:echo"))
-        .await
-        .unwrap()
-        .is_none());
-    assert!(db
-        .cache()
-        .get_relation("instance_tools", &instance_id.to_string())
-        .await
-        .unwrap()
-        .is_none());
-
-    std::fs::remove_file(source_path).ok();
-}
 
 #[tokio::test]
 async fn openapi_import_persists_shared_analysis_result() {

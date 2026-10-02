@@ -311,21 +311,13 @@ impl MCPStore {
             .map_err(Error::from)
     }
 
-    pub fn is_data_plane(&self) -> bool {
-        self.kernel.runtime.node_mode == NodeMode::DataPlane
-    }
-
     pub fn is_db_source(&self) -> bool {
         self.kernel.runtime.source_mode == SourceMode::Db
     }
 
-    /// Close only transports started by this process. A DataPlane CLI is
-    /// ephemeral; it must not queue disconnect requests against the control
-    /// plane or stop transports owned by another node.
+    /// Close only transports started by this process（进程生命周期收尾：
+    /// 短命宿主退出时只清理自己启动的连接，不动其他节点拥有的传输）。
     pub async fn close_local_connections(&self) {
-        if !self.is_data_plane() {
-            return;
-        }
         let instance_ids: Vec<crate::identity::InstanceId> = self
             .kernel
             .runtime

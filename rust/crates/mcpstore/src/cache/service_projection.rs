@@ -118,10 +118,6 @@ impl MCPStore {
         instance_id: InstanceId,
         tools: &[ToolInfo],
     ) -> Result<()> {
-        if self.is_data_plane() {
-            return Ok(());
-        }
-
         let instance = self
             .kernel
             .control

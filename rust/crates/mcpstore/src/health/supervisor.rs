@@ -260,14 +260,13 @@ impl InstanceSupervisor {
 
         if assessment.health == HealthState::Unhealthy {
             if let Some(store) = self.store.get().and_then(Weak::upgrade) {
-                if !store.is_data_plane()
-                    && store
-                        .kernel
-                        .control
-                        .registry
-                        .find_instance(instance_id)
-                        .await
-                        .is_some()
+                if store
+                    .kernel
+                    .control
+                    .registry
+                    .find_instance(instance_id)
+                    .await
+                    .is_some()
                 {
                     if let Err(error) = store.kernel.execution.pool.disconnect(instance_id).await {
                         tracing::warn!(%instance_id, %error, "failed to disconnect unhealthy service");

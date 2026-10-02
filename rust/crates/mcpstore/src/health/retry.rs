@@ -7,15 +7,6 @@ impl MCPStore {
         instance_id: InstanceId,
         error: &Error,
     ) -> Result<ServiceState> {
-        if self.is_data_plane() {
-            return self
-                .kernel
-                .control
-                .state
-                .get(instance_id)
-                .await?
-                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
-        }
         self.mark_instance_retryable_failure(instance_id, error)
             .await
     }

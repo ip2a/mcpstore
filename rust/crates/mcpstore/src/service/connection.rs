@@ -112,14 +112,12 @@ impl MCPStore {
                 .register_instance(updated)
                 .await;
             self.mark_instance_applied(instance_id).await?;
-            if self.is_data_plane() {
-                self.kernel
-                    .runtime
-                    .local_connections
-                    .write()
-                    .await
-                    .insert(instance_id);
-            }
+            self.kernel
+                .runtime
+                .local_connections
+                .write()
+                .await
+                .insert(instance_id);
             let tools = self
                 .kernel
                 .control
@@ -441,14 +439,12 @@ impl MCPStore {
             .register_instance(updated)
             .await;
         self.mark_instance_applied(instance_id).await?;
-        if self.is_data_plane() {
-            self.kernel
-                .runtime
-                .local_connections
-                .write()
-                .await
-                .insert(instance_id);
-        }
+        self.kernel
+            .runtime
+            .local_connections
+            .write()
+            .await
+            .insert(instance_id);
 
         let tools = self
             .kernel
