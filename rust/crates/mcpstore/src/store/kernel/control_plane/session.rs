@@ -7,16 +7,7 @@ impl ControlPlane {
         &self,
         store: &MCPStore,
         instance_id: InstanceId,
-    ) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceDisconnectRequested",
-                    serde_json::json!({ "instance_id": instance_id }),
-                )
-                .await;
-        }
-
+    ) -> Result<()> {
         let instance = store
             .kernel
             .control
@@ -43,7 +34,7 @@ impl ControlPlane {
                 .write()
                 .await
                 .remove(&instance_id);
-            Ok(String::new())
+            Ok(())
         } else {
             store
                 .kernel
@@ -51,7 +42,6 @@ impl ControlPlane {
                 .pool
                 .disconnect(instance_id)
                 .await
-                .map(|_| String::new())
                 .map_err(Error::from)
         };
         if let Err(error) = stop_result {
@@ -104,23 +94,14 @@ impl ControlPlane {
             instance_id,
             instance.service_name
         );
-        Ok(String::new())
+        Ok(())
     }
 
     pub async fn restart_service(
         &self,
         store: &MCPStore,
         instance_id: InstanceId,
-    ) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceRestartRequested",
-                    serde_json::json!({ "instance_id": instance_id }),
-                )
-                .await;
-        }
-
+    ) -> Result<()> {
         if store
             .kernel
             .control
@@ -138,6 +119,5 @@ impl ControlPlane {
         store
             .connect_service_internal(instance_id, false)
             .await
-            .map(|_| String::new())
     }
 }

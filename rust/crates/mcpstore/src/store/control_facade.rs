@@ -4,14 +4,14 @@ use crate::store::prelude::*;
 use serde_json::Value;
 
 impl MCPStore {
-    pub async fn add_service(&self, service_name: &str, config: ServerConfig) -> Result<String> {
+    pub async fn add_service(&self, service_name: &str, config: ServerConfig) -> Result<()> {
         self.kernel
             .control
             .add_service(self, service_name, config)
             .await
     }
 
-    pub async fn remove_service(&self, service_name: &str) -> Result<String> {
+    pub async fn remove_service(&self, service_name: &str) -> Result<()> {
         self.kernel.control.remove_service(self, service_name).await
     }
 
@@ -20,14 +20,14 @@ impl MCPStore {
         service_name: &str,
         config: ServerConfig,
         runtime_policy: Option<crate::config::RuntimePolicy>,
-    ) -> Result<String> {
+    ) -> Result<()> {
         self.kernel
             .control
             .update_service(self, service_name, config, runtime_policy)
             .await
     }
 
-    pub async fn patch_service(&self, service_name: &str, updates: Value) -> Result<String> {
+    pub async fn patch_service(&self, service_name: &str, updates: Value) -> Result<()> {
         self.kernel
             .control
             .patch_service(self, service_name, updates)
@@ -50,33 +50,33 @@ impl MCPStore {
         &self,
         service_name: &str,
         scope: &ScopeRef,
-    ) -> Result<String> {
+    ) -> Result<()> {
         self.kernel
             .control
             .remove_service_scope(self, service_name, scope)
             .await
     }
 
-    pub async fn connect_service(&self, instance_id: InstanceId) -> Result<String> {
+    pub async fn connect_service(&self, instance_id: InstanceId) -> Result<()> {
         self.kernel.control.connect_service(self, instance_id).await
     }
 
-    pub async fn disconnect_service(&self, instance_id: InstanceId) -> Result<String> {
+    pub async fn disconnect_service(&self, instance_id: InstanceId) -> Result<()> {
         self.kernel
             .control
             .disconnect_service(self, instance_id)
             .await
     }
 
-    pub async fn restart_service(&self, instance_id: InstanceId) -> Result<String> {
+    pub async fn restart_service(&self, instance_id: InstanceId) -> Result<()> {
         self.kernel.control.restart_service(self, instance_id).await
     }
 
-    pub async fn reset_config(&self) -> Result<String> {
+    pub async fn reset_config(&self) -> Result<()> {
         self.kernel.control.reset_config(self).await
     }
 
-    pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<String> {
+    pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<()> {
         self.kernel.control.reset_scope(self, scope).await
     }
 

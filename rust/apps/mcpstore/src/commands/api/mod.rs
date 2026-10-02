@@ -81,23 +81,12 @@ async fn resolve_instance(
         })
 }
 
-/// 构建 daemon 共享的 ApiState；非数据面时恢复事件 reactor。
+/// 构建 daemon 共享的 ApiState。
 pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
-    let state = Arc::new(ApiState {
+    Arc::new(ApiState {
         store,
         mcp_hub: Arc::new(Mutex::new(None)),
-    });
-    if !state.store.is_data_plane() {
-        let store = state.store.clone();
-        tokio::spawn(async move {
-            if let Err(error) = store.restart_control_reactor().await {
-                tracing::error!(
-                    "[API] Failed to restart event reactor after cache switch: {error}"
-                );
-            }
-        });
-    }
-    state
+    })
 }
 
 impl ApiState {

@@ -14,19 +14,6 @@ impl ControlPlane {
     ) -> Result<InstanceId> {
         let instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
-        if store.is_data_plane() {
-            store
-                .queue_control_request(
-                    "ServiceScopeDeclareRequested",
-                    serde_json::json!({
-                        "service_name": service_name,
-                        "scope": scope,
-                        "descriptor": descriptor,
-                    }),
-                )
-                .await?;
-            return Ok(instance_id);
-        }
 
         let mut config = store.show_config_entry().await?;
         let server = config
@@ -140,19 +127,7 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         scope: &ScopeRef,
-    ) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceScopeRemoveRequested",
-                    serde_json::json!({
-                        "service_name": service_name,
-                        "scope": scope,
-                    }),
-                )
-                .await;
-        }
-
+    ) -> Result<()> {
         let mut config = store.show_config_entry().await?;
         let server = config
             .mcp_servers
@@ -200,6 +175,6 @@ impl ControlPlane {
             .sync_definition_projection(service_name, &server, chrono::Utc::now().timestamp())
             .await?;
         store.cache_instance_removed(instance_id).await?;
-        Ok(String::new())
+        Ok(())
     }
 }

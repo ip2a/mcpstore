@@ -54,9 +54,6 @@ pub use openapi::{
 // Facade re-exports: event bus
 pub use events::{Event, EventBus};
 
-// Facade re-exports: control requests
-pub use control::{ControlRequest, ControlRequestStatus};
-
 // Facade re-exports: event reactor
 pub use event_reactor::{
     ChangeContext, EventBackend, EventReactor, ReactionContext, ReactionOutcome, ReactorConfig,

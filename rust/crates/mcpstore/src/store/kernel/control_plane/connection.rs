@@ -6,15 +6,7 @@ impl ControlPlane {
         &self,
         store: &MCPStore,
         instance_id: InstanceId,
-    ) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceConnectRequested",
-                    serde_json::json!({ "instance_id": instance_id }),
-                )
-                .await;
-        }
+    ) -> Result<()> {
         if store
             .kernel
             .control
@@ -31,6 +23,5 @@ impl ControlPlane {
         store
             .connect_service_internal(instance_id, false)
             .await
-            .map(|_| String::new())
     }
 }

@@ -75,14 +75,6 @@ fn runtime_not_allowed(
 
 /// 执行一个业务 op。请求/响应 op 全部经此；流式 op（StreamToolExecution/
 /// SubscribeEvents）与管理 op 不在此列。
-fn mutation_status(store: &MCPStore) -> &'static str {
-    if store.is_control_mutation_queued() {
-        "queued"
-    } else {
-        "applied"
-    }
-}
-
 pub(crate) async fn execute(
     store: &MCPStore,
     operation: KernelOperation,
@@ -164,10 +156,7 @@ pub(crate) async fn execute(
         }
         KernelOperation::ConnectService => {
             let instance_id = instance_id(&payload)?;
-            let request_id = store.connect_service(instance_id).await?;
-            if store.is_control_mutation_queued() {
-                return Ok(json!({"request_id": request_id, "status": "queued"}));
-            }
+            store.connect_service(instance_id).await?;
             let tools = store
                 .list_tool_entries_for_instance_with_filter(
                     instance_id,
@@ -188,17 +177,13 @@ pub(crate) async fn execute(
         }
         KernelOperation::DisconnectService => {
             let instance_id = instance_id(&payload)?;
-            let request_id = store.disconnect_service(instance_id).await?;
-            Ok(
-                json!({"instance_id": instance_id, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.disconnect_service(instance_id).await?;
+            Ok(json!({"instance_id": instance_id}))
         }
         KernelOperation::RestartService => {
             let instance_id = instance_id(&payload)?;
-            let request_id = store.restart_service(instance_id).await?;
-            Ok(
-                json!({"instance_id": instance_id, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.restart_service(instance_id).await?;
+            Ok(json!({"instance_id": instance_id}))
         }
         KernelOperation::CheckService => {
             let instance_id = instance_id(&payload)?;
@@ -219,36 +204,27 @@ pub(crate) async fn execute(
             let config = payload_field::<ServerConfig>(&payload, "config")?;
             let runtime_policy =
                 payload_field::<Option<RuntimePolicy>>(&payload, "runtime_policy")?;
-            let request_id = store.update_service(&name, config, runtime_policy).await?;
-            Ok(
-                json!({"service_name": name, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.update_service(&name, config, runtime_policy).await?;
+            Ok(json!({"service_name": name}))
         }
         KernelOperation::DeclareServiceScope => {
             let service_name = required_str(&payload, "service_name")?;
             let scope = payload_field::<ScopeRef>(&payload, "scope")?;
             let descriptor = payload_field::<ScopeDescriptor>(&payload, "descriptor")?;
-            let request_id = store
+            let instance_id = store
                 .declare_service_scope(&service_name, &scope, descriptor)
                 .await?;
-            let instance_id =
-                mcpstore::ServiceInstanceKey::new(service_name.clone(), scope.clone())
-                    .instance_id();
             Ok(json!({
                 "instance_id": instance_id,
                 "service_name": service_name,
                 "scope": scope,
-                "request_id": request_id,
-                "status": mutation_status(store),
             }))
         }
         KernelOperation::RemoveServiceScope => {
             let service_name = required_str(&payload, "service_name")?;
             let scope = payload_field::<ScopeRef>(&payload, "scope")?;
-            let request_id = store.remove_service_scope(&service_name, &scope).await?;
-            Ok(
-                json!({"service_name": service_name, "scope": scope, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.remove_service_scope(&service_name, &scope).await?;
+            Ok(json!({"service_name": service_name, "scope": scope}))
         }
         KernelOperation::ListAgents => {
             let agents = store.list_agents().await?;

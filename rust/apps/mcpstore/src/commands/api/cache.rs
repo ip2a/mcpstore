@@ -15,20 +15,6 @@ pub(super) struct CacheSwitchRequest {
     config: serde_json::Value,
 }
 
-/// Start an EventReactor that processes control_requests via push-based
-/// ChangeFeed events (replaces the old 1-second polling scanner).
-///
-/// Before starting the reactor, one catch-up scan processes any backlog left
-/// from a previous shutdown. After that, all new requests are handled by the
-/// reactor's ChangeFeed subscription — no polling.
-fn spawn_control_reactor(store: Arc<MCPStore>) {
-    tokio::spawn(async move {
-        if let Err(error) = store.restart_control_reactor().await {
-            tracing::error!("[API] Failed to start event reactor: {error}");
-        }
-    });
-}
-
 pub(super) async fn inspect(State(state): State<Arc<ApiState>>) -> ApiResult {
     let report = state
         .store
@@ -57,9 +43,6 @@ pub(super) async fn switch(
         .swap_store(&config)
         .await
         .map_err(ApiError::from_store)?;
-    if !state.store.is_data_plane() {
-        spawn_control_reactor(state.store.clone());
-    }
     let snapshot = serde_json::to_value(snapshot).map_err(|error| {
         ApiError::invalid_request(format!("Failed to serialize cache-switch result: {error}"))
     })?;

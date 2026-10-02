@@ -7,19 +7,7 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         mut config: ServerConfig,
-    ) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceAddRequested",
-                    serde_json::json!({
-                        "service_name": service_name,
-                        "config": config,
-                    }),
-                )
-                .await;
-        }
-
+    ) -> Result<()> {
         if store
             .kernel
             .control
@@ -64,6 +52,6 @@ impl ControlPlane {
                 true,
             )
             .await;
-        Ok(String::new())
+        Ok(())
     }
 }
