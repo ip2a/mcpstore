@@ -49,10 +49,15 @@ impl DataPanel {
         }
     }
 
-    /// 后台运行（daemon/边缘宿主 spawn 用）。
+    /// 后台运行（daemon/边缘宿主 spawn 用），句柄可 abort 以停止心跳。
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             self.run().await.ok();
         })
+    }
+
+    /// 收尾：只清理本进程启动的传输（不动其他节点拥有的连接）。
+    pub async fn stop(&self) {
+        self.store.close_local_connections().await;
     }
 }

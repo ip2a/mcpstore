@@ -8026,26 +8026,4 @@ mod swap_and_cache_tests {
     }
 }
 
-#[tokio::test]
-async fn control_panel_supervisor_attach_is_explicit_and_idempotent() {
-    let path = temp_config_path();
-    let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some("supervisor-attach".to_string()),
-    })
-    .unwrap();
 
-    // 未挂载即无自愈
-    assert!(store.control_supervisor().is_none());
-
-    // ControlPanel 挂载（幂等）
-    crate::runtime::ControlPanel::new(store.clone()).start().unwrap();
-    assert!(store.control_supervisor().is_some());
-    crate::runtime::ControlPanel::new(store.clone()).start().unwrap();
-    assert!(store.control_supervisor().is_some());
-
-    std::fs::remove_file(path).ok();
-}

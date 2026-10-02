@@ -96,6 +96,41 @@ mod tests {
         assert_eq!(status["node"], "edge-01");
         assert_eq!(status["payload"]["capabilities"][0], "browser");
         assert!(status["updated_at"].as_i64().is_some());
+
+        // stop 收尾：清空本进程连接跟踪（空集时也是合法 no-op）
+        panel.stop().await;
+        assert!(store
+            .kernel
+            .runtime
+            .local_connections
+            .read()
+            .await
+            .is_empty());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn control_panel_start_attaches_supervisor_idempotently() {
+        let path = std::env::temp_dir().join(format!(
+            "mcpstore-control-panel-test-{}.toml",
+            std::process::id()
+        ));
+        let store = MCPStore::setup_with_options(crate::store::StoreOptions {
+            config_path: Some(path.to_string_lossy().into_owned()),
+            store: Some(crate::store::JsonStoreConfig::memory()),
+            namespace: Some("control-panel-test".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        // 未挂载即无自愈；ControlPanel 挂载幂等
+        assert!(store.control_supervisor().is_none());
+        ControlPanel::new(store.clone()).start().unwrap();
+        assert!(store.control_supervisor().is_some());
+        ControlPanel::new(store.clone()).start().unwrap();
+        assert!(store.control_supervisor().is_some());
+
+        ControlPanel::new(store.clone()).stop().await;
         std::fs::remove_file(&path).ok();
     }
 }
