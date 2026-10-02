@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use mcpstore::error::{Error, FailureCode};
 use mcpstore::{
-    MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpStoreToolExecutionHandle,
+    DataPanel, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpStoreToolExecutionHandle,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -55,24 +55,13 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         started_at: Instant::now(),
     });
     if host.store.is_data_plane() {
-        // data 面板唯一的对外信号：定期把心跳+能力自报写进共享存储的 node_status 行。
+        // data 面板唯一的对外信号：DataPanel 心跳+能力自报写进 node_status 行。
         // 读侧（控制面）按 updated_at 时间戳判失联，沉默即异常。
-        let store = Arc::clone(&host.store);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(15));
-            loop {
-                interval.tick().await;
-                let capabilities: Vec<&str> = crate::daemon::ops::host_capabilities()
-                    .into_iter()
-                    .collect();
-                if let Err(error) = store
-                    .write_node_status(serde_json::json!({ "capabilities": capabilities }))
-                    .await
-                {
-                    tracing::warn!("[KERNEL_HOST] node status heartbeat failed: {error}");
-                }
-            }
-        });
+        let capabilities: Vec<String> = crate::daemon::ops::host_capabilities()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        DataPanel::new(Arc::clone(&host.store), host.store.node_id(), capabilities).spawn();
     }
     host.faces.start_all(&app_config, &host.state).await;
 
