@@ -176,7 +176,6 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
 #[tokio::test]
 async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        panel_id: None,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("cache-instance-status-upsert".to_string()),
         ..StoreOptions::default()

@@ -49,18 +49,23 @@ pub struct StoreSourceArgs {
     #[arg(
         long = "panel-id",
         value_name = "ID",
-        help = "Panel identity for state writes (control panel default: control)"
+        requires = "data_panel",
+        help = "Data panel identity (required with --data-panel)"
     )]
     pub panel_id: Option<String>,
 }
 
 impl StoreSourceArgs {
-    /// 未指定任何面板 flag 时默认双面板（单机形态）；指定任一则只跑指定面板。
-    pub fn effective_panels(&self) -> (bool, bool) {
-        if !self.control_panel && !self.data_panel {
-            (true, true)
+    /// 面板角色：--data-panel（配 --panel-id）→ 数据面板；否则控制面板（含缺省）。
+    pub fn panel_role(&self) -> mcpstore::PanelRole {
+        if self.data_panel {
+            let panel_id = self
+                .panel_id
+                .clone()
+                .expect("--panel-id is required with --data-panel");
+            mcpstore::PanelRole::DataPanel { panel_id }
         } else {
-            (self.control_panel, self.data_panel)
+            mcpstore::PanelRole::ControlPanel
         }
     }
 }
@@ -87,7 +92,7 @@ impl StoreSourceArgs {
             },
             store,
             namespace: self.namespace.clone(),
-            panel_id: self.panel_id.clone(),
+            panel: self.panel_role(),
         }
     }
 }

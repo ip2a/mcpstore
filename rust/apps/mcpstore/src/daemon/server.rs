@@ -2,9 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use mcpstore::error::{Error, FailureCode};
-use mcpstore::{
-    DataPanel, MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpStoreToolExecutionHandle,
-};
+use mcpstore::{MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpStoreToolExecutionHandle};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
@@ -25,8 +23,6 @@ struct DaemonHost {
     state: Arc<crate::commands::api::ApiState>,
     faces: crate::daemon::listeners::ListenerManager,
     started_at: Instant,
-    /// (控制面板, 数据面板)：本进程组装的角色。
-    panels: (bool, bool),
 }
 
 /// Start the KernelHost: create one StoreKernel and accept typed IPC requests.
@@ -50,29 +46,14 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     );
     println!("[KERNEL_HOST] MCPStore host started (pid={pid})");
 
-    let (control_panel, data_panel) = args.effective_panels();
     let host = Arc::new(DaemonHost {
         store,
         state,
         faces: crate::daemon::listeners::ListenerManager::new(),
         started_at: Instant::now(),
-        panels: (control_panel, data_panel),
     });
-    if control_panel {
-        // 控制面板：挂载自愈监督器（keep_alive 断线重连、健康状态机）。
-        host.store.attach_control_supervisor()?;
-    }
-    if data_panel {
-        // 数据面板：placement 命中的服务本地建连执行（无周期任务）。
-        let panel = DataPanel::new(Arc::clone(&host.store), host.store.panel_id());
-        match panel.serve().await {
-            Ok(connected) => tracing::info!(
-                "[KERNEL_HOST] data panel {} serving {connected} placement service(s)",
-                host.store.panel_id()
-            ),
-            Err(error) => tracing::warn!("[KERNEL_HOST] data panel serve failed: {error}"),
-        }
-    }
+    // 面板角色内化在 store：ControlPanel setup 即挂自愈监督器；
+    // DataPanel 在 load（上方 load_kernel）时自动 serve placement。
     host.faces.start_all(&app_config, &host.state).await;
 
     let shutdown = Arc::new(tokio::sync::Notify::new());
@@ -376,11 +357,9 @@ async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
         "namespace": host.store.namespace(),
         "node": {
             "id": host.store.panel_id(),
-            "mode": match host.panels {
-                (true, true) => "control+data",
-                (true, false) => "control",
-                (false, true) => "data",
-                (false, false) => "none",
+            "mode": match host.store.panel_role() {
+                mcpstore::PanelRole::ControlPanel => "control",
+                mcpstore::PanelRole::DataPanel { .. } => "data",
             },
         },
         "listeners": host.faces.snapshot(),

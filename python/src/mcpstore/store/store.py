@@ -21,18 +21,18 @@ class RustStoreBackend:
     # Setup entry point
     # ------------------------------------------------------------------
     @classmethod
-    def setup(cls, source: Any, source_mode: str):
-        """Construct the Rust-backed store from resolved source + modes."""
-        return setup_module.setup_backend(cls, source, source_mode)
+    def setup(cls, source: Any, source_mode: str, panel: Any = None):
+        """Construct the Rust-backed store from resolved source + panel role."""
+        return setup_module.setup_backend(cls, source, source_mode, panel)
 
     @staticmethod
-    def setup_store(source: Any = None, *,
+    def setup_store(source: Any = None, panel: Any = None, *,
                     debug: bool | str = False,
                     static_config: Optional[Dict[str, Any]] = None, **kwargs: Any):
         """Public entry point. Delegates to StoreSetupManager."""
         from mcpstore.store.setup import StoreSetupManager
         return StoreSetupManager.setup_store(
-            source=source, debug=debug,
+            source=source, panel=panel, debug=debug,
             static_config=static_config, **kwargs,
         )
 

@@ -752,18 +752,23 @@ impl PyMCPStore {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None))]
+    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None, panel=None))]
     fn setup_with_options(
         config_path: Option<String>,
         source_mode: Option<String>,
         store: Option<String>,
         store_config: Option<String>,
         namespace: Option<String>,
+        panel: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let panel_role = panel
+            .map(crate::panels::parse_panel_role)
+            .transpose()?
+            .unwrap_or_default();
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
             source_mode: parse_source_mode(source_mode.as_deref())?,
-            panel_id: None,
+            panel: panel_role,
             store: store
                 .map(|name| {
                     let config = store_config

@@ -23,24 +23,24 @@
 控制面板节点（云端服务器）::
 
     from mcpstore import MCPStore, ControlPanel
+    from mcpstore.config import RedisConfig
 
-    store = MCPStore.setup_store(source=RedisConfig(url="redis://central:6379"))
-    ControlPanel(store).start()   # 挂载自愈监督器；进程常驻
+    store = MCPStore.setup_store(
+        source=RedisConfig(url="redis://central:6379"),
+        panel=ControlPanel(),        # setup 即挂载自愈监督器
+    )
 
 数据面板节点（资源受限终端）::
 
-    import asyncio
     from mcpstore import MCPStore, DataPanel
+    from mcpstore.config import RedisConfig
 
-    store = MCPStore.setup_store(source=RedisConfig(url="redis://central:6379"))
-    panel = DataPanel(store, panel_id="edge-01")
+    store = MCPStore.setup_store(
+        source=RedisConfig(url="redis://central:6379"),
+        panel=DataPanel(panel_id="edge-01"),   # load 即自动 serve placement
+    )
 
-    async def main():
-        connected = await panel.serve()   # 拉取 placement 命中的服务，本地建连
-        print(f"serving {connected} service(s)")
-        # 面板零周期任务：只在 serve/call 等实际交互时活动
-
-    asyncio.run(main())
+panel 是 setup 的参数，不存在第二个对象；缺省即 ControlPanel。
 """
 
 # 此文件为文档示例；运行时导入见 docstring。

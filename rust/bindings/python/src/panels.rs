@@ -1,98 +1,60 @@
-//! Role components: ControlPanel (self-heal supervision) and DataPanel
-//! (on-demand execution), composable from Python code.
+//! Panel role configuration: passed to setup_store, not constructed after.
+//!
+//! - ControlPanel(): decision + connection maintenance + self-heal (default)
+//! - DataPanel(panel_id): placement serving on load, no periodic work
 
-use std::sync::Arc;
-
-use mcpstore::{ControlPanel, DataPanel, MCPStore};
+use mcpstore::PanelRole;
 use pyo3::prelude::*;
-use pyo3_async_runtimes::tokio::future_into_py;
 
-use crate::core_store::{map_store_err, PyMCPStore};
-
-/// 接受 pyclass 或其 Python 门面包装（持有 `_inner`）。
-fn unwrap_store(store: &Bound<'_, PyAny>) -> PyResult<Arc<MCPStore>> {
-    if let Ok(inner) = store.extract::<PyRef<'_, PyMCPStore>>() {
-        return Ok(inner.inner().clone());
-    }
-    if let Ok(wrapped) = store.getattr("_inner") {
-        if let Ok(inner) = wrapped.extract::<PyRef<'_, PyMCPStore>>() {
-            return Ok(inner.inner().clone());
-        }
-    }
-    Err(pyo3::exceptions::PyTypeError::new_err(
-        "expected an MCPStore instance",
-    ))
-}
-
+/// 控制面板角色：setup 时自动挂载自愈监督器（幂等语义由角色承载）。
 #[pyclass(name = "ControlPanel")]
-pub struct PyControlPanel {
-    store: Arc<MCPStore>,
-}
+#[derive(Clone, Default)]
+pub struct PyControlPanel;
 
 #[pymethods]
 impl PyControlPanel {
-    /// Decision/scheduling role: attach the self-heal supervisor
-    /// (keep_alive reconnect, health state machine). Idempotent.
     #[new]
-    fn new(store: &Bound<'_, PyAny>) -> PyResult<Self> {
-        Ok(Self {
-            store: unwrap_store(store)?,
-        })
-    }
-
-    /// Attach the supervision loop. Idempotent; until attached, no self-heal.
-    fn start(&self) -> PyResult<()> {
-        ControlPanel::new(self.store.clone())
-            .start()
-            .map_err(map_store_err)
-    }
-
-    /// Detach supervision; established connections keep their current state.
-    fn stop<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let panel = ControlPanel::new(self.store.clone());
-        future_into_py(py, async move {
-            panel.stop().await;
-            Ok(())
-        })
+    fn new() -> Self {
+        Self
     }
 }
 
+/// 数据面板角色：load 时自动拉取 placement 命中的服务本地建连。
 #[pyclass(name = "DataPanel")]
+#[derive(Clone)]
 pub struct PyDataPanel {
-    store: Arc<MCPStore>,
     panel_id: String,
 }
 
 #[pymethods]
 impl PyDataPanel {
-    /// Execution role: on-demand placement serving, no periodic background work.
     #[new]
-    fn new(store: &Bound<'_, PyAny>, panel_id: String) -> PyResult<Self> {
-        Ok(Self {
-            store: unwrap_store(store)?,
-            panel_id,
-        })
+    fn new(panel_id: String) -> Self {
+        Self { panel_id }
     }
 
+    #[getter]
     fn panel_id(&self) -> &str {
         &self.panel_id
     }
-
-    /// Pull placement-matching services and connect them locally.
-    /// Returns the number of services connected.
-    fn serve<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let panel = DataPanel::new(self.store.clone(), self.panel_id.clone());
-        future_into_py(py, async move {
-            panel.serve().await.map_err(map_store_err)
-        })
-    }
-
-    /// Tear down transports started by this process only.
-    fn stop<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let panel = DataPanel::new(self.store.clone(), self.panel_id.clone());
-        future_into_py(py, async move {
-            panel.stop().await;
-            Ok(())
-        })
-    }
 }
+
+/// Convert a Python panel object (or None = control panel) to PanelRole.
+pub(crate) fn parse_panel_role(panel: &Bound<'_, PyAny>) -> PyResult<PanelRole> {
+    if panel.is_none() {
+        return Ok(PanelRole::ControlPanel);
+    }
+    if let Ok(role) = panel.extract::<PyRef<'_, PyControlPanel>>() {
+        let _ = role;
+        return Ok(PanelRole::ControlPanel);
+    }
+    if let Ok(role) = panel.extract::<PyRef<'_, PyDataPanel>>() {
+        return Ok(PanelRole::DataPanel {
+            panel_id: role.panel_id.clone(),
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "panel must be ControlPanel() or DataPanel(panel_id=...)",
+    ))
+}
+

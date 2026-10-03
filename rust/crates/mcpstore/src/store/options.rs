@@ -7,14 +7,32 @@ pub enum SourceMode {
 
 use super::store_config::JsonStoreConfig;
 
+/// 面板角色：setup 的参数，决定本进程的行为。
+///
+/// - 控制面板：决策 + 维护全部 MCP 连接 + 自愈监督（setup 时自动挂载）
+/// - 数据面板：执行 placement 命中的服务（load 时自动拉取建连），
+///   panel_id 即面板身份
+#[derive(Clone, Debug, PartialEq)]
+pub enum PanelRole {
+    ControlPanel,
+    DataPanel { panel_id: String },
+}
+
+impl Default for PanelRole {
+    fn default() -> Self {
+        Self::ControlPanel
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct StoreOptions {
     pub config_path: Option<String>,
     pub source_mode: SourceMode,
     pub store: Option<JsonStoreConfig>,
     pub namespace: Option<String>,
-    /// 面板标识：本面板状态写入的归属（缺省 CONTROL_NODE_ID）。
-    pub panel_id: Option<String>,
+    /// 面板角色（缺省 ControlPanel：单机/云端默认都是控制面板；
+    /// 数据面板必须显式声明 panel_id）。
+    pub panel: PanelRole,
 }
 
 impl Default for StoreOptions {
@@ -24,7 +42,7 @@ impl Default for StoreOptions {
             source_mode: SourceMode::Local,
             store: None,
             namespace: None,
-            panel_id: None,
+            panel: PanelRole::ControlPanel,
         }
     }
 }

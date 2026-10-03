@@ -136,7 +136,7 @@ async fn run_task(
     let input = parse_input(&args.input, output)?;
     let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
     let selection = args.execution.resolve(embedded)?;
-    let info = access
+    let _info = access
         .request(
             KernelOperation::GetServiceInfo,
             json!({"instance_id": args.instance_id.to_string()}),

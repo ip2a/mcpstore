@@ -1,6 +1,5 @@
 //! 业务 op 分发：daemon socket 与 CLI embedded 进程共用同一份实现
 //! （单业务协议、双执行位置）。daemon 管理面（status/config/stop）在 server.rs。
-use std::collections::HashSet;
 
 use mcpstore::config::{
     AppConfig, McpStoreExtension, Runtime, RuntimeSelection, ScopeDeclarations,
@@ -15,11 +14,10 @@ use crate::daemon::protocol::KernelOperation;
 /// Resolve the runtime selection at the daemon trust boundary.
 /// A missing `runtime` keeps older clients on the daemon runtime.
 pub(crate) async fn resolve_daemon_runtime(
-    store: &MCPStore,
-    instance_id: InstanceId,
+    _store: &MCPStore,
+    _instance_id: InstanceId,
     payload: &Value,
 ) -> Result<RuntimeSelection, Error> {
-    let _ = store;
     let runtime = match payload.get("runtime") {
         None | Some(Value::Null) => Runtime::Daemon,
         Some(Value::String(value)) => value

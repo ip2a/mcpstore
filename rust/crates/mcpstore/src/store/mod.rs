@@ -39,7 +39,7 @@ pub use crate::openapi::{
     OpenApiImportOptions, OpenApiImportResult,
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
-pub use options::{SourceMode, StoreOptions};
+pub use options::{PanelRole, SourceMode, StoreOptions};
 pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
@@ -137,14 +137,14 @@ impl MCPStore {
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(10_000);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
-        let panel_id = options
-            .panel_id
-            .clone()
-            .unwrap_or_else(|| crate::state::CONTROL_NODE_ID.to_string());
+        let state_panel_id = match &options.panel {
+            PanelRole::ControlPanel => crate::state::CONTROL_NODE_ID.to_string(),
+            PanelRole::DataPanel { panel_id } => panel_id.clone(),
+        };
         let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
             cache.clone(),
             event_bus.clone(),
-            panel_id,
+            state_panel_id,
         ));
         #[cfg(not(test))]
         let auth_coordinator = crate::auth::AuthCoordinator::new(state_manager.clone())?;
@@ -184,11 +184,22 @@ impl MCPStore {
                     event_reactor: tokio::sync::RwLock::new(None),
                     local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
                     source_mode: options.source_mode,
+                    panel_role: options.panel.clone(),
                     runtime_config,
                 },
             },
         });
+        // 角色内化：控制面板 setup 即挂载自愈监督器（幂等）；
+        // 数据面板不挂（结构性跳过 startup probe / 健康自愈）。
+        if matches!(options.panel, PanelRole::ControlPanel) {
+            store.attach_control_supervisor()?;
+        }
         Ok(store)
+    }
+
+    /// 本进程的面板角色。
+    pub fn panel_role(&self) -> &PanelRole {
+        &self.kernel.runtime.panel_role
     }
 
     /// 挂载控制面板的自愈监督器（幂等）。
@@ -365,5 +376,7 @@ impl MCPStore {
     }
 }
 
+#[cfg(test)]
+mod role_tests;
 #[cfg(test)]
 mod tests;

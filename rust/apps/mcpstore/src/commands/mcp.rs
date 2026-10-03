@@ -4,9 +4,8 @@ use mcpstore::config::{
 };
 use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::daemon::protocol::KernelOperation;
@@ -1060,7 +1059,7 @@ async fn execute_call_tool(
         let instance_id = resolve_target(&mut access, &scope, &a.target)
             .await
             .map_err(resolve_error)?;
-        let info = access
+        let _info = access
             .request(
                 KernelOperation::GetServiceInfo,
                 json!({"instance_id": instance_id.to_string()}),

@@ -51,7 +51,7 @@ def _extract_file_path(source: Any) -> Optional[str]:
 # Backend construction
 # ---------------------------------------------------------------------------
 
-def setup_backend(backend_cls: type, source: Any, source_mode: str):
+def setup_backend(backend_cls: type, source: Any, source_mode: str, panel: Any = None):
     """Build the Rust-backed store.
 
     ``source_mode`` selects where service definitions are read from
@@ -67,6 +67,7 @@ def setup_backend(backend_cls: type, source: Any, source_mode: str):
         store_name,
         json.dumps(store_config or {}, separators=(",", ":")),
         namespace,
+        panel,
     )
     store = backend_cls(rust_store)
     store._source_mode = source_mode
@@ -80,6 +81,7 @@ class StoreSetupManager:
     @staticmethod
     def setup_store(
         source: Any = None,
+        panel: Any = None,
         *,
         debug: bool | str = False,
         static_config: Optional[Dict[str, Any]] = None,
@@ -111,7 +113,7 @@ class StoreSetupManager:
         source_mode = _resolve_source_mode(source)
 
         from mcpstore.store.store import MCPStore as PyMCPStore
-        store = PyMCPStore.setup(source=source, source_mode=source_mode)
+        store = PyMCPStore.setup(source=source, source_mode=source_mode, panel=panel)
 
         if static_config:
             StoreSetupManager._add_static_config(store, static_config)

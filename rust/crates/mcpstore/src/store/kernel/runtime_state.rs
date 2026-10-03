@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 
 use crate::event_reactor::{EventBackend, EventReactor};
 use crate::identity::InstanceId;
-use crate::store::options::SourceMode;
+use crate::store::options::{PanelRole, SourceMode};
 use crate::store::runtime::StoreRuntimeConfig;
 
 pub(crate) struct RuntimeState {
@@ -15,5 +15,6 @@ pub(crate) struct RuntimeState {
     pub(crate) event_reactor: RwLock<Option<Arc<EventReactor<EventBackend>>>>,
     pub(crate) local_connections: RwLock<HashSet<InstanceId>>,
     pub(crate) source_mode: SourceMode,
+    pub(crate) panel_role: PanelRole,
     pub(crate) runtime_config: StoreRuntimeConfig,
 }

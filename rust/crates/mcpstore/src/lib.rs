@@ -19,7 +19,6 @@ pub mod openapi_runtime;
 pub mod overrides;
 pub mod perspective;
 pub mod registry;
-pub mod runtime;
 pub(crate) mod service;
 pub mod session;
 pub mod state;
@@ -114,9 +113,8 @@ pub use overrides::{
     ResourceTemplateOverrideRule, ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule,
     ToolOverrideSafetyPolicy,
 };
-pub use runtime::{ControlPanel, DataPanel};
 pub use store::swap::SwapResult;
 pub use store::{
     JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
-    RedisStoreConfig, SourceMode, StoreConfig, StoreOptions, ToolVisibilityFilter,
+    PanelRole, RedisStoreConfig, SourceMode, StoreConfig, StoreOptions, ToolVisibilityFilter,
 };

@@ -69,4 +69,27 @@ impl MCPStore {
             .await;
         self.connect_service_internal(instance_id, false).await
     }
+
+    /// 数据面板角色在 load 完成后调用：拉取 placement 命中的服务本地建连。
+    /// 单个服务失败不阻断其余，返回成功建立的数量。
+    pub(crate) async fn serve_placement(&self, panel_id: &str) -> Result<usize> {
+        let services = self.panel_services(panel_id).await?;
+        let mut connected = 0;
+        for service in services {
+            let instance_id = service.instance_id;
+            match self
+                .connect_with_local_config(instance_id, service.merged_config)
+                .await
+            {
+                Ok(()) => connected += 1,
+                Err(error) => tracing::warn!(
+                    panel_id = %panel_id,
+                    service = %service.service_name,
+                    %error,
+                    "placement 服务本地执行失败"
+                ),
+            }
+        }
+        Ok(connected)
+    }
 }

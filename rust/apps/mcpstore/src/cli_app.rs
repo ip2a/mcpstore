@@ -734,6 +734,8 @@ mod tests {
             "--store",
             "redis",
             "--data-panel",
+            "--panel-id",
+            "edge-01",
         ])
         .unwrap();
 
@@ -741,7 +743,10 @@ mod tests {
             Commands::List(args) => {
                 assert!(args.store.data_panel);
                 assert!(!args.store.control_panel);
-                assert_eq!(args.store.effective_panels(), (false, true));
+                assert!(matches!(
+                    args.store.panel_role(),
+                    mcpstore::PanelRole::DataPanel { panel_id } if panel_id == "edge-01"
+                ));
                 assert!(args.store.is_explicit());
             }
             _ => panic!("Expected to parse as list command"),

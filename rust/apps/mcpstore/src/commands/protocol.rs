@@ -160,7 +160,7 @@ async fn resolve_runtime(
     embedded: bool,
 ) -> mcpstore::Result<mcpstore::config::RuntimeSelection> {
     let selection = requested.resolve(embedded)?;
-    let info = access
+    let _info = access
         .request(
             KernelOperation::GetServiceInfo,
             json!({"instance_id": instance_id.to_string()}),

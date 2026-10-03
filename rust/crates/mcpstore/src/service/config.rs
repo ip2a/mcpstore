@@ -94,7 +94,17 @@ impl MCPStore {
 
     pub async fn load_from_config(&self) -> Result<()> {
         if self.kernel.runtime.source_mode == SourceMode::Db {
-            return self.load_from_db().await;
+            self.load_from_db().await?;
+            // 角色内化：数据面板 load 完即拉取 placement 命中的服务本地建连。
+            if let crate::store::PanelRole::DataPanel { panel_id } =
+                &self.kernel.runtime.panel_role
+            {
+                let connected = self.serve_placement(panel_id).await?;
+                tracing::info!(
+                    "[STORE] data panel '{panel_id}' serving {connected} placement service(s)"
+                );
+            }
+            return Ok(());
         }
 
         let config = self.kernel.control.config_manager.load_or_empty()?;
@@ -111,6 +121,17 @@ impl MCPStore {
         for (service_name, server) in &config.mcp_servers {
             self.register_configured_definition(service_name, server)
                 .await?;
+        }
+
+        // 角色内化：数据面板 load 完即拉取 placement 命中的服务本地建连。
+        if let crate::store::PanelRole::DataPanel { panel_id } =
+            &self.kernel.runtime.panel_role
+        {
+            let connected = self.serve_placement(panel_id).await?;
+            tracing::info!(
+                "[STORE] data panel '{panel_id}' serving {connected} placement service(s)"
+            );
+            return Ok(());
         }
 
         for instance in self.kernel.control.registry.list_instances().await {

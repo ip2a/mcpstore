@@ -158,7 +158,7 @@ impl McpServerOptions {
             source_mode: self.source_mode,
             store: self.store.clone(),
             namespace: self.namespace.clone(),
-            panel_id: None,
+            panel: mcpstore::PanelRole::ControlPanel,
         }
     }
 
