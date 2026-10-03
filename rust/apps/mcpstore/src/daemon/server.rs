@@ -63,8 +63,15 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         host.store.attach_control_supervisor()?;
     }
     if data_panel {
-        // 数据面板：按需执行，无周期任务（无心跳）。panel_id 即节点身份。
-        let _panel = DataPanel::new(Arc::clone(&host.store), host.store.panel_id());
+        // 数据面板：placement 命中的服务本地建连执行（无周期任务）。
+        let panel = DataPanel::new(Arc::clone(&host.store), host.store.panel_id());
+        match panel.serve().await {
+            Ok(connected) => tracing::info!(
+                "[KERNEL_HOST] data panel {} serving {connected} placement service(s)",
+                host.store.panel_id()
+            ),
+            Err(error) => tracing::warn!("[KERNEL_HOST] data panel serve failed: {error}"),
+        }
     }
     host.faces.start_all(&app_config, &host.state).await;
 

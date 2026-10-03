@@ -4,6 +4,7 @@ pub(crate) mod discovery;
 pub(crate) mod elicitation;
 pub(crate) mod invocation;
 pub(crate) mod lifecycle;
+pub(crate) mod placement;
 pub(crate) mod prompts;
 pub(crate) mod protocol;
 pub(crate) mod resources;

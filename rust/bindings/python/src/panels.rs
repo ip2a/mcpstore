@@ -65,7 +65,7 @@ pub struct PyDataPanel {
 
 #[pymethods]
 impl PyDataPanel {
-    /// Execution role: on-demand response, no periodic background work.
+    /// Execution role: on-demand placement serving, no periodic background work.
     #[new]
     fn new(store: &Bound<'_, PyAny>, panel_id: String) -> PyResult<Self> {
         Ok(Self {
@@ -76,6 +76,15 @@ impl PyDataPanel {
 
     fn panel_id(&self) -> &str {
         &self.panel_id
+    }
+
+    /// Pull placement-matching services and connect them locally.
+    /// Returns the number of services connected.
+    fn serve<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let panel = DataPanel::new(self.store.clone(), self.panel_id.clone());
+        future_into_py(py, async move {
+            panel.serve().await.map_err(map_store_err)
+        })
     }
 
     /// Tear down transports started by this process only.
