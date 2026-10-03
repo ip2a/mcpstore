@@ -137,14 +137,14 @@ impl MCPStore {
         let registry = ServiceRegistry::new();
         let event_bus = EventBus::with_history(10_000);
         let cache = std::sync::Arc::new(CacheLayerManager::new(cache_store, namespace.clone()));
-        let node_id = options
-            .node_id
+        let panel_id = options
+            .panel_id
             .clone()
             .unwrap_or_else(|| crate::state::CONTROL_NODE_ID.to_string());
         let state_manager = std::sync::Arc::new(crate::state::ServiceStateManager::new(
             cache.clone(),
             event_bus.clone(),
-            node_id,
+            panel_id,
         ));
         #[cfg(not(test))]
         let auth_coordinator = crate::auth::AuthCoordinator::new(state_manager.clone())?;
@@ -239,8 +239,8 @@ impl MCPStore {
         self.kernel.runtime.source_mode
     }
 
-    pub fn node_id(&self) -> String {
-        self.kernel.control.state.node_id().to_string()
+    pub fn panel_id(&self) -> String {
+        self.kernel.control.state.panel_id().to_string()
     }
 
     pub fn is_db_source(&self) -> bool {

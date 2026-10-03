@@ -201,7 +201,7 @@ mod tests {
             store: StoreSourceArgs {
                 control_panel: false,
                 data_panel: false,
-                node_id: None,
+                panel_id: None,
                 config_path: None,
                 source: SourceArg::Local,
                 store: None,

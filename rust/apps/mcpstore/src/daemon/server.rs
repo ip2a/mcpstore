@@ -64,7 +64,7 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     }
     if data_panel {
         // 数据面板：按需执行，无周期任务（无心跳）。panel_id 即节点身份。
-        let _panel = DataPanel::new(Arc::clone(&host.store), host.store.node_id());
+        let _panel = DataPanel::new(Arc::clone(&host.store), host.store.panel_id());
     }
     host.faces.start_all(&app_config, &host.state).await;
 
@@ -368,7 +368,7 @@ async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
         "uptime_s": host.started_at.elapsed().as_secs(),
         "namespace": host.store.namespace(),
         "node": {
-            "id": host.store.node_id(),
+            "id": host.store.panel_id(),
             "mode": match host.panels {
                 (true, true) => "control+data",
                 (true, false) => "control",

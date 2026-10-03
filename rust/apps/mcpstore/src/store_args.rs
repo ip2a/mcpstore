@@ -47,11 +47,11 @@ pub struct StoreSourceArgs {
     #[arg(long = "data-panel", help = "Run data panel (execution + heartbeat)")]
     pub data_panel: bool,
     #[arg(
-        long = "node-id",
+        long = "panel-id",
         value_name = "ID",
-        help = "Node identity for state writes and node_status heartbeat"
+        help = "Panel identity for state writes (control panel default: control)"
     )]
-    pub node_id: Option<String>,
+    pub panel_id: Option<String>,
 }
 
 impl StoreSourceArgs {
@@ -87,7 +87,7 @@ impl StoreSourceArgs {
             },
             store,
             namespace: self.namespace.clone(),
-            node_id: self.node_id.clone(),
+            panel_id: self.panel_id.clone(),
         }
     }
 }
@@ -151,7 +151,7 @@ impl StoreSourceArgs {
             || self.source != SourceArg::Local
             || self.control_panel
             || self.data_panel
-            || self.node_id.is_some()
+            || self.panel_id.is_some()
     }
 }
 

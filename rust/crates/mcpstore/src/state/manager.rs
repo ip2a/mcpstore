@@ -30,26 +30,26 @@ pub const CONTROL_NODE_ID: &str = "control";
 pub struct ServiceStateManager {
     cache: Arc<CacheLayerManager>,
     event_bus: EventBus,
-    node_id: String,
+    panel_id: String,
     locks: Mutex<HashMap<InstanceId, Arc<Mutex<()>>>>,
 }
 
 impl ServiceStateManager {
-    pub fn new(cache: Arc<CacheLayerManager>, event_bus: EventBus, node_id: String) -> Self {
+    pub fn new(cache: Arc<CacheLayerManager>, event_bus: EventBus, panel_id: String) -> Self {
         Self {
             cache,
             event_bus,
-            node_id,
+            panel_id,
             locks: Mutex::new(HashMap::new()),
         }
     }
 
-    pub fn node_id(&self) -> &str {
-        &self.node_id
+    pub fn panel_id(&self) -> &str {
+        &self.panel_id
     }
 
     fn own_key(&self, instance_id: InstanceId) -> String {
-        format!("{instance_id}@{}", self.node_id)
+        format!("{instance_id}@{}", self.panel_id)
     }
 
     fn control_key(instance_id: InstanceId) -> String {
@@ -63,7 +63,7 @@ impl ServiceStateManager {
         let lock = self.instance_lock(state.instance_id).await;
         let _guard = lock.lock().await;
         let mut state = state;
-        state.node = self.node_id.clone();
+        state.node = self.panel_id.clone();
         self.cache
             .compare_and_put_state(
                 SERVICE_STATE_TYPE,
@@ -125,7 +125,7 @@ impl ServiceStateManager {
                 .transpose()?
             {
                 Some(mut seeded) => {
-                    seeded.node = self.node_id.clone();
+                    seeded.node = self.panel_id.clone();
                     seeded.version = 0;
                     (seeded, true)
                 }
@@ -194,14 +194,14 @@ mod tests {
         manager_as(CONTROL_NODE_ID)
     }
 
-    fn manager_as(node_id: &str) -> (Arc<ServiceStateManager>, EventBus) {
+    fn manager_as(panel_id: &str) -> (Arc<ServiceStateManager>, EventBus) {
         let event_bus = EventBus::with_history(10);
         let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), "state-test"));
         (
             Arc::new(ServiceStateManager::new(
                 cache,
                 event_bus.clone(),
-                node_id.to_string(),
+                panel_id.to_string(),
             )),
             event_bus,
         )

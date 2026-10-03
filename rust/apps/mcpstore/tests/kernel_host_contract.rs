@@ -575,7 +575,7 @@ impl HostFixture {
             daemon_args.push(plane.to_string());
         }
         if let Some(node_id) = node_id {
-            daemon_args.push("--node-id".to_string());
+            daemon_args.push("--panel-id".to_string());
             daemon_args.push(node_id.to_string());
         }
         let child = tokio::process::Command::new(cli)

@@ -89,7 +89,7 @@ impl PyAsyncMCPStore {
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
             source_mode: parse_source_mode(source_mode.as_deref())?,
-            node_id: None,
+            panel_id: None,
             store: store
                 .map(|name| {
                     let config = store_config

@@ -124,8 +124,8 @@ fn append_start_args(command: &mut std::process::Command, args: &StoreSourceArgs
     if data_panel && !control_panel {
         command.arg("--data-panel");
     }
-    if let Some(node_id) = &args.node_id {
-        command.arg("--node-id").arg(node_id);
+    if let Some(panel_id) = &args.panel_id {
+        command.arg("--panel-id").arg(panel_id);
     }
 }
 
@@ -164,7 +164,7 @@ mod tests {
                 namespace: Some("tenant-a".into()),
                 control_panel: false,
                 data_panel: false,
-                node_id: Some("worker-1".into()),
+                panel_id: Some("worker-1".into()),
             },
         };
 
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(restored.store.config_path.as_deref(), Some("/tmp/mcp.json"));
         assert_eq!(restored.store.store.as_deref(), Some("redis"));
         assert_eq!(restored.store.namespace.as_deref(), Some("tenant-a"));
-        assert_eq!(restored.store.node_id.as_deref(), Some("worker-1"));
+        assert_eq!(restored.store.panel_id.as_deref(), Some("worker-1"));
         let _ = std::fs::remove_file(path);
     }
 
@@ -189,7 +189,7 @@ mod tests {
             namespace: None,
             control_panel: false,
             data_panel: true,
-            node_id: None,
+            panel_id: None,
         };
         let mut command = std::process::Command::new("mcpstore");
         append_start_args(&mut command, &args);

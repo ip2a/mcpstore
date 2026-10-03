@@ -158,7 +158,7 @@ impl McpServerOptions {
             source_mode: self.source_mode,
             store: self.store.clone(),
             namespace: self.namespace.clone(),
-            node_id: None,
+            panel_id: None,
         }
     }
 
@@ -174,7 +174,7 @@ impl McpServerOptions {
             store: self.store.as_ref().map(|store| store.store.clone()),
             store_config: self.store.as_ref().map(|store| store.config.to_string()),
             namespace: self.namespace.clone(),
-            node_id: None,
+            panel_id: None,
         }
     }
 }
