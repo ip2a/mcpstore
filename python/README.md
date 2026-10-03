@@ -14,10 +14,10 @@ from mcpstore import MCPStore, ControlPanel, DataPanel
 
 store = MCPStore.setup_store(source=RedisConfig(url="redis://central:6379"))
 
-# 决策节点：挂载自愈监督器（keep_alive 断线重连、健康状态机），幂等
+# 控制面板：挂载自愈监督器（keep_alive 断线重连、健康状态机），幂等
 ControlPanel(store).start()
 
-# 执行节点：心跳 + 能力自报（node_status 行，updated_at 即存活信号）
-data = DataPanel(store, node_id="edge-01", capabilities=["browser"])
-await data.heartbeat()   # 15s 循环由宿主进程驱动
+# 数据面板：拉取服务级 placement 命中的服务，本地建连（无周期任务）
+data = DataPanel(store, panel_id="edge-01")
+connected = await data.serve()
 ```
