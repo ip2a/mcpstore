@@ -8,7 +8,7 @@ use crate::error::{attach_instance, OutputFormat};
 use crate::store_args::StoreSourceArgs;
 use crate::{
     commands::mcp::{
-        insert_runtime, open_store, parse_instance_id, resolve_declared_runtime, RuntimeArgs,
+        insert_runtime, open_store, parse_instance_id, RuntimeArgs,
     },
     BoxErr,
 };
@@ -167,7 +167,7 @@ async fn resolve_runtime(
         )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    resolve_declared_runtime(&info, selection).map_err(|error| attach_instance(error, instance_id))
+    Ok(selection)
 }
 
 async fn execute_resource(

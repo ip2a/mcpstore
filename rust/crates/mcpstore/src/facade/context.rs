@@ -193,7 +193,7 @@ impl ScopeContext {
     ) -> Result<Self> {
         let (service_name, _) = self.resolve_service(target).await?;
         self.store
-            .update_service(&service_name, config, None)
+            .update_service(&service_name, config)
             .await?;
         Ok(self.clone())
     }
@@ -1101,7 +1101,7 @@ fn extension_for_scope(scope: &ScopeRef) -> McpStoreExtension {
         scopes,
         lifecycle: None,
         handshake_mode: None,
-        runtime_policy: None,
+        placement: Map::new(),
         revision: 1,
         extra: Map::new(),
     }

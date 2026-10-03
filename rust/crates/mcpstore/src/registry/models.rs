@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::RwLock;
 
-use crate::config::{RuntimePolicy, ScopeDeclarations, ServiceLifecycleConfig};
+use crate::config::{ScopeDeclarations, ServiceLifecycleConfig};
 use crate::identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -36,8 +36,8 @@ pub struct ServiceDefinition {
     pub scopes: ScopeDeclarations,
     pub lifecycle: Option<ServiceLifecycleConfig>,
     pub handshake_mode: Option<crate::config::HandshakeMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime_policy: Option<RuntimePolicy>,
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub placement: Map<String, Value>,
     pub base_revision: u64,
     pub metadata: Map<String, Value>,
     pub added_time: i64,

@@ -36,7 +36,7 @@ pub use mcp_schema::McpConfig;
 pub use merge::merge_config;
 pub use service_schema::{
     HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,
-    Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    Runtime, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
     ServiceLifecycleConfig, ServiceLifecycleDefaults, StartupPolicy,
 };
 

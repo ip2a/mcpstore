@@ -70,7 +70,6 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         mut config: ServerConfig,
-        runtime_policy: Option<crate::config::RuntimePolicy>,
     ) -> Result<()> {
         if config.mcpstore.is_some() {
             return Err(Error::new(
@@ -105,9 +104,6 @@ impl ControlPlane {
             .mcpstore
             .as_mut()
             .expect("current definition must have materialized _mcpstore scopes");
-        if let Some(policy) = runtime_policy {
-            extension.runtime_policy = Some(policy);
-        }
         extension.revision = if base_changed {
             current.definition_revision().saturating_add(1)
         } else {
@@ -154,6 +150,6 @@ impl ControlPlane {
         let merged = crate::config::merge_config(&config.base_config(), updates);
         config = serde_json::from_value(Value::Object(merged))
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        self.update_service(store, service_name, config, None).await
+        self.update_service(store, service_name, config).await
     }
 }

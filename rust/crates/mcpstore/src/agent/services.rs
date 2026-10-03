@@ -32,12 +32,10 @@ impl MCPStore {
                 .find_definition(&instance.service_name)
                 .await
             {
-                if let Some(policy) = definition.runtime_policy {
+                if !definition.placement.is_empty() {
                     object.insert(
-                        "runtime_policy".to_string(),
-                        serde_json::to_value(policy).map_err(|error| {
-                            Error::new(FailureCode::Internal, error.to_string())
-                        })?,
+                        "placement".to_string(),
+                        serde_json::Value::Object(definition.placement.clone()),
                     );
                 }
             }
@@ -88,12 +86,10 @@ impl MCPStore {
                 .find_definition(&instance.service_name)
                 .await
             {
-                if let Some(policy) = definition.runtime_policy {
+                if !definition.placement.is_empty() {
                     object.insert(
-                        "runtime_policy".to_string(),
-                        serde_json::to_value(policy).map_err(|error| {
-                            Error::new(FailureCode::Internal, error.to_string())
-                        })?,
+                        "placement".to_string(),
+                        serde_json::Value::Object(definition.placement.clone()),
                     );
                 }
             }

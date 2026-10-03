@@ -1,6 +1,6 @@
 use clap::{Args, ValueEnum};
 use mcpstore::config::{
-    McpStoreExtension, RuntimePolicy, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
@@ -141,11 +141,6 @@ pub struct AddArgs {
         help = "Client handshake mode: initialize (default), auto, or discover"
     )]
     pub handshake: Option<HandshakeArg>,
-    /// Repeatable host capability required by local execution (for example browser)
-    #[arg(long = "require-host-capability", value_name = "CAPABILITY")]
-    pub require_host_capability: Vec<String>,
-    #[arg(long = "allow-runtime", value_name = "RUNTIME")]
-    pub allow_runtime: Vec<mcpstore::config::Runtime>,
     /// Maintain the connection on the control plane (desired=connected; reconnect on drop)
     #[arg(long = "keep-alive")]
     pub keep_alive: bool,
@@ -172,12 +167,6 @@ pub async fn add(
         let extension = config.mcpstore.get_or_insert_with(Default::default);
         extension.handshake_mode = Some(handshake);
     }
-    if let Some(policy) = runtime_policy_from_flags(&a.allow_runtime, &a.require_host_capability) {
-        config
-            .mcpstore
-            .get_or_insert_with(Default::default)
-            .runtime_policy = Some(policy);
-    }
     if a.keep_alive {
         let extension = config.mcpstore.get_or_insert_with(Default::default);
         let lifecycle = extension.lifecycle.get_or_insert_with(Default::default);
@@ -198,9 +187,10 @@ pub async fn add(
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            runtime_policy: previous
+            placement: previous
                 .as_ref()
-                .and_then(|extension| extension.runtime_policy.clone()),
+                .map(|extension| extension.placement.clone())
+                .unwrap_or_default(),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -263,9 +253,10 @@ pub async fn add_json(
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            runtime_policy: previous
+            placement: previous
                 .as_ref()
-                .and_then(|extension| extension.runtime_policy.clone()),
+                .map(|extension| extension.placement.clone())
+                .unwrap_or_default(),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -792,11 +783,6 @@ pub struct UpdateArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
-    /// Repeatable host capability required by local execution (for example browser)
-    #[arg(long = "require-host-capability", value_name = "CAPABILITY")]
-    pub require_host_capability: Vec<String>,
-    #[arg(long = "allow-runtime", value_name = "RUNTIME")]
-    pub allow_runtime: Vec<mcpstore::config::Runtime>,
 }
 
 pub async fn update(
@@ -814,8 +800,7 @@ pub async fn update(
         &env_map,
         &header_map,
     )?;
-    let runtime_policy = runtime_policy_from_flags(&a.allow_runtime, &a.require_host_capability);
-    if a.scope == Scope::Agent && runtime_policy.is_some() {
+    if a.scope == Scope::Agent {
         return Err("Runtime policy is definition-level; use --scope store".into());
     }
     let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
@@ -827,7 +812,6 @@ pub async fn update(
                     json!({
                         "name": a.name,
                         "config": config,
-                        "runtime_policy": runtime_policy,
                     }),
                 )
                 .await?
@@ -1052,78 +1036,6 @@ pub async fn call_tool(
         .map_err(|error| Box::new(error) as BoxErr)
 }
 
-pub(crate) fn host_capabilities() -> &'static HashSet<&'static str> {
-    static CAPABILITIES: OnceLock<HashSet<&'static str>> = OnceLock::new();
-    CAPABILITIES.get_or_init(|| {
-        let mut capabilities = HashSet::from(["browser"]);
-        if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            capabilities.insert("display");
-        }
-        capabilities
-    })
-}
-
-fn ensure_host_capabilities(
-    policy: &mcpstore::config::RuntimePolicy,
-    runtime: mcpstore::config::Runtime,
-) -> mcpstore::Result<()> {
-    if runtime != mcpstore::config::Runtime::Local {
-        return Ok(());
-    }
-    let missing: Vec<_> = policy
-        .required_host_capabilities
-        .iter()
-        .filter(|capability| !host_capabilities().contains(capability.as_str()))
-        .collect();
-    if missing.is_empty() {
-        return Ok(());
-    }
-    Err(Error::new(
-        FailureCode::CapabilityUnsupported,
-        format!(
-            "local host lacks required capabilities: {}",
-            missing
-                .iter()
-                .map(|capability| capability.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    ))
-}
-
-pub(crate) fn resolve_declared_runtime(
-    info: &Value,
-    selection: mcpstore::config::RuntimeSelection,
-) -> mcpstore::Result<mcpstore::config::RuntimeSelection> {
-    let policy: Option<mcpstore::config::RuntimePolicy> = info
-        .get("runtime_policy")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-    if let Some(policy) = policy {
-        ensure_host_capabilities(&policy, selection.runtime)?;
-        if !policy.allows_runtime(selection.runtime) {
-            return Err(Error::new(
-                FailureCode::InvalidInput,
-                format!(
-                    "runtime '{}' not allowed for instance; allowed: {}",
-                    selection.runtime,
-                    policy
-                        .allowed_runtimes
-                        .as_deref()
-                        .unwrap_or(&[])
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            ));
-        }
-    }
-    Ok(selection)
-}
-
 /// Inject the resolved runtime selection into a daemon op payload as the
 /// `runtime` key.
 pub(crate) fn insert_runtime(payload: &mut Value, selection: &mcpstore::config::RuntimeSelection) {
@@ -1155,7 +1067,6 @@ async fn execute_call_tool(
             )
             .await
             .map_err(|error| call_error_from_store(error, instance_id, &a.tool_name))?;
-        let selection = resolve_declared_runtime(&info, selection)?;
         access
             .request(
                 KernelOperation::ConnectService,
@@ -1953,17 +1864,6 @@ fn parse_key_values(
     Ok(map)
 }
 
-fn runtime_policy_from_flags(
-    allowed_runtimes: &[mcpstore::config::Runtime],
-    required_host_capabilities: &[String],
-) -> Option<RuntimePolicy> {
-    (!allowed_runtimes.is_empty() || !required_host_capabilities.is_empty()).then(|| {
-        RuntimePolicy {
-            allowed_runtimes: (!allowed_runtimes.is_empty()).then(|| allowed_runtimes.to_vec()),
-            required_host_capabilities: required_host_capabilities.to_vec(),
-        }
-    })
-}
 
 fn build_server_config(
     command_or_url: Option<&str>,
@@ -2119,211 +2019,11 @@ fn validate_scope_target(scope: &Scope, agent: Option<&str>) -> std::result::Res
 mod tests {
     use super::*;
 
-    #[test]
-    fn local_execution_rejects_missing_host_capability() {
-        let policy = RuntimePolicy {
-            allowed_runtimes: None,
-            required_host_capabilities: vec!["definitely-missing-capability".into()],
-        };
-        let error =
-            ensure_host_capabilities(&policy, mcpstore::config::Runtime::Local).unwrap_err();
-        assert!(error.to_string().contains("definitely-missing-capability"));
-    }
 
-    #[test]
-    fn daemon_selection_passes_allowlist() {
-        let policy = mcpstore::config::RuntimePolicy {
-            allowed_runtimes: Some(vec![mcpstore::config::Runtime::Daemon]),
-            required_host_capabilities: Vec::new(),
-        };
-        let info = json!({"runtime_policy": policy});
-        let selection = resolve_declared_runtime(
-            &info,
-            mcpstore::config::RuntimeSelection::runtime(mcpstore::config::Runtime::Daemon),
-        )
-        .unwrap();
-        assert_eq!(selection.runtime, mcpstore::config::Runtime::Daemon);
-    }
 
-    #[test]
-    fn explicit_disallowed_runtime_is_rejected() {
-        let policy = mcpstore::config::RuntimePolicy {
-            allowed_runtimes: Some(vec![mcpstore::config::Runtime::Local]),
-            required_host_capabilities: Vec::new(),
-        };
-        let info = json!({"runtime_policy": policy});
-        let error = resolve_declared_runtime(
-            &info,
-            mcpstore::config::RuntimeSelection::runtime(mcpstore::config::Runtime::Daemon),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("not allowed"), "{error}");
-    }
 
-    #[tokio::test]
-    async fn update_changes_runtime_policy_on_store_scope_only() {
-        let path =
-            std::env::temp_dir().join(format!("mcpstore-update-policy-{}", std::process::id()));
-        std::fs::create_dir_all(&path).unwrap();
-        let config_path = path.join("mcp.json");
-        let add_args = AddArgs {
-            name: "browser".into(),
-            command_or_url: Some("echo".into()),
-            args: vec!["fixture".into()],
-            transport: Some("stdio".into()),
-            store: StoreSourceArgs {
-                control_panel: false,
-                data_panel: false,
-                node_id: None,
-                config_path: Some(config_path.to_str().unwrap().into()),
-                source: crate::store_args::SourceArg::Local,
-                store: None,
-                store_config: None,
-                namespace: None,
-            },
-            env: Vec::new(),
-            header: Vec::new(),
-            scope: Scope::Store,
-            agent: None,
-            handshake: None,
-            require_host_capability: Vec::new(),
-            allow_runtime: vec![mcpstore::config::Runtime::Local],
-            keep_alive: false,
-        };
-        add(add_args, true, None).await.unwrap();
 
-        let update_args = UpdateArgs {
-            name: "browser".into(),
-            command_or_url: Some("echo".into()),
-            args: vec!["changed".into()],
-            transport: Some("stdio".into()),
-            store: StoreSourceArgs {
-                control_panel: false,
-                data_panel: false,
-                node_id: None,
-                config_path: Some(config_path.to_str().unwrap().into()),
-                source: crate::store_args::SourceArg::Local,
-                store: None,
-                store_config: None,
-                namespace: None,
-            },
-            env: Vec::new(),
-            header: Vec::new(),
-            scope: Scope::Store,
-            agent: None,
-            require_host_capability: Vec::new(),
-            allow_runtime: vec![mcpstore::config::Runtime::Daemon],
-        };
-        update(update_args, true, None).await.unwrap();
 
-        let update_args = UpdateArgs {
-            name: "browser".into(),
-            command_or_url: Some("echo".into()),
-            args: vec!["preserved".into()],
-            transport: Some("stdio".into()),
-            store: StoreSourceArgs {
-                control_panel: false,
-                data_panel: false,
-                node_id: None,
-                config_path: Some(config_path.to_str().unwrap().into()),
-                source: crate::store_args::SourceArg::Local,
-                store: None,
-                store_config: None,
-                namespace: None,
-            },
-            env: Vec::new(),
-            header: Vec::new(),
-            scope: Scope::Store,
-            agent: None,
-            require_host_capability: Vec::new(),
-            allow_runtime: Vec::new(),
-        };
-        update(update_args, true, None).await.unwrap();
-
-        let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
-        store.load_from_source().await.unwrap();
-        let policy = store
-            .find_definition("browser")
-            .await
-            .unwrap()
-            .runtime_policy
-            .unwrap();
-        assert_eq!(
-            policy.allowed_runtimes,
-            Some(vec![mcpstore::config::Runtime::Daemon])
-        );
-        std::fs::remove_dir_all(path).ok();
-    }
-
-    #[tokio::test]
-    async fn update_rejects_runtime_policy_on_agent_scope() {
-        let args = UpdateArgs {
-            name: "browser".into(),
-            command_or_url: Some("echo".into()),
-            args: Vec::new(),
-            transport: Some("stdio".into()),
-            store: StoreSourceArgs {
-                control_panel: false,
-                data_panel: false,
-                node_id: None,
-                config_path: None,
-                source: crate::store_args::SourceArg::Local,
-                store: None,
-                store_config: None,
-                namespace: None,
-            },
-            env: Vec::new(),
-            header: Vec::new(),
-            scope: Scope::Agent,
-            agent: Some("agent".into()),
-            require_host_capability: Vec::new(),
-            allow_runtime: vec![mcpstore::config::Runtime::Local],
-        };
-        let error = update(args, true, None).await.unwrap_err().to_string();
-        assert!(error.contains("definition-level"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn add_declares_runtime_policy() {
-        let path = std::env::temp_dir().join(format!("mcpstore-add-policy-{}", std::process::id()));
-        std::fs::create_dir_all(&path).unwrap();
-        let config_path = path.join("mcp.json");
-        let args = AddArgs {
-            name: "browser".into(),
-            command_or_url: Some("echo".into()),
-            args: vec!["fixture".into()],
-            transport: Some("stdio".into()),
-            store: StoreSourceArgs {
-                control_panel: false,
-                data_panel: false,
-                node_id: None,
-                config_path: Some(config_path.to_str().unwrap().into()),
-                source: crate::store_args::SourceArg::Local,
-                store: None,
-                store_config: None,
-                namespace: None,
-            },
-            env: Vec::new(),
-            header: Vec::new(),
-            scope: Scope::Store,
-            agent: None,
-            handshake: None,
-            require_host_capability: Vec::new(),
-            allow_runtime: vec![mcpstore::config::Runtime::Local],
-            keep_alive: false,
-        };
-        add(args, true, None).await.unwrap();
-        let store = mcpstore::MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
-        store.load_from_source().await.unwrap();
-        let definition = store.find_definition("browser").await.unwrap();
-        assert_eq!(
-            definition
-                .runtime_policy
-                .and_then(|policy| policy.allowed_runtimes),
-            Some(vec![mcpstore::config::Runtime::Local])
-        );
-        std::fs::remove_dir_all(path).ok();
-    }
 
     #[test]
     fn capability_summary_reports_protocol_features() {

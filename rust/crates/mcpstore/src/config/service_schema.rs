@@ -254,34 +254,19 @@ impl RuntimeSelection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RuntimePolicy {
-    /// `None` means unrestricted; `Some(vec)` must be non-empty (empty lists are
-    /// rejected by `validate_structure`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_runtimes: Option<Vec<Runtime>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub required_host_capabilities: Vec<String>,
-}
-
-impl RuntimePolicy {
-    pub fn allows_runtime(&self, runtime: Runtime) -> bool {
-        self.allowed_runtimes
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(&runtime))
-    }
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpStoreExtension {
     pub scopes: ScopeDeclarations,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<ServiceLifecycleConfig>,
-    /// Client lifecycle handshake mode. Defaults to `auto` when absent.
+    /// Client lifecycle handshake mode. Defaults to `initialize` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handshake_mode: Option<HandshakeMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime_policy: Option<RuntimePolicy>,
+    /// Placement: per-panel configuration overrides (panel_id → config diff).
+    /// Services not appearing in this field default to control-panel execution.
+    /// Each panel_id entry holds a config diff that merges over base_config.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub placement: Map<String, Value>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub revision: u64,
     #[serde(flatten)]
@@ -471,29 +456,6 @@ impl ServerConfig {
                 return Err("scopes.agents contains an empty agent id".to_string());
             }
         }
-        if let Some(policy) = self
-            .mcpstore
-            .as_ref()
-            .and_then(|extension| extension.runtime_policy.as_ref())
-        {
-            // Absent allowlists mean "unrestricted"; an explicitly declared empty
-            // list restricts nothing while looking like a restriction, so reject it.
-            if let Some(allowed) = &policy.allowed_runtimes {
-                if allowed.is_empty() {
-                    return Err(
-                        "runtime_policy.allowed_runtimes must not be empty; omit the field to allow all runtimes"
-                            .to_string(),
-                    );
-                }
-            }
-            // A declared policy that restricts nothing is a mistake.
-            if policy.allowed_runtimes.is_none() && policy.required_host_capabilities.is_empty() {
-                return Err(
-                    "runtime_policy must declare allowed_runtimes or required_host_capabilities"
-                        .to_string(),
-                );
-            }
-        }
         Ok(())
     }
 
@@ -516,7 +478,7 @@ impl ServerConfig {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle: None,
                 handshake_mode: None,
-                runtime_policy: None,
+                placement: Map::new(),
                 revision: 1,
                 extra: Map::new(),
             });

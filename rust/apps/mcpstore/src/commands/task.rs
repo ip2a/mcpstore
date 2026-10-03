@@ -13,7 +13,7 @@ use crate::commands::elicitation::{
     handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
     ElicitationCommandError, ElicitationErrorKind,
 };
-use crate::commands::mcp::{insert_runtime, open_store, resolve_declared_runtime, RuntimeArgs};
+use crate::commands::mcp::{insert_runtime, open_store, RuntimeArgs};
 use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_instance, attach_task, OutputFormat};
 use crate::store_args::{StoreAccess, StoreSourceArgs};
@@ -142,8 +142,6 @@ async fn run_task(
             json!({"instance_id": args.instance_id.to_string()}),
         )
         .await
-        .map_err(|error| attach_instance(error, args.instance_id))?;
-    let selection = resolve_declared_runtime(&info, selection)
         .map_err(|error| attach_instance(error, args.instance_id))?;
     let mut options = McpExecutionOptions::default();
     if let Some(timeout) = args.timeout {

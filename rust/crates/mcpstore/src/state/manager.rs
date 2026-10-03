@@ -27,9 +27,6 @@ pub enum ServiceStateManagerError {
 /// 控制面节点在状态分栏中的固定标识：`instance@control` 是权威栏。
 pub const CONTROL_NODE_ID: &str = "control";
 
-/// 每个节点一行心跳/能力自报的 state 类型。
-pub const NODE_STATUS_TYPE: &str = "node_status";
-
 pub struct ServiceStateManager {
     cache: Arc<CacheLayerManager>,
     event_bus: EventBus,
@@ -176,66 +173,6 @@ impl ServiceStateManager {
         Ok(())
     }
 
-    /// data 面板心跳/能力自报：一行 per-node 记录，updated_at 即存活信号。
-    pub async fn write_node_status(
-        &self,
-        payload: serde_json::Value,
-    ) -> Result<(), ServiceStateManagerError> {
-        let doc = serde_json::json!({
-            "node": self.node_id,
-            "updated_at": chrono::Utc::now().timestamp(),
-            "payload": payload,
-        });
-        self.cache
-            .put_state(NODE_STATUS_TYPE, &Self::node_status_key(&self.node_id), doc)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn read_node_status(
-        &self,
-        node_id: &str,
-    ) -> Result<Option<serde_json::Value>, ServiceStateManagerError> {
-        Ok(self
-            .cache
-            .get_state(NODE_STATUS_TYPE, &Self::node_status_key(node_id))
-            .await?)
-    }
-
-    pub async fn list_node_statuses(
-        &self,
-    ) -> Result<std::collections::HashMap<String, serde_json::Value>, ServiceStateManagerError>
-    {
-        Ok(self.cache.get_all_states_async(NODE_STATUS_TYPE).await?)
-    }
-
-    /// 返回所有节点的最新心跳，并按时间窗给出可读的 liveness 状态。
-    pub async fn node_liveness(
-        &self,
-        stale_after_secs: i64,
-        now: i64,
-    ) -> Result<serde_json::Value, ServiceStateManagerError> {
-        let statuses = self.list_node_statuses().await?;
-        let nodes = statuses
-            .into_iter()
-            .map(|(key, mut status)| {
-                let updated_at = status["updated_at"].as_i64().unwrap_or(0);
-                let state = if now.saturating_sub(updated_at) > stale_after_secs {
-                    "unknown"
-                } else {
-                    "alive"
-                };
-                status["liveness"] = serde_json::json!(state);
-                (key, status)
-            })
-            .collect::<serde_json::Map<_, _>>();
-        Ok(serde_json::Value::Object(nodes))
-    }
-
-    fn node_status_key(node_id: &str) -> String {
-        format!("node:{node_id}")
-    }
-
     async fn instance_lock(&self, instance_id: InstanceId) -> Arc<Mutex<()>> {
         self.locks
             .lock()
@@ -323,51 +260,6 @@ mod tests {
         // 展示视角：worker 也看到 control 的权威 Running，而不是自己的观测
         let display = worker.get_display(instance_id).await.unwrap().unwrap();
         assert_eq!(display.phase, RuntimePhase::Running);
-    }
-
-    #[tokio::test]
-    async fn node_status_round_trips() {
-        let (manager, _bus) = manager_as("worker");
-        manager
-            .write_node_status(serde_json::json!({"capabilities": ["browser"]}))
-            .await
-            .unwrap();
-        let status = manager.read_node_status("worker").await.unwrap().unwrap();
-        assert_eq!(status["node"], "worker");
-        assert_eq!(status["payload"]["capabilities"][0], "browser");
-        assert!(status["updated_at"].as_i64().is_some());
-    }
-
-    #[tokio::test]
-    async fn node_liveness_marks_stale_nodes_unknown() {
-        let (manager, _bus) = manager_as("worker");
-        let write_status = |updated_at: i64| {
-            let manager = manager.clone();
-            async move {
-                manager
-                    .cache
-                    .put_state(
-                        NODE_STATUS_TYPE,
-                        &ServiceStateManager::node_status_key("worker"),
-                        serde_json::json!({
-                            "node": "worker",
-                            "updated_at": updated_at,
-                            "payload": {"capabilities": []}
-                        }),
-                    )
-                    .await
-                    .unwrap();
-            }
-        };
-
-        let now = chrono::Utc::now().timestamp();
-        write_status(now).await;
-        let fresh = manager.node_liveness(45, now).await.unwrap();
-        assert_eq!(fresh["node:worker"]["liveness"], "alive");
-
-        write_status(now - 60).await;
-        let stale = manager.node_liveness(45, now).await.unwrap();
-        assert_eq!(stale["node:worker"]["liveness"], "unknown");
     }
 
     #[tokio::test]

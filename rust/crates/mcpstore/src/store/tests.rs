@@ -10,7 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use crate::config::{
-    McpStoreExtension, Runtime, RuntimePolicy, ScopeDeclarations, ScopeDescriptor,
+    McpStoreExtension, Runtime, ScopeDeclarations, ScopeDescriptor,
 };
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
@@ -145,7 +145,7 @@ fn config_with_lifecycle(
             keep_alive: None,
         }),
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -885,50 +885,13 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
         },
         lifecycle: None,
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
     config
 }
 
-#[tokio::test]
-async fn service_info_exposes_declared_runtime_policy() {
-    let path = temp_config_path();
-    let store = MCPStore::setup(Some(&path)).unwrap();
-    let mut config = stdio_config();
-    config.mcpstore = Some(McpStoreExtension {
-        scopes: ScopeDeclarations::store_only(),
-        lifecycle: None,
-        handshake_mode: None,
-        runtime_policy: Some(RuntimePolicy {
-            allowed_runtimes: Some(vec![Runtime::Local, Runtime::Daemon]),
-            required_host_capabilities: Vec::new(),
-        }),
-        revision: 1,
-        extra: Map::new(),
-    });
-    store.add_service("svc", config).await.unwrap();
-
-    let definition = store
-        .kernel
-        .control
-        .registry
-        .find_definition("svc")
-        .await
-        .unwrap();
-    assert!(definition.runtime_policy.is_some());
-
-    let info = store
-        .service_info_scoped(store_instance_id("svc"))
-        .await
-        .unwrap();
-
-    assert_eq!(info["runtime_policy"]["allowed_runtimes"][0], "local");
-    assert_eq!(info["runtime_policy"]["allowed_runtimes"][1], "daemon");
-
-    std::fs::remove_file(path).ok();
-}
 
 #[tokio::test]
 async fn add_service_writes_definition_and_instance_cache_layers() {
@@ -1003,7 +966,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
         },
         lifecycle: None,
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -1567,7 +1530,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         },
         lifecycle: None,
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -4459,7 +4422,7 @@ async fn update_and_patch_service_update_runtime_cache() {
 
     let mut updated = stdio_config();
     updated.args = vec!["updated".to_string()];
-    store.update_service("svc", updated, None).await.unwrap();
+    store.update_service("svc", updated).await.unwrap();
     let config = store
         .get_effective_config("svc", &store_scope())
         .await
@@ -5831,7 +5794,7 @@ mod scoped_contract {
                 scopes,
                 lifecycle: None,
                 handshake_mode: None,
-                runtime_policy: None,
+                placement: serde_json::Map::new(),
                 revision: 1,
                 extra: Map::new(),
             }),
@@ -6261,7 +6224,7 @@ mod scoped_contract {
         updated.command = Some("changed-command".to_string());
         updated.args = vec!["--changed".to_string()];
         store
-            .update_service("svc", updated.clone(), None)
+            .update_service("svc", updated.clone())
             .await
             .unwrap();
 
@@ -6295,7 +6258,7 @@ mod scoped_contract {
         assert!(definition.scopes.agents.contains_key("agent-1"));
         assert_eq!(definition.base_revision, 2);
 
-        store.update_service("svc", updated, None).await.unwrap();
+        store.update_service("svc", updated).await.unwrap();
         let unchanged = store
             .kernel
             .control
@@ -6340,7 +6303,7 @@ mod scoped_contract {
         updated
             .env
             .insert("SHARED".to_string(), "changed-base".to_string());
-        store.update_service("svc", updated, None).await.unwrap();
+        store.update_service("svc", updated).await.unwrap();
 
         let store_after_base = store.find_instance(store_id).await.unwrap();
         let agent_1_after_base = store.find_instance(agent_1_id).await.unwrap();
@@ -6392,7 +6355,7 @@ mod scoped_contract {
             .unwrap();
 
         let error = store
-            .update_service("svc", native_config(ScopeDeclarations::default()), None)
+            .update_service("svc", native_config(ScopeDeclarations::default()))
             .await
             .unwrap_err();
 

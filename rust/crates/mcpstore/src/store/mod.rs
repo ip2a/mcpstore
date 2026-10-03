@@ -243,46 +243,6 @@ impl MCPStore {
         self.kernel.control.state.node_id().to_string()
     }
 
-    /// data 面板心跳/能力自报：写本节点的 node_status 行（updated_at 即存活信号）。
-    pub async fn write_node_status(&self, payload: serde_json::Value) -> Result<()> {
-        self.kernel
-            .control
-            .state
-            .write_node_status(payload)
-            .await
-            .map_err(Error::from)
-    }
-
-    pub async fn read_node_status(&self, node_id: &str) -> Result<Option<serde_json::Value>> {
-        self.kernel
-            .control
-            .state
-            .read_node_status(node_id)
-            .await
-            .map_err(Error::from)
-    }
-
-    pub async fn list_node_statuses(
-        &self,
-    ) -> Result<std::collections::HashMap<String, serde_json::Value>> {
-        self.kernel
-            .control
-            .state
-            .list_node_statuses()
-            .await
-            .map_err(Error::from)
-    }
-
-    pub async fn node_liveness(&self, stale_after_secs: i64) -> Result<serde_json::Value> {
-        let now = chrono::Utc::now().timestamp();
-        self.kernel
-            .control
-            .state
-            .node_liveness(stale_after_secs, now)
-            .await
-            .map_err(Error::from)
-    }
-
     pub fn is_db_source(&self) -> bool {
         self.kernel.runtime.source_mode == SourceMode::Db
     }

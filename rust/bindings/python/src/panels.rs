@@ -1,5 +1,5 @@
 //! Role components: ControlPanel (self-heal supervision) and DataPanel
-//! (execution + heartbeat), composable from Python code.
+//! (on-demand execution), composable from Python code.
 
 use std::sync::Arc;
 
@@ -60,51 +60,27 @@ impl PyControlPanel {
 #[pyclass(name = "DataPanel")]
 pub struct PyDataPanel {
     store: Arc<MCPStore>,
-    node_id: String,
-    capabilities: Vec<String>,
+    panel_id: String,
 }
 
 #[pymethods]
 impl PyDataPanel {
-    /// Execution/heartbeat role: advertise capabilities via a periodic
-    /// node_status row (updated_at is the liveness signal).
+    /// Execution role: on-demand response, no periodic background work.
     #[new]
-    fn new(store: &Bound<'_, PyAny>, node_id: String, capabilities: Vec<String>) -> PyResult<Self> {
+    fn new(store: &Bound<'_, PyAny>, panel_id: String) -> PyResult<Self> {
         Ok(Self {
             store: unwrap_store(store)?,
-            node_id,
-            capabilities,
+            panel_id,
         })
     }
 
-    fn node_id(&self) -> &str {
-        &self.node_id
-    }
-
-    fn capabilities(&self) -> Vec<String> {
-        self.capabilities.clone()
-    }
-
-    /// Write one heartbeat now.
-    fn heartbeat<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let panel = DataPanel::new(
-            self.store.clone(),
-            self.node_id.clone(),
-            self.capabilities.clone(),
-        );
-        future_into_py(py, async move {
-            panel.heartbeat().await.map_err(map_store_err)?;
-            Ok(())
-        })
+    fn panel_id(&self) -> &str {
+        &self.panel_id
     }
 
     /// Tear down transports started by this process only.
     fn stop<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let panel = DataPanel::new(
-            self.store.clone(),
-            self.node_id.clone(),
-            self.capabilities.clone(),
-        );
+        let panel = DataPanel::new(self.store.clone(), self.panel_id.clone());
         future_into_py(py, async move {
             panel.stop().await;
             Ok(())

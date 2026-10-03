@@ -63,13 +63,8 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         host.store.attach_control_supervisor()?;
     }
     if data_panel {
-        // 数据面板唯一的对外信号：DataPanel 心跳+能力自报写进 node_status 行。
-        // 读侧（控制面）按 updated_at 时间戳判失联，沉默即异常。
-        let capabilities: Vec<String> = crate::daemon::ops::host_capabilities()
-            .into_iter()
-            .map(str::to_string)
-            .collect();
-        DataPanel::new(Arc::clone(&host.store), host.store.node_id(), capabilities).spawn();
+        // 数据面板：按需执行，无周期任务（无心跳）。panel_id 即节点身份。
+        let _panel = DataPanel::new(Arc::clone(&host.store), host.store.node_id());
     }
     host.faces.start_all(&app_config, &host.state).await;
 
@@ -380,8 +375,6 @@ async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
                 (false, true) => "data",
                 (false, false) => "none",
             },
-            "heartbeat": host.store.read_node_status(&host.store.node_id()).await?,
-            "nodes": host.store.node_liveness(45).await?,
         },
         "listeners": host.faces.snapshot(),
     }))

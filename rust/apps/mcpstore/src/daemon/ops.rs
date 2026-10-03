@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use mcpstore::config::{
-    AppConfig, McpStoreExtension, Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations,
+    AppConfig, McpStoreExtension, Runtime, RuntimeSelection, ScopeDeclarations,
     ScopeDescriptor, ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
@@ -12,13 +12,14 @@ use serde_json::{json, Value};
 
 use crate::daemon::protocol::KernelOperation;
 
-/// Resolve and validate the runtime selection at the daemon trust boundary.
+/// Resolve the runtime selection at the daemon trust boundary.
 /// A missing `runtime` keeps older clients on the daemon runtime.
 pub(crate) async fn resolve_daemon_runtime(
     store: &MCPStore,
     instance_id: InstanceId,
     payload: &Value,
 ) -> Result<RuntimeSelection, Error> {
+    let _ = store;
     let runtime = match payload.get("runtime") {
         None | Some(Value::Null) => Runtime::Daemon,
         Some(Value::String(value)) => value
@@ -31,50 +32,9 @@ pub(crate) async fn resolve_daemon_runtime(
             ))
         }
     };
-    let selection = RuntimeSelection::runtime(runtime);
-    if let Some(instance) = store.find_instance(instance_id).await {
-        if let Some(definition) = store.find_definition(&instance.service_name).await {
-            if let Some(policy) = definition.runtime_policy {
-                if let Some(missing) = missing_local_capabilities(&policy, &selection) {
-                    return Err(capabilities_unsupported(missing));
-                }
-                if !policy.allows_runtime(selection.runtime) {
-                    return Err(runtime_not_allowed(
-                        &selection,
-                        &instance.service_name,
-                        &policy,
-                    ));
-                }
-            }
-        }
-    }
-    Ok(selection)
+    Ok(RuntimeSelection::runtime(runtime))
 }
 
-fn runtime_not_allowed(
-    selection: &RuntimeSelection,
-    service_name: &str,
-    policy: &RuntimePolicy,
-) -> Error {
-    Error::new(
-        FailureCode::InvalidInput,
-        format!(
-            "runtime '{}' not allowed for service '{service_name}'; allowed: {}",
-            selection.runtime,
-            policy
-                .allowed_runtimes
-                .as_deref()
-                .unwrap_or(&[])
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    )
-}
-
-/// 执行一个业务 op。请求/响应 op 全部经此；流式 op（StreamToolExecution/
-/// SubscribeEvents）与管理 op 不在此列。
 pub(crate) async fn execute(
     store: &MCPStore,
     operation: KernelOperation,
@@ -202,9 +162,7 @@ pub(crate) async fn execute(
         KernelOperation::UpdateService => {
             let name = required_str(&payload, "name")?;
             let config = payload_field::<ServerConfig>(&payload, "config")?;
-            let runtime_policy =
-                payload_field::<Option<RuntimePolicy>>(&payload, "runtime_policy")?;
-            store.update_service(&name, config, runtime_policy).await?;
+            store.update_service(&name, config).await?;
             Ok(json!({"service_name": name}))
         }
         KernelOperation::DeclareServiceScope => {
@@ -483,9 +441,10 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            runtime_policy: previous
+            placement: previous
                 .as_ref()
-                .and_then(|extension| extension.runtime_policy.clone()),
+                .map(|extension| extension.placement.clone())
+                .unwrap_or_default(),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -723,38 +682,6 @@ pub(crate) fn required_str_value(value: &Value, field: &str) -> Result<String, E
         })
 }
 
-pub(crate) fn host_capabilities() -> HashSet<&'static str> {
-    let mut capabilities = HashSet::from(["browser"]);
-    if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        capabilities.insert("display");
-    }
-    capabilities
-}
-
-fn missing_local_capabilities(
-    policy: &RuntimePolicy,
-    selection: &RuntimeSelection,
-) -> Option<String> {
-    if selection.runtime != Runtime::Local {
-        return None;
-    }
-    let capabilities = host_capabilities();
-    let missing: Vec<_> = policy
-        .required_host_capabilities
-        .iter()
-        .filter(|capability| !capabilities.contains(capability.as_str()))
-        .cloned()
-        .collect();
-    (!missing.is_empty()).then(|| missing.join(", "))
-}
-
-fn capabilities_unsupported(missing: String) -> Error {
-    Error::new(
-        FailureCode::CapabilityUnsupported,
-        format!("local host lacks required capabilities: {missing}"),
-    )
-}
-
 pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
     match value.as_str() {
         Some("on") | Some("true") => Ok(true),
@@ -770,17 +697,6 @@ pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
 mod tests {
     use super::*;
     use mcpstore::ServiceInstanceKey;
-
-    #[test]
-    fn local_execution_rejects_missing_host_capability() {
-        let policy = RuntimePolicy {
-            allowed_runtimes: None,
-            required_host_capabilities: vec!["definitely-missing-capability".into()],
-        };
-        let error = missing_local_capabilities(&policy, &RuntimeSelection::runtime(Runtime::Local))
-            .unwrap();
-        assert_eq!(error, "definitely-missing-capability");
-    }
 
     #[tokio::test]
     async fn daemon_accepts_daemon_runtime_selection() {
@@ -798,37 +714,6 @@ mod tests {
         std::fs::remove_dir_all(path).ok();
     }
 
-    #[tokio::test]
-    async fn daemon_rejects_execution_target_disallowed_by_service() {
-        let path =
-            std::env::temp_dir().join(format!("mcpstore-daemon-policy-{}", std::process::id()));
-        std::fs::create_dir_all(&path).unwrap();
-        let config_path = path.join("mcp.json");
-        let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
-        let mut config = ServerConfig {
-            command: Some("echo".into()),
-            args: vec!["fixture".into()],
-            transport: Some("stdio".into()),
-            ..ServerConfig::default()
-        };
-        config.mcpstore = Some(McpStoreExtension {
-            runtime_policy: Some(RuntimePolicy {
-                allowed_runtimes: Some(vec![Runtime::Local]),
-                required_host_capabilities: Vec::new(),
-            }),
-            scopes: ScopeDeclarations::store_only(),
-            ..McpStoreExtension::default()
-        });
-        store.add_service("svc", config).await.unwrap();
-        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
-
-        let error = resolve_daemon_runtime(&store, instance_id, &json!({"runtime": "daemon"}))
-            .await
-            .unwrap_err();
-
-        assert!(error.to_string().contains("not allowed"), "{error}");
-        std::fs::remove_dir_all(path).ok();
-    }
 }
 
 pub(crate) fn parse_port(value: &Value, field: &str) -> Result<u16, Error> {
