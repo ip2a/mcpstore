@@ -101,6 +101,34 @@ pub struct AgentEntity {
     pub last_active: i64,
 }
 
+/// 跨面板工具调用请求：数据面板写，控制面板 ChangeFeed 醒来原子认领（claim）
+/// 后本地执行。认领即 at-most-once，工具调用不保证幂等。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallRequestEntity {
+    pub request_id: String,
+    pub panel_id: String,
+    pub instance_id: InstanceId,
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+    pub deadline_unix_ms: i64,
+}
+
+/// 跨面板工具调用响应：控制面板写，数据面板读走即删；5 分钟 TTL 兜底清理。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallResponseEntity {
+    pub request_id: String,
+    pub panel_id: String,
+    pub result: Option<crate::transport::ToolCallResult>,
+    pub error: Option<ToolCallResponseError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallResponseError {
+    /// FailureCode 的 serde 字符串形态（"ToolFailed" 等）。
+    pub code: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionEntity {
     pub session_key: String,

@@ -17,6 +17,8 @@ pub(crate) trait CacheStore: Send + Sync {
     ) -> Result<()>;
     async fn get(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>>;
     async fn delete(&self, key: &str, collection: &str) -> Result<()>;
+    /// 原子取走（get + compare_and_delete）：恰好一个调用方拿到值，其余拿 None。
+    async fn claim(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>>;
     async fn collections(&self) -> Result<Vec<String>>;
     async fn keys(&self, collection: &str) -> Result<Vec<String>>;
     async fn get_many(

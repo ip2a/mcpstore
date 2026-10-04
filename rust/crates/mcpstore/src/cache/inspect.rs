@@ -8,6 +8,8 @@ const ENTITY_TYPES: &[&str] = &[
     "service_events",
     "sessions",
     "store",
+    "tool_call_requests",
+    "tool_call_responses",
     "tools",
 ];
 const RELATION_TYPES: &[&str] = &[

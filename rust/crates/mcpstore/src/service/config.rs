@@ -100,6 +100,7 @@ impl MCPStore {
         if self.kernel.runtime.source_mode == SourceMode::Db {
             self.load_from_db().await?;
             self.spawn_service_event_feed_from_ref();
+            self.spawn_tool_call_request_feed_from_ref();
             return Ok(());
         }
 

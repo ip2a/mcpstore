@@ -190,6 +190,7 @@ impl MCPStore {
                     runtime_config,
                     sync_config_file: options.config_path.is_some(),
                     service_event_feed_started: std::sync::atomic::AtomicBool::new(false),
+                    tool_call_feed_started: std::sync::atomic::AtomicBool::new(false),
                     self_weak: std::sync::OnceLock::new(),
                 },
             },
@@ -205,6 +206,7 @@ impl MCPStore {
             .self_weak
             .set(std::sync::Arc::downgrade(&store));
         store.spawn_service_event_feed();
+        store.spawn_tool_call_request_feed();
         Ok(store)
     }
 

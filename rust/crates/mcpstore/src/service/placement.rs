@@ -111,14 +111,8 @@ impl MCPStore {
         }
 
         if definition.placement.is_empty() {
-            // 场景 1：控制面板代理执行（kvstore RPC），下一里程碑落地。
-            return Err(Error::new(
-                FailureCode::ServiceUnavailable,
-                format!(
-                    "remote proxy call for service '{}' lands with the tool_call RPC milestone",
-                    instance.service_name
-                ),
-            ));
+            // 场景 1：控制面板代理执行（kvstore RPC）。
+            return self.call_tool_remote(instance_id, tool_name, args).await;
         }
 
         Err(Error::new(

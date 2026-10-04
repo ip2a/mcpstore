@@ -525,3 +525,94 @@ async fn db_data_panel_calls_placement_service_locally() {
         .unwrap_err();
     assert_eq!(error.code(), crate::error::FailureCode::ServiceUnavailable);
 }
+
+#[tokio::test]
+async fn db_data_panel_remote_call_executes_on_control_panel() {
+    let namespace = format!("role-remote-call-{}", uuid::Uuid::new_v4());
+    let control = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let data = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace),
+        panel: PanelRole::DataPanel {
+            panel_id: "edge-01".to_string(),
+        },
+    })
+    .unwrap();
+
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/mcpstore/tests/fixtures/execution_mcp_server.py")
+        .canonicalize()
+        .unwrap();
+    let mut config = ServerConfig {
+        command: Some("python3".to_string()),
+        args: vec![fixture.to_string_lossy().into_owned()],
+        transport: Some("stdio".to_string()),
+        ..Default::default()
+    };
+    config.mcpstore = Some(crate::config::McpStoreExtension {
+        scopes: crate::config::ScopeDeclarations::store_only(),
+        ..Default::default()
+    });
+    control.add_service("svc", config).await.unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if control.find_definition("svc").await.is_some() {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("control panel did not apply the add");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 场景 1：placement 为空 → 请求进库，控制面板认领执行，响应写回
+    let instance_id = crate::identity::ServiceInstanceKey::new(
+        "svc".to_string(),
+        crate::identity::ScopeRef::Store,
+    )
+    .instance_id();
+    let result = data
+        .call_tool(instance_id, "noop", serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+
+    // 执行发生在控制面板：连接归它，数据面板没碰执行
+    assert!(control
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .contains(&instance_id));
+    assert!(data
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .is_empty());
+
+    // 请求被认领删除，响应被数据面板读走删除：库里不留中间态
+    assert!(data
+        .cache()
+        .get_all_entities_async("tool_call_requests")
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(data
+        .cache()
+        .get_all_entities_async("tool_call_responses")
+        .await
+        .unwrap()
+        .is_empty());
+}
