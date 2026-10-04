@@ -97,37 +97,23 @@ impl MCPStore {
     }
 
     pub async fn load_from_config(&self) -> Result<()> {
-        if self.kernel.runtime.source_mode == SourceMode::Db {
+        // 统一模型：kv 是真源。控制面板启动读一次种子（mcp.json 启动时赢），
+        // 停机期间别人的写入由未消费的 service_events 重放补回；之后文件只
+        // 作为消费后的落盘。数据面板无种子、无注水、无订阅——查询 kv 直读，
+        // 调用按 placement 路由。
+        if !matches!(
+            self.kernel.runtime.panel_role,
+            crate::store::PanelRole::ControlPanel
+        ) {
+            return Ok(());
+        }
+
+        let seeded = self.seed_from_config_file().await?;
+        if !seeded {
             self.load_from_db().await?;
-            self.spawn_service_event_feed_from_ref();
-            self.spawn_tool_call_request_feed_from_ref();
-            return Ok(());
         }
-
-        let config = self.kernel.control.config_manager.load_or_empty()?;
-        self.kernel.execution.pool.clear().await;
-        self.kernel
-            .runtime
-            .applied_openapi_configs
-            .write()
-            .await
-            .clear();
-        self.kernel.control.registry.clear().await;
-        self.kernel.control.auth.clear_statuses().await;
-
-        for (service_name, server) in &config.mcp_servers {
-            self.register_configured_definition(service_name, server)
-                .await?;
-        }
-
-        // 角色内化：数据面板 load 完即拉取 placement 命中的服务本地建连。
-        if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role {
-            let connected = self.serve_placement(panel_id).await?;
-            tracing::info!(
-                "[STORE] data panel '{panel_id}' serving {connected} placement service(s)"
-            );
-            return Ok(());
-        }
+        self.spawn_service_event_feed_from_ref();
+        self.spawn_tool_call_request_feed_from_ref();
 
         for instance in self.kernel.control.registry.list_instances().await {
             let state = self
@@ -157,6 +143,30 @@ impl MCPStore {
             }
         }
         Ok(())
+    }
+
+    /// 启动种子：控制面板把 mcp.json 灌成真源（注册进 kv + 注册表）。
+    /// 返回 false = 没有可种的内容（无 config_path / 文件为空），调用方转
+    /// 而从共享库注水。
+    async fn seed_from_config_file(&self) -> Result<bool> {
+        let config = self.kernel.control.config_manager.load_or_empty()?;
+        if config.mcp_servers.is_empty() {
+            return Ok(false);
+        }
+        self.kernel.execution.pool.clear().await;
+        self.kernel
+            .runtime
+            .applied_openapi_configs
+            .write()
+            .await
+            .clear();
+        self.kernel.control.registry.clear().await;
+        self.kernel.control.auth.clear_statuses().await;
+        for (service_name, server) in &config.mcp_servers {
+            self.register_configured_definition(service_name, server)
+                .await?;
+        }
+        Ok(true)
     }
 
     pub async fn load_from_source(&self) -> Result<()> {
