@@ -149,7 +149,6 @@ impl McpServerArgs {
         let store_options = self.store.to_store_options();
         Ok(CoreMcpServerOptions {
             config_path: store_options.config_path,
-            source_mode: store_options.source_mode,
             store: store_options.store,
             namespace: store_options.namespace,
             scope,

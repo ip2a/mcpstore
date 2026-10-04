@@ -2,7 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use mcpstore::error::{Error, FailureCode};
-use mcpstore::{MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpStoreToolExecutionHandle};
+use mcpstore::{
+    MCPStore, McpExecutionOptions, McpStoreExecutionUpdate, McpStoreToolExecutionHandle,
+};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;

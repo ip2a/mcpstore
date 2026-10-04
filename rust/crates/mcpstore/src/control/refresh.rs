@@ -7,7 +7,7 @@ use crate::cache::models::{
 use crate::config::{ServerConfig, StartupPolicy};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
-use crate::store::{MCPStore, SourceMode};
+use crate::store::MCPStore;
 use crate::{Error, FailureCode, InstanceId, Result, ServiceInstanceKey};
 
 impl MCPStore {
@@ -244,12 +244,14 @@ impl MCPStore {
             self.kernel.execution.pool.remove(*stale_id).await.ok();
         }
 
+        // 增量保留已应用的 openapi 运行配置：只清掉消失实例的条目，
+        // 存活实例的连接态不因注水被误删（与连接池合并语义一致）。
         self.kernel
             .runtime
             .applied_openapi_configs
             .write()
             .await
-            .clear();
+            .retain(|id, _| active_instance_ids.contains(id));
         self.kernel.control.registry.clear().await;
         for definition in definitions.into_values() {
             self.kernel
@@ -320,11 +322,9 @@ impl MCPStore {
         Ok(())
     }
 
+    /// 执行路径注水：连接池 / 状态机需要进程内结构。查询不走这里。
     pub(crate) async fn refresh_from_db_if_needed(&self) -> Result<()> {
-        if self.kernel.runtime.source_mode == SourceMode::Db {
-            self.load_from_db().await?;
-        }
-        Ok(())
+        self.load_from_db().await
     }
 
     /// 共享库查询面：按键直读，不经过、也不回填内存注册表。

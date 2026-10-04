@@ -7,9 +7,7 @@ use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_instance, OutputFormat};
 use crate::store_args::StoreSourceArgs;
 use crate::{
-    commands::mcp::{
-        insert_runtime, open_store, parse_instance_id, RuntimeArgs,
-    },
+    commands::mcp::{insert_runtime, open_store, parse_instance_id, RuntimeArgs},
     BoxErr,
 };
 

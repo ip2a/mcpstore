@@ -1,7 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::config::{
-    McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig,
-};
+use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
 use mcpstore::error::{Error, FailureCode};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -1863,7 +1861,6 @@ fn parse_key_values(
     Ok(map)
 }
 
-
 fn build_server_config(
     command_or_url: Option<&str>,
     args: &[String],
@@ -2017,12 +2014,6 @@ fn validate_scope_target(scope: &Scope, agent: Option<&str>) -> std::result::Res
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
-
-
-
-
 
     #[test]
     fn capability_summary_reports_protocol_features() {

@@ -38,7 +38,7 @@ pub use crate::openapi::{
     OpenApiImportOptions, OpenApiImportResult,
 };
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
-pub use options::{PanelRole, SourceMode, StoreOptions};
+pub use options::{PanelRole, StoreOptions};
 pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
@@ -51,7 +51,7 @@ pub(crate) mod prelude {
         CacheHealthReport, ConfigRevision, DiscoveredPrompt, DiscoveredResource,
         DiscoveredResourceTemplate, Error, ErrorContext, Event, FailureCode, MCPStore,
         OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry, ServerConfig,
-        ServiceDefinition, ServiceInstance, SourceMode, StartupPolicy, ToolChangeServiceResult,
+        ServiceDefinition, ServiceInstance, StartupPolicy, ToolChangeServiceResult,
         ToolChangeSummary,
     };
 }
@@ -185,7 +185,6 @@ impl MCPStore {
                     namespace: SyncRwLock::new(namespace),
                     applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
                     local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
-                    source_mode: options.source_mode,
                     panel_role: options.panel.clone(),
                     runtime_config,
                     sync_config_file: options.config_path.is_some(),
@@ -262,16 +261,8 @@ impl MCPStore {
             .clone()
     }
 
-    pub fn source_mode(&self) -> SourceMode {
-        self.kernel.runtime.source_mode
-    }
-
     pub fn panel_id(&self) -> String {
         self.kernel.control.state.panel_id().to_string()
-    }
-
-    pub fn is_db_source(&self) -> bool {
-        self.kernel.runtime.source_mode == SourceMode::Db
     }
 
     /// Close only transports started by this process（进程生命周期收尾：

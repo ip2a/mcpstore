@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::core_store::{
     duration_from_seconds, facade_service_target, map_store_err,
-    parse_openapi_import_options, parse_session_scope, parse_source_mode, py_to_add_service_config,
+    parse_openapi_import_options, parse_session_scope, py_to_add_service_config,
     py_to_server_config, serializable_to_py,
 };
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -78,10 +78,9 @@ impl PyAsyncMCPStore {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None, panel=None))]
+    #[pyo3(signature = (config_path=None, store=None, store_config=None, namespace=None, panel=None))]
     fn setup_with_options(
         config_path: Option<String>,
-        source_mode: Option<String>,
         store: Option<String>,
         store_config: Option<String>,
         namespace: Option<String>,
@@ -93,7 +92,6 @@ impl PyAsyncMCPStore {
             .unwrap_or_default();
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
-            source_mode: parse_source_mode(source_mode.as_deref())?,
             panel: panel_role,
             store: store
                 .map(|name| {

@@ -2,8 +2,8 @@
 //! （单业务协议、双执行位置）。daemon 管理面（status/config/stop）在 server.rs。
 
 use mcpstore::config::{
-    AppConfig, McpStoreExtension, Runtime, RuntimeSelection, ScopeDeclarations,
-    ScopeDescriptor, ServerConfig,
+    AppConfig, McpStoreExtension, Runtime, RuntimeSelection, ScopeDeclarations, ScopeDescriptor,
+    ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
 use mcpstore::{AuthFlow, InstanceId, MCPStore, McpCompletionRequest, ScopeRef};
@@ -711,7 +711,6 @@ mod tests {
         assert_eq!(selection, RuntimeSelection::runtime(Runtime::Daemon));
         std::fs::remove_dir_all(path).ok();
     }
-
 }
 
 pub(crate) fn parse_port(value: &Value, field: &str) -> Result<u16, Error> {

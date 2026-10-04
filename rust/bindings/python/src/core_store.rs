@@ -3,7 +3,7 @@
 use mcpstore::config::ScopeDescriptor;
 use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
-use mcpstore::core::store::{MCPStore, SourceMode, StoreOptions};
+use mcpstore::core::store::{MCPStore, StoreOptions};
 use mcpstore::{
     cache::models::SessionScope, Error, InstanceId, McpConfig, ScopeContext, ScopeRef, ScopeView,
     Service, ServiceTarget, Tool,
@@ -92,16 +92,6 @@ pub(crate) fn parse_openapi_bundle_options(
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("Invalid OpenAPI bundle options: {err}"))
     })
-}
-
-pub(crate) fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMode> {
-    match source_mode {
-        Some("db") => Ok(SourceMode::Db),
-        Some("local") | None => Ok(SourceMode::Local),
-        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Unsupported source_mode: {other}"
-        ))),
-    }
 }
 
 fn parse_tool_visibility_filter(filter: Option<&str>) -> PyResult<ToolVisibilityFilter> {
@@ -752,10 +742,9 @@ impl PyMCPStore {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None, panel=None))]
+    #[pyo3(signature = (config_path=None, store=None, store_config=None, namespace=None, panel=None))]
     fn setup_with_options(
         config_path: Option<String>,
-        source_mode: Option<String>,
         store: Option<String>,
         store_config: Option<String>,
         namespace: Option<String>,
@@ -767,7 +756,6 @@ impl PyMCPStore {
             .unwrap_or_default();
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
-            source_mode: parse_source_mode(source_mode.as_deref())?,
             panel: panel_role,
             store: store
                 .map(|name| {

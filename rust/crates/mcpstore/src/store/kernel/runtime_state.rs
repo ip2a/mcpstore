@@ -5,7 +5,7 @@ use std::sync::{OnceLock, RwLock as SyncRwLock, Weak};
 use tokio::sync::RwLock;
 
 use crate::identity::InstanceId;
-use crate::store::options::{PanelRole, SourceMode};
+use crate::store::options::PanelRole;
 use crate::store::runtime::StoreRuntimeConfig;
 use crate::store::MCPStore;
 
@@ -14,7 +14,6 @@ pub(crate) struct RuntimeState {
     pub(crate) applied_openapi_configs:
         RwLock<HashMap<InstanceId, serde_json::Map<String, serde_json::Value>>>,
     pub(crate) local_connections: RwLock<HashSet<InstanceId>>,
-    pub(crate) source_mode: SourceMode,
     pub(crate) panel_role: PanelRole,
     pub(crate) runtime_config: StoreRuntimeConfig,
     /// 只有显式传入 config_path 才把消费结果回写 mcp.json。

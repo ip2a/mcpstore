@@ -52,7 +52,6 @@ async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
     let namespace = format!("role-feed-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.to_string_lossy().into_owned()),
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
         panel: PanelRole::ControlPanel,
@@ -60,7 +59,6 @@ async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
     .unwrap();
     let data = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
         panel: PanelRole::DataPanel {
@@ -171,7 +169,6 @@ async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
     let namespace = format!("role-scope-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.to_string_lossy().into_owned()),
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
         panel: PanelRole::ControlPanel,
@@ -179,7 +176,6 @@ async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
     .unwrap();
     let data = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
         panel: PanelRole::DataPanel {
@@ -267,7 +263,6 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
     let namespace = format!("role-read-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
         panel: PanelRole::ControlPanel,
@@ -275,7 +270,6 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
     .unwrap();
     let data = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
         panel: PanelRole::DataPanel {
@@ -344,7 +338,6 @@ async fn db_data_panel_calls_placement_service_locally() {
     let namespace = format!("role-local-call-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
         panel: PanelRole::ControlPanel,
@@ -352,7 +345,6 @@ async fn db_data_panel_calls_placement_service_locally() {
     .unwrap();
     let data = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
         panel: PanelRole::DataPanel {
@@ -453,7 +445,6 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
     let namespace = format!("role-remote-call-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace.clone()),
         panel: PanelRole::ControlPanel,
@@ -461,7 +452,6 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
     .unwrap();
     let data = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
-        source_mode: SourceMode::Db,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
         panel: PanelRole::DataPanel {

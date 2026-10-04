@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::{JsonStoreConfig, SourceMode, StoreOptions};
+use mcpstore::{JsonStoreConfig, StoreOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -41,7 +41,10 @@ pub struct StoreSourceArgs {
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
     /// 挂载控制面板（自愈监督器：keep_alive 断线重连、健康状态机）
-    #[arg(long = "control-panel", help = "Run control panel (self-heal supervision)")]
+    #[arg(
+        long = "control-panel",
+        help = "Run control panel (self-heal supervision)"
+    )]
     pub control_panel: bool,
     /// 挂载数据面板（执行 + 15s 心跳能力自报）
     #[arg(long = "data-panel", help = "Run data panel (execution + heartbeat)")]
@@ -86,10 +89,6 @@ impl StoreSourceArgs {
 
         StoreOptions {
             config_path: self.config_path.clone(),
-            source_mode: match self.source {
-                SourceArg::Local => SourceMode::Local,
-                SourceArg::Db => SourceMode::Db,
-            },
             store,
             namespace: self.namespace.clone(),
             panel: self.panel_role(),

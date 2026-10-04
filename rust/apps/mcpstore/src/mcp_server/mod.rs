@@ -11,7 +11,7 @@ use mcpstore::{
     events::{bus::EventHandler, Event},
     ContentItem, InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpToolExecution,
     OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch,
-    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef, SourceMode, StoreOptions,
+    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef, StoreOptions,
     ToolOverridePatch,
 };
 use rmcp::{
@@ -57,7 +57,6 @@ pub type BoxErr = Box<dyn std::error::Error>;
 #[derive(Clone, Debug)]
 pub struct McpServerOptions {
     pub config_path: Option<String>,
-    pub source_mode: SourceMode,
     pub store: Option<JsonStoreConfig>,
     pub namespace: Option<String>,
     pub scope: ScopeRef,
@@ -81,7 +80,6 @@ impl Default for McpServerOptions {
     fn default() -> Self {
         Self {
             config_path: None,
-            source_mode: SourceMode::Local,
             store: None,
             namespace: None,
             scope: ScopeRef::Store,
@@ -155,7 +153,6 @@ impl McpServerOptions {
     pub fn to_store_options(&self) -> StoreOptions {
         StoreOptions {
             config_path: self.config_path.clone(),
-            source_mode: self.source_mode,
             store: self.store.clone(),
             namespace: self.namespace.clone(),
             panel: mcpstore::PanelRole::ControlPanel,
@@ -167,10 +164,8 @@ impl McpServerOptions {
             control_panel: false,
             data_panel: false,
             config_path: self.config_path.clone(),
-            source: match self.source_mode {
-                SourceMode::Local => crate::store_args::SourceArg::Local,
-                SourceMode::Db => crate::store_args::SourceArg::Db,
-            },
+            // 统一模型：--source 不再选择语义，重建时用 CLI 缺省值
+            source: crate::store_args::SourceArg::Local,
             store: self.store.as_ref().map(|store| store.store.clone()),
             store_config: self.store.as_ref().map(|store| store.config.to_string()),
             namespace: self.namespace.clone(),
