@@ -363,11 +363,11 @@ impl MCPStore {
         instance_id: InstanceId,
         tool_name: &str,
     ) -> Result<String> {
-        let instance = self.require_instance(instance_id).await?;
-        if instance.tools.iter().any(|tool| tool.name == tool_name) {
+        let tools = self.tools_from_kv(instance_id).await?;
+        if tools.iter().any(|tool| tool.name == tool_name) {
             return Ok(tool_name.to_string());
         }
-        for tool in &instance.tools {
+        for tool in &tools {
             if let Some(rule) = self
                 .load_enabled_tool_override(instance_id, &tool.name)
                 .await?

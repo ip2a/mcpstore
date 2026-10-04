@@ -60,14 +60,8 @@ async fn register_tool_service(
         .await
         .unwrap();
     let instance_id = ServiceInstanceKey::new(service_name, scope).instance_id();
-    let mut instance = store
-        .kernel
-        .control
-        .registry
-        .find_instance(instance_id)
-        .await
-        .unwrap();
-    instance.tools = tools
+    // tools 的真源在 kv：走真实连接路径的投影原语，不再捅注册表
+    let tool_infos = tools
         .iter()
         .map(|tool| crate::registry::ToolInfo {
             name: (*tool).to_string(),
@@ -78,13 +72,11 @@ async fn register_tool_service(
             annotations: None,
             meta: None,
         })
-        .collect();
+        .collect::<Vec<_>>();
     store
-        .kernel
-        .control
-        .registry
-        .register_instance(instance)
-        .await;
+        .cache_instance_connected(instance_id, &tool_infos)
+        .await
+        .unwrap();
     instance_id
 }
 

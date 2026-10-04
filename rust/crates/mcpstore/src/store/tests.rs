@@ -1081,8 +1081,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     .unwrap();
     source.add_service("svc", stdio_config()).await.unwrap();
     let instance_id = store_instance_id("svc");
-    let mut instance = source.find_instance(instance_id).await.unwrap();
-    instance.tools = vec![crate::registry::ToolInfo {
+    let tool_infos = vec![crate::registry::ToolInfo {
         name: "echo".to_string(),
         title: None,
         description: "echo".to_string(),
@@ -1092,11 +1091,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         meta: None,
     }];
     source
-        .kernel
-        .control
-        .registry
-        .register_instance(instance)
-        .await;
+        .cache_instance_connected(instance_id, &tool_infos)
+        .await
+        .unwrap();
     source
         .cache_instance_connected(instance_id, &source.list_tools(instance_id).await.unwrap())
         .await
@@ -4548,20 +4545,10 @@ async fn install_registry_tools(
     instance_id: InstanceId,
     tools: Vec<crate::registry::ToolInfo>,
 ) {
-    let mut instance = store
-        .kernel
-        .control
-        .registry
-        .find_instance(instance_id)
+    store
+        .cache_instance_connected(instance_id, &tools)
         .await
         .unwrap();
-    instance.tools = tools;
-    store
-        .kernel
-        .control
-        .registry
-        .register_instance(instance)
-        .await;
 }
 
 #[tokio::test]
@@ -4715,15 +4702,13 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
         .set_context_tool_visibility(instance_id, vec!["alpha".to_string()])
         .await
         .unwrap();
-    store
-        .kernel
-        .control
-        .registry
-        .replace_instance_tools(
-            instance_id,
-            vec![registry_tool("alpha"), registry_tool("gamma")],
-        )
-        .await;
+    // 统一模型：工具刷新 = 重写 kv 投影（真实连接路径的原语）
+    install_registry_tools(
+        &store,
+        instance_id,
+        vec![registry_tool("alpha"), registry_tool("gamma")],
+    )
+    .await;
 
     let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
         .await
@@ -4746,12 +4731,7 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
     );
     assert!(policy.stale.is_empty());
 
-    store
-        .kernel
-        .control
-        .registry
-        .replace_instance_tools(instance_id, vec![registry_tool("gamma")])
-        .await;
+    install_registry_tools(&store, instance_id, vec![registry_tool("gamma")]).await;
     let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
         .await
         .unwrap();
@@ -5861,14 +5841,10 @@ mod scoped_contract {
     }
 
     async fn install_tool(store: &MCPStore, instance_id: InstanceId, tool_info: ToolInfo) {
-        let mut instance = store.find_instance(instance_id).await.unwrap();
-        instance.tools = vec![tool_info];
         store
-            .kernel
-            .control
-            .registry
-            .register_instance(instance)
-            .await;
+            .cache_instance_connected(instance_id, &[tool_info])
+            .await
+            .unwrap();
     }
 
     async fn spawn_openapi_auth_fixture() -> String {
@@ -6240,16 +6216,14 @@ mod scoped_contract {
         store.add_service("svc", original.clone()).await.unwrap();
 
         let store_instance_id = instance_id("svc", store_scope());
-        let mut connected = store.find_instance(store_instance_id).await.unwrap();
-        let applied_revision = connected.config_revision;
-        connected.tools = vec![tool("echo")];
-        connected.applied_config_revision = Some(applied_revision);
         store
-            .kernel
-            .control
-            .registry
-            .register_instance(connected)
-            .await;
+            .cache_instance_connected(store_instance_id, &[tool("echo")])
+            .await
+            .unwrap();
+        store
+            .mark_instance_applied(store_instance_id)
+            .await
+            .unwrap();
 
         let mut updated = original;
         updated.mcpstore = None;
@@ -6457,15 +6431,11 @@ mod scoped_contract {
             .await
             .unwrap();
 
-        let mut runtime_instance = store.find_instance(instance_id).await.unwrap();
-        runtime_instance.tools = vec![tool("echo")];
-        runtime_instance.applied_config_revision = Some(runtime_instance.config_revision);
         store
-            .kernel
-            .control
-            .registry
-            .register_instance(runtime_instance)
-            .await;
+            .cache_instance_connected(instance_id, &[tool("echo")])
+            .await
+            .unwrap();
+        store.mark_instance_applied(instance_id).await.unwrap();
 
         store.load_from_config().await.unwrap();
 
@@ -6485,7 +6455,9 @@ mod scoped_contract {
         assert_eq!(rebuilt.tools, observed.tools);
         assert_eq!(rebuilt.failure, observed.failure);
         let instance = store.find_instance(instance_id).await.unwrap();
-        assert!(instance.tools.is_empty());
+        // 统一模型：工具目录是 kv 持久业务态，重启保留；applied 归零表示
+        // 本进程尚未应用配置
+        assert_eq!(instance.tools.len(), 1);
         assert_eq!(instance.applied_config_revision, None);
 
         std::fs::remove_file(path).ok();

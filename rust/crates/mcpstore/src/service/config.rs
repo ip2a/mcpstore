@@ -20,19 +20,10 @@ impl MCPStore {
                 "Native export is definition-based; use show_config".to_string(),
             ));
         }
-        let instance = if self.kernel.runtime.source_mode == SourceMode::Db {
-            self.instance_from_kv(instance_id)
-                .await?
-                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?
-        } else {
-            self.refresh_from_db_if_needed().await?;
-            self.kernel
-                .control
-                .registry
-                .find_instance(instance_id)
-                .await
-                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?
-        };
+        let instance = self
+            .instance_from_kv(instance_id)
+            .await?
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let mut config = crate::config::McpConfig::default();
         let server: ServerConfig = serde_json::from_value(Value::Object(instance.effective_config))
             .map_err(|error| {
@@ -48,15 +39,6 @@ impl MCPStore {
     }
 
     pub async fn show_config_entry(&self) -> Result<crate::config::McpConfig> {
-        if self.kernel.runtime.source_mode != SourceMode::Db {
-            return self
-                .kernel
-                .control
-                .config_manager
-                .load_or_empty()
-                .map_err(Into::into);
-        }
-
         let mut config = crate::config::McpConfig::default();
         for definition in self.definitions_from_kv().await? {
             let server = Self::server_config_from_definition(&definition)?;
@@ -174,18 +156,9 @@ impl MCPStore {
     }
 
     pub async fn get_definition_config(&self, service_name: &str) -> Result<Option<Value>> {
-        let server = match self.kernel.runtime.source_mode {
-            SourceMode::Db => self.definition_server_config(service_name).await?,
-            SourceMode::Local => self
-                .kernel
-                .control
-                .registry
-                .find_definition(service_name)
-                .await
-                .map(|definition| Self::server_config_from_definition(&definition))
-                .transpose()?,
-        };
-        Ok(server
+        Ok(self
+            .definition_server_config(service_name)
+            .await?
             .map(|server| {
                 serde_json::to_value(server)
                     .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
@@ -209,21 +182,11 @@ impl MCPStore {
         service_name: &str,
         scope: &ScopeRef,
     ) -> Result<Option<Value>> {
-        if self.kernel.runtime.source_mode == SourceMode::Db {
-            let instance_id =
-                ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
-            return Ok(self
-                .instance_from_kv(instance_id)
-                .await?
-                .map(|instance| Value::Object(instance.effective_config)));
-        }
-        self.refresh_from_db_if_needed().await?;
+        let instance_id =
+            ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
         Ok(self
-            .kernel
-            .control
-            .registry
-            .find_instance_by_key(service_name, scope)
-            .await
+            .instance_from_kv(instance_id)
+            .await?
             .map(|instance| Value::Object(instance.effective_config)))
     }
 
