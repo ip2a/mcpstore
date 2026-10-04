@@ -339,3 +339,80 @@ async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
         .is_none());
     std::fs::remove_file(&path).ok();
 }
+
+#[tokio::test]
+async fn db_query_reads_kv_without_hydrating_the_registry() {
+    let namespace = format!("role-read-{}", uuid::Uuid::new_v4());
+    let control = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let data = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace),
+        panel: PanelRole::DataPanel {
+            panel_id: "edge-01".to_string(),
+        },
+    })
+    .unwrap();
+    control
+        .add_service(
+            "svc",
+            ServerConfig {
+                command: Some("echo".to_string()),
+                args: vec!["fixture".to_string()],
+                transport: Some("stdio".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if control.find_definition("svc").await.is_some() {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("control panel did not apply the add");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // 查询面全部可用
+    let instance_id = crate::identity::ServiceInstanceKey::new(
+        "svc".to_string(),
+        crate::identity::ScopeRef::Store,
+    )
+    .instance_id();
+    let instance = data.find_instance(instance_id).await.expect("kv instance");
+    assert_eq!(instance.service_name, "svc");
+    assert!(data.find_definition("svc").await.is_some());
+    assert_eq!(data.list_tools(instance_id).await.unwrap().len(), 0);
+    assert_eq!(data.list_instances().await.len(), 1);
+    assert_eq!(
+        data.show_config().await.unwrap()["mcpServers"]["svc"]["command"],
+        "echo"
+    );
+
+    // 注册表保持空：查询没有触发整表注水
+    assert!(data
+        .kernel
+        .control
+        .registry
+        .list_definitions()
+        .await
+        .is_empty());
+    assert!(data
+        .kernel
+        .control
+        .registry
+        .list_instances()
+        .await
+        .is_empty());
+}

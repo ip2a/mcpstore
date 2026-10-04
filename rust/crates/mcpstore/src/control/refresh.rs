@@ -8,7 +8,7 @@ use crate::config::{ServerConfig, StartupPolicy};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
 use crate::store::{MCPStore, SourceMode};
-use crate::{Error, FailureCode, Result, ServiceInstanceKey};
+use crate::{Error, FailureCode, InstanceId, Result, ServiceInstanceKey};
 
 impl MCPStore {
     pub(crate) async fn load_from_db(&self) -> Result<()> {
@@ -325,5 +325,164 @@ impl MCPStore {
             self.load_from_db().await?;
         }
         Ok(())
+    }
+
+    /// 共享库查询面：按键直读，不经过、也不回填内存注册表。
+    /// `load_from_db` 的完整注水只留给执行路径（连接池 / 状态机需要进程内结构）。
+    pub(crate) async fn definition_from_kv(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<ServiceDefinition>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .cache
+            .get_entity("service_definitions", service_name)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let entity: ServiceDefinitionEntity = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Service definition entity deserialization failed: {error}"),
+            )
+        })?;
+        Ok(Some(ServiceDefinition::from(entity)))
+    }
+
+    pub(crate) async fn definitions_from_kv(&self) -> Result<Vec<ServiceDefinition>> {
+        let values = self
+            .kernel
+            .persistence
+            .cache
+            .get_all_entities_async("service_definitions")
+            .await?;
+        let mut definitions = Vec::with_capacity(values.len());
+        for (_, value) in values {
+            let entity: ServiceDefinitionEntity =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Service definition entity deserialization failed: {error}"),
+                    )
+                })?;
+            definitions.push(ServiceDefinition::from(entity));
+        }
+        Ok(definitions)
+    }
+
+    pub(crate) async fn instance_from_kv(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<ServiceInstance>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .cache
+            .get_entity("service_instances", &instance_id.to_string())
+            .await?
+        else {
+            return Ok(None);
+        };
+        let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Service instance entity deserialization failed: {error}"),
+            )
+        })?;
+        let tools = self.tools_from_kv(entity.instance_id).await?;
+        Ok(Some(ServiceInstance {
+            instance_id: entity.instance_id,
+            service_name: entity.service_name,
+            scope: entity.scope,
+            transport: entity.transport,
+            url: entity.url,
+            command: entity.command,
+            tools,
+            effective_config: entity.effective_config,
+            config_revision: entity.config_revision,
+            applied_config_revision: entity.applied_config_revision,
+            added_time: entity.added_time,
+        }))
+    }
+
+    pub(crate) async fn instances_from_kv(&self) -> Result<Vec<ServiceInstance>> {
+        let values = self
+            .kernel
+            .persistence
+            .cache
+            .get_all_entities_async("service_instances")
+            .await?;
+        let mut instances = Vec::with_capacity(values.len());
+        for (_, value) in values {
+            let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Service instance entity deserialization failed: {error}"),
+                )
+            })?;
+            let tools = self.tools_from_kv(entity.instance_id).await?;
+            instances.push(ServiceInstance {
+                instance_id: entity.instance_id,
+                service_name: entity.service_name,
+                scope: entity.scope,
+                transport: entity.transport,
+                url: entity.url,
+                command: entity.command,
+                tools,
+                effective_config: entity.effective_config,
+                config_revision: entity.config_revision,
+                applied_config_revision: entity.applied_config_revision,
+                added_time: entity.added_time,
+            });
+        }
+        Ok(instances)
+    }
+
+    pub(crate) async fn tools_from_kv(&self, instance_id: InstanceId) -> Result<Vec<ToolInfo>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .cache
+            .get_relation("instance_tools", &instance_id.to_string())
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let relation: InstanceToolRelation = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Instance tool relation deserialization failed: {error}"),
+            )
+        })?;
+        let mut tools = Vec::with_capacity(relation.tools.len());
+        for tool_name in relation.tools {
+            let Some(tool_value) = self
+                .kernel
+                .persistence
+                .cache
+                .get_entity("tools", &format!("{instance_id}:{tool_name}"))
+                .await?
+            else {
+                continue;
+            };
+            let tool: ToolEntity = serde_json::from_value(tool_value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool entity deserialization failed: {error}"),
+                )
+            })?;
+            tools.push(ToolInfo {
+                name: tool.tool_name,
+                title: tool.title,
+                description: tool.description,
+                input_schema: tool.input_schema,
+                output_schema: tool.output_schema,
+                annotations: tool.annotations,
+                meta: tool.meta,
+            });
+        }
+        Ok(tools)
     }
 }

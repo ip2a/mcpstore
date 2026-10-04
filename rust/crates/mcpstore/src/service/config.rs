@@ -20,14 +20,19 @@ impl MCPStore {
                 "Native export is definition-based; use show_config".to_string(),
             ));
         }
-        self.refresh_from_db_if_needed().await?;
-        let instance = self
-            .kernel
-            .control
-            .registry
-            .find_instance(instance_id)
-            .await
-            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let instance = if self.kernel.runtime.source_mode == SourceMode::Db {
+            self.instance_from_kv(instance_id)
+                .await?
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?
+        } else {
+            self.refresh_from_db_if_needed().await?;
+            self.kernel
+                .control
+                .registry
+                .find_instance(instance_id)
+                .await
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?
+        };
         let mut config = crate::config::McpConfig::default();
         let server: ServerConfig = serde_json::from_value(Value::Object(instance.effective_config))
             .map_err(|error| {
@@ -52,9 +57,8 @@ impl MCPStore {
                 .map_err(Into::into);
         }
 
-        self.refresh_from_db_if_needed().await?;
         let mut config = crate::config::McpConfig::default();
-        for definition in self.kernel.control.registry.list_definitions().await {
+        for definition in self.definitions_from_kv().await? {
             let server = Self::server_config_from_definition(&definition)?;
             config
                 .mcp_servers
@@ -159,20 +163,23 @@ impl MCPStore {
     }
 
     pub async fn get_definition_config(&self, service_name: &str) -> Result<Option<Value>> {
-        self.refresh_from_db_if_needed().await?;
-        let Some(definition) = self
-            .kernel
-            .control
-            .registry
-            .find_definition(service_name)
-            .await
-        else {
-            return Ok(None);
+        let server = match self.kernel.runtime.source_mode {
+            SourceMode::Db => self.definition_server_config(service_name).await?,
+            SourceMode::Local => self
+                .kernel
+                .control
+                .registry
+                .find_definition(service_name)
+                .await
+                .map(|definition| Self::server_config_from_definition(&definition))
+                .transpose()?,
         };
-        Ok(Some(
-            serde_json::to_value(Self::server_config_from_definition(&definition)?)
-                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
-        ))
+        Ok(server
+            .map(|server| {
+                serde_json::to_value(server)
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
+            })
+            .transpose()?)
     }
 
     /// 共享库写路径用。只读这一条定义，不把整表刷进调用方的注册表。
@@ -180,19 +187,10 @@ impl MCPStore {
         &self,
         service_name: &str,
     ) -> Result<Option<ServerConfig>> {
-        let Some(value) = self
-            .cache()
-            .get_entity("service_definitions", service_name)
-            .await?
-        else {
+        let Some(definition) = self.definition_from_kv(service_name).await? else {
             return Ok(None);
         };
-        let entity: crate::cache::models::ServiceDefinitionEntity =
-            serde_json::from_value(value)
-                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        Ok(Some(Self::server_config_from_definition(
-            &ServiceDefinition::from(entity),
-        )?))
+        Ok(Some(Self::server_config_from_definition(&definition)?))
     }
 
     pub async fn get_effective_config(
@@ -200,6 +198,14 @@ impl MCPStore {
         service_name: &str,
         scope: &ScopeRef,
     ) -> Result<Option<Value>> {
+        if self.kernel.runtime.source_mode == SourceMode::Db {
+            let instance_id =
+                ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
+            return Ok(self
+                .instance_from_kv(instance_id)
+                .await?
+                .map(|instance| Value::Object(instance.effective_config)));
+        }
         self.refresh_from_db_if_needed().await?;
         Ok(self
             .kernel

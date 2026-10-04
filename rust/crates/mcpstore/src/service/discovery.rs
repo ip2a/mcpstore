@@ -57,13 +57,18 @@ impl MCPStore {
         Ok(instance.transport == "openapi")
     }
 
+    /// 查询面直读共享库，不注水内存注册表（`load_from_db` 只留给执行路径）。
     pub async fn list_instances(&self) -> Vec<ServiceInstance> {
-        self.refresh_from_db_if_needed().await.ok();
+        if self.kernel.runtime.source_mode == SourceMode::Db {
+            return self.instances_from_kv().await.unwrap_or_default();
+        }
         self.kernel.control.registry.list_instances().await
     }
 
     pub async fn find_instance(&self, instance_id: InstanceId) -> Option<ServiceInstance> {
-        self.refresh_from_db_if_needed().await.ok();
+        if self.kernel.runtime.source_mode == SourceMode::Db {
+            return self.instance_from_kv(instance_id).await.ok().flatten();
+        }
         self.kernel
             .control
             .registry
@@ -72,7 +77,9 @@ impl MCPStore {
     }
 
     pub async fn find_definition(&self, service_name: &str) -> Option<ServiceDefinition> {
-        self.refresh_from_db_if_needed().await.ok();
+        if self.kernel.runtime.source_mode == SourceMode::Db {
+            return self.definition_from_kv(service_name).await.ok().flatten();
+        }
         self.kernel
             .control
             .registry
@@ -84,7 +91,15 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
     ) -> Result<Vec<crate::registry::ToolInfo>> {
-        self.refresh_from_db_if_needed().await?;
+        if self.kernel.runtime.source_mode == SourceMode::Db {
+            if self.instance_from_kv(instance_id).await?.is_none() {
+                return Err(Error::new(
+                    FailureCode::ServiceNotFound,
+                    instance_id.to_string(),
+                ));
+            }
+            return self.tools_from_kv(instance_id).await;
+        }
         if self
             .kernel
             .control
@@ -107,22 +122,56 @@ impl MCPStore {
     }
 
     pub async fn list_all_tools(&self) -> Vec<(InstanceId, crate::registry::ToolInfo)> {
-        self.refresh_from_db_if_needed().await.ok();
+        if self.kernel.runtime.source_mode == SourceMode::Db {
+            return self
+                .instances_from_kv()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .flat_map(|instance| {
+                    instance
+                        .tools
+                        .into_iter()
+                        .map(move |tool| (instance.instance_id, tool))
+                })
+                .collect();
+        }
         self.kernel.control.registry.list_all_tools().await
     }
 
     pub async fn list_agents(&self) -> Result<Vec<serde_json::Value>> {
-        self.refresh_from_db_if_needed().await?;
-        let mut agent_ids = self.kernel.control.registry.list_agent_ids().await;
-        agent_ids.sort();
-
-        let mut agents = Vec::with_capacity(agent_ids.len());
-        for agent_id in agent_ids {
-            agents.push(serde_json::json!({
-                "agent_id": agent_id,
-                "instance_ids": self.kernel.control.registry.list_agent_instance_ids(&agent_id).await,
-            }));
-        }
+        let mut agents = match self.kernel.runtime.source_mode {
+            SourceMode::Db => {
+                let mut by_agent = std::collections::BTreeMap::new();
+                for instance in self.instances_from_kv().await? {
+                    if let ScopeRef::Agent { agent_id } = instance.scope {
+                        by_agent
+                            .entry(agent_id)
+                            .or_insert_with(Vec::new)
+                            .push(instance.instance_id);
+                    }
+                }
+                by_agent
+                    .into_iter()
+                    .map(|(agent_id, instance_ids)| {
+                        serde_json::json!({ "agent_id": agent_id, "instance_ids": instance_ids })
+                    })
+                    .collect::<Vec<_>>()
+            }
+            SourceMode::Local => {
+                let mut agent_ids = self.kernel.control.registry.list_agent_ids().await;
+                agent_ids.sort();
+                let mut agents = Vec::with_capacity(agent_ids.len());
+                for agent_id in agent_ids {
+                    agents.push(serde_json::json!({
+                        "agent_id": agent_id,
+                        "instance_ids": self.kernel.control.registry.list_agent_instance_ids(&agent_id).await,
+                    }));
+                }
+                agents
+            }
+        };
+        agents.sort_by(|a, b| a["agent_id"].as_str().cmp(&b["agent_id"].as_str()));
         Ok(agents)
     }
 }
