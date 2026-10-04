@@ -232,7 +232,8 @@ impl MCPStore {
                 let config: ServerConfig = event_field(value, "config")?;
                 self.register_configured_definition(service_name, &config)
                     .await?;
-                self.connect_desired_instances(service_name).await;
+                self.connect_desired_running_instances(Some(service_name))
+                    .await;
                 self.sync_mcp_json(service_name, Some(&config))?;
             }
             "remove" => {
@@ -281,30 +282,6 @@ impl MCPStore {
             }
         }
         Ok(())
-    }
-
-    async fn connect_desired_instances(&self, service_name: &str) {
-        for instance in self.kernel.control.registry.list_instances().await {
-            if instance.service_name != service_name {
-                continue;
-            }
-            let Ok(Some(state)) = self.kernel.control.state.get(instance.instance_id).await else {
-                continue;
-            };
-            if state.desired != crate::state::DesiredState::Running {
-                continue;
-            }
-            if let Err(error) = self
-                .connect_service_internal(instance.instance_id, false)
-                .await
-            {
-                tracing::warn!(
-                    "[STORE] service event connect failed: {} ({})",
-                    instance.instance_id,
-                    error
-                );
-            }
-        }
     }
 
     fn sync_mcp_json(&self, service_name: &str, config: Option<&ServerConfig>) -> Result<()> {

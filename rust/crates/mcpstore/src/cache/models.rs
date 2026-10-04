@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{HandshakeMode, ScopeDeclarations, ServiceLifecycleConfig};
 use crate::identity::{InstanceId, ScopeRef};
-use crate::registry::{ConfigRevision, ServiceDefinition};
+use crate::registry::{ConfigRevision, ServiceDefinition, ServiceInstance};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheHealthReport {
@@ -40,6 +40,24 @@ impl From<&ServiceDefinition> for ServiceDefinitionEntity {
             metadata: definition.metadata.clone(),
             base_revision: definition.base_revision,
             added_time: definition.added_time,
+        }
+    }
+}
+
+impl From<ServiceInstanceEntity> for ServiceInstance {
+    fn from(entity: ServiceInstanceEntity) -> Self {
+        Self {
+            instance_id: entity.instance_id,
+            service_name: entity.service_name,
+            scope: entity.scope,
+            transport: entity.transport,
+            url: entity.url,
+            command: entity.command,
+            tools: Vec::new(),
+            effective_config: entity.effective_config,
+            config_revision: entity.config_revision,
+            applied_config_revision: entity.applied_config_revision,
+            added_time: entity.added_time,
         }
     }
 }
@@ -124,8 +142,8 @@ pub struct ToolCallResponseEntity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallResponseError {
-    /// FailureCode 的 serde 字符串形态（"ToolFailed" 等）。
-    pub code: String,
+    /// 直接用 FailureCode 做字段类型：serde 往返无字符串编解码，无静默降级。
+    pub code: crate::error::FailureCode,
     pub message: String,
 }
 

@@ -215,14 +215,6 @@ impl InstanceSupervisor {
         self.monitors.lock().await.remove(&instance_id);
     }
 
-    pub(crate) async fn shutdown(&self) {
-        let workers = std::mem::take(&mut *self.workers.lock().await);
-        for (_, worker) in workers {
-            worker.abort();
-            let _ = worker.await;
-        }
-    }
-
     pub(crate) async fn observe_and_commit(
         &self,
         instance_id: InstanceId,

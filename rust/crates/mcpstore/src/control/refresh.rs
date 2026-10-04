@@ -209,22 +209,9 @@ impl MCPStore {
                             ),
                         )
                     })?;
-            instances.push((
-                ServiceInstance {
-                    instance_id: entity.instance_id,
-                    service_name: entity.service_name,
-                    scope: entity.scope,
-                    transport: entity.transport,
-                    url: entity.url,
-                    command: entity.command,
-                    tools,
-                    effective_config: entity.effective_config,
-                    config_revision: entity.config_revision,
-                    applied_config_revision: entity.applied_config_revision,
-                    added_time: entity.added_time,
-                },
-                transport_config,
-            ));
+            let mut instance = ServiceInstance::from(entity);
+            instance.tools = tools;
+            instances.push((instance, transport_config));
         }
 
         let active_instance_ids = instances

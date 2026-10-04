@@ -96,34 +96,7 @@ impl MCPStore {
         }
         self.spawn_service_event_feed_from_ref();
         self.spawn_tool_call_request_feed_from_ref();
-
-        for instance in self.kernel.control.registry.list_instances().await {
-            let state = self
-                .kernel
-                .control
-                .state
-                .get(instance.instance_id)
-                .await?
-                .ok_or_else(|| {
-                    Error::new(
-                        FailureCode::ServiceNotFound,
-                        instance.instance_id.to_string(),
-                    )
-                })?;
-            if state.desired != crate::state::DesiredState::Running {
-                continue;
-            }
-            if let Err(error) = self
-                .connect_service_internal(instance.instance_id, false)
-                .await
-            {
-                tracing::warn!(
-                    "[STORE] on-store-start instance connection failed: {} ({})",
-                    instance.instance_id,
-                    error
-                );
-            }
-        }
+        self.connect_desired_running_instances(None).await;
         Ok(())
     }
 

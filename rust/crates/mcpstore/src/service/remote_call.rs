@@ -278,10 +278,7 @@ impl MCPStore {
                 panel_id: request.panel_id.clone(),
                 result: None,
                 error: Some(ToolCallResponseError {
-                    code: serde_json::to_value(error.code())
-                        .ok()
-                        .and_then(|value| value.as_str().map(str::to_string))
-                        .unwrap_or_else(|| "Internal".to_string()),
+                    code: error.code(),
                     message: error.message().to_string(),
                 }),
             },
@@ -312,7 +309,5 @@ impl MCPStore {
 }
 
 fn remote_error(error: &ToolCallResponseError) -> Error {
-    let code = serde_json::from_value::<FailureCode>(Value::String(error.code.clone()))
-        .unwrap_or(FailureCode::Internal);
-    Error::new(code, error.message.clone())
+    Error::new(error.code, error.message.clone())
 }
