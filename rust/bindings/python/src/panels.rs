@@ -57,4 +57,3 @@ pub(crate) fn parse_panel_role(panel: &Bound<'_, PyAny>) -> PyResult<PanelRole> 
         "panel must be ControlPanel() or DataPanel(panel_id=...)",
     ))
 }
-

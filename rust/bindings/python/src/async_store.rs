@@ -15,9 +15,8 @@ use pyo3::prelude::*;
 use std::sync::Arc;
 
 use crate::core_store::{
-    duration_from_seconds, facade_service_target, map_store_err,
-    parse_openapi_import_options, parse_session_scope, py_to_add_service_config,
-    py_to_server_config, serializable_to_py,
+    duration_from_seconds, facade_service_target, map_store_err, parse_openapi_import_options,
+    parse_session_scope, py_to_add_service_config, py_to_server_config, serializable_to_py,
 };
 use pyo3_async_runtimes::tokio::future_into_py;
 
@@ -136,7 +135,10 @@ impl PyAsyncMCPStore {
         let inner = self.inner.clone();
         let service_name = service_name.to_string();
         future_into_py(py, async move {
-            inner.add_service(&service_name, config).await.map_err(map_store_err)?;
+            inner
+                .add_service(&service_name, config)
+                .await
+                .map_err(map_store_err)?;
             Ok(Python::with_gil(|py| py.None()))
         })
     }
@@ -145,7 +147,10 @@ impl PyAsyncMCPStore {
         let inner = self.inner.clone();
         let service_name = service_name.to_string();
         future_into_py(py, async move {
-            inner.remove_service(&service_name).await.map_err(map_store_err)?;
+            inner
+                .remove_service(&service_name)
+                .await
+                .map_err(map_store_err)?;
             Ok(Python::with_gil(|py| py.None()))
         })
     }
@@ -154,7 +159,10 @@ impl PyAsyncMCPStore {
         let instance_id = parse_instance_id(instance_id)?;
         let inner = self.inner.clone();
         future_into_py(py, async move {
-            inner.restart_service(instance_id).await.map_err(map_store_err)?;
+            inner
+                .restart_service(instance_id)
+                .await
+                .map_err(map_store_err)?;
             Ok(Python::with_gil(|py| py.None()))
         })
     }
