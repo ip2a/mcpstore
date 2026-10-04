@@ -6,20 +6,20 @@ from mcpstore.config import FileConfig, RedisConfig
 
 
 class StoreSetupDefaultsTests(TestCase):
-    def _setup(self, source=None):
+    def _setup(self, source=None, panel=None):
         backend = Mock()
         with patch.object(MCPStore, "setup", return_value=backend) as setup:
-            result = MCPStore.setup_store(source=source)
+            result = MCPStore.setup_store(source=source, panel=panel)
         self.assertIs(result, backend)
         return setup.call_args.kwargs
 
     def test_defaults_to_local_file(self):
         options = self._setup()
         self.assertIsInstance(options["source"], FileConfig)
-        self.assertEqual(options["source_mode"], "local")
+        self.assertNotIn("source_mode", options, "统一模型：source_mode 已删除")
 
-    def test_redis_resolves_to_db_source(self):
+    def test_redis_source_passes_through(self):
         source = RedisConfig(url="redis://localhost:6379/0")
-        options = self._setup(source)
+        options = self._setup(source=source)
         self.assertIs(options["source"], source)
-        self.assertEqual(options["source_mode"], "db")
+        self.assertNotIn("source_mode", options, "统一模型：backend 即部署参数")

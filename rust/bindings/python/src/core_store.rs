@@ -771,6 +771,11 @@ impl PyMCPStore {
             namespace,
         })
         .map_err(map_store_err)?;
+        // 裸绑定也要自足：setup 即种子 + 起两条 feed（block_on 下 ambient
+        // runtime 存在，spawn 才能生效），与 Python 门面行为一致。
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(inner.load_from_config())
+            .map_err(map_store_err)?;
         Ok(Self { inner })
     }
 
@@ -821,11 +826,7 @@ impl PyMCPStore {
     }
 
     /// Remove exactly one service scope and its runtime instance.
-    fn remove_service_scope(
-        &self,
-        service_name: &str,
-        scope: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn remove_service_scope(&self, service_name: &str, scope: &Bound<'_, PyAny>) -> PyResult<()> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service_scope(service_name, &scope))
@@ -833,11 +834,7 @@ impl PyMCPStore {
     }
 
     /// Patch only base MCP fields; `_mcpstore` must be changed through scope APIs.
-    fn patch_service(
-        &self,
-        service_name: &str,
-        base_updates: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn patch_service(&self, service_name: &str, base_updates: &Bound<'_, PyAny>) -> PyResult<()> {
         let base_updates = py_to_serde_value(base_updates, "Service base config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.patch_service(service_name, base_updates))
@@ -848,11 +845,7 @@ impl PyMCPStore {
     ///
     /// Configs containing `_mcpstore` are rejected. Use `declare_service_scope`
     /// or `remove_service_scope` for scope changes.
-    fn update_service(
-        &self,
-        service_name: &str,
-        base_config: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn update_service(&self, service_name: &str, base_config: &Bound<'_, PyAny>) -> PyResult<()> {
         let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.update_service(service_name, base_config))
