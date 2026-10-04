@@ -251,6 +251,7 @@ impl MCPStore {
     }
 
     /// 当前挂载的自愈监督器（可能未挂载）。
+    #[cfg(test)]
     pub(crate) fn control_supervisor(
         &self,
     ) -> Option<std::sync::Arc<crate::health::supervisor::InstanceSupervisor>> {
