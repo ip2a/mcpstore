@@ -14,19 +14,15 @@ impl ControlPlane {
     ) -> Result<InstanceId> {
         let instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
-        if store.kernel.runtime.source_mode == SourceMode::Db {
-            store
-                .put_service_event(serde_json::json!({
-                    "op": "declare_scope",
-                    "service_name": service_name,
-                    "scope": scope,
-                    "descriptor": descriptor,
-                }))
-                .await?;
-            return Ok(instance_id);
-        }
-        self.apply_declare_service_scope(store, service_name, scope, descriptor)
-            .await
+        store
+            .put_service_event(serde_json::json!({
+                "op": "declare_scope",
+                "service_name": service_name,
+                "scope": scope,
+                "descriptor": descriptor,
+            }))
+            .await?;
+        Ok(instance_id)
     }
 
     pub(crate) async fn apply_declare_service_scope(
@@ -74,9 +70,7 @@ impl ControlPlane {
         }
 
         let server = server.clone();
-        if store.kernel.runtime.source_mode == SourceMode::Local
-            || store.kernel.runtime.sync_config_file
-        {
+        if store.kernel.runtime.sync_config_file {
             store.kernel.control.config_manager.save(&config)?;
         }
 
@@ -154,16 +148,12 @@ impl ControlPlane {
         service_name: &str,
         scope: &ScopeRef,
     ) -> Result<()> {
-        if store.kernel.runtime.source_mode == SourceMode::Db {
-            return store
-                .put_service_event(serde_json::json!({
-                    "op": "remove_scope",
-                    "service_name": service_name,
-                    "scope": scope,
-                }))
-                .await;
-        }
-        self.apply_remove_service_scope(store, service_name, scope)
+        store
+            .put_service_event(serde_json::json!({
+                "op": "remove_scope",
+                "service_name": service_name,
+                "scope": scope,
+            }))
             .await
     }
 
@@ -195,9 +185,7 @@ impl ControlPlane {
         }
 
         let server = server.clone();
-        if store.kernel.runtime.source_mode == SourceMode::Local
-            || store.kernel.runtime.sync_config_file
-        {
+        if store.kernel.runtime.sync_config_file {
             store.kernel.control.config_manager.save(&config)?;
         }
 

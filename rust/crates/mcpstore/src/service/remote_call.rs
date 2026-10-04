@@ -119,9 +119,7 @@ impl MCPStore {
 
     /// 控制面板：订阅工具调用请求并代理执行。setup（或 load_from_config）后调用。
     pub(crate) fn spawn_tool_call_request_feed(self: &Arc<Self>) {
-        if self.kernel.runtime.source_mode != SourceMode::Db
-            || !matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel)
-        {
+        if !matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel) {
             return;
         }
         if tokio::runtime::Handle::try_current().is_err() {

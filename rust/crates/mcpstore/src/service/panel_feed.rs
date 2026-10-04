@@ -31,17 +31,37 @@ impl MCPStore {
     }
 
     pub(crate) async fn put_service_event(&self, value: Value) -> Result<()> {
-        self.cache()
-            .put_entity(SERVICE_EVENTS, &uuid::Uuid::new_v4().to_string(), value)
-            .await?;
+        let key = uuid::Uuid::new_v4().to_string();
+        self.cache().put_entity(SERVICE_EVENTS, &key, value).await?;
+        // 读己之写：写的人就是执行者（控制面板）时，等自己的事件被消费掉
+        // 再返回。事件照走 kv + 消费循环，没有捷径。数据面板的执行者在
+        // 别处，写完即返。等待超时只告警不报错——事件已经落库，durable。
+        if matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel) {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                let pending = self
+                    .cache()
+                    .get_entity(SERVICE_EVENTS, &key)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if !pending {
+                    break;
+                }
+                if std::time::Instant::now() > deadline {
+                    tracing::warn!("[STORE] service event {key} not consumed in 2s; returning with apply pending");
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
         Ok(())
     }
 
     /// 共享库的控制面板才订。setup 时若还没有 tokio runtime，等 `load_from_config` 再订。
     pub(crate) fn spawn_service_event_feed(self: &Arc<Self>) {
-        if self.kernel.runtime.source_mode != SourceMode::Db
-            || !matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel)
-        {
+        if !matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel) {
             return;
         }
         if tokio::runtime::Handle::try_current().is_err() {

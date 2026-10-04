@@ -207,15 +207,12 @@ impl MCPStore {
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
-        // 共享库模式下数据面板不直连执行引擎：placement 命中自己才本地建连，
+        // 数据面板不直连执行引擎：placement 命中自己才本地建连，
         // 否则走远端代理（见 route_data_panel_tool_call）。
-        if self.kernel.runtime.source_mode == crate::store::SourceMode::Db {
-            if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role
-            {
-                return self
-                    .route_data_panel_tool_call(panel_id, instance_id, tool_name, args)
-                    .await;
-            }
+        if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role {
+            return self
+                .route_data_panel_tool_call(panel_id, instance_id, tool_name, args)
+                .await;
         }
         self.kernel
             .execution

@@ -5,24 +5,9 @@ use crate::store::{ControlPlane, MCPStore};
 
 impl ControlPlane {
     pub async fn remove_service(&self, store: &MCPStore, service_name: &str) -> Result<()> {
-        if store.kernel.runtime.source_mode == SourceMode::Db {
-            return store
-                .enqueue_service_event("remove", service_name, None)
-                .await;
-        }
-        if store.kernel.runtime.source_mode == SourceMode::Local {
-            let mut config = store.kernel.control.config_manager.load_or_empty()?;
-            if config.mcp_servers.remove(service_name).is_some() {
-                store.kernel.control.config_manager.save(&config)?;
-            } else if store.get_openapi_import(service_name).await?.is_none() {
-                return Err(Error::new(
-                    FailureCode::ServiceNotFound,
-                    service_name.to_string(),
-                ));
-            }
-        }
-
-        self.finish_remove_service(store, service_name).await
+        store
+            .enqueue_service_event("remove", service_name, None)
+            .await
     }
 
     pub(crate) async fn finish_remove_service(
@@ -79,19 +64,10 @@ impl ControlPlane {
             ));
         }
 
-        let mut current = if store.kernel.runtime.source_mode == SourceMode::Local {
-            store
-                .kernel
-                .control
-                .config_manager
-                .load_or_empty()?
-                .mcp_servers
-                .get(service_name)
-                .cloned()
-        } else {
-            store.definition_server_config(service_name).await?
-        }
-        .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
+        let mut current = store
+            .definition_server_config(service_name)
+            .await?
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
 
         current.ensure_native_scopes();
         let base_changed = current.base_config() != config.base_config();
@@ -106,20 +82,8 @@ impl ControlPlane {
             current.definition_revision()
         };
 
-        if store.kernel.runtime.source_mode == SourceMode::Db {
-            return store
-                .enqueue_service_event("update", service_name, Some(&config))
-                .await;
-        }
-        if store.kernel.runtime.source_mode == SourceMode::Local {
-            let mut stored = store.kernel.control.config_manager.load_or_empty()?;
-            stored
-                .mcp_servers
-                .insert(service_name.to_string(), config.clone());
-            store.kernel.control.config_manager.save(&stored)?;
-        }
         store
-            .register_configured_definition(service_name, &config)
+            .enqueue_service_event("update", service_name, Some(&config))
             .await
     }
 
@@ -142,17 +106,10 @@ impl ControlPlane {
             ));
         }
 
-        let current = if store.kernel.runtime.source_mode == SourceMode::Db {
-            store.definition_server_config(service_name).await?
-        } else {
-            store
-                .get_definition_config(service_name)
-                .await?
-                .map(serde_json::from_value)
-                .transpose()
-                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?
-        }
-        .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
+        let current = store
+            .definition_server_config(service_name)
+            .await?
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
         let merged = crate::config::merge_config(&current.base_config(), updates);
         let config = serde_json::from_value(Value::Object(merged))
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
