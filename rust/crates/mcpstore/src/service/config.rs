@@ -131,6 +131,10 @@ impl MCPStore {
     /// 返回 false = 没有可种的内容（无 config_path / 文件为空），调用方转
     /// 而从共享库注水。
     async fn seed_from_config_file(&self) -> Result<bool> {
+        if !self.kernel.runtime.sync_config_file {
+            // 共享后端且未显式传 config_path：不读任何本地文件做种子。
+            return Ok(false);
+        }
         let config = self.kernel.control.config_manager.load_or_empty()?;
         if config.mcp_servers.is_empty() {
             return Ok(false);
@@ -153,6 +157,18 @@ impl MCPStore {
 
     pub async fn load_from_source(&self) -> Result<()> {
         self.load_from_config().await
+    }
+
+    /// 种子文件里有没有这个服务（只在文件是本 store 的种子/落盘目标时才有意义）。
+    pub(crate) fn seed_file_has_service(&self, service_name: &str) -> bool {
+        self.kernel.runtime.sync_config_file
+            && self
+                .kernel
+                .control
+                .config_manager
+                .load_or_empty()
+                .map(|config| config.mcp_servers.contains_key(service_name))
+                .unwrap_or(false)
     }
 
     pub async fn get_definition_config(&self, service_name: &str) -> Result<Option<Value>> {

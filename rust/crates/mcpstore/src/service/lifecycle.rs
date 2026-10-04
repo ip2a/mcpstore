@@ -9,13 +9,7 @@ impl ControlPlane {
         mut config: ServerConfig,
     ) -> Result<()> {
         if store.definition_from_kv(service_name).await?.is_some()
-            || store
-                .kernel
-                .control
-                .config_manager
-                .load_or_empty()?
-                .mcp_servers
-                .contains_key(service_name)
+            || store.seed_file_has_service(service_name)
         {
             return Err(Error::new(
                 FailureCode::Internal,

@@ -528,3 +528,31 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         .unwrap()
         .is_empty());
 }
+
+#[tokio::test]
+async fn data_panel_rejects_process_private_memory_store() {
+    let error = MCPStore::setup_with_options(StoreOptions {
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("role-guard-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::DataPanel {
+            panel_id: "edge-01".to_string(),
+        },
+        ..Default::default()
+    })
+    .err()
+    .expect("data panel on private memory store must be rejected");
+    assert_eq!(error.code(), crate::error::FailureCode::ConfigInvalid);
+}
+
+#[tokio::test]
+async fn remove_of_unknown_service_fails_fast() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("role-remove-{}", uuid::Uuid::new_v4())),
+        ..Default::default()
+    })
+    .unwrap();
+    let error = store.remove_service("ghost").await.unwrap_err();
+    assert_eq!(error.code(), crate::error::FailureCode::ServiceNotFound);
+}

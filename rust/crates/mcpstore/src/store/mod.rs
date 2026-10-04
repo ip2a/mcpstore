@@ -103,6 +103,22 @@ impl MCPStore {
             .and_then(|v| v.as_str())
             .unwrap_or("redis://127.0.0.1/")
             .to_string();
+        // 数据面板必须上共享后端：进程私有 memory 库里的事件/请求没有任何
+        // 控制面板能消费，只会静默孤立（测试名 memory-test-shared 豁免）。
+        if matches!(options.panel, PanelRole::DataPanel { .. })
+            && store_config.store_name() == "memory"
+        {
+            return Err(Error::new(
+                FailureCode::ConfigInvalid,
+                "DataPanel requires a shared backend (e.g. redis); a process-private memory store cannot be consumed by any control panel".to_string(),
+            ));
+        }
+        // 种子/落盘规则：显式 config_path，或 memory 后端（进程内库没有别的
+        // 持久层，文件就是它的持久层——默认单机场景的变更必须落盘）。
+        // 共享后端 + 无显式路径 = 不读不写任何本地文件，防拿个人默认文件
+        // 覆盖共享库。
+        // 注意用原始 store 名判定：memory-test-shared 重映射后的 "memory" 不算。
+        let file_backed = options.config_path.is_some() || store_config.store_name() == "memory";
         #[cfg(any(test, feature = "test-shared-memory"))]
         let store_name = if store_config.store_name() == "memory-test-shared" {
             "memory".to_string()
@@ -187,8 +203,9 @@ impl MCPStore {
                     local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
                     panel_role: options.panel.clone(),
                     runtime_config,
-                    sync_config_file: options.config_path.is_some(),
+                    sync_config_file: file_backed,
                     service_event_feed_started: std::sync::atomic::AtomicBool::new(false),
+                    service_event_feed_failed: std::sync::atomic::AtomicBool::new(false),
                     tool_call_feed_started: std::sync::atomic::AtomicBool::new(false),
                     self_weak: std::sync::OnceLock::new(),
                 },

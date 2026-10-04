@@ -5,6 +5,14 @@ use crate::store::{ControlPlane, MCPStore};
 
 impl ControlPlane {
     pub async fn remove_service(&self, store: &MCPStore, service_name: &str) -> Result<()> {
+        if store.definition_from_kv(service_name).await?.is_none()
+            && !store.seed_file_has_service(service_name)
+        {
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                service_name.to_string(),
+            ));
+        }
         store
             .enqueue_service_event("remove", service_name, None)
             .await

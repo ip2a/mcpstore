@@ -186,19 +186,26 @@ impl MCPStore {
         // 订上再扫一遍已有请求：控制面板启动前数据面板写下的、还没过期的。
         self.drain_tool_call_requests().await;
         loop {
-            match subscription.recv().await {
-                Ok(Some(change)) => {
-                    let store = Arc::clone(self);
-                    // 工具调用可能很慢，逐条 spawn，不阻塞消费循环。
-                    // ponytail: 无并发上限，压力大时加信号量。
-                    let request_id = change.key;
-                    tokio::spawn(async move {
-                        store.handle_tool_call_request(&request_id).await;
-                    });
-                }
-                Ok(None) => return Ok(()),
-                Err(error) => {
-                    return Err(Error::new(FailureCode::Internal, error.to_string()));
+            tokio::select! {
+                change = subscription.recv() => match change {
+                    Ok(Some(change)) => {
+                        let store = Arc::clone(self);
+                        // 工具调用可能很慢，逐条 spawn，不阻塞消费循环。
+                        // ponytail: 无并发上限，压力大时加信号量。
+                        let request_id = change.key;
+                        tokio::spawn(async move {
+                            store.handle_tool_call_request(&request_id).await;
+                        });
+                    }
+                    Ok(None) => return Ok(()),
+                    Err(error) => {
+                        return Err(Error::new(FailureCode::Internal, error.to_string()));
+                    }
+                },
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    // 兜底重扫：换库自愈（drain 走 active store）+ 漏推送恢复。
+                    // 超期请求认领后即弃，重扫不会复活它们。
+                    self.drain_tool_call_requests().await;
                 }
             }
         }

@@ -3,7 +3,24 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub(crate) async fn ensure_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
+        // 数据面板的 placement 判定/合并下沉到这个唯一连接入口：所有执行面
+        // （tools / prompts / resources / tasks / 补全）一次继承，不再漏。
+        if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role {
+            return self
+                .ensure_data_panel_instance_connected(panel_id, instance_id)
+                .await;
+        }
+        // 注水改「缺则补」：注册表已有该实例就不动，避免每次执行全表重建。
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
+            self.load_from_db().await?;
+        }
         if self
             .kernel
             .control

@@ -20,6 +20,8 @@ pub(crate) struct RuntimeState {
     /// `ConfigManager::new()` 会解析到用户真实文件，不能当默认同步目标。
     pub(crate) sync_config_file: bool,
     pub(crate) service_event_feed_started: AtomicBool,
+    /// 后端没有 ChangeFeed 时置位：写路径据此快速失败，不假装成功。
+    pub(crate) service_event_feed_failed: AtomicBool,
     pub(crate) tool_call_feed_started: AtomicBool,
     pub(crate) self_weak: OnceLock<Weak<MCPStore>>,
 }

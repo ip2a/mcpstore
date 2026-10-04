@@ -30,12 +30,34 @@ impl MCPStore {
         self.put_service_event(value).await
     }
 
-    pub(crate) async fn put_service_event(&self, value: Value) -> Result<()> {
+    pub(crate) async fn put_service_event(&self, mut value: Value) -> Result<()> {
+        // 后端没有 ChangeFeed：消费循环起不来，写了也不会执行——快速失败，
+        // 不假装成功。
+        if self
+            .kernel
+            .runtime
+            .service_event_feed_failed
+            .load(Ordering::Acquire)
+        {
+            return Err(Error::new(
+                FailureCode::Internal,
+                "backend does not provide ChangeFeed; service events cannot be consumed"
+                    .to_string(),
+            ));
+        }
+        // 盖入队时间戳：积压重放按它排序，恢复用户写入的先后次序。
+        if let Some(object) = value.as_object_mut() {
+            object.insert(
+                "enqueued_unix_ms".to_string(),
+                serde_json::json!(chrono::Utc::now().timestamp_millis()),
+            );
+        }
         let key = uuid::Uuid::new_v4().to_string();
         self.cache().put_entity(SERVICE_EVENTS, &key, value).await?;
         // 读己之写：写的人就是执行者（控制面板）时，等自己的事件被消费掉
         // 再返回。事件照走 kv + 消费循环，没有捷径。数据面板的执行者在
-        // 别处，写完即返。等待超时只告警不报错——事件已经落库，durable。
+        // 别处，写完即返。等待超时报错：要么 apply 失败（键还在被重试），
+        // 要么消费循环没在跑——两种情况调用方都不该拿到成功。
         if matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel) {
             let deadline = std::time::Instant::now() + Duration::from_secs(2);
             loop {
@@ -50,8 +72,12 @@ impl MCPStore {
                     break;
                 }
                 if std::time::Instant::now() > deadline {
-                    tracing::warn!("[STORE] service event {key} not consumed in 2s; returning with apply pending");
-                    break;
+                    return Err(Error::new(
+                        FailureCode::Internal,
+                        format!(
+                            "service event {key} not consumed within 2s: apply failed or consumer is not running"
+                        ),
+                    ));
                 }
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
@@ -107,6 +133,10 @@ impl MCPStore {
             match self.consume_service_events().await {
                 Ok(()) => {}
                 Err(error) if error.message().contains("does not provide ChangeFeed") => {
+                    self.kernel
+                        .runtime
+                        .service_event_feed_failed
+                        .store(true, Ordering::Release);
                     return Err(error);
                 }
                 Err(error) => {
@@ -151,14 +181,27 @@ impl MCPStore {
     }
 
     async fn drain_service_events(&self) {
-        let keys = match self.cache().get_all_entities_async(SERVICE_EVENTS).await {
-            Ok(events) => events.into_keys().collect::<Vec<_>>(),
+        let events = match self.cache().get_all_entities_async(SERVICE_EVENTS).await {
+            Ok(events) => events,
             Err(error) => {
                 tracing::warn!("[STORE] service event drain failed: {error}");
                 return;
             }
         };
-        for key in keys {
+        // 按入队时间戳排序：积压重放必须恢复写入的先后次序，
+        // 否则 add+remove 的最终态可能反过来。
+        let mut ordered = events
+            .into_iter()
+            .map(|(key, value)| {
+                let enqueued = value
+                    .get("enqueued_unix_ms")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(i64::MIN);
+                (enqueued, key)
+            })
+            .collect::<Vec<_>>();
+        ordered.sort();
+        for (_, key) in ordered {
             self.apply_service_event(&key).await;
         }
     }

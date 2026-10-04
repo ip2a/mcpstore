@@ -14,6 +14,14 @@ impl ControlPlane {
     ) -> Result<InstanceId> {
         let instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
+        if store.definition_from_kv(service_name).await?.is_none()
+            && !store.seed_file_has_service(service_name)
+        {
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                service_name.to_string(),
+            ));
+        }
         store
             .put_service_event(serde_json::json!({
                 "op": "declare_scope",
