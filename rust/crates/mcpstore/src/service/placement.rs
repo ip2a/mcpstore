@@ -67,6 +67,69 @@ impl MCPStore {
         self.connect_service_internal(instance_id, false).await
     }
 
+    /// 数据面板的 call 路由：placement 命中本面板 → 本地建连执行；
+    /// placement 为空 → 远端代理执行；指向其他面板 → 场景 3，明确不支持。
+    pub(crate) async fn route_data_panel_tool_call(
+        &self,
+        panel_id: &str,
+        instance_id: InstanceId,
+        tool_name: &str,
+        args: Value,
+    ) -> Result<crate::transport::ToolCallResult> {
+        let instance = self
+            .instance_from_kv(instance_id)
+            .await?
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let definition = self
+            .definition_from_kv(&instance.service_name)
+            .await?
+            .ok_or_else(|| {
+                Error::new(FailureCode::ServiceNotFound, instance.service_name.clone())
+            })?;
+
+        if let Some(diff) = definition.placement.get(panel_id) {
+            let diff_object = diff.as_object().ok_or_else(|| {
+                Error::new(
+                    FailureCode::ConfigInvalid,
+                    format!(
+                        "placement[{panel_id}] of service '{}' must be an object",
+                        definition.service_name
+                    ),
+                )
+            })?;
+            if !self.kernel.execution.pool.is_connected(instance_id).await {
+                // 首次调用才注水一次（连接池 / 状态机需要进程内结构），再用 placement 覆盖建连。
+                self.load_from_db().await?;
+                let merged = crate::config::merge_config(&definition.base_config, diff_object);
+                self.connect_with_local_config(instance_id, merged).await?;
+            }
+            return self
+                .kernel
+                .execution
+                .call_tool(self, instance_id, tool_name, args)
+                .await;
+        }
+
+        if definition.placement.is_empty() {
+            // 场景 1：控制面板代理执行（kvstore RPC），下一里程碑落地。
+            return Err(Error::new(
+                FailureCode::ServiceUnavailable,
+                format!(
+                    "remote proxy call for service '{}' lands with the tool_call RPC milestone",
+                    instance.service_name
+                ),
+            ));
+        }
+
+        Err(Error::new(
+            FailureCode::ServiceUnavailable,
+            format!(
+                "service '{}' is placed on another panel; this data panel only executes placement['{panel_id}']",
+                instance.service_name
+            ),
+        ))
+    }
+
     /// 数据面板角色在 load 完成后调用：拉取 placement 命中的服务本地建连。
     /// 单个服务失败不阻断其余，返回成功建立的数量。
     pub(crate) async fn serve_placement(&self, panel_id: &str) -> Result<usize> {
