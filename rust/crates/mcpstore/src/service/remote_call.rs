@@ -243,6 +243,7 @@ impl MCPStore {
         }
 
         // 先建连再 call：override 解析按已同步的 tools 校验工具名（与本地路径顺序一致）。
+        let started = std::time::Instant::now();
         let executed = async {
             self.ensure_instance_connected(request.instance_id).await?;
             self.call_tool(
@@ -253,6 +254,13 @@ impl MCPStore {
             .await
         }
         .await;
+        tracing::info!(
+            "[STORE] remote tool call '{}' for panel '{}' took {}ms: {}",
+            request.tool_name,
+            request.panel_id,
+            started.elapsed().as_millis(),
+            if executed.is_ok() { "ok" } else { "failed" }
+        );
         let response = match executed {
             Ok(result) => ToolCallResponseEntity {
                 request_id: request.request_id.clone(),
