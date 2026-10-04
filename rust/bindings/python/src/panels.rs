@@ -1,7 +1,7 @@
 //! Panel role configuration: passed to setup_store, not constructed after.
 //!
 //! - ControlPanel(): decision + connection maintenance + self-heal (default)
-//! - DataPanel(panel_id): placement serving on load, no periodic work
+//! - DataPanel(panel_id): lazy placement serving, no periodic work
 
 use mcpstore::PanelRole;
 use pyo3::prelude::*;
@@ -19,7 +19,7 @@ impl PyControlPanel {
     }
 }
 
-/// 数据面板角色：load 时自动拉取 placement 命中的服务本地建连。
+/// 数据面板角色：placement 命中的服务在首次调用时本地建连（lazy）。
 #[pyclass(name = "DataPanel")]
 #[derive(Clone)]
 pub struct PyDataPanel {

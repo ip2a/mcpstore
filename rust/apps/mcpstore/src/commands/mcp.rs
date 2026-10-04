@@ -797,9 +797,6 @@ pub async fn update(
         &env_map,
         &header_map,
     )?;
-    if a.scope == Scope::Agent {
-        return Err("Runtime policy is definition-level; use --scope store".into());
-    }
     let mut access = open_store(&a.store, embedded, endpoint.clone()).await?;
     let receipt = match a.scope.to_ref(a.agent.as_deref())? {
         ScopeRef::Store => {

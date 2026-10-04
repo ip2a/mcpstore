@@ -24,12 +24,6 @@ pub struct PyMCPStore {
     inner: std::sync::Arc<MCPStore>,
 }
 
-impl PyMCPStore {
-    pub(crate) fn inner(&self) -> &std::sync::Arc<MCPStore> {
-        &self.inner
-    }
-}
-
 #[pyclass(name = "ScopeContext")]
 pub struct PyScopeContext {
     inner: ScopeContext,

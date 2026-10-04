@@ -46,8 +46,12 @@ pub struct StoreSourceArgs {
         help = "Run control panel (self-heal supervision)"
     )]
     pub control_panel: bool,
-    /// 挂载数据面板（执行 + 15s 心跳能力自报）
-    #[arg(long = "data-panel", help = "Run data panel (execution + heartbeat)")]
+    /// 挂载数据面板（placement 命中的服务本地执行；写/远端调用走共享库）
+    #[arg(
+        long = "data-panel",
+        requires = "panel_id",
+        help = "Run data panel (requires --panel-id and a shared store)"
+    )]
     pub data_panel: bool,
     #[arg(
         long = "panel-id",

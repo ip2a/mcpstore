@@ -119,9 +119,6 @@ fn append_start_args(command: &mut std::process::Command, args: &StoreSourceArgs
     // 控制面板是缺省值，只需回放数据面板 flag，detached 重启才不会退回默认形态。
     if args.data_panel {
         command.arg("--data-panel");
-        if let Some(panel_id) = &args.panel_id {
-            command.arg("--panel-id").arg(panel_id);
-        }
     }
     if let Some(panel_id) = &args.panel_id {
         command.arg("--panel-id").arg(panel_id);

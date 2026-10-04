@@ -22,23 +22,6 @@ def _config_triplet(source: Any) -> tuple[Optional[str], Optional[dict[str, Any]
     return store, config, namespace
 
 
-def _resolve_source_mode(source: Any) -> str:
-    """Map a source config object to Rust source_mode.
-
-    FileConfig / MemoryConfig (or anything whose store_name is 'file'/'local'/'memory')
-    -> "local".  Any other Store (Redis, Sqlite, ...) -> "db".
-    """
-    if source is None:
-        return "local"
-    store_name = getattr(source, "store_name", None)
-    if store_name is None and isinstance(source, dict):
-        store_name = str(source.get("store", "")).strip().lower()
-    store_name = (store_name or "").strip().lower()
-    if store_name in {"file", "local", "memory"}:
-        return "local"
-    return "db"
-
-
 def _extract_file_path(source: Any) -> Optional[str]:
     """If source is a FileConfig carrying a path, return it; else None."""
     path = getattr(source, "path", None)
@@ -51,26 +34,23 @@ def _extract_file_path(source: Any) -> Optional[str]:
 # Backend construction
 # ---------------------------------------------------------------------------
 
-def setup_backend(backend_cls: type, source: Any, source_mode: str, panel: Any = None):
+def setup_backend(backend_cls: type, source: Any, panel: Any = None):
     """Build the Rust-backed store.
 
-    ``source_mode`` selects where service definitions are read from
-    (``local`` vs ``db``). Roles are composed externally via ControlPanel/
-    DataPanel components; setup carries no role.
+    kvstore 永远是真源，backend 是部署参数（memory/redis/...）；
+    panel 是 setup 的角色参数（ControlPanel / DataPanel）。
     """
     rust_mod = importlib.import_module("mcpstore._rust")
     file_path = _extract_file_path(source)
     store_name, store_config, namespace = _config_triplet(source)
     rust_store = rust_mod.MCPStore.setup_with_options(
         file_path,
-        source_mode,
         store_name,
         json.dumps(store_config or {}, separators=(",", ":")),
         namespace,
         panel,
     )
     store = backend_cls(rust_store)
-    store._source_mode = source_mode
     store.load_from_config()
     return store
 
@@ -110,10 +90,8 @@ class StoreSetupManager:
 
             source = FileConfig()
 
-        source_mode = _resolve_source_mode(source)
-
         from mcpstore.store.store import MCPStore as PyMCPStore
-        store = PyMCPStore.setup(source=source, source_mode=source_mode, panel=panel)
+        store = PyMCPStore.setup(source=source, panel=panel)
 
         if static_config:
             StoreSetupManager._add_static_config(store, static_config)
