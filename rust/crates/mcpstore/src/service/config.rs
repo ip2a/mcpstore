@@ -95,15 +95,7 @@ impl MCPStore {
     pub async fn load_from_config(&self) -> Result<()> {
         if self.kernel.runtime.source_mode == SourceMode::Db {
             self.load_from_db().await?;
-            // 角色内化：数据面板 load 完即拉取 placement 命中的服务本地建连。
-            if let crate::store::PanelRole::DataPanel { panel_id } =
-                &self.kernel.runtime.panel_role
-            {
-                let connected = self.serve_placement(panel_id).await?;
-                tracing::info!(
-                    "[STORE] data panel '{panel_id}' serving {connected} placement service(s)"
-                );
-            }
+            self.spawn_service_event_feed_from_ref();
             return Ok(());
         }
 
@@ -124,9 +116,7 @@ impl MCPStore {
         }
 
         // 角色内化：数据面板 load 完即拉取 placement 命中的服务本地建连。
-        if let crate::store::PanelRole::DataPanel { panel_id } =
-            &self.kernel.runtime.panel_role
-        {
+        if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role {
             let connected = self.serve_placement(panel_id).await?;
             tracing::info!(
                 "[STORE] data panel '{panel_id}' serving {connected} placement service(s)"
@@ -183,6 +173,26 @@ impl MCPStore {
             serde_json::to_value(Self::server_config_from_definition(&definition)?)
                 .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
         ))
+    }
+
+    /// 共享库写路径用。只读这一条定义，不把整表刷进调用方的注册表。
+    pub(crate) async fn definition_server_config(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<ServerConfig>> {
+        let Some(value) = self
+            .cache()
+            .get_entity("service_definitions", service_name)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let entity: crate::cache::models::ServiceDefinitionEntity =
+            serde_json::from_value(value)
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+        Ok(Some(Self::server_config_from_definition(
+            &ServiceDefinition::from(entity),
+        )?))
     }
 
     pub async fn get_effective_config(

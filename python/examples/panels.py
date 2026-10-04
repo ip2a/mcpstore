@@ -37,7 +37,7 @@
 
     store = MCPStore.setup_store(
         source=RedisConfig(url="redis://central:6379"),
-        panel=DataPanel(panel_id="edge-01"),   # load 即自动 serve placement
+        panel=DataPanel(panel_id="edge-01"),  # 共享库模式不执行，写操作只进事件
     )
 
 panel 是 setup 的参数，不存在第二个对象；缺省即 ControlPanel。

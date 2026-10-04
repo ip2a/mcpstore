@@ -30,13 +30,10 @@ impl MCPStore {
             let Some(diff_object) = diff.as_object() else {
                 return Err(Error::new(
                     FailureCode::ConfigInvalid,
-                    format!(
-                        "placement[{panel_id}] of service '{service_name}' must be an object"
-                    ),
+                    format!("placement[{panel_id}] of service '{service_name}' must be an object"),
                 ));
             };
-            let merged =
-                crate::config::merge_config(&definition.base_config, diff_object);
+            let merged = crate::config::merge_config(&definition.base_config, diff_object);
             entries.push(PlacementService {
                 service_name: service_name.clone(),
                 instance_id: ServiceInstanceKey::new(service_name, ScopeRef::Store).instance_id(),

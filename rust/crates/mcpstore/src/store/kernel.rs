@@ -5,7 +5,7 @@ mod runtime_state;
 
 pub(crate) use control_plane::ControlPlane;
 pub(crate) use execution::ExecutionEngine;
-pub(crate) use persistence::PersistenceRouter;
+pub(crate) use persistence::{EventBackend, PersistenceRouter};
 pub(crate) use runtime_state::RuntimeState;
 
 pub(crate) struct StoreKernel {

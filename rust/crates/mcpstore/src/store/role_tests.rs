@@ -8,10 +8,8 @@ use crate::store::{JsonStoreConfig, MCPStore, PanelRole, StoreOptions};
 
 #[tokio::test]
 async fn control_panel_role_attaches_supervisor_at_setup() {
-    let path = std::env::temp_dir().join(format!(
-        "mcpstore-role-control-{}.json",
-        std::process::id()
-    ));
+    let path =
+        std::env::temp_dir().join(format!("mcpstore-role-control-{}.json", std::process::id()));
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
@@ -30,10 +28,8 @@ async fn control_panel_role_attaches_supervisor_at_setup() {
 
 #[tokio::test]
 async fn default_role_is_control_panel() {
-    let path = std::env::temp_dir().join(format!(
-        "mcpstore-role-default-{}.json",
-        std::process::id()
-    ));
+    let path =
+        std::env::temp_dir().join(format!("mcpstore-role-default-{}.json", std::process::id()));
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::memory()),
@@ -42,16 +38,16 @@ async fn default_role_is_control_panel() {
     })
     .unwrap();
 
-    assert!(store.control_supervisor().is_some(), "default = control panel");
+    assert!(
+        store.control_supervisor().is_some(),
+        "default = control panel"
+    );
     std::fs::remove_file(&path).ok();
 }
 
 #[tokio::test]
 async fn data_panel_role_serves_placement_on_load() {
-    let path = std::env::temp_dir().join(format!(
-        "mcpstore-role-data-{}.json",
-        std::process::id()
-    ));
+    let path = std::env::temp_dir().join(format!("mcpstore-role-data-{}.json", std::process::id()));
     // 先用控制面板角色写配置（带 placement）
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.to_string_lossy().into_owned()),
@@ -91,7 +87,10 @@ async fn data_panel_role_serves_placement_on_load() {
     })
     .unwrap();
 
-    assert!(panel.control_supervisor().is_none(), "data panel has no supervisor");
+    assert!(
+        panel.control_supervisor().is_none(),
+        "data panel has no supervisor"
+    );
     assert_eq!(panel.panel_id(), "edge-01");
     panel.load_from_source().await.unwrap();
 
@@ -115,5 +114,228 @@ async fn data_panel_role_serves_placement_on_load() {
         .await
         .unwrap();
     assert!(!result.is_error);
+    std::fs::remove_file(&path).ok();
+}
+
+#[tokio::test]
+async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
+    let path =
+        std::env::temp_dir().join(format!("mcpstore-role-feed-{}.json", uuid::Uuid::new_v4()));
+    let namespace = format!("role-feed-{}", uuid::Uuid::new_v4());
+    let control = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.to_string_lossy().into_owned()),
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let data = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace),
+        panel: PanelRole::DataPanel {
+            panel_id: "edge-01".to_string(),
+        },
+    })
+    .unwrap();
+    data.add_service(
+        "svc",
+        ServerConfig {
+            command: Some("echo".to_string()),
+            args: vec!["fixture".to_string()],
+            transport: Some("stdio".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(data
+        .kernel
+        .control
+        .registry
+        .find_definition("svc")
+        .await
+        .is_none());
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let applied = control
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .is_some();
+        let synced = control
+            .kernel
+            .control
+            .config_manager
+            .load_or_empty()
+            .unwrap()
+            .mcp_servers
+            .contains_key("svc");
+        if applied && synced {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("control panel did not apply the data panel add");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(data
+        .kernel
+        .control
+        .registry
+        .find_definition("svc")
+        .await
+        .is_none());
+    assert!(data
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .is_empty());
+
+    data.load_from_config().await.unwrap();
+    assert!(data
+        .kernel
+        .control
+        .registry
+        .find_definition("svc")
+        .await
+        .is_some());
+    assert!(data
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .is_empty());
+
+    data.remove_service("svc").await.unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let gone = control
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .is_none();
+        let file = control
+            .kernel
+            .control
+            .config_manager
+            .load_or_empty()
+            .unwrap();
+        if gone && !file.mcp_servers.contains_key("svc") {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("control panel did not apply the data panel remove");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    std::fs::remove_file(&path).ok();
+}
+
+#[tokio::test]
+async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
+    let path =
+        std::env::temp_dir().join(format!("mcpstore-role-scope-{}.json", uuid::Uuid::new_v4()));
+    let namespace = format!("role-scope-{}", uuid::Uuid::new_v4());
+    let control = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.to_string_lossy().into_owned()),
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let data = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace),
+        panel: PanelRole::DataPanel {
+            panel_id: "edge-01".to_string(),
+        },
+    })
+    .unwrap();
+    control
+        .add_service(
+            "svc",
+            ServerConfig {
+                command: Some("echo".to_string()),
+                args: vec!["fixture".to_string()],
+                transport: Some("stdio".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if control
+            .kernel
+            .control
+            .registry
+            .find_definition("svc")
+            .await
+            .is_some()
+        {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("control panel did not apply the add");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    let scope = crate::identity::ScopeRef::Agent {
+        agent_id: "agent-1".to_string(),
+    };
+    let instance_id = data
+        .declare_service_scope("svc", &scope, crate::config::ScopeDescriptor::default())
+        .await
+        .unwrap();
+    assert!(data
+        .kernel
+        .control
+        .registry
+        .find_instance(instance_id)
+        .await
+        .is_none());
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let applied = control.find_instance(instance_id).await.is_some();
+        let synced = control
+            .kernel
+            .control
+            .config_manager
+            .load_or_empty()
+            .unwrap()
+            .mcp_servers
+            .get("svc")
+            .is_some_and(|server| server.scopes().agents.contains_key("agent-1"));
+        if applied && synced {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("control panel did not apply the scope declare");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(data
+        .kernel
+        .control
+        .registry
+        .find_instance(instance_id)
+        .await
+        .is_none());
     std::fs::remove_file(&path).ok();
 }

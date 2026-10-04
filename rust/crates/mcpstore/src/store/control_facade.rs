@@ -15,11 +15,7 @@ impl MCPStore {
         self.kernel.control.remove_service(self, service_name).await
     }
 
-    pub async fn update_service(
-        &self,
-        service_name: &str,
-        config: ServerConfig,
-    ) -> Result<()> {
+    pub async fn update_service(&self, service_name: &str, config: ServerConfig) -> Result<()> {
         self.kernel
             .control
             .update_service(self, service_name, config)
@@ -45,11 +41,7 @@ impl MCPStore {
             .await
     }
 
-    pub async fn remove_service_scope(
-        &self,
-        service_name: &str,
-        scope: &ScopeRef,
-    ) -> Result<()> {
+    pub async fn remove_service_scope(&self, service_name: &str, scope: &ScopeRef) -> Result<()> {
         self.kernel
             .control
             .remove_service_scope(self, service_name, scope)

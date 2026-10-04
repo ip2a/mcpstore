@@ -5,10 +5,7 @@ impl CacheLayerManager {
         Self::entity_collection_with_namespace(&self.namespace(), entity_type)
     }
 
-    pub(in crate::cache) fn entity_collection_with_namespace(
-        namespace: &str,
-        entity_type: &str,
-    ) -> String {
+    pub(crate) fn entity_collection_with_namespace(namespace: &str, entity_type: &str) -> String {
         format!("{namespace}:entity:{entity_type}")
     }
 
@@ -18,6 +15,7 @@ impl CacheLayerManager {
             "clients",
             "service_definitions",
             "service_instances",
+            "service_events",
             "sessions",
             "store",
             "tools",

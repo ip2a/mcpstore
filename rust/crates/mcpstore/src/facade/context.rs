@@ -192,9 +192,7 @@ impl ScopeContext {
         config: ServerConfig,
     ) -> Result<Self> {
         let (service_name, _) = self.resolve_service(target).await?;
-        self.store
-            .update_service(&service_name, config)
-            .await?;
+        self.store.update_service(&service_name, config).await?;
         Ok(self.clone())
     }
 

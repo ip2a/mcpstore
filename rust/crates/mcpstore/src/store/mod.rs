@@ -4,7 +4,6 @@ use std::sync::RwLock as SyncRwLock;
 pub(crate) use crate::cache::models::OpenApiImportContextState;
 pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::config::{ConfigManager, ServerConfig, StartupPolicy};
-use crate::event_reactor::{EventBackend, EventReactor, ReactorConfig, Rule};
 pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{
     ConfigRevision, ServiceDefinition, ServiceInstance, ServiceRegistry,
@@ -26,7 +25,7 @@ pub mod store_config;
 pub mod swap;
 mod tool_changes;
 pub(crate) use kernel::{
-    ControlPlane, ExecutionEngine, PersistenceRouter, RuntimeState, StoreKernel,
+    ControlPlane, EventBackend, ExecutionEngine, PersistenceRouter, RuntimeState, StoreKernel,
 };
 use runtime::StoreRuntimeConfig;
 
@@ -114,7 +113,11 @@ impl MCPStore {
         let store_name = store_name;
         let (cache_store, event_backend) = match store_name.as_str() {
             "memory" => {
-                let (store, mem) = crate::cache::storage::memory_cache_store_with_handle();
+                let (store, mem) = if store_config.store_name() == "memory-test-shared" {
+                    crate::cache::storage::shared_memory_cache_store_with_handle()
+                } else {
+                    crate::cache::storage::memory_cache_store_with_handle()
+                };
                 let handle = openkeyv::StoreHandle::with_capabilities(
                     std::sync::Arc::new(mem.clone()),
                     Some(std::sync::Arc::new(mem.clone())),
@@ -126,7 +129,7 @@ impl MCPStore {
             }
             "redis" => {
                 let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
-                (store, None) // Redis EventBackend created lazily in setup_event_reactor
+                (store, None) // Redis EventBackend opened lazily on migration
             }
             backend => {
                 return Err(Error::new(FailureCode::Internal, format!(
@@ -181,11 +184,13 @@ impl MCPStore {
                 runtime: RuntimeState {
                     namespace: SyncRwLock::new(namespace),
                     applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
-                    event_reactor: tokio::sync::RwLock::new(None),
                     local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
                     source_mode: options.source_mode,
                     panel_role: options.panel.clone(),
                     runtime_config,
+                    sync_config_file: options.config_path.is_some(),
+                    service_event_feed_started: std::sync::atomic::AtomicBool::new(false),
+                    self_weak: std::sync::OnceLock::new(),
                 },
             },
         });
@@ -194,6 +199,12 @@ impl MCPStore {
         if matches!(options.panel, PanelRole::ControlPanel) {
             store.attach_control_supervisor()?;
         }
+        let _ = store
+            .kernel
+            .runtime
+            .self_weak
+            .set(std::sync::Arc::downgrade(&store));
+        store.spawn_service_event_feed();
         Ok(store)
     }
 
@@ -213,7 +224,10 @@ impl MCPStore {
             self.kernel.control.state.clone(),
         ));
         supervisor.attach_store(std::sync::Arc::downgrade(self));
-        self.kernel.execution.pool.attach_supervisor(supervisor.clone());
+        self.kernel
+            .execution
+            .pool
+            .attach_supervisor(supervisor.clone());
         let _ = self.kernel.execution.supervisor.set(supervisor);
         Ok(())
     }
@@ -284,24 +298,13 @@ impl MCPStore {
         }
     }
 
-    // ── EventReactor facade ──
-
-    /// Initialize the EventReactor using the shared event backend. For Memory,
-    /// the backend was created during construction (sharing the cache layer's
-    /// MemoryStore). For Redis, it connects now (async) to the same Redis URL.
-    pub async fn setup_event_reactor(&self, config: ReactorConfig) -> Result<()> {
-        // Fast path: backend already initialized. Drop the read guard before
-        // potentially taking the write guard below to avoid RwLock upgrade deadlock.
-        if let Some(b) = self.kernel.persistence.event_backend.read().await.clone() {
-            let reactor = std::sync::Arc::new(
-                EventReactor::new(b, config)
-                    .with_event_bus(self.kernel.execution.event_bus.clone()),
-            );
-            *self.kernel.runtime.event_reactor.write().await = Some(reactor);
-            return Ok(());
+    /// Shared ChangeFeed-capable handle over the active store. Memory shares
+    /// the cache layer's store; Redis opens a handle to the same URL. Used by
+    /// the service event feed and online migration.
+    pub(crate) async fn ensure_event_backend(&self) -> Result<EventBackend> {
+        if let Some(backend) = self.kernel.persistence.event_backend.read().await.clone() {
+            return Ok(backend);
         }
-
-        // Slow path: build the backend (Redis needs async connect), then write.
         let backend = {
             let storage = self.kernel.persistence.store_config.read().await;
             match storage.store_name() {
@@ -330,49 +333,7 @@ impl MCPStore {
             }
         };
         *self.kernel.persistence.event_backend.write().await = Some(backend.clone());
-
-        let reactor = std::sync::Arc::new(
-            EventReactor::new(backend, config)
-                .with_event_bus(self.kernel.execution.event_bus.clone()),
-        );
-        *self.kernel.runtime.event_reactor.write().await = Some(reactor);
-        Ok(())
-    }
-
-    /// Register a rule with the EventReactor. Requires `setup_event_reactor`.
-    pub async fn register_rule(&self, rule: Rule) -> Result<()> {
-        let guard = self.kernel.runtime.event_reactor.read().await;
-        let reactor = guard
-            .as_ref()
-            .ok_or_else(|| Error::new(FailureCode::Internal, "event reactor not initialized"))?;
-        reactor.register(rule).await;
-        Ok(())
-    }
-
-    /// Start the EventReactor feed loop. Requires `setup_event_reactor`.
-    pub async fn start_reactor(&self) -> Result<()> {
-        let guard = self.kernel.runtime.event_reactor.read().await;
-        let reactor = guard
-            .as_ref()
-            .ok_or_else(|| Error::new(FailureCode::Internal, "event reactor not initialized"))?;
-        reactor
-            .start()
-            .await
-            .map_err(|e| Error::new(FailureCode::Internal, format!("reactor start: {e}")))?;
-        Ok(())
-    }
-
-    /// Stop the EventReactor feed loop gracefully.
-    pub async fn stop_reactor(&self) {
-        let guard = self.kernel.runtime.event_reactor.read().await;
-        if let Some(reactor) = guard.as_ref() {
-            reactor.shutdown().await;
-        }
-    }
-
-    /// Check whether the EventReactor is initialized.
-    pub async fn has_reactor(&self) -> bool {
-        self.kernel.runtime.event_reactor.read().await.is_some()
+        Ok(backend)
     }
 }
 

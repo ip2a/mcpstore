@@ -373,7 +373,11 @@ url = "http://115.191.69.41:8021"
     assert_eq!(loaded.hosts.active, "测试 A");
     assert_eq!(loaded.hosts.entries.len(), 2);
     assert_eq!(
-        loaded.hosts.entries.get("local").map(|entry| entry.url.as_str()),
+        loaded
+            .hosts
+            .entries
+            .get("local")
+            .map(|entry| entry.url.as_str()),
         Some("/api")
     );
     assert_eq!(

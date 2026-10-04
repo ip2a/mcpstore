@@ -9,9 +9,8 @@ use super::store_config::JsonStoreConfig;
 
 /// 面板角色：setup 的参数，决定本进程的行为。
 ///
-/// - 控制面板：决策 + 维护全部 MCP 连接 + 自愈监督（setup 时自动挂载）
-/// - 数据面板：执行 placement 命中的服务（load 时自动拉取建连），
-///   panel_id 即面板身份
+/// - 控制面板：setup 时挂自愈监督。共享库模式下加删改只写事件，订上 ChangeFeed 后再执行。
+/// - 数据面板：本地模式 load 时执行 placement。共享库模式不执行，panel_id 只是身份。
 #[derive(Clone, Debug, PartialEq)]
 pub enum PanelRole {
     ControlPanel,

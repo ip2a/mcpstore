@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[cfg(feature = "redis")]
 use crate::cache::redis::LazyRedisStore;
@@ -39,9 +39,22 @@ pub(crate) fn memory_cache_store() -> Arc<dyn CacheStore> {
 }
 
 /// Like `memory_cache_store`, but also returns the underlying MemoryStore
-/// handle (sharing the same `Arc<MemoryClient>`) for use by EventReactor.
+/// handle (sharing the same `Arc<MemoryClient>`) for use by online migration.
 pub(crate) fn memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore) {
-    let inner = OpenKeyvMemoryStore::new();
+    cache_store_from_memory(OpenKeyvMemoryStore::new())
+}
+
+/// `memory-test-shared` 名字以前每次 setup 仍是一把新库，两个进程内面板对不上 ChangeFeed。
+/// ponytail: 进程内一把库。只给这个测试名用；正式 memory() 仍是每次新建。
+pub(crate) fn shared_memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore)
+{
+    static SHARED: OnceLock<OpenKeyvMemoryStore> = OnceLock::new();
+    cache_store_from_memory(SHARED.get_or_init(OpenKeyvMemoryStore::new).clone())
+}
+
+fn cache_store_from_memory(
+    inner: OpenKeyvMemoryStore,
+) -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore) {
     let store = Arc::new(inner.clone());
     let handle = openkeyv::StoreHandle::with_capabilities(
         store.clone(),

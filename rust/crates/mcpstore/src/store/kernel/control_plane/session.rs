@@ -97,11 +97,7 @@ impl ControlPlane {
         Ok(())
     }
 
-    pub async fn restart_service(
-        &self,
-        store: &MCPStore,
-        instance_id: InstanceId,
-    ) -> Result<()> {
+    pub async fn restart_service(&self, store: &MCPStore, instance_id: InstanceId) -> Result<()> {
         if store
             .kernel
             .control
@@ -116,8 +112,6 @@ impl ControlPlane {
             ));
         }
         self.disconnect_service(store, instance_id).await?;
-        store
-            .connect_service_internal(instance_id, false)
-            .await
+        store.connect_service_internal(instance_id, false).await
     }
 }

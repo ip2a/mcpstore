@@ -5,6 +5,7 @@ const ENTITY_TYPES: &[&str] = &[
     "clients",
     "service_definitions",
     "service_instances",
+    "service_events",
     "sessions",
     "store",
     "tools",

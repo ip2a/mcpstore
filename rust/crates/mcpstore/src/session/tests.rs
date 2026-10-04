@@ -1,6 +1,6 @@
 use super::*;
-use crate::{JsonStoreConfig, StoreOptions, ToolVisibilityFilter};
 use crate::store::PanelRole;
+use crate::{JsonStoreConfig, StoreOptions, ToolVisibilityFilter};
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

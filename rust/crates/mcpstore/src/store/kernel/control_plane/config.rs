@@ -3,7 +3,18 @@ use crate::store::{ControlPlane, MCPStore};
 
 impl ControlPlane {
     pub async fn reset_config(&self, store: &MCPStore) -> Result<()> {
-        if store.kernel.runtime.source_mode == SourceMode::Local {
+        if store.kernel.runtime.source_mode == SourceMode::Db {
+            return store
+                .put_service_event(serde_json::json!({ "op": "reset_config" }))
+                .await;
+        }
+        self.apply_reset_config(store).await
+    }
+
+    pub(crate) async fn apply_reset_config(&self, store: &MCPStore) -> Result<()> {
+        if store.kernel.runtime.source_mode == SourceMode::Local
+            || store.kernel.runtime.sync_config_file
+        {
             store
                 .kernel
                 .control
@@ -68,6 +79,18 @@ impl ControlPlane {
     }
 
     pub async fn reset_scope(&self, store: &MCPStore, scope: &ScopeRef) -> Result<()> {
+        if store.kernel.runtime.source_mode == SourceMode::Db {
+            return store
+                .put_service_event(serde_json::json!({
+                    "op": "reset_scope",
+                    "scope": scope,
+                }))
+                .await;
+        }
+        self.apply_reset_scope(store, scope).await
+    }
+
+    pub(crate) async fn apply_reset_scope(&self, store: &MCPStore, scope: &ScopeRef) -> Result<()> {
         let mut config = store.show_config_entry().await?;
         let mut removed = Vec::new();
         let mut changed_definitions = Vec::new();
@@ -95,7 +118,9 @@ impl ControlPlane {
                 changed_definitions.push((service_name.clone(), server.clone()));
             }
         }
-        if store.kernel.runtime.source_mode == SourceMode::Local {
+        if store.kernel.runtime.source_mode == SourceMode::Local
+            || store.kernel.runtime.sync_config_file
+        {
             store.kernel.control.config_manager.save(&config)?;
         }
 

@@ -9,9 +9,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use crate::config::{
-    McpStoreExtension, ScopeDeclarations, ScopeDescriptor,
-};
+use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
 fn temp_config_path() -> String {
@@ -37,6 +35,39 @@ fn instance_id(service_name: &str, scope: ScopeRef) -> InstanceId {
 
 fn store_instance_id(service_name: &str) -> InstanceId {
     instance_id(service_name, store_scope())
+}
+
+async fn wait_for_definition(store: &MCPStore, name: &str) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if store
+            .kernel
+            .control
+            .registry
+            .find_definition(name)
+            .await
+            .is_some()
+        {
+            return;
+        }
+        if Instant::now() > deadline {
+            panic!("timed out waiting for definition {name}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn wait_for_instance(store: &MCPStore, instance_id: InstanceId, present: bool) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if store.find_instance(instance_id).await.is_some() == present {
+            return;
+        }
+        if Instant::now() > deadline {
+            panic!("timed out waiting for instance {instance_id} present={present}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 fn write_temp_file(contents: &str) -> String {
@@ -891,7 +922,6 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
     config
 }
 
-
 #[tokio::test]
 async fn add_service_writes_definition_and_instance_cache_layers() {
     let path = temp_config_path();
@@ -1012,7 +1042,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
 }
 
 #[tokio::test]
-async fn db_source_writes_definition_without_touching_config_file() {
+async fn db_source_add_lands_after_control_panel_consumes_the_event() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
@@ -1024,14 +1054,18 @@ async fn db_source_writes_definition_without_touching_config_file() {
     .unwrap();
 
     store.add_service("svc", stdio_config()).await.unwrap();
+    wait_for_definition(&store, "svc").await;
 
-    assert!(!std::path::Path::new(&path).exists());
+    assert!(Path::new(&path).exists());
     assert!(store
         .cache()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
         .is_some());
+    let saved = store.kernel.control.config_manager.load_or_empty().unwrap();
+    assert!(saved.mcp_servers.contains_key("svc"));
+    std::fs::remove_file(&path).ok();
 }
 
 #[tokio::test]
@@ -1184,7 +1218,6 @@ async fn local_reset_preserves_cache_schema_marker() {
 
     std::fs::remove_file(path).ok();
 }
-
 
 #[tokio::test]
 async fn openapi_import_persists_shared_analysis_result() {
@@ -6222,10 +6255,7 @@ mod scoped_contract {
         updated.mcpstore = None;
         updated.command = Some("changed-command".to_string());
         updated.args = vec!["--changed".to_string()];
-        store
-            .update_service("svc", updated.clone())
-            .await
-            .unwrap();
+        store.update_service("svc", updated.clone()).await.unwrap();
 
         let instance = store.find_instance(store_instance_id).await.unwrap();
         assert_eq!(instance.tools, vec![tool("echo")]);
@@ -7360,7 +7390,9 @@ mod scoped_contract {
             .add_service("beta", native_config(ScopeDeclarations::store_only()))
             .await
             .unwrap();
-        assert!(!std::path::Path::new(&config_path).exists());
+        wait_for_definition(&store, "alpha").await;
+        wait_for_definition(&store, "beta").await;
+        assert!(std::path::Path::new(&config_path).exists());
 
         let scope = agent_scope("agent-1");
         let alpha_id = store
@@ -7375,14 +7407,15 @@ mod scoped_contract {
             .declare_service_scope("beta", &scope, ScopeDescriptor::default())
             .await
             .unwrap();
-        assert!(store.find_instance(alpha_id).await.is_some());
-        assert!(store.find_instance(beta_id).await.is_some());
+        wait_for_instance(&store, alpha_id, true).await;
+        wait_for_instance(&store, beta_id, true).await;
 
         store.remove_service_scope("alpha", &scope).await.unwrap();
-        assert!(store.find_instance(alpha_id).await.is_none());
+        wait_for_instance(&store, alpha_id, false).await;
         assert!(store.find_instance(beta_id).await.is_some());
 
         store.reset_scope(&scope).await.unwrap();
+        wait_for_instance(&store, beta_id, false).await;
         store.load_from_db().await.unwrap();
         for service_name in ["alpha", "beta"] {
             let definition = store
@@ -7397,7 +7430,6 @@ mod scoped_contract {
         }
         assert!(store.find_instance(alpha_id).await.is_none());
         assert!(store.find_instance(beta_id).await.is_none());
-        assert!(!std::path::Path::new(&config_path).exists());
     }
 
     #[tokio::test]
@@ -7685,97 +7717,6 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     std::fs::remove_file(path).ok();
 }
 
-#[cfg(test)]
-mod event_reactor_facade {
-    use super::*;
-    use crate::event_reactor::{ReactionOutcome, ReactorConfig, Rule};
-    use crate::store::JsonStoreConfig;
-    use tokio::sync::Notify;
-    use tokio::time::Duration;
-
-    /// MCPStore facade: setup reactor → register rule → start → write → trigger.
-    #[tokio::test]
-    async fn facade_reactor_end_to_end_memory() {
-        let store = MCPStore::setup_with_options(StoreOptions {
-            store: Some(JsonStoreConfig::memory()),
-            ..StoreOptions::default()
-        })
-        .unwrap();
-
-        let config = ReactorConfig {
-            subscriber_id: "facade-test-sub".into(),
-            owner_id: "facade-test-owner".into(),
-            namespace: "mcpstore".into(),
-            watch_collections: vec!["mcpstore:event:facade.test".into()],
-            max_causation_depth: 16,
-            recovery_interval: std::time::Duration::from_secs(60),
-            feed_retry_interval: std::time::Duration::from_secs(1),
-        };
-
-        store.setup_event_reactor(config).await.unwrap();
-        assert!(store.has_reactor().await);
-
-        let notify = Arc::new(Notify::new());
-        let nc = notify.clone();
-        store
-            .register_rule(Rule::new(
-                "facade.rule.v1",
-                |ctx| Box::pin(async move { ctx.collection == "mcpstore:event:facade.test" }),
-                move |_ctx| {
-                    let nc = nc.clone();
-                    Box::pin(async move {
-                        nc.notify_one();
-                        ReactionOutcome::Ok
-                    })
-                },
-            ))
-            .await
-            .unwrap();
-
-        store.start_reactor().await.unwrap();
-
-        // Give subscription a moment to establish.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Write a value to the watched collection via the cache layer — the
-        // EventReactor's independent backend will see it via ChangeFeed.
-        store
-            .kernel
-            .persistence
-            .cache
-            .put_event(
-                "facade.test",
-                "evt-1",
-                serde_json::json!({"source": "facade-test"}),
-            )
-            .await
-            .unwrap();
-
-        tokio::time::timeout(Duration::from_secs(5), notify.notified())
-            .await
-            .expect("facade reaction did not fire");
-
-        store.stop_reactor().await;
-    }
-
-    /// Calling facade methods without setup_event_reactor should error gracefully.
-    #[tokio::test]
-    async fn facade_reactor_not_initialized_errors() {
-        let store = MCPStore::setup_with_options(StoreOptions {
-            store: Some(JsonStoreConfig::memory()),
-            ..StoreOptions::default()
-        })
-        .unwrap();
-
-        assert!(!store.has_reactor().await);
-
-        let result = store.start_reactor().await;
-        assert!(result.is_err());
-
-        store.stop_reactor().await; // no-op, should not panic
-    }
-}
-
 #[tokio::test]
 async fn data_plane_closes_only_connections_started_by_this_process() {
     let source_path = temp_config_path();
@@ -7985,5 +7926,3 @@ mod swap_and_cache_tests {
         std::fs::remove_file(path).ok();
     }
 }
-
-

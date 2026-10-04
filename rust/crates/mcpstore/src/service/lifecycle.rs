@@ -23,6 +23,11 @@ impl ControlPlane {
         }
 
         config.ensure_native_scopes();
+        if store.kernel.runtime.source_mode == SourceMode::Db {
+            return store
+                .enqueue_service_event("add", service_name, Some(&config))
+                .await;
+        }
         if store.kernel.runtime.source_mode == SourceMode::Local {
             let mut stored = store.kernel.control.config_manager.load_or_empty()?;
             if stored.mcp_servers.contains_key(service_name) {
