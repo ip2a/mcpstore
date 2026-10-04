@@ -1,8 +1,9 @@
 //! 数据面板按 placement 拉取服务定义并本地执行。
 //!
-//! placement 语义（对账文档 D5）：`_mcpstore.placement` 的键是 panel_id，
-//! 值是覆盖 base_config 的配置 diff；未出现在 placement 里的服务默认由
-//! 控制面板执行。数据面板只执行 placement 命中自己的服务。
+//! placement 语义：`_mcpstore.placement` 的键是 panel_id，值是覆盖
+//! base_config 的配置 diff；未出现在 placement 里的服务默认由控制面板
+//! 执行。数据面板只执行 placement 命中自己的服务（调用时 lazy 建连，
+//! 常驻语义由生命周期配置 keep_alive / OnStoreStart 表达）。
 
 use serde_json::{Map, Value};
 
@@ -122,28 +123,5 @@ impl MCPStore {
                 instance.service_name
             ),
         ))
-    }
-
-    /// 数据面板角色在 load 完成后调用：拉取 placement 命中的服务本地建连。
-    /// 单个服务失败不阻断其余，返回成功建立的数量。
-    pub(crate) async fn serve_placement(&self, panel_id: &str) -> Result<usize> {
-        let services = self.panel_services(panel_id).await?;
-        let mut connected = 0;
-        for service in services {
-            let instance_id = service.instance_id;
-            match self
-                .connect_with_local_config(instance_id, service.merged_config)
-                .await
-            {
-                Ok(()) => connected += 1,
-                Err(error) => tracing::warn!(
-                    panel_id = %panel_id,
-                    service = %service.service_name,
-                    %error,
-                    "placement 服务本地执行失败"
-                ),
-            }
-        }
-        Ok(connected)
     }
 }
