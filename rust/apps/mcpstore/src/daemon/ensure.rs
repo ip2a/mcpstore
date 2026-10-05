@@ -14,12 +14,12 @@ struct DaemonStartState {
     store: StoreSourceArgs,
 }
 
-/// 探测 daemon 是否就绪：socket 可连且握手通过。
+/// Probe whether the daemon is ready: the socket connects and the handshake passes.
 pub async fn is_daemon_ready() -> bool {
     crate::daemon::client::connect_admin(None).await.is_ok()
 }
 
-/// 等待 daemon 就绪，200ms 轮询，超时报错并提示前台排查。
+/// Wait for the daemon: 200ms polling; on timeout, error and suggest a foreground run.
 pub async fn wait_daemon_ready(timeout: Duration) -> Result<(), Error> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -34,7 +34,7 @@ pub async fn wait_daemon_ready(timeout: Duration) -> Result<(), Error> {
     ))
 }
 
-/// 后台拉起 daemon：detached、独立进程组，stdout/stderr 追加到配置目录 logs/daemon.out。
+/// Spawn the daemon in the background: detached, own process group, stdout/stderr appended to logs/daemon.out in the config dir.
 pub fn spawn_detached_daemon() -> io::Result<()> {
     use std::process::{Command, Stdio};
 
@@ -61,7 +61,7 @@ pub fn spawn_detached_daemon() -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        // 独立进程组：脱离当前终端，父进程（CLI）退出不影响 daemon。
+        // Own process group: detaches from the current terminal so the parent (CLI) exiting doesn't affect the daemon.
         command.process_group(0);
     }
     #[cfg(windows)]
@@ -116,7 +116,7 @@ fn append_start_args(command: &mut std::process::Command, args: &StoreSourceArgs
     if let Some(namespace) = &args.namespace {
         command.arg("--namespace").arg(namespace);
     }
-    // 控制面板是缺省值，只需回放数据面板 flag，detached 重启才不会退回默认形态。
+    // Control panel is the default; replay only the data-panel flags so a detached restart doesn't fall back to the default shape.
     if args.data_panel {
         command.arg("--data-panel");
     }

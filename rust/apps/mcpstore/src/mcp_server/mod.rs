@@ -164,7 +164,7 @@ impl McpServerOptions {
             control_panel: false,
             data_panel: false,
             config_path: self.config_path.clone(),
-            // 统一模型：--source 不再选择语义，重建时用 CLI 缺省值
+            // Unified model: --source no longer selects semantics; the rebuild uses CLI defaults
             source: crate::store_args::SourceArg::Local,
             store: self.store.as_ref().map(|store| store.store.clone()),
             store_config: self.store.as_ref().map(|store| store.config.to_string()),

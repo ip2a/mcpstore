@@ -103,8 +103,8 @@ impl MCPStore {
             .and_then(|v| v.as_str())
             .unwrap_or("redis://127.0.0.1/")
             .to_string();
-        // 数据面板必须上共享后端：进程私有 memory 库里的事件/请求没有任何
-        // 控制面板能消费，只会静默孤立（测试名 memory-test-shared 豁免）。
+        // Data panels must use a shared backend: events/requests in a process-private memory store are never
+        // consumed by any control panel and just sit silently orphaned (test name memory-test-shared is exempt).
         if matches!(options.panel, PanelRole::DataPanel { .. })
             && store_config.store_name() == "memory"
         {
@@ -113,11 +113,11 @@ impl MCPStore {
                 "DataPanel requires a shared backend (e.g. redis); a process-private memory store cannot be consumed by any control panel".to_string(),
             ));
         }
-        // 种子/落盘规则：显式 config_path，或 memory 后端（进程内库没有别的
-        // 持久层，文件就是它的持久层——默认单机场景的变更必须落盘）。
-        // 共享后端 + 无显式路径 = 不读不写任何本地文件，防拿个人默认文件
-        // 覆盖共享库。
-        // 注意用原始 store 名判定：memory-test-shared 重映射后的 "memory" 不算。
+        // Seed/flush rules: explicit config_path, or a memory backend (an in-process store has no other
+        // persistence layer, the file is it — default single-machine changes must be flushed to disk).
+        // Shared backend + no explicit path = never read or write any local file, so a personal default file can't
+        // override the shared store.
+        // Note: decide by the raw store name; "memory" after memory-test-shared remapping doesn't count.
         let file_backed = options.config_path.is_some() || store_config.store_name() == "memory";
         #[cfg(any(test, feature = "test-shared-memory"))]
         let store_name = if store_config.store_name() == "memory-test-shared" {
@@ -211,8 +211,8 @@ impl MCPStore {
                 },
             },
         });
-        // 角色内化：控制面板 setup 即挂载自愈监督器（幂等）；
-        // 数据面板不挂（结构性跳过 startup probe / 健康自愈）。
+        // Roles are internalized: the control panel mounts the self-healing supervisor at setup (idempotent);
+        // the data panel doesn't (structurally skips startup probe / health self-healing).
         if matches!(options.panel, PanelRole::ControlPanel) {
             store.attach_control_supervisor()?;
         }
@@ -226,13 +226,13 @@ impl MCPStore {
         Ok(store)
     }
 
-    /// 本进程的面板角色。
+    /// This process's panel role.
     pub fn panel_role(&self) -> &PanelRole {
         &self.kernel.runtime.panel_role
     }
 
-    /// 挂载控制面板的自愈监督器（幂等）。
-    /// 由 ControlPanel 调用；未挂载即无自愈行为。
+    /// Mount the control panel's self-healing supervisor (idempotent).
+    /// Called by ControlPanel; not mounted means no self-healing.
     pub fn attach_control_supervisor(self: &std::sync::Arc<Self>) -> Result<()> {
         if self.kernel.execution.supervisor.get().is_some() {
             return Ok(());
@@ -250,7 +250,7 @@ impl MCPStore {
         Ok(())
     }
 
-    /// 当前挂载的自愈监督器（可能未挂载）。
+    /// The currently mounted self-healing supervisor (may be unmounted).
     #[cfg(test)]
     pub(crate) fn control_supervisor(
         &self,
@@ -283,8 +283,8 @@ impl MCPStore {
         self.kernel.control.state.panel_id().to_string()
     }
 
-    /// Close only transports started by this process（进程生命周期收尾：
-    /// 短命宿主退出时只清理自己启动的连接，不动其他节点拥有的传输）。
+    /// Close only transports started by this process (process-lifetime teardown:
+    /// short-lived hosts clean up only the connections they started, leaving other nodes' transports alone).
     pub async fn close_local_connections(&self) {
         let instance_ids: Vec<crate::identity::InstanceId> = self
             .kernel

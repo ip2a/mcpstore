@@ -37,8 +37,8 @@ def _extract_file_path(source: Any) -> Optional[str]:
 def setup_backend(backend_cls: type, source: Any, panel: Any = None):
     """Build the Rust-backed store.
 
-    kvstore 永远是真源，backend 是部署参数（memory/redis/...）；
-    panel 是 setup 的角色参数（ControlPanel / DataPanel）。
+    kvstore is always the source of truth; backend is a deployment parameter (memory/redis/...);
+    panel is the setup role parameter (ControlPanel / DataPanel).
     """
     rust_mod = importlib.import_module("mcpstore._rust")
     file_path = _extract_file_path(source)

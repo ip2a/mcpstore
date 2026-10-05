@@ -65,7 +65,7 @@ pub async fn stop() -> Result<(), BoxErr> {
 
 #[derive(clap::Subcommand)]
 pub enum DaemonAction {
-    /// 优雅停机后后台重新拉起 daemon（与 `mcpstore restart SERVICE` 的服务级重启区分）
+    /// Restart the daemon in the background after a graceful stop (distinct from the service-level `mcpstore restart SERVICE`)
     Restart,
 }
 
@@ -75,7 +75,7 @@ pub async fn run_daemon(action: DaemonAction) -> Result<(), BoxErr> {
     }
 }
 
-/// 优雅停机后后台重新拉起，等待就绪。
+/// Re-spawn in the background after a graceful stop, then wait for readiness.
 pub async fn restart() -> Result<(), BoxErr> {
     if is_daemon_running() {
         stop().await?;
@@ -86,7 +86,7 @@ pub async fn restart() -> Result<(), BoxErr> {
     Ok(())
 }
 
-/// daemon 状态总览：socket 不通时明确说 not running，绝不拉起。
+/// Daemon status overview: when the socket is unreachable, say not running plainly — never spawn.
 pub async fn status(json: bool) -> Result<(), BoxErr> {
     if !is_daemon_running() {
         if json {
@@ -122,7 +122,7 @@ pub async fn status(json: bool) -> Result<(), BoxErr> {
     Ok(())
 }
 
-/// `mcpstore api` / `mcpstore web` 裸命令：只读视图 + 修改提示，不启动任何进程。
+/// Bare `mcpstore api` / `mcpstore web`: read-only view plus a hint to edit; never starts any process.
 pub async fn face_view(face: &str, json: bool) -> Result<(), BoxErr> {
     let tip = match face {
         "core" => "mcpstore config --core-port <port> | mcpstore config --core <on|off> | mcpstore config --host <ip>",
@@ -173,7 +173,7 @@ pub async fn face_view(face: &str, json: bool) -> Result<(), BoxErr> {
                     json!({"face": face, "running": false, "enabled": enabled, "port": port, "host": config.server.host})
                 );
             } else {
-                println!("[{face}] daemon: not running（showing values from config.toml）");
+                println!("[{face}] daemon: not running (showing values from config.toml)");
                 println!(
                     "[{face}] enabled: {}  host: {}  port: {}",
                     if enabled { "on" } else { "off" },

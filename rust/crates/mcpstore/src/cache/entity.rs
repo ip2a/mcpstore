@@ -73,7 +73,7 @@ impl CacheLayerManager {
         result
     }
 
-    /// 原子取走一条实体：恰好一个调用方拿到值。
+    /// Atomically take one entity: exactly one caller gets the value.
     pub async fn claim_entity(
         &self,
         entity_type: &str,

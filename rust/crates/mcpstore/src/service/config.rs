@@ -79,10 +79,10 @@ impl MCPStore {
     }
 
     pub async fn load_from_config(&self) -> Result<()> {
-        // 统一模型：kv 是真源。控制面板启动读一次种子（mcp.json 启动时赢），
-        // 停机期间别人的写入由未消费的 service_events 重放补回；之后文件只
-        // 作为消费后的落盘。数据面板无种子、无注水、无订阅——查询 kv 直读，
-        // 调用按 placement 路由。
+        // Unified model: kv is the source of truth. The control panel reads the seed once at startup (mcp.json wins at boot),
+        // writes made while we were down are replayed via unconsumed service_events; afterwards the file serves only
+        // as the post-consume flush target. The data panel has no seed, no hydration, no subscription — queries read kv directly,
+        // calls route per placement.
         if !matches!(
             self.kernel.runtime.panel_role,
             crate::store::PanelRole::ControlPanel
@@ -100,12 +100,12 @@ impl MCPStore {
         Ok(())
     }
 
-    /// 启动种子：控制面板把 mcp.json 灌成真源（注册进 kv + 注册表）。
-    /// 返回 false = 没有可种的内容（无 config_path / 文件为空），调用方转
-    /// 而从共享库注水。
+    /// Startup seed: the control panel pours mcp.json into the source of truth (registered into kv + registry).
+    /// Returns false = nothing to seed (no config_path / empty file); the caller falls
+    /// back to hydrating from the shared store.
     async fn seed_from_config_file(&self) -> Result<bool> {
         if !self.kernel.runtime.sync_config_file {
-            // 共享后端且未显式传 config_path：不读任何本地文件做种子。
+            // Shared backend without an explicit config_path: no local file is read as seed.
             return Ok(false);
         }
         let config = self.kernel.control.config_manager.load_or_empty()?;
@@ -132,7 +132,7 @@ impl MCPStore {
         self.load_from_config().await
     }
 
-    /// 种子文件里有没有这个服务（只在文件是本 store 的种子/落盘目标时才有意义）。
+    /// Whether the seed file contains this service (only meaningful when the file is this store's seed/flush target).
     pub(crate) fn seed_file_has_service(&self, service_name: &str) -> bool {
         self.kernel.runtime.sync_config_file
             && self
@@ -155,7 +155,7 @@ impl MCPStore {
             .transpose()?)
     }
 
-    /// 共享库写路径用。只读这一条定义，不把整表刷进调用方的注册表。
+    /// For shared-store write paths. Reads this one definition only; never flushes the whole table into the caller's registry.
     pub(crate) async fn definition_server_config(
         &self,
         service_name: &str,

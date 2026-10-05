@@ -14,7 +14,7 @@ impl MCPStore {
         {
             return Ok(instance);
         }
-        // 缺则补：只在实例实际缺席时注水一次，循环调用方不再 N+1 全量重建。
+        // Fill-if-missing: hydrate only when the instance is actually absent, so looping callers stop N+1 full rebuilds.
         self.load_from_db().await?;
         self.kernel
             .control

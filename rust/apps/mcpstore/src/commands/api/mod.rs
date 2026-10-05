@@ -53,8 +53,8 @@ struct McpHub {
     descriptor: McpServerLaunchDescriptor,
 }
 
-/// 把 `(service_name, scope)` 解析成 instance_id；服务未在该 scope 声明时返回 404。
-/// 新版 URL 以「服务名 + 作用域」寻址，instance_id 只在 API 层内部流转，不再暴露给用户。
+/// Resolve `(service_name, scope)` to an instance_id; 404 when the service isn't declared in that scope.
+/// New-style URLs address by service name + scope; instance_id stays internal to the API layer and is no longer exposed to users.
 async fn resolve_instance(
     state: &ApiState,
     service_name: &str,
@@ -81,7 +81,7 @@ async fn resolve_instance(
         })
 }
 
-/// 构建 daemon 共享的 ApiState。
+/// Build the daemon-shared ApiState.
 pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     Arc::new(ApiState {
         store,
@@ -99,12 +99,12 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     full_router(state_for_store(store), prefix)
 }
 
-/// App 面：daemon 自身（健康/元信息/设置/配置/客户端导入/聚合/缓存），固定本地。
+/// App plane: the daemon itself (health/meta/settings/config/client import/aggregate/cache), always local.
 pub fn app_router(state: Arc<ApiState>) -> Router {
     app_routes(state).layer(CorsLayer::permissive())
 }
 
-/// Core 面：全部 store 业务，可随 core base 指向远程 daemon。
+/// Core plane: all store business; follows the core base to a remote daemon.
 pub fn core_router(state: Arc<ApiState>) -> Router {
     core_routes(state).layer(CorsLayer::permissive())
 }
@@ -122,11 +122,11 @@ fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
 
 fn app_routes(state: Arc<ApiState>) -> Router {
     Router::new()
-        // ===== app：应用配置 / 元信息 / 历史（app 专用，非 core）=====
+        // ===== app: app config / meta / history (app-only, not core) =====
         .route("/health", get(app::health))
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
-        // ===== 配置 / 客户端导入 / 聚合 / 缓存（app 专用，非 core）=====
+        // ===== config / client import / aggregate / cache (app-only, not core) =====
         .route("/config", get(service::store_show_config))
         .route("/config/reset", post(service::store_reset_config))
         .route("/client-config/import", post(client::client_config_import))
@@ -157,7 +157,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             "/scopes/agents/:agent_id/reset",
             post(service::agent_reset_config),
         )
-        // ===== services：服务定义（根级 CRUD）+ 服务信息 =====
+        // ===== services: service definitions (root-level CRUD) + service info =====
         .route("/services/list", get(service::service_list_services))
         .route(
             "/services/:service_name",
@@ -166,7 +166,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
                 .put(service::update_service_definition)
                 .delete(service::remove_service_definition),
         )
-        // ===== services：生命周期 / 状态（服务名 + scope 寻址）=====
+        // ===== services: lifecycle / status (service name + scope addressing) =====
         .route("/services/:service_name/state", get(service::service_state))
         .route(
             "/services/:service_name/connect",
@@ -182,7 +182,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
         )
         .route("/services/:service_name/wait", get(service::service_wait))
         .route("/services/:service_name/check", get(service::service_check))
-        // ===== tools：服务嵌套形态 + 顶层形态 =====
+        // ===== tools: service-nested form + top-level form =====
         .route(
             "/services/:service_name/tools/list",
             get(service::service_list_tools),
@@ -193,7 +193,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
         )
         .route("/tools/list", get(service::tools_list))
         .route("/tools/call", post(service::tools_call))
-        // ===== resources / prompts（服务名 + scope 寻址）=====
+        // ===== resources / prompts (service name + scope addressing) =====
         .route(
             "/services/:service_name/resources/list",
             get(service::service_list_resources),
@@ -214,7 +214,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             "/services/:service_name/prompts/get",
             post(service::service_get_prompt),
         )
-        // ===== services：scope 声明 =====
+        // ===== services: scope declarations =====
         .route(
             "/services/:service_name/scopes/store",
             put(service::declare_store_scope).delete(service::remove_store_scope),
@@ -223,7 +223,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             "/services/:service_name/scopes/agents/:agent_id",
             put(service::declare_agent_scope).delete(service::remove_agent_scope),
         )
-        // ===== sessions（已折叠为单形态：session_key 走 query/body）=====
+        // ===== sessions (collapsed to a single form: session_key via query/body) =====
         .route("/sessions/create", post(session::session_create))
         .route("/sessions/get", get(session::session_get))
         .route("/sessions/find", get(session::session_find))
@@ -261,7 +261,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             post(session::session_delete_state),
         )
         .route("/sessions/state/clear", post(session::session_clear_state))
-        // ===== 工具策略 / 转换规则 / 补全 / 资源订阅（服务名 + scope 寻址）=====
+        // ===== tool policy / override rules / completions / resource subscriptions (service name + scope addressing) =====
         .route(
             "/services/:service_name/tool-policy",
             get(service::service_get_tool_policy)
@@ -317,7 +317,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             "/services/:service_name/resources/unsubscribe",
             post(service::service_unsubscribe_resource),
         )
-        // ===== OAuth 认证（服务名 + scope 寻址）=====
+        // ===== OAuth (service name + scope addressing) =====
         .route(
             "/services/:service_name/auth",
             get(auth::service_auth_status),
@@ -350,7 +350,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             "/services/:service_name/auth/scope-upgrade",
             post(auth::service_auth_scope_upgrade),
         )
-        // ===== OpenAPI 导入（保留）=====
+        // ===== OpenAPI import (kept) =====
         .route("/openapi_imports", get(openapi::store_list_openapi_imports))
         .route(
             "/openapi_imports/:name",

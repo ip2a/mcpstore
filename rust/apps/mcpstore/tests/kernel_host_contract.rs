@@ -386,7 +386,7 @@ fn run_cli_in_dir(
         .map_err(Into::into)
 }
 
-/// 把 CLI 指到指定 daemon 的 socket/pid（不传显式 store 参数，请求由该 daemon 执行）。
+/// Point the CLI at the given daemon's socket/pid (no explicit store args; that daemon executes the requests).
 fn run_cli_on_daemon(
     socket: &Path,
     pid: &Path,
@@ -518,9 +518,9 @@ impl HostFixture {
             .arg(namespace)
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
-            // cargo test 进程带着 DYLD_FALLBACK_LIBRARY_PATH（多为构建目录，常在慢速卷），
-            // 子进程继承后 dyld 逐目录回查会把 daemon 启动拖慢数秒，超过 wait_for_socket 预算。
-            // 独立二进制的 rpath 已内嵌，剥掉该变量即生产等价环境。
+            // The cargo test process carries DYLD_FALLBACK_LIBRARY_PATH (usually build dirs, often on slow volumes);
+            // the child inheriting it makes dyld's per-dir fallback search slow daemon startup by seconds, blowing the wait_for_socket budget.
+            // The standalone binary has rpath baked in; stripping the variable matches production.
             .env_remove("DYLD_FALLBACK_LIBRARY_PATH")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -550,7 +550,7 @@ impl HostFixture {
         let socket = dir.join("kernel.sock");
         let pid = dir.join("kernel.pid");
         let cli = repo_root().join("target/debug/mcpstore");
-        // 本契约只测 kernel socket；禁用 HTTP 面，避免端口冲突
+        // This contract only exercises the kernel socket; HTTP planes disabled to avoid port clashes
         let config_path = dir.join("config.json");
         std::fs::write(&config_path, b"{}")?;
         std::fs::write(
@@ -582,9 +582,9 @@ impl HostFixture {
             .args(&daemon_args)
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
-            // cargo test 进程带着 DYLD_FALLBACK_LIBRARY_PATH（多为构建目录，常在慢速卷），
-            // 子进程继承后 dyld 逐目录回查会把 daemon 启动拖慢数秒，超过 wait_for_socket 预算。
-            // 独立二进制的 rpath 已内嵌，剥掉该变量即生产等价环境。
+            // The cargo test process carries DYLD_FALLBACK_LIBRARY_PATH (usually build dirs, often on slow volumes);
+            // the child inheriting it makes dyld's per-dir fallback search slow daemon startup by seconds, blowing the wait_for_socket budget.
+            // The standalone binary has rpath baked in; stripping the variable matches production.
             .env_remove("DYLD_FALLBACK_LIBRARY_PATH")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -603,7 +603,7 @@ impl HostFixture {
         let pid = dir.join("kernel.pid");
         let config_path = dir.join("config.json");
         let service_name = "execution-kernel-host";
-        // 本契约只测 kernel socket；禁用 HTTP 面，避免与其他测试/本机服务抢端口
+        // This contract only exercises the kernel socket; HTTP planes disabled to avoid port clashes with other tests/local services
         std::fs::write(
             dir.join("config.toml"),
             "[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\n",
@@ -633,9 +633,9 @@ impl HostFixture {
             ])
             .env("MCPSTORE_SOCKET", &socket)
             .env("MCPSTORE_PID", &pid)
-            // cargo test 进程带着 DYLD_FALLBACK_LIBRARY_PATH（多为构建目录，常在慢速卷），
-            // 子进程继承后 dyld 逐目录回查会把 daemon 启动拖慢数秒，超过 wait_for_socket 预算。
-            // 独立二进制的 rpath 已内嵌，剥掉该变量即生产等价环境。
+            // The cargo test process carries DYLD_FALLBACK_LIBRARY_PATH (usually build dirs, often on slow volumes);
+            // the child inheriting it makes dyld's per-dir fallback search slow daemon startup by seconds, blowing the wait_for_socket budget.
+            // The standalone binary has rpath baked in; stripping the variable matches production.
             .env_remove("DYLD_FALLBACK_LIBRARY_PATH")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -649,7 +649,7 @@ impl HostFixture {
         socket: PathBuf,
         dir: PathBuf,
     ) -> TestResult<Self> {
-        // 冷启动预算：外置卷上的 debug 二进制首次 exec（冷页缓存 + 逐页验签）可达数秒。
+        // Cold-start budget: first exec of a debug binary on an external volume (cold page cache + per-page code-signing checks) can take seconds.
         for _ in 0..100 {
             if socket.exists() {
                 return Ok(Self {

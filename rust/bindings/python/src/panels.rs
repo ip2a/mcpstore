@@ -6,7 +6,7 @@
 use mcpstore::PanelRole;
 use pyo3::prelude::*;
 
-/// 控制面板角色：setup 时自动挂载自愈监督器（幂等语义由角色承载）。
+/// Control panel role: mounts the self-healing supervisor at setup (idempotence is carried by the role).
 #[pyclass(name = "ControlPanel")]
 #[derive(Clone, Default)]
 pub struct PyControlPanel;
@@ -19,7 +19,7 @@ impl PyControlPanel {
     }
 }
 
-/// 数据面板角色：placement 命中的服务在首次调用时本地建连（lazy）。
+/// Data panel role: services matched by placement connect locally on first call (lazy).
 #[pyclass(name = "DataPanel")]
 #[derive(Clone)]
 pub struct PyDataPanel {

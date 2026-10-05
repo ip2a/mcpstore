@@ -1,1 +1,1 @@
-"""测试夹具本地 mcp 包。"""
+"""Test-fixture local mcp package."""

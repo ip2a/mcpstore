@@ -19,7 +19,7 @@ use crate::daemon::protocol::{
 use crate::daemon::transport::{HostListener, HostStream};
 use crate::store_args::{load_kernel, StoreSourceArgs};
 
-/// daemon 进程持有的全部运行时：kernel、HTTP 面、共享 ApiState。
+/// All runtime held by the daemon process: kernel, HTTP planes, shared ApiState.
 struct DaemonHost {
     store: Arc<MCPStore>,
     state: Arc<crate::commands::api::ApiState>,
@@ -54,8 +54,8 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         faces: crate::daemon::listeners::ListenerManager::new(),
         started_at: Instant::now(),
     });
-    // 面板角色内化在 store：ControlPanel setup 即挂自愈监督器；
-    // DataPanel 在 load（上方 load_kernel）时自动 serve placement。
+    // Panel roles are internalized in the store: ControlPanel mounts the self-healing supervisor at setup;
+    // DataPanel serves placement automatically at load (load_kernel above).
     host.faces.start_all(&app_config, &host.state).await;
 
     let shutdown = Arc::new(tokio::sync::Notify::new());
@@ -380,8 +380,8 @@ fn get_daemon_config(host: &DaemonHost) -> Result<Value, Error> {
     }))
 }
 
-/// 单 key 配置修改：校验 → listener 热应用（先新后旧）→ 原子回写 config.toml。
-/// 任一步失败即整体失败：listener 未变就不落盘，落盘成功即已生效。
+/// Single-key config edit: validate → hot-apply listeners (new first, then old) → atomically flush config.toml.
+/// Any failed step fails the whole edit: no flush unless listeners changed; a successful flush means it took effect.
 async fn set_daemon_config(host: &DaemonHost, payload: Value) -> Result<Value, Error> {
     let key = required_str(&payload, "key")?;
     let value = payload
@@ -453,7 +453,7 @@ mod tests {
     fn plan_host_rebinds_all_enabled_faces() {
         let mut config = config();
         let planned = plan_config_change(&mut config, "host", &json!("192.168.1.10")).unwrap();
-        assert_eq!(planned.len(), 3); // aggregate 默认关
+        assert_eq!(planned.len(), 3); // aggregate off by default
         assert_eq!(config.server.host, "192.168.1.10");
     }
 

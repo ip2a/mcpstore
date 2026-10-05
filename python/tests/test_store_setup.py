@@ -16,10 +16,10 @@ class StoreSetupDefaultsTests(TestCase):
     def test_defaults_to_local_file(self):
         options = self._setup()
         self.assertIsInstance(options["source"], FileConfig)
-        self.assertNotIn("source_mode", options, "统一模型：source_mode 已删除")
+        self.assertNotIn("source_mode", options, "unified model: source_mode is gone")
 
     def test_redis_source_passes_through(self):
         source = RedisConfig(url="redis://localhost:6379/0")
         options = self._setup(source=source)
         self.assertIs(options["source"], source)
-        self.assertNotIn("source_mode", options, "统一模型：backend 即部署参数")
+        self.assertNotIn("source_mode", options, "unified model: backend is a deployment parameter")

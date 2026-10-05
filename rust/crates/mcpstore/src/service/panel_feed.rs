@@ -31,8 +31,8 @@ impl MCPStore {
     }
 
     pub(crate) async fn put_service_event(&self, mut value: Value) -> Result<()> {
-        // 后端没有 ChangeFeed：消费循环起不来，写了也不会执行——快速失败，
-        // 不假装成功。
+        // Backend has no ChangeFeed: the consume loop can't start, writes would never execute — fail fast,
+        // don't pretend success.
         if self
             .kernel
             .runtime
@@ -45,7 +45,7 @@ impl MCPStore {
                     .to_string(),
             ));
         }
-        // 盖入队时间戳：积压重放按它排序，恢复用户写入的先后次序。
+        // Stamp enqueue time: backlog replay sorts by it, preserving the user's write order.
         if let Some(object) = value.as_object_mut() {
             object.insert(
                 "enqueued_unix_ms".to_string(),
@@ -54,10 +54,10 @@ impl MCPStore {
         }
         let key = uuid::Uuid::new_v4().to_string();
         self.cache().put_entity(SERVICE_EVENTS, &key, value).await?;
-        // 读己之写：写的人就是执行者（控制面板）时，等自己的事件被消费掉
-        // 再返回。事件照走 kv + 消费循环，没有捷径。数据面板的执行者在
-        // 别处，写完即返。等待超时报错：要么 apply 失败（键还在被重试），
-        // 要么消费循环没在跑——两种情况调用方都不该拿到成功。
+        // Read-your-writes: when the writer is also the executor (control panel), wait until our own event is consumed
+        // before returning. Events still go through kv + the consume loop, no shortcuts. The data panel's executor is
+        // elsewhere; it returns right after writing. Wait timeout is an error: either apply failed (the key is still being retried),
+        // or the consume loop isn't running — in neither case should the caller see success.
         if matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel) {
             let deadline = std::time::Instant::now() + Duration::from_secs(2);
             loop {
@@ -85,7 +85,7 @@ impl MCPStore {
         Ok(())
     }
 
-    /// 共享库的控制面板才订。setup 时若还没有 tokio runtime，等 `load_from_config` 再订。
+    /// Only control panels on a shared store subscribe. If no tokio runtime exists at setup, defer to `load_from_config`.
     pub(crate) fn spawn_service_event_feed(self: &Arc<Self>) {
         if !matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel) {
             return;
@@ -128,7 +128,7 @@ impl MCPStore {
     }
 
     async fn run_service_event_feed(&self) -> Result<()> {
-        // ponytail: 失败的键每秒再扫一次，不另起轮询器。永远失败的事件会一直重试，要死信再说。
+        // ponytail: failed keys are rescanned every second, no extra poller. Permanently failing events retry forever; add a dead-letter queue if that bites.
         loop {
             match self.consume_service_events().await {
                 Ok(()) => {}
@@ -151,8 +151,8 @@ impl MCPStore {
         let backend = self.ensure_event_backend().await?;
         let collection =
             CacheLayerManager::entity_collection_with_namespace(&self.namespace(), SERVICE_EVENTS);
-        // Latest 拿不到订阅前已经写入的事件，所以先订上再把现有键扫一遍。
-        // 两边都看到的同一条，后一次 get 为空就跳过。
+        // Latest can't deliver events written before subscribing, so subscribe first, then scan existing keys.
+        // For an entry seen by both, skip when the later get comes back empty.
         let mut subscription = backend
             .subscribe(ChangeFeedRequest {
                 start: ChangeStart::Latest,
@@ -188,8 +188,8 @@ impl MCPStore {
                 return;
             }
         };
-        // 按入队时间戳排序：积压重放必须恢复写入的先后次序，
-        // 否则 add+remove 的最终态可能反过来。
+        // Sort by enqueue time: backlog replay must restore write order,
+        // otherwise an add+remove pair could end up in the wrong final state.
         let mut ordered = events
             .into_iter()
             .map(|(key, value)| {

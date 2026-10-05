@@ -6,7 +6,7 @@ use crate::transport::client::ConnectionPool;
 
 pub(crate) struct ExecutionEngine {
     pub(crate) pool: ConnectionPool,
-    /// 控制面板挂载的自愈监督器；未挂载即无自愈。由 ControlPanel 按需创建。
+    /// Self-healing supervisor mounted by the control panel; not mounted means no self-healing. Created on demand by ControlPanel.
     pub(crate) supervisor: std::sync::OnceLock<Arc<InstanceSupervisor>>,
     pub(crate) event_bus: EventBus,
 }

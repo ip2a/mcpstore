@@ -1,7 +1,7 @@
-//! 面板角色内化测试：panel 是 setup 的参数，角色决定行为。
+//! Panel-role internalization tests: panel is a setup parameter; the role decides behavior.
 //!
-//! - ControlPanel：setup 即挂载自愈监督器；load 读种子（mcp.json 启动时赢）
-//! - DataPanel：load 是空操作；查询 kv 直读，调用按 placement 路由
+//! - ControlPanel: supervisor mounted at setup; load reads the seed (mcp.json wins at boot)
+//! - DataPanel: load is a no-op; queries read kv directly, calls route per placement
 
 use crate::store::prelude::*;
 use crate::store::{JsonStoreConfig, MCPStore, PanelRole, StoreOptions};
@@ -19,7 +19,7 @@ async fn control_panel_role_attaches_supervisor_at_setup() {
     })
     .unwrap();
 
-    // setup 即挂载，无需任何后续调用
+    // mounted at setup, no further calls needed
     assert!(store.control_supervisor().is_some());
     assert_eq!(*store.panel_role(), PanelRole::ControlPanel);
     assert_eq!(store.panel_id(), "control");
@@ -125,7 +125,7 @@ async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
         .await
         .is_empty());
 
-    // 数据面板 load 是空操作：查询走 kv 直读，不注水注册表
+    // data-panel load is a no-op: queries read kv directly, no registry hydration
     assert!(data.find_definition("svc").await.is_some());
     assert!(data
         .kernel
@@ -300,7 +300,7 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 
-    // 查询面全部可用
+    // the whole query surface is available
     let instance_id = crate::identity::ServiceInstanceKey::new(
         "svc".to_string(),
         crate::identity::ScopeRef::Store,
@@ -316,7 +316,7 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
         "echo"
     );
 
-    // 注册表保持空：查询没有触发整表注水
+    // registry stays empty: queries didn't trigger full-table hydration
     assert!(data
         .kernel
         .control
@@ -401,7 +401,7 @@ async fn db_data_panel_calls_placement_service_locally() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 
-    // 场景 2：placement 命中本面板 → lazy 建连 + 本地执行
+    // Case 2: placement hits this panel → lazy connect + local execution
     let instance_id = crate::identity::ServiceInstanceKey::new(
         "svc".to_string(),
         crate::identity::ScopeRef::Store,
@@ -427,7 +427,7 @@ async fn db_data_panel_calls_placement_service_locally() {
         .await
         .contains(&instance_id));
 
-    // 场景 3：placement 指向其他面板 → 明确拒绝
+    // Case 3: placement points at another panel → explicit rejection
     let other_id = crate::identity::ServiceInstanceKey::new(
         "other".to_string(),
         crate::identity::ScopeRef::Store,
@@ -486,7 +486,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 
-    // 场景 1：placement 为空 → 请求进库，控制面板认领执行，响应写回
+    // Case 1: empty placement → request goes into the store, control panel claims and executes, response written back
     let instance_id = crate::identity::ServiceInstanceKey::new(
         "svc".to_string(),
         crate::identity::ScopeRef::Store,
@@ -498,7 +498,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         .unwrap();
     assert!(!result.is_error);
 
-    // 执行发生在控制面板：连接归它，数据面板没碰执行
+    // Execution happened on the control panel: it owns the connection; the data panel never touched execution
     assert!(control
         .kernel
         .runtime
@@ -514,7 +514,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         .await
         .is_empty());
 
-    // 请求被认领删除，响应被数据面板读走删除：库里不留中间态
+    // Request claimed and deleted, response read away and deleted by the data panel: no intermediate state left in the store
     assert!(data
         .cache()
         .get_all_entities_async("tool_call_requests")

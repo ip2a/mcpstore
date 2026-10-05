@@ -60,7 +60,7 @@ async fn register_tool_service(
         .await
         .unwrap();
     let instance_id = ServiceInstanceKey::new(service_name, scope).instance_id();
-    // tools 的真源在 kv：走真实连接路径的投影原语，不再捅注册表
+    // The source of truth for tools is kv: projection primitives on the real connection path, no more poking the registry
     let tool_infos = tools
         .iter()
         .map(|tool| crate::registry::ToolInfo {

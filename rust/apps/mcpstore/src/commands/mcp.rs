@@ -23,7 +23,7 @@ use crate::{
     BoxErr,
 };
 
-/// 命令统一入口：默认 daemon，--embedded/显式 store 参数时本进程冷启动。
+/// Unified command entry: daemon by default; cold-start in-process with --embedded or explicit store args.
 pub(crate) async fn open_store(
     store_args: &StoreSourceArgs,
     embedded: bool,
@@ -714,7 +714,7 @@ pub async fn wait(
     let instance_id = resolve_target(&mut access, &scope, &a.target)
         .await
         .map_err(resolve_error)?;
-    // 与既有语义一致：先触发连接，再等待就绪。
+    // Same semantics as before: trigger the connection first, then wait for readiness.
     access
         .request(
             KernelOperation::ConnectService,
@@ -1093,7 +1093,7 @@ async fn execute_call_tool(
     result
 }
 
-/// embedded 流式路径：elicitation 交互与 Ctrl-C 取消全保留。
+/// Embedded streaming path: elicitation interaction and Ctrl-C cancel fully preserved.
 async fn call_embedded(
     store: &std::sync::Arc<mcpstore::MCPStore>,
     instance_id: InstanceId,
@@ -1182,9 +1182,9 @@ async fn call_embedded(
     }
 }
 
-/// daemon 流式路径：事件透传到本地输出。elicitation 在 daemon 模式不可用
-/// （headless 语义，同 --non-interactive）；Ctrl-C 终止 CLI 进程即断开事件流，
-/// daemon 侧执行继续（不自动重放）。
+/// Daemon streaming path: events pass through to local output. Elicitation is unavailable in daemon mode
+/// (headless semantics, same as --non-interactive); Ctrl-C kills the CLI process and detaches the event stream,
+/// while the daemon keeps executing (no auto-replay).
 async fn call_remote(
     client: &mut crate::daemon::client::KernelClient,
     instance_id: InstanceId,
@@ -1326,7 +1326,7 @@ impl std::fmt::Display for ResolveError {
 impl std::error::Error for ResolveError {}
 
 /// Resolve a service name or instance UUID to an `InstanceId`. UUIDs bypass lookup;
-/// names are resolved via ListServices（优先命中本地 schema 缓存）.
+/// names are resolved via ListServices (preferring the local schema cache).
 async fn resolve_target(
     access: &mut StoreAccess,
     scope: &ScopeRef,

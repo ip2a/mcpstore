@@ -1,6 +1,6 @@
-"""角色组装示例：控制面板 / 数据面板（服务级 placement 执行模型）。
+"""Role assembly example: control panel / data panel (service-level placement execution model).
 
-服务级 placement（mcp.json）::
+Service-level placement (mcp.json)::
 
     {
       "mcpServers": {
@@ -18,29 +18,29 @@
       }
     }
 
-未出现在 placement 里的服务默认由控制面板执行。
+Services absent from placement are executed by the control panel by default.
 
-控制面板节点（云端服务器）::
+Control-panel node (cloud server)::
 
     from mcpstore import MCPStore, ControlPanel
     from mcpstore.config import RedisConfig
 
     store = MCPStore.setup_store(
         source=RedisConfig(url="redis://central:6379"),
-        panel=ControlPanel(),        # setup 即挂载自愈监督器
+        panel=ControlPanel(),        # supervisor mounted at setup
     )
 
-数据面板节点（资源受限终端）::
+Data-panel node (resource-constrained edge device)::
 
     from mcpstore import MCPStore, DataPanel
     from mcpstore.config import RedisConfig
 
     store = MCPStore.setup_store(
         source=RedisConfig(url="redis://central:6379"),
-        panel=DataPanel(panel_id="edge-01"),  # 共享库模式不执行，写操作只进事件
+        panel=DataPanel(panel_id="edge-01"),  # shared-store mode: no execution; writes only emit events
     )
 
-panel 是 setup 的参数，不存在第二个对象；缺省即 ControlPanel。
+panel is a setup parameter; there is no second object — the default is ControlPanel.
 """
 
-# 此文件为文档示例；运行时导入见 docstring。
+# This file is a documentation example; see the docstring for runtime imports.

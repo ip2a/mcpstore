@@ -227,7 +227,7 @@ async fn app_and_core_routers_are_disjoint() {
             .unwrap();
     });
 
-    // App 面只承载 daemon 自身；业务路由不在其中。
+    // The app plane only hosts the daemon itself; business routes are absent.
     assert_eq!(
         client
             .get(format!("http://{app_addr}/health"))
@@ -247,7 +247,7 @@ async fn app_and_core_routers_are_disjoint() {
         axum::http::StatusCode::NOT_FOUND
     );
 
-    // Core 那面相反：业务在，app 专用路由不在。
+    // The core plane is the opposite: business routes present, app-only routes absent.
     assert_eq!(
         client
             .get(format!("http://{core_addr}/services/list"))
@@ -972,7 +972,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
     let client = reqwest::Client::new();
     let base_url = format!("http://{addr}");
 
-    // demo 声明在 store + agent-a（两个不同实例）
+    // demo is declared in store + agent-a (two distinct instances)
     client
         .post(format!("{base_url}/services/demo"))
         .json(&json!({
@@ -991,7 +991,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .await
         .unwrap();
 
-    // /scopes/list：root + store + agent-a，每项带 service_count（不再派生自 /agents/list）
+    // /scopes/list: root + store + agent-a, each with service_count (no longer derived from /agents/list)
     let scopes = client
         .get(format!("{base_url}/scopes/list"))
         .send()
@@ -1019,7 +1019,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .unwrap();
     assert_eq!(agent_entry["scope"]["agent_id"], "agent-a");
 
-    // /services/list?scope=root 聚合两个作用域（total=2），store 只有一个（total=1）
+    // /services/list?scope=root aggregates both scopes (total=2); store has one (total=1)
     let root_services = client
         .get(format!("{base_url}/services/list?scope=root"))
         .send()
@@ -1039,7 +1039,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .unwrap();
     assert_eq!(store_services["data"]["total"], 1);
 
-    // scope 详情：root / store / agent
+    // scope detail: root / store / agent
     let root_info = client
         .get(format!("{base_url}/scopes/root"))
         .send()
@@ -1061,7 +1061,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
     assert_eq!(agent_scope["data"]["scope"]["type"], "agent");
     assert_eq!(agent_scope["data"]["scope"]["agent_id"], "agent-a");
 
-    // agent 详情（find_agent）
+    // agent detail (find_agent)
     let agent_info = client
         .get(format!("{base_url}/agents/agent-a"))
         .send()
@@ -1076,7 +1076,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         1
     );
 
-    // 未知 agent → 404
+    // unknown agent → 404
     let unknown = client
         .get(format!("{base_url}/agents/nope"))
         .send()

@@ -207,8 +207,8 @@ impl MCPStore {
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
-        // 数据面板不直连执行引擎：placement 命中自己才本地建连，
-        // 否则走远端代理（见 route_data_panel_tool_call）。
+        // The data panel never connects straight to the execution engine: connect locally only when placement hits us,
+        // otherwise go through the remote proxy (see route_data_panel_tool_call).
         if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role {
             return self
                 .route_data_panel_tool_call(panel_id, instance_id, tool_name, args)

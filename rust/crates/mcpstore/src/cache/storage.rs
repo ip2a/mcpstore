@@ -17,7 +17,7 @@ pub(crate) trait CacheStore: Send + Sync {
     ) -> Result<()>;
     async fn get(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>>;
     async fn delete(&self, key: &str, collection: &str) -> Result<()>;
-    /// 原子取走（get + compare_and_delete）：恰好一个调用方拿到值，其余拿 None。
+    /// Atomic take (get + compare_and_delete): exactly one caller gets the value, the rest get None.
     async fn claim(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>>;
     async fn collections(&self) -> Result<Vec<String>>;
     async fn keys(&self, collection: &str) -> Result<Vec<String>>;
@@ -46,8 +46,8 @@ pub(crate) fn memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyv
     cache_store_from_memory(OpenKeyvMemoryStore::new())
 }
 
-/// `memory-test-shared` 名字以前每次 setup 仍是一把新库，两个进程内面板对不上 ChangeFeed。
-/// ponytail: 进程内一把库。只给这个测试名用；正式 memory() 仍是每次新建。
+/// `memory-test-shared` used to get a fresh store per setup, so two in-process panels couldn't meet on a ChangeFeed.
+/// ponytail: one store per process. Only for this test name; the real memory() still creates a new one each time.
 pub(crate) fn shared_memory_cache_store_with_handle() -> (Arc<dyn CacheStore>, OpenKeyvMemoryStore)
 {
     static SHARED: OnceLock<OpenKeyvMemoryStore> = OnceLock::new();

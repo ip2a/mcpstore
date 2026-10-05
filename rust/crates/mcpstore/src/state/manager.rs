@@ -24,7 +24,7 @@ pub enum ServiceStateManagerError {
     Serialization(#[from] serde_json::Error),
 }
 
-/// 控制面节点在状态分栏中的固定标识：`instance@control` 是权威栏。
+/// Fixed identifier of the control node in the state columns: `instance@control` is the authoritative column.
 pub const CONTROL_NODE_ID: &str = "control";
 
 pub struct ServiceStateManager {
@@ -75,7 +75,7 @@ impl ServiceStateManager {
         Ok(state)
     }
 
-    /// 本节点自己的栏：连接本地真相（auth/recovery/facade 上下文）。
+    /// This node's own column: local truth of the connection (auth/recovery/facade context).
     pub async fn get(
         &self,
         instance_id: InstanceId,
@@ -88,7 +88,7 @@ impl ServiceStateManager {
             .map_err(Into::into)
     }
 
-    /// 展示视角：control 权威栏优先，无则回退本节点栏。
+    /// Display view: prefer the control authoritative column; fall back to this node's column.
     pub async fn get_display(
         &self,
         instance_id: InstanceId,
@@ -115,8 +115,8 @@ impl ServiceStateManager {
         let _guard = lock.lock().await;
         let (previous, seeded_from_control) = match self.get(instance_id).await? {
             Some(previous) => (previous, false),
-            // 本节点栏不存在时以 control 栏为底稿建栏：本节点观测从此有自己的家，
-            // 也不再串写权威栏。
+            // When this node's column is absent, create it using the control column as the base:
+            // local observations get their own home and no longer cross-write the authoritative column.
             None => match self
                 .cache
                 .get_state(SERVICE_STATE_TYPE, &Self::control_key(instance_id))
@@ -134,7 +134,7 @@ impl ServiceStateManager {
         };
         let mut current = previous.clone();
         current.apply(event.clone(), now)?;
-        // 建栏用 create-if-absent；更新沿用 CAS。
+        // Column creation uses create-if-absent; updates keep CAS.
         let expected = (!seeded_from_control).then_some(previous.version);
         self.cache
             .compare_and_put_state(
@@ -161,8 +161,8 @@ impl ServiceStateManager {
         Ok(current)
     }
 
-    /// 只删本节点自己的栏；其他节点的观测栏不属于本节点。
-    // ponytail: remove 只清 control 栏，数据节点的观测栏会残留，等出现真实清理需求再做按 instance 的全栏清理
+    /// Deletes only this node's own column; other nodes' observation columns are not ours.
+    // ponytail: remove only clears the control column; data-node observation columns linger — add per-instance full-column cleanup when a real need appears
     pub async fn delete(&self, instance_id: InstanceId) -> Result<(), ServiceStateManagerError> {
         let lock = self.instance_lock(instance_id).await;
         let _guard = lock.lock().await;
@@ -221,8 +221,8 @@ mod tests {
 
     #[tokio::test]
     async fn node_columns_do_not_clobber_each_other() {
-        // A(control) 与 B(worker) 共享同一存储：B 的写只落自己的栏，
-        // control 权威栏不受串写（坑 3 修法），展示读 control 优先。
+        // A(control) and B(worker) share one storage: B's writes only land in its own column,
+        // the control authoritative column is never cross-written (pitfall 3 fix); display reads prefer control.
         let cache = Arc::new(CacheLayerManager::new(memory_cache_store(), "state-cols"));
         let bus = EventBus::with_history(10);
         let control = Arc::new(ServiceStateManager::new(
@@ -243,7 +243,7 @@ mod tests {
             .await
             .unwrap();
 
-        // worker 观测到自己侧连接停止：以 control 栏为底稿建自己的栏后落事件
+        // the worker observes its own side of the connection stopping: build its column from the control column, then record the event
         worker
             .dispatch(instance_id, ServiceStateEvent::TransportStopped, 4)
             .await
@@ -257,7 +257,7 @@ mod tests {
         assert_eq!(worker_state.phase, RuntimePhase::Stopped);
         assert_eq!(worker_state.node, "worker");
 
-        // 展示视角：worker 也看到 control 的权威 Running，而不是自己的观测
+        // Display view: the worker also sees control's authoritative Running instead of its own observation
         let display = worker.get_display(instance_id).await.unwrap().unwrap();
         assert_eq!(display.phase, RuntimePhase::Running);
     }

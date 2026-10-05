@@ -4652,7 +4652,7 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
         .set_context_tool_visibility(instance_id, vec!["alpha".to_string()])
         .await
         .unwrap();
-    // 统一模型：工具刷新 = 重写 kv 投影（真实连接路径的原语）
+    // Unified model: tool refresh = rewrite the kv projection (primitive on the real connection path)
     install_registry_tools(
         &store,
         instance_id,
@@ -5979,8 +5979,8 @@ mod scoped_contract {
 
     #[tokio::test]
     async fn keep_alive_implies_desired_running_on_add() {
-        // keep_alive=true：add 后期望常驻（desired=Running，交给自愈循环维持）；
-        // 缺省（非 OnStoreStart）：desired=Stopped 保持现状。
+        // keep_alive=true: expect residency after add (desired=Running, maintained by the self-healing loop);
+        // default (not OnStoreStart): desired=Stopped keeps the current state.
         let path = temp_config_path();
         let mut keep_alive_config = native_config(ScopeDeclarations::store_only());
         keep_alive_config.mcpstore.as_mut().unwrap().lifecycle =
@@ -6389,8 +6389,8 @@ mod scoped_contract {
         assert_eq!(rebuilt.tools, observed.tools);
         assert_eq!(rebuilt.failure, observed.failure);
         let instance = store.find_instance(instance_id).await.unwrap();
-        // 统一模型：工具目录是 kv 持久业务态，重启保留；applied 归零表示
-        // 本进程尚未应用配置
+        // Unified model: the tool catalog is persistent kv business state, kept across restarts; applied reset to zero means
+        // this process hasn't applied config yet
         assert_eq!(instance.tools.len(), 1);
         assert_eq!(instance.applied_config_revision, None);
 
@@ -7666,7 +7666,7 @@ async fn data_plane_closes_only_connections_started_by_this_process() {
 
     db.close_local_connections().await;
 
-    // 分栏语义：owned 看本节点自己的栏（Stopped）；other 的权威态在 control 栏
+    // Column semantics: owned sees this node's own column (Stopped); other's authoritative state lives in the control column
     let owned = db
         .kernel
         .control

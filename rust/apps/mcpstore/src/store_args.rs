@@ -40,13 +40,13 @@ pub struct StoreSourceArgs {
     pub store_config: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
-    /// 挂载控制面板（自愈监督器：keep_alive 断线重连、健康状态机）
+    /// Mount the control panel (self-healing supervisor: keep_alive reconnect, health state machine)
     #[arg(
         long = "control-panel",
         help = "Run control panel (self-heal supervision)"
     )]
     pub control_panel: bool,
-    /// 挂载数据面板（placement 命中的服务本地执行；写/远端调用走共享库）
+    /// Mount the data panel (placement-matched services execute locally; writes/remote calls go through the shared store)
     #[arg(
         long = "data-panel",
         requires = "panel_id",
@@ -63,7 +63,7 @@ pub struct StoreSourceArgs {
 }
 
 impl StoreSourceArgs {
-    /// 面板角色：--data-panel（配 --panel-id）→ 数据面板；否则控制面板（含缺省）。
+    /// Panel role: --data-panel (with --panel-id) → data panel; otherwise control panel (including the default).
     pub fn panel_role(&self) -> mcpstore::PanelRole {
         if self.data_panel {
             let panel_id = self
@@ -150,7 +150,7 @@ impl KernelHandle {
 }
 
 impl StoreSourceArgs {
-    /// 显式指定了任何 store 参数 → 调用方想自带 kernel（embedded）。
+    /// Any explicit store arg → the caller wants its own kernel (embedded).
     pub fn is_explicit(&self) -> bool {
         self.config_path.is_some()
             || self.store.is_some()
@@ -163,16 +163,16 @@ impl StoreSourceArgs {
     }
 }
 
-/// CLI 业务命令的执行位置：daemon（默认，共享连接池与运行时）或本进程 embedded。
-/// 两条路径执行同一份业务 op 分发（daemon::ops）。
+/// Where CLI business commands execute: the daemon (default, shared pool and runtime) or embedded in-process.
+/// Both paths run the same business op dispatch (daemon::ops).
 pub enum StoreAccess {
     Embedded(std::sync::Arc<mcpstore::MCPStore>),
     Remote(crate::daemon::client::KernelClient),
 }
 
-/// 业务命令统一入口：默认连 daemon，不在则后台拉起；`--embedded` 或显式 store
-/// 参数时本进程冷启动。kernel 的 backend/namespace 由 daemon 启动参数决定，
-/// CLI 不越权覆盖。
+/// Unified business-command entry: connect to the daemon by default, spawning it in the background if absent; `--embedded` or explicit store
+/// args cold-start in-process. The kernel's backend/namespace is decided by daemon startup args;
+/// the CLI never overrides them.
 pub async fn open_store_access(
     args: &StoreSourceArgs,
     embedded: bool,
@@ -201,7 +201,7 @@ pub async fn open_store_access(
 }
 
 impl StoreAccess {
-    /// 执行一个请求/响应型业务 op；返回 op 的 result 载荷。
+    /// Execute a request/response business op; return the op's result payload.
     pub async fn request(
         &mut self,
         operation: crate::daemon::protocol::KernelOperation,
@@ -220,7 +220,7 @@ impl StoreAccess {
         }
     }
 
-    /// embedded 侧的 store（仅流式命令在本地驱动执行时使用）。
+    /// Embedded-side store (only for streaming commands driven locally).
     pub fn embedded_store(&self) -> Option<&std::sync::Arc<mcpstore::MCPStore>> {
         match self {
             Self::Embedded(store) => Some(store),
@@ -228,7 +228,7 @@ impl StoreAccess {
         }
     }
 
-    /// remote 侧的 kernel client（仅流式命令转发事件时使用）。
+    /// Remote-side kernel client (only for streaming commands forwarding events).
     pub fn remote_client(&mut self) -> Option<&mut crate::daemon::client::KernelClient> {
         match self {
             Self::Embedded(_) => None,
@@ -267,8 +267,8 @@ impl StoreAccess {
         }
     }
 
-    /// daemon 配置 key 修改（§7 key 表）：remote 走 daemon 热应用；
-    /// embedded 校验（planner）后落盘，下次启动生效。
+    /// Daemon config key edit (§7 key table): remote goes through daemon hot-apply;
+    /// embedded validates (planner), flushes to disk, effective on next start.
     pub async fn set_daemon_config(&mut self, key: &str, value: Value) -> mcpstore::Result<Value> {
         match self {
             Self::Embedded(store) => {

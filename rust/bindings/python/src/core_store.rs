@@ -771,8 +771,8 @@ impl PyMCPStore {
             namespace,
         })
         .map_err(map_store_err)?;
-        // 裸绑定也要自足：setup 即种子 + 起两条 feed（block_on 下 ambient
-        // runtime 存在，spawn 才能生效），与 Python 门面行为一致。
+        // Raw bindings must be self-sufficient: setup seeds and starts both feeds (spawn works because
+        // an ambient runtime exists under block_on), matching the Python facade's behavior.
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(inner.load_from_config())
             .map_err(map_store_err)?;

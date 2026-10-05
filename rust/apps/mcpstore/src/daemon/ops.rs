@@ -1,5 +1,5 @@
-//! 业务 op 分发：daemon socket 与 CLI embedded 进程共用同一份实现
-//! （单业务协议、双执行位置）。daemon 管理面（status/config/stop）在 server.rs。
+//! Business op dispatch: the daemon socket and CLI embedded processes share one implementation
+//! (one business protocol, two execution sites). Daemon management (status/config/stop) lives in server.rs.
 
 use mcpstore::config::{
     AppConfig, McpStoreExtension, Runtime, RuntimeSelection, ScopeDeclarations, ScopeDescriptor,
@@ -370,7 +370,7 @@ pub(crate) async fn execute(
             }))
         }
         KernelOperation::SaveAppConfig => {
-            // server/mcp_aggregate 是 daemon 热应用面，必须走 config --<key>；其余段整体保存
+            // server/mcp_aggregate is a daemon hot-apply section and must go through config --<key>; other sections save wholesale
             let new_config = payload_field::<AppConfig>(&payload, "config")?;
             let manager = store.config_manager();
             let current = manager.load_app_config_or_default().map_err(config_error)?;
@@ -547,8 +547,8 @@ pub(crate) fn instance_id(payload: &Value) -> Result<InstanceId, Error> {
         })
 }
 
-/// 配置 key 表（设计文档 §7）：把单 key 修改应用到 AppConfig，
-/// 返回受影响面的目标端口（Some=起/重绑，None=停；空=仅改配置无面变更）。
+/// Config key table (design doc §7): apply single-key edits to AppConfig,
+/// returning the affected plane's target port (Some=start/rebind, None=stop; empty=config-only, no plane change).
 pub(crate) fn plan_config_change(
     config: &mut AppConfig,
     key: &str,

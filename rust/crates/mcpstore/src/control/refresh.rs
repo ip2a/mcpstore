@@ -224,15 +224,15 @@ impl MCPStore {
             .retain_statuses(&active_instance_ids)
             .await;
 
-        // 增量合并连接池，而非清空重建：只移除已删除的实例，
-        // 只对配置变更的实例重连，其余保留活连接。
+        // Merge the connection pool incrementally instead of rebuilding: remove only deleted instances,
+        // reconnect only instances whose config changed, keep live connections for the rest.
         let current_ids = self.kernel.execution.pool.instance_ids().await;
         for stale_id in current_ids.difference(&active_instance_ids) {
             self.kernel.execution.pool.remove(*stale_id).await.ok();
         }
 
-        // 增量保留已应用的 openapi 运行配置：只清掉消失实例的条目，
-        // 存活实例的连接态不因注水被误删（与连接池合并语义一致）。
+        // Incrementally keep applied openapi runtime config: clear only entries of vanished instances,
+        // surviving instances' connection state is not wrongly dropped by hydration (same merge semantics as the pool).
         self.kernel
             .runtime
             .applied_openapi_configs
@@ -263,7 +263,7 @@ impl MCPStore {
                         .runtime_config
                         .service_lifecycle_defaults,
                 );
-                // keep_alive=true 隐含期望常驻（与 cache_instance_added 的判定一致）
+                // keep_alive=true implies a resident expectation (same rule as cache_instance_added)
                 let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart
                     || lifecycle.keep_alive
                 {
@@ -289,7 +289,7 @@ impl MCPStore {
                 .auth
                 .initialize_status(instance_id, &transport_config.auth)
                 .await;
-            // 只在配置实际变化或实例首次注册时才重建连接池条目
+            // Rebuild pool entries only when config actually changed or the instance is first registered
             if instance.restart_required()
                 || !self.kernel.execution.pool.contains(instance_id).await
             {
@@ -309,13 +309,13 @@ impl MCPStore {
         Ok(())
     }
 
-    /// 执行路径注水：连接池 / 状态机需要进程内结构。查询不走这里。
+    /// Execution-path hydration: the connection pool / state machine needs in-process structures. Queries don't go through here.
     pub(crate) async fn refresh_from_db_if_needed(&self) -> Result<()> {
         self.load_from_db().await
     }
 
-    /// 共享库查询面：按键直读，不经过、也不回填内存注册表。
-    /// `load_from_db` 的完整注水只留给执行路径（连接池 / 状态机需要进程内结构）。
+    /// Shared-store query side: direct key reads; never goes through or backfills the in-memory registry.
+    /// Full `load_from_db` hydration is reserved for the execution path (pool / state machine need in-process structures).
     pub(crate) async fn definition_from_kv(
         &self,
         service_name: &str,

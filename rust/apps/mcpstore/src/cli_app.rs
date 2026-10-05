@@ -11,7 +11,7 @@ use crate::{bootstrap, commands, BoxErr};
     version = env!("CARGO_PKG_VERSION"),
 )]
 pub struct Cli {
-    /// 本进程内嵌 kernel 冷启动，不连也不拉 daemon
+    /// Cold-start an embedded kernel in this process; never connect to or spawn the daemon
     #[arg(long, global = true)]
     pub embedded: bool,
     /// Remote daemon Kernel RPC endpoint, e.g. 10.0.0.2:1840
@@ -752,7 +752,7 @@ mod tests {
             _ => panic!("Expected to parse as list command"),
         }
 
-        // --plane 已随 NodeMode 删除，必须解析失败
+        // --plane was removed with NodeMode; parsing must fail
         assert!(Cli::try_parse_from([
             "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data"
         ])
@@ -761,7 +761,7 @@ mod tests {
 
     #[test]
     fn request_command_is_removed() {
-        // 控制请求队列已删除，request 命令必须解析失败
+        // the control request queue is gone; the request command must fail to parse
         assert!(Cli::try_parse_from(["mcpstore", "request", "list"]).is_err());
     }
 
@@ -799,7 +799,7 @@ mod tests {
             Commands::Web { json } => assert!(json),
             _ => panic!("Expected to parse as web view command"),
         }
-        // 启动语义已删除：旧 flag 必须解析失败
+        // startup semantics removed: the old flag must fail to parse
         assert!(Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).is_err());
     }
 
@@ -841,7 +841,7 @@ mod tests {
             Commands::Api { json } => assert!(json),
             _ => panic!("Expected to parse as api view command"),
         }
-        // 启动语义已删除：旧 flag 必须解析失败
+        // startup semantics removed: the old flag must fail to parse
         assert!(
             Cli::try_parse_from(["mcpstore", "api", "--port", "9091", "--url-prefix", "/mcp"])
                 .is_err()

@@ -119,8 +119,8 @@ pub struct AgentEntity {
     pub last_active: i64,
 }
 
-/// 跨面板工具调用请求：数据面板写，控制面板 ChangeFeed 醒来原子认领（claim）
-/// 后本地执行。认领即 at-most-once，工具调用不保证幂等。
+/// Cross-panel tool-call request: written by the data panel; the control panel's ChangeFeed wakes and atomically claims it (claim)
+/// then executes locally. Claiming is at-most-once; tool calls aren't guaranteed idempotent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallRequestEntity {
     pub request_id: String,
@@ -131,7 +131,7 @@ pub struct ToolCallRequestEntity {
     pub deadline_unix_ms: i64,
 }
 
-/// 跨面板工具调用响应：控制面板写，数据面板读走即删；5 分钟 TTL 兜底清理。
+/// Cross-panel tool-call response: written by the control panel, deleted when the data panel reads it; 5-minute TTL safety cleanup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallResponseEntity {
     pub request_id: String,
@@ -142,7 +142,7 @@ pub struct ToolCallResponseEntity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallResponseError {
-    /// 直接用 FailureCode 做字段类型：serde 往返无字符串编解码，无静默降级。
+    /// FailureCode as the field type directly: serde round-trips with no string encode/decode and no silent downgrade.
     pub code: crate::error::FailureCode,
     pub message: String,
 }

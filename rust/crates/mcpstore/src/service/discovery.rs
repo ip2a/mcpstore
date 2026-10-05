@@ -3,14 +3,14 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub(crate) async fn ensure_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
-        // 数据面板的 placement 判定/合并下沉到这个唯一连接入口：所有执行面
-        // （tools / prompts / resources / tasks / 补全）一次继承，不再漏。
+        // Data-panel placement resolution/merging sinks into this single connection entry: every execution surface
+        // (tools / prompts / resources / tasks / completions) inherits it once, no more misses.
         if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role {
             return self
                 .ensure_data_panel_instance_connected(panel_id, instance_id)
                 .await;
         }
-        // 注水改「缺则补」：注册表已有该实例就不动，避免每次执行全表重建。
+        // Hydration becomes fill-if-missing: leave instances already in the registry alone, avoiding full-table rebuilds on every execution.
         if self
             .kernel
             .control
@@ -74,7 +74,7 @@ impl MCPStore {
         Ok(instance.transport == "openapi")
     }
 
-    /// 查询面直读共享库，不注水内存注册表（`load_from_db` 只留给执行路径）。
+    /// The query side reads the shared store directly without hydrating the in-memory registry (`load_from_db` is reserved for the execution path).
     pub async fn list_instances(&self) -> Vec<ServiceInstance> {
         self.instances_from_kv().await.unwrap_or_default()
     }

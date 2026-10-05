@@ -16,11 +16,11 @@ pub(crate) struct RuntimeState {
     pub(crate) local_connections: RwLock<HashSet<InstanceId>>,
     pub(crate) panel_role: PanelRole,
     pub(crate) runtime_config: StoreRuntimeConfig,
-    /// 只有显式传入 config_path 才把消费结果回写 mcp.json。
-    /// `ConfigManager::new()` 会解析到用户真实文件，不能当默认同步目标。
+    /// Consume results are flushed back to mcp.json only when config_path was passed explicitly.
+    /// `ConfigManager::new()` resolves to the user's real file, so it can't be a default sync target.
     pub(crate) sync_config_file: bool,
     pub(crate) service_event_feed_started: AtomicBool,
-    /// 后端没有 ChangeFeed 时置位：写路径据此快速失败，不假装成功。
+    /// Set when the backend has no ChangeFeed: write paths fail fast on it instead of pretending success.
     pub(crate) service_event_feed_failed: AtomicBool,
     pub(crate) tool_call_feed_started: AtomicBool,
     pub(crate) self_weak: OnceLock<Weak<MCPStore>>,

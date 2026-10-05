@@ -108,7 +108,7 @@ impl MCPStore {
         Ok(value)
     }
 
-    /// 按读视图列服务：Root 聚合全部（`list_services`），Store/Agent 透传给 `list_services_scoped`。
+    /// List services by read view: Root aggregates all (`list_services`); Store/Agent pass through to `list_services_scoped`.
     pub async fn list_services_viewed(&self, view: &ScopeView) -> Result<Vec<serde_json::Value>> {
         match view {
             ScopeView::Root => self.list_services().await,

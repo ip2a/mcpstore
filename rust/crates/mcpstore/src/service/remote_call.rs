@@ -1,11 +1,11 @@
-//! 跨面板工具调用 RPC（方案 B）：面板之间没有连接，一切经共享库。
+//! Cross-panel tool-call RPC (plan B): panels share no connections; everything goes through the shared store.
 //!
-//! 数据面板：`call_tool_remote` 先订响应流、再写请求、堵在 select 上等
-//! 控制面板写回。控制面板：订阅 `tool_call_requests`，醒来原子认领
-//! （claim = get_with_revision + compare_and_delete，恰好一个赢家），
-//! 本地执行后把响应写进 `tool_call_responses`。
+//! Data panel: `call_tool_remote` subscribes to the response stream first, writes the request, then blocks in select until
+//! the control panel writes back. Control panel: subscribes to `tool_call_requests`, atomically claims on wake
+//! (claim = get_with_revision + compare_and_delete, exactly one winner),
+//! executes locally, then writes the response into `tool_call_responses`.
 //!
-//! 不支持流式响应：等结果全部完成才写响应。
+//! Streaming responses are unsupported: the response is written only after the result fully completes.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -21,14 +21,14 @@ use crate::store::{MCPStore, PanelRole};
 
 const REQUESTS: &str = "tool_call_requests";
 const RESPONSES: &str = "tool_call_responses";
-/// 数据面板等响应的上限；控制面板对超期请求认领后直接丢弃。
+/// Upper bound for the data panel waiting on a response; the control panel claims expired requests and drops them.
 const CALL_DEADLINE: Duration = Duration::from_secs(30);
-/// 响应 TTL：数据面板正常读走即删；它挂了由控制面板兜底清理。
+/// Response TTL: normally deleted when the data panel reads it; if the data panel dies, the control panel cleans it up.
 const RESPONSE_TTL: Duration = Duration::from_secs(300);
 
 impl MCPStore {
-    /// 数据面板：请求写进共享库，等控制面板写回响应。
-    /// ponytail: 每次调用新开一条订阅，量大时换成长连订阅 + 等待者表。
+    /// Data panel: write the request into the shared store and wait for the control panel to write the response back.
+    /// ponytail: a fresh subscription per call; switch to a long-lived subscription + waiter table under load.
     pub(crate) async fn call_tool_remote(
         &self,
         instance_id: InstanceId,
@@ -44,7 +44,7 @@ impl MCPStore {
         let request_id = uuid::Uuid::new_v4().to_string();
         let response_key = format!("{panel_id}:{request_id}");
 
-        // 先订后写：Latest 订阅看不到订阅前的写入，顺序反了就丢响应。
+        // Subscribe before writing: Latest subscriptions can't see writes made before subscribing; the reverse order loses responses.
         let backend = self.ensure_event_backend().await?;
         let collection =
             CacheLayerManager::entity_collection_with_namespace(&self.namespace(), RESPONSES);
@@ -106,7 +106,7 @@ impl MCPStore {
                     };
                 }
                 _ = tokio::time::sleep(CALL_DEADLINE) => {
-                    // 超时删请求；控制面板若已认领，响应由 TTL 兜底清理。
+                    // On timeout delete the request; if the control panel already claimed it, the TTL cleans up the response.
                     self.cache().delete_entity(REQUESTS, &request_id).await.ok();
                     return Err(Error::new(
                         FailureCode::CallTimedOut,
@@ -117,7 +117,7 @@ impl MCPStore {
         }
     }
 
-    /// 控制面板：订阅工具调用请求并代理执行。setup（或 load_from_config）后调用。
+    /// Control panel: subscribe to tool-call requests and proxy-execute them. Call after setup (or load_from_config).
     pub(crate) fn spawn_tool_call_request_feed(self: &Arc<Self>) {
         if !matches!(self.kernel.runtime.panel_role, PanelRole::ControlPanel) {
             return;
@@ -183,15 +183,15 @@ impl MCPStore {
             })
             .await
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        // 订上再扫一遍已有请求：控制面板启动前数据面板写下的、还没过期的。
+        // After subscribing, scan existing requests: ones the data panel wrote before the control panel started, not yet expired.
         self.drain_tool_call_requests().await;
         loop {
             tokio::select! {
                 change = subscription.recv() => match change {
                     Ok(Some(change)) => {
                         let store = Arc::clone(self);
-                        // 工具调用可能很慢，逐条 spawn，不阻塞消费循环。
-                        // ponytail: 无并发上限，压力大时加信号量。
+                        // Tool calls can be slow; spawn per request so the consume loop isn't blocked.
+                        // ponytail: no concurrency cap; add a semaphore under pressure.
                         let request_id = change.key;
                         tokio::spawn(async move {
                             store.handle_tool_call_request(&request_id).await;
@@ -203,8 +203,8 @@ impl MCPStore {
                     }
                 },
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    // 兜底重扫：换库自愈（drain 走 active store）+ 漏推送恢复。
-                    // 超期请求认领后即弃，重扫不会复活它们。
+                    // Safety rescan: store-swap self-healing (drain uses the active store) + missed-push recovery.
+                    // Expired requests are dropped once claimed; rescans don't revive them.
                     self.drain_tool_call_requests().await;
                 }
             }
@@ -232,7 +232,7 @@ impl MCPStore {
             .ok()
             .flatten()
         else {
-            // 不存在或已被别人原子认领
+            // Absent or already atomically claimed by someone else
             return;
         };
         let request: ToolCallRequestEntity = match serde_json::from_value(value) {
@@ -247,7 +247,7 @@ impl MCPStore {
             return;
         }
 
-        // 先建连再 call：override 解析按已同步的 tools 校验工具名（与本地路径顺序一致）。
+        // Connect before calling: override resolution validates tool names against synced tools (same order as the local path).
         let started = std::time::Instant::now();
         let executed = async {
             self.ensure_instance_connected(request.instance_id).await?;
@@ -295,7 +295,7 @@ impl MCPStore {
             return;
         }
 
-        // TTL 兜底：数据面板挂了没人读走响应，5 分钟后清掉。
+        // TTL safety net: if the data panel dies and nobody reads the response, clean it up after 5 minutes.
         let store = Arc::clone(self);
         tokio::spawn(async move {
             tokio::time::sleep(RESPONSE_TTL).await;

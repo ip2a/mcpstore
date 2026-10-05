@@ -1,9 +1,9 @@
-//! 数据面板按 placement 本地执行。
+//! The data panel executes locally per placement.
 //!
-//! placement 语义：`_mcpstore.placement` 的键是 panel_id，值是覆盖
-//! base_config 的配置 diff；未出现在 placement 里的服务默认由控制面板
-//! 执行。数据面板只执行 placement 命中自己的服务（调用时 lazy 建连，
-//! 常驻语义由生命周期配置 keep_alive / OnStoreStart 表达）。
+//! Placement semantics: keys of `_mcpstore.placement` are panel_ids, values override
+//! base_config. Services absent from placement are executed by the control panel by
+//! default. The data panel only executes services placement assigns to it (lazy connect on call,
+//! residency is expressed via the lifecycle config keep_alive / OnStoreStart).
 
 use serde_json::{Map, Value};
 
@@ -11,9 +11,9 @@ use crate::store::prelude::*;
 use crate::store::MCPStore;
 
 impl MCPStore {
-    /// 本地覆盖实例的 effective_config（只动本进程 registry，不写回共享 KV），
-    /// 然后建立本地连接。数据面板进程未挂 supervisor，天然跳过 startup
-    /// probe / 健康自愈——这就是"拉取已验证配置直接执行"的落地。
+    /// Locally override the instance's effective_config (this process's registry only, never written back to shared KV),
+    /// then connect locally. Data-panel processes have no supervisor mounted, so they skip the startup
+    /// probe / health self-healing — this is how "fetch validated config and execute directly" lands.
     pub(crate) async fn connect_with_local_config(
         &self,
         instance_id: InstanceId,
@@ -35,9 +35,9 @@ impl MCPStore {
         self.connect_service_internal(instance_id, false).await
     }
 
-    /// 数据面板的唯一连接入口（ensure_instance_connected 分流到这里）：
-    /// placement 命中本面板 → 注水 + merge 覆盖建连；否则报错——非工具
-    /// 执行面目前没有远端 RPC，宁可明确失败也不拿 base 配置瞎连。
+    /// The data panel's single connection entry (ensure_instance_connected routes here):
+    /// placement hits this panel → hydrate + merge overrides and connect; otherwise error — non-tool
+    /// execution surfaces have no remote RPC yet; fail loudly instead of connecting with base config.
     pub(crate) async fn ensure_data_panel_instance_connected(
         &self,
         panel_id: &str,
@@ -74,15 +74,15 @@ impl MCPStore {
                 ),
             )
         })?;
-        // 连接池 / 状态机需要进程内结构，注水一次再用 placement 覆盖建连。
+        // The pool / state machine need in-process structures; hydrate once, then connect with placement overrides merged in.
         self.load_from_db().await?;
         let merged = crate::config::merge_config(&definition.base_config, diff_object);
         self.connect_with_local_config(instance_id, merged).await
     }
 
-    /// 数据面板的 call 路由：placement 命中本面板 → 本地执行（连接交给
-    /// ensure 入口）；placement 为空 → 远端代理执行；指向其他面板 →
-    /// 场景 3，明确不支持。
+    /// Data-panel call routing: placement hits this panel → local execution (connection goes through
+    /// the ensure entry); empty placement → remote proxy; pointing at another panel →
+    /// case 3, explicitly unsupported.
     pub(crate) async fn route_data_panel_tool_call(
         &self,
         panel_id: &str,
@@ -102,8 +102,8 @@ impl MCPStore {
             })?;
 
         if definition.placement.contains_key(panel_id) {
-            // 先建连再进引擎：override 解析按已同步的 tools 校验工具名，
-            // 顺序反了会误报 ToolNotFound。
+            // Connect before entering the engine: override resolution validates tool names against synced tools;
+            // the other order misreports ToolNotFound.
             self.ensure_data_panel_instance_connected(panel_id, instance_id)
                 .await?;
             return self
@@ -114,7 +114,7 @@ impl MCPStore {
         }
 
         if definition.placement.is_empty() {
-            // 场景 1：控制面板代理执行（kvstore RPC）。
+            // Case 1: control-panel proxy execution (kvstore RPC).
             return self.call_tool_remote(instance_id, tool_name, args).await;
         }
 

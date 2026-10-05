@@ -9,7 +9,7 @@ use subtle::ConstantTimeEq;
 pub const KERNEL_PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// daemon 握手默认 namespace；v1 单 daemon 假设下 CLI 与 daemon 共用它。
+/// Default namespace for the daemon handshake; under the v1 single-daemon assumption, CLI and daemon share it.
 pub const DEFAULT_NAMESPACE: &str = "mcpstore";
 
 /// Default Unix socket path for KernelHost IPC.

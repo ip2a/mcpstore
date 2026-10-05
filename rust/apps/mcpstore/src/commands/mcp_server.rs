@@ -50,7 +50,7 @@ pub struct McpServerArgs {
     pub transport: Option<McpServerTransport>,
     #[arg(
         long,
-        help = "本进程内嵌 kernel（默认 stdio 为转发 daemon 的 thin client）"
+        help = "Run an embedded kernel in-process (default stdio is a thin client forwarding to the daemon)"
     )]
     pub embedded: bool,
     #[arg(
@@ -177,8 +177,8 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
     };
     let app_config = config_manager.load_app_config_or_default()?;
     let options = args.to_core_options(&app_config)?;
-    // stdio 默认是 thin client：转发 daemon，共享其连接池。--embedded、显式 store
-    // 参数或 instance/session 定向模式保持本进程 kernel。
+    // stdio defaults to a thin client: forward to the daemon and share its pool. --embedded, explicit store
+    // args, or instance/session-targeted mode keep the in-process kernel.
     if options.transport == crate::mcp_server::McpServerTransport::Stdio
         && options.instance_id.is_none()
         && options.session_key.is_none()
