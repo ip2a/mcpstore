@@ -1,5 +1,6 @@
 use super::*;
-use crate::{JsonStoreConfig, NodeMode, StoreOptions, ToolVisibilityFilter};
+use crate::store::PanelRole;
+use crate::{JsonStoreConfig, StoreOptions, ToolVisibilityFilter};
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -59,14 +60,8 @@ async fn register_tool_service(
         .await
         .unwrap();
     let instance_id = ServiceInstanceKey::new(service_name, scope).instance_id();
-    let mut instance = store
-        .kernel
-        .control
-        .registry
-        .find_instance(instance_id)
-        .await
-        .unwrap();
-    instance.tools = tools
+    // The source of truth for tools is kv: projection primitives on the real connection path, no more poking the registry
+    let tool_infos = tools
         .iter()
         .map(|tool| crate::registry::ToolInfo {
             name: (*tool).to_string(),
@@ -77,13 +72,11 @@ async fn register_tool_service(
             annotations: None,
             meta: None,
         })
-        .collect();
+        .collect::<Vec<_>>();
     store
-        .kernel
-        .control
-        .registry
-        .register_instance(instance)
-        .await;
+        .cache_instance_connected(instance_id, &tool_infos)
+        .await
+        .unwrap();
     instance_id
 }
 
@@ -190,21 +183,17 @@ async fn redis_backend_shares_session_state_between_store_instances_when_availab
     let first_path = temp_config_path();
     let second_path = temp_config_path();
     let first = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(first_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let second = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(second_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -301,21 +290,17 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
     let first_path = temp_config_path();
     let second_path = temp_config_path();
     let first = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(first_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let second = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(second_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let alpha = register_tool_service(&first, "alpha", ScopeRef::Store, &["echo", "search"]).await;
@@ -517,21 +502,17 @@ async fn redis_backend_shares_session_context_state_between_store_instances_when
     let first_path = temp_config_path();
     let second_path = temp_config_path();
     let first = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(first_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let second = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(second_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -587,21 +568,17 @@ async fn redis_backend_rejects_stale_session_cas_write_when_available() {
     let first_path = temp_config_path();
     let second_path = temp_config_path();
     let first = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(first_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let second = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(second_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 

@@ -1,10 +1,9 @@
-//! 业务 op 分发：daemon socket 与 CLI embedded 进程共用同一份实现
-//! （单业务协议、双执行位置）。daemon 管理面（status/config/stop）在 server.rs。
-use std::collections::HashSet;
+//! Business op dispatch: the daemon socket and CLI embedded processes share one implementation
+//! (one business protocol, two execution sites). Daemon management (status/config/stop) lives in server.rs.
 
 use mcpstore::config::{
-    AppConfig, McpStoreExtension, Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations,
-    ScopeDescriptor, ServerConfig,
+    AppConfig, McpStoreExtension, Runtime, RuntimeSelection, ScopeDeclarations, ScopeDescriptor,
+    ServerConfig,
 };
 use mcpstore::error::{Error, FailureCode};
 use mcpstore::{AuthFlow, InstanceId, MCPStore, McpCompletionRequest, ScopeRef};
@@ -12,11 +11,11 @@ use serde_json::{json, Value};
 
 use crate::daemon::protocol::KernelOperation;
 
-/// Resolve and validate the runtime selection at the daemon trust boundary.
+/// Resolve the runtime selection at the daemon trust boundary.
 /// A missing `runtime` keeps older clients on the daemon runtime.
 pub(crate) async fn resolve_daemon_runtime(
-    store: &MCPStore,
-    instance_id: InstanceId,
+    _store: &MCPStore,
+    _instance_id: InstanceId,
     payload: &Value,
 ) -> Result<RuntimeSelection, Error> {
     let runtime = match payload.get("runtime") {
@@ -31,56 +30,7 @@ pub(crate) async fn resolve_daemon_runtime(
             ))
         }
     };
-    let selection = RuntimeSelection::runtime(runtime);
-    if let Some(instance) = store.find_instance(instance_id).await {
-        if let Some(definition) = store.find_definition(&instance.service_name).await {
-            if let Some(policy) = definition.runtime_policy {
-                if let Some(missing) = missing_local_capabilities(&policy, &selection) {
-                    return Err(capabilities_unsupported(missing));
-                }
-                if !policy.allows_runtime(selection.runtime) {
-                    return Err(runtime_not_allowed(
-                        &selection,
-                        &instance.service_name,
-                        &policy,
-                    ));
-                }
-            }
-        }
-    }
-    Ok(selection)
-}
-
-fn runtime_not_allowed(
-    selection: &RuntimeSelection,
-    service_name: &str,
-    policy: &RuntimePolicy,
-) -> Error {
-    Error::new(
-        FailureCode::InvalidInput,
-        format!(
-            "runtime '{}' not allowed for service '{service_name}'; allowed: {}",
-            selection.runtime,
-            policy
-                .allowed_runtimes
-                .as_deref()
-                .unwrap_or(&[])
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    )
-}
-
-/// 执行一个业务 op。请求/响应 op 全部经此；流式 op（StreamToolExecution/
-/// SubscribeEvents）与管理 op 不在此列。
-fn mutation_status(store: &MCPStore) -> &'static str {
-    if store.is_control_mutation_queued() {
-        "queued"
-    } else {
-        "applied"
-    }
+    Ok(RuntimeSelection::runtime(runtime))
 }
 
 pub(crate) async fn execute(
@@ -164,10 +114,7 @@ pub(crate) async fn execute(
         }
         KernelOperation::ConnectService => {
             let instance_id = instance_id(&payload)?;
-            let request_id = store.connect_service(instance_id).await?;
-            if store.is_control_mutation_queued() {
-                return Ok(json!({"request_id": request_id, "status": "queued"}));
-            }
+            store.connect_service(instance_id).await?;
             let tools = store
                 .list_tool_entries_for_instance_with_filter(
                     instance_id,
@@ -188,17 +135,13 @@ pub(crate) async fn execute(
         }
         KernelOperation::DisconnectService => {
             let instance_id = instance_id(&payload)?;
-            let request_id = store.disconnect_service(instance_id).await?;
-            Ok(
-                json!({"instance_id": instance_id, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.disconnect_service(instance_id).await?;
+            Ok(json!({"instance_id": instance_id}))
         }
         KernelOperation::RestartService => {
             let instance_id = instance_id(&payload)?;
-            let request_id = store.restart_service(instance_id).await?;
-            Ok(
-                json!({"instance_id": instance_id, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.restart_service(instance_id).await?;
+            Ok(json!({"instance_id": instance_id}))
         }
         KernelOperation::CheckService => {
             let instance_id = instance_id(&payload)?;
@@ -217,38 +160,27 @@ pub(crate) async fn execute(
         KernelOperation::UpdateService => {
             let name = required_str(&payload, "name")?;
             let config = payload_field::<ServerConfig>(&payload, "config")?;
-            let runtime_policy =
-                payload_field::<Option<RuntimePolicy>>(&payload, "runtime_policy")?;
-            let request_id = store.update_service(&name, config, runtime_policy).await?;
-            Ok(
-                json!({"service_name": name, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.update_service(&name, config).await?;
+            Ok(json!({"service_name": name}))
         }
         KernelOperation::DeclareServiceScope => {
             let service_name = required_str(&payload, "service_name")?;
             let scope = payload_field::<ScopeRef>(&payload, "scope")?;
             let descriptor = payload_field::<ScopeDescriptor>(&payload, "descriptor")?;
-            let request_id = store
+            let instance_id = store
                 .declare_service_scope(&service_name, &scope, descriptor)
                 .await?;
-            let instance_id =
-                mcpstore::ServiceInstanceKey::new(service_name.clone(), scope.clone())
-                    .instance_id();
             Ok(json!({
                 "instance_id": instance_id,
                 "service_name": service_name,
                 "scope": scope,
-                "request_id": request_id,
-                "status": mutation_status(store),
             }))
         }
         KernelOperation::RemoveServiceScope => {
             let service_name = required_str(&payload, "service_name")?;
             let scope = payload_field::<ScopeRef>(&payload, "scope")?;
-            let request_id = store.remove_service_scope(&service_name, &scope).await?;
-            Ok(
-                json!({"service_name": service_name, "scope": scope, "request_id": request_id, "status": mutation_status(store)}),
-            )
+            store.remove_service_scope(&service_name, &scope).await?;
+            Ok(json!({"service_name": service_name, "scope": scope}))
         }
         KernelOperation::ListAgents => {
             let agents = store.list_agents().await?;
@@ -256,8 +188,8 @@ pub(crate) async fn execute(
         }
         KernelOperation::ShowConfig => store.show_config().await,
         KernelOperation::ResetConfig => {
-            let request_id = store.reset_config().await?;
-            Ok(json!({"request_id": request_id, "status": mutation_status(store)}))
+            store.reset_config().await?;
+            Ok(json!({"status": "ok"}))
         }
         KernelOperation::AuthStatus => {
             let instance_id = instance_id(&payload)?;
@@ -415,16 +347,6 @@ pub(crate) async fn execute(
         }
         KernelOperation::EventCapabilityReport => Ok(store.event_capability_report().await),
         KernelOperation::CacheHealth => store.cache_health_check().await,
-        KernelOperation::ControlRequestGet => {
-            let request_id = required_str(&payload, "request_id")?;
-            let request = store.control_request(&request_id).await?;
-            Ok(serde_json::to_value(request)
-                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?)
-        }
-        KernelOperation::ControlRequestList => {
-            let requests = store.control_requests().await?;
-            Ok(json!({"requests": requests, "total": requests.len()}))
-        }
         KernelOperation::HealthCheck => {
             let instance_id = instance_id(&payload)?;
             Ok(json!({"state": store.health_check(instance_id).await?}))
@@ -448,7 +370,7 @@ pub(crate) async fn execute(
             }))
         }
         KernelOperation::SaveAppConfig => {
-            // server/mcp_aggregate 是 daemon 热应用面，必须走 config --<key>；其余段整体保存
+            // server/mcp_aggregate is a daemon hot-apply section and must go through config --<key>; other sections save wholesale
             let new_config = payload_field::<AppConfig>(&payload, "config")?;
             let manager = store.config_manager();
             let current = manager.load_app_config_or_default().map_err(config_error)?;
@@ -517,9 +439,10 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            runtime_policy: previous
+            placement: previous
                 .as_ref()
-                .and_then(|extension| extension.runtime_policy.clone()),
+                .map(|extension| extension.placement.clone())
+                .unwrap_or_default(),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -531,13 +454,12 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
         });
     }
     let definition_exists = store.get_definition_config(&name).await?.is_some();
-    let request_id;
     if definition_exists {
         let lifecycle = config
             .mcpstore
             .as_ref()
             .and_then(|extension| extension.lifecycle.clone());
-        request_id = store
+        store
             .declare_service_scope(
                 &name,
                 &scope,
@@ -548,18 +470,15 @@ pub(crate) async fn add_service(store: &MCPStore, payload: Value) -> Result<Valu
                     ..Default::default()
                 },
             )
-            .await?
-            .to_string();
+            .await?;
     } else {
-        request_id = store.add_service(&name, config).await?;
+        store.add_service(&name, config).await?;
     }
     let instance_id = mcpstore::ServiceInstanceKey::new(name.clone(), scope.clone()).instance_id();
     Ok(json!({
         "service_name": name,
         "scope": scope,
         "instance_id": instance_id,
-        "request_id": request_id,
-        "status": mutation_status(store),
     }))
 }
 
@@ -628,8 +547,8 @@ pub(crate) fn instance_id(payload: &Value) -> Result<InstanceId, Error> {
         })
 }
 
-/// 配置 key 表（设计文档 §7）：把单 key 修改应用到 AppConfig，
-/// 返回受影响面的目标端口（Some=起/重绑，None=停；空=仅改配置无面变更）。
+/// Config key table (design doc §7): apply single-key edits to AppConfig,
+/// returning the affected plane's target port (Some=start/rebind, None=stop; empty=config-only, no plane change).
 pub(crate) fn plan_config_change(
     config: &mut AppConfig,
     key: &str,
@@ -761,38 +680,6 @@ pub(crate) fn required_str_value(value: &Value, field: &str) -> Result<String, E
         })
 }
 
-pub(crate) fn host_capabilities() -> HashSet<&'static str> {
-    let mut capabilities = HashSet::from(["browser"]);
-    if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        capabilities.insert("display");
-    }
-    capabilities
-}
-
-fn missing_local_capabilities(
-    policy: &RuntimePolicy,
-    selection: &RuntimeSelection,
-) -> Option<String> {
-    if selection.runtime != Runtime::Local {
-        return None;
-    }
-    let capabilities = host_capabilities();
-    let missing: Vec<_> = policy
-        .required_host_capabilities
-        .iter()
-        .filter(|capability| !capabilities.contains(capability.as_str()))
-        .cloned()
-        .collect();
-    (!missing.is_empty()).then(|| missing.join(", "))
-}
-
-fn capabilities_unsupported(missing: String) -> Error {
-    Error::new(
-        FailureCode::CapabilityUnsupported,
-        format!("local host lacks required capabilities: {missing}"),
-    )
-}
-
 pub(crate) fn parse_switch(value: &Value, field: &str) -> Result<bool, Error> {
     match value.as_str() {
         Some("on") | Some("true") => Ok(true),
@@ -809,17 +696,6 @@ mod tests {
     use super::*;
     use mcpstore::ServiceInstanceKey;
 
-    #[test]
-    fn local_execution_rejects_missing_host_capability() {
-        let policy = RuntimePolicy {
-            allowed_runtimes: None,
-            required_host_capabilities: vec!["definitely-missing-capability".into()],
-        };
-        let error = missing_local_capabilities(&policy, &RuntimeSelection::runtime(Runtime::Local))
-            .unwrap();
-        assert_eq!(error, "definitely-missing-capability");
-    }
-
     #[tokio::test]
     async fn daemon_accepts_daemon_runtime_selection() {
         let path =
@@ -833,38 +709,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(selection, RuntimeSelection::runtime(Runtime::Daemon));
-        std::fs::remove_dir_all(path).ok();
-    }
-
-    #[tokio::test]
-    async fn daemon_rejects_execution_target_disallowed_by_service() {
-        let path =
-            std::env::temp_dir().join(format!("mcpstore-daemon-policy-{}", std::process::id()));
-        std::fs::create_dir_all(&path).unwrap();
-        let config_path = path.join("mcp.json");
-        let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
-        let mut config = ServerConfig {
-            command: Some("echo".into()),
-            args: vec!["fixture".into()],
-            transport: Some("stdio".into()),
-            ..ServerConfig::default()
-        };
-        config.mcpstore = Some(McpStoreExtension {
-            runtime_policy: Some(RuntimePolicy {
-                allowed_runtimes: Some(vec![Runtime::Local]),
-                required_host_capabilities: Vec::new(),
-            }),
-            scopes: ScopeDeclarations::store_only(),
-            ..McpStoreExtension::default()
-        });
-        store.add_service("svc", config).await.unwrap();
-        let instance_id = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
-
-        let error = resolve_daemon_runtime(&store, instance_id, &json!({"runtime": "daemon"}))
-            .await
-            .unwrap_err();
-
-        assert!(error.to_string().contains("not allowed"), "{error}");
         std::fs::remove_dir_all(path).ok();
     }
 }

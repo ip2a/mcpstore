@@ -19,7 +19,7 @@ use crate::daemon::protocol::{
 use crate::daemon::transport::{HostListener, HostStream};
 use crate::store_args::{load_kernel, StoreSourceArgs};
 
-/// daemon 进程持有的全部运行时：kernel、HTTP 面、共享 ApiState。
+/// All runtime held by the daemon process: kernel, HTTP planes, shared ApiState.
 struct DaemonHost {
     store: Arc<MCPStore>,
     state: Arc<crate::commands::api::ApiState>,
@@ -54,26 +54,8 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         faces: crate::daemon::listeners::ListenerManager::new(),
         started_at: Instant::now(),
     });
-    if host.store.is_data_plane() {
-        // data 面板唯一的对外信号：定期把心跳+能力自报写进共享存储的 node_status 行。
-        // 读侧（控制面）按 updated_at 时间戳判失联，沉默即异常。
-        let store = Arc::clone(&host.store);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(15));
-            loop {
-                interval.tick().await;
-                let capabilities: Vec<&str> = crate::daemon::ops::host_capabilities()
-                    .into_iter()
-                    .collect();
-                if let Err(error) = store
-                    .write_node_status(serde_json::json!({ "capabilities": capabilities }))
-                    .await
-                {
-                    tracing::warn!("[KERNEL_HOST] node status heartbeat failed: {error}");
-                }
-            }
-        });
-    }
+    // Panel roles are internalized in the store: ControlPanel mounts the self-healing supervisor at setup;
+    // DataPanel serves placement automatically at load (load_kernel above).
     host.faces.start_all(&app_config, &host.state).await;
 
     let shutdown = Arc::new(tokio::sync::Notify::new());
@@ -370,27 +352,17 @@ async fn execute_operation(
 }
 
 async fn status_host_payload(host: &DaemonHost) -> mcpstore::Result<Value> {
-    let reactor_running = host.store.has_reactor().await;
-    let requests = host.store.control_requests().await?;
-    let pending = requests
-        .iter()
-        .any(|request| request.is_pending())
-        .then(|| requests.len());
     Ok(json!({
         "pid": std::process::id(),
         "version": env!("CARGO_PKG_VERSION"),
         "uptime_s": host.started_at.elapsed().as_secs(),
         "namespace": host.store.namespace(),
-        "reactor_running": reactor_running,
-        "control_queue": {
-            "pending": pending.unwrap_or(0),
-            "requests": requests.len(),
-        },
         "node": {
-            "id": host.store.node_id(),
-            "mode": if host.store.is_data_plane() { "data" } else { "control" },
-            "heartbeat": host.store.read_node_status(&host.store.node_id()).await?,
-            "nodes": host.store.node_liveness(45).await?,
+            "id": host.store.panel_id(),
+            "mode": match host.store.panel_role() {
+                mcpstore::PanelRole::ControlPanel => "control",
+                mcpstore::PanelRole::DataPanel { .. } => "data",
+            },
         },
         "listeners": host.faces.snapshot(),
     }))
@@ -408,8 +380,8 @@ fn get_daemon_config(host: &DaemonHost) -> Result<Value, Error> {
     }))
 }
 
-/// 单 key 配置修改：校验 → listener 热应用（先新后旧）→ 原子回写 config.toml。
-/// 任一步失败即整体失败：listener 未变就不落盘，落盘成功即已生效。
+/// Single-key config edit: validate → hot-apply listeners (new first, then old) → atomically flush config.toml.
+/// Any failed step fails the whole edit: no flush unless listeners changed; a successful flush means it took effect.
 async fn set_daemon_config(host: &DaemonHost, payload: Value) -> Result<Value, Error> {
     let key = required_str(&payload, "key")?;
     let value = payload
@@ -481,7 +453,7 @@ mod tests {
     fn plan_host_rebinds_all_enabled_faces() {
         let mut config = config();
         let planned = plan_config_change(&mut config, "host", &json!("192.168.1.10")).unwrap();
-        assert_eq!(planned.len(), 3); // aggregate 默认关
+        assert_eq!(planned.len(), 3); // aggregate off by default
         assert_eq!(config.server.host, "192.168.1.10");
     }
 

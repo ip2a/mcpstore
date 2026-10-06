@@ -7,8 +7,8 @@ use crate::cache::models::{
 use crate::config::{ServerConfig, StartupPolicy};
 use crate::registry::{ServiceDefinition, ServiceInstance, ToolInfo};
 use crate::state::{AuthState, DesiredState, ServiceState};
-use crate::store::{MCPStore, SourceMode};
-use crate::{Error, FailureCode, Result, ServiceInstanceKey};
+use crate::store::MCPStore;
+use crate::{Error, FailureCode, InstanceId, Result, ServiceInstanceKey};
 
 impl MCPStore {
     pub(crate) async fn load_from_db(&self) -> Result<()> {
@@ -209,22 +209,9 @@ impl MCPStore {
                             ),
                         )
                     })?;
-            instances.push((
-                ServiceInstance {
-                    instance_id: entity.instance_id,
-                    service_name: entity.service_name,
-                    scope: entity.scope,
-                    transport: entity.transport,
-                    url: entity.url,
-                    command: entity.command,
-                    tools,
-                    effective_config: entity.effective_config,
-                    config_revision: entity.config_revision,
-                    applied_config_revision: entity.applied_config_revision,
-                    added_time: entity.added_time,
-                },
-                transport_config,
-            ));
+            let mut instance = ServiceInstance::from(entity);
+            instance.tools = tools;
+            instances.push((instance, transport_config));
         }
 
         let active_instance_ids = instances
@@ -237,19 +224,21 @@ impl MCPStore {
             .retain_statuses(&active_instance_ids)
             .await;
 
-        // 增量合并连接池，而非清空重建：只移除已删除的实例，
-        // 只对配置变更的实例重连，其余保留活连接。
+        // Merge the connection pool incrementally instead of rebuilding: remove only deleted instances,
+        // reconnect only instances whose config changed, keep live connections for the rest.
         let current_ids = self.kernel.execution.pool.instance_ids().await;
         for stale_id in current_ids.difference(&active_instance_ids) {
             self.kernel.execution.pool.remove(*stale_id).await.ok();
         }
 
+        // Incrementally keep applied openapi runtime config: clear only entries of vanished instances,
+        // surviving instances' connection state is not wrongly dropped by hydration (same merge semantics as the pool).
         self.kernel
             .runtime
             .applied_openapi_configs
             .write()
             .await
-            .clear();
+            .retain(|id, _| active_instance_ids.contains(id));
         self.kernel.control.registry.clear().await;
         for definition in definitions.into_values() {
             self.kernel
@@ -274,7 +263,7 @@ impl MCPStore {
                         .runtime_config
                         .service_lifecycle_defaults,
                 );
-                // keep_alive=true 隐含期望常驻（与 cache_instance_added 的判定一致）
+                // keep_alive=true implies a resident expectation (same rule as cache_instance_added)
                 let desired = if lifecycle.startup_policy == StartupPolicy::OnStoreStart
                     || lifecycle.keep_alive
                 {
@@ -300,7 +289,7 @@ impl MCPStore {
                 .auth
                 .initialize_status(instance_id, &transport_config.auth)
                 .await;
-            // 只在配置实际变化或实例首次注册时才重建连接池条目
+            // Rebuild pool entries only when config actually changed or the instance is first registered
             if instance.restart_required()
                 || !self.kernel.execution.pool.contains(instance_id).await
             {
@@ -320,10 +309,167 @@ impl MCPStore {
         Ok(())
     }
 
+    /// Execution-path hydration: the connection pool / state machine needs in-process structures. Queries don't go through here.
     pub(crate) async fn refresh_from_db_if_needed(&self) -> Result<()> {
-        if self.kernel.runtime.source_mode == SourceMode::Db {
-            self.load_from_db().await?;
+        self.load_from_db().await
+    }
+
+    /// Shared-store query side: direct key reads; never goes through or backfills the in-memory registry.
+    /// Full `load_from_db` hydration is reserved for the execution path (pool / state machine need in-process structures).
+    pub(crate) async fn definition_from_kv(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<ServiceDefinition>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .cache
+            .get_entity("service_definitions", service_name)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let entity: ServiceDefinitionEntity = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Service definition entity deserialization failed: {error}"),
+            )
+        })?;
+        Ok(Some(ServiceDefinition::from(entity)))
+    }
+
+    pub(crate) async fn definitions_from_kv(&self) -> Result<Vec<ServiceDefinition>> {
+        let values = self
+            .kernel
+            .persistence
+            .cache
+            .get_all_entities_async("service_definitions")
+            .await?;
+        let mut definitions = Vec::with_capacity(values.len());
+        for (_, value) in values {
+            let entity: ServiceDefinitionEntity =
+                serde_json::from_value(value).map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("Service definition entity deserialization failed: {error}"),
+                    )
+                })?;
+            definitions.push(ServiceDefinition::from(entity));
         }
-        Ok(())
+        Ok(definitions)
+    }
+
+    pub(crate) async fn instance_from_kv(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Option<ServiceInstance>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .cache
+            .get_entity("service_instances", &instance_id.to_string())
+            .await?
+        else {
+            return Ok(None);
+        };
+        let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Service instance entity deserialization failed: {error}"),
+            )
+        })?;
+        let tools = self.tools_from_kv(entity.instance_id).await?;
+        Ok(Some(ServiceInstance {
+            instance_id: entity.instance_id,
+            service_name: entity.service_name,
+            scope: entity.scope,
+            transport: entity.transport,
+            url: entity.url,
+            command: entity.command,
+            tools,
+            effective_config: entity.effective_config,
+            config_revision: entity.config_revision,
+            applied_config_revision: entity.applied_config_revision,
+            added_time: entity.added_time,
+        }))
+    }
+
+    pub(crate) async fn instances_from_kv(&self) -> Result<Vec<ServiceInstance>> {
+        let values = self
+            .kernel
+            .persistence
+            .cache
+            .get_all_entities_async("service_instances")
+            .await?;
+        let mut instances = Vec::with_capacity(values.len());
+        for (_, value) in values {
+            let entity: ServiceInstanceEntity = serde_json::from_value(value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Service instance entity deserialization failed: {error}"),
+                )
+            })?;
+            let tools = self.tools_from_kv(entity.instance_id).await?;
+            instances.push(ServiceInstance {
+                instance_id: entity.instance_id,
+                service_name: entity.service_name,
+                scope: entity.scope,
+                transport: entity.transport,
+                url: entity.url,
+                command: entity.command,
+                tools,
+                effective_config: entity.effective_config,
+                config_revision: entity.config_revision,
+                applied_config_revision: entity.applied_config_revision,
+                added_time: entity.added_time,
+            });
+        }
+        Ok(instances)
+    }
+
+    pub(crate) async fn tools_from_kv(&self, instance_id: InstanceId) -> Result<Vec<ToolInfo>> {
+        let Some(value) = self
+            .kernel
+            .persistence
+            .cache
+            .get_relation("instance_tools", &instance_id.to_string())
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let relation: InstanceToolRelation = serde_json::from_value(value).map_err(|error| {
+            Error::new(
+                FailureCode::Internal,
+                format!("Instance tool relation deserialization failed: {error}"),
+            )
+        })?;
+        let mut tools = Vec::with_capacity(relation.tools.len());
+        for tool_name in relation.tools {
+            let Some(tool_value) = self
+                .kernel
+                .persistence
+                .cache
+                .get_entity("tools", &format!("{instance_id}:{tool_name}"))
+                .await?
+            else {
+                continue;
+            };
+            let tool: ToolEntity = serde_json::from_value(tool_value).map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Tool entity deserialization failed: {error}"),
+                )
+            })?;
+            tools.push(ToolInfo {
+                name: tool.tool_name,
+                title: tool.title,
+                description: tool.description,
+                input_schema: tool.input_schema,
+                output_schema: tool.output_schema,
+                annotations: tool.annotations,
+                meta: tool.meta,
+            });
+        }
+        Ok(tools)
     }
 }

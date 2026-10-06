@@ -13,7 +13,7 @@ use crate::commands::elicitation::{
     handle_elicitation, settle_execution_after_elicitation_error, ElicitationArgs,
     ElicitationCommandError, ElicitationErrorKind,
 };
-use crate::commands::mcp::{insert_runtime, open_store, resolve_declared_runtime, RuntimeArgs};
+use crate::commands::mcp::{insert_runtime, open_store, RuntimeArgs};
 use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_instance, attach_task, OutputFormat};
 use crate::store_args::{StoreAccess, StoreSourceArgs};
@@ -136,14 +136,12 @@ async fn run_task(
     let input = parse_input(&args.input, output)?;
     let mut access = loaded_access(&args.runtime, embedded, endpoint.clone()).await?;
     let selection = args.execution.resolve(embedded)?;
-    let info = access
+    let _info = access
         .request(
             KernelOperation::GetServiceInfo,
             json!({"instance_id": args.instance_id.to_string()}),
         )
         .await
-        .map_err(|error| attach_instance(error, args.instance_id))?;
-    let selection = resolve_declared_runtime(&info, selection)
         .map_err(|error| attach_instance(error, args.instance_id))?;
     let mut options = McpExecutionOptions::default();
     if let Some(timeout) = args.timeout {
@@ -165,7 +163,7 @@ async fn run_task(
     result
 }
 
-/// embedded 流式路径：elicitation 与 Ctrl-C 取消全保留。
+/// Embedded streaming path: elicitation and Ctrl-C cancel fully preserved.
 async fn run_task_embedded(
     access: &mut StoreAccess,
     store: std::sync::Arc<MCPStore>,
@@ -264,8 +262,8 @@ async fn run_task_embedded(
     }
 }
 
-/// daemon 流式路径：task:true 转发事件。elicitation 在 daemon 模式不可用
-/// （headless 语义）；Ctrl-C 终止 CLI 即断开事件流，daemon 侧任务继续。
+/// Daemon streaming path: forwards events with task:true. Elicitation is unavailable in daemon mode
+/// (headless semantics); Ctrl-C kills the CLI and detaches the event stream, while the daemon-side task continues.
 async fn run_task_remote(
     access: &mut StoreAccess,
     args: TaskRunArgs,

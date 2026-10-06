@@ -51,7 +51,7 @@ pub fn import_selected_services(
     if selected_names.is_empty() {
         return Err(Error::new(
             FailureCode::Internal,
-            "至少选择一个要导入的服务",
+            "at least one service must be selected to import",
         ));
     }
     let mut seen = HashSet::new();

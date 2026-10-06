@@ -10,23 +10,38 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         scope: &ScopeRef,
+        descriptor: ScopeDescriptor,
+    ) -> Result<InstanceId> {
+        let instance_id =
+            ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
+        if store.definition_from_kv(service_name).await?.is_none()
+            && !store.seed_file_has_service(service_name)
+        {
+            return Err(Error::new(
+                FailureCode::ServiceNotFound,
+                service_name.to_string(),
+            ));
+        }
+        store
+            .put_service_event(serde_json::json!({
+                "op": "declare_scope",
+                "service_name": service_name,
+                "scope": scope,
+                "descriptor": descriptor,
+            }))
+            .await?;
+        Ok(instance_id)
+    }
+
+    pub(crate) async fn apply_declare_service_scope(
+        &self,
+        store: &MCPStore,
+        service_name: &str,
+        scope: &ScopeRef,
         mut descriptor: ScopeDescriptor,
     ) -> Result<InstanceId> {
         let instance_id =
             ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
-        if store.is_data_plane() {
-            store
-                .queue_control_request(
-                    "ServiceScopeDeclareRequested",
-                    serde_json::json!({
-                        "service_name": service_name,
-                        "scope": scope,
-                        "descriptor": descriptor,
-                    }),
-                )
-                .await?;
-            return Ok(instance_id);
-        }
 
         let mut config = store.show_config_entry().await?;
         let server = config
@@ -63,7 +78,7 @@ impl ControlPlane {
         }
 
         let server = server.clone();
-        if store.kernel.runtime.source_mode == SourceMode::Local {
+        if store.kernel.runtime.sync_config_file {
             store.kernel.control.config_manager.save(&config)?;
         }
 
@@ -140,19 +155,22 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         scope: &ScopeRef,
-    ) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceScopeRemoveRequested",
-                    serde_json::json!({
-                        "service_name": service_name,
-                        "scope": scope,
-                    }),
-                )
-                .await;
-        }
+    ) -> Result<()> {
+        store
+            .put_service_event(serde_json::json!({
+                "op": "remove_scope",
+                "service_name": service_name,
+                "scope": scope,
+            }))
+            .await
+    }
 
+    pub(crate) async fn apply_remove_service_scope(
+        &self,
+        store: &MCPStore,
+        service_name: &str,
+        scope: &ScopeRef,
+    ) -> Result<()> {
         let mut config = store.show_config_entry().await?;
         let server = config
             .mcp_servers
@@ -175,7 +193,7 @@ impl ControlPlane {
         }
 
         let server = server.clone();
-        if store.kernel.runtime.source_mode == SourceMode::Local {
+        if store.kernel.runtime.sync_config_file {
             store.kernel.control.config_manager.save(&config)?;
         }
 
@@ -200,6 +218,6 @@ impl ControlPlane {
             .sync_definition_projection(service_name, &server, chrono::Utc::now().timestamp())
             .await?;
         store.cache_instance_removed(instance_id).await?;
-        Ok(String::new())
+        Ok(())
     }
 }

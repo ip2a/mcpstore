@@ -9,9 +9,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use crate::config::{
-    McpStoreExtension, Runtime, RuntimePolicy, ScopeDeclarations, ScopeDescriptor,
-};
+use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
 use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
 fn temp_config_path() -> String {
@@ -37,6 +35,39 @@ fn instance_id(service_name: &str, scope: ScopeRef) -> InstanceId {
 
 fn store_instance_id(service_name: &str) -> InstanceId {
     instance_id(service_name, store_scope())
+}
+
+async fn wait_for_definition(store: &MCPStore, name: &str) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if store
+            .kernel
+            .control
+            .registry
+            .find_definition(name)
+            .await
+            .is_some()
+        {
+            return;
+        }
+        if Instant::now() > deadline {
+            panic!("timed out waiting for definition {name}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn wait_for_instance(store: &MCPStore, instance_id: InstanceId, present: bool) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if store.find_instance(instance_id).await.is_some() == present {
+            return;
+        }
+        if Instant::now() > deadline {
+            panic!("timed out waiting for instance {instance_id} present={present}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 fn write_temp_file(contents: &str) -> String {
@@ -97,7 +128,6 @@ fn broken_stdio_config() -> ServerConfig {
 #[test]
 fn setup_scopes_redis_config_to_store_namespace() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         store: Some(JsonStoreConfig::redis("redis://127.0.0.1/")),
         namespace: Some("tenant-a".to_string()),
         ..StoreOptions::default()
@@ -145,7 +175,7 @@ fn config_with_lifecycle(
             keep_alive: None,
         }),
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -885,49 +915,11 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
         },
         lifecycle: None,
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
     config
-}
-
-#[tokio::test]
-async fn service_info_exposes_declared_runtime_policy() {
-    let path = temp_config_path();
-    let store = MCPStore::setup(Some(&path)).unwrap();
-    let mut config = stdio_config();
-    config.mcpstore = Some(McpStoreExtension {
-        scopes: ScopeDeclarations::store_only(),
-        lifecycle: None,
-        handshake_mode: None,
-        runtime_policy: Some(RuntimePolicy {
-            allowed_runtimes: Some(vec![Runtime::Local, Runtime::Daemon]),
-            required_host_capabilities: Vec::new(),
-        }),
-        revision: 1,
-        extra: Map::new(),
-    });
-    store.add_service("svc", config).await.unwrap();
-
-    let definition = store
-        .kernel
-        .control
-        .registry
-        .find_definition("svc")
-        .await
-        .unwrap();
-    assert!(definition.runtime_policy.is_some());
-
-    let info = store
-        .service_info_scoped(store_instance_id("svc"))
-        .await
-        .unwrap();
-
-    assert_eq!(info["runtime_policy"]["allowed_runtimes"][0], "local");
-    assert_eq!(info["runtime_policy"]["allowed_runtimes"][1], "daemon");
-
-    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
@@ -1003,7 +995,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
         },
         lifecycle: None,
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -1050,67 +1042,44 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
 }
 
 #[tokio::test]
-async fn db_source_does_not_write_config_file_and_queues_add() {
+async fn db_source_add_lands_after_control_panel_consumes_the_event() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-source-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
     store.add_service("svc", stdio_config()).await.unwrap();
+    wait_for_definition(&store, "svc").await;
 
-    assert!(!std::path::Path::new(&path).exists());
+    assert!(Path::new(&path).exists());
     assert!(store
         .cache()
         .get_entity("service_definitions", "svc")
         .await
         .unwrap()
-        .is_none());
-    let events = store
-        .cache()
-        .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
-        .await
-        .unwrap();
-    let event = events.values().next().unwrap();
-    assert_eq!(event["type"], "ServiceAddRequested");
-    assert_eq!(event["status"], "queued");
-    assert_eq!(event["payload"]["service_name"], "svc");
-    assert_eq!(event["id"], event["trace_id"]);
-    assert!(event["id"]
-        .as_str()
-        .unwrap()
-        .starts_with("ServiceAddRequested:"));
-    assert!(event["id"].as_str().unwrap().ends_with(
-        event["trace_id"]
-            .as_str()
-            .unwrap()
-            .rsplit(':')
-            .next()
-            .unwrap()
-    ));
+        .is_some());
+    let saved = store.kernel.control.config_manager.load_or_empty().unwrap();
+    assert!(saved.mcp_servers.contains_key("svc"));
+    std::fs::remove_file(&path).ok();
 }
 
 #[tokio::test]
 async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(source_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("db-seed-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     source.add_service("svc", stdio_config()).await.unwrap();
     let instance_id = store_instance_id("svc");
-    let mut instance = source.find_instance(instance_id).await.unwrap();
-    instance.tools = vec![crate::registry::ToolInfo {
+    let tool_infos = vec![crate::registry::ToolInfo {
         name: "echo".to_string(),
         title: None,
         description: "echo".to_string(),
@@ -1120,11 +1089,9 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         meta: None,
     }];
     source
-        .kernel
-        .control
-        .registry
-        .register_instance(instance)
-        .await;
+        .cache_instance_connected(instance_id, &tool_infos)
+        .await
+        .unwrap();
     source
         .cache_instance_connected(instance_id, &source.list_tools(instance_id).await.unwrap())
         .await
@@ -1181,12 +1148,10 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .unwrap();
 
     let db = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("db-read-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     copy_cache_snapshot(&source, &db).await;
@@ -1204,144 +1169,12 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         .unwrap()
         .unwrap();
     assert_eq!(state.health, crate::state::HealthState::Healthy);
-    // record_instance_failure 是数据面只读 no-op：返回并保持本节点自己的栏不变
-    let own_before = db
-        .kernel
-        .control
-        .state
-        .get(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-    let unchanged = db
-        .record_instance_failure(
-            instance_id,
-            &crate::error::Error::new(crate::error::FailureCode::Internal, "must stay read-only"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(unchanged, own_before);
-    assert_eq!(
-        db.kernel
-            .control
-            .state
-            .get(instance_id)
-            .await
-            .unwrap()
-            .unwrap(),
-        own_before
-    );
     assert_eq!(
         db.show_config().await.unwrap()["mcpServers"]["svc"]["command"],
         "echo"
     );
 
     std::fs::remove_file(source_path).ok();
-}
-
-#[tokio::test]
-async fn db_source_queues_config_scope_and_runtime_mutations_with_new_identity() {
-    let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("db-queue-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    let scope = agent_scope("agent-a");
-    let instance_id = instance_id("svc", scope.clone());
-
-    store
-        .update_service("svc", stdio_config(), None)
-        .await
-        .unwrap();
-    store
-        .patch_service("svc", serde_json::json!({"description": "patched"}))
-        .await
-        .unwrap();
-    store
-        .declare_service_scope("svc", &scope, ScopeDescriptor::default())
-        .await
-        .unwrap();
-    store.remove_service_scope("svc", &scope).await.unwrap();
-    store.reset_scope(&scope).await.unwrap();
-    store.connect_service(instance_id).await.unwrap();
-    store.disconnect_service(instance_id).await.unwrap();
-    store.restart_service(instance_id).await.unwrap();
-    store.remove_service("svc").await.unwrap();
-    store.reset_config().await.unwrap();
-
-    let events = store
-        .cache()
-        .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
-        .await
-        .unwrap();
-    let by_type = events
-        .values()
-        .map(|event| (event["type"].as_str().unwrap(), event))
-        .collect::<HashMap<_, _>>();
-    for expected in [
-        "ServiceUpdateRequested",
-        "ServicePatchRequested",
-        "ServiceScopeDeclareRequested",
-        "ServiceScopeRemoveRequested",
-        "ScopeResetRequested",
-        "ServiceConnectRequested",
-        "ServiceDisconnectRequested",
-        "ServiceRestartRequested",
-        "ServiceRemoveRequested",
-        "StoreResetRequested",
-    ] {
-        assert!(by_type.contains_key(expected), "missing {expected}");
-    }
-    assert_eq!(
-        by_type["ServiceScopeDeclareRequested"]["payload"]["scope"],
-        serde_json::json!({"type": "agent", "agent_id": "agent-a"})
-    );
-    assert_eq!(
-        by_type["ServiceConnectRequested"]["payload"]["instance_id"],
-        instance_id.to_string()
-    );
-}
-
-#[tokio::test]
-async fn local_reset_preserves_pending_control_requests() {
-    let path = temp_config_path();
-    let store = MCPStore::setup(Some(&path)).unwrap();
-    store
-        .cache()
-        .put_event(
-            CONTROL_REQUEST_EVENT_TYPE,
-            "queued-request",
-            serde_json::json!({
-                "id": "queued-request",
-                "type": "ServiceAddRequested",
-                "payload": {},
-                "source": "data_plane",
-                "created_at": 1,
-                "dedup_key": "ServiceAddRequested:null",
-                "trace_id": "queued-request",
-                "status": "queued",
-            }),
-        )
-        .await
-        .unwrap();
-
-    store.reset_config().await.unwrap();
-
-    assert_eq!(
-        store
-            .cache()
-            .get_event(CONTROL_REQUEST_EVENT_TYPE, "queued-request")
-            .await
-            .unwrap()
-            .unwrap()["status"],
-        serde_json::json!("queued")
-    );
-
-    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
@@ -1381,151 +1214,13 @@ async fn local_reset_preserves_cache_schema_marker() {
 }
 
 #[tokio::test]
-async fn db_source_runtime_projection_methods_do_not_change_canonical_state() {
-    let source_path = temp_config_path();
-    let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(source_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some(format!("db-runtime-seed-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    source.add_service("svc", stdio_config()).await.unwrap();
-    let instance_id = store_instance_id("svc");
-    let original_state = source
-        .kernel
-        .control
-        .state
-        .get(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let db = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("db-runtime-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    copy_cache_snapshot(&source, &db).await;
-    db.load_from_db().await.unwrap();
-    db.cache_instance_connected(
-        instance_id,
-        &[crate::registry::ToolInfo {
-            name: "echo".to_string(),
-            title: None,
-            description: "echo".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-            output_schema: None,
-            annotations: None,
-            meta: None,
-        }],
-    )
-    .await
-    .unwrap();
-
-    let state = db
-        .kernel
-        .control
-        .state
-        .get(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(state.desired, original_state.desired);
-    assert_eq!(state.phase, original_state.phase);
-    assert_eq!(state.health, original_state.health);
-    assert_eq!(state.recovery, original_state.recovery);
-    assert_eq!(state.auth, original_state.auth);
-    assert_eq!(state.tools, original_state.tools);
-    assert_eq!(state.failure, original_state.failure);
-    assert!(db
-        .cache()
-        .get_entity("tools", &format!("{instance_id}:echo"))
-        .await
-        .unwrap()
-        .is_none());
-    assert!(db
-        .cache()
-        .get_relation("instance_tools", &instance_id.to_string())
-        .await
-        .unwrap()
-        .is_none());
-
-    std::fs::remove_file(source_path).ok();
-}
-
-#[tokio::test]
-async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
-    let source_path = temp_config_path();
-    let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(source_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some(format!("db-tool-seed-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    source.add_service("svc", stdio_config()).await.unwrap();
-    let instance_id = store_instance_id("svc");
-
-    let db = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("db-tool-queue-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    copy_cache_snapshot(&source, &db).await;
-
-    let summary = db.list_changed_tools(instance_id, true).await.unwrap();
-
-    assert!(!summary.changed);
-    assert_eq!(summary.trigger, "queued_manual_force");
-    assert_eq!(summary.details["queued"], true);
-    assert_eq!(
-        summary.details["queued_instances"],
-        serde_json::json!([instance_id])
-    );
-    assert!(db
-        .cache()
-        .get_relation("instance_tools", &instance_id.to_string())
-        .await
-        .unwrap()
-        .is_none());
-    let events = db
-        .cache()
-        .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
-        .await
-        .unwrap();
-    let event = events
-        .values()
-        .find(|event| event["type"] == "ServiceRefreshToolsRequested")
-        .unwrap();
-    assert_eq!(event["payload"]["instance_id"], instance_id.to_string());
-    assert_eq!(event["payload"]["force_refresh"], true);
-
-    std::fs::remove_file(source_path).ok();
-}
-
-#[tokio::test]
 async fn openapi_import_persists_shared_analysis_result() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-import-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -1746,12 +1441,10 @@ async fn openapi_import_persists_shared_analysis_result() {
 #[tokio::test]
 async fn openapi_last_import_tracks_latest_successful_import() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-last-import-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -1801,12 +1494,10 @@ async fn openapi_last_import_tracks_latest_successful_import() {
 #[tokio::test]
 async fn removing_openapi_service_clears_import_state() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-remove-import-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -1844,12 +1535,10 @@ async fn removing_openapi_service_clears_import_state() {
 async fn openapi_import_rejects_existing_definition_without_mutating_sibling_scopes() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-duplicate-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let mut config = stdio_config();
@@ -1863,7 +1552,7 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         },
         lifecycle: None,
         handshake_mode: None,
-        runtime_policy: None,
+        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -1997,12 +1686,10 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
 async fn openapi_import_bundles_external_http_refs() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-external-ref-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2053,15 +1740,13 @@ async fn openapi_import_bundles_external_http_refs() {
 async fn openapi_import_bundles_external_yaml_http_refs() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-external-yaml-ref-{}",
             uuid::Uuid::new_v4()
         )),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2172,12 +1857,10 @@ paths:
         .unwrap()
         .to_string();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-file-ref-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2219,12 +1902,10 @@ paths:
     );
 
     let path_store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-path-ref-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let path_result = path_store
@@ -2294,15 +1975,13 @@ paths:
         .unwrap()
         .to_string();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-file-ref-document-cache-{}",
             uuid::Uuid::new_v4()
         )),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2371,12 +2050,10 @@ paths:
 async fn openapi_bundle_spec_returns_external_refs_without_importing() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-bundle-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2409,12 +2086,10 @@ async fn openapi_bundle_spec_returns_external_refs_without_importing() {
 async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-bundle-artifact-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2452,15 +2127,13 @@ async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
 async fn openapi_bundle_writes_external_ref_document_cache() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-ref-document-cache-{}",
             uuid::Uuid::new_v4()
         )),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2504,12 +2177,10 @@ async fn openapi_bundle_writes_external_ref_document_cache() {
 async fn openapi_bundle_ref_cache_policy_sets_ttl() {
     let (base_url, _components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-ref-cache-policy-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2546,15 +2217,13 @@ async fn openapi_bundle_ref_cache_policy_sets_ttl() {
 async fn openapi_bundle_ref_cache_policy_can_disable_shared_cache() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-ref-cache-disabled-{}",
             uuid::Uuid::new_v4()
         )),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let options = crate::openapi::OpenApiBundleOptions {
@@ -2589,15 +2258,13 @@ async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
     let (base_url, components_requests, conditional_requests) =
         spawn_openapi_conditional_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-ref-document-revalidate-{}",
             uuid::Uuid::new_v4()
         )),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let root_url = format!("{base_url}/openapi.json");
@@ -2665,21 +2332,17 @@ async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let namespace = format!("openapi-ref-document-cache-{}", uuid::Uuid::new_v4());
     let first = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let second = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::redis(&redis_url)),
         namespace: Some(namespace),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let root_url = format!("{base_url}/openapi.json");
@@ -2701,12 +2364,10 @@ async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances
 async fn openapi_import_parses_yaml_from_url() {
     let base_url = spawn_openapi_yaml_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-yaml-url-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2758,12 +2419,10 @@ paths:
 "#
     );
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-yaml-text-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2801,12 +2460,10 @@ paths:
 async fn openapi_tool_http_error_returns_tool_error_without_marking_service_failed() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-http-error-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -2891,12 +2548,10 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
 async fn openapi_runtime_honors_import_timeout() {
     let base_url = spawn_openapi_slow_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-timeout-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -2946,12 +2601,10 @@ async fn openapi_runtime_honors_import_timeout() {
 async fn openapi_import_honors_fetch_timeout() {
     let base_url = spawn_openapi_slow_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-fetch-timeout-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -2977,12 +2630,10 @@ async fn openapi_import_honors_fetch_timeout() {
 async fn openapi_bundle_honors_fetch_timeout() {
     let base_url = spawn_openapi_slow_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-bundle-timeout-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -3007,12 +2658,10 @@ async fn openapi_bundle_honors_fetch_timeout() {
 async fn openapi_resources_preserve_response_mime_type() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-response-mime-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3097,15 +2746,13 @@ async fn openapi_resources_preserve_response_mime_type() {
 async fn openapi_json_responses_filter_write_only_fields() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-response-write-only-{}",
             uuid::Uuid::new_v4()
         )),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let profile_schema = serde_json::json!({
@@ -3202,12 +2849,10 @@ async fn openapi_json_responses_filter_write_only_fields() {
 async fn openapi_json_responses_validate_declared_schema() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-response-schema-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let profile_schema = serde_json::json!({
@@ -3294,12 +2939,10 @@ async fn openapi_json_responses_validate_declared_schema() {
 async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-response-accept-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3360,12 +3003,10 @@ async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
 async fn openapi_tool_returns_image_content_for_binary_image_response() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-image-response-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3422,12 +3063,10 @@ async fn openapi_tool_returns_image_content_for_binary_image_response() {
 async fn openapi_resource_returns_blob_for_binary_response() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-blob-response-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3486,12 +3125,10 @@ async fn openapi_resource_returns_blob_for_binary_response() {
 async fn openapi_tools_support_common_request_body_media_types() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-body-media-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3707,12 +3344,10 @@ async fn openapi_tools_support_common_request_body_media_types() {
 async fn openapi_tools_serialize_parameters_by_openapi_style() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-parameter-style-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3770,12 +3405,10 @@ async fn openapi_tools_serialize_parameters_by_openapi_style() {
 async fn openapi_query_parameters_honor_allow_reserved() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-allow-reserved-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3829,12 +3462,10 @@ async fn openapi_query_parameters_honor_allow_reserved() {
 async fn openapi_query_parameters_support_deep_object_style() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-deep-object-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3889,12 +3520,10 @@ async fn openapi_query_parameters_support_deep_object_style() {
 async fn openapi_path_parameters_support_label_and_matrix_styles() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-path-style-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -3948,12 +3577,10 @@ async fn openapi_path_parameters_support_label_and_matrix_styles() {
 async fn openapi_tools_reject_missing_required_arguments_before_request() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-required-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -4007,12 +3634,10 @@ async fn openapi_tools_reject_missing_required_arguments_before_request() {
 async fn openapi_tools_honor_read_only_and_write_only_request_fields() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-read-write-only-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -4103,15 +3728,13 @@ async fn openapi_tools_honor_read_only_and_write_only_request_fields() {
 async fn openapi_tools_validate_input_schema_before_request() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!(
             "openapi-schema-validation-{}",
             uuid::Uuid::new_v4()
         )),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let spec = serde_json::json!({
@@ -4328,12 +3951,10 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
     });
 
     let missing_auth_store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-auth-missing-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     missing_auth_store
@@ -4356,12 +3977,10 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         .contains("missing auth value"));
 
     let header_store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-auth-header-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     header_store
@@ -4391,12 +4010,10 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         .is_ok());
 
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("openapi-auth-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let result = store
@@ -4443,59 +4060,6 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
         .as_str()
         .unwrap()
         .contains("secured"));
-}
-
-#[tokio::test]
-async fn local_source_processes_control_requests() {
-    let path = temp_config_path();
-    let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some("test-control-request-worker".to_string()),
-    })
-    .unwrap();
-    store
-        .cache()
-        .put_event(
-            CONTROL_REQUEST_EVENT_TYPE,
-            "evt-add",
-            serde_json::json!({
-                "id": "evt-add",
-                "type": "ServiceAddRequested",
-                "payload": {
-                    "service_name": "queued",
-                    "config": stdio_config(),
-                },
-                "source": "onlydb",
-                "created_at": 111,
-                "dedup_key": "ServiceAddRequested:queued",
-                "trace_id": "evt-add",
-                "status": "queued",
-            }),
-        )
-        .await
-        .unwrap();
-
-    let processed = store.process_control_requests().await.unwrap();
-    assert_eq!(processed, 1);
-    assert!(store
-        .cache()
-        .get_entity("service_definitions", "queued")
-        .await
-        .unwrap()
-        .is_some());
-    let event = store
-        .cache()
-        .get_event(CONTROL_REQUEST_EVENT_TYPE, "evt-add")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(event["status"], serde_json::json!("applied"));
-
-    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]
@@ -4561,12 +4125,10 @@ async fn swap_store_migrates_runtime_cache() {
 async fn swap_store_updates_namespace() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("before-switch".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -4593,12 +4155,10 @@ async fn swap_store_updates_namespace() {
 async fn swap_store_preserves_concurrent_writes() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("concurrent-before".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     for index in 0..500 {
@@ -4652,12 +4212,10 @@ async fn swap_store_preserves_concurrent_writes() {
 async fn cache_inspect_includes_session_collections() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("inspect-sessions".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let session_key = "store:s1";
@@ -4782,12 +4340,10 @@ async fn cache_inspect_includes_session_collections() {
 async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-openkeyv-memory".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -4837,19 +4393,17 @@ async fn swap_store_to_openkeyv_memory_migrates_runtime_cache() {
 async fn update_and_patch_service_update_runtime_cache() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-update-patch".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
 
     let mut updated = stdio_config();
     updated.args = vec!["updated".to_string()];
-    store.update_service("svc", updated, None).await.unwrap();
+    store.update_service("svc", updated).await.unwrap();
     let config = store
         .get_effective_config("svc", &store_scope())
         .await
@@ -4873,12 +4427,10 @@ async fn update_and_patch_service_update_runtime_cache() {
 async fn event_history_and_cache_health_are_reported() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-event-health".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
 
@@ -4905,12 +4457,10 @@ async fn event_history_and_cache_health_are_reported() {
 async fn list_tools_uses_registry_without_transport_connection() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-list-tools-registry".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -4945,20 +4495,10 @@ async fn install_registry_tools(
     instance_id: InstanceId,
     tools: Vec<crate::registry::ToolInfo>,
 ) {
-    let mut instance = store
-        .kernel
-        .control
-        .registry
-        .find_instance(instance_id)
+    store
+        .cache_instance_connected(instance_id, &tools)
         .await
         .unwrap();
-    instance.tools = tools;
-    store
-        .kernel
-        .control
-        .registry
-        .register_instance(instance)
-        .await;
 }
 
 #[tokio::test]
@@ -5112,15 +4652,13 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
         .set_context_tool_visibility(instance_id, vec!["alpha".to_string()])
         .await
         .unwrap();
-    store
-        .kernel
-        .control
-        .registry
-        .replace_instance_tools(
-            instance_id,
-            vec![registry_tool("alpha"), registry_tool("gamma")],
-        )
-        .await;
+    // Unified model: tool refresh = rewrite the kv projection (primitive on the real connection path)
+    install_registry_tools(
+        &store,
+        instance_id,
+        vec![registry_tool("alpha"), registry_tool("gamma")],
+    )
+    .await;
 
     let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
         .await
@@ -5143,12 +4681,7 @@ async fn context_tool_visibility_reapplies_after_tool_refresh() {
     );
     assert!(policy.stale.is_empty());
 
-    store
-        .kernel
-        .control
-        .registry
-        .replace_instance_tools(instance_id, vec![registry_tool("gamma")])
-        .await;
+    install_registry_tools(&store, instance_id, vec![registry_tool("gamma")]).await;
     let policy = crate::agent::tool_visibility::EffectiveToolPolicy::resolve(&store, instance_id)
         .await
         .unwrap();
@@ -5352,12 +4885,10 @@ async fn tool_preferences_are_stored_by_instance_and_tool() {
 async fn connect_service_failure_uses_default_no_restart_policy() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-connect-failure-status".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5426,12 +4957,10 @@ async fn connect_service_times_out_hanging_stdio_startup() {
     let app_path = fixture_dir.join("config.toml");
     std::fs::write(&app_path, "[health_check]\nstartup_timeout = 1\n").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-connect-timeout-status".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5481,12 +5010,10 @@ async fn connect_service_times_out_hanging_stdio_startup() {
 async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-retry-backoff".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5546,12 +5073,10 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
 async fn manual_startup_policy_blocks_implicit_connect() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-manual-startup-policy".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5585,12 +5110,10 @@ async fn manual_startup_policy_blocks_implicit_connect() {
 async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-on-failure-max-retries".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5656,12 +5179,10 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
 async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-oauth-status-projection".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5709,12 +5230,10 @@ async fn oauth_service_state_and_api_response_do_not_expose_secrets() {
 async fn authorization_callback_uri_only_exposes_authorization_code_redirect_uri() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-oauth-callback-uri".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5746,12 +5265,10 @@ async fn authorization_callback_uri_only_exposes_authorization_code_redirect_uri
 async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-auth-required-lifecycle".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5795,12 +5312,10 @@ async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
 async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-insufficient-scope-lifecycle".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5851,12 +5366,10 @@ async fn insufficient_scope_does_not_enter_retry_or_circuit_breaker_state() {
 async fn successful_health_check_records_canonical_health() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-health-observation".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -5902,12 +5415,10 @@ async fn successful_health_check_records_canonical_health() {
 async fn export_instance_config_projects_third_party_config_without_mcpstore_extension() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-config-format-projection".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     store
@@ -5947,12 +5458,10 @@ async fn export_instance_config_projects_third_party_config_without_mcpstore_ext
 async fn db_load_does_not_rewrite_cached_agent_relations() {
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(source_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("test-db-load-seed-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     source
@@ -5967,12 +5476,10 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
         .unwrap();
 
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(format!("test-db-load-readonly-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     copy_cache_snapshot(&source, &store).await;
@@ -5994,12 +5501,10 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
 async fn embedded_tool_hot_path_baseline() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("hot-path-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -6051,12 +5556,10 @@ async fn embedded_tool_hot_path_baseline() {
 async fn migration_hot_path_does_not_wait_for_snapshot_copy() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(format!("migration-hot-path-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     for index in 0..5_000 {
@@ -6186,12 +5689,10 @@ mod scoped_contract {
 
     fn store_options(path: Option<String>) -> StoreOptions {
         StoreOptions {
-            node_id: None,
             config_path: path,
-            source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("store-tests-{}", uuid::Uuid::new_v4())),
+            panel: PanelRole::ControlPanel,
         }
     }
 
@@ -6239,7 +5740,7 @@ mod scoped_contract {
                 scopes,
                 lifecycle: None,
                 handshake_mode: None,
-                runtime_policy: None,
+                placement: serde_json::Map::new(),
                 revision: 1,
                 extra: Map::new(),
             }),
@@ -6274,14 +5775,10 @@ mod scoped_contract {
     }
 
     async fn install_tool(store: &MCPStore, instance_id: InstanceId, tool_info: ToolInfo) {
-        let mut instance = store.find_instance(instance_id).await.unwrap();
-        instance.tools = vec![tool_info];
         store
-            .kernel
-            .control
-            .registry
-            .register_instance(instance)
-            .await;
+            .cache_instance_connected(instance_id, &[tool_info])
+            .await
+            .unwrap();
     }
 
     async fn spawn_openapi_auth_fixture() -> String {
@@ -6482,8 +5979,8 @@ mod scoped_contract {
 
     #[tokio::test]
     async fn keep_alive_implies_desired_running_on_add() {
-        // keep_alive=true：add 后期望常驻（desired=Running，交给自愈循环维持）；
-        // 缺省（非 OnStoreStart）：desired=Stopped 保持现状。
+        // keep_alive=true: expect residency after add (desired=Running, maintained by the self-healing loop);
+        // default (not OnStoreStart): desired=Stopped keeps the current state.
         let path = temp_config_path();
         let mut keep_alive_config = native_config(ScopeDeclarations::store_only());
         keep_alive_config.mcpstore.as_mut().unwrap().lifecycle =
@@ -6653,25 +6150,20 @@ mod scoped_contract {
         store.add_service("svc", original.clone()).await.unwrap();
 
         let store_instance_id = instance_id("svc", store_scope());
-        let mut connected = store.find_instance(store_instance_id).await.unwrap();
-        let applied_revision = connected.config_revision;
-        connected.tools = vec![tool("echo")];
-        connected.applied_config_revision = Some(applied_revision);
         store
-            .kernel
-            .control
-            .registry
-            .register_instance(connected)
-            .await;
+            .cache_instance_connected(store_instance_id, &[tool("echo")])
+            .await
+            .unwrap();
+        store
+            .mark_instance_applied(store_instance_id)
+            .await
+            .unwrap();
 
         let mut updated = original;
         updated.mcpstore = None;
         updated.command = Some("changed-command".to_string());
         updated.args = vec!["--changed".to_string()];
-        store
-            .update_service("svc", updated.clone(), None)
-            .await
-            .unwrap();
+        store.update_service("svc", updated.clone()).await.unwrap();
 
         let instance = store.find_instance(store_instance_id).await.unwrap();
         assert_eq!(instance.tools, vec![tool("echo")]);
@@ -6703,7 +6195,7 @@ mod scoped_contract {
         assert!(definition.scopes.agents.contains_key("agent-1"));
         assert_eq!(definition.base_revision, 2);
 
-        store.update_service("svc", updated, None).await.unwrap();
+        store.update_service("svc", updated).await.unwrap();
         let unchanged = store
             .kernel
             .control
@@ -6748,7 +6240,7 @@ mod scoped_contract {
         updated
             .env
             .insert("SHARED".to_string(), "changed-base".to_string());
-        store.update_service("svc", updated, None).await.unwrap();
+        store.update_service("svc", updated).await.unwrap();
 
         let store_after_base = store.find_instance(store_id).await.unwrap();
         let agent_1_after_base = store.find_instance(agent_1_id).await.unwrap();
@@ -6800,7 +6292,7 @@ mod scoped_contract {
             .unwrap();
 
         let error = store
-            .update_service("svc", native_config(ScopeDeclarations::default()), None)
+            .update_service("svc", native_config(ScopeDeclarations::default()))
             .await
             .unwrap_err();
 
@@ -6873,15 +6365,11 @@ mod scoped_contract {
             .await
             .unwrap();
 
-        let mut runtime_instance = store.find_instance(instance_id).await.unwrap();
-        runtime_instance.tools = vec![tool("echo")];
-        runtime_instance.applied_config_revision = Some(runtime_instance.config_revision);
         store
-            .kernel
-            .control
-            .registry
-            .register_instance(runtime_instance)
-            .await;
+            .cache_instance_connected(instance_id, &[tool("echo")])
+            .await
+            .unwrap();
+        store.mark_instance_applied(instance_id).await.unwrap();
 
         store.load_from_config().await.unwrap();
 
@@ -6901,7 +6389,9 @@ mod scoped_contract {
         assert_eq!(rebuilt.tools, observed.tools);
         assert_eq!(rebuilt.failure, observed.failure);
         let instance = store.find_instance(instance_id).await.unwrap();
-        assert!(instance.tools.is_empty());
+        // Unified model: the tool catalog is persistent kv business state, kept across restarts; applied reset to zero means
+        // this process hasn't applied config yet
+        assert_eq!(instance.tools.len(), 1);
         assert_eq!(instance.applied_config_revision, None);
 
         std::fs::remove_file(path).ok();
@@ -7616,12 +7106,10 @@ mod scoped_contract {
         assert_eq!(cached_definition.scopes, definition.scopes);
 
         let db = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
             config_path: None,
-            source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
             store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-remove-db-{}", uuid::Uuid::new_v4())),
+            panel: PanelRole::ControlPanel,
         })
         .unwrap();
         copy_cache_snapshot(&store, &db).await;
@@ -7747,12 +7235,10 @@ mod scoped_contract {
         }
 
         let db = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
             config_path: None,
-            source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
             store: Some(JsonStoreConfig::shared_memory()),
             namespace: Some(format!("scope-reset-db-{}", uuid::Uuid::new_v4())),
+            panel: PanelRole::ControlPanel,
         })
         .unwrap();
         copy_cache_snapshot(&store, &db).await;
@@ -7793,12 +7279,10 @@ mod scoped_contract {
     async fn db_source_scope_writes_use_definition_projection() {
         let config_path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
             config_path: Some(config_path.clone()),
-            source_mode: SourceMode::Db,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("scope-write-db-{}", uuid::Uuid::new_v4())),
+            panel: PanelRole::ControlPanel,
         })
         .unwrap();
         store
@@ -7809,7 +7293,9 @@ mod scoped_contract {
             .add_service("beta", native_config(ScopeDeclarations::store_only()))
             .await
             .unwrap();
-        assert!(!std::path::Path::new(&config_path).exists());
+        wait_for_definition(&store, "alpha").await;
+        wait_for_definition(&store, "beta").await;
+        assert!(std::path::Path::new(&config_path).exists());
 
         let scope = agent_scope("agent-1");
         let alpha_id = store
@@ -7824,14 +7310,15 @@ mod scoped_contract {
             .declare_service_scope("beta", &scope, ScopeDescriptor::default())
             .await
             .unwrap();
-        assert!(store.find_instance(alpha_id).await.is_some());
-        assert!(store.find_instance(beta_id).await.is_some());
+        wait_for_instance(&store, alpha_id, true).await;
+        wait_for_instance(&store, beta_id, true).await;
 
         store.remove_service_scope("alpha", &scope).await.unwrap();
-        assert!(store.find_instance(alpha_id).await.is_none());
+        wait_for_instance(&store, alpha_id, false).await;
         assert!(store.find_instance(beta_id).await.is_some());
 
         store.reset_scope(&scope).await.unwrap();
+        wait_for_instance(&store, beta_id, false).await;
         store.load_from_db().await.unwrap();
         for service_name in ["alpha", "beta"] {
             let definition = store
@@ -7846,7 +7333,6 @@ mod scoped_contract {
         }
         assert!(store.find_instance(alpha_id).await.is_none());
         assert!(store.find_instance(beta_id).await.is_none());
-        assert!(!std::path::Path::new(&config_path).exists());
     }
 
     #[tokio::test]
@@ -8087,12 +7573,10 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
 
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("test-first-oauth-auth-required".to_string()),
+        panel: PanelRole::ControlPanel,
     })
     .unwrap();
     let mut config = oauth_http_config();
@@ -8135,282 +7619,90 @@ async fn first_oauth_connection_returns_auth_required_without_network_retry() {
     std::fs::remove_file(path).ok();
 }
 
-#[cfg(test)]
-mod event_reactor_facade {
-    use super::*;
-    use crate::event_reactor::{ReactionOutcome, ReactorConfig, Rule};
-    use crate::store::JsonStoreConfig;
-    use tokio::sync::Notify;
-    use tokio::time::Duration;
-
-    /// MCPStore facade: setup reactor → register rule → start → write → trigger.
-    #[tokio::test]
-    async fn facade_reactor_end_to_end_memory() {
-        let store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
-            store: Some(JsonStoreConfig::memory()),
-            ..StoreOptions::default()
+#[tokio::test]
+async fn data_plane_closes_only_connections_started_by_this_process() {
+    let source_path = temp_config_path();
+    let source = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(source_path.clone()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(format!("ephemeral-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let spec = || {
+        serde_json::json!({
+            "openapi": "3.0.0",
+            "info": {"title": "fixture", "version": "1.0"},
+            "paths": {
+                "/ping": {"get": {"operationId": "ping"}}
+            }
         })
+    };
+    source
+        .import_openapi_service_from_spec("owned", "memory://owned", spec())
+        .await
+        .unwrap();
+    source
+        .import_openapi_service_from_spec("other", "memory://other", spec())
+        .await
+        .unwrap();
+    source
+        .connect_service(store_instance_id("other"))
+        .await
         .unwrap();
 
-        let config = ReactorConfig {
-            subscriber_id: "facade-test-sub".into(),
-            owner_id: "facade-test-owner".into(),
-            namespace: "mcpstore".into(),
-            watch_collections: vec!["mcpstore:event:facade.test".into()],
-            max_causation_depth: 16,
-            recovery_interval: std::time::Duration::from_secs(60),
-            feed_retry_interval: std::time::Duration::from_secs(1),
-        };
+    let db = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(format!("ephemeral-db-{}", uuid::Uuid::new_v4())),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    copy_cache_snapshot(&source, &db).await;
+    db.load_from_db().await.unwrap();
+    let owned_id = store_instance_id("owned");
+    let other_id = store_instance_id("other");
+    db.ensure_instance_connected(owned_id).await.unwrap();
 
-        store.setup_event_reactor(config).await.unwrap();
-        assert!(store.has_reactor().await);
+    db.close_local_connections().await;
 
-        let notify = Arc::new(Notify::new());
-        let nc = notify.clone();
-        store
-            .register_rule(Rule::new(
-                "facade.rule.v1",
-                |ctx| Box::pin(async move { ctx.collection == "mcpstore:event:facade.test" }),
-                move |_ctx| {
-                    let nc = nc.clone();
-                    Box::pin(async move {
-                        nc.notify_one();
-                        ReactionOutcome::Ok
-                    })
-                },
-            ))
-            .await
-            .unwrap();
-
-        store.start_reactor().await.unwrap();
-
-        // Give subscription a moment to establish.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Write a value to the watched collection via the cache layer — the
-        // EventReactor's independent backend will see it via ChangeFeed.
-        store
-            .kernel
-            .persistence
-            .cache
-            .put_event(
-                "facade.test",
-                "evt-1",
-                serde_json::json!({"source": "facade-test"}),
-            )
-            .await
-            .unwrap();
-
-        tokio::time::timeout(Duration::from_secs(5), notify.notified())
-            .await
-            .expect("facade reaction did not fire");
-
-        store.stop_reactor().await;
-    }
-
-    /// Calling facade methods without setup_event_reactor should error gracefully.
-    #[tokio::test]
-    async fn facade_reactor_not_initialized_errors() {
-        let store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
-            store: Some(JsonStoreConfig::memory()),
-            ..StoreOptions::default()
-        })
+    // Column semantics: owned sees this node's own column (Stopped); other's authoritative state lives in the control column
+    let owned = db
+        .kernel
+        .control
+        .state
+        .get(owned_id)
+        .await
+        .unwrap()
         .unwrap();
+    let other = db
+        .kernel
+        .control
+        .state
+        .get_display(other_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(owned.phase, crate::state::RuntimePhase::Stopped);
+    assert_eq!(other.phase, crate::state::RuntimePhase::Running);
+    assert!(db.kernel.runtime.local_connections.read().await.is_empty());
 
-        assert!(!store.has_reactor().await);
-
-        let result = store.start_reactor().await;
-        assert!(result.is_err());
-
-        store.stop_reactor().await; // no-op, should not panic
-    }
+    std::fs::remove_file(source_path).ok();
 }
 
 #[cfg(test)]
-mod control_reactor_tests {
+mod swap_and_cache_tests {
     use super::*;
-    use crate::event_reactor::ReactorConfig;
     use crate::store::JsonStoreConfig;
-    use tokio::time::Duration;
-
-    /// Full pipeline: setup reactor → register control_request_rule → start →
-    /// queue a pending control request → verify it's auto-processed to completed.
-    #[tokio::test]
-    async fn control_reactor_auto_processes_pending_request() {
-        let path = temp_config_path();
-        let store = std::sync::Arc::new(
-            MCPStore::setup_with_options(StoreOptions {
-                node_id: None,
-                config_path: Some(path.clone()),
-                source_mode: SourceMode::Local,
-                node_mode: NodeMode::ControlPlane,
-                store: Some(JsonStoreConfig::memory()),
-                namespace: Some("test-control-reactor".to_string()),
-            })
-            .unwrap(),
-        );
-
-        let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
-
-        let config = ReactorConfig {
-            subscriber_id: "control-test-sub".into(),
-            owner_id: "control-test-owner".into(),
-            namespace: "test-control-reactor".into(),
-            watch_collections: vec![collection.clone()],
-            max_causation_depth: 16,
-            recovery_interval: std::time::Duration::from_secs(60),
-            feed_retry_interval: std::time::Duration::from_secs(1),
-        };
-        store.setup_event_reactor(config).await.unwrap();
-        let rule = store.control_request_rule();
-        store.register_rule(rule).await.unwrap();
-        store.start_reactor().await.unwrap();
-
-        // Give subscription a moment to establish.
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        // Queue a pending control request (ServiceAddRequested).
-        store
-            .cache()
-            .put_event(
-                CONTROL_REQUEST_EVENT_TYPE,
-                "reactor-add",
-                serde_json::json!({
-                    "id": "reactor-add",
-                    "type": "ServiceAddRequested",
-                    "payload": {
-                        "service_name": "reactor-svc",
-                        "config": stdio_config(),
-                    },
-                    "source": "onlydb",
-                    "created_at": 222,
-                    "dedup_key": "ServiceAddRequested:reactor-svc",
-                    "trace_id": "reactor-add",
-                    "status": "queued",
-                }),
-            )
-            .await
-            .unwrap();
-
-        // Poll for completion (the reactor processes asynchronously).
-        let mut completed = false;
-        for _ in 0..50 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            if let Some(evt) = store
-                .cache()
-                .get_event(CONTROL_REQUEST_EVENT_TYPE, "reactor-add")
-                .await
-                .unwrap()
-            {
-                if evt["status"] == serde_json::json!("applied") {
-                    completed = true;
-                    break;
-                }
-            }
-        }
-        assert!(
-            completed,
-            "control request was not auto-processed by reactor"
-        );
-
-        // Verify the service was actually added.
-        assert!(store
-            .cache()
-            .get_entity("service_definitions", "reactor-svc")
-            .await
-            .unwrap()
-            .is_some());
-
-        store.stop_reactor().await;
-        std::fs::remove_file(path).ok();
-    }
-
-    /// Verify the Rule's `when` predicate rejects non-pending requests (recursion guard).
-    #[tokio::test]
-    async fn control_reactor_skips_non_pending_requests() {
-        let path = temp_config_path();
-        let store = std::sync::Arc::new(
-            MCPStore::setup_with_options(StoreOptions {
-                node_id: None,
-                config_path: Some(path.clone()),
-                source_mode: SourceMode::Local,
-                node_mode: NodeMode::ControlPlane,
-                store: Some(JsonStoreConfig::memory()),
-                namespace: Some("test-control-reactor-skip".to_string()),
-            })
-            .unwrap(),
-        );
-
-        // Insert a request that's already completed.
-        store
-            .cache()
-            .put_event(
-                CONTROL_REQUEST_EVENT_TYPE,
-                "already-done",
-                serde_json::json!({
-                    "id": "already-done",
-                    "type": "ServiceAddRequested",
-                    "payload": {
-                        "service_name": "should-not-run",
-                        "config": stdio_config(),
-                    },
-                    "source": "onlydb",
-                    "created_at": 333,
-                    "dedup_key": "ServiceAddRequested:should-not-run",
-                    "trace_id": "already-done",
-                    "status": "applied",
-                    "applied_at": 333,
-                }),
-            )
-            .await
-            .unwrap();
-
-        let collection = store.cache().event_collection(CONTROL_REQUEST_EVENT_TYPE);
-
-        let config = ReactorConfig {
-            subscriber_id: "control-skip-sub".into(),
-            owner_id: "control-skip-owner".into(),
-            namespace: "test-control-reactor-skip".into(),
-            watch_collections: vec![collection],
-            max_causation_depth: 16,
-            recovery_interval: std::time::Duration::from_secs(60),
-            feed_retry_interval: std::time::Duration::from_secs(1),
-        };
-        store.setup_event_reactor(config).await.unwrap();
-        let rule = store.control_request_rule();
-        store.register_rule(rule).await.unwrap();
-        store.start_reactor().await.unwrap();
-
-        // Wait enough time for any (incorrect) reaction to fire.
-        tokio::time::sleep(Duration::from_millis(300)).await;
-
-        // Verify no new "should-not-run" service was created.
-        let svc = store
-            .cache()
-            .get_entity("service_definitions", "should-not-run")
-            .await
-            .unwrap();
-        assert!(
-            svc.is_none(),
-            "rule should have skipped non-pending request, but service was created"
-        );
-
-        store.stop_reactor().await;
-        std::fs::remove_file(path).ok();
-    }
 
     #[tokio::test]
     async fn swap_store_migrates_data_to_new_memory_store() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
             config_path: Some(path.clone()),
-            source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some("swap-test".to_string()),
+            panel: PanelRole::ControlPanel,
         })
         .unwrap();
 
@@ -8447,12 +7739,10 @@ mod control_reactor_tests {
     async fn swap_store_uses_online_feed_for_memory_store() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
             config_path: Some(path.clone()),
-            source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some("online-swap".to_string()),
+            panel: PanelRole::ControlPanel,
         })
         .unwrap();
         store
@@ -8478,12 +7768,10 @@ mod control_reactor_tests {
     async fn cache_identity_separates_backends_and_namespaces() {
         let path = temp_config_path();
         let options = |namespace: &str| StoreOptions {
-            node_id: None,
             config_path: Some(path.clone()),
-            source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(namespace.to_string()),
+            panel: PanelRole::ControlPanel,
         };
         let first = MCPStore::setup_with_options(options("tenant-a")).unwrap();
         let second = MCPStore::setup_with_options(options("tenant-a")).unwrap();
@@ -8501,12 +7789,10 @@ mod control_reactor_tests {
         };
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
             config_path: Some(path.clone()),
-            source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
             store: Some(JsonStoreConfig::memory()),
             namespace: Some(format!("swap-db9-{}", uuid::Uuid::new_v4())),
+            panel: PanelRole::ControlPanel,
         })
         .unwrap();
         store
@@ -8535,115 +7821,4 @@ mod control_reactor_tests {
             .is_some());
         std::fs::remove_file(path).ok();
     }
-
-    #[test]
-    fn data_plane_rejects_memory_backend() {
-        let error = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
-            config_path: None,
-            source_mode: SourceMode::Db,
-            node_mode: NodeMode::DataPlane,
-            store: Some(JsonStoreConfig::memory()),
-            namespace: Some("data-plane-memory".to_string()),
-        })
-        .err()
-        .expect("DataPlane memory backend must be rejected");
-        assert!(error.to_string().contains("shared persistent store"));
-    }
-
-    #[tokio::test]
-    async fn node_mode_supervisor_visibility() {
-        // C5: control_plane builds supervisor; data_plane does not.
-        let cp_path = temp_config_path();
-        let cp_store = MCPStore::setup_with_options(StoreOptions {
-            node_id: None,
-            config_path: Some(cp_path.clone()),
-            source_mode: SourceMode::Local,
-            node_mode: NodeMode::ControlPlane,
-            store: Some(JsonStoreConfig::memory()),
-            namespace: Some(format!("c5-cp-{}", uuid::Uuid::new_v4())),
-        })
-        .unwrap();
-        assert!(
-            cp_store.kernel.execution.supervisor.is_some(),
-            "control_plane must build supervisor"
-        );
-
-        std::fs::remove_file(cp_path).ok();
-    }
-}
-
-#[tokio::test]
-async fn data_plane_closes_only_connections_started_by_this_process() {
-    let source_path = temp_config_path();
-    let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: Some(source_path.clone()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
-        store: Some(JsonStoreConfig::memory()),
-        namespace: Some(format!("ephemeral-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    let spec = || {
-        serde_json::json!({
-            "openapi": "3.0.0",
-            "info": {"title": "fixture", "version": "1.0"},
-            "paths": {
-                "/ping": {"get": {"operationId": "ping"}}
-            }
-        })
-    };
-    source
-        .import_openapi_service_from_spec("owned", "memory://owned", spec())
-        .await
-        .unwrap();
-    source
-        .import_openapi_service_from_spec("other", "memory://other", spec())
-        .await
-        .unwrap();
-    source
-        .connect_service(store_instance_id("other"))
-        .await
-        .unwrap();
-
-    let db = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
-        config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(format!("ephemeral-db-{}", uuid::Uuid::new_v4())),
-    })
-    .unwrap();
-    copy_cache_snapshot(&source, &db).await;
-    db.load_from_db().await.unwrap();
-    let owned_id = store_instance_id("owned");
-    let other_id = store_instance_id("other");
-    db.ensure_instance_connected(owned_id).await.unwrap();
-
-    db.close_local_connections().await;
-
-    // 分栏语义：owned 看本节点自己的栏（Stopped）；other 的权威态在 control 栏
-    let owned = db
-        .kernel
-        .control
-        .state
-        .get(owned_id)
-        .await
-        .unwrap()
-        .unwrap();
-    let other = db
-        .kernel
-        .control
-        .state
-        .get_display(other_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(owned.phase, crate::state::RuntimePhase::Stopped);
-    assert_eq!(other.phase, crate::state::RuntimePhase::Running);
-    assert!(db.kernel.runtime.local_connections.read().await.is_empty());
-
-    std::fs::remove_file(source_path).ok();
 }

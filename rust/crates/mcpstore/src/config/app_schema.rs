@@ -83,12 +83,7 @@ impl HostsConfig {
         self.entries
             .get(&self.active)
             .map(|entry| entry.url.clone())
-            .or_else(|| {
-                self.entries
-                    .values()
-                    .next()
-                    .map(|entry| entry.url.clone())
-            })
+            .or_else(|| self.entries.values().next().map(|entry| entry.url.clone()))
             .unwrap_or_else(default_host_url)
     }
 }

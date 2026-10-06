@@ -1,9 +1,9 @@
-//! Concrete openkeyv backend for EventReactor.
+//! Shared openkeyv store handle for online store migration.
 //!
-//! Holds a shared openkeyv store (any implementation of the capabilities the
-//! reactor needs) as a trait object. `Arc<dyn EventBackendCap>` is `Clone`, so
-//! the newtype satisfies the `EventReactor<S>` bound without per-method match
-//! dispatch.
+//! Wraps the cache layer's store (or a freshly opened target/source store) so
+//! migration can drive `copy_snapshot_with_feed` and the cutover barrier over
+//! the same handle. `Arc<StoreHandle>` is `Clone`; the newtype keeps the
+//! capability traits object-safe without per-method match dispatch.
 
 use std::sync::Arc;
 
@@ -12,20 +12,18 @@ use openkeyv::{
     AsyncKeyValue, Revision, RevisionedValue, StoreHandle, Value,
 };
 
-/// Aggregate of the openkeyv capabilities the reactor needs. Object-safe
-/// (every supertrait is `#[async_trait]` with `Send + Sync` and no generics).
 /// Shared event-capable backend. Cheap to clone (one `Arc` bump).
 #[derive(Clone)]
-pub struct EventBackend(Arc<StoreHandle>);
+pub(crate) struct EventBackend(Arc<StoreHandle>);
 
 impl EventBackend {
     /// Wrap an existing store handle (e.g. share the cache layer's `MemoryStore`).
-    pub fn from_store(store: StoreHandle) -> Self {
+    pub(crate) fn from_store(store: StoreHandle) -> Self {
         Self(Arc::new(store))
     }
 
     /// Access the underlying capability object (for ad-hoc trait queries).
-    pub fn cap(&self) -> &StoreHandle {
+    pub(crate) fn cap(&self) -> &StoreHandle {
         self.0.as_ref()
     }
 }

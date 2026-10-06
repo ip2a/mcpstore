@@ -3,7 +3,6 @@ use std::path::PathBuf;
 mod api_web_validation;
 mod app_schema;
 mod app_validation;
-mod server_validation;
 mod cache_schema;
 mod defaults;
 mod examples;
@@ -16,6 +15,7 @@ mod mcp_schema;
 mod merge;
 pub mod models;
 pub mod resolver;
+mod server_validation;
 mod service_schema;
 #[cfg(test)]
 mod tests;
@@ -36,7 +36,7 @@ pub use mcp_schema::McpConfig;
 pub use merge::merge_config;
 pub use service_schema::{
     HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,
-    Runtime, RuntimePolicy, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
+    Runtime, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
     ServiceLifecycleConfig, ServiceLifecycleDefaults, StartupPolicy,
 };
 

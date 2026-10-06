@@ -11,7 +11,7 @@ use crate::{bootstrap, commands, BoxErr};
     version = env!("CARGO_PKG_VERSION"),
 )]
 pub struct Cli {
-    /// 本进程内嵌 kernel 冷启动，不连也不拉 daemon
+    /// Cold-start an embedded kernel in this process; never connect to or spawn the daemon
     #[arg(long, global = true)]
     pub embedded: bool,
     /// Remote daemon Kernel RPC endpoint, e.g. 10.0.0.2:1840
@@ -82,7 +82,6 @@ pub enum Commands {
     Resource(commands::protocol::ResourceArgs),
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
-    Request(commands::request::RequestArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
     #[command(name = "mcp")]
     McpServer(commands::mcp_server::McpServerArgs),
@@ -170,9 +169,6 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Complete(ref args) => {
                 commands::protocol::complete(args.clone(), embedded, endpoint.clone()).await
             }
-            Commands::Request(args) => {
-                commands::request::run(args, embedded, endpoint.clone()).await
-            }
             Commands::MigrateStore(args) => {
                 commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
             }
@@ -211,11 +207,6 @@ fn output_format(command: &Commands) -> crate::error::OutputFormat {
             commands::protocol::PromptAction::Get(args) => args.output.output,
         },
         Commands::Complete(args) => args.output.output,
-        Commands::Request(args) => match &args.action {
-            commands::request::RequestAction::List(args) => args.output,
-            commands::request::RequestAction::Get(args) => args.output,
-            commands::request::RequestAction::Wait(args) => args.output,
-        },
         Commands::List(args) => args.output,
         Commands::Tools(args) => args.output,
         Commands::Get(args) => args.output,
@@ -734,51 +725,44 @@ mod tests {
     }
 
     #[test]
-    fn parses_data_plane_node_mode() {
+    fn parses_explicit_data_panel_flag() {
         let cli = Cli::try_parse_from([
-            "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data",
+            "mcpstore",
+            "list",
+            "--source",
+            "db",
+            "--store",
+            "redis",
+            "--data-panel",
+            "--panel-id",
+            "edge-01",
         ])
         .unwrap();
 
         match cli.command {
             Commands::List(args) => {
-                assert_eq!(
-                    args.store.node_mode,
-                    Some(crate::store_args::NodeModeArg::Data)
-                );
+                assert!(args.store.data_panel);
+                assert!(!args.store.control_panel);
+                assert!(matches!(
+                    args.store.panel_role(),
+                    mcpstore::PanelRole::DataPanel { panel_id } if panel_id == "edge-01"
+                ));
                 assert!(args.store.is_explicit());
             }
             _ => panic!("Expected to parse as list command"),
         }
+
+        // --plane was removed with NodeMode; parsing must fail
+        assert!(Cli::try_parse_from([
+            "mcpstore", "list", "--source", "db", "--store", "redis", "--plane", "data"
+        ])
+        .is_err());
     }
 
     #[test]
-    fn parses_request_get_and_wait_commands() {
-        let cli = Cli::try_parse_from(["mcpstore", "request", "get", "req-1", "--output", "json"])
-            .unwrap();
-        match cli.command {
-            Commands::Request(args) => match args.action {
-                commands::request::RequestAction::Get(args) => {
-                    assert_eq!(args.request_id, "req-1");
-                    assert_eq!(args.output, OutputFormat::Json);
-                }
-                _ => panic!("Expected request get"),
-            },
-            _ => panic!("Expected request command"),
-        }
-
-        let cli = Cli::try_parse_from(["mcpstore", "request", "wait", "req-1", "--timeout", "7"])
-            .unwrap();
-        match cli.command {
-            Commands::Request(args) => match args.action {
-                commands::request::RequestAction::Wait(args) => {
-                    assert_eq!(args.request_id, "req-1");
-                    assert_eq!(args.timeout, 7);
-                }
-                _ => panic!("Expected request wait"),
-            },
-            _ => panic!("Expected request command"),
-        }
+    fn request_command_is_removed() {
+        // the control request queue is gone; the request command must fail to parse
+        assert!(Cli::try_parse_from(["mcpstore", "request", "list"]).is_err());
     }
 
     #[test]
@@ -815,7 +799,7 @@ mod tests {
             Commands::Web { json } => assert!(json),
             _ => panic!("Expected to parse as web view command"),
         }
-        // 启动语义已删除：旧 flag 必须解析失败
+        // startup semantics removed: the old flag must fail to parse
         assert!(Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).is_err());
     }
 
@@ -857,7 +841,7 @@ mod tests {
             Commands::Api { json } => assert!(json),
             _ => panic!("Expected to parse as api view command"),
         }
-        // 启动语义已删除：旧 flag 必须解析失败
+        // startup semantics removed: the old flag must fail to parse
         assert!(
             Cli::try_parse_from(["mcpstore", "api", "--port", "9091", "--url-prefix", "/mcp"])
                 .is_err()

@@ -87,19 +87,8 @@ pub(super) async fn action_swap_store(
     } else {
         JsonStoreConfig::new(target, serde_json::json!({}))
     };
-    let had_reactor = store.has_reactor().await;
     match store.swap_store(&cache_storage).await {
-        Ok(_) => {
-            if had_reactor {
-                if let Err(error) = store.restart_control_reactor().await {
-                    return Html(
-                        layout("mcpstore - Error", error_markup(&error.to_string())).into_string(),
-                    )
-                    .into_response();
-                }
-            }
-            Redirect::to("/").into_response()
-        }
+        Ok(_) => Redirect::to("/").into_response(),
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
     }

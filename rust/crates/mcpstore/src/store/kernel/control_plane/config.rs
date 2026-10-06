@@ -2,14 +2,14 @@ use crate::store::prelude::*;
 use crate::store::{ControlPlane, MCPStore};
 
 impl ControlPlane {
-    pub async fn reset_config(&self, store: &MCPStore) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request("StoreResetRequested", serde_json::json!({}))
-                .await;
-        }
+    pub async fn reset_config(&self, store: &MCPStore) -> Result<()> {
+        store
+            .put_service_event(serde_json::json!({ "op": "reset_config" }))
+            .await
+    }
 
-        if store.kernel.runtime.source_mode == SourceMode::Local {
+    pub(crate) async fn apply_reset_config(&self, store: &MCPStore) -> Result<()> {
+        if store.kernel.runtime.sync_config_file {
             store
                 .kernel
                 .control
@@ -61,9 +61,6 @@ impl ControlPlane {
             }
         }
         for (event_type, entries) in snapshot.events {
-            if event_type == CONTROL_REQUEST_EVENT_TYPE {
-                continue;
-            }
             for key in entries.keys() {
                 store
                     .kernel
@@ -73,16 +70,19 @@ impl ControlPlane {
                     .await?;
             }
         }
-        Ok(String::new())
+        Ok(())
     }
 
-    pub async fn reset_scope(&self, store: &MCPStore, scope: &ScopeRef) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request("ScopeResetRequested", serde_json::json!({ "scope": scope }))
-                .await;
-        }
+    pub async fn reset_scope(&self, store: &MCPStore, scope: &ScopeRef) -> Result<()> {
+        store
+            .put_service_event(serde_json::json!({
+                "op": "reset_scope",
+                "scope": scope,
+            }))
+            .await
+    }
 
+    pub(crate) async fn apply_reset_scope(&self, store: &MCPStore, scope: &ScopeRef) -> Result<()> {
         let mut config = store.show_config_entry().await?;
         let mut removed = Vec::new();
         let mut changed_definitions = Vec::new();
@@ -110,7 +110,7 @@ impl ControlPlane {
                 changed_definitions.push((service_name.clone(), server.clone()));
             }
         }
-        if store.kernel.runtime.source_mode == SourceMode::Local {
+        if store.kernel.runtime.sync_config_file {
             store.kernel.control.config_manager.save(&config)?;
         }
 
@@ -145,6 +145,6 @@ impl ControlPlane {
         for instance_id in instance_ids {
             store.cache_instance_removed(instance_id).await?;
         }
-        Ok(String::new())
+        Ok(())
     }
 }

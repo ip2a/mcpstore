@@ -73,6 +73,22 @@ impl CacheLayerManager {
         result
     }
 
+    /// Atomically take one entity: exactly one caller gets the value.
+    pub async fn claim_entity(
+        &self,
+        entity_type: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        self.ensure_current_schema().await?;
+        Self::validate_entity_type(entity_type)?;
+        let collection = self.entity_collection(entity_type);
+        let started_at = Instant::now();
+        let result = self.active_store().claim(key, &collection).await;
+        let hit = result.as_ref().ok().map(|value| value.is_some());
+        self.record_request(started_at, hit, result.is_ok());
+        result
+    }
+
     pub async fn get_all_entities_async(
         &self,
         entity_type: &str,

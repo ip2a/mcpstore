@@ -112,8 +112,14 @@ fn parse_json_output(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).expect("stdout must be one JSON value")
 }
 
+// Each test spawns external CLI processes (and fixture servers); running them in
+// parallel races the CLI runtime and fails a random victim. Serialize, like
+// kernel_host_contract's HOST_TEST_LOCK.
+static CLI_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn resource_list_and_read_have_machine_contracts() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
 
     let listed = parse_json_output(&fixture.command(&[
@@ -143,6 +149,7 @@ fn resource_list_and_read_have_machine_contracts() {
 
 #[test]
 fn prompt_list_and_get_have_machine_contracts() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
 
     let listed = parse_json_output(&fixture.command(&[
@@ -173,6 +180,7 @@ fn prompt_list_and_get_have_machine_contracts() {
 
 #[test]
 fn completion_without_server_capability_has_stable_error() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
     let output = fixture.command(&[
         "complete",
@@ -199,6 +207,7 @@ fn completion_without_server_capability_has_stable_error() {
 
 #[test]
 fn protocol_invalid_input_is_stable_and_does_not_pollute_stdout() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
     let output = fixture.command(&[
         "prompt",
@@ -220,6 +229,7 @@ fn protocol_invalid_input_is_stable_and_does_not_pollute_stdout() {
 
 #[test]
 fn invalid_instance_id_has_stable_error_without_connecting() {
+    let _guard = CLI_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
     let output = fixture.command(&["resource", "list", "not-an-instance", "--output", "json"]);
 
