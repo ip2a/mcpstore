@@ -5,7 +5,17 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
     ) -> Result<ServiceInstance> {
-        self.refresh_from_db_if_needed().await?;
+        if let Some(instance) = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+        {
+            return Ok(instance);
+        }
+        // Fill-if-missing: hydrate only when the instance is actually absent, so looping callers stop N+1 full rebuilds.
+        self.load_from_db().await?;
         self.kernel
             .control
             .registry

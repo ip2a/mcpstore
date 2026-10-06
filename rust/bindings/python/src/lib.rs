@@ -3,6 +3,7 @@
 //! Unified Python interface to the Rust core.
 //! Exposes:
 //! - MCPStore (sync) + AsyncMCPStore (async)
+//! - ControlPanel / DataPanel role components
 //! - PerspectiveResolver
 //!
 //! Built with PyO3 + maturin. Target module name: `mcpstore._rust`
@@ -11,6 +12,7 @@ use pyo3::prelude::*;
 
 mod async_store;
 mod core_store;
+mod panels;
 mod perspective;
 mod py_value;
 
@@ -33,6 +35,8 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<async_store::PyAsyncPrompt>()?;
     m.add_class::<async_store::PyAsyncResource>()?;
     m.add_class::<async_store::PyAsyncResourceTemplate>()?;
+    m.add_class::<panels::PyControlPanel>()?;
+    m.add_class::<panels::PyDataPanel>()?;
     m.add_class::<perspective::PyPerspectiveResolver>()?;
 
     Ok(())

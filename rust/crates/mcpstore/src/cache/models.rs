@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::config::{HandshakeMode, RuntimePolicy, ScopeDeclarations, ServiceLifecycleConfig};
+use crate::config::{HandshakeMode, ScopeDeclarations, ServiceLifecycleConfig};
 use crate::identity::{InstanceId, ScopeRef};
-use crate::registry::{ConfigRevision, ServiceDefinition};
+use crate::registry::{ConfigRevision, ServiceDefinition, ServiceInstance};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheHealthReport {
@@ -21,8 +21,8 @@ pub struct ServiceDefinitionEntity {
     pub scopes: ScopeDeclarations,
     pub lifecycle: Option<ServiceLifecycleConfig>,
     pub handshake_mode: Option<HandshakeMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime_policy: Option<RuntimePolicy>,
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub placement: serde_json::Map<String, serde_json::Value>,
     pub metadata: serde_json::Map<String, serde_json::Value>,
     pub base_revision: u64,
     pub added_time: i64,
@@ -36,10 +36,28 @@ impl From<&ServiceDefinition> for ServiceDefinitionEntity {
             scopes: definition.scopes.clone(),
             lifecycle: definition.lifecycle.clone(),
             handshake_mode: definition.handshake_mode,
-            runtime_policy: definition.runtime_policy.clone(),
+            placement: definition.placement.clone(),
             metadata: definition.metadata.clone(),
             base_revision: definition.base_revision,
             added_time: definition.added_time,
+        }
+    }
+}
+
+impl From<ServiceInstanceEntity> for ServiceInstance {
+    fn from(entity: ServiceInstanceEntity) -> Self {
+        Self {
+            instance_id: entity.instance_id,
+            service_name: entity.service_name,
+            scope: entity.scope,
+            transport: entity.transport,
+            url: entity.url,
+            command: entity.command,
+            tools: Vec::new(),
+            effective_config: entity.effective_config,
+            config_revision: entity.config_revision,
+            applied_config_revision: entity.applied_config_revision,
+            added_time: entity.added_time,
         }
     }
 }
@@ -52,7 +70,7 @@ impl From<ServiceDefinitionEntity> for ServiceDefinition {
             scopes: entity.scopes,
             lifecycle: entity.lifecycle,
             handshake_mode: entity.handshake_mode,
-            runtime_policy: entity.runtime_policy,
+            placement: entity.placement,
             metadata: entity.metadata,
             base_revision: entity.base_revision,
             added_time: entity.added_time,
@@ -99,6 +117,34 @@ pub struct AgentEntity {
     pub agent_id: String,
     pub created_time: i64,
     pub last_active: i64,
+}
+
+/// Cross-panel tool-call request: written by the data panel; the control panel's ChangeFeed wakes and atomically claims it (claim)
+/// then executes locally. Claiming is at-most-once; tool calls aren't guaranteed idempotent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallRequestEntity {
+    pub request_id: String,
+    pub panel_id: String,
+    pub instance_id: InstanceId,
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+    pub deadline_unix_ms: i64,
+}
+
+/// Cross-panel tool-call response: written by the control panel, deleted when the data panel reads it; 5-minute TTL safety cleanup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallResponseEntity {
+    pub request_id: String,
+    pub panel_id: String,
+    pub result: Option<crate::transport::ToolCallResult>,
+    pub error: Option<ToolCallResponseError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallResponseError {
+    /// FailureCode as the field type directly: serde round-trips with no string encode/decode and no silent downgrade.
+    pub code: crate::error::FailureCode,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

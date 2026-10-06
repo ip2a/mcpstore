@@ -205,7 +205,6 @@ fn mcp_hub_options(
                 .display()
                 .to_string(),
         ),
-        source_mode: state.store.source_mode(),
         scope,
         instance_id: query.instance_id,
         session_key: query.session_key.clone(),

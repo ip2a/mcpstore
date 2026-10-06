@@ -4,40 +4,25 @@ use crate::store::prelude::*;
 use crate::store::{ControlPlane, MCPStore};
 
 impl ControlPlane {
-    pub async fn remove_service(&self, store: &MCPStore, service_name: &str) -> Result<String> {
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceRemoveRequested",
-                    serde_json::json!({ "service_name": service_name }),
-                )
-                .await;
-        }
-
-        if store.kernel.runtime.source_mode == SourceMode::Local {
-            let mut config = store.kernel.control.config_manager.load_or_empty()?;
-            if config.mcp_servers.remove(service_name).is_some() {
-                store.kernel.control.config_manager.save(&config)?;
-            } else if store.get_openapi_import(service_name).await?.is_none() {
-                return Err(Error::new(
-                    FailureCode::ServiceNotFound,
-                    service_name.to_string(),
-                ));
-            }
-        } else if store
-            .kernel
-            .control
-            .registry
-            .find_definition(service_name)
-            .await
-            .is_none()
+    pub async fn remove_service(&self, store: &MCPStore, service_name: &str) -> Result<()> {
+        if store.definition_from_kv(service_name).await?.is_none()
+            && !store.seed_file_has_service(service_name)
         {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 service_name.to_string(),
             ));
         }
+        store
+            .enqueue_service_event("remove", service_name, None)
+            .await
+    }
 
+    pub(crate) async fn finish_remove_service(
+        &self,
+        store: &MCPStore,
+        service_name: &str,
+    ) -> Result<()> {
         let instance_ids = store
             .kernel
             .control
@@ -71,7 +56,7 @@ impl ControlPlane {
                 true,
             )
             .await;
-        Ok(String::new())
+        Ok(())
     }
 
     pub async fn update_service(
@@ -79,45 +64,18 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         mut config: ServerConfig,
-        runtime_policy: Option<crate::config::RuntimePolicy>,
-    ) -> Result<String> {
+    ) -> Result<()> {
         if config.mcpstore.is_some() {
             return Err(Error::new(
                 FailureCode::Internal,
                 "Use scope APIs to modify _mcpstore metadata or declarations".to_string(),
             ));
         }
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServiceUpdateRequested",
-                    serde_json::json!({
-                        "service_name": service_name,
-                        "config": config,
-                        "runtime_policy": runtime_policy,
-                    }),
-                )
-                .await;
-        }
 
-        let mut current = if store.kernel.runtime.source_mode == SourceMode::Local {
-            store
-                .kernel
-                .control
-                .config_manager
-                .load_or_empty()?
-                .mcp_servers
-                .get(service_name)
-                .cloned()
-        } else {
-            store
-                .get_definition_config(service_name)
-                .await?
-                .map(serde_json::from_value)
-                .transpose()
-                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?
-        }
-        .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
+        let mut current = store
+            .definition_server_config(service_name)
+            .await?
+            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
 
         current.ensure_native_scopes();
         let base_changed = current.base_config() != config.base_config();
@@ -126,26 +84,15 @@ impl ControlPlane {
             .mcpstore
             .as_mut()
             .expect("current definition must have materialized _mcpstore scopes");
-        if let Some(policy) = runtime_policy {
-            extension.runtime_policy = Some(policy);
-        }
         extension.revision = if base_changed {
             current.definition_revision().saturating_add(1)
         } else {
             current.definition_revision()
         };
 
-        if store.kernel.runtime.source_mode == SourceMode::Local {
-            let mut stored = store.kernel.control.config_manager.load_or_empty()?;
-            stored
-                .mcp_servers
-                .insert(service_name.to_string(), config.clone());
-            store.kernel.control.config_manager.save(&stored)?;
-        }
         store
-            .register_configured_definition(service_name, &config)
+            .enqueue_service_event("update", service_name, Some(&config))
             .await
-            .map(|_| String::new())
     }
 
     pub async fn patch_service(
@@ -153,7 +100,7 @@ impl ControlPlane {
         store: &MCPStore,
         service_name: &str,
         updates: Value,
-    ) -> Result<String> {
+    ) -> Result<()> {
         let updates = updates.as_object().ok_or_else(|| {
             Error::new(
                 FailureCode::Internal,
@@ -167,27 +114,13 @@ impl ControlPlane {
             ));
         }
 
-        if store.is_data_plane() {
-            return store
-                .queue_control_request(
-                    "ServicePatchRequested",
-                    serde_json::json!({
-                        "service_name": service_name,
-                        "updates": updates,
-                    }),
-                )
-                .await;
-        }
-
         let current = store
-            .get_definition_config(service_name)
+            .definition_server_config(service_name)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, service_name.to_string()))?;
-        let mut config: ServerConfig = serde_json::from_value(current)
+        let merged = crate::config::merge_config(&current.base_config(), updates);
+        let config = serde_json::from_value(Value::Object(merged))
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        let merged = crate::config::merge_config(&config.base_config(), updates);
-        config = serde_json::from_value(Value::Object(merged))
-            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        self.update_service(store, service_name, config, None).await
+        self.update_service(store, service_name, config).await
     }
 }

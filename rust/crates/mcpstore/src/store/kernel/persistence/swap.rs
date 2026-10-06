@@ -5,7 +5,7 @@ use openkeyv::{AsyncKeyValue, MigrationOptions};
 
 use crate::cache::live_store::LiveStore;
 use crate::cache::{CacheLayerManager, CacheStore};
-use crate::event_reactor::EventBackend;
+use crate::store::kernel::persistence::EventBackend;
 use crate::store::kernel::persistence::PersistenceRouter;
 use crate::store::prelude::*;
 use crate::store::store_config::{JsonStoreConfig, StoreConfig};

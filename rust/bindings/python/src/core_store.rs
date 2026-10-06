@@ -3,7 +3,7 @@
 use mcpstore::config::ScopeDescriptor;
 use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
-use mcpstore::core::store::{MCPStore, NodeMode, SourceMode, StoreOptions};
+use mcpstore::core::store::{MCPStore, StoreOptions};
 use mcpstore::{
     cache::models::SessionScope, Error, InstanceId, McpConfig, ScopeContext, ScopeRef, ScopeView,
     Service, ServiceTarget, Tool,
@@ -86,26 +86,6 @@ pub(crate) fn parse_openapi_bundle_options(
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("Invalid OpenAPI bundle options: {err}"))
     })
-}
-
-pub(crate) fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMode> {
-    match source_mode {
-        Some("db") => Ok(SourceMode::Db),
-        Some("local") | None => Ok(SourceMode::Local),
-        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Unsupported source_mode: {other}"
-        ))),
-    }
-}
-
-pub(crate) fn parse_node_mode(node_mode: Option<&str>) -> PyResult<NodeMode> {
-    match node_mode {
-        Some("control_plane") | None => Ok(NodeMode::ControlPlane),
-        Some("data_plane") => Ok(NodeMode::DataPlane),
-        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Unsupported node_mode: {other}, expected `control_plane` or `data_plane`"
-        ))),
-    }
 }
 
 fn parse_tool_visibility_filter(filter: Option<&str>) -> PyResult<ToolVisibilityFilter> {
@@ -756,20 +736,21 @@ impl PyMCPStore {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (config_path=None, source_mode=None, store=None, store_config=None, namespace=None, node_mode=None))]
+    #[pyo3(signature = (config_path=None, store=None, store_config=None, namespace=None, panel=None))]
     fn setup_with_options(
         config_path: Option<String>,
-        source_mode: Option<String>,
         store: Option<String>,
         store_config: Option<String>,
         namespace: Option<String>,
-        node_mode: Option<String>,
+        panel: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let panel_role = panel
+            .map(crate::panels::parse_panel_role)
+            .transpose()?
+            .unwrap_or_default();
         let inner = MCPStore::setup_with_options(StoreOptions {
             config_path,
-            source_mode: parse_source_mode(source_mode.as_deref())?,
-            node_mode: parse_node_mode(node_mode.as_deref())?,
-            node_id: None,
+            panel: panel_role,
             store: store
                 .map(|name| {
                     let config = store_config
@@ -790,6 +771,11 @@ impl PyMCPStore {
             namespace,
         })
         .map_err(map_store_err)?;
+        // Raw bindings must be self-sufficient: setup seeds and starts both feeds (spawn works because
+        // an ambient runtime exists under block_on), matching the Python facade's behavior.
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(inner.load_from_config())
+            .map_err(map_store_err)?;
         Ok(Self { inner })
     }
 
@@ -814,7 +800,7 @@ impl PyMCPStore {
     }
 
     /// Add a service definition. Native configs declare scopes in `_mcpstore.scopes`.
-    fn add_service(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<String> {
+    fn add_service(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<()> {
         let config = py_to_server_config(config, "Service config")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.add_service(service_name, config))
@@ -840,11 +826,7 @@ impl PyMCPStore {
     }
 
     /// Remove exactly one service scope and its runtime instance.
-    fn remove_service_scope(
-        &self,
-        service_name: &str,
-        scope: &Bound<'_, PyAny>,
-    ) -> PyResult<String> {
+    fn remove_service_scope(&self, service_name: &str, scope: &Bound<'_, PyAny>) -> PyResult<()> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service_scope(service_name, &scope))
@@ -852,11 +834,7 @@ impl PyMCPStore {
     }
 
     /// Patch only base MCP fields; `_mcpstore` must be changed through scope APIs.
-    fn patch_service(
-        &self,
-        service_name: &str,
-        base_updates: &Bound<'_, PyAny>,
-    ) -> PyResult<String> {
+    fn patch_service(&self, service_name: &str, base_updates: &Bound<'_, PyAny>) -> PyResult<()> {
         let base_updates = py_to_serde_value(base_updates, "Service base config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.patch_service(service_name, base_updates))
@@ -867,31 +845,27 @@ impl PyMCPStore {
     ///
     /// Configs containing `_mcpstore` are rejected. Use `declare_service_scope`
     /// or `remove_service_scope` for scope changes.
-    fn update_service(
-        &self,
-        service_name: &str,
-        base_config: &Bound<'_, PyAny>,
-    ) -> PyResult<String> {
+    fn update_service(&self, service_name: &str, base_config: &Bound<'_, PyAny>) -> PyResult<()> {
         let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.update_service(service_name, base_config, None))
+            .block_on(self.inner.update_service(service_name, base_config))
             .map_err(map_store_err)
     }
 
-    fn remove_service(&self, service_name: &str) -> PyResult<String> {
+    fn remove_service(&self, service_name: &str) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service(service_name))
             .map_err(map_store_err)
     }
 
-    fn connect_service(&self, instance_id: &str) -> PyResult<String> {
+    fn connect_service(&self, instance_id: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.connect_service(instance_id))
             .map_err(map_store_err)
     }
 
-    fn disconnect_service(&self, instance_id: &str) -> PyResult<String> {
+    fn disconnect_service(&self, instance_id: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.disconnect_service(instance_id))
@@ -913,7 +887,7 @@ impl PyMCPStore {
         serializable_to_py(py, &report, "event_capability_report")
     }
 
-    fn restart_service(&self, instance_id: &str) -> PyResult<String> {
+    fn restart_service(&self, instance_id: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.restart_service(instance_id))
@@ -923,15 +897,6 @@ impl PyMCPStore {
     fn load_from_config(&self) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.load_from_config())
-            .map_err(map_store_err)
-    }
-
-    /// Start (or restart) the EventReactor that consumes `control_requests`
-    /// via push-based ChangeFeed. Only meaningful on a control-plane node;
-    /// a data-plane node has no reactor to run.
-    fn restart_control_reactor(&self) -> PyResult<()> {
-        pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.restart_control_reactor())
             .map_err(map_store_err)
     }
 
@@ -2497,13 +2462,13 @@ impl PyMCPStore {
         )
     }
 
-    fn reset_config(&self) -> PyResult<String> {
+    fn reset_config(&self) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_config())
             .map_err(map_store_err)
     }
 
-    fn reset_scope(&self, scope: &Bound<'_, PyAny>) -> PyResult<String> {
+    fn reset_scope(&self, scope: &Bound<'_, PyAny>) -> PyResult<()> {
         let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_scope(&scope))

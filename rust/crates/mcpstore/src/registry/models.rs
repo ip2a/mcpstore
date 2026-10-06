@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::RwLock;
 
-use crate::config::{RuntimePolicy, ScopeDeclarations, ServiceLifecycleConfig};
+use crate::config::{ScopeDeclarations, ServiceLifecycleConfig};
 use crate::identity::{InstanceId, ScopeRef, ScopeView, ServiceInstanceKey};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -36,8 +36,8 @@ pub struct ServiceDefinition {
     pub scopes: ScopeDeclarations,
     pub lifecycle: Option<ServiceLifecycleConfig>,
     pub handshake_mode: Option<crate::config::HandshakeMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime_policy: Option<RuntimePolicy>,
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub placement: Map<String, Value>,
     pub base_revision: u64,
     pub metadata: Map<String, Value>,
     pub added_time: i64,
@@ -69,17 +69,17 @@ impl ServiceInstance {
     }
 }
 
-/// 作用域注册表条目（`list_scopes` / `scope_info` 返回）。
+/// Scope registry entry (returned by `list_scopes` / `scope_info`).
 ///
-/// 把“作用域”当一等公民：每个 scope（root / store / agent）一个条目，
-/// 带它在运行时 registry 里的服务数。
+/// Scopes as first-class citizens: one entry per scope (root / store / agent),
+/// carrying its service count from the runtime registry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScopeSummary {
     pub scope: ScopeView,
     pub service_count: usize,
 }
 
-/// Agent 实体（`find_agent` 返回）。
+/// Agent entity (returned by `find_agent`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentInfo {
     pub agent_id: String,

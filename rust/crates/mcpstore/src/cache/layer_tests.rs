@@ -176,7 +176,6 @@ async fn test_cache_layer_rejects_old_schema_without_deleting_data() {
 #[tokio::test]
 async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some("cache-instance-status-upsert".to_string()),
         ..StoreOptions::default()
@@ -193,7 +192,7 @@ async fn test_cache_instance_added_preserves_observed_status_on_upsert() {
             scopes: ScopeDeclarations::store_only(),
             lifecycle: None,
             handshake_mode: None,
-            runtime_policy: None,
+            placement: serde_json::Map::new(),
             metadata: serde_json::Map::new(),
             base_revision: 1,
             added_time: 100,

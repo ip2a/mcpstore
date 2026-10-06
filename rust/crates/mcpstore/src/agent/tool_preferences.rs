@@ -78,12 +78,10 @@ impl MCPStore {
     ) -> Result<ToolPreferenceTarget> {
         let instance = self.require_instance(instance_id).await?;
         if self
-            .kernel
-            .control
-            .registry
-            .find_tool(instance_id, tool_name)
-            .await
-            .is_none()
+            .tools_from_kv(instance_id)
+            .await?
+            .iter()
+            .all(|tool| tool.name != tool_name)
         {
             return Err(Error::new(
                 FailureCode::Internal,
