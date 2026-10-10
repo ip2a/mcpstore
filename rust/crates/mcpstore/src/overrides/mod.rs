@@ -173,9 +173,8 @@ impl MCPStore {
     ) -> Result<()> {
         let exists = match kind {
             ComponentKind::Tool => self
-                .require_instance(instance_id)
+                .tools_from_kv(instance_id)
                 .await?
-                .tools
                 .iter()
                 .any(|tool| tool.name == key),
             ComponentKind::Prompt => self
@@ -212,9 +211,8 @@ impl MCPStore {
     ) -> Result<String> {
         let raw_keys: Vec<String> = match kind {
             ComponentKind::Tool => self
-                .require_instance(instance_id)
+                .tools_from_kv(instance_id)
                 .await?
-                .tools
                 .into_iter()
                 .map(|tool| tool.name)
                 .collect(),

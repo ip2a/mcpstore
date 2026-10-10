@@ -7,19 +7,19 @@ use serde::{Deserialize, Serialize};
 
 use mcpstore::error::{Error, FailureCode};
 
-use crate::store_args::{NodeModeArg, StoreSourceArgs};
+use crate::store_args::StoreSourceArgs;
 
 #[derive(Serialize, Deserialize)]
 struct DaemonStartState {
     store: StoreSourceArgs,
 }
 
-/// 探测 daemon 是否就绪：socket 可连且握手通过。
+/// Probe whether the daemon is ready: the socket connects and the handshake passes.
 pub async fn is_daemon_ready() -> bool {
     crate::daemon::client::connect_admin(None).await.is_ok()
 }
 
-/// 等待 daemon 就绪，200ms 轮询，超时报错并提示前台排查。
+/// Wait for the daemon: 200ms polling; on timeout, error and suggest a foreground run.
 pub async fn wait_daemon_ready(timeout: Duration) -> Result<(), Error> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -34,7 +34,7 @@ pub async fn wait_daemon_ready(timeout: Duration) -> Result<(), Error> {
     ))
 }
 
-/// 后台拉起 daemon：detached、独立进程组，stdout/stderr 追加到配置目录 logs/daemon.out。
+/// Spawn the daemon in the background: detached, own process group, stdout/stderr appended to logs/daemon.out in the config dir.
 pub fn spawn_detached_daemon() -> io::Result<()> {
     use std::process::{Command, Stdio};
 
@@ -61,7 +61,7 @@ pub fn spawn_detached_daemon() -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        // 独立进程组：脱离当前终端，父进程（CLI）退出不影响 daemon。
+        // Own process group: detaches from the current terminal so the parent (CLI) exiting doesn't affect the daemon.
         command.process_group(0);
     }
     #[cfg(windows)]
@@ -116,12 +116,12 @@ fn append_start_args(command: &mut std::process::Command, args: &StoreSourceArgs
     if let Some(namespace) = &args.namespace {
         command.arg("--namespace").arg(namespace);
     }
-    // ControlPlane 是缺省值，只需回放显式 data 模式，detached 重启才不会退回控制面。
-    if args.node_mode == Some(NodeModeArg::Data) {
-        command.arg("--plane").arg("data");
+    // Control panel is the default; replay only the data-panel flags so a detached restart doesn't fall back to the default shape.
+    if args.data_panel {
+        command.arg("--data-panel");
     }
-    if let Some(node_id) = &args.node_id {
-        command.arg("--node-id").arg(node_id);
+    if let Some(panel_id) = &args.panel_id {
+        command.arg("--panel-id").arg(panel_id);
     }
 }
 
@@ -158,8 +158,9 @@ mod tests {
                 store: Some("redis".into()),
                 store_config: Some(r#"{"url":"redis://127.0.0.1"}"#.into()),
                 namespace: Some("tenant-a".into()),
-                node_mode: None,
-                node_id: Some("worker-1".into()),
+                control_panel: false,
+                data_panel: false,
+                panel_id: Some("worker-1".into()),
             },
         };
 
@@ -170,20 +171,21 @@ mod tests {
         assert_eq!(restored.store.config_path.as_deref(), Some("/tmp/mcp.json"));
         assert_eq!(restored.store.store.as_deref(), Some("redis"));
         assert_eq!(restored.store.namespace.as_deref(), Some("tenant-a"));
-        assert_eq!(restored.store.node_id.as_deref(), Some("worker-1"));
+        assert_eq!(restored.store.panel_id.as_deref(), Some("worker-1"));
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
-    fn append_start_args_replays_data_plane_mode() {
+    fn append_start_args_replays_explicit_data_panel() {
         let args = StoreSourceArgs {
             config_path: None,
             source: crate::store_args::SourceArg::Db,
             store: Some("redis".into()),
             store_config: None,
             namespace: None,
-            node_mode: Some(crate::store_args::NodeModeArg::Data),
-            node_id: None,
+            control_panel: false,
+            data_panel: true,
+            panel_id: None,
         };
         let mut command = std::process::Command::new("mcpstore");
         append_start_args(&mut command, &args);
@@ -191,10 +193,7 @@ mod tests {
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
-        let plane = argv
-            .iter()
-            .position(|arg| arg == "--plane")
-            .expect("detached restart must replay --plane");
-        assert_eq!(argv[plane + 1], "data");
+        assert!(argv.contains(&"--data-panel".to_string()));
+        assert!(!argv.contains(&"--control-panel".to_string()));
     }
 }

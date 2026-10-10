@@ -1629,15 +1629,8 @@ pub(super) async fn call_cache_tool(
                 .get("config")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({}));
-            let had_reactor = store.has_reactor().await;
             let config = mcpstore::JsonStoreConfig::new(store_name, config);
             let snapshot = store.swap_store(&config).await.map_err(map_store_error)?;
-            if had_reactor {
-                store
-                    .restart_control_reactor()
-                    .await
-                    .map_err(map_store_error)?;
-            }
             serde_json::json!({
                 "store": store_name,
                 "snapshot": snapshot,

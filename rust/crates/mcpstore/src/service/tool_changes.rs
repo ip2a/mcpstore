@@ -25,43 +25,6 @@ impl MCPStore {
         }
         let instance_ids = [instance_id];
 
-        if self.is_data_plane() {
-            for instance_id in &instance_ids {
-                self.queue_control_request(
-                    "ServiceRefreshToolsRequested",
-                    serde_json::json!({
-                        "instance_id": instance_id,
-                        "force_refresh": force_refresh,
-                    }),
-                )
-                .await?;
-            }
-            let timestamp = chrono::Utc::now().timestamp();
-            let total_services = instance_ids.len();
-            return Ok(ToolChangeSummary {
-                changed: false,
-                services: Vec::new(),
-                trigger: if force_refresh {
-                    "queued_manual_force"
-                } else {
-                    "queued_manual"
-                }
-                .to_string(),
-                timestamp,
-                details: serde_json::json!({
-                    "queued": true,
-                    "queued_instances": instance_ids,
-                    "total_services": total_services,
-                    "successful_updates": 0,
-                    "failed_updates": 0,
-                    "services_with_changes": 0,
-                    "total_changes": 0,
-                    "service_results": [],
-                    "errors": [],
-                }),
-            });
-        }
-
         let mut results = Vec::with_capacity(instance_ids.len());
         let mut errors = Vec::new();
 

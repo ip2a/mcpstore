@@ -15,42 +15,25 @@ class RustStoreBackend:
 
     def __init__(self, rust_store: Any):
         self._inner = rust_store
-        self._source_mode: Optional[str] = None   # "local" | "db"
-        self._node_mode: Optional[str] = None     # "control_plane" | "data_plane"
 
     # ------------------------------------------------------------------
     # Setup entry point
     # ------------------------------------------------------------------
     @classmethod
-    def setup(cls, source: Any, source_mode: str, node_mode: str):
-        """Construct the Rust-backed store from resolved source + modes."""
-        return setup_module.setup_backend(cls, source, source_mode, node_mode)
+    def setup(cls, source: Any, panel: Any = None):
+        """Construct the Rust-backed store from resolved source + panel role."""
+        return setup_module.setup_backend(cls, source, panel)
 
     @staticmethod
-    def setup_store(source: Any = None, mode: Optional[str] = None, *,
+    def setup_store(source: Any = None, panel: Any = None, *,
                     debug: bool | str = False,
                     static_config: Optional[Dict[str, Any]] = None, **kwargs: Any):
         """Public entry point. Delegates to StoreSetupManager."""
         from mcpstore.store.setup import StoreSetupManager
         return StoreSetupManager.setup_store(
-            source=source, mode=mode, debug=debug,
+            source=source, panel=panel, debug=debug,
             static_config=static_config, **kwargs,
         )
-
-    # ------------------------------------------------------------------
-    # Metadata
-    # ------------------------------------------------------------------
-    @property
-    def source_mode(self) -> Optional[str]:
-        return self._source_mode
-
-    @property
-    def node_mode(self) -> Optional[str]:
-        return self._node_mode
-
-    def restart_control_reactor(self) -> None:
-        """Start the control-plane EventReactor that consumes queued control requests."""
-        self._inner.restart_control_reactor()
 
     namespace = configuration.namespace
     current_store = configuration.current_store

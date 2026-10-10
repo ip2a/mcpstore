@@ -20,13 +20,9 @@ impl MCPStore {
                 "Native export is definition-based; use show_config".to_string(),
             ));
         }
-        self.refresh_from_db_if_needed().await?;
         let instance = self
-            .kernel
-            .control
-            .registry
-            .find_instance(instance_id)
-            .await
+            .instance_from_kv(instance_id)
+            .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let mut config = crate::config::McpConfig::default();
         let server: ServerConfig = serde_json::from_value(Value::Object(instance.effective_config))
@@ -43,18 +39,8 @@ impl MCPStore {
     }
 
     pub async fn show_config_entry(&self) -> Result<crate::config::McpConfig> {
-        if self.kernel.runtime.source_mode != SourceMode::Db {
-            return self
-                .kernel
-                .control
-                .config_manager
-                .load_or_empty()
-                .map_err(Into::into);
-        }
-
-        self.refresh_from_db_if_needed().await?;
         let mut config = crate::config::McpConfig::default();
-        for definition in self.kernel.control.registry.list_definitions().await {
+        for definition in self.definitions_from_kv().await? {
             let server = Self::server_config_from_definition(&definition)?;
             config
                 .mcp_servers
@@ -93,11 +79,39 @@ impl MCPStore {
     }
 
     pub async fn load_from_config(&self) -> Result<()> {
-        if self.is_data_plane() || self.kernel.runtime.source_mode == SourceMode::Db {
-            return self.load_from_db().await;
+        // Unified model: kv is the source of truth. The control panel reads the seed once at startup (mcp.json wins at boot),
+        // writes made while we were down are replayed via unconsumed service_events; afterwards the file serves only
+        // as the post-consume flush target. The data panel has no seed, no hydration, no subscription — queries read kv directly,
+        // calls route per placement.
+        if !matches!(
+            self.kernel.runtime.panel_role,
+            crate::store::PanelRole::ControlPanel
+        ) {
+            return Ok(());
         }
 
+        let seeded = self.seed_from_config_file().await?;
+        if !seeded {
+            self.load_from_db().await?;
+        }
+        self.spawn_service_event_feed_from_ref();
+        self.spawn_tool_call_request_feed_from_ref();
+        self.connect_desired_running_instances(None).await;
+        Ok(())
+    }
+
+    /// Startup seed: the control panel pours mcp.json into the source of truth (registered into kv + registry).
+    /// Returns false = nothing to seed (no config_path / empty file); the caller falls
+    /// back to hydrating from the shared store.
+    async fn seed_from_config_file(&self) -> Result<bool> {
+        if !self.kernel.runtime.sync_config_file {
+            // Shared backend without an explicit config_path: no local file is read as seed.
+            return Ok(false);
+        }
         let config = self.kernel.control.config_manager.load_or_empty()?;
+        if config.mcp_servers.is_empty() {
+            return Ok(false);
+        }
         self.kernel.execution.pool.clear().await;
         self.kernel
             .runtime
@@ -107,61 +121,49 @@ impl MCPStore {
             .clear();
         self.kernel.control.registry.clear().await;
         self.kernel.control.auth.clear_statuses().await;
-
         for (service_name, server) in &config.mcp_servers {
             self.register_configured_definition(service_name, server)
                 .await?;
         }
-
-        for instance in self.kernel.control.registry.list_instances().await {
-            let state = self
-                .kernel
-                .control
-                .state
-                .get(instance.instance_id)
-                .await?
-                .ok_or_else(|| {
-                    Error::new(
-                        FailureCode::ServiceNotFound,
-                        instance.instance_id.to_string(),
-                    )
-                })?;
-            if state.desired != crate::state::DesiredState::Running {
-                continue;
-            }
-            if let Err(error) = self
-                .connect_service_internal(instance.instance_id, false)
-                .await
-            {
-                tracing::warn!(
-                    "[STORE] on-store-start instance connection failed: {} ({})",
-                    instance.instance_id,
-                    error
-                );
-            }
-        }
-        Ok(())
+        Ok(true)
     }
 
     pub async fn load_from_source(&self) -> Result<()> {
         self.load_from_config().await
     }
 
+    /// Whether the seed file contains this service (only meaningful when the file is this store's seed/flush target).
+    pub(crate) fn seed_file_has_service(&self, service_name: &str) -> bool {
+        self.kernel.runtime.sync_config_file
+            && self
+                .kernel
+                .control
+                .config_manager
+                .load_or_empty()
+                .map(|config| config.mcp_servers.contains_key(service_name))
+                .unwrap_or(false)
+    }
+
     pub async fn get_definition_config(&self, service_name: &str) -> Result<Option<Value>> {
-        self.refresh_from_db_if_needed().await?;
-        let Some(definition) = self
-            .kernel
-            .control
-            .registry
-            .find_definition(service_name)
-            .await
-        else {
+        Ok(self
+            .definition_server_config(service_name)
+            .await?
+            .map(|server| {
+                serde_json::to_value(server)
+                    .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
+            })
+            .transpose()?)
+    }
+
+    /// For shared-store write paths. Reads this one definition only; never flushes the whole table into the caller's registry.
+    pub(crate) async fn definition_server_config(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<ServerConfig>> {
+        let Some(definition) = self.definition_from_kv(service_name).await? else {
             return Ok(None);
         };
-        Ok(Some(
-            serde_json::to_value(Self::server_config_from_definition(&definition)?)
-                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?,
-        ))
+        Ok(Some(Self::server_config_from_definition(&definition)?))
     }
 
     pub async fn get_effective_config(
@@ -169,13 +171,11 @@ impl MCPStore {
         service_name: &str,
         scope: &ScopeRef,
     ) -> Result<Option<Value>> {
-        self.refresh_from_db_if_needed().await?;
+        let instance_id =
+            ServiceInstanceKey::new(service_name.to_string(), scope.clone()).instance_id();
         Ok(self
-            .kernel
-            .control
-            .registry
-            .find_instance_by_key(service_name, scope)
-            .await
+            .instance_from_kv(instance_id)
+            .await?
             .map(|instance| Value::Object(instance.effective_config)))
     }
 
@@ -364,7 +364,9 @@ impl MCPStore {
             scopes: config.scopes(),
             lifecycle: extension.and_then(|value| value.lifecycle.clone()),
             handshake_mode: extension.and_then(|value| value.handshake_mode),
-            runtime_policy: extension.and_then(|value| value.runtime_policy.clone()),
+            placement: extension
+                .map(|value| value.placement.clone())
+                .unwrap_or_default(),
             base_revision: config.definition_revision(),
             metadata: extension
                 .map(|value| value.extra.clone())
@@ -398,7 +400,7 @@ impl MCPStore {
             scopes: definition.scopes.clone(),
             lifecycle: definition.lifecycle.clone(),
             handshake_mode: definition.handshake_mode,
-            runtime_policy: definition.runtime_policy.clone(),
+            placement: definition.placement.clone(),
             revision: definition.base_revision,
             extra: definition.metadata.clone(),
         });

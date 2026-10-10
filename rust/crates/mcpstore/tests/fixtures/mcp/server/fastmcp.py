@@ -1,4 +1,4 @@
-"""仅供 Rust CLI 集成测试使用的最小 FastMCP 替身。"""
+"""Minimal FastMCP stand-in used only by Rust CLI integration tests."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ class FastMCP:
 
     def run(self, transport: str) -> None:
         if transport != "stdio":
-            raise ValueError(f"仅支持 stdio，实际值: {transport}")
+            raise ValueError(f"stdio only, got: {transport}")
         _serve_stdio(self)
 
     def _handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -92,7 +92,7 @@ class FastMCP:
         protocol_version = meta.get("io.modelcontextprotocol/protocolVersion")
         if protocol_version != _LATEST_PROTOCOL_VERSION:
             raise ValueError(
-                f"仅支持 MCP {_LATEST_PROTOCOL_VERSION}，实际值: {protocol_version}"
+                f"MCP {_LATEST_PROTOCOL_VERSION} only, got: {protocol_version}"
             )
 
         if method == "server/discover":
@@ -134,7 +134,7 @@ class FastMCP:
             tool_name = params.get("name")
             tool = self._tools.get(tool_name)
             if tool is None:
-                raise ValueError(f"未知工具: {tool_name}")
+                raise ValueError(f"unknown tool: {tool_name}")
             arguments = params.get("arguments") or {}
             result = tool.func(**arguments)
             return {
@@ -162,7 +162,7 @@ class FastMCP:
             uri = params.get("uri")
             resource = self._resources.get(uri)
             if resource is None:
-                raise ValueError(f"未知资源: {uri}")
+                raise ValueError(f"unknown resource: {uri}")
             result = resource.func()
             return {
                 "contents": [
@@ -190,7 +190,7 @@ class FastMCP:
             prompt_name = params.get("name")
             prompt = self._prompts.get(prompt_name)
             if prompt is None:
-                raise ValueError(f"未知 prompt: {prompt_name}")
+                raise ValueError(f"unknown prompt: {prompt_name}")
             arguments = params.get("arguments") or {}
             result = prompt.func(**arguments)
             return {
@@ -206,7 +206,7 @@ class FastMCP:
                 ],
             }
 
-        raise ValueError(f"未支持的方法: {method}")
+        raise ValueError(f"unsupported method: {method}")
 
 
 def _build_input_schema(func: Callable[..., Any]) -> dict[str, Any]:
@@ -274,7 +274,7 @@ def _serve_stdio(app: FastMCP) -> None:
                     "result": result,
                 }
             )
-        except Exception as error:  # noqa: BLE001 - 测试夹具直接返回协议错误
+        except Exception as error:  # noqa: BLE001 - test fixture returns protocol errors directly
             _write_message(
                 {
                     "jsonrpc": "2.0",

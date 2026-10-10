@@ -5,8 +5,8 @@ use serde_json::Value as JsonValue;
 use crate::cache::codec;
 use crate::cache::layer::{CacheError, Result};
 use openkeyv::{
-    AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, CompareAndSwapResult,
-    StoreHandle,
+    AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, CompareAndDeleteResult,
+    CompareAndSwapResult, StoreHandle,
 };
 
 /// mcpstore's unified cache Store. Internally holds an OpenKeyv StoreHandle and
@@ -153,6 +153,25 @@ impl super::storage::CacheStore for LiveStore {
             .await
             .map_err(map_openkeyv_err)?;
         Ok(())
+    }
+
+    async fn claim(&self, key: &str, collection: &str) -> Result<Option<JsonValue>> {
+        let cas = self.cas()?;
+        let Some(revisioned) = cas
+            .get_with_revision(key, Some(collection))
+            .await
+            .map_err(map_openkeyv_err)?
+        else {
+            return Ok(None);
+        };
+        match cas
+            .compare_and_delete(key, &revisioned.revision, Some(collection))
+            .await
+            .map_err(map_openkeyv_err)?
+        {
+            CompareAndDeleteResult::Deleted => Ok(Some(codec::value_to_json(revisioned.value)?)),
+            CompareAndDeleteResult::Conflict { .. } => Ok(None),
+        }
     }
 
     async fn collections(&self) -> Result<Vec<String>> {

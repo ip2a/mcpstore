@@ -1,8 +1,8 @@
 # src/mcpstore/adapters/langchain_adapter.py
 """
-LangChain 适配器模块
+LangChain adapter module
 
-将 MCPStore 工具转换为 LangChain 工具格式，支持同步和异步执行。
+Converts MCPStore tools to LangChain tool format, supporting sync and async execution.
 """
 
 from __future__ import annotations
@@ -48,8 +48,8 @@ def _require_langchain() -> None:
 
 class LangChainAdapter:
     """
-    MCPStore 与 LangChain 之间的适配器。
-    将 mcpstore 的原生对象转换为 LangChain 可直接使用的对象。
+    Adapter between MCPStore and LangChain.
+    Converts native mcpstore objects into objects LangChain can use directly.
     """
 
     def __init__(self, context: Any, instance_id: str | None = None, response_format: str = "text"):
@@ -61,7 +61,7 @@ class LangChainAdapter:
 
     @staticmethod
     def _serialize_unknown(obj):
-        """序列化未知类型对象。"""
+        """Serialize an object of unknown type."""
         if obj is None:
             return None
         if hasattr(obj, "model_dump"):
@@ -87,7 +87,7 @@ class LangChainAdapter:
         return str(obj)
 
     def _normalize_structured_value(self, value):
-        """确保 structured/data 字段始终是 LangChain 能消费的基础类型。"""
+        """Ensure structured/data fields are always base types LangChain can consume."""
         if value is None:
             return None
         if isinstance(value, (str, int, float, bool)):
@@ -130,9 +130,9 @@ class LangChainAdapter:
         args_schema: Type[BaseModel],
     ):
         """
-        创建健壮的同步执行函数，智能处理各种参数传递方式。
+        Create a robust sync executor that handles various argument-passing styles.
         """
-        adapter_self = self  # 闭包捕获
+        adapter_self = self  # closure capture
 
         def _tool_executor(*args, **kwargs):
             tool_input = {}
@@ -189,9 +189,9 @@ class LangChainAdapter:
         args_schema: Type[BaseModel],
     ):
         """
-        创建健壮的异步执行函数，智能处理各种参数传递方式。
+        Create a robust async executor that handles various argument-passing styles.
         """
-        adapter_self = self  # 闭包捕获
+        adapter_self = self  # closure capture
 
         async def _tool_executor(*args, **kwargs):
             tool_input = {}
@@ -251,7 +251,7 @@ class LangChainAdapter:
         return _tool_executor
 
     def list_tools(self) -> List[Tool]:
-        """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
+        """Get all available mcpstore tools converted to a LangChain Tool list (sync)."""
         if self._instance_id is None:
             return self._build_langchain_tools(self._context.list_tools())
         return self._build_langchain_tools(self._context.list_tools(self._instance_id))

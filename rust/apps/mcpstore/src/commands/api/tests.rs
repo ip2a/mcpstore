@@ -5,7 +5,7 @@ use mcpstore::{
     },
     config::{McpStoreExtension, ScopeDeclarations},
     registry::ConfigRevision,
-    JsonStoreConfig, NodeMode, ServiceInstanceKey, SourceMode, StoreOptions,
+    JsonStoreConfig, ServiceInstanceKey, StoreOptions,
 };
 use std::{
     collections::HashMap,
@@ -95,7 +95,7 @@ async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle,
                 handshake_mode: None,
-                runtime_policy: None,
+                placement: serde_json::Map::new(),
                 metadata,
                 base_revision: 1,
                 added_time: 111,
@@ -198,12 +198,10 @@ async fn app_and_core_routers_are_disjoint() {
     let store_path = unique_temp_dir_path("split-api-store").with_extension("json");
     std::fs::write(&store_path, b"{}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(store_path.to_string_lossy().into_owned()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     let state = Arc::new(ApiState {
@@ -229,7 +227,7 @@ async fn app_and_core_routers_are_disjoint() {
             .unwrap();
     });
 
-    // App 面只承载 daemon 自身；业务路由不在其中。
+    // The app plane only hosts the daemon itself; business routes are absent.
     assert_eq!(
         client
             .get(format!("http://{app_addr}/health"))
@@ -249,7 +247,7 @@ async fn app_and_core_routers_are_disjoint() {
         axum::http::StatusCode::NOT_FOUND
     );
 
-    // Core 那面相反：业务在，app 专用路由不在。
+    // The core plane is the opposite: business routes present, app-only routes absent.
     assert_eq!(
         client
             .get(format!("http://{core_addr}/services/list"))
@@ -279,12 +277,10 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
     let store_path = unique_temp_dir_path("aggregate-api-store").with_extension("json");
     std::fs::write(&store_path, b"{}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(store_path.to_string_lossy().into_owned()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     let (addr, handle) = spawn_test_api(store).await;
@@ -342,12 +338,10 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     let store_path = unique_temp_dir_path("client-config-api-store").with_extension("json");
     std::fs::write(&store_path, b"{}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: Some(store_path.to_string_lossy().into_owned()),
-        source_mode: SourceMode::Local,
-        node_mode: NodeMode::ControlPlane,
         store: Some(JsonStoreConfig::memory()),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     let (addr, handle, state) = spawn_test_api_with_state(store).await;
@@ -414,15 +408,13 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
 #[tokio::test]
 async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     let config = ServerConfig {
@@ -509,15 +501,13 @@ async fn oauth_routes_expose_lifecycle_without_echoing_callback_or_credentials()
 #[tokio::test]
 async fn session_routes_use_rust_core_session_state_from_shared_cache() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     seed_db_service(&store).await;
@@ -695,15 +685,13 @@ async fn session_routes_use_rust_core_session_state_from_shared_cache() {
 #[tokio::test]
 async fn third_party_config_export_requires_service_name() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     seed_db_service_config(&store, stdio_config_with_lifecycle()).await;
@@ -984,7 +972,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
     let client = reqwest::Client::new();
     let base_url = format!("http://{addr}");
 
-    // demo 声明在 store + agent-a（两个不同实例）
+    // demo is declared in store + agent-a (two distinct instances)
     client
         .post(format!("{base_url}/services/demo"))
         .json(&json!({
@@ -1003,7 +991,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .await
         .unwrap();
 
-    // /scopes/list：root + store + agent-a，每项带 service_count（不再派生自 /agents/list）
+    // /scopes/list: root + store + agent-a, each with service_count (no longer derived from /agents/list)
     let scopes = client
         .get(format!("{base_url}/scopes/list"))
         .send()
@@ -1031,7 +1019,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .unwrap();
     assert_eq!(agent_entry["scope"]["agent_id"], "agent-a");
 
-    // /services/list?scope=root 聚合两个作用域（total=2），store 只有一个（total=1）
+    // /services/list?scope=root aggregates both scopes (total=2); store has one (total=1)
     let root_services = client
         .get(format!("{base_url}/services/list?scope=root"))
         .send()
@@ -1051,7 +1039,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .unwrap();
     assert_eq!(store_services["data"]["total"], 1);
 
-    // scope 详情：root / store / agent
+    // scope detail: root / store / agent
     let root_info = client
         .get(format!("{base_url}/scopes/root"))
         .send()
@@ -1073,7 +1061,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
     assert_eq!(agent_scope["data"]["scope"]["type"], "agent");
     assert_eq!(agent_scope["data"]["scope"]["agent_id"], "agent-a");
 
-    // agent 详情（find_agent）
+    // agent detail (find_agent)
     let agent_info = client
         .get(format!("{base_url}/agents/agent-a"))
         .send()
@@ -1088,7 +1076,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         1
     );
 
-    // 未知 agent → 404
+    // unknown agent → 404
     let unknown = client
         .get(format!("{base_url}/agents/nope"))
         .send()
@@ -1103,15 +1091,13 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
 #[tokio::test]
 async fn session_snapshot_routes_export_and_import_rust_core_state() {
     let source = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     seed_db_service(&source).await;
@@ -1173,15 +1159,13 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
     );
 
     let target = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     seed_db_service(&target).await;
@@ -1232,15 +1216,13 @@ async fn session_snapshot_routes_export_and_import_rust_core_state() {
 #[tokio::test]
 async fn store_routes_filter_tools_and_manage_tool_policy() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     seed_db_service(&store).await;
@@ -1325,15 +1307,13 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 #[tokio::test]
 async fn store_routes_manage_rust_core_tool_overrides() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     seed_db_service(&store).await;
@@ -1429,15 +1409,13 @@ async fn store_routes_manage_rust_core_tool_overrides() {
 #[tokio::test]
 async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     seed_db_service(&store).await;
@@ -1473,15 +1451,13 @@ async fn resource_override_routes_keep_uri_keys_in_query_parameters() {
 #[tokio::test]
 async fn store_routes_manage_rust_core_openapi_imports() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     let (addr, handle) = spawn_test_api(store).await;
@@ -1614,15 +1590,13 @@ async fn store_routes_manage_rust_core_openapi_imports() {
 #[tokio::test]
 async fn store_route_bundles_openapi_without_importing() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     let (addr, handle) = spawn_test_api(store).await;
@@ -1697,15 +1671,13 @@ async fn store_route_bundles_openapi_without_importing() {
 #[tokio::test]
 async fn store_route_bundles_openapi_artifact_without_importing() {
     let store = MCPStore::setup_with_options(StoreOptions {
-        node_id: None,
         config_path: None,
-        source_mode: SourceMode::Db,
-        node_mode: NodeMode::DataPlane,
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
         )),
         namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
     let (addr, handle, state) = spawn_test_api_with_state(store).await;

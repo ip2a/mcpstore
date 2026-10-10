@@ -57,6 +57,16 @@ def __getattr__(name: str):
         globals()["PerspectiveResolver"] = PerspectiveResolver
         return PerspectiveResolver
 
+    # Role components (control/data panels), composable from user code
+    if name in ("ControlPanel", "DataPanel"):
+        from mcpstore._rust import ControlPanel, DataPanel
+
+        globals().update({
+            "ControlPanel": ControlPanel,
+            "DataPanel": DataPanel,
+        })
+        return globals()[name]
+
     # Async Rust chain (native coroutine API)
     if name in {
         "AsyncMCPStore",

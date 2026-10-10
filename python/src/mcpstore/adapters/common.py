@@ -1,12 +1,12 @@
 # src/mcpstore/adapters/common.py
 """
-适配器公共工具模块
+Shared adapter utilities
 
-提供所有适配器共享的工具函数，避免代码重复：
-- is_nullable: 检查 JSON Schema 属性是否可为 null
-- process_tool_args: 统一处理工具参数转换
-- create_args_schema: 创建 Pydantic 参数模型
-- to_tool_call_view: 统一处理工具调用结果
+Utility functions shared by all adapters, to avoid duplication:
+- is_nullable: check whether a JSON Schema property can be null
+- process_tool_args: normalize tool argument conversion
+- create_args_schema: build the Pydantic argument model
+- to_tool_call_view: normalize tool call results
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class ToolCallView(BaseModel):
 
 
 def _read_field(data: Any, *names: str, default: Any = None) -> Any:
-    """同时兼容对象属性和字典键访问。"""
+    """Support both attribute and dict-key access."""
     if isinstance(data, dict):
         for name in names:
             if name in data:
@@ -87,7 +87,7 @@ def service_name(service_info: Any) -> str:
 
 
 def service_status_value(service_info: Any) -> str:
-    """读取服务Status值，统一返回字符串。"""
+    """Read the service status value, returning a string."""
     status = _read_field(service_info, "status", default="")
     if isinstance(status, dict):
         value = status.get("value") or status.get("status") or status.get("name")
@@ -99,13 +99,13 @@ def service_status_value(service_info: Any) -> str:
 
 
 def tool_name(tool_info: Any) -> str:
-    """读取工具名称。"""
+    """Read the tool name."""
     value = _read_field(tool_info, "name", default="")
     return value if isinstance(value, str) else str(value or "")
 
 
 def tool_service_name(tool_info: Any) -> str:
-    """读取工具所属服务名。"""
+    """Read the tool's owning service name."""
     value = _read_field(tool_info, "service_name", default="")
     return value if isinstance(value, str) else str(value or "")
 
@@ -120,7 +120,7 @@ def tool_instance_id(tool_info: Any) -> str:
 
 
 def tool_input_schema(tool_info: Any) -> Dict[str, Any]:
-    """读取工具输入 schema。"""
+    """Read the tool input schema."""
     schema = _read_field(tool_info, "inputSchema", "input_schema", default={}) or {}
     return schema if isinstance(schema, dict) else {}
 
@@ -131,9 +131,9 @@ def tool_input_schema(tool_info: Any) -> Dict[str, Any]:
 
 def is_nullable(prop: Dict[str, Any]) -> bool:
     """
-    检查 JSON Schema 属性是否可为 null。
+    Check whether a JSON Schema property can be null.
 
-    支持以下 nullability 表示方式：
+    Supports the following nullability representations:
     - nullable: true
     - type: ["string", "null"]
     - anyOf: [{"type": "string"}, {"type": "null"}]
@@ -141,10 +141,10 @@ def is_nullable(prop: Dict[str, Any]) -> bool:
     - default: null
 
     Args:
-        prop: JSON Schema 属性定义
+        prop: JSON Schema property definition
 
     Returns:
-        bool: 是否可为 null
+        bool: whether it can be null
     """
     try:
         # Explicit nullable marker
@@ -190,18 +190,18 @@ def process_tool_args(
     kwargs: dict
 ) -> Dict[str, Any]:
     """
-    统一处理工具参数转换。
+    Normalize tool argument conversion.
 
-    将各种参数传递方式（位置参数、关键字参数、字典）转换为标准的工具输入字典。
-    支持No parameters工具和开放 schema 工具。
+    Convert various argument-passing styles (positional, keyword, dict) into the standard tool input dict.
+    Supports no-parameter tools and open-schema tools.
 
     Args:
-        args_schema: Pydantic 参数模型
-        args: 位置参数元组
-        kwargs: 关键字参数字典
+        args_schema: Pydantic argument model
+        args: positional argument tuple
+        kwargs: keyword argument dict
 
     Returns:
-        Dict[str, Any]: 标准化的工具输入字典
+        Dict[str, Any]: normalized tool input dict
     """
     tool_input: Dict[str, Any] = {}
 
@@ -252,7 +252,7 @@ def process_tool_args(
 # ============================================================================
 
 def _extract_text_blocks(contents: list) -> List[str]:
-    """从内容块中提取文本。"""
+    """Extract text from content blocks."""
     blocks: List[str] = []
     for block in contents or []:
         if isinstance(block, dict):
@@ -271,7 +271,7 @@ def _extract_text_blocks(contents: list) -> List[str]:
 
 
 def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
-    """从内容块中提取工件（非文本内容）。"""
+    """Extract artifacts (non-text content) from content blocks."""
     artifacts: List[Dict[str, Any]] = []
     for block in contents or []:
         if isinstance(block, dict):
@@ -310,13 +310,13 @@ def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
 
 def to_tool_call_view(result: Any) -> ToolCallView:
     """
-    将 MCPStore CallToolResult 统一转换为 ToolCallView。
+    Normalize an MCPStore CallToolResult into a ToolCallView.
 
     Args:
-        result: 工具调用结果
+        result: tool call result
 
     Returns:
-        ToolCallView: 标准化的结果视图
+        ToolCallView: normalized result view
     """
     contents = _read_field(result, "content", default=[]) or []
     text_blocks = _extract_text_blocks(contents)
@@ -351,7 +351,7 @@ def build_tool_error_payload(
     tool_input: Optional[Dict[str, Any]] = None,
     view: Optional[ToolCallView] = None,
 ) -> Dict[str, Any]:
-    """构造统一的工具错误载荷。"""
+    """Build the normalized tool error payload."""
     base: Any = None
     if view is not None:
         base = view.structured if view.structured is not None else view.data
@@ -395,7 +395,7 @@ RESERVED_NAMES = set(dir(BaseModel)) | {
 
 
 def _is_valid_field_name(name: str) -> bool:
-    """检查字段名是否有效（合法标识符、非关键字、非保留名）。"""
+    """Check whether a field name is valid (identifier, not a keyword, not reserved)."""
     return (
         bool(name)
         and name.isidentifier()
@@ -406,20 +406,20 @@ def _is_valid_field_name(name: str) -> bool:
 
 
 def enhance_description(tool_info: Any) -> str:
-    """增强工具描述（当前仅返回原描述）。"""
+    """Enhance a tool description (currently returns it unchanged)."""
     description = _read_field(tool_info, "description", default="")
     return description if isinstance(description, str) else str(description or "")
 
 
 def create_args_schema(tool_info: Any) -> Type[BaseModel]:
     """
-    从工具信息创建 Pydantic 参数模型。
+    Build a Pydantic argument model from tool info.
 
     Args:
-        tool_info: 工具信息对象
+        tool_info: tool info object
 
     Returns:
-        Type[BaseModel]: Pydantic 模型类
+        Type[BaseModel]: Pydantic model class
     """
     input_schema = tool_input_schema(tool_info)
     props = input_schema.get("properties", {})
@@ -515,15 +515,15 @@ def build_sync_executor(
     args_schema: Type[BaseModel]
 ) -> Callable[..., Any]:
     """
-    构建同步工具执行器。
+    Build a sync tool executor.
 
     Args:
-        context: MCPStore 上下文
-        tool_name: 工具名称
-        args_schema: 参数模型
+        context: MCPStore context
+        tool_name: tool name
+        args_schema: argument model
 
     Returns:
-        Callable: 同步执行函数
+        Callable: sync executor
     """
     def _executor(**kwargs):
         tool_input = {}
@@ -563,15 +563,15 @@ def build_async_executor(
     args_schema: Type[BaseModel]
 ) -> Callable[..., Any]:
     """
-    构建异步工具执行器。
+    Build an async tool executor.
 
     Args:
-        context: MCPStore 上下文
-        tool_name: 工具名称
-        args_schema: 参数模型
+        context: MCPStore context
+        tool_name: tool name
+        args_schema: argument model
 
     Returns:
-        Callable: 异步执行函数
+        Callable: async executor
     """
     async def _executor(**kwargs):
         tool_input = {}
@@ -606,11 +606,11 @@ def build_async_executor(
 
 def attach_signature_from_schema(fn: Callable[..., Any], args_schema: Type[BaseModel]) -> None:
     """
-    根据 args_schema 为函数附加 inspect.Signature。
+    Attach an inspect.Signature to the function based on args_schema.
 
     Args:
-        fn: 目标函数
-        args_schema: 参数模型
+        fn: target function
+        args_schema: argument model
     """
     schema_props = args_schema.model_json_schema().get('properties', {})
     params = [inspect.Parameter(k, inspect.Parameter.KEYWORD_ONLY) for k in schema_props.keys()]

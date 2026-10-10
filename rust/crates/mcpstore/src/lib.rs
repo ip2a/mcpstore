@@ -9,7 +9,6 @@ pub mod config_formats;
 pub(crate) mod control;
 pub mod core;
 pub mod error;
-pub mod event_reactor;
 pub mod events;
 pub mod facade;
 pub(crate) mod health;
@@ -52,15 +51,6 @@ pub use openapi::{
 
 // Facade re-exports: event bus
 pub use events::{Event, EventBus};
-
-// Facade re-exports: control requests
-pub use control::{ControlRequest, ControlRequestStatus};
-
-// Facade re-exports: event reactor
-pub use event_reactor::{
-    ChangeContext, EventBackend, EventReactor, ReactionContext, ReactionOutcome, ReactorConfig,
-    Rule,
-};
 
 // Facade re-exports: scope-first SDK facade
 pub use facade::{Prompt, Resource, ResourceTemplate, ScopeContext, Service, ServiceTarget, Tool};
@@ -118,7 +108,6 @@ pub use overrides::{
 };
 pub use store::swap::SwapResult;
 pub use store::{
-    JsonStoreConfig, MCPStore, MemoryStoreConfig, NodeMode, OpenApiImportInput,
-    OpenApiImportSource, RedisStoreConfig, SourceMode, StoreConfig, StoreOptions,
-    ToolVisibilityFilter,
+    JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
+    PanelRole, RedisStoreConfig, StoreConfig, StoreOptions, ToolVisibilityFilter,
 };

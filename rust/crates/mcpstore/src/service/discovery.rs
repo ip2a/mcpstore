@@ -3,7 +3,24 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub(crate) async fn ensure_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
-        self.refresh_from_db_if_needed().await?;
+        // Data-panel placement resolution/merging sinks into this single connection entry: every execution surface
+        // (tools / prompts / resources / tasks / completions) inherits it once, no more misses.
+        if let crate::store::PanelRole::DataPanel { panel_id } = &self.kernel.runtime.panel_role {
+            return self
+                .ensure_data_panel_instance_connected(panel_id, instance_id)
+                .await;
+        }
+        // Hydration becomes fill-if-missing: leave instances already in the registry alone, avoiding full-table rebuilds on every execution.
+        if self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await
+            .is_none()
+        {
+            self.load_from_db().await?;
+        }
         if self
             .kernel
             .control
@@ -57,72 +74,61 @@ impl MCPStore {
         Ok(instance.transport == "openapi")
     }
 
+    /// The query side reads the shared store directly without hydrating the in-memory registry (`load_from_db` is reserved for the execution path).
     pub async fn list_instances(&self) -> Vec<ServiceInstance> {
-        self.refresh_from_db_if_needed().await.ok();
-        self.kernel.control.registry.list_instances().await
+        self.instances_from_kv().await.unwrap_or_default()
     }
 
     pub async fn find_instance(&self, instance_id: InstanceId) -> Option<ServiceInstance> {
-        self.refresh_from_db_if_needed().await.ok();
-        self.kernel
-            .control
-            .registry
-            .find_instance(instance_id)
-            .await
+        self.instance_from_kv(instance_id).await.ok().flatten()
     }
 
     pub async fn find_definition(&self, service_name: &str) -> Option<ServiceDefinition> {
-        self.refresh_from_db_if_needed().await.ok();
-        self.kernel
-            .control
-            .registry
-            .find_definition(service_name)
-            .await
+        self.definition_from_kv(service_name).await.ok().flatten()
     }
 
     pub async fn list_tools(
         &self,
         instance_id: InstanceId,
     ) -> Result<Vec<crate::registry::ToolInfo>> {
-        self.refresh_from_db_if_needed().await?;
-        if self
-            .kernel
-            .control
-            .registry
-            .find_instance(instance_id)
-            .await
-            .is_none()
-        {
+        if self.instance_from_kv(instance_id).await?.is_none() {
             return Err(Error::new(
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
             ));
         }
-        Ok(self
-            .kernel
-            .control
-            .registry
-            .list_instance_tools(instance_id)
-            .await)
+        self.tools_from_kv(instance_id).await
     }
 
     pub async fn list_all_tools(&self) -> Vec<(InstanceId, crate::registry::ToolInfo)> {
-        self.refresh_from_db_if_needed().await.ok();
-        self.kernel.control.registry.list_all_tools().await
+        self.instances_from_kv()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|instance| {
+                instance
+                    .tools
+                    .into_iter()
+                    .map(move |tool| (instance.instance_id, tool))
+            })
+            .collect()
     }
 
     pub async fn list_agents(&self) -> Result<Vec<serde_json::Value>> {
-        self.refresh_from_db_if_needed().await?;
-        let mut agent_ids = self.kernel.control.registry.list_agent_ids().await;
-        agent_ids.sort();
-
-        let mut agents = Vec::with_capacity(agent_ids.len());
-        for agent_id in agent_ids {
-            agents.push(serde_json::json!({
-                "agent_id": agent_id,
-                "instance_ids": self.kernel.control.registry.list_agent_instance_ids(&agent_id).await,
-            }));
+        let mut by_agent = std::collections::BTreeMap::new();
+        for instance in self.instances_from_kv().await? {
+            if let ScopeRef::Agent { agent_id } = instance.scope {
+                by_agent
+                    .entry(agent_id)
+                    .or_insert_with(Vec::new)
+                    .push(instance.instance_id);
+            }
         }
-        Ok(agents)
+        Ok(by_agent
+            .into_iter()
+            .map(|(agent_id, instance_ids)| {
+                serde_json::json!({ "agent_id": agent_id, "instance_ids": instance_ids })
+            })
+            .collect())
     }
 }

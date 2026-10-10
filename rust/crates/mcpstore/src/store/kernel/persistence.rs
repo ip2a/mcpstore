@@ -1,3 +1,4 @@
+mod backend;
 mod swap;
 
 use std::sync::Arc;
@@ -5,8 +6,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::cache::CacheLayerManager;
-use crate::event_reactor::EventBackend;
 use crate::store::store_config::JsonStoreConfig;
+
+pub(crate) use backend::EventBackend;
 
 pub(crate) struct PersistenceRouter {
     pub(crate) store_config: RwLock<JsonStoreConfig>,

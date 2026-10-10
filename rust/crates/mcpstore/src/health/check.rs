@@ -14,7 +14,7 @@ impl MCPStore {
             .get(instance_id)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        if self.is_data_plane() || self.is_openapi_virtual_instance(instance_id).await? {
+        if self.is_openapi_virtual_instance(instance_id).await? {
             return Ok(current);
         }
 
@@ -86,15 +86,6 @@ impl MCPStore {
                 FailureCode::ServiceNotFound,
                 instance_id.to_string(),
             ));
-        }
-        if self.is_data_plane() {
-            return self
-                .kernel
-                .control
-                .state
-                .get(instance_id)
-                .await?
-                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
         }
 
         let now = Self::now_timestamp();
@@ -179,17 +170,8 @@ impl MCPStore {
                 instance_id.to_string(),
             ));
         }
-        if self.is_data_plane() {
-            return self
-                .kernel
-                .control
-                .state
-                .get(instance_id)
-                .await?
-                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()));
-        }
 
-        if let Some(supervisor) = &self.kernel.execution.supervisor {
+        if let Some(supervisor) = self.kernel.execution.supervisor.get() {
             supervisor
                 .observe_and_commit(
                     instance_id,

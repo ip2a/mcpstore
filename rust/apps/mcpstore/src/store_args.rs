@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::{JsonStoreConfig, SourceMode, StoreOptions};
+use mcpstore::{JsonStoreConfig, StoreOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -9,21 +9,6 @@ use crate::BoxErr;
 pub enum SourceArg {
     Local,
     Db,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
-pub enum NodeModeArg {
-    Control,
-    Data,
-}
-
-impl NodeModeArg {
-    fn to_node_mode(self) -> mcpstore::NodeMode {
-        match self {
-            Self::Control => mcpstore::NodeMode::ControlPlane,
-            Self::Data => mcpstore::NodeMode::DataPlane,
-        }
-    }
 }
 
 impl SourceArg {
@@ -55,18 +40,41 @@ pub struct StoreSourceArgs {
     pub store_config: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
+    /// Mount the control panel (self-healing supervisor: keep_alive reconnect, health state machine)
     #[arg(
-        long = "plane",
-        value_enum,
-        help = "Node mode: control executes mutations, data queues them"
+        long = "control-panel",
+        help = "Run control panel (self-heal supervision)"
     )]
-    pub node_mode: Option<NodeModeArg>,
+    pub control_panel: bool,
+    /// Mount the data panel (placement-matched services execute locally; writes/remote calls go through the shared store)
     #[arg(
-        long = "node-id",
+        long = "data-panel",
+        requires = "panel_id",
+        help = "Run data panel (requires --panel-id and a shared store)"
+    )]
+    pub data_panel: bool,
+    #[arg(
+        long = "panel-id",
         value_name = "ID",
-        help = "Column id for per-node state (defaults: control / data)"
+        requires = "data_panel",
+        help = "Data panel identity (required with --data-panel)"
     )]
-    pub node_id: Option<String>,
+    pub panel_id: Option<String>,
+}
+
+impl StoreSourceArgs {
+    /// Panel role: --data-panel (with --panel-id) → data panel; otherwise control panel (including the default).
+    pub fn panel_role(&self) -> mcpstore::PanelRole {
+        if self.data_panel {
+            let panel_id = self
+                .panel_id
+                .clone()
+                .expect("--panel-id is required with --data-panel");
+            mcpstore::PanelRole::DataPanel { panel_id }
+        } else {
+            mcpstore::PanelRole::ControlPanel
+        }
+    }
 }
 
 impl StoreSourceArgs {
@@ -85,17 +93,9 @@ impl StoreSourceArgs {
 
         StoreOptions {
             config_path: self.config_path.clone(),
-            source_mode: match self.source {
-                SourceArg::Local => SourceMode::Local,
-                SourceArg::Db => SourceMode::Db,
-            },
-            node_mode: self
-                .node_mode
-                .map(|m| m.to_node_mode())
-                .unwrap_or(mcpstore::NodeMode::ControlPlane),
             store,
             namespace: self.namespace.clone(),
-            node_id: self.node_id.clone(),
+            panel: self.panel_role(),
         }
     }
 }
@@ -150,28 +150,29 @@ impl KernelHandle {
 }
 
 impl StoreSourceArgs {
-    /// 显式指定了任何 store 参数 → 调用方想自带 kernel（embedded）。
+    /// Any explicit store arg → the caller wants its own kernel (embedded).
     pub fn is_explicit(&self) -> bool {
         self.config_path.is_some()
             || self.store.is_some()
             || self.store_config.is_some()
             || self.namespace.is_some()
             || self.source != SourceArg::Local
-            || self.node_mode == Some(NodeModeArg::Data)
-            || self.node_id.is_some()
+            || self.control_panel
+            || self.data_panel
+            || self.panel_id.is_some()
     }
 }
 
-/// CLI 业务命令的执行位置：daemon（默认，共享连接池与运行时）或本进程 embedded。
-/// 两条路径执行同一份业务 op 分发（daemon::ops）。
+/// Where CLI business commands execute: the daemon (default, shared pool and runtime) or embedded in-process.
+/// Both paths run the same business op dispatch (daemon::ops).
 pub enum StoreAccess {
     Embedded(std::sync::Arc<mcpstore::MCPStore>),
     Remote(crate::daemon::client::KernelClient),
 }
 
-/// 业务命令统一入口：默认连 daemon，不在则后台拉起；`--embedded` 或显式 store
-/// 参数时本进程冷启动。kernel 的 backend/namespace 由 daemon 启动参数决定，
-/// CLI 不越权覆盖。
+/// Unified business-command entry: connect to the daemon by default, spawning it in the background if absent; `--embedded` or explicit store
+/// args cold-start in-process. The kernel's backend/namespace is decided by daemon startup args;
+/// the CLI never overrides them.
 pub async fn open_store_access(
     args: &StoreSourceArgs,
     embedded: bool,
@@ -200,7 +201,7 @@ pub async fn open_store_access(
 }
 
 impl StoreAccess {
-    /// 执行一个请求/响应型业务 op；返回 op 的 result 载荷。
+    /// Execute a request/response business op; return the op's result payload.
     pub async fn request(
         &mut self,
         operation: crate::daemon::protocol::KernelOperation,
@@ -219,7 +220,7 @@ impl StoreAccess {
         }
     }
 
-    /// embedded 侧的 store（仅流式命令在本地驱动执行时使用）。
+    /// Embedded-side store (only for streaming commands driven locally).
     pub fn embedded_store(&self) -> Option<&std::sync::Arc<mcpstore::MCPStore>> {
         match self {
             Self::Embedded(store) => Some(store),
@@ -227,7 +228,7 @@ impl StoreAccess {
         }
     }
 
-    /// remote 侧的 kernel client（仅流式命令转发事件时使用）。
+    /// Remote-side kernel client (only for streaming commands forwarding events).
     pub fn remote_client(&mut self) -> Option<&mut crate::daemon::client::KernelClient> {
         match self {
             Self::Embedded(_) => None,
@@ -266,8 +267,8 @@ impl StoreAccess {
         }
     }
 
-    /// daemon 配置 key 修改（§7 key 表）：remote 走 daemon 热应用；
-    /// embedded 校验（planner）后落盘，下次启动生效。
+    /// Daemon config key edit (§7 key table): remote goes through daemon hot-apply;
+    /// embedded validates (planner), flushes to disk, effective on next start.
     pub async fn set_daemon_config(&mut self, key: &str, value: Value) -> mcpstore::Result<Value> {
         match self {
             Self::Embedded(store) => {

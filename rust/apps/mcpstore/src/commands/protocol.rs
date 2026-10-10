@@ -7,9 +7,7 @@ use crate::daemon::protocol::KernelOperation;
 use crate::error::{attach_instance, OutputFormat};
 use crate::store_args::StoreSourceArgs;
 use crate::{
-    commands::mcp::{
-        insert_runtime, open_store, parse_instance_id, resolve_declared_runtime, RuntimeArgs,
-    },
+    commands::mcp::{insert_runtime, open_store, parse_instance_id, RuntimeArgs},
     BoxErr,
 };
 
@@ -160,14 +158,14 @@ async fn resolve_runtime(
     embedded: bool,
 ) -> mcpstore::Result<mcpstore::config::RuntimeSelection> {
     let selection = requested.resolve(embedded)?;
-    let info = access
+    let _info = access
         .request(
             KernelOperation::GetServiceInfo,
             json!({"instance_id": instance_id.to_string()}),
         )
         .await
         .map_err(|error| attach_instance(error, instance_id))?;
-    resolve_declared_runtime(&info, selection).map_err(|error| attach_instance(error, instance_id))
+    Ok(selection)
 }
 
 async fn execute_resource(
