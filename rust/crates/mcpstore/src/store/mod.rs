@@ -349,6 +349,8 @@ impl MCPStore {
 }
 
 #[cfg(test)]
+mod placement_tests;
+#[cfg(test)]
 mod role_tests;
 #[cfg(test)]
 mod tests;
