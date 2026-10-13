@@ -147,6 +147,10 @@ impl MCPStore {
                 let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
                 (store, None) // Redis EventBackend opened lazily on migration
             }
+            "valkey" => {
+                let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
+                (store, None) // Valkey EventBackend opened lazily on migration
+            }
             backend => {
                 return Err(Error::new(FailureCode::Internal, format!(
                     "OpenKeyv backend '{backend}' does not provide the CAS and ChangeFeed capabilities required by MCPStore"
@@ -326,6 +330,23 @@ impl MCPStore {
                         .and_then(|v| v.as_str())
                         .unwrap_or("redis://127.0.0.1/");
                     let handle = openkeyv::factory::open_store(openkeyv::StoreConfig::redis(
+                        serde_json::json!({
+                            "url": url,
+                            "keyspace": self.namespace(),
+                        }),
+                    ))
+                    .await
+                    .map_err(|e| Error::new(FailureCode::Internal, format!("event Store: {e}")))?;
+                    EventBackend::from_store(handle)
+                }
+                "valkey" => {
+                    let url = storage
+                        .config
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("redis://127.0.0.1/");
+                    let handle = openkeyv::factory::open_store(openkeyv::StoreConfig::new(
+                        "valkey",
                         serde_json::json!({
                             "url": url,
                             "keyspace": self.namespace(),

@@ -556,3 +556,20 @@ async fn remove_of_unknown_service_fails_fast() {
     let error = store.remove_service("ghost").await.unwrap_err();
     assert_eq!(error.code(), crate::error::FailureCode::ServiceNotFound);
 }
+
+#[tokio::test]
+async fn valkey_backend_is_accepted_and_wired() {
+    // LazyRedisStore connects on first use, so setup needs no live server; the
+    // assertion pins that the valkey arm passes setup (KV + CAS + feed wired by
+    // the event backend when a real server is reachable).
+    let store = MCPStore::setup_with_options(StoreOptions {
+        store: Some(JsonStoreConfig::new(
+            "valkey",
+            serde_json::json!({"url": "redis://127.0.0.1:1/"}),
+        )),
+        namespace: Some(format!("role-valkey-{}", uuid::Uuid::new_v4())),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(store.current_store_name().await, "valkey");
+}
