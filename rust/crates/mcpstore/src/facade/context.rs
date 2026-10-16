@@ -1099,7 +1099,6 @@ fn extension_for_scope(scope: &ScopeRef) -> McpStoreExtension {
         scopes,
         lifecycle: None,
         handshake_mode: None,
-        placement: Map::new(),
         revision: 1,
         extra: Map::new(),
     }

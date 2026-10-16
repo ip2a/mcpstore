@@ -1,7 +1,8 @@
 //! Panel-role internalization tests: panel is a setup parameter; the role decides behavior.
 //!
 //! - ControlPanel: supervisor mounted at setup; load reads the seed (mcp.json wins at boot)
-//! - DataPanel: load is a no-op; queries read kv directly, calls route per placement
+//! - DataPanel: load is a no-op; queries read kv directly; calls route per the panel's local
+//!   `[placement]` config — default local, explicit `"delegate"` goes through the shared store
 
 use crate::store::prelude::*;
 use crate::store::{JsonStoreConfig, MCPStore, PanelRole, StoreOptions};
@@ -333,111 +334,19 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
         .is_empty());
 }
 
-#[tokio::test]
-async fn db_data_panel_calls_placement_service_locally() {
-    let namespace = format!("role-local-call-{}", uuid::Uuid::new_v4());
-    let control = MCPStore::setup_with_options(StoreOptions {
-        config_path: None,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(namespace.clone()),
-        panel: PanelRole::ControlPanel,
-    })
-    .unwrap();
-    let data = MCPStore::setup_with_options(StoreOptions {
-        config_path: None,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(namespace),
-        panel: PanelRole::DataPanel {
-            panel_id: "edge-01".to_string(),
-        },
-    })
-    .unwrap();
-
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/mcpstore/tests/fixtures/execution_mcp_server.py")
-        .canonicalize()
-        .unwrap();
-    let placed = {
-        let mut config = ServerConfig {
-            command: Some("echo".to_string()),
-            args: vec!["fixture".to_string()],
-            transport: Some("stdio".to_string()),
-            ..Default::default()
-        };
-        config.mcpstore = Some(crate::config::McpStoreExtension {
-            scopes: crate::config::ScopeDeclarations::store_only(),
-            placement: serde_json::Map::from_iter([(
-                "edge-01".to_string(),
-                serde_json::json!({"command": "python3", "args": [fixture.to_string_lossy()]}),
-            )]),
-            ..Default::default()
-        });
-        config
-    };
-    let elsewhere = {
-        let mut config = placed.clone();
-        config.mcpstore = Some(crate::config::McpStoreExtension {
-            scopes: crate::config::ScopeDeclarations::store_only(),
-            placement: serde_json::Map::from_iter([(
-                "edge-02".to_string(),
-                serde_json::json!({"command": "python3", "args": [fixture.to_string_lossy()]}),
-            )]),
-            ..Default::default()
-        });
-        config
-    };
-    control.add_service("svc", placed).await.unwrap();
-    control.add_service("other", elsewhere).await.unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        if control.find_definition("svc").await.is_some()
-            && control.find_definition("other").await.is_some()
-        {
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("control panel did not apply the adds");
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+/// Writes an empty mcp.json plus a `[placement]` config.toml next to it; returns the mcp.json
+/// path for `config_path` (the app config is resolved as its sibling).
+fn write_panel_config(entries: &[(&str, &str)]) -> String {
+    let dir = std::env::temp_dir().join(format!("mcpstore-placement-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mcp_path = dir.join("mcp.json");
+    std::fs::write(&mcp_path, "{}").unwrap();
+    let mut toml = String::from("[placement]\n");
+    for (key, value) in entries {
+        toml.push_str(&format!("\"{key}\" = \"{value}\"\n"));
     }
-
-    // Case 2: placement hits this panel → lazy connect + local execution
-    let instance_id = crate::identity::ServiceInstanceKey::new(
-        "svc".to_string(),
-        crate::identity::ScopeRef::Store,
-    )
-    .instance_id();
-    let result = data
-        .call_tool(instance_id, "noop", serde_json::json!({}))
-        .await
-        .unwrap();
-    assert!(!result.is_error);
-    assert!(data
-        .kernel
-        .runtime
-        .local_connections
-        .read()
-        .await
-        .contains(&instance_id));
-    assert!(!control
-        .kernel
-        .runtime
-        .local_connections
-        .read()
-        .await
-        .contains(&instance_id));
-
-    // Case 3: placement points at another panel → explicit rejection
-    let other_id = crate::identity::ServiceInstanceKey::new(
-        "other".to_string(),
-        crate::identity::ScopeRef::Store,
-    )
-    .instance_id();
-    let error = data
-        .call_tool(other_id, "noop", serde_json::json!({}))
-        .await
-        .unwrap_err();
-    assert_eq!(error.code(), crate::error::FailureCode::ServiceUnavailable);
+    std::fs::write(dir.join("config.toml"), toml).unwrap();
+    mcp_path.to_string_lossy().into_owned()
 }
 
 #[tokio::test]
@@ -450,8 +359,9 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
+    let config_path = write_panel_config(&[("store.svc", "delegate")]);
     let data = MCPStore::setup_with_options(StoreOptions {
-        config_path: None,
+        config_path: Some(config_path),
         store: Some(JsonStoreConfig::shared_memory()),
         namespace: Some(namespace),
         panel: PanelRole::DataPanel {
@@ -486,7 +396,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 
-    // Case 1: empty placement → request goes into the store, control panel claims and executes, response written back
+    // Delegate: the request goes into the store, the control panel claims and executes, the response is written back
     let instance_id = crate::identity::ServiceInstanceKey::new(
         "svc".to_string(),
         crate::identity::ScopeRef::Store,
@@ -530,6 +440,118 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
 }
 
 #[tokio::test]
+async fn db_data_panel_default_placement_executes_locally() {
+    let namespace = format!("role-local-call-{}", uuid::Uuid::new_v4());
+    let control = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace.clone()),
+        panel: PanelRole::ControlPanel,
+    })
+    .unwrap();
+    // svc is absent from [placement] → the default is local execution; the explicit
+    // delegate entry for another service proves the decision is per instance.
+    let config_path = write_panel_config(&[("store.other", "delegate")]);
+    let data = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(config_path),
+        store: Some(JsonStoreConfig::shared_memory()),
+        namespace: Some(namespace),
+        panel: PanelRole::DataPanel {
+            panel_id: "edge-01".to_string(),
+        },
+    })
+    .unwrap();
+
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/mcpstore/tests/fixtures/execution_mcp_server.py")
+        .canonicalize()
+        .unwrap();
+    let config = {
+        let mut config = ServerConfig {
+            command: Some("python3".to_string()),
+            args: vec![fixture.to_string_lossy().into_owned()],
+            transport: Some("stdio".to_string()),
+            ..Default::default()
+        };
+        config.mcpstore = Some(crate::config::McpStoreExtension {
+            scopes: crate::config::ScopeDeclarations::store_only(),
+            ..Default::default()
+        });
+        config
+    };
+    control.add_service("svc", config.clone()).await.unwrap();
+    control.add_service("other", config).await.unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if control.find_definition("svc").await.is_some()
+            && control.find_definition("other").await.is_some()
+        {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("control panel did not apply the adds");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    // Default local: the data panel pulls the kv config and connects lazily on first call
+    let instance_id = crate::identity::ServiceInstanceKey::new(
+        "svc".to_string(),
+        crate::identity::ScopeRef::Store,
+    )
+    .instance_id();
+    let result = data
+        .call_tool(instance_id, "noop", serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(data
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .contains(&instance_id));
+    assert!(!control
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .contains(&instance_id));
+
+    // Explicit delegate: execution happens on the control panel, the data panel never connects
+    let other_id = crate::identity::ServiceInstanceKey::new(
+        "other".to_string(),
+        crate::identity::ScopeRef::Store,
+    )
+    .instance_id();
+    let result = data
+        .call_tool(other_id, "noop", serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(control
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .contains(&other_id));
+    assert!(!data
+        .kernel
+        .runtime
+        .local_connections
+        .read()
+        .await
+        .contains(&other_id));
+
+    // Delegated instances have no local execution surface beyond tool calls: fail loudly
+    let error = data.list_prompts(other_id).await.unwrap_err();
+    assert_eq!(error.code(), crate::error::FailureCode::ServiceUnavailable);
+}
+
+#[tokio::test]
 async fn data_panel_rejects_process_private_memory_store() {
     let error = MCPStore::setup_with_options(StoreOptions {
         store: Some(JsonStoreConfig::memory()),
@@ -555,4 +577,21 @@ async fn remove_of_unknown_service_fails_fast() {
     .unwrap();
     let error = store.remove_service("ghost").await.unwrap_err();
     assert_eq!(error.code(), crate::error::FailureCode::ServiceNotFound);
+}
+
+#[tokio::test]
+async fn valkey_backend_is_accepted_and_wired() {
+    // LazyRedisStore connects on first use, so setup needs no live server; the
+    // assertion pins that the valkey arm passes setup (KV + CAS + feed wired by
+    // the event backend when a real server is reachable).
+    let store = MCPStore::setup_with_options(StoreOptions {
+        store: Some(JsonStoreConfig::new(
+            "valkey",
+            serde_json::json!({"url": "redis://127.0.0.1:1/"}),
+        )),
+        namespace: Some(format!("role-valkey-{}", uuid::Uuid::new_v4())),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(store.current_store_name().await, "valkey");
 }

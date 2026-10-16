@@ -262,11 +262,6 @@ pub struct McpStoreExtension {
     /// Client lifecycle handshake mode. Defaults to `initialize` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handshake_mode: Option<HandshakeMode>,
-    /// Placement: per-panel configuration overrides (panel_id → config diff).
-    /// Services not appearing in this field default to control-panel execution.
-    /// Each panel_id entry holds a config diff that merges over base_config.
-    #[serde(default, skip_serializing_if = "Map::is_empty")]
-    pub placement: Map<String, Value>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub revision: u64,
     #[serde(flatten)]
@@ -478,7 +473,6 @@ impl ServerConfig {
                 scopes: ScopeDeclarations::store_only(),
                 lifecycle: None,
                 handshake_mode: None,
-                placement: Map::new(),
                 revision: 1,
                 extra: Map::new(),
             });

@@ -15,6 +15,10 @@ pub(crate) struct RuntimeState {
         RwLock<HashMap<InstanceId, serde_json::Map<String, serde_json::Value>>>,
     pub(crate) local_connections: RwLock<HashSet<InstanceId>>,
     pub(crate) panel_role: PanelRole,
+    /// Data-panel placement decisions from the panel's local config.toml `[placement]`
+    /// (`"{scope}.{service}"` → `"local" | "delegate"`, default local). The control panel
+    /// never consults it.
+    pub(crate) panel_placement: HashMap<String, String>,
     pub(crate) runtime_config: StoreRuntimeConfig,
     /// Consume results are flushed back to mcp.json only when config_path was passed explicitly.
     /// `ConfigManager::new()` resolves to the user's real file, so it can't be a default sync target.

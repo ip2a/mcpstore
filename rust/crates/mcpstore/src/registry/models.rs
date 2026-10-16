@@ -36,8 +36,6 @@ pub struct ServiceDefinition {
     pub scopes: ScopeDeclarations,
     pub lifecycle: Option<ServiceLifecycleConfig>,
     pub handshake_mode: Option<crate::config::HandshakeMode>,
-    #[serde(default, skip_serializing_if = "Map::is_empty")]
-    pub placement: Map<String, Value>,
     pub base_revision: u64,
     pub metadata: Map<String, Value>,
     pub added_time: i64,
