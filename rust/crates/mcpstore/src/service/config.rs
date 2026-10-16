@@ -82,7 +82,7 @@ impl MCPStore {
         // Unified model: kv is the source of truth. The control panel reads the seed once at startup (mcp.json wins at boot),
         // writes made while we were down are replayed via unconsumed service_events; afterwards the file serves only
         // as the post-consume flush target. The data panel has no seed, no hydration, no subscription — queries read kv directly,
-        // calls route per placement.
+        // tool calls are delegated through the shared store.
         if !matches!(
             self.kernel.runtime.panel_role,
             crate::store::PanelRole::ControlPanel
@@ -364,9 +364,6 @@ impl MCPStore {
             scopes: config.scopes(),
             lifecycle: extension.and_then(|value| value.lifecycle.clone()),
             handshake_mode: extension.and_then(|value| value.handshake_mode),
-            placement: extension
-                .map(|value| value.placement.clone())
-                .unwrap_or_default(),
             base_revision: config.definition_revision(),
             metadata: extension
                 .map(|value| value.extra.clone())
@@ -400,7 +397,6 @@ impl MCPStore {
             scopes: definition.scopes.clone(),
             lifecycle: definition.lifecycle.clone(),
             handshake_mode: definition.handshake_mode,
-            placement: definition.placement.clone(),
             revision: definition.base_revision,
             extra: definition.metadata.clone(),
         });

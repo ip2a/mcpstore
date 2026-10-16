@@ -184,10 +184,6 @@ pub async fn add(
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            placement: previous
-                .as_ref()
-                .map(|extension| extension.placement.clone())
-                .unwrap_or_default(),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)
@@ -250,10 +246,6 @@ pub async fn add_json(
             handshake_mode: previous
                 .as_ref()
                 .and_then(|extension| extension.handshake_mode),
-            placement: previous
-                .as_ref()
-                .map(|extension| extension.placement.clone())
-                .unwrap_or_default(),
             revision: previous
                 .as_ref()
                 .map(|extension| extension.revision)

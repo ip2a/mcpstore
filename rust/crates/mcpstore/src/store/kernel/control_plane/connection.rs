@@ -3,7 +3,7 @@ use crate::store::{ControlPlane, MCPStore};
 
 impl ControlPlane {
     pub async fn connect_service(&self, store: &MCPStore, instance_id: InstanceId) -> Result<()> {
-        // Same entry as the execution surface: fill-if-missing hydration / data-panel placement resolution all live here.
+        // Same entry as the execution surface: fill-if-missing hydration lives here.
         store.ensure_instance_connected(instance_id).await
     }
 }

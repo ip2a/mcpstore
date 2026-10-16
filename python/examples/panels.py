@@ -1,24 +1,35 @@
-"""Role assembly example: control panel / data panel (service-level placement execution model).
+"""Role assembly example: control panel / data panel (per-panel placement config model).
 
-Service-level placement (mcp.json)::
+Service + scope declarations live in the shared mcp.json::
 
     {
       "mcpServers": {
-        "filesystem": {
+        "github": {
           "command": "npx",
-          "args": ["-y", "server-filesystem", "/workspace"],
+          "args": ["-y", "@modelcontextprotocol/server-github"],
           "_mcpstore": {
-            "scopes": { "store": {} },
-            "placement": {
-              "edge-01": { "args": ["-y", "server-filesystem", "/home/user"] },
-              "edge-02": { "args": ["-y", "server-filesystem", "/data"] }
+            "scopes": {
+              "store": {},
+              "agents": {
+                "agentA": { "config": { "env": { "GITHUB_TOKEN": "tok-a" } } }
+              }
             }
           }
         }
       }
     }
 
-Services absent from placement are executed by the control panel by default.
+Where each instance executes is the data panel's own decision, in its local
+config.toml next to mcp.json — never in the shared config, never read by the
+control panel::
+
+    [placement]
+    "agentA.github" = "delegate"   # proxy to the control panel
+    "store.context7" = "delegate"
+
+Keys pair scope and service ("{scope}.{service}"). Missing entries, an absent
+section or unknown values mean local execution — pull the validated config from
+the shared store and run it here (lazy connect on first call).
 
 Control-panel node (cloud server)::
 
@@ -27,7 +38,7 @@ Control-panel node (cloud server)::
 
     store = MCPStore.setup_store(
         source=RedisConfig(url="redis://central:6379"),
-        panel=ControlPanel(),        # supervisor mounted at setup
+        panel=ControlPanel(),        # supervisor mounted at setup; connects every instance
     )
 
 Data-panel node (resource-constrained edge device)::
@@ -37,7 +48,7 @@ Data-panel node (resource-constrained edge device)::
 
     store = MCPStore.setup_store(
         source=RedisConfig(url="redis://central:6379"),
-        panel=DataPanel(panel_id="edge-01"),  # shared-store mode: no execution; writes only emit events
+        panel=DataPanel(panel_id="edge-01"),
     )
 
 panel is a setup parameter; there is no second object — the default is ControlPanel.

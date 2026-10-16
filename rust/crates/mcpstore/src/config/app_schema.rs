@@ -29,6 +29,13 @@ pub struct AppConfig {
     pub diagnostics: DiagnosticsConfig,
     #[serde(default)]
     pub hosts: HostsConfig,
+    /// Per-panel placement decisions, data-panel only. Keys are `"{scope}.{service}"`
+    /// (e.g. `"agentA.github"`, `"store.context7"`); the only meaningful value is
+    /// `"delegate"` (the control panel executes). Missing entries, an absent section or
+    /// any other value mean local execution — never validated, never an error.
+    /// The control panel never reads this section.
+    #[serde(default)]
+    pub placement: HashMap<String, String>,
 }
 
 impl Default for AppConfig {
@@ -44,6 +51,7 @@ impl Default for AppConfig {
             ui: UiConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             hosts: HostsConfig::default(),
+            placement: HashMap::new(),
         }
     }
 }

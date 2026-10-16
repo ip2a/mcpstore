@@ -175,7 +175,6 @@ fn config_with_lifecycle(
             keep_alive: None,
         }),
         handshake_mode: None,
-        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -915,7 +914,6 @@ fn agent_only_config(agent_id: &str) -> ServerConfig {
         },
         lifecycle: None,
         handshake_mode: None,
-        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -995,7 +993,6 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
         },
         lifecycle: None,
         handshake_mode: None,
-        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -1552,7 +1549,6 @@ async fn openapi_import_rejects_existing_definition_without_mutating_sibling_sco
         },
         lifecycle: None,
         handshake_mode: None,
-        placement: serde_json::Map::new(),
         revision: 1,
         extra: Map::new(),
     });
@@ -5740,7 +5736,6 @@ mod scoped_contract {
                 scopes,
                 lifecycle: None,
                 handshake_mode: None,
-                placement: serde_json::Map::new(),
                 revision: 1,
                 extra: Map::new(),
             }),

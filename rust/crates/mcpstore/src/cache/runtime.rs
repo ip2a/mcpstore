@@ -23,6 +23,16 @@ impl MCPStore {
                     .unwrap_or(default_store_address),
                 namespace,
             )),
+            // Valkey speaks RESP; the data path reuses the redis client.
+            #[cfg(feature = "redis")]
+            "valkey" => Ok(redis_store(
+                store_config
+                    .config
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(default_store_address),
+                namespace,
+            )),
             store => Err(Error::new(
                 FailureCode::Internal,
                 format!(

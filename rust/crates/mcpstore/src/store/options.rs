@@ -5,7 +5,8 @@ use super::store_config::JsonStoreConfig;
 ///
 /// - Control panel: mounts the self-healing supervisor at setup, subscribes to the service_events / tool_call_requests
 ///   ChangeFeeds and consumes/executes; with config_path, reads the seed at startup and flushes after consuming.
-/// - Data panel: no subscription, no execution; queries read kv directly, calls route per placement.
+/// - Data panel: no subscription, no execution; queries read kv directly, tool calls are delegated
+///   to the control panel through the shared store.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PanelRole {
     ControlPanel,

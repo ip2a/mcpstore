@@ -25,20 +25,6 @@ impl MCPStore {
         let mut value = serde_json::to_value(&instance)
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
-            if let Some(definition) = self
-                .kernel
-                .control
-                .registry
-                .find_definition(&instance.service_name)
-                .await
-            {
-                if !definition.placement.is_empty() {
-                    object.insert(
-                        "placement".to_string(),
-                        serde_json::Value::Object(definition.placement.clone()),
-                    );
-                }
-            }
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             object.insert(
                 "state".to_string(),
@@ -79,20 +65,6 @@ impl MCPStore {
         let mut value = serde_json::to_value(&instance)
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         if let serde_json::Value::Object(object) = &mut value {
-            if let Some(definition) = self
-                .kernel
-                .control
-                .registry
-                .find_definition(&instance.service_name)
-                .await
-            {
-                if !definition.placement.is_empty() {
-                    object.insert(
-                        "placement".to_string(),
-                        serde_json::Value::Object(definition.placement.clone()),
-                    );
-                }
-            }
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             object.insert(
                 "state".to_string(),

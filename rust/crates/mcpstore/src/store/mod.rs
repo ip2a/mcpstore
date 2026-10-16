@@ -147,6 +147,10 @@ impl MCPStore {
                 let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
                 (store, None) // Redis EventBackend opened lazily on migration
             }
+            "valkey" => {
+                let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
+                (store, None) // Valkey EventBackend opened lazily on migration
+            }
             backend => {
                 return Err(Error::new(FailureCode::Internal, format!(
                     "OpenKeyv backend '{backend}' does not provide the CAS and ChangeFeed capabilities required by MCPStore"
@@ -202,6 +206,7 @@ impl MCPStore {
                     applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
                     local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
                     panel_role: options.panel.clone(),
+                    panel_placement: app_config.placement.clone(),
                     runtime_config,
                     sync_config_file: file_backed,
                     service_event_feed_started: std::sync::atomic::AtomicBool::new(false),
@@ -335,6 +340,23 @@ impl MCPStore {
                     .map_err(|e| Error::new(FailureCode::Internal, format!("event Store: {e}")))?;
                     EventBackend::from_store(handle)
                 }
+                "valkey" => {
+                    let url = storage
+                        .config
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("redis://127.0.0.1/");
+                    let handle = openkeyv::factory::open_store(openkeyv::StoreConfig::new(
+                        "valkey",
+                        serde_json::json!({
+                            "url": url,
+                            "keyspace": self.namespace(),
+                        }),
+                    ))
+                    .await
+                    .map_err(|e| Error::new(FailureCode::Internal, format!("event Store: {e}")))?;
+                    EventBackend::from_store(handle)
+                }
                 backend => {
                     return Err(Error::new(
                         FailureCode::Internal,
@@ -348,6 +370,7 @@ impl MCPStore {
     }
 }
 
+#[cfg(test)]
 #[cfg(test)]
 mod role_tests;
 #[cfg(test)]
