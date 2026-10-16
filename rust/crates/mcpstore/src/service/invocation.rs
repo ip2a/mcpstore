@@ -207,9 +207,11 @@ impl MCPStore {
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
-        // The data panel is a thin client: every tool call goes through the remote proxy.
+        // The data panel routes by its local placement config: local execution or remote proxy.
         if let crate::store::PanelRole::DataPanel { .. } = &self.kernel.runtime.panel_role {
-            return self.call_tool_remote(instance_id, tool_name, args).await;
+            return self
+                .route_data_panel_tool_call(instance_id, tool_name, args)
+                .await;
         }
         self.kernel
             .execution

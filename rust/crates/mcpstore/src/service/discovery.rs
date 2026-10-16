@@ -4,13 +4,16 @@ use crate::store::prelude::*;
 impl MCPStore {
     pub(crate) async fn ensure_instance_connected(&self, instance_id: InstanceId) -> Result<()> {
         // Single connection entry for every execution surface (tools / prompts / resources / tasks /
-        // completions): a data panel is a thin client and never starts service processes — non-tool
-        // surfaces have no remote RPC yet, so they fail loudly here.
+        // completions): a data panel consults its local placement config — local services connect
+        // here, delegated ones fail loudly (only tool calls are routed remotely).
         if let crate::store::PanelRole::DataPanel { .. } = &self.kernel.runtime.panel_role {
-            return Err(Error::new(
-                FailureCode::ServiceUnavailable,
-                "this data panel does not execute services locally; only tool calls are routed remotely, other surfaces must target the owning panel",
-            ));
+            if !self.panel_executes_locally(instance_id).await? {
+                return Err(Error::new(
+                    FailureCode::ServiceUnavailable,
+                    "service execution is delegated to the control panel; only tool calls are routed remotely, other surfaces must target the owning panel",
+                ));
+            }
+            return self.ensure_data_panel_instance_connected(instance_id).await;
         }
         // Hydration becomes fill-if-missing: leave instances already in the registry alone, avoiding full-table rebuilds on every execution.
         if self

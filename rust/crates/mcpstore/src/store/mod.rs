@@ -206,6 +206,7 @@ impl MCPStore {
                     applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
                     local_connections: tokio::sync::RwLock::new(std::collections::HashSet::new()),
                     panel_role: options.panel.clone(),
+                    panel_placement: app_config.placement.clone(),
                     runtime_config,
                     sync_config_file: file_backed,
                     service_event_feed_started: std::sync::atomic::AtomicBool::new(false),
