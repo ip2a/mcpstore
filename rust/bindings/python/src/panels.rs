@@ -1,7 +1,7 @@
 //! Panel role configuration: passed to setup_store, not constructed after.
 //!
 //! - ControlPanel(): decision + connection maintenance + self-heal (default)
-//! - DataPanel(panel_id): thin client — tool calls delegate through the shared store
+//! - DataPanel(panel_id): routes calls per its local config.toml [placement] — default local, "delegate" proxies to the control panel
 
 use mcpstore::PanelRole;
 use pyo3::prelude::*;
@@ -19,7 +19,8 @@ impl PyControlPanel {
     }
 }
 
-/// Data panel role: thin client — tool calls are delegated to the control panel through the shared store.
+/// Data panel role: services per its config.toml `[placement]` execute locally (lazy connect on
+/// first call), `"delegate"` entries proxy to the control panel through the shared store.
 #[pyclass(name = "DataPanel")]
 #[derive(Clone)]
 pub struct PyDataPanel {
