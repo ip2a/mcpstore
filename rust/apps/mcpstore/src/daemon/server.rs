@@ -55,7 +55,7 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
         started_at: Instant::now(),
     });
     // Panel roles are internalized in the store: ControlPanel mounts the self-healing supervisor at setup;
-    // DataPanel serves placement automatically at load (load_kernel above).
+    // DataPanel delegates tool calls through the shared store (load_kernel above).
     host.faces.start_all(&app_config, &host.state).await;
 
     let shutdown = Arc::new(tokio::sync::Notify::new());

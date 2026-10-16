@@ -1,7 +1,7 @@
 //! Panel-role internalization tests: panel is a setup parameter; the role decides behavior.
 //!
 //! - ControlPanel: supervisor mounted at setup; load reads the seed (mcp.json wins at boot)
-//! - DataPanel: load is a no-op; queries read kv directly, calls route per placement
+//! - DataPanel: load is a no-op; queries read kv directly, tool calls delegate through the shared store
 
 use crate::store::prelude::*;
 use crate::store::{JsonStoreConfig, MCPStore, PanelRole, StoreOptions};
@@ -334,113 +334,6 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
 }
 
 #[tokio::test]
-async fn db_data_panel_calls_placement_service_locally() {
-    let namespace = format!("role-local-call-{}", uuid::Uuid::new_v4());
-    let control = MCPStore::setup_with_options(StoreOptions {
-        config_path: None,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(namespace.clone()),
-        panel: PanelRole::ControlPanel,
-    })
-    .unwrap();
-    let data = MCPStore::setup_with_options(StoreOptions {
-        config_path: None,
-        store: Some(JsonStoreConfig::shared_memory()),
-        namespace: Some(namespace),
-        panel: PanelRole::DataPanel {
-            panel_id: "edge-01".to_string(),
-        },
-    })
-    .unwrap();
-
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/mcpstore/tests/fixtures/execution_mcp_server.py")
-        .canonicalize()
-        .unwrap();
-    let placed = {
-        let mut config = ServerConfig {
-            command: Some("echo".to_string()),
-            args: vec!["fixture".to_string()],
-            transport: Some("stdio".to_string()),
-            ..Default::default()
-        };
-        config.mcpstore = Some(crate::config::McpStoreExtension {
-            scopes: crate::config::ScopeDeclarations::store_only(),
-            placement: serde_json::Map::from_iter([(
-                "edge-01".to_string(),
-                serde_json::json!({"command": "python3", "args": [fixture.to_string_lossy()]}),
-            )]),
-            ..Default::default()
-        });
-        config
-    };
-    let elsewhere = {
-        let mut config = placed.clone();
-        config.mcpstore = Some(crate::config::McpStoreExtension {
-            scopes: crate::config::ScopeDeclarations::store_only(),
-            placement: serde_json::Map::from_iter([(
-                "edge-02".to_string(),
-                serde_json::json!({"command": "python3", "args": [fixture.to_string_lossy()]}),
-            )]),
-            ..Default::default()
-        });
-        config
-    };
-    control.add_service("svc", placed).await.unwrap();
-    control.add_service("other", elsewhere).await.unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        if control.find_definition("svc").await.is_some()
-            && control.find_definition("other").await.is_some()
-        {
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("control panel did not apply the adds");
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-
-    // Case 2: placement hits this panel → lazy connect + local execution
-    let instance_id = crate::identity::ServiceInstanceKey::new(
-        "svc".to_string(),
-        crate::identity::ScopeRef::Store,
-    )
-    .instance_id();
-    let result = data
-        .call_tool(instance_id, "noop", serde_json::json!({}))
-        .await
-        .unwrap();
-    assert!(!result.is_error);
-    assert!(data
-        .kernel
-        .runtime
-        .local_connections
-        .read()
-        .await
-        .contains(&instance_id));
-    assert!(!control
-        .kernel
-        .runtime
-        .local_connections
-        .read()
-        .await
-        .contains(&instance_id));
-
-    // Case 3: placement points at another panel → explicit rejection
-    let other_id = crate::identity::ServiceInstanceKey::new(
-        "other".to_string(),
-        crate::identity::ScopeRef::Store,
-    )
-    .instance_id();
-    let error = data
-        .call_tool(other_id, "noop", serde_json::json!({}))
-        .await
-        .unwrap_err();
-    assert_eq!(error.code(), crate::error::FailureCode::ServiceUnavailable);
-}
-
-#[tokio::test]
 async fn db_data_panel_remote_call_executes_on_control_panel() {
     let namespace = format!("role-remote-call-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
@@ -486,7 +379,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 
-    // Case 1: empty placement → request goes into the store, control panel claims and executes, response written back
+    // Thin client: the request goes into the store, the control panel claims and executes, the response is written back
     let instance_id = crate::identity::ServiceInstanceKey::new(
         "svc".to_string(),
         crate::identity::ScopeRef::Store,
