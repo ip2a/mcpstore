@@ -46,7 +46,7 @@ pub struct StoreSourceArgs {
         help = "Run control panel (self-heal supervision)"
     )]
     pub control_panel: bool,
-    /// Mount the data panel (thin client: queries read the shared store, tool calls are delegated to the control panel)
+    /// Mount the data panel (services per its config.toml [placement] execute locally, the rest delegate to the control panel)
     #[arg(
         long = "data-panel",
         requires = "panel_id",
