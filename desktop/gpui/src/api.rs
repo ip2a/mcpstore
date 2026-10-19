@@ -1,5 +1,8 @@
 //! REST client for the mcpstore backend. Blocking (ureq) — call from
 //! `cx.background_spawn`; the 5s polling loop matches the old web UI.
+//!
+//! Two faces (memory: mcpstore-port-faces): `core` (:1820) serves service
+//! management without prefix; `app` (:1821) serves /v1/meta, /v1/settings.
 
 use anyhow::{anyhow, bail, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -32,10 +35,9 @@ impl ScopeRef {
     pub fn query(&self) -> String {
         match self {
             ScopeRef::Store => "?scope=store".into(),
-            ScopeRef::Agent { agent_id } => format!(
-                "?scope=agent&agent_id={}",
-                urlencoding::encode(agent_id)
-            ),
+            ScopeRef::Agent { agent_id } => {
+                format!("?scope=agent&agent_id={}", urlencoding::encode(agent_id))
+            }
         }
     }
 }
@@ -53,10 +55,17 @@ impl ScopeView {
         match self {
             ScopeView::Root => "?scope=root".into(),
             ScopeView::Store => "?scope=store".into(),
-            ScopeView::Agent { agent_id } => format!(
-                "?scope=agent&agent_id={}",
-                urlencoding::encode(agent_id)
-            ),
+            ScopeView::Agent { agent_id } => {
+                format!("?scope=agent&agent_id={}", urlencoding::encode(agent_id))
+            }
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            ScopeView::Root => "root".into(),
+            ScopeView::Store => "store".into(),
+            ScopeView::Agent { agent_id } => format!("agent:{agent_id}"),
         }
     }
 }
@@ -194,6 +203,28 @@ pub struct ToolInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
+pub struct ResourceInfo {
+    pub uri: String,
+    pub name: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    #[serde(rename = "mimeType")]
+    pub mime_type: Option<String>,
+    pub size: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PromptInfo {
+    pub name: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub arguments: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ServiceInstance {
     pub instance_id: String,
     pub service_name: String,
@@ -205,7 +236,10 @@ pub struct ServiceInstance {
     pub state: ServiceState,
     #[serde(default)]
     pub tools: Vec<ToolInfo>,
+    #[serde(default)]
+    pub effective_config: Value,
     pub added_time: f64,
+    pub mcp: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,14 +255,56 @@ pub struct AgentItem {
     pub instance_ids: Vec<String>,
 }
 
-/// mcpstore 客户端。`base` 形如 `http://127.0.0.1:1821/api`。
+/// Auth status view (GET /services/:name/auth).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AuthStatusView {
+    pub instance_id: String,
+    pub status: String,
+    pub flow: Option<String>,
+    pub scopes: Option<Vec<String>>,
+    pub required_scope: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AuthOperationResult {
+    pub auth: Option<AuthStatusView>,
+    pub authorization: Option<AuthorizationStart>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct AuthorizationStart {
+    pub instance_id: String,
+    pub authorization_url: String,
+    pub scopes: Vec<String>,
+}
+
+/// Hosts config（settings.hosts）：多后端切换。决策 B：core 可切远程。
+#[derive(Debug, Clone, Default)]
+pub struct HostsConfig {
+    pub active: String,
+    pub entries: Vec<(String, String)>,
+}
+
+/// App-face settings payload（/v1/settings）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SettingsPayload {
+    pub language: Option<String>,
+    pub hosts: Option<Value>,
+}
+
+/// mcpstore 客户端。core 面如 `http://127.0.0.1:1820`，app 面如 `http://127.0.0.1:1821`。
 pub struct Api {
     agent: ureq::Agent,
-    base: String,
+    core_base: String,
+    app_base: String,
 }
 
 impl Api {
-    pub fn new(base: impl Into<String>) -> Self {
+    pub fn new(core_base: impl Into<String>, app_base: impl Into<String>) -> Self {
         // ponytail: single global timeout; per-request timeouts if any endpoint hangs
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(10)))
@@ -237,16 +313,32 @@ impl Api {
             .build();
         Self {
             agent: config.new_agent(),
-            base: base.into(),
+            core_base: core_base.into(),
+            app_base: app_base.into(),
         }
     }
 
-    pub fn base(&self) -> &str {
-        &self.base
+    pub fn core_base(&self) -> &str {
+        &self.core_base
     }
 
-    fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
-        let url = format!("{}{}", self.base, path);
+    pub fn app_base(&self) -> &str {
+        &self.app_base
+    }
+
+    /// 切换 core 后端（settings hosts 切换）。
+    pub fn set_core_base(&mut self, url: impl Into<String>) {
+        self.core_base = url.into();
+    }
+
+    fn request_at(
+        &self,
+        base: &str,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Value> {
+        let url = format!("{}{}", base, path);
         let send = || -> std::result::Result<(u16, String), String> {
             let result = if let Some(b) = body {
                 let rb = match method {
@@ -297,21 +389,38 @@ impl Api {
         Ok(value)
     }
 
+    fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+        self.request_at(&self.core_base, method, path, body)
+    }
+
+    fn request_app(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+        self.request_at(&self.app_base, method, path, body)
+    }
+
     fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let v = self.request("GET", path, None)?;
         Ok(serde_json::from_value(v)?)
     }
 
-    /// Wired into the sidebar/status area in an upcoming milestone.
-    #[allow(dead_code)]
+    // ---- app face (:1821) ----
+
     pub fn health(&self) -> Result<Value> {
-        self.get("/health")
+        self.request_app("GET", "/health", None)
     }
 
-    #[allow(dead_code)]
     pub fn meta(&self) -> Result<Value> {
-        self.get("/v1/meta")
+        self.request_app("GET", "/v1/meta", None)
     }
+
+    pub fn get_settings(&self) -> Result<Value> {
+        self.request_app("GET", "/v1/settings", None)
+    }
+
+    pub fn update_settings(&self, payload: &Value) -> Result<Value> {
+        self.request_app("PUT", "/v1/settings", Some(payload))
+    }
+
+    // ---- core face: services ----
 
     pub fn list_services(&self, view: &ScopeView) -> Result<Vec<ServiceInstance>> {
         let v = self.request("GET", &format!("/services/list{}", view.query()), None)?;
@@ -341,7 +450,6 @@ impl Api {
         Ok(serde_json::from_value(v["tools"].clone())?)
     }
 
-    #[allow(dead_code)]
     pub fn call_tool(
         &self,
         addr: &ServiceAddress,
@@ -367,21 +475,9 @@ impl Api {
         target: &str,
         description: Option<&str>,
     ) -> Result<Value> {
-        let mut payload = serde_json::json!({
-            "transport": transport,
-            "env": {},
-            "headers": {},
-            "_mcpstore": { "scopes": { "store": {} } },
-        });
-        if let Some(description) = description {
-            payload["description"] = description.into();
-        }
-        if transport == "stdio" {
-            let command: Vec<&str> = target.split_whitespace().collect();
-            payload["command"] = command.into();
-        } else {
-            payload["url"] = target.into();
-        }
+        let mut payload = build_service_config(transport, target);
+        payload["description"] = description.unwrap_or("").into();
+        payload["_mcpstore"] = serde_json::json!({ "scopes": { "store": {} } });
         self.request(
             "POST",
             &format!("/services/{}", urlencoding::encode(name)),
@@ -389,9 +485,211 @@ impl Api {
         )
     }
 
+    /// `PUT /services/{name}/scopes/…` — 更新某作用域上的服务声明（编辑）。
+    pub fn update_service_scope(
+        &self,
+        name: &str,
+        scope: &ScopeRef,
+        transport: &str,
+        target: &str,
+        description: Option<&str>,
+    ) -> Result<Value> {
+        let mut config = build_service_config(transport, target);
+        config["description"] = description.unwrap_or("").into();
+        let descriptor = serde_json::json!({ "config": config });
+        self.request("PUT", &scope_descriptor_path(name, scope), Some(&descriptor))
+    }
+
+    /// `DELETE /services/{name}/scopes/…` — 从作用域移除声明（web 的“删除”）。
+    pub fn remove_service_scope(&self, name: &str, scope: &ScopeRef) -> Result<Value> {
+        self.request("DELETE", &scope_descriptor_path(name, scope), None)
+    }
+
+    /// `PUT /services/{name}/scopes/agents/{agent_id}` — 把服务声明进 agent 作用域。
+    pub fn declare_agent_scope(
+        &self,
+        name: &str,
+        agent_id: &str,
+        transport: &str,
+        target: &str,
+    ) -> Result<Value> {
+        let config = build_service_config(transport, target);
+        self.request(
+            "PUT",
+            &format!(
+                "/services/{}/scopes/agents/{}",
+                urlencoding::encode(name),
+                urlencoding::encode(agent_id)
+            ),
+            Some(&serde_json::json!({ "config": config })),
+        )
+    }
+
+    /// `POST /scopes/agents/{agent_id}/reset`。
+    pub fn reset_agent_config(&self, agent_id: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("/scopes/agents/{}/reset", urlencoding::encode(agent_id)),
+            None,
+        )
+    }
+
+    // ---- tool policy ----
+
+    pub fn get_tool_policy(&self, addr: &ServiceAddress) -> Result<Value> {
+        self.request("GET", &format!("{}{}", addr.base_path(), "/tool-policy"), None)
+    }
+
+    pub fn set_tool_policy(
+        &self,
+        addr: &ServiceAddress,
+        available_tools: &[String],
+    ) -> Result<Value> {
+        self.request(
+            "PUT",
+            &format!("{}{}", addr.base_path(), "/tool-policy"),
+            Some(&serde_json::json!({ "available_tools": available_tools })),
+        )
+    }
+
+    pub fn clear_tool_policy(&self, addr: &ServiceAddress) -> Result<Value> {
+        self.request(
+            "DELETE",
+            &format!("{}{}", addr.base_path(), "/tool-policy"),
+            None,
+        )
+    }
+
+    // ---- resources / prompts ----
+
+    pub fn list_resources(&self, addr: &ServiceAddress) -> Result<Vec<ResourceInfo>> {
+        let v = self.request(
+            "GET",
+            &format!("{}{}", addr.base_path(), "/resources/list"),
+            None,
+        )?;
+        Ok(serde_json::from_value(v["resources"].clone())?)
+    }
+
+    pub fn list_prompts(&self, addr: &ServiceAddress) -> Result<Vec<PromptInfo>> {
+        let v = self.request(
+            "GET",
+            &format!("{}{}", addr.base_path(), "/prompts/list"),
+            None,
+        )?;
+        Ok(serde_json::from_value(v["prompts"].clone())?)
+    }
+
+    pub fn read_resource(&self, addr: &ServiceAddress, uri: &str) -> Result<Value> {
+        self.request(
+            "GET",
+            &format!(
+                "{}{}&uri={}",
+                addr.base_path(),
+                "/resources/read",
+                urlencoding::encode(uri)
+            ),
+            None,
+        )
+    }
+
+    // ---- auth (OAuth) ----
+
+    pub fn auth_status(&self, addr: &ServiceAddress) -> Result<AuthStatusView> {
+        let v = self.request("GET", &format!("{}{}", addr.base_path(), "/auth"), None)?;
+        Ok(serde_json::from_value(v["auth"].clone())?)
+    }
+
+    pub fn auth_action(&self, addr: &ServiceAddress, action: &str) -> Result<AuthOperationResult> {
+        let v = self.request("POST", &format!("{}{}", addr.base_path(), action), None)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    // ---- cache ----
+
     pub fn cache_health(&self) -> Result<Value> {
         self.get("/cache/health")
     }
+
+    pub fn cache_inspect(&self) -> Result<Value> {
+        self.get("/cache/inspect")
+    }
+
+    pub fn switch_cache(&self, backend: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            "/cache/switch",
+            Some(&serde_json::json!({ "backend": backend })),
+        )
+    }
+
+    // ---- config / mcp-hub ----
+
+    pub fn show_config(&self, scope: &ScopeRef) -> Result<Value> {
+        self.request("GET", &config_path(scope, None), None)
+    }
+
+    pub fn reset_config(&self, scope: &ScopeRef) -> Result<Value> {
+        match scope {
+            ScopeRef::Agent { agent_id } => self.request(
+                "POST",
+                &format!("/scopes/agents/{}/reset", urlencoding::encode(agent_id)),
+                None,
+            ),
+            ScopeRef::Store => self.request("POST", "/config/reset", None),
+        }
+    }
+
+    pub fn mcp_hub_status(&self) -> Result<Value> {
+        self.request("GET", "/mcp-hub/status", None)
+    }
+
+    pub fn mcp_hub_action(&self, action: &str) -> Result<Value> {
+        self.request("POST", &format!("/mcp-hub/{action}"), None)
+    }
+}
+
+/// `{transport, command|url, env, headers}` — add/update 共用的服务配置体。
+fn build_service_config(transport: &str, target: &str) -> Value {
+    let mut config = serde_json::json!({
+        "transport": transport,
+        "env": {},
+        "headers": {},
+    });
+    if transport == "stdio" {
+        let parts: Vec<&str> = target.split_whitespace().collect();
+        config["command"] = parts.first().copied().unwrap_or("").into();
+        config["args"] = serde_json::to_value(parts.iter().skip(1).collect::<Vec<_>>())
+            .unwrap_or(Value::Array(vec![]));
+    } else {
+        config["url"] = target.into();
+    }
+    config
+}
+
+fn scope_descriptor_path(name: &str, scope: &ScopeRef) -> String {
+    match scope {
+        ScopeRef::Store => format!("/services/{}/scopes/store", urlencoding::encode(name)),
+        ScopeRef::Agent { agent_id } => format!(
+            "/services/{}/scopes/agents/{}",
+            urlencoding::encode(name),
+            urlencoding::encode(agent_id)
+        ),
+    }
+}
+
+fn config_path(scope: &ScopeRef, service_name: Option<&str>) -> String {
+    let mut path = match scope {
+        ScopeRef::Store => "/config?scope=store".to_string(),
+        ScopeRef::Agent { agent_id } => format!(
+            "/scopes/agents/{}/config?scope=agent",
+            urlencoding::encode(agent_id)
+        ),
+    };
+    if let Some(name) = service_name {
+        path.push_str(&format!("&service_name={}", urlencoding::encode(name)));
+    }
+    path
 }
 
 fn error_message(code: u16, value: &Value, raw: &str) -> String {
@@ -450,5 +748,14 @@ mod tests {
         assert_eq!(svc.service_name, "fs");
         assert_eq!(svc.state.phase, "running");
         assert!(matches!(svc.state.recovery, RecoveryState::Waiting { .. }));
+    }
+
+    #[test]
+    fn build_service_config_stdio_splits_command() {
+        let config = build_service_config("stdio", "uvx mcp-server-fs /tmp");
+        assert_eq!(config["command"], "uvx");
+        assert_eq!(config["args"], serde_json::json!(["mcp-server-fs", "/tmp"]));
+        let config = build_service_config("streamable-http", "http://x/y");
+        assert_eq!(config["url"], "http://x/y");
     }
 }

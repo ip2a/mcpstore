@@ -1,6 +1,6 @@
 //! Dialog entities: tool runner (schema-driven args form) and add-service form.
 
-use crate::api::{Api, ServiceAddress, ToolInfo};
+use crate::api::{Api, ScopeRef, ServiceAddress, ServiceInstance, ToolInfo};
 use gpui_kit::component::{
     WindowExt as _,
     button::Button,
@@ -300,8 +300,10 @@ impl Render for ToolRunDialog {
     }
 }
 
-pub struct AddServiceDialog {
+/// Add / edit service form dialog. Edit mode prefills and PUTs the scope descriptor.
+pub struct ServiceFormDialog {
     api: Arc<Api>,
+    mode: FormMode,
     name: Entity<InputState>,
     transport: Entity<InputState>,
     target: Entity<InputState>,
@@ -311,25 +313,100 @@ pub struct AddServiceDialog {
     running: bool,
 }
 
-impl AddServiceDialog {
-    pub fn open(api: Arc<Api>, window: &mut Window, cx: &mut gpui_kit::App) {
+#[derive(Clone)]
+pub enum FormMode {
+    Add,
+    Edit {
+        name: String,
+        scope: ScopeRef,
+        transport: String,
+        target: String,
+        description: String,
+    },
+}
+
+impl ServiceFormDialog {
+    pub fn open_add(api: Arc<Api>, window: &mut Window, cx: &mut gpui_kit::App) {
+        Self::open(api, FormMode::Add, window, cx);
+    }
+
+    pub fn open_edit(
+        api: Arc<Api>,
+        name: String,
+        scope: ScopeRef,
+        svc: &ServiceInstance,
+        window: &mut Window,
+        cx: &mut gpui_kit::App,
+    ) {
+        let (transport, target) = match (&svc.transport, svc.command.as_deref()) {
+            (transport, Some(command)) if transport == "stdio" => {
+                let target = format!(
+                    "{} {}",
+                    command,
+                    config_args(&svc.effective_config).join(" ")
+                );
+                ("stdio".to_string(), target)
+            }
+            (transport, _) if transport == "stdio" => ("stdio".to_string(), command_or_empty(svc)),
+            (transport, _) => (transport.clone(), svc.url.clone().unwrap_or_default()),
+        };
+        let description = svc
+            .effective_config
+            .get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("")
+            .to_string();
+        Self::open(
+            api,
+            FormMode::Edit {
+                name,
+                scope,
+                transport,
+                target,
+                description,
+            },
+            window,
+            cx,
+        );
+    }
+
+    fn open(api: Arc<Api>, mode: FormMode, window: &mut Window, cx: &mut gpui_kit::App) {
+        let (name_val, transport_val, target_val, desc_val) = match &mode {
+            FormMode::Add => (String::new(), "stdio".to_string(), String::new(), String::new()),
+            FormMode::Edit {
+                name,
+                transport,
+                target,
+                description,
+                ..
+            } => (name.clone(), transport.clone(), target.clone(), description.clone()),
+        };
         let entity = cx.new(|cx| Self {
             api,
-            name: cx.new(|cx| InputState::new(window, cx).placeholder("service name")),
+            mode,
+            name: cx.new(|cx| InputState::new(window, cx).placeholder("service name").default_value(name_val)),
             transport: cx.new(|cx| {
-                InputState::new(window, cx).placeholder("stdio | streamable-http")
+                InputState::new(window, cx)
+                    .placeholder("stdio | streamable-http")
+                    .default_value(transport_val)
             }),
             target: cx.new(|cx| {
-                InputState::new(window, cx).placeholder("command or url, e.g. uvx mcp-server-fs")
+                InputState::new(window, cx)
+                    .placeholder("command or url, e.g. uvx mcp-server-fs")
+                    .default_value(target_val)
             }),
-            description: cx.new(|cx| InputState::new(window, cx).placeholder("optional")),
+            description: cx.new(|cx| InputState::new(window, cx).placeholder("optional").default_value(desc_val)),
             error: None,
             done: false,
             running: false,
         });
         let entity2 = entity.clone();
+        let title = match &entity2.read(cx).mode {
+            FormMode::Add => SharedString::from("Add service"),
+            FormMode::Edit { name, .. } => format!("Edit · {name}").into(),
+        };
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title("Add service").child(entity2.clone())
+            dialog.title(title.clone()).child(entity2.clone())
         });
     }
 
@@ -338,8 +415,13 @@ impl AddServiceDialog {
         let transport = self.transport.read(cx).value().trim().to_string();
         let target = self.target.read(cx).value().trim().to_string();
         let description = self.description.read(cx).value().trim().to_string();
-        if name.is_empty() || target.is_empty() || transport.is_empty() {
-            self.error = Some("name, transport and target are required".into());
+        if name.is_empty() || target.is_empty() {
+            self.error = Some("name and target are required".into());
+            cx.notify();
+            return;
+        }
+        if transport != "stdio" && transport != "streamable-http" {
+            self.error = Some("transport must be stdio or streamable-http".into());
             cx.notify();
             return;
         }
@@ -347,19 +429,18 @@ impl AddServiceDialog {
         self.error = None;
         cx.notify();
         let api = self.api.clone();
+        let mode = self.mode.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
                 .background_spawn(async move {
-                    api.add_service(
-                        &name,
-                        &transport,
-                        &target,
-                        if description.is_empty() {
-                            None
-                        } else {
-                            Some(description.as_str())
-                        },
-                    )
+                    match mode {
+                        FormMode::Add => {
+                            api.add_service(&name, &transport, &target, Some(&description))
+                        }
+                        FormMode::Edit { name, scope, .. } => {
+                            api.update_service_scope(&name, &scope, &transport, &target, Some(&description))
+                        }
+                    }
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -376,7 +457,26 @@ impl AddServiceDialog {
     }
 }
 
-impl Render for AddServiceDialog {
+fn command_or_empty(svc: &ServiceInstance) -> String {
+    svc.command.clone().unwrap_or_default()
+}
+
+fn config_args(config: &Value) -> Vec<String> {
+    config
+        .get("args")
+        .and_then(|a| a.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|v| match v {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+impl Render for ServiceFormDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (muted, fg) = (cx.theme().muted_foreground, cx.theme().foreground);
         let field = |label: &'static str, input: &Entity<InputState>| {
@@ -400,17 +500,195 @@ impl Render for AddServiceDialog {
                     div()
                         .text_sm()
                         .text_color(cx.theme().success)
-                        .child("Service added. The list refreshes within 5 seconds."),
+                        .child("Saved. The list refreshes within 5 seconds."),
                 )
             })
             .child(
                 h_flex().gap_2().justify_end().child(
-                    Button::new("add-service-submit")
+                    Button::new("service-form-submit")
                         .primary()
-                        .label(if self.running { "Adding…" } else { "Add" })
+                        .label(if self.running { "Saving…" } else { "Save" })
                         .disabled(self.running || self.done)
                         .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
                 ),
             )
+    }
+}
+
+/// Tool policy editor: available tool names, one per line.
+pub struct ToolPolicyDialog {
+    addr: ServiceAddress,
+    api: Arc<Api>,
+    tools: Entity<InputState>,
+    error: Option<SharedString>,
+    done: bool,
+    running: bool,
+}
+
+impl ToolPolicyDialog {
+    pub fn open(addr: ServiceAddress, api: Arc<Api>, current: Vec<String>, window: &mut Window, cx: &mut gpui_kit::App) {
+        let text = current.join("\n");
+        let entity = cx.new(|cx| Self {
+            addr,
+            api,
+            tools: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("available tool names, one per line (empty = allow all)")
+                    .default_value(text)
+            }),
+            error: None,
+            done: false,
+            running: false,
+        });
+        let entity2 = entity.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title("Tool policy").child(entity2.clone())
+        });
+    }
+
+    fn save(&mut self, cx: &mut Context<Self>, clear: bool) {
+        self.running = true;
+        self.error = None;
+        cx.notify();
+        let api = self.api.clone();
+        let addr = self.addr.clone();
+        let text = self.tools.read(cx).value().to_string();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let tools: Vec<String> = text
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect();
+            let result = cx
+                .background_spawn(async move {
+                    if clear {
+                        api.clear_tool_policy(&addr)
+                    } else {
+                        api.set_tool_policy(&addr, &tools)
+                    }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.running = false;
+                match result {
+                    Ok(_) => this.done = true,
+                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+impl Render for ToolPolicyDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        v_flex()
+            .gap_3()
+            .text_color(cx.theme().foreground)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child("One tool name per line. Clear to remove the override."),
+            )
+            .child(Input::new(&self.tools))
+            .when_some(self.error.clone(), |el, error| {
+                el.child(div().text_sm().text_color(cx.theme().danger).child(error))
+            })
+            .when(self.done, |el| {
+                el.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().success)
+                        .child("Policy saved."),
+                )
+            })
+            .child(
+                h_flex()
+                    .gap_2()
+                    .justify_end()
+                    .child(
+                        Button::new("policy-clear")
+                            .danger()
+                            .label("Clear")
+                            .disabled(self.running || self.done)
+                            .on_click(cx.listener(|this, _, _, cx| this.save(cx, true))),
+                    )
+                    .child(
+                        Button::new("policy-save")
+                            .primary()
+                            .label(if self.running { "Saving…" } else { "Save" })
+                            .disabled(self.running || self.done)
+                            .on_click(cx.listener(|this, _, _, cx| this.save(cx, false))),
+                    ),
+            )
+    }
+}
+
+/// Read one resource and show its content.
+pub struct ResourceReadDialog {
+    content: Option<SharedString>,
+    error: Option<SharedString>,
+}
+
+impl ResourceReadDialog {
+    pub fn open(addr: ServiceAddress, api: Arc<Api>, uri: String, window: &mut Window, cx: &mut gpui_kit::App) {
+        let entity = cx.new(|_| Self {
+            content: None,
+            error: None,
+        });
+        let fetch = entity.downgrade();
+        cx.spawn(async move |cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.read_resource(&addr, &uri) })
+                .await;
+            fetch
+                .update(cx, |this, cx| {
+                    match result {
+                        Ok(value) => {
+                            this.content = Some(
+                                serde_json::to_string_pretty(&value)
+                                    .unwrap_or_else(|_| format!("{value}"))
+                                    .into(),
+                            );
+                        }
+                        Err(e) => this.error = Some(format!("{e:#}").into()),
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+        let entity2 = entity.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title("Resource").child(entity2.clone())
+        });
+    }
+}
+
+impl Render for ResourceReadDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .gap_2()
+            .text_color(cx.theme().foreground)
+            .when_some(self.error.clone(), |el, error| {
+                el.child(div().text_sm().text_color(cx.theme().danger).child(error))
+            })
+            .when_some(self.content.clone(), |el, content| {
+                el.child(div().text_xs().child(content))
+            })
+            .when(self.content.is_none() && self.error.is_none(), |el| {
+                el.child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(Spinner::new())
+                        .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Reading…")),
+                )
+            })
     }
 }

@@ -163,7 +163,7 @@ impl Render for MainWindow {
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
                                 .truncate()
-                                .child(self.api.base().to_string()),
+                                .child(self.api.core_base().to_string()),
                         ),
                     ),
             )

@@ -9,7 +9,7 @@ use gpui_kit::{AppContext as _, WindowOptions};
 use std::sync::Arc;
 
 fn main() {
-    let api = Arc::new(api::Api::new("http://127.0.0.1:1820"));
+    let api = Arc::new(api::Api::new("http://127.0.0.1:1820", "http://127.0.0.1:1821"));
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {

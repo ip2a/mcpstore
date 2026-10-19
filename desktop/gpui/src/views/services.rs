@@ -268,7 +268,7 @@ impl Render for ServicesView {
                             .icon(IconName::Plus)
                             .label("Add")
                             .on_click(cx.listener(|this, _, window, cx| {
-                                crate::dialogs::AddServiceDialog::open(this.api.clone(), window, cx);
+                                crate::dialogs::ServiceFormDialog::open_add(this.api.clone(), window, cx);
                             })),
                     ),
             )

@@ -1,10 +1,12 @@
-//! One service's detail page: state, tools, lifecycle actions.
+//! One service's detail page: overview / tools / resources / prompts / auth tabs.
 
-use crate::api::{Api, ServiceAddress, ServiceInstance, ToolInfo};
+use crate::api::{Api, AuthStatusView, PromptInfo, ResourceInfo, ServiceAddress, ServiceInstance, ToolInfo};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::tab::TabBar;
 use gpui_kit::component::{
     button::Button,
     spinner::Spinner,
-    ActiveTheme, IconName,
+    ActiveTheme, Icon,
 };
 use gpui_kit::{
     AppContext as _, Context, EventEmitter, IntoElement, ParentElement as _, Render,
@@ -21,11 +23,24 @@ use gpui_kit::prelude::FluentBuilder as _;
 #[derive(Debug)]
 pub struct BackToServices;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Overview,
+    Tools,
+    Resources,
+    Prompts,
+    Auth,
+}
+
 pub struct InstanceView {
     addr: ServiceAddress,
     api: Arc<Api>,
+    tab: Tab,
     instance: Option<ServiceInstance>,
     tools: Vec<ToolInfo>,
+    resources: Vec<ResourceInfo>,
+    prompts: Vec<PromptInfo>,
+    auth: Option<AuthStatusView>,
     loading: bool,
     error: Option<SharedString>,
 }
@@ -37,8 +52,12 @@ impl InstanceView {
         let mut view = Self {
             addr,
             api,
+            tab: Tab::Overview,
             instance: None,
             tools: Vec::new(),
+            resources: Vec::new(),
+            prompts: Vec::new(),
+            auth: None,
             loading: true,
             error: None,
         };
@@ -60,7 +79,28 @@ impl InstanceView {
                 })
                 .await;
             let tools = cx
-                .background_spawn(async move { api.list_tools(&addr) })
+                .background_spawn({
+                    let api = api.clone();
+                    let addr = addr.clone();
+                    async move { api.list_tools(&addr) }
+                })
+                .await;
+            let resources = cx
+                .background_spawn({
+                    let api = api.clone();
+                    let addr = addr.clone();
+                    async move { api.list_resources(&addr) }
+                })
+                .await;
+            let prompts = cx
+                .background_spawn({
+                    let api = api.clone();
+                    let addr = addr.clone();
+                    async move { api.list_prompts(&addr) }
+                })
+                .await;
+            let auth = cx
+                .background_spawn(async move { api.auth_status(&addr) })
                 .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
@@ -73,6 +113,15 @@ impl InstanceView {
                 }
                 if let Ok(tools) = tools {
                     this.tools = tools;
+                }
+                if let Ok(resources) = resources {
+                    this.resources = resources;
+                }
+                if let Ok(prompts) = prompts {
+                    this.prompts = prompts;
+                }
+                if let Ok(auth) = auth {
+                    this.auth = Some(auth);
                 }
                 cx.notify();
             })
@@ -94,6 +143,44 @@ impl InstanceView {
             })
             .ok();
             this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
+    fn auth_action(&mut self, action: &'static str, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        let addr = self.addr.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.auth_action(&addr, action) })
+                .await;
+            if let Ok(op) = &result {
+                if let Some(url) = op.authorization.clone().map(|a| a.authorization_url) {
+                    cx.update(|cx| cx.open_url(&url));
+                }
+            }
+            this.update(cx, |this, cx| {
+                this.error = result.err().map(|e| format!("{action} failed: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
+    fn clear_policy(&mut self, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        let addr = self.addr.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.clear_tool_policy(&addr) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result.err().map(|e| format!("clear policy failed: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
     }
@@ -124,12 +211,35 @@ impl Render for InstanceView {
             .is_some_and(|s| s.state.phase == "stopped");
         let name = self.addr.service_name.clone();
         let (muted, fg, border) = (
-    cx.theme().muted_foreground,
-    cx.theme().foreground,
-    cx.theme().border,
-);
-let mut fields = v_flex();
+            cx.theme().muted_foreground,
+            cx.theme().foreground,
+            cx.theme().border,
+        );
+        let tab = self.tab;
 
+        // Tab bar
+        let tab_names = ["Overview", "Tools", "Resources", "Prompts", "Auth"];
+        let tab_bar = TabBar::new("instance-tabs")
+            .children(tab_names)
+            .selected_index(match tab {
+                Tab::Overview => 0,
+                Tab::Tools => 1,
+                Tab::Resources => 2,
+                Tab::Prompts => 3,
+                Tab::Auth => 4,
+            })
+            .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                this.tab = match ix {
+                    0 => Tab::Overview,
+                    1 => Tab::Tools,
+                    2 => Tab::Resources,
+                    3 => Tab::Prompts,
+                    _ => Tab::Auth,
+                };
+                cx.notify();
+            }));
+
+        let mut fields = v_flex();
         if let Some(svc) = &self.instance {
             fields = fields
                 .child(Self::render_field("Instance ID", svc.instance_id.clone(), muted, fg, border))
@@ -148,6 +258,7 @@ let mut fields = v_flex();
                 .child(Self::render_field("Desired", svc.state.desired.clone(), muted, fg, border))
                 .child(Self::render_field("Phase", svc.state.phase.clone(), muted, fg, border))
                 .child(Self::render_field("Health", svc.state.health.clone(), muted, fg, border))
+                .child(Self::render_field("Tools sync", svc.state.tools.status.clone(), muted, fg, border))
                 .child(Self::render_field(
                     "Readiness",
                     format!("{} ({})", svc.state.readiness.status, svc.state.readiness.reason),
@@ -173,19 +284,70 @@ let mut fields = v_flex();
             }
         }
 
-        let mut tools = v_flex();
+        let mut tool_rows = v_flex();
         for tool in &self.tools {
-            tools = tools.child(
+            tool_rows = tool_rows.child(
                 v_flex()
                     .gap_0p5()
                     .py_2()
                     .border_b_1()
-                    .border_color(cx.theme().border)
+                    .border_color(border)
                     .child(
-                        div()
-                            .font_medium()
-                            .text_sm()
-                            .child(tool.title.clone().unwrap_or_else(|| tool.name.clone())),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .font_medium()
+                                    .text_sm()
+                                    .child(tool.title.clone().unwrap_or_else(|| tool.name.clone())),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                Button::new(format!("tool-run-{}", urlencoding::encode(&tool.name)))
+                                    .outline()
+                                    .label("Run")
+                                    .on_click({
+                                        let api = self.api.clone();
+                                        let addr = self.addr.clone();
+                                        let tool = tool.clone();
+                                        move |_, window, cx| {
+                                            crate::dialogs::ToolRunDialog::open(
+                                                addr.clone(),
+                                                tool.clone(),
+                                                api.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new(format!("tool-policy-{}", urlencoding::encode(&tool.name)))
+                                    .ghost()
+                                    .icon(IconName::Settings)
+                                    .tooltip("Tool policy")
+                                    .on_click({
+                                        let api = self.api.clone();
+                                        let addr = self.addr.clone();
+                                        let available: Vec<String> = self
+                                            .instance
+                                            .as_ref()
+                                            .map(|svc| {
+                                                svc.state.tools.items.iter().map(|i| i.name.clone()).collect()
+                                            })
+                                            .unwrap_or_default();
+                                        move |_, window, cx| {
+                                            crate::dialogs::ToolPolicyDialog::open(
+                                                addr.clone(),
+                                                api.clone(),
+                                                available.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }),
+                            ),
                     )
                     .when_some(
                         (!tool.description.is_empty()).then(|| tool.description.clone()),
@@ -193,7 +355,7 @@ let mut fields = v_flex();
                             el.child(
                                 div()
                                     .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
+                                    .text_color(muted)
                                     .truncate()
                                     .child(desc),
                             )
@@ -201,6 +363,129 @@ let mut fields = v_flex();
                     ),
             );
         }
+        tool_rows = tool_rows.child(
+            h_flex().gap_2().pt_2().child(
+                Button::new("policy-clear")
+                    .ghost()
+                    .danger()
+                    .label("Clear tool policy override")
+                    .disabled(!running)
+                    .on_click(cx.listener(|this, _, _, cx| this.clear_policy(cx))),
+            ),
+        );
+
+        let mut resource_rows = v_flex();
+        for res in &self.resources {
+            resource_rows = resource_rows.child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(border)
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .flex_1()
+                            .child(div().text_sm().truncate().child(res.name.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .truncate()
+                                    .child(res.uri.clone()),
+                            ),
+                    )
+                    .child(
+                        Button::new(format!("res-read-{}", urlencoding::encode(&res.uri)))
+                            .outline()
+                            .label("Read")
+                            .on_click({
+                                let api = self.api.clone();
+                                let addr = self.addr.clone();
+                                let uri = res.uri.clone();
+                                move |_, window, cx| {
+                                    crate::dialogs::ResourceReadDialog::open(
+                                        addr.clone(),
+                                        api.clone(),
+                                        uri.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            }),
+                    ),
+            );
+        }
+
+        let mut prompt_rows = v_flex();
+        for prompt in &self.prompts {
+            prompt_rows = prompt_rows.child(
+                v_flex()
+                    .gap_0p5()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(border)
+                    .child(
+                        div()
+                            .text_sm()
+                            .child(prompt.title.clone().unwrap_or_else(|| prompt.name.clone())),
+                    )
+                    .when_some(prompt.description.clone(), |el, desc| {
+                        el.child(div().text_xs().text_color(muted).truncate().child(desc))
+                    }),
+            );
+        }
+
+        let auth_status = self.auth.as_ref().map(|a| a.status.clone()).unwrap_or_default();
+        let mut auth_rows = v_flex();
+        auth_rows = auth_rows
+            .child(Self::render_field("Auth status", auth_status.clone(), muted, fg, border));
+        if let Some(auth) = &self.auth {
+            if let Some(required) = &auth.required_scope {
+                auth_rows = auth_rows.child(Self::render_field(
+                    "Required scope",
+                    required.clone(),
+                    muted,
+                    fg,
+                    border,
+                ));
+            }
+        }
+        let auth_actions = h_flex()
+            .gap_2()
+            .pt_3()
+            .child(
+                Button::new("auth-start")
+                    .outline()
+                    .icon(IconName::ExternalLink)
+                    .label("Start authorization")
+                    .disabled(running == false && stopped == false)
+                    .on_click(cx.listener(|this, _, _, cx| this.auth_action("start", cx))),
+            )
+            .child(
+                Button::new("auth-refresh")
+                    .outline()
+                    .label("Refresh token")
+                    .on_click(cx.listener(|this, _, _, cx| this.auth_action("refresh", cx))),
+            )
+            .child(
+                Button::new("auth-logout")
+                    .outline()
+                    .label("Logout")
+                    .on_click(cx.listener(|this, _, _, cx| this.auth_action("logout", cx))),
+            );
+
+        let content = match tab {
+            Tab::Overview => fields.into_any_element(),
+            Tab::Tools => tool_rows.into_any_element(),
+            Tab::Resources => resource_rows.into_any_element(),
+            Tab::Prompts => prompt_rows.into_any_element(),
+            Tab::Auth => v_flex()
+                .child(auth_rows)
+                .child(auth_actions)
+                .into_any_element(),
+        };
 
         v_flex()
             .size_full()
@@ -213,7 +498,7 @@ let mut fields = v_flex();
                     .px_3()
                     .py_2()
                     .border_b_1()
-                    .border_color(cx.theme().border)
+                    .border_color(border)
                     .child(
                         Button::new("instance-back")
                             .ghost()
@@ -223,10 +508,9 @@ let mut fields = v_flex();
                             })),
                     )
                     .child(
-                        div()
-                            .font_semibold()
-                            .child(format!("Service · {name}")),
+                        Icon::new(IconName::Server).text_color(cx.theme().muted_foreground),
                     )
+                    .child(div().font_semibold().child(format!("Service · {name}")))
                     .child(div().flex_1())
                     .child(
                         Button::new("instance-connect")
@@ -260,6 +544,9 @@ let mut fields = v_flex();
                             .icon(IconName::RefreshCw)
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
                     ),
+            )
+            .child(
+                h_flex().px_3().py_1().border_b_1().border_color(border).child(tab_bar),
             )
             .when_some(self.error.clone(), |el, error| {
                 el.child(
@@ -295,16 +582,7 @@ let mut fields = v_flex();
                                         ),
                                 )
                             })
-                            .child(fields)
-                            .child(
-                                div()
-                                    .mt_3()
-                                    .font_semibold()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("Tools ({})", self.tools.len())),
-                            )
-                            .child(tools),
+                            .child(content),
                     ),
             )
     }
