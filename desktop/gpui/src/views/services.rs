@@ -84,6 +84,30 @@ impl ServicesView {
         .detach();
     }
 
+    fn check(&mut self, addr: ServiceAddress, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn({
+                    let api = api.clone();
+                    async move { api.check_service(&addr).await }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result.err().map(|e| format!("check failed: {e:#}").into());
+                this.loading = true;
+                cx.notify();
+            })
+            .ok();
+            // Refetch so row state reflects the probe result.
+            let result = cx
+                .background_spawn(async move { api.list_services(&ScopeView::Root).await })
+                .await;
+            apply_services(&this, cx, result);
+        })
+        .detach();
+    }
+
     fn lifecycle(&mut self, addr: ServiceAddress, action: &'static str, cx: &mut Context<Self>) {
         let api = self.api.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
@@ -117,6 +141,7 @@ impl ServicesView {
         let connect_addr = addr.clone();
         let restart_addr = addr.clone();
         let disconnect_addr = addr.clone();
+        let check_addr = addr.clone();
         let running = svc.state.phase == "running";
         let stopped = svc.state.phase == "stopped";
         let row_id = format!("svc-{}", svc.instance_id);
@@ -208,6 +233,15 @@ impl ServicesView {
                             .disabled(stopped)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.lifecycle(disconnect_addr.clone(), "disconnect", cx);
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("{row_id}-check"))
+                            .ghost()
+                            .icon(IconName::Activity)
+                            .tooltip("Check health")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.check(check_addr.clone(), cx);
                             })),
                     )
                     .child(

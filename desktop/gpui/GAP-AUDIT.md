@@ -10,11 +10,11 @@ tools filter=available 写死、settings 的连接/诊断管理。
 
 | 能力 | web 位置 | GPUI 现状 |
 |---|---|---|
-| 服务表单缺字段：`env`、`headers`、`cwd`、`oauth`(client-id/client-metadata-url)、`handshake_mode`、`startup_policy`、`restart_policy` | features/services/service-form* | ❌ 表单只有 command/target/description —— 没有任何路径能写入这些配置 |
-| `POST /services/:name/auth/scope-upgrade` | lib/api/service.ts | ❌ api.rs 无此方法；auth 状态 `scope_upgrade_required` 时用户无法操作 |
-| `GET /services/:name/check` 按需健康探测 | features/services | ❌ api.rs 无此方法 |
-| tools/list `?filter=` 全部可用（GPUI 写死 `filter=available`，api.rs:480）| features/tools | ❌ 被 override 移除的工具在 GPUI **不可见**，也没有工具策略一览 |
-| 双向 JSON/TOML 导入（粘贴 mcpServers 配置反解析成表单）| service-form* | ❌ 只能逐字段手填；client-config/import 只覆盖编辑器配置文件场景 |
+| 服务表单缺字段：`env`、`headers`、`cwd`、`oauth`(client-id/client-metadata-url)、`handshake_mode`、`startup_policy`、`restart_policy` | features/services/service-form* | ✅ 2026-10-19 全字段表单（ServiceFormDraft），definition 级 `_mcpstore` 齐全 |
+| `POST /services/:name/auth/scope-upgrade` | lib/api/service.ts | ✅ 2026-10-19 auth tab 在 required_scope 存在时显示 Upgrade 按钮 |
+| `GET /services/:name/check` 按需健康探测 | features/services | ✅ 2026-10-19 服务行 Check 按钮（探活后刷新列表） |
+| tools/list `?filter=` 全部可用（GPUI 写死 `filter=available`，api.rs:480）| features/tools | ⚠️ 2026-10-19 tools 页 available/all 切换；工具策略一览仍缺 |
+| 双向 JSON/TOML 导入（粘贴 mcpServers 配置反解析成表单）| service-form* | ✅ 2026-10-19 表单内 Import 区：JSON/TOML 均收，mcpServers 单服务解包回填 |
 | settings 连接管理：host 编辑/重命名/删除、HTTPS、延迟探活 | features/settings/connection* | ⚠️ 只有 add/use（api.rs core_base 可换但 UI 无编辑） |
 | settings 诊断段：runtime_log 开关/max size/retention | features/settings | ❌ 无 UI（settings JSON 本体可看但没有入口改这段） |
 
@@ -23,7 +23,7 @@ tools filter=available 写死、settings 的连接/诊断管理。
 | 能力 | web | GPUI |
 |---|---|---|
 | auth：granted/required scopes、7 态标签、登录轮询、connection_auth_required 引导 | service-panels/auth | ⚠️ 只有 status 串 + start/refresh/logout，无轮询 |
-| MCP hub 对话框：transport/host/port/path/agent_id 参数、descriptor 展示、5s 轮询 | mcp-hub-dialog | ⚠️ 固定 `?transport=stdio&path=/mcp&scope=store`，无 descriptor/轮询 |
+| MCP hub 对话框：host/port/path 参数、descriptor 展示、5s 轮询 | mcp-hub-dialog | ⚠️ 固定 `?path=/mcp&scope=store`（transport 已随网关改名移除），无 descriptor/轮询；**建议并入网关重设计，勿照旧壳补** |
 | 工具详情：annotations/meta/运行时指标块（错误率 p95/p99/last check） | tool-detail | ⚠️ 只有 schema 字段 + 跑 |
 | tool-result-view：text/图片/resource 块/structuredContent/isError 徽章 | tool-result-view.tsx | ⚠️ 整段 pretty JSON |
 | 服务详情 3-tab catalog + 右侧 doc/playground；prompt arguments JSON、template annotations/meta JSON | service-panels | ⚠️ tab 平铺、prompts 只有 name/desc |

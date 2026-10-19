@@ -102,7 +102,7 @@ impl InstanceView {
                 .background_spawn({
                     let api = api.clone();
                     let addr = addr.clone();
-                    async move { api.list_tools(&addr).await }
+                    async move { api.list_tools(&addr, "available").await }
                 })
                 .await;
             let resources = cx
@@ -207,6 +207,23 @@ impl InstanceView {
             }
             this.update(cx, |this, cx| {
                 this.error = result.err().map(|e| format!("{action} failed: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
+    fn upgrade_scope(&mut self, required_scope: String, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        let addr = self.addr.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.auth_scope_upgrade(&addr, &required_scope).await })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result.err().map(|e| format!("scope upgrade failed: {e:#}").into());
                 cx.notify();
             })
             .ok();
@@ -645,6 +662,21 @@ impl Render for InstanceView {
                     .outline()
                     .label(crate::dict::t(cx, crate::dict::Key::Logout))
                     .on_click(cx.listener(|this, _, _, cx| this.auth_action("logout", cx))),
+            )
+            .when_some(
+                self.auth
+                    .as_ref()
+                    .and_then(|a| a.required_scope.clone()),
+                |el, required_scope| {
+                    el.child(
+                        Button::new("auth-scope-upgrade")
+                            .primary()
+                            .label(format!("Upgrade scope to {required_scope}"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.upgrade_scope(required_scope.clone(), cx);
+                            })),
+                    )
+                },
             );
 
         let content = match tab {

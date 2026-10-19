@@ -474,10 +474,25 @@ impl Api {
         self.get(&addr.path()).await
     }
 
-    pub async fn list_tools(&self, addr: &ServiceAddress) -> Result<Vec<ToolInfo>> {
+    /// On-demand health probe: `GET /services/{name}/check`.
+    pub async fn check_service(&self, addr: &ServiceAddress) -> Result<Value> {
+        self.request("GET", &format!("{}/check", addr.base_path()), None).await
+    }
+
+    /// Upgrade auth scope: `POST /services/{name}/auth/scope-upgrade`.
+    pub async fn auth_scope_upgrade(&self, addr: &ServiceAddress, required_scope: &str) -> Result<Value> {
+        self.request(
+            "POST",
+            &format!("{}/auth/scope-upgrade", addr.base_path()),
+            Some(&serde_json::json!({ "required_scope": required_scope })),
+        ).await
+    }
+
+    /// `filter`: "available" (default) | "all" | "removed" — mirrors the web tools filter.
+    pub async fn list_tools(&self, addr: &ServiceAddress, filter: &str) -> Result<Vec<ToolInfo>> {
         let v = self.request(
             "GET",
-            &format!("{}{}&filter=available", addr.base_path(), "/tools/list",),
+            &format!("{}{}&filter={}", addr.base_path(), "/tools/list", urlencoding::encode(filter)),
             None,
         ).await?;
         Ok(serde_json::from_value(v["tools"].clone())?)
@@ -501,16 +516,9 @@ impl Api {
     }
 
     /// `POST /services/{name}` — 新服务默认进 store 作用域（doc §17）。
-    pub async fn add_service(
-        &self,
-        name: &str,
-        transport: &str,
-        target: &str,
-        description: Option<&str>,
-    ) -> Result<Value> {
-        let mut payload = build_service_config(transport, target);
-        payload["description"] = description.unwrap_or("").into();
-        payload["_mcpstore"] = serde_json::json!({ "scopes": { "store": {} } });
+    pub async fn add_service(&self, name: &str, draft: &ServiceFormDraft) -> Result<Value> {
+        let mut payload = build_service_config(draft);
+        payload["_mcpstore"] = mcpstore_extension(draft, serde_json::json!({ "store": {} }));
         self.request(
             "POST",
             &format!("/services/{}", urlencoding::encode(name)),
@@ -519,16 +527,15 @@ impl Api {
     }
 
     /// `PUT /services/{name}/scopes/…` — 更新某作用域上的服务声明（编辑）。
+    /// Handshake/lifecycle are add-path (definition-level) fields and are not
+    /// rewritten here: an omitted value would clear the existing scope state.
     pub async fn update_service_scope(
         &self,
         name: &str,
         scope: &ScopeRef,
-        transport: &str,
-        target: &str,
-        description: Option<&str>,
+        draft: &ServiceFormDraft,
     ) -> Result<Value> {
-        let mut config = build_service_config(transport, target);
-        config["description"] = description.unwrap_or("").into();
+        let config = build_service_config(draft);
         let descriptor = serde_json::json!({ "config": config });
         self.request("PUT", &scope_descriptor_path(name, scope), Some(&descriptor)).await
     }
@@ -543,10 +550,9 @@ impl Api {
         &self,
         name: &str,
         agent_id: &str,
-        transport: &str,
-        target: &str,
+        draft: &ServiceFormDraft,
     ) -> Result<Value> {
-        let config = build_service_config(transport, target);
+        let config = build_service_config(draft);
         self.request(
             "PUT",
             &format!(
@@ -717,21 +723,268 @@ impl Api {
 }
 
 /// `{transport, command|url, env, headers}` — add/update 共用的服务配置体。
-fn build_service_config(transport: &str, target: &str) -> Value {
-    let mut config = serde_json::json!({
-        "transport": transport,
-        "env": {},
-        "headers": {},
-    });
-    if transport == "stdio" {
-        let parts: Vec<&str> = target.split_whitespace().collect();
-        config["command"] = parts.first().copied().unwrap_or("").into();
-        config["args"] = serde_json::to_value(parts.iter().skip(1).collect::<Vec<_>>())
-            .unwrap_or(Value::Array(vec![]));
+/// `KEY=VALUE` per line, blank lines ignored.
+pub fn parse_kv_lines(text: &str) -> serde_json::Map<String, Value> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let (key, value) = line.split_once('=')?;
+            let key = key.trim();
+            (!key.is_empty()).then(|| (key.to_string(), Value::String(value.trim().to_string())))
+        })
+        .collect()
+}
+
+fn non_empty_lines(text: &str) -> Vec<String> {
+    text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
+}
+
+/// Service form draft: every field the panel can write for a service.
+#[derive(Debug, Clone, Default)]
+pub struct ServiceFormDraft {
+    pub transport: String,
+    pub command: String,
+    pub args_text: String,
+    pub url: String,
+    pub description: String,
+    pub working_dir: String,
+    pub env_text: String,
+    pub headers_text: String,
+    pub oauth_client_id: String,
+    pub oauth_client_metadata_url: String,
+    pub handshake_mode: String,
+    pub startup_policy: String,
+    pub restart_policy: String,
+}
+
+const HANDSHAKE_MODES: [&str; 3] = ["auto", "initialize", "discover"];
+const STARTUP_POLICIES: [&str; 3] = ["lazy", "manual", "on-store-start"];
+const RESTART_POLICIES: [&str; 7] = [
+    "no",
+    "on-failure",
+    "on-failure:1",
+    "on-failure:3",
+    "on-failure:5",
+    "always",
+    "unless-stopped",
+];
+
+impl ServiceFormDraft {
+    /// Submit-time validation; empty handshake/policy strings mean backend defaults.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.transport != "stdio" && self.transport != "streamable-http" {
+            return Err("transport must be stdio or streamable-http".into());
+        }
+        if self.transport == "stdio" && self.command.trim().is_empty() {
+            return Err("stdio config requires command".into());
+        }
+        if self.transport != "stdio" && self.url.trim().is_empty() {
+            return Err("http config requires url".into());
+        }
+        let handshake = self.handshake_mode.trim();
+        if !handshake.is_empty() && !HANDSHAKE_MODES.contains(&handshake) {
+            return Err(format!("handshake mode must be one of: {}", HANDSHAKE_MODES.join(", ")));
+        }
+        let startup = self.startup_policy.trim();
+        if !startup.is_empty() && !STARTUP_POLICIES.contains(&startup) {
+            return Err(format!("startup policy must be one of: {}", STARTUP_POLICIES.join(", ")));
+        }
+        let restart = self.restart_policy.trim();
+        if !restart.is_empty() && !RESTART_POLICIES.contains(&restart) {
+            return Err(format!("restart policy must be one of: {}", RESTART_POLICIES.join(", ")));
+        }
+        Ok(())
+    }
+
+    /// Reverse a service config (from import or an existing instance) into a draft.
+    pub fn from_config(config: &Value) -> Self {
+        let mcpstore = config.get("_mcpstore");
+        let lifecycle = mcpstore.and_then(|m| m.get("lifecycle"));
+        let auth = config.get("auth");
+        let oauth_enabled = auth
+            .and_then(|a| a.get("type"))
+            .and_then(Value::as_str)
+            .is_some_and(|t| t == "oauth_authorization_code");
+        let kv_text = |key: &str| {
+            config
+                .get(key)
+                .and_then(Value::as_object)
+                .map(|map| {
+                    map.iter()
+                        .map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or_default()))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default()
+        };
+        Self {
+            transport: config
+                .get("transport")
+                .and_then(Value::as_str)
+                .unwrap_or("stdio")
+                .to_string(),
+            command: config
+                .get("command")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            args_text: config
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|args| {
+                    args.iter()
+                        .map(|v| v.as_str().unwrap_or(&v.to_string()).to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default(),
+            url: config.get("url").and_then(Value::as_str).unwrap_or_default().to_string(),
+            description: config
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            working_dir: config
+                .get("workingDir")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            env_text: kv_text("env"),
+            headers_text: kv_text("headers"),
+            oauth_client_id: if oauth_enabled {
+                auth.and_then(|a| a.get("client_id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            } else {
+                String::new()
+            },
+            oauth_client_metadata_url: if oauth_enabled {
+                auth.and_then(|a| a.get("client_metadata_url"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            } else {
+                String::new()
+            },
+            handshake_mode: mcpstore
+                .and_then(|m| m.get("handshake_mode"))
+                .and_then(Value::as_str)
+                .unwrap_or("auto")
+                .to_string(),
+            startup_policy: lifecycle
+                .and_then(|l| l.get("startup_policy"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            restart_policy: lifecycle
+                .and_then(|l| l.get("restart_policy"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        }
+    }
+}
+
+/// Parse a pasted JSON or TOML service config; accepts a bare config or a
+/// single-entry `mcpServers` wrapper. Returns (name, config).
+pub fn parse_imported_service_config(text: &str) -> Result<(Option<String>, Value), String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("config text is empty".into());
+    }
+    let parsed = match serde_json::from_str::<Value>(text) {
+        Ok(value) => value,
+        Err(json_error) => {
+            let toml_value: toml::Value = toml::from_str(text)
+                .map_err(|toml_error| format!("not valid JSON or TOML: {json_error} / {toml_error}"))?;
+            serde_json::to_value(toml_value).map_err(|e| e.to_string())?
+        }
+    };
+    let Some(object) = parsed.as_object() else {
+        return Err("config must be an object".into());
+    };
+    if let Some(Value::Object(servers)) = object.get("mcpServers") {
+        if servers.len() != 1 {
+            return Err("mcpServers must contain exactly one server".into());
+        }
+        let (name, config) = servers.iter().next().unwrap();
+        if !config.is_object() {
+            return Err("server config must be an object".into());
+        }
+        return Ok((Some(name.clone()), config.clone()));
+    }
+    Ok((None, parsed))
+}
+
+fn build_service_config(draft: &ServiceFormDraft) -> Value {
+    let mut config = serde_json::json!({ "transport": draft.transport });
+    let description = draft.description.trim();
+    if !description.is_empty() {
+        config["description"] = description.into();
+    }
+    if draft.transport == "stdio" {
+        let command = draft.command.trim();
+        if !command.is_empty() {
+            config["command"] = command.into();
+        }
+        let args = non_empty_lines(&draft.args_text);
+        if !args.is_empty() {
+            config["args"] = Value::Array(args.into_iter().map(Value::String).collect());
+        }
+        let working_dir = draft.working_dir.trim();
+        if !working_dir.is_empty() {
+            config["workingDir"] = working_dir.into();
+        }
+        let env = parse_kv_lines(&draft.env_text);
+        if !env.is_empty() {
+            config["env"] = Value::Object(env);
+        }
     } else {
-        config["url"] = target.into();
+        let url = draft.url.trim();
+        if !url.is_empty() {
+            config["url"] = url.into();
+        }
+        let headers = parse_kv_lines(&draft.headers_text);
+        if !headers.is_empty() {
+            config["headers"] = Value::Object(headers);
+        }
+        let client_id = draft.oauth_client_id.trim();
+        let metadata_url = draft.oauth_client_metadata_url.trim();
+        if !client_id.is_empty() || !metadata_url.is_empty() {
+            let mut auth = serde_json::json!({ "type": "oauth_authorization_code" });
+            if !client_id.is_empty() {
+                auth["client_id"] = client_id.into();
+            } else {
+                auth["client_metadata_url"] = metadata_url.into();
+            }
+            config["auth"] = auth;
+        }
     }
     config
+}
+
+/// `_mcpstore` extension: scope registry plus definition-level handshake/lifecycle.
+/// Empty handshake ("auto") and empty policies are omitted so backend defaults apply.
+fn mcpstore_extension(draft: &ServiceFormDraft, scopes: Value) -> Value {
+    let mut extension = serde_json::json!({ "scopes": scopes });
+    let handshake = draft.handshake_mode.trim();
+    if !handshake.is_empty() && handshake != "auto" {
+        extension["handshake_mode"] = handshake.into();
+    }
+    let startup = draft.startup_policy.trim();
+    let restart = draft.restart_policy.trim();
+    if !startup.is_empty() || !restart.is_empty() {
+        let mut lifecycle = serde_json::json!({});
+        if !startup.is_empty() {
+            lifecycle["startup_policy"] = startup.into();
+        }
+        if !restart.is_empty() {
+            lifecycle["restart_policy"] = restart.into();
+        }
+        extension["lifecycle"] = lifecycle;
+    }
+    extension
 }
 
 fn scope_descriptor_path(name: &str, scope: &ScopeRef) -> String {
@@ -827,11 +1080,61 @@ mod tests {
     }
 
     #[test]
-    fn build_service_config_stdio_splits_command() {
-        let config = build_service_config("stdio", "uvx mcp-server-fs /tmp");
+    fn service_form_draft_builds_stdio_and_http_configs() {
+        let draft = ServiceFormDraft {
+            transport: "stdio".into(),
+            command: "uvx".into(),
+            args_text: "mcp-server-fs\n/tmp".into(),
+            env_text: "A=1\n\nB=two words".into(),
+            ..Default::default()
+        };
+        draft.validate().unwrap();
+        let config = build_service_config(&draft);
         assert_eq!(config["command"], "uvx");
         assert_eq!(config["args"], serde_json::json!(["mcp-server-fs", "/tmp"]));
-        let config = build_service_config("streamable-http", "http://x/y");
+        assert_eq!(config["env"]["A"], "1");
+        assert_eq!(config["env"]["B"], "two words");
+        assert!(config.get("workingDir").is_none());
+
+        let draft = ServiceFormDraft {
+            transport: "streamable-http".into(),
+            url: "http://x/y".into(),
+            headers_text: "Authorization=Bearer t".into(),
+            oauth_client_metadata_url: "https://x/.well-known/oauth".into(),
+            handshake_mode: "discover".into(),
+            startup_policy: "lazy".into(),
+            ..Default::default()
+        };
+        draft.validate().unwrap();
+        let config = build_service_config(&draft);
         assert_eq!(config["url"], "http://x/y");
+        assert_eq!(config["headers"]["Authorization"], "Bearer t");
+        assert_eq!(config["auth"]["type"], "oauth_authorization_code");
+        let ext = mcpstore_extension(&draft, serde_json::json!({ "store": {} }));
+        assert_eq!(ext["handshake_mode"], "discover");
+        assert_eq!(ext["lifecycle"]["startup_policy"], "lazy");
+        assert!(ext["lifecycle"].get("restart_policy").is_none());
+    }
+
+    #[test]
+    fn parse_imported_service_config_unwraps_mcp_servers() {
+        let (name, config) = parse_imported_service_config(
+            r#"{"mcpServers": {"fs": {"command": "uvx", "args": ["mcp-server-fs"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(name.as_deref(), Some("fs"));
+        assert_eq!(config["command"], "uvx");
+
+        let (name, config) = parse_imported_service_config("command = 'npx'").unwrap();
+        assert!(name.is_none());
+        assert_eq!(config["command"], "npx");
+
+        let draft = ServiceFormDraft::from_config(&config);
+        assert_eq!(draft.transport, "stdio");
+        assert_eq!(draft.command, "npx");
+
+        assert!(
+            parse_imported_service_config(r#"{"mcpServers": {}}"#).is_err()
+        );
     }
 }

@@ -21,6 +21,7 @@ pub struct ToolsView {
     api: Arc<Api>,
     query: Entity<InputState>,
     search: String,
+    filter: String,
     tools: Vec<(ServiceAddress, ToolInfo)>,
     loading: bool,
     error: Option<SharedString>,
@@ -40,6 +41,7 @@ impl ToolsView {
             api,
             query,
             search: String::new(),
+            filter: "available".to_string(),
             tools: Vec::new(),
             loading: true,
             error: None,
@@ -53,6 +55,7 @@ impl ToolsView {
         self.loading = true;
         cx.notify();
         let api = self.api.clone();
+        let filter = self.filter.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let services = cx
                 .background_spawn({
@@ -70,7 +73,7 @@ impl ToolsView {
                                 service_name: svc.service_name.clone(),
                                 scope: svc.scope.clone(),
                             };
-                            if let Ok(tools) = api.list_tools(&addr).await {
+                            if let Ok(tools) = api.list_tools(&addr, &filter).await {
                                 for tool in tools {
                                     out.push((addr.clone(), tool));
                                 }
@@ -198,6 +201,19 @@ impl Render for ToolsView {
                     .border_color(cx.theme().border)
                     .child(Icon::new(IconName::Search).text_color(cx.theme().muted_foreground))
                     .child(div().flex_1().min_w_0().child(Input::new(&query)))
+                    .child(
+                        Button::new("tools-filter")
+                            .outline()
+                            .label(format!("filter: {}", self.filter))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.filter = if this.filter == "available" {
+                                    "all".to_string()
+                                } else {
+                                    "available".to_string()
+                                };
+                                this.refresh(cx);
+                            })),
+                    )
                     .child(
                         Button::new("tools-refresh")
                             .outline()

@@ -1,10 +1,13 @@
 //! Dialog entities: tool runner (schema-driven args form) and add-service form.
 
-use crate::api::{Api, ScopeRef, ServiceAddress, ServiceInstance, ToolInfo};
+use crate::api::{
+    Api, ScopeRef, ServiceAddress, ServiceFormDraft, ServiceInstance, ToolInfo,
+    parse_imported_service_config,
+};
 use gpui_kit::component::{
     WindowExt as _,
     button::Button,
-    input::{Input, InputState},
+    input::{Input, InputState, Textarea, TextareaState},
     spinner::Spinner,
     ActiveTheme,
 };
@@ -313,8 +316,20 @@ pub struct ServiceFormDialog {
     mode: FormMode,
     name: Entity<InputState>,
     transport: Entity<InputState>,
-    target: Entity<InputState>,
+    command: Entity<InputState>,
+    args: Entity<TextareaState>,
+    url: Entity<InputState>,
     description: Entity<InputState>,
+    working_dir: Entity<InputState>,
+    env: Entity<TextareaState>,
+    headers: Entity<TextareaState>,
+    oauth_client_id: Entity<InputState>,
+    oauth_client_metadata_url: Entity<InputState>,
+    handshake_mode: Entity<InputState>,
+    startup_policy: Entity<InputState>,
+    restart_policy: Entity<InputState>,
+    show_import: bool,
+    import_text: Entity<TextareaState>,
     error: Option<SharedString>,
     done: bool,
     running: bool,
@@ -326,9 +341,7 @@ pub enum FormMode {
     Edit {
         name: String,
         scope: ScopeRef,
-        transport: String,
-        target: String,
-        description: String,
+        config: Value,
     },
 }
 
@@ -345,32 +358,26 @@ impl ServiceFormDialog {
         window: &mut Window,
         cx: &mut gpui_kit::App,
     ) {
-        let (transport, target) = match (&svc.transport, svc.command.as_deref()) {
-            (transport, Some(command)) if transport == "stdio" => {
-                let target = format!(
-                    "{} {}",
-                    command,
-                    config_args(&svc.effective_config).join(" ")
-                );
-                ("stdio".to_string(), target)
+        let mut config = svc.effective_config.clone();
+        if config.get("transport").is_none() {
+            config["transport"] = svc.transport.clone().into();
+        }
+        if config.get("command").is_none() {
+            if let Some(command) = svc.command.clone() {
+                config["command"] = command.into();
             }
-            (transport, _) if transport == "stdio" => ("stdio".to_string(), command_or_empty(svc)),
-            (transport, _) => (transport.clone(), svc.url.clone().unwrap_or_default()),
-        };
-        let description = svc
-            .effective_config
-            .get("description")
-            .and_then(|d| d.as_str())
-            .unwrap_or("")
-            .to_string();
+        }
+        if config.get("url").is_none() {
+            if let Some(url) = svc.url.clone() {
+                config["url"] = url.into();
+            }
+        }
         Self::open(
             api,
             FormMode::Edit {
                 name,
                 scope,
-                transport,
-                target,
-                description,
+                config,
             },
             window,
             cx,
@@ -378,31 +385,49 @@ impl ServiceFormDialog {
     }
 
     fn open(api: Arc<Api>, mode: FormMode, window: &mut Window, cx: &mut gpui_kit::App) {
-        let (name_val, transport_val, target_val, desc_val) = match &mode {
-            FormMode::Add => (String::new(), "stdio".to_string(), String::new(), String::new()),
-            FormMode::Edit {
-                name,
-                transport,
-                target,
-                description,
-                ..
-            } => (name.clone(), transport.clone(), target.clone(), description.clone()),
+        let name_val = match &mode {
+            FormMode::Add => String::new(),
+            FormMode::Edit { name, .. } => name.clone(),
+        };
+        let draft = match &mode {
+            FormMode::Add => ServiceFormDraft::default(),
+            FormMode::Edit { config, .. } => ServiceFormDraft::from_config(config),
+        };
+        let input = |placeholder: &str, value: &str, window: &mut Window, cx: &mut gpui_kit::App| {
+            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(value))
+        };
+        let textarea = |placeholder: &str, value: &str, window: &mut Window, cx: &mut gpui_kit::App| {
+            cx.new(|cx| TextareaState::new(window, cx).placeholder(placeholder).default_value(value))
         };
         let entity = cx.new(|cx| Self {
             api,
             mode,
-            name: cx.new(|cx| InputState::new(window, cx).placeholder("service name").default_value(name_val)),
-            transport: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder("stdio | streamable-http")
-                    .default_value(transport_val)
-            }),
-            target: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder("command or url, e.g. uvx mcp-server-fs")
-                    .default_value(target_val)
-            }),
-            description: cx.new(|cx| InputState::new(window, cx).placeholder("optional").default_value(desc_val)),
+            name: input("service name", &name_val, window, cx),
+            transport: input("stdio | streamable-http", &draft.transport, window, cx),
+            command: input("e.g. uvx", &draft.command, window, cx),
+            args: textarea("one arg per line", &draft.args_text, window, cx),
+            url: input("https://host/mcp", &draft.url, window, cx),
+            description: input("optional", &draft.description, window, cx),
+            working_dir: input("cwd, stdio only", &draft.working_dir, window, cx),
+            env: textarea("KEY=VALUE per line, stdio only", &draft.env_text, window, cx),
+            headers: textarea("KEY=VALUE per line, http only", &draft.headers_text, window, cx),
+            oauth_client_id: input("client id (or metadata url)", &draft.oauth_client_id, window, cx),
+            oauth_client_metadata_url: input(
+                "client metadata url",
+                &draft.oauth_client_metadata_url,
+                window,
+                cx,
+            ),
+            handshake_mode: input("auto | initialize | discover", &draft.handshake_mode, window, cx),
+            startup_policy: input("lazy | manual | on-store-start", &draft.startup_policy, window, cx),
+            restart_policy: input(
+                "no | on-failure[:N] | always | unless-stopped",
+                &draft.restart_policy,
+                window,
+                cx,
+            ),
+            show_import: false,
+            import_text: textarea("paste JSON or TOML (mcpServers wrapper ok)", "", window, cx),
             error: None,
             done: false,
             running: false,
@@ -417,18 +442,77 @@ impl ServiceFormDialog {
         });
     }
 
+    fn draft(&self, cx: &Context<Self>) -> ServiceFormDraft {
+        let text = |state: &Entity<InputState>| state.read(cx).value().trim().to_string();
+        let area = |state: &Entity<TextareaState>| state.read(cx).value().trim().to_string();
+        ServiceFormDraft {
+            transport: text(&self.transport),
+            command: text(&self.command),
+            args_text: area(&self.args),
+            url: text(&self.url),
+            description: text(&self.description),
+            working_dir: text(&self.working_dir),
+            env_text: area(&self.env),
+            headers_text: area(&self.headers),
+            oauth_client_id: text(&self.oauth_client_id),
+            oauth_client_metadata_url: text(&self.oauth_client_metadata_url),
+            handshake_mode: text(&self.handshake_mode),
+            startup_policy: text(&self.startup_policy),
+            restart_policy: text(&self.restart_policy),
+        }
+    }
+
+    fn load_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.import_text.read(cx).value().to_string();
+        match parse_imported_service_config(&text) {
+            Ok((name, config)) => {
+                let draft = ServiceFormDraft::from_config(&config);
+                let fill =
+                    |state: &Entity<InputState>, value: String, window: &mut Window, cx: &mut Context<Self>| {
+                        state.update(cx, |state, cx| state.set_value(value, window, cx));
+                    };
+                if self.name.read(cx).value().is_empty() {
+                    if let Some(name) = name {
+                        fill(&self.name, name, window, cx);
+                    }
+                }
+                fill(&self.transport, draft.transport, window, cx);
+                fill(&self.command, draft.command, window, cx);
+                fill(&self.url, draft.url, window, cx);
+                fill(&self.description, draft.description, window, cx);
+                fill(&self.working_dir, draft.working_dir, window, cx);
+                fill(&self.oauth_client_id, draft.oauth_client_id, window, cx);
+                fill(&self.oauth_client_metadata_url, draft.oauth_client_metadata_url, window, cx);
+                fill(&self.handshake_mode, draft.handshake_mode, window, cx);
+                fill(&self.startup_policy, draft.startup_policy, window, cx);
+                fill(&self.restart_policy, draft.restart_policy, window, cx);
+                let fill_area =
+                    |state: &Entity<TextareaState>, value: String, window: &mut Window, cx: &mut Context<Self>| {
+                        state.update(cx, |state, cx| state.set_value(value, window, cx));
+                    };
+                fill_area(&self.args, draft.args_text, window, cx);
+                fill_area(&self.env, draft.env_text, window, cx);
+                fill_area(&self.headers, draft.headers_text, window, cx);
+                self.error = None;
+                cx.notify();
+            }
+            Err(message) => {
+                self.error = Some(message.into());
+                cx.notify();
+            }
+        }
+    }
+
     fn submit(&mut self, cx: &mut Context<Self>) {
         let name = self.name.read(cx).value().trim().to_string();
-        let transport = self.transport.read(cx).value().trim().to_string();
-        let target = self.target.read(cx).value().trim().to_string();
-        let description = self.description.read(cx).value().trim().to_string();
-        if name.is_empty() || target.is_empty() {
-            self.error = Some("name and target are required".into());
+        let draft = self.draft(cx);
+        if name.is_empty() {
+            self.error = Some("name is required".into());
             cx.notify();
             return;
         }
-        if transport != "stdio" && transport != "streamable-http" {
-            self.error = Some("transport must be stdio or streamable-http".into());
+        if let Err(message) = draft.validate() {
+            self.error = Some(message.into());
             cx.notify();
             return;
         }
@@ -441,11 +525,9 @@ impl ServiceFormDialog {
             let result = cx
                 .background_spawn(async move {
                     match mode {
-                        FormMode::Add => {
-                            api.add_service(&name, &transport, &target, Some(&description)).await
-                        }
+                        FormMode::Add => api.add_service(&name, &draft).await,
                         FormMode::Edit { name, scope, .. } => {
-                            api.update_service_scope(&name, &scope, &transport, &target, Some(&description)).await
+                            api.update_service_scope(&name, &scope, &draft).await
                         }
                     }
                 })
@@ -464,25 +546,6 @@ impl ServiceFormDialog {
     }
 }
 
-fn command_or_empty(svc: &ServiceInstance) -> String {
-    svc.command.clone().unwrap_or_default()
-}
-
-fn config_args(config: &Value) -> Vec<String> {
-    config
-        .get("args")
-        .and_then(|a| a.as_array())
-        .map(|a| {
-            a.iter()
-                .map(|v| match v {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 impl Render for ServiceFormDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (muted, fg) = (cx.theme().muted_foreground, cx.theme().foreground);
@@ -492,13 +555,52 @@ impl Render for ServiceFormDialog {
                 .child(div().text_sm().text_color(muted).child(label))
                 .child(Input::new(input))
         };
+        let area = |label: &'static str, input: &Entity<TextareaState>| {
+            v_flex()
+                .gap_1()
+                .child(div().text_sm().text_color(muted).child(label))
+                .child(Textarea::new(input).h(gpui_kit::px(72.)))
+        };
         v_flex()
             .gap_3()
             .text_color(fg)
             .child(field("Name", &self.name))
             .child(field("Transport", &self.transport))
-            .child(field("Command or URL", &self.target))
+            .child(field("Command (stdio)", &self.command))
+            .child(area("Args (stdio)", &self.args))
+            .child(field("Working directory (stdio)", &self.working_dir))
+            .child(area("Env (stdio)", &self.env))
+            .child(field("URL (http)", &self.url))
+            .child(area("Headers (http)", &self.headers))
+            .child(field("OAuth client id (http)", &self.oauth_client_id))
+            .child(field("OAuth client metadata URL (http)", &self.oauth_client_metadata_url))
+            .child(field("Handshake mode", &self.handshake_mode))
+            .child(field("Startup policy", &self.startup_policy))
+            .child(field("Restart policy", &self.restart_policy))
             .child(field("Description", &self.description))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("service-form-import-toggle")
+                            .outline()
+                            .label(if self.show_import { "Hide import" } else { "Import JSON/TOML" })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_import = !this.show_import;
+                                cx.notify();
+                            })),
+                    )
+                    .when(self.show_import, |el| {
+                        el.child(
+                            Button::new("service-form-import-load")
+                                .label("Load into form")
+                                .on_click(cx.listener(|this, _, window, cx| this.load_import(window, cx))),
+                        )
+                    }),
+            )
+            .when(self.show_import, |el| {
+                el.child(area("Config import", &self.import_text))
+            })
             .when_some(self.error.clone(), |el, error| {
                 el.child(div().text_sm().text_color(cx.theme().danger).child(error))
             })
@@ -789,6 +891,21 @@ impl DeclareScopeDialog {
             cx.notify();
             return;
         }
+        let draft = if transport == "stdio" {
+            let mut parts = target.split_whitespace();
+            ServiceFormDraft {
+                transport,
+                command: parts.next().unwrap_or_default().to_string(),
+                args_text: parts.collect::<Vec<_>>().join("\n"),
+                ..Default::default()
+            }
+        } else {
+            ServiceFormDraft {
+                transport,
+                url: target,
+                ..Default::default()
+            }
+        };
         self.running = true;
         self.error = None;
         cx.notify();
@@ -797,7 +914,7 @@ impl DeclareScopeDialog {
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
                 .background_spawn(async move {
-                    api.declare_agent_scope(&name, &agent_id, &transport, &target).await
+                    api.declare_agent_scope(&name, &agent_id, &draft).await
                 })
                 .await;
             this.update(cx, |this, cx| {
