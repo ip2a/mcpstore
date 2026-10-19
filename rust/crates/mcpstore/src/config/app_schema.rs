@@ -29,13 +29,13 @@ pub struct AppConfig {
     pub diagnostics: DiagnosticsConfig,
     #[serde(default)]
     pub hosts: HostsConfig,
-    /// Per-panel placement decisions, data-panel only. Keys are `"{scope}.{service}"`
-    /// (e.g. `"agentA.github"`, `"store.context7"`); the only meaningful value is
-    /// `"delegate"` (the control panel executes). Missing entries, an absent section or
-    /// any other value mean local execution — never validated, never an error.
-    /// The control panel never reads this section.
+    /// Per-panel placement decisions, data-panel only. Nested by scope then service:
+    /// `[placement.agentA] github = "delegate"`. The only meaningful value is `"delegate"`
+    /// (the control panel executes); missing entries, an absent section or any other value
+    /// mean local execution — never validated, never an error. The control panel never
+    /// reads this section. `store` is the reserved scope section for store-scope instances.
     #[serde(default)]
-    pub placement: HashMap<String, String>,
+    pub placement: HashMap<String, HashMap<String, String>>,
 }
 
 impl Default for AppConfig {
