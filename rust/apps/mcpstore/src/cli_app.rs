@@ -84,7 +84,6 @@ pub enum Commands {
     Complete(commands::protocol::CompleteArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
     #[command(name = "mcp")]
-    McpServer(commands::mcp_server::McpServerArgs),
     #[command(visible_alias = "ui")]
     Web {
         #[arg(long)]
@@ -172,7 +171,6 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::MigrateStore(args) => {
                 commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
             }
-            Commands::McpServer(args) => commands::mcp_server::run(args).await,
             Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
@@ -660,22 +658,6 @@ mod tests {
             "127ce370-1ed6-5b00-9713-e88d01b3010d",
         ])
         .is_err());
-    }
-
-    #[test]
-    fn parses_mcp_command() {
-        let cli = Cli::try_parse_from(["mcpstore", "mcp", "--scope", "agent", "--agent", "agent1"])
-            .unwrap();
-
-        match cli.command {
-            Commands::McpServer(args) => {
-                assert_eq!(args.scope, commands::mcp::Scope::Agent);
-                assert_eq!(args.agent.as_deref(), Some("agent1"));
-                assert_eq!(args.transport, None);
-                assert_eq!(args.port, None);
-            }
-            _ => panic!("Expected to parse as mcp command"),
-        }
     }
 
     #[test]

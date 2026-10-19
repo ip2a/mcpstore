@@ -183,7 +183,7 @@ async fn spawn_test_api_with_state(
     let addr = listener.local_addr().unwrap();
     let state = Arc::new(ApiState {
         store,
-        mcp_hub: Arc::new(Mutex::new(None)),
+        gateway: Arc::new(Mutex::new(None)),
     });
     let app = full_router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {
@@ -205,7 +205,7 @@ async fn app_and_core_routers_are_disjoint() {
     .unwrap();
     let state = Arc::new(ApiState {
         store,
-        mcp_hub: Arc::new(Mutex::new(None)),
+        gateway: Arc::new(Mutex::new(None)),
     });
     let client = reqwest::Client::new();
 
@@ -272,8 +272,8 @@ async fn app_and_core_routers_are_disjoint() {
 }
 
 #[tokio::test]
-async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_start() {
-    let store_path = unique_temp_dir_path("aggregate-api-store").with_extension("json");
+async fn gateway_routes_report_http_configuration() {
+    let store_path = unique_temp_dir_path("gateway-api-store").with_extension("json");
     std::fs::write(&store_path, b"{}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(store_path.to_string_lossy().into_owned()),
@@ -287,9 +287,7 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
     let base_url = format!("http://{addr}");
 
     let status: Value = client
-        .get(format!(
-            "{base_url}/mcp-hub/status?transport=streamable-http&port=1830"
-        ))
+        .get(format!("{base_url}/gateway/status?port=1830"))
         .send()
         .await
         .unwrap()
@@ -299,13 +297,6 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
     assert_eq!(status["data"]["running"], false);
     assert_eq!(status["data"]["port"], 1830);
     assert_eq!(status["data"]["url"], "http://127.0.0.1:1830/mcp");
-
-    let start = client
-        .post(format!("{base_url}/mcp-hub/start?transport=stdio"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(start.status(), axum::http::StatusCode::BAD_REQUEST);
     handle.abort();
     let _ = std::fs::remove_file(store_path);
 }

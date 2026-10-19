@@ -3,9 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::mcp_server::{
-    run_streamable_http, McpServerLaunchDescriptor, McpServerOptions, McpServerTransport,
-    McpStoreServer,
+use crate::gateway::{
+    run_streamable_http, GatewayLaunchDescriptor, GatewayOptions, GatewayServer,
 };
 use axum::{
     extract::State,
@@ -45,12 +44,12 @@ use parse::{
 #[derive(Clone)]
 pub struct ApiState {
     store: Arc<MCPStore>,
-    mcp_hub: Arc<Mutex<Option<McpHub>>>,
+    gateway: Arc<Mutex<Option<GatewayProcess>>>,
 }
 
-struct McpHub {
+struct GatewayProcess {
     task: JoinHandle<()>,
-    descriptor: McpServerLaunchDescriptor,
+    descriptor: GatewayLaunchDescriptor,
 }
 
 /// Resolve `(service_name, scope)` to an instance_id; 404 when the service isn't declared in that scope.
@@ -85,7 +84,7 @@ async fn resolve_instance(
 pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     Arc::new(ApiState {
         store,
-        mcp_hub: Arc::new(Mutex::new(None)),
+        gateway: Arc::new(Mutex::new(None)),
     })
 }
 
@@ -99,7 +98,7 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     full_router(state_for_store(store), prefix)
 }
 
-/// App plane: the daemon itself (health/meta/settings/config/client import/aggregate/cache), always local.
+/// App plane: the daemon itself (health/meta/settings/config/client import/gateway/cache), always local.
 pub fn app_router(state: Arc<ApiState>) -> Router {
     app_routes(state).layer(CorsLayer::permissive())
 }
@@ -126,14 +125,14 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/health", get(app::health))
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
-        // ===== config / client import / aggregate / cache (app-only, not core) =====
+        // ===== config / client import / gateway / cache (app-only, not core) =====
         .route("/config", get(service::store_show_config))
         .route("/config/reset", post(service::store_reset_config))
         .route("/client-config/import", post(client::client_config_import))
-        .route("/mcp-hub/descriptor", get(client::mcp_hub_descriptor))
-        .route("/mcp-hub/status", get(client::mcp_hub_status))
-        .route("/mcp-hub/start", post(client::mcp_hub_start))
-        .route("/mcp-hub/stop", post(client::mcp_hub_stop))
+        .route("/gateway/descriptor", get(client::gateway_descriptor))
+        .route("/gateway/status", get(client::gateway_status))
+        .route("/gateway/start", post(client::gateway_start))
+        .route("/gateway/stop", post(client::gateway_stop))
         .route("/cache/health", get(cache::health))
         .route("/cache/inspect", get(cache::inspect))
         .route("/cache/switch", post(cache::switch))

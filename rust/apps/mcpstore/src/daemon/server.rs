@@ -453,32 +453,23 @@ mod tests {
     fn plan_host_rebinds_all_enabled_faces() {
         let mut config = config();
         let planned = plan_config_change(&mut config, "host", &json!("192.168.1.10")).unwrap();
-        assert_eq!(planned.len(), 3); // aggregate off by default
+        assert_eq!(planned.len(), 3); // gateway off by default
         assert_eq!(config.server.host, "192.168.1.10");
     }
 
     #[test]
-    fn plan_mcp_on_requires_streamable_http() {
+    fn plan_gateway_on_and_off() {
         let mut config = config();
-        assert!(plan_config_change(&mut config, "mcp", &json!("on")).is_err());
-
-        plan_config_change(&mut config, "mcp-transport", &json!("streamable-http")).unwrap();
-        let planned = plan_config_change(&mut config, "mcp", &json!("on")).unwrap();
+        let planned = plan_config_change(&mut config, "gateway", &json!("on")).unwrap();
         assert_eq!(
             planned,
-            vec![(crate::daemon::listeners::ListenerKey::Aggregate, Some(1830))]
+            vec![(crate::daemon::listeners::ListenerKey::Gateway, Some(1830))]
         );
-    }
 
-    #[test]
-    fn plan_transport_stdio_stops_aggregate() {
-        let mut config = config();
-        config.mcp_aggregate.enabled = true;
-        config.mcp_aggregate.transport = "streamable-http".to_string();
-        let planned = plan_config_change(&mut config, "mcp-transport", &json!("stdio")).unwrap();
+        let planned = plan_config_change(&mut config, "gateway", &json!("off")).unwrap();
         assert_eq!(
             planned,
-            vec![(crate::daemon::listeners::ListenerKey::Aggregate, None)]
+            vec![(crate::daemon::listeners::ListenerKey::Gateway, None)]
         );
     }
 

@@ -18,7 +18,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub server: ServerSettings,
     #[serde(default)]
-    pub mcp_aggregate: McpAggregateConfig,
+    pub gateway: GatewayConfig,
     #[serde(default)]
     pub health_check: HealthCheckConfig,
     #[serde(default)]
@@ -45,7 +45,7 @@ impl Default for AppConfig {
             api: ApiSettings::default(),
             web: WebSettings::default(),
             server: ServerSettings::default(),
-            mcp_aggregate: McpAggregateConfig::default(),
+            gateway: GatewayConfig::default(),
             health_check: HealthCheckConfig::default(),
             service_defaults: ServiceDefaultsConfig::default(),
             ui: UiConfig::default(),
@@ -97,20 +97,17 @@ impl HostsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpAggregateConfig {
-    #[serde(default = "default_mcp_aggregate_transport")]
-    pub transport: String,
-    #[serde(default = "default_mcp_aggregate_port")]
+pub struct GatewayConfig {
+    #[serde(default = "default_gateway_port")]
     pub port: u16,
     #[serde(default)]
     pub enabled: bool,
 }
 
-impl Default for McpAggregateConfig {
+impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            transport: default_mcp_aggregate_transport(),
-            port: default_mcp_aggregate_port(),
+            port: default_gateway_port(),
             enabled: false,
         }
     }

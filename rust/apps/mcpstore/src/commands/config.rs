@@ -62,12 +62,10 @@ pub struct ConfigEdits {
     pub web: Option<String>,
     #[arg(long = "web-port")]
     pub web_port: Option<u16>,
-    #[arg(long = "mcp")]
-    pub mcp: Option<String>,
-    #[arg(long = "mcp-port")]
-    pub mcp_port: Option<u16>,
-    #[arg(long = "mcp-transport")]
-    pub mcp_transport: Option<String>,
+    #[arg(long = "gateway")]
+    pub gateway: Option<String>,
+    #[arg(long = "gateway-port")]
+    pub gateway_port: Option<u16>,
 }
 
 impl ConfigEdits {
@@ -94,14 +92,11 @@ impl ConfigEdits {
         if let Some(value) = self.web_port {
             pairs.push(("web-port", json!(value)));
         }
-        if let Some(value) = &self.mcp {
-            pairs.push(("mcp", json!(value)));
+        if let Some(value) = &self.gateway {
+            pairs.push(("gateway", json!(value)));
         }
-        if let Some(value) = self.mcp_port {
-            pairs.push(("mcp-port", json!(value)));
-        }
-        if let Some(value) = &self.mcp_transport {
-            pairs.push(("mcp-transport", json!(value)));
+        if let Some(value) = self.gateway_port {
+            pairs.push(("gateway-port", json!(value)));
         }
         pairs
     }
@@ -204,10 +199,9 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         config.server.web_port
     );
     println!(
-        "  mcp:  {} transport={} port={}",
-        on_off(config.mcp_aggregate.enabled),
-        config.mcp_aggregate.transport,
-        config.mcp_aggregate.port
+        "  gateway:  {} port={}",
+        on_off(config.gateway.enabled),
+        config.gateway.port
     );
     println!("Use this command to change settings: mcpstore config --<key> <value>");
     Ok(())

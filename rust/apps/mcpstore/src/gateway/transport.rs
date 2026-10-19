@@ -1,35 +1,6 @@
 use super::catalog::{catalog_name_counts, service_namespace};
 use super::tools::{read_required_instance_id, read_required_object, read_required_string};
 use super::*;
-use crate::store_args::load_kernel;
-
-pub async fn run(args: McpServerOptions) -> Result<(), BoxErr> {
-    let store = load_kernel(&args.store_args()).await?.store().clone();
-
-    let server = McpStoreServer::from_store(
-        Arc::clone(&store),
-        args.scope.clone(),
-        args.instance_id,
-        args.session_key.clone(),
-        args.expose_session_state_tools,
-        args.expose_tool_override_tools,
-        args.expose_prompt_override_tools,
-        args.expose_resource_override_tools,
-        args.expose_openapi_tools,
-        args.expose_service_tools,
-        args.expose_cache_tools,
-        args.expose_search_tools,
-    )
-    .await?;
-    match args.transport {
-        McpServerTransport::Stdio => {
-            let running = serve_server(server, stdio()).await?;
-            running.waiting().await?;
-            Ok(())
-        }
-        McpServerTransport::StreamableHttp => run_streamable_http(server, &args).await,
-    }
-}
 
 pub(super) async fn connect_target_instances(
     store: &MCPStore,
@@ -119,7 +90,7 @@ pub(super) async fn build_tool_bindings(
             .is_some()
         {
             return Err(format!(
-                "工具名称投影冲突，无法构建 Rust MCP server: scope={scope:?} tool={exposed_name}"
+                "tool name projection conflict, cannot build the gateway MCP surface: scope={scope:?} tool={exposed_name}"
             )
             .into());
         }
@@ -128,9 +99,9 @@ pub(super) async fn build_tool_bindings(
     Ok(bindings)
 }
 
-/// 构建 streamable-http 聚合服务的 axum router（不 bind，由调用方决定监听位置）。
-pub(crate) fn streamable_http_router(server: McpStoreServer, path: &str) -> axum::Router {
-    let service: StreamableHttpService<McpStoreServer, LocalSessionManager> =
+/// Build the gateway's streamable-http axum router (no bind; the caller owns the listener).
+pub(crate) fn streamable_http_router(server: GatewayServer, path: &str) -> axum::Router {
+    let service: StreamableHttpService<GatewayServer, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(server.clone()),
             Default::default(),
@@ -142,14 +113,14 @@ pub(crate) fn streamable_http_router(server: McpStoreServer, path: &str) -> axum
 }
 
 pub(crate) async fn run_streamable_http(
-    server: McpStoreServer,
-    args: &McpServerOptions,
+    server: GatewayServer,
+    args: &GatewayOptions,
 ) -> Result<(), BoxErr> {
     let path = normalize_http_path(&args.path);
     let router = streamable_http_router(server, &path);
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    eprintln!("[MCP] Starting streamable-http at http://{addr}{path}");
+    eprintln!("[GATEWAY] Starting streamable-http at http://{addr}{path}");
     axum::serve(listener, router).await?;
     Ok(())
 }

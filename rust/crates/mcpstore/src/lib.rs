@@ -34,7 +34,7 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, CacheConfig, ConfigManager, McpAggregateConfig, McpConfig, RuntimeLogConfig,
+    AppConfig, CacheConfig, ConfigManager, GatewayConfig, McpConfig, RuntimeLogConfig,
     ServerConfig,
 };
 

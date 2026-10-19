@@ -17,45 +17,22 @@ mod tests {
     impl ClientHandler for NotificationClient {}
 
     #[test]
-    fn launch_descriptor_matches_the_runtime_cli_contract() {
-        let descriptor = McpServerOptions {
+    fn launch_descriptor_reports_the_http_url() {
+        let descriptor = GatewayOptions {
             scope: ScopeRef::Agent {
                 agent_id: "coding".into(),
             },
-            transport: McpServerTransport::StreamableHttp,
             host: "127.0.0.1".into(),
             port: 19000,
             path: "/mcp".into(),
             ..Default::default()
         }
-        .launch_descriptor("mcpstore");
-        assert_eq!(descriptor.command, None);
-        assert_eq!(
-            descriptor.url.as_deref(),
-            Some("http://127.0.0.1:19000/mcp")
-        );
-        assert_eq!(
-            descriptor.args,
-            [
-                "mcp",
-                "--transport",
-                "streamable-http",
-                "--scope",
-                "agent",
-                "--agent",
-                "coding",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "19000",
-                "--path",
-                "/mcp"
-            ]
-        );
+        .launch_descriptor();
+        assert_eq!(descriptor.url, "http://127.0.0.1:19000/mcp");
     }
 
     #[tokio::test]
-    async fn aggregate_server_forwards_scoped_tool_list_changes() {
+    async fn gateway_server_forwards_scoped_tool_list_changes() {
         let store = MCPStore::setup_with_options(StoreOptions {
             store: Some(JsonStoreConfig::memory()),
             ..StoreOptions::default()
@@ -63,7 +40,7 @@ mod tests {
         .unwrap();
         let instance_id = ServiceInstanceKey::new("aggregate", ScopeRef::Store).instance_id();
         let other_instance_id = ServiceInstanceKey::new("other", ScopeRef::Store).instance_id();
-        let server = McpStoreServer {
+        let server = GatewayServer {
             store: Arc::clone(&store),
             scope: ScopeRef::Store,
             instance_id: Some(instance_id),

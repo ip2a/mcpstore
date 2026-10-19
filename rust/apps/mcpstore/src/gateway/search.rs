@@ -23,7 +23,7 @@ pub(super) struct ToolSearchHit {
 /// Document text for each tool = name (repeated for weight) + description +
 /// the names and descriptions of every `input_schema` property. Results are
 /// bounded by the caller's `tools` slice, so scope/session visibility isolation
-/// is inherited from `McpStoreServer::current_tools` upstream.
+/// is inherited from `GatewayServer::current_tools` upstream.
 pub(super) fn search_tools(tools: &[Tool], query: &str, top_k: usize) -> Vec<ToolSearchHit> {
     const K1: f64 = 1.5;
     const B: f64 = 0.75;

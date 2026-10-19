@@ -17,7 +17,7 @@ use super::transport::{build_tool_bindings, connect_target_instances};
 use super::*;
 use serde_json::json;
 
-impl McpStoreServer {
+impl GatewayServer {
     pub(crate) async fn from_store(
         store: Arc<MCPStore>,
         scope: ScopeRef,
@@ -93,7 +93,7 @@ impl McpStoreServer {
         {
             if bindings.contains_key(tool_name) {
                 return Err(format!(
-                    "MCPStore 管理工具与下游工具重名，无法构建 Rust MCP server: tool={tool_name}"
+                    "MCPStore management tool collides with a downstream tool, cannot build the gateway MCP surface: tool={tool_name}"
                 )
                 .into());
             }
@@ -179,7 +179,7 @@ impl McpStoreServer {
             if bindings.contains_key(tool_name) {
                 return Err(ErrorData::internal_error(
                     format!(
-                        "MCPStore 管理工具与下游工具重名，无法构建 Rust MCP server: tool={tool_name}"
+                        "MCPStore management tool collides with a downstream tool, cannot build the gateway MCP surface: tool={tool_name}"
                     ),
                     None,
                 ));
@@ -221,7 +221,7 @@ impl McpStoreServer {
     }
 }
 
-impl ServerHandler for McpStoreServer {
+impl ServerHandler for GatewayServer {
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
         Cow::Borrowed(&[ProtocolVersion::V_2026_07_28])
     }
@@ -240,7 +240,7 @@ impl ServerHandler for McpStoreServer {
             .subscribe(
                 mcpstore::events::types::EventKind::McpToolsChanged.as_str(),
                 0,
-                Arc::new(AggregateToolsChangedNotification {
+                Arc::new(GatewayToolsChangedNotification {
                     sink: context.sink().clone(),
                     active: Arc::clone(&active),
                     instance_id: self.instance_id,
@@ -545,7 +545,7 @@ impl ServerHandler for McpStoreServer {
                 Ok(McpToolExecution::Task { .. }) => {
                     return Ok(llm_error_result(&mcpstore::Error::new(
                         mcpstore::error::FailureCode::ToolFailed,
-                        "aggregate tool call unexpectedly returned a task",
+                        "gateway tool call unexpectedly returned a task",
                     )));
                 }
                 Err(error) => return Ok(llm_error_result(&error)),

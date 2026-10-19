@@ -15,14 +15,14 @@ pub enum ListenerKey {
     Core,
     App,
     Web,
-    Aggregate,
+    Gateway,
 }
 
 const ALL_KEYS: [ListenerKey; 4] = [
     ListenerKey::Core,
     ListenerKey::App,
     ListenerKey::Web,
-    ListenerKey::Aggregate,
+    ListenerKey::Gateway,
 ];
 
 impl ListenerKey {
@@ -31,7 +31,7 @@ impl ListenerKey {
             Self::Core => "core",
             Self::App => "app",
             Self::Web => "web",
-            Self::Aggregate => "aggregate",
+            Self::Gateway => "gateway",
         }
     }
 
@@ -40,7 +40,7 @@ impl ListenerKey {
             Self::Core => 0,
             Self::App => 1,
             Self::Web => 2,
-            Self::Aggregate => 3,
+            Self::Gateway => 3,
         }
     }
 }
@@ -76,7 +76,7 @@ impl ListenerManager {
     /// （与热切换「失败保留旧 listener」同一哲学）。
     pub async fn start_all(&self, config: &AppConfig, state: &Arc<ApiState>) {
         let server = &config.server;
-        let aggregate = &config.mcp_aggregate;
+        let gateway = &config.gateway;
         for (key, port) in [
             (
                 ListenerKey::Core,
@@ -91,9 +91,8 @@ impl ListenerManager {
                 server.web_enabled.then_some(server.web_port),
             ),
             (
-                ListenerKey::Aggregate,
-                (aggregate.enabled && aggregate.transport == "streamable-http")
-                    .then_some(aggregate.port),
+                ListenerKey::Gateway,
+                gateway.enabled.then_some(gateway.port),
             ),
         ] {
             match port {
@@ -211,8 +210,8 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
         ListenerKey::Core => Ok(api::core_router(Arc::clone(state))),
         ListenerKey::App => Ok(api::app_router(Arc::clone(state))),
         ListenerKey::Web => Ok(web_router(Arc::clone(state))),
-        ListenerKey::Aggregate => {
-            let server = crate::mcp_server::McpStoreServer::from_store(
+        ListenerKey::Gateway => {
+            let server = crate::gateway::GatewayServer::from_store(
                 Arc::clone(state.store()),
                 ScopeRef::Store,
                 None,
@@ -230,10 +229,10 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
             .map_err(|error| {
                 Error::new(
                     FailureCode::ServiceUnavailable,
-                    format!("failed to build aggregate server: {error}"),
+                    format!("failed to build gateway server: {error}"),
                 )
             })?;
-            Ok(crate::mcp_server::streamable_http_router(server, "/mcp"))
+            Ok(crate::gateway::streamable_http_router(server, "/mcp"))
         }
     }
 }

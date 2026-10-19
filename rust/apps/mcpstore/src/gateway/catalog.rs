@@ -56,7 +56,7 @@ pub(super) fn resolve_projected_prompt(
         }
     }
     Err(ErrorData::invalid_params(
-        format!("Unknown aggregate prompt: {projected_name}"),
+        format!("Unknown gateway prompt: {projected_name}"),
         None,
     ))
 }
@@ -109,7 +109,7 @@ pub(super) fn resolve_projected_catalog_uri(
         }
     }
     Err(ErrorData::invalid_params(
-        format!("Unknown aggregate resource URI: {projected_uri}"),
+        format!("Unknown gateway resource URI: {projected_uri}"),
         None,
     ))
 }
@@ -123,11 +123,11 @@ pub(super) fn projected_catalog_uri(
     let service_name = read_required_string(payload, "service_name")?;
     let instance_id = read_required_instance_id(payload, "instance_id")?;
     let namespace = stable_namespace(&service_name, instance_id);
-    let mut uri = url::Url::parse("mcpstore://aggregate/")?;
+    let mut uri = url::Url::parse("mcpstore://gateway/")?;
     {
         let mut segments = uri
             .path_segments_mut()
-            .map_err(|_| "aggregate URI cannot contain path segments")?;
+            .map_err(|_| "gateway URI cannot contain path segments")?;
         segments.push(&namespace);
         if template {
             segments.push("template");

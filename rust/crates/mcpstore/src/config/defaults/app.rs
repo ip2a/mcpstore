@@ -43,11 +43,7 @@ pub(in crate::config) fn default_app_port() -> u16 {
     1821
 }
 
-pub(in crate::config) fn default_mcp_aggregate_transport() -> String {
-    "stdio".to_string()
-}
-
-pub(in crate::config) fn default_mcp_aggregate_port() -> u16 {
+pub(in crate::config) fn default_gateway_port() -> u16 {
     1830
 }
 

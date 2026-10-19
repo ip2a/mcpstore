@@ -11,81 +11,71 @@ pub(super) struct ClientConfigImportRequest {
 }
 
 #[derive(Deserialize, Clone, Default)]
-pub(super) struct McpHubLaunchQuery {
+pub(super) struct GatewayLaunchQuery {
     scope: Option<String>,
     agent_id: Option<String>,
     instance_id: Option<InstanceId>,
     session_key: Option<String>,
-    transport: Option<String>,
     host: Option<String>,
     port: Option<u16>,
     path: Option<String>,
 }
 
-pub(super) async fn mcp_hub_descriptor(
+pub(super) async fn gateway_descriptor(
     State(state): State<Arc<ApiState>>,
-    Query(query): Query<McpHubLaunchQuery>,
+    Query(query): Query<GatewayLaunchQuery>,
 ) -> ApiResult {
-    let options = mcp_hub_options(&state, &query)?;
+    let options = gateway_options(&state, &query)?;
     Ok(success(
-        "聚合服务启动信息生成成功",
-        serde_json::to_value(options.launch_descriptor("mcpstore"))
+        "网关服务启动信息生成成功",
+        serde_json::to_value(options.launch_descriptor())
             .map_err(|error| ApiError::invalid_request(error.to_string()))?,
     ))
 }
 
-pub(super) async fn mcp_hub_status(
+pub(super) async fn gateway_status(
     State(state): State<Arc<ApiState>>,
-    Query(query): Query<McpHubLaunchQuery>,
+    Query(query): Query<GatewayLaunchQuery>,
 ) -> ApiResult {
-    let options = mcp_hub_options(&state, &query)?;
-    let descriptor = options.launch_descriptor("mcpstore");
-    let (running, pid) = mcp_hub_status_inner(&state)?;
+    let options = gateway_options(&state, &query)?;
+    let descriptor = options.launch_descriptor();
+    let (running, pid) = gateway_status_inner(&state)?;
     Ok(success(
-        "聚合服务Status获取成功",
+        "网关服务Status获取成功",
         json!({
             "running": running,
             "pid": pid,
-            "background_supported": options.transport == McpServerTransport::StreamableHttp,
-            "transport": options.transport.as_str(),
             "host": options.host,
             "port": options.port,
             "path": options.path,
             "url": descriptor.url,
-            "command": descriptor.command,
-            "args": descriptor.args,
         }),
     ))
 }
 
-pub(super) async fn mcp_hub_start(
+pub(super) async fn gateway_start(
     State(state): State<Arc<ApiState>>,
-    Query(query): Query<McpHubLaunchQuery>,
+    Query(query): Query<GatewayLaunchQuery>,
 ) -> ApiResult {
-    let options = mcp_hub_options(&state, &query)?;
-    if options.transport != McpServerTransport::StreamableHttp {
-        return Err(ApiError::invalid_request(
-            "stdio 聚合服务需要由 MCP 客户端直接启动",
-        ));
-    }
+    let options = gateway_options(&state, &query)?;
 
-    let descriptor = options.launch_descriptor("mcpstore");
+    let descriptor = options.launch_descriptor();
     {
-        let hub = state
-            .mcp_hub
+        let process = state
+            .gateway
             .lock()
-            .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?;
-        if let Some(existing) = hub.as_ref() {
+            .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+        if let Some(existing) = process.as_ref() {
             if !existing.task.is_finished() {
                 return Ok(success(
-                    "聚合服务已经在运行",
-                    mcp_hub_payload(existing, true),
+                    "网关服务已经在运行",
+                    gateway_payload(existing, true),
                 ));
             }
         }
     }
 
-    let server = McpStoreServer::from_store(
+    let server = GatewayServer::from_store(
         Arc::clone(&state.store),
         options.scope.clone(),
         options.instance_id,
@@ -104,62 +94,61 @@ pub(super) async fn mcp_hub_start(
     let task_options = options.clone();
     let task = tokio::spawn(async move {
         if let Err(error) = run_streamable_http(server, &task_options).await {
-            tracing::error!("[MCP_HUB] Aggregate server stopped: {error}");
+            tracing::error!("[GATEWAY] Gateway server stopped: {error}");
         }
     });
-    if let Err(error) = wait_for_mcp_hub_ready(&options.host, options.port).await {
+    if let Err(error) = wait_for_gateway_ready(&options.host, options.port).await {
         task.abort();
         if task.await.is_err() {
-            return Err(ApiError::invalid_request("停止聚合服务失败"));
+            return Err(ApiError::invalid_request("停止网关服务失败"));
         }
         return Err(error);
     }
     state
-        .mcp_hub
+        .gateway
         .lock()
-        .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?
-        .replace(McpHub {
+        .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?
+        .replace(GatewayProcess {
             task,
             descriptor: descriptor.clone(),
         });
 
     Ok(success(
-        "聚合服务启动成功",
+        "网关服务启动成功",
         json!({
             "running": true,
             "pid": std::process::id(),
-            "transport": options.transport.as_str(),
             "url": descriptor.url,
         }),
     ))
 }
 
-pub(super) async fn mcp_hub_stop(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let aggregate = {
-        let mut hub = state
-            .mcp_hub
+pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let process = {
+        let mut gateway = state
+            .gateway
             .lock()
-            .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?;
-        hub.take()
+            .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+        gateway.take()
     };
-    let Some(aggregate) = aggregate else {
-        return Ok(success("聚合服务当前未运行", json!({ "running": false })));
+    let Some(process) = process else {
+        return Ok(success("网关服务当前未运行", json!({ "running": false })));
     };
     let pid = std::process::id();
-    aggregate.task.abort();
-    if aggregate.task.await.is_err() {
-        return Err(ApiError::invalid_request("停止聚合服务失败"));
+    process.task.abort();
+    if process.task.await.is_err() {
+        return Err(ApiError::invalid_request("停止网关服务失败"));
     }
     Ok(success(
-        "聚合服务已停止",
+        "网关服务已停止",
         json!({ "running": false, "pid": pid }),
     ))
 }
 
-fn mcp_hub_options(
+fn gateway_options(
     state: &ApiState,
-    query: &McpHubLaunchQuery,
-) -> Result<McpServerOptions, ApiError> {
+    query: &GatewayLaunchQuery,
+) -> Result<GatewayOptions, ApiError> {
     let app_config = state
         .store
         .config_manager()
@@ -182,21 +171,7 @@ fn mcp_hub_options(
             ))
         }
     };
-    let transport = match query
-        .transport
-        .as_deref()
-        .unwrap_or(app_config.mcp_aggregate.transport.as_str())
-    {
-        "stdio" => McpServerTransport::Stdio,
-        "streamable-http" | "http" => McpServerTransport::StreamableHttp,
-        value => {
-            return Err(ApiError::invalid_parameter(
-                format!("Unsupported transport: {value}"),
-                Some("transport"),
-            ))
-        }
-    };
-    Ok(McpServerOptions {
+    Ok(GatewayOptions {
         config_path: Some(
             state
                 .store
@@ -208,15 +183,14 @@ fn mcp_hub_options(
         scope,
         instance_id: query.instance_id,
         session_key: query.session_key.clone(),
-        transport,
         host: query.host.clone().unwrap_or_else(|| "127.0.0.1".into()),
-        port: query.port.unwrap_or(app_config.mcp_aggregate.port),
+        port: query.port.unwrap_or(app_config.gateway.port),
         path: query.path.clone().unwrap_or_else(|| "/mcp".into()),
         ..Default::default()
     })
 }
 
-async fn wait_for_mcp_hub_ready(host: &str, port: u16) -> Result<(), ApiError> {
+async fn wait_for_gateway_ready(host: &str, port: u16) -> Result<(), ApiError> {
     let probe_host = match host {
         "0.0.0.0" => "127.0.0.1",
         "::" => "::1",
@@ -236,34 +210,33 @@ async fn wait_for_mcp_hub_ready(host: &str, port: u16) -> Result<(), ApiError> {
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(ApiError::invalid_request(format!(
-                "等待聚合服务监听 {probe_host}:{port} 超时"
+                "等待网关服务监听 {probe_host}:{port} 超时"
             )));
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 }
 
-fn mcp_hub_status_inner(state: &ApiState) -> Result<(bool, Option<u32>), ApiError> {
-    let mut hub = state
-        .mcp_hub
+fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>), ApiError> {
+    let mut gateway = state
+        .gateway
         .lock()
-        .map_err(|_| ApiError::invalid_request("聚合服务Status不可用"))?;
-    let Some(aggregate) = hub.as_ref() else {
+        .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+    let Some(process) = gateway.as_ref() else {
         return Ok((false, None));
     };
-    if aggregate.task.is_finished() {
-        *hub = None;
+    if process.task.is_finished() {
+        *gateway = None;
         return Ok((false, None));
     }
     Ok((true, Some(std::process::id())))
 }
 
-fn mcp_hub_payload(aggregate: &McpHub, running: bool) -> Value {
+fn gateway_payload(process: &GatewayProcess, running: bool) -> Value {
     json!({
         "running": running,
         "pid": std::process::id(),
-        "transport": aggregate.descriptor.transport,
-        "url": aggregate.descriptor.url,
+        "url": process.descriptor.url,
     })
 }
 

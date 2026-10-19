@@ -294,8 +294,7 @@ fn test_app_config_roundtrip() {
     config.cache.config = serde_json::json!({"url": "redis://127.0.0.1/"});
     config.api.url_prefix = "/demo".to_string();
     config.diagnostics.runtime_log.level = "debug".to_string();
-    config.mcp_aggregate.transport = "streamable-http".to_string();
-    config.mcp_aggregate.port = 19400;
+    config.gateway.port = 19400;
     config.ui.language = "en".to_string();
     config.diagnostics.runtime_log.max_size_bytes = 8 * 1024 * 1024;
     config.diagnostics.runtime_log.retention_days = Some(14);
@@ -306,8 +305,7 @@ fn test_app_config_roundtrip() {
     assert_eq!(loaded.cache.namespace, "mcpstore");
     assert_eq!(loaded.api.url_prefix, "/demo");
     assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
-    assert_eq!(loaded.mcp_aggregate.transport, "streamable-http");
-    assert_eq!(loaded.mcp_aggregate.port, 19400);
+    assert_eq!(loaded.gateway.port, 19400);
     assert_eq!(loaded.ui.language, "en");
     assert_eq!(
         loaded.diagnostics.runtime_log.max_size_bytes,
@@ -327,8 +325,7 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[api]"));
     assert!(template.contains("[web]"));
     assert!(template.contains("[server]"));
-    assert!(template.contains("[mcp_aggregate]"));
-    assert!(template.contains("transport = \"stdio\""));
+    assert!(template.contains("[gateway]"));
     assert!(template.contains("port = 1830"));
     assert!(template.contains("[health_check]"));
     assert!(template.contains("[service_defaults.lifecycle]"));
@@ -727,7 +724,7 @@ fn test_server_settings_daemon_surfaces_default() {
     assert!(server.app_enabled);
     assert!(server.web_enabled);
     assert!(!server.auto_open_browser);
-    assert!(!McpAggregateConfig::default().enabled);
+    assert!(!GatewayConfig::default().enabled);
 }
 
 #[test]
@@ -738,12 +735,12 @@ fn test_save_app_config_round_trips_without_tmp_residue() {
 
     let mut config = AppConfig::default();
     config.server.web_port = 1829;
-    config.mcp_aggregate.enabled = true;
+    config.gateway.enabled = true;
     mgr.save_app_config(&config).unwrap();
 
     let loaded = mgr.load_app_config().unwrap();
     assert_eq!(loaded.server.web_port, 1829);
-    assert!(loaded.mcp_aggregate.enabled);
+    assert!(loaded.gateway.enabled);
     assert_eq!(loaded.server.app_port, 1821);
     assert!(!mgr.app_config_path().with_extension("toml.tmp").exists());
 

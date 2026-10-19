@@ -1,3 +1,7 @@
+//! Gateway: projects the store's services as one configurable MCP surface over
+//! streamable-http (the only transport). What gets exposed and where it routes are setup
+//! options, not MCP-serving boilerplate.
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -23,10 +27,9 @@ use rmcp::{
         ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ResourceTemplate,
         ServerCapabilities, ServerInfo, SubscriptionFilter, Tool, ToolAnnotations,
     },
-    serve_server,
     service::{SubscriptionContext, SubscriptionSink},
     transport::{
-        stdio, streamable_http_server::session::local::LocalSessionManager,
+        streamable_http_server::session::local::LocalSessionManager,
         StreamableHttpServerConfig, StreamableHttpService,
     },
     ErrorData, ServerHandler,
@@ -34,34 +37,18 @@ use rmcp::{
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
-/// Transport protocol for the MCP server runner.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
-pub enum McpServerTransport {
-    #[default]
-    Stdio,
-    StreamableHttp,
-}
-
-impl McpServerTransport {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Stdio => "stdio",
-            Self::StreamableHttp => "streamable-http",
-        }
-    }
-}
-
-/// Alias for the dynamic error type used in the MCP server runner.
+/// Alias for the dynamic error type used by the gateway runner.
 pub type BoxErr = Box<dyn std::error::Error>;
 
+/// Gateway exposure setup: which scope/instance is projected, where it binds (HTTP only),
+/// and which management tool families are visible.
 #[derive(Clone, Debug)]
-pub struct McpServerOptions {
+pub struct GatewayOptions {
     pub config_path: Option<String>,
     pub store: Option<JsonStoreConfig>,
     pub namespace: Option<String>,
     pub scope: ScopeRef,
     pub instance_id: Option<InstanceId>,
-    pub transport: McpServerTransport,
     pub host: String,
     pub port: u16,
     pub path: String,
@@ -76,7 +63,7 @@ pub struct McpServerOptions {
     pub expose_search_tools: bool,
 }
 
-impl Default for McpServerOptions {
+impl Default for GatewayOptions {
     fn default() -> Self {
         Self {
             config_path: None,
@@ -84,9 +71,8 @@ impl Default for McpServerOptions {
             namespace: None,
             scope: ScopeRef::Store,
             instance_id: None,
-            transport: McpServerTransport::Stdio,
             host: "127.0.0.1".to_string(),
-            port: 1830,
+            port: 1828,
             path: "/mcp".to_string(),
             session_key: None,
             expose_session_state_tools: false,
@@ -102,51 +88,14 @@ impl Default for McpServerOptions {
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
-pub struct McpServerLaunchDescriptor {
-    pub transport: String,
-    pub command: Option<String>,
-    pub args: Vec<String>,
-    pub url: Option<String>,
+pub struct GatewayLaunchDescriptor {
+    pub url: String,
 }
 
-impl McpServerOptions {
-    pub fn launch_descriptor(&self, binary: &str) -> McpServerLaunchDescriptor {
-        let mut args = vec![
-            "mcp".to_string(),
-            "--transport".to_string(),
-            self.transport.as_str().to_string(),
-        ];
-        match &self.scope {
-            ScopeRef::Store => args.extend(["--scope".into(), "store".into()]),
-            ScopeRef::Agent { agent_id } => args.extend([
-                "--scope".into(),
-                "agent".into(),
-                "--agent".into(),
-                agent_id.clone(),
-            ]),
-        }
-        if let Some(instance_id) = self.instance_id {
-            args.extend(["--instance-id".into(), instance_id.to_string()]);
-        }
-        if let Some(session_key) = &self.session_key {
-            args.extend(["--session-key".into(), session_key.clone()]);
-        }
-        if self.transport == McpServerTransport::StreamableHttp {
-            args.extend([
-                "--host".into(),
-                self.host.clone(),
-                "--port".into(),
-                self.port.to_string(),
-                "--path".into(),
-                self.path.clone(),
-            ]);
-        }
-        McpServerLaunchDescriptor {
-            transport: self.transport.as_str().to_string(),
-            command: (self.transport == McpServerTransport::Stdio).then(|| binary.to_string()),
-            args,
-            url: (self.transport == McpServerTransport::StreamableHttp)
-                .then(|| format!("http://{}:{}{}", self.host, self.port, self.path)),
+impl GatewayOptions {
+    pub fn launch_descriptor(&self) -> GatewayLaunchDescriptor {
+        GatewayLaunchDescriptor {
+            url: format!("http://{}:{}{}", self.host, self.port, self.path),
         }
     }
 
@@ -225,14 +174,14 @@ struct ToolBinding {
     tool_name: String,
 }
 
-struct AggregateToolsChangedNotification {
+struct GatewayToolsChangedNotification {
     sink: SubscriptionSink,
     active: Arc<AtomicBool>,
     instance_id: Option<InstanceId>,
 }
 
 #[async_trait::async_trait]
-impl EventHandler for AggregateToolsChangedNotification {
+impl EventHandler for GatewayToolsChangedNotification {
     async fn handle(&self, event: &Event) {
         if event.event_type != mcpstore::events::types::EventKind::McpToolsChanged.as_str() {
             return;
@@ -258,7 +207,7 @@ impl EventHandler for AggregateToolsChangedNotification {
 }
 
 #[derive(Clone)]
-pub(crate) struct McpStoreServer {
+pub(crate) struct GatewayServer {
     store: Arc<MCPStore>,
     scope: ScopeRef,
     instance_id: Option<InstanceId>,
@@ -280,9 +229,7 @@ mod catalog;
 mod handler;
 mod search;
 mod tests;
-pub(crate) mod thin;
 mod tools;
 mod transport;
 
-pub use transport::run;
 pub(crate) use transport::{run_streamable_http, streamable_http_router};
