@@ -47,6 +47,7 @@ pub struct InstanceView {
     templates: Vec<ResourceTemplateInfo>,
     prompts: Vec<PromptInfo>,
     auth: Option<AuthStatusView>,
+    auth_polling: bool,
     overrides: Vec<Option<serde_json::Value>>,
     ov_kind: usize,
     ov_key: Entity<InputState>,
@@ -73,6 +74,7 @@ impl InstanceView {
             templates: Vec::new(),
             prompts: Vec::new(),
             auth: None,
+            auth_polling: false,
             overrides: Vec::new(),
             ov_kind: 0,
             ov_key,
@@ -169,6 +171,7 @@ impl InstanceView {
                     this.auth = Some(auth);
                 }
                 this.overrides = overrides;
+                this.maybe_poll_auth(cx);
                 cx.notify();
             })
             .ok();
@@ -211,6 +214,48 @@ impl InstanceView {
             })
             .ok();
             this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
+    /// While the backend reports authorizing/refreshing, re-fetch status every 1.5s
+    /// (web parity); stops as soon as the state leaves those, or after ~5 minutes.
+    fn maybe_poll_auth(&mut self, cx: &mut Context<Self>) {
+        let Some(auth) = &self.auth else { return };
+        if self.auth_polling || !matches!(auth.status.as_str(), "authorizing" | "refreshing") {
+            return;
+        }
+        self.auth_polling = true;
+        let api = self.api.clone();
+        let addr = self.addr.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            for _ in 0..200 {
+                cx.background_executor().timer(std::time::Duration::from_secs_f64(1.5)).await;
+                let status = cx
+                    .background_spawn({
+                        let api = api.clone();
+                        let addr = addr.clone();
+                        async move { api.auth_status(&addr).await }
+                    })
+                    .await;
+                let mut done = false;
+                this.update(cx, |this, cx| {
+                    if let Ok(auth) = status {
+                        done = !matches!(auth.status.as_str(), "authorizing" | "refreshing");
+                        this.auth = Some(auth);
+                    }
+                    cx.notify();
+                })
+                .ok();
+                if done {
+                    break;
+                }
+            }
+            this.update(cx, |this, cx| {
+                this.auth_polling = false;
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
     }

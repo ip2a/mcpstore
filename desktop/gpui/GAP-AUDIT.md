@@ -22,7 +22,7 @@ tools filter=available 写死、settings 的连接/诊断管理。
 
 | 能力 | web | GPUI |
 |---|---|---|
-| auth：granted/required scopes、7 态标签、登录轮询、connection_auth_required 引导 | service-panels/auth | ⚠️ 只有 status 串 + start/refresh/logout，无轮询 |
+| auth：granted/required scopes、7 态标签、登录轮询、connection_auth_required 引导 | service-panels/auth | ✅ 2026-10-19 authorizing/refreshing 1.5s 轮询（≤5min 自动停）；granted scopes 行已有 |
 | MCP hub 对话框：host/port/path 参数、descriptor 展示、5s 轮询 | mcp-hub-dialog | ⚠️ 固定 `?path=/mcp&scope=store`（transport 已随网关改名移除），无 descriptor/轮询；**建议并入网关重设计，勿照旧壳补** |
 | 工具详情：annotations/meta/运行时指标块（错误率 p95/p99/last check） | tool-detail | ✅ 2026-10-19 右列 Parameters 卡附 annotations/_meta/output schema JSON（运行时指标在实例页健康块，工具级 web 同样没有） |
 | tool-result-view：text/图片/resource 块/structuredContent/isError 徽章 | tool-result-view.tsx | ✅ 2026-10-19 块式渲染（text 错误红框/resource uri+mime+text/空态/error 徽章）；图片为占位卡（base64 data，桌面 img 无 data-URI） |
