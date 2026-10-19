@@ -1,7 +1,8 @@
 //! Scopes page: registry of root/store/agent scopes plus the agent list.
 
 use crate::api::{Api, ScopeSummary};
-use gpui_kit::component::{button::Button, spinner::Spinner, ActiveTheme};
+use gpui_kit::component::{WindowExt as _, button::Button, spinner::Spinner, ActiveTheme};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::{
     AppContext as _, Context, IntoElement, ParentElement as _, Render, SharedString,
@@ -96,19 +97,85 @@ impl Render for ScopesView {
 
         let mut agent_rows = v_flex();
         for (agent_id, count) in &self.agents {
+            let declare_agent = agent_id.clone();
+            let declare_api = self.api.clone();
+            let reset_agent = agent_id.clone();
+            let reset_api = self.api.clone();
             agent_rows = agent_rows.child(
                 h_flex()
                     .justify_between()
+                    .gap_2()
                     .px_3()
                     .py_2()
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .child(div().text_sm().child(agent_id.clone()))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{count} instances")),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().text_sm().child(agent_id.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("{count} {}", crate::dict::t(cx, crate::dict::Key::Instances))),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new(format!("scope-declare-{agent_id}"))
+                                    .outline()
+                                    .label(crate::dict::t(cx, crate::dict::Key::DeclareService))
+                                    .on_click(move |_, window, cx| {
+                                        crate::dialogs::DeclareScopeDialog::open(
+                                            declare_agent.clone(),
+                                            declare_api.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    }),
+                            )
+                            .child(
+                                Button::new(format!("scope-reset-{agent_id}"))
+                                    .ghost()
+                                    .danger()
+                                    .label(crate::dict::t(cx, crate::dict::Key::ResetConfig))
+                                    .on_click({
+                                        let api = reset_api.clone();
+                                        let agent = reset_agent.clone();
+                                        move |_, window, cx| {
+                                            let api = api.clone();
+                                            let agent = agent.clone();
+                                            window.open_alert_dialog(cx, move |alert, _, _| {
+                                                alert
+                                                    .title(format!(
+                                                        "Reset config for agent {agent}?"
+                                                    ))
+                                                    .on_ok({
+                                                        let api = api.clone();
+                                                        let agent = agent.clone();
+                                                        move |_, _, cx| {
+                                                            let api = api.clone();
+                                                            let agent = agent.clone();
+                                                            cx.spawn(
+                                                                async move |cx: &mut gpui_kit::AsyncApp| {
+                                                                    let _ = cx.background_spawn(
+                                                                        async move {
+                                                                            api.reset_agent_config(&agent)
+                                                                        },
+                                                                    ).await;
+                                                                },
+                                                            )
+                                                            .detach();
+                                                            true
+                                                        }
+                                                    })
+                                            });
+                                        }
+                                    }),
+                            ),
                     ),
             );
         }
@@ -135,7 +202,7 @@ impl Render for ScopesView {
                         Button::new("scopes-refresh")
                             .outline()
                             .icon(IconName::RefreshCw)
-                            .label("Refresh")
+                            .label(crate::dict::t(cx, crate::dict::Key::Refresh))
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
                     ),
             )
@@ -169,7 +236,7 @@ impl Render for ScopesView {
                                             div()
                                                 .text_sm()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child("Loading…"),
+                                                .child(crate::dict::t(cx, crate::dict::Key::Loading)),
                                         ),
                                 )
                             })

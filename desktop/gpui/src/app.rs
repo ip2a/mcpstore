@@ -4,6 +4,7 @@ use crate::api::Api;
 use crate::views::cache::CacheView;
 use crate::views::instance::{BackToServices, InstanceView};
 use crate::views::scopes::ScopesView;
+use crate::views::settings::SettingsView;
 use crate::views::services::{SelectService, ServicesView};
 use crate::views::tools::ToolsView;
 use gpui_kit::component::sidebar::{
@@ -24,6 +25,7 @@ enum Nav {
     Scopes,
     Tools,
     Cache,
+    Settings,
     Instance,
 }
 
@@ -34,6 +36,7 @@ pub struct MainWindow {
     scopes: Entity<ScopesView>,
     tools: Entity<ToolsView>,
     cache: Entity<CacheView>,
+    settings: Entity<SettingsView>,
     instance: Option<Entity<InstanceView>>,
     instance_sub: Option<Subscription>,
     _open_sub: Subscription,
@@ -45,6 +48,7 @@ impl MainWindow {
         let scopes = cx.new(|cx| ScopesView::new(api.clone(), window, cx));
         let tools = cx.new(|cx| ToolsView::new(api.clone(), window, cx));
         let cache = cx.new(|cx| CacheView::new(api.clone(), window, cx));
+        let settings = cx.new(|cx| SettingsView::new(api.clone(), window, cx));
 
         let open_sub = cx.subscribe_in(
             &services,
@@ -76,6 +80,7 @@ impl MainWindow {
             scopes,
             tools,
             cache,
+            settings,
             instance: None,
             instance_sub: None,
             _open_sub: open_sub,
@@ -111,6 +116,7 @@ impl Render for MainWindow {
             Nav::Scopes => self.scopes.clone().into_any_element(),
             Nav::Tools => self.tools.clone().into_any_element(),
             Nav::Cache => self.cache.clone().into_any_element(),
+            Nav::Settings => self.settings.clone().into_any_element(),
         };
 
         h_flex()
@@ -128,31 +134,37 @@ impl Render for MainWindow {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("control panel"),
+                                    .child(crate::dict::t(cx, crate::dict::Key::ControlPanel)),
                             ),
                     ))
                     .child(
                         SidebarGroup::new("Main").child(
                             SidebarMenu::new()
                                 .child(self.nav_item(
-                                    "Services",
+                                    crate::dict::t(cx, crate::dict::Key::Services),
                                     IconName::Server,
                                     Nav::Services,
                                     cx,
                                 ))
                                 .child(self.nav_item(
-                                    "Scopes",
+                                    crate::dict::t(cx, crate::dict::Key::Scopes),
                                     IconName::Layers,
                                     Nav::Scopes,
                                     cx,
                                 ))
                                 .child(
-                                    self.nav_item("Tools", IconName::Wrench, Nav::Tools, cx),
+                                    self.nav_item(crate::dict::t(cx, crate::dict::Key::Tools), IconName::Wrench, Nav::Tools, cx),
                                 )
                                 .child(self.nav_item(
-                                    "Cache",
+                                    crate::dict::t(cx, crate::dict::Key::Cache),
                                     IconName::Database,
                                     Nav::Cache,
+                                    cx,
+                                ))
+                                .child(self.nav_item(
+                                    crate::dict::t(cx, crate::dict::Key::Settings),
+                                    IconName::Settings,
+                                    Nav::Settings,
                                     cx,
                                 )),
                         ),

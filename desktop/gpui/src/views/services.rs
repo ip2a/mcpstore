@@ -176,7 +176,7 @@ impl ServicesView {
                             .w_16()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} tools", svc.tools.len())),
+                            .child(format!("{} {}", svc.tools.len(), crate::dict::t(cx, crate::dict::Key::ToolsCount))),
                     )
                     .child(
                         Button::new(format!("{row_id}-connect"))
@@ -259,14 +259,14 @@ impl Render for ServicesView {
                         Button::new("services-refresh")
                             .outline()
                             .icon(IconName::RefreshCw)
-                            .label("Refresh")
+                            .label(crate::dict::t(cx, crate::dict::Key::Refresh))
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
                     )
                     .child(
                         Button::new("services-add")
                             .primary()
                             .icon(IconName::Plus)
-                            .label("Add")
+                            .label(crate::dict::t(cx, crate::dict::Key::Add))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 crate::dialogs::ServiceFormDialog::open_add(this.api.clone(), window, cx);
                             })),
@@ -294,7 +294,7 @@ impl Render for ServicesView {
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("Loading services…"),
+                                .child(crate::dict::t(cx, crate::dict::Key::Loading)),
                         ),
                 )
             })
@@ -304,7 +304,7 @@ impl Render for ServicesView {
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child("No services"),
+                            .child(crate::dict::t(cx, crate::dict::Key::NoServices)),
                     ),
                 )
             })

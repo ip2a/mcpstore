@@ -218,7 +218,13 @@ impl Render for InstanceView {
         let tab = self.tab;
 
         // Tab bar
-        let tab_names = ["Overview", "Tools", "Resources", "Prompts", "Auth"];
+        let tab_names = [
+            crate::dict::t(cx, crate::dict::Key::Overview),
+            crate::dict::t(cx, crate::dict::Key::Tools),
+            crate::dict::t(cx, crate::dict::Key::Resources),
+            crate::dict::t(cx, crate::dict::Key::Prompts),
+            crate::dict::t(cx, crate::dict::Key::Auth),
+        ];
         let tab_bar = TabBar::new("instance-tabs")
             .children(tab_names)
             .selected_index(match tab {
@@ -306,7 +312,7 @@ impl Render for InstanceView {
                             .child(
                                 Button::new(format!("tool-run-{}", urlencoding::encode(&tool.name)))
                                     .outline()
-                                    .label("Run")
+                                    .label(crate::dict::t(cx, crate::dict::Key::Run))
                                     .on_click({
                                         let api = self.api.clone();
                                         let addr = self.addr.clone();
@@ -368,7 +374,7 @@ impl Render for InstanceView {
                 Button::new("policy-clear")
                     .ghost()
                     .danger()
-                    .label("Clear tool policy override")
+                    .label(crate::dict::t(cx, crate::dict::Key::Clear))
                     .disabled(!running)
                     .on_click(cx.listener(|this, _, _, cx| this.clear_policy(cx))),
             ),
@@ -399,7 +405,7 @@ impl Render for InstanceView {
                     .child(
                         Button::new(format!("res-read-{}", urlencoding::encode(&res.uri)))
                             .outline()
-                            .label("Read")
+                            .label(crate::dict::t(cx, crate::dict::Key::Read))
                             .on_click({
                                 let api = self.api.clone();
                                 let addr = self.addr.clone();
@@ -459,20 +465,20 @@ impl Render for InstanceView {
                 Button::new("auth-start")
                     .outline()
                     .icon(IconName::ExternalLink)
-                    .label("Start authorization")
+                    .label(crate::dict::t(cx, crate::dict::Key::StartAuth))
                     .disabled(running == false && stopped == false)
                     .on_click(cx.listener(|this, _, _, cx| this.auth_action("start", cx))),
             )
             .child(
                 Button::new("auth-refresh")
                     .outline()
-                    .label("Refresh token")
+                    .label(crate::dict::t(cx, crate::dict::Key::RefreshToken))
                     .on_click(cx.listener(|this, _, _, cx| this.auth_action("refresh", cx))),
             )
             .child(
                 Button::new("auth-logout")
                     .outline()
-                    .label("Logout")
+                    .label(crate::dict::t(cx, crate::dict::Key::Logout))
                     .on_click(cx.listener(|this, _, _, cx| this.auth_action("logout", cx))),
             );
 
@@ -516,7 +522,7 @@ impl Render for InstanceView {
                         Button::new("instance-connect")
                             .outline()
                             .icon(IconName::Play)
-                            .label("Connect")
+                            .label(crate::dict::t(cx, crate::dict::Key::Connect))
                             .disabled(running)
                             .on_click(cx.listener(|this, _, _, cx| this.lifecycle("connect", cx))),
                     )
@@ -524,7 +530,7 @@ impl Render for InstanceView {
                         Button::new("instance-restart")
                             .outline()
                             .icon(IconName::RotateCw)
-                            .label("Restart")
+                            .label(crate::dict::t(cx, crate::dict::Key::Restart))
                             .disabled(stopped)
                             .on_click(cx.listener(|this, _, _, cx| this.lifecycle("restart", cx))),
                     )
@@ -532,7 +538,7 @@ impl Render for InstanceView {
                         Button::new("instance-disconnect")
                             .outline()
                             .icon(IconName::Square)
-                            .label("Disconnect")
+                            .label(crate::dict::t(cx, crate::dict::Key::Disconnect))
                             .disabled(stopped)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.lifecycle("disconnect", cx)
@@ -578,7 +584,7 @@ impl Render for InstanceView {
                                             div()
                                                 .text_sm()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child("Loading…"),
+                                                .child(crate::dict::t(cx, crate::dict::Key::Loading)),
                                         ),
                                 )
                             })

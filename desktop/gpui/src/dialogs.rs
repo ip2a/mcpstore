@@ -692,3 +692,117 @@ impl Render for ResourceReadDialog {
             })
     }
 }
+
+/// Declare a service into an agent scope (PUT /services/:name/scopes/agents/:id).
+pub struct DeclareScopeDialog {
+    api: Arc<Api>,
+    agent_id: String,
+    name: Entity<InputState>,
+    transport: Entity<InputState>,
+    target: Entity<InputState>,
+    error: Option<SharedString>,
+    done: bool,
+    running: bool,
+}
+
+impl DeclareScopeDialog {
+    pub fn open(agent_id: String, api: Arc<Api>, window: &mut Window, cx: &mut gpui_kit::App) {
+        let entity = cx.new(|cx| Self {
+            api,
+            agent_id: agent_id.clone(),
+            name: cx.new(|cx| InputState::new(window, cx).placeholder("service name")),
+            transport: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("stdio | streamable-http")
+                    .default_value("stdio")
+            }),
+            target: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("command or url, e.g. uvx mcp-server-fs")
+            }),
+            error: None,
+            done: false,
+            running: false,
+        });
+        let entity2 = entity.clone();
+        let title: SharedString = format!("Declare service · agent {agent_id}").into();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title(title.clone()).child(entity2.clone())
+        });
+    }
+
+    fn submit(&mut self, cx: &mut Context<Self>) {
+        let name = self.name.read(cx).value().trim().to_string();
+        let transport = self.transport.read(cx).value().trim().to_string();
+        let target = self.target.read(cx).value().trim().to_string();
+        if name.is_empty() || target.is_empty() {
+            self.error = Some("name and target are required".into());
+            cx.notify();
+            return;
+        }
+        if transport != "stdio" && transport != "streamable-http" {
+            self.error = Some("transport must be stdio or streamable-http".into());
+            cx.notify();
+            return;
+        }
+        self.running = true;
+        self.error = None;
+        cx.notify();
+        let api = self.api.clone();
+        let agent_id = self.agent_id.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move {
+                    api.declare_agent_scope(&name, &agent_id, &transport, &target)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.running = false;
+                match result {
+                    Ok(_) => this.done = true,
+                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+impl Render for DeclareScopeDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let field = |label: &'static str, input: &Entity<InputState>| {
+            v_flex()
+                .gap_1()
+                .child(div().text_sm().text_color(muted).child(label))
+                .child(Input::new(input))
+        };
+        v_flex()
+            .gap_3()
+            .text_color(cx.theme().foreground)
+            .child(field("Service name", &self.name))
+            .child(field("Transport", &self.transport))
+            .child(field("Command or URL", &self.target))
+            .when_some(self.error.clone(), |el, error| {
+                el.child(div().text_sm().text_color(cx.theme().danger).child(error))
+            })
+            .when(self.done, |el| {
+                el.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().success)
+                        .child("Declared. Refresh the scope view to see it."),
+                )
+            })
+            .child(
+                h_flex().gap_2().justify_end().child(
+                    Button::new("declare-submit")
+                        .primary()
+                        .label(if self.running { "Declaring…" } else { "Declare" })
+                        .disabled(self.running || self.done)
+                        .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
+                ),
+            )
+    }
+}

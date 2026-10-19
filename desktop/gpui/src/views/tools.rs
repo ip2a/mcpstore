@@ -157,7 +157,7 @@ impl Render for ToolsView {
                             .child(
                                 Button::new(format!("{id}-run"))
                                     .outline()
-                                    .label("Run")
+                                    .label(crate::dict::t(cx, crate::dict::Key::Run))
                                     .on_click(cx.listener(move |_, _, window, cx| {
                                         crate::dialogs::ToolRunDialog::open(
                                             open_addr.clone(),
@@ -202,7 +202,7 @@ impl Render for ToolsView {
                         Button::new("tools-refresh")
                             .outline()
                             .icon(IconName::RefreshCw)
-                            .label("Refresh")
+                            .label(crate::dict::t(cx, crate::dict::Key::Refresh))
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
                     ),
             )
@@ -228,7 +228,7 @@ impl Render for ToolsView {
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("Loading tools…"),
+                                .child(crate::dict::t(cx, crate::dict::Key::Loading)),
                         ),
                 )
             })

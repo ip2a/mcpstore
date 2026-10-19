@@ -299,7 +299,7 @@ pub struct SettingsPayload {
 /// mcpstore 客户端。core 面如 `http://127.0.0.1:1820`，app 面如 `http://127.0.0.1:1821`。
 pub struct Api {
     agent: ureq::Agent,
-    core_base: String,
+    core_base: std::sync::RwLock<String>,
     app_base: String,
 }
 
@@ -313,13 +313,13 @@ impl Api {
             .build();
         Self {
             agent: config.new_agent(),
-            core_base: core_base.into(),
+            core_base: std::sync::RwLock::new(core_base.into()),
             app_base: app_base.into(),
         }
     }
 
-    pub fn core_base(&self) -> &str {
-        &self.core_base
+    pub fn core_base(&self) -> String {
+        self.core_base.read().unwrap().clone()
     }
 
     pub fn app_base(&self) -> &str {
@@ -327,8 +327,8 @@ impl Api {
     }
 
     /// 切换 core 后端（settings hosts 切换）。
-    pub fn set_core_base(&mut self, url: impl Into<String>) {
-        self.core_base = url.into();
+    pub fn set_core_base(&self, url: impl Into<String>) {
+        *self.core_base.write().unwrap() = url.into();
     }
 
     fn request_at(
@@ -390,7 +390,8 @@ impl Api {
     }
 
     fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
-        self.request_at(&self.core_base, method, path, body)
+        let base = self.core_base.read().unwrap().clone();
+        self.request_at(&base, method, path, body)
     }
 
     fn request_app(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {

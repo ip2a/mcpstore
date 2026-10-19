@@ -2,6 +2,7 @@
 
 mod api;
 mod app;
+mod dict;
 mod dialogs;
 mod views;
 
@@ -14,6 +15,7 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            dict::init(dict::Lang::Auto, cx);
             let api = api.clone();
             gpui_kit::open_window(WindowOptions::default(), cx, move |window, cx| {
                 cx.new(|cx| app::MainWindow::new(api.clone(), window, cx))
