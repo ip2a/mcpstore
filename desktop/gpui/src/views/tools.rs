@@ -22,6 +22,7 @@ pub struct ToolsView {
     query: Entity<InputState>,
     search: String,
     filter: String,
+    scope_filter: String,
     tools: Vec<(ServiceAddress, ToolInfo)>,
     loading: bool,
     error: Option<SharedString>,
@@ -42,6 +43,7 @@ impl ToolsView {
             query,
             search: String::new(),
             filter: "available".to_string(),
+            scope_filter: String::new(),
             tools: Vec::new(),
             loading: true,
             error: None,
@@ -116,10 +118,17 @@ impl Render for ToolsView {
         let rows: Vec<&(ServiceAddress, ToolInfo)> = self
             .tools
             .iter()
-            .filter(|(_, tool)| {
-                q.is_empty()
-                    || tool.name.to_lowercase().contains(&q)
-                    || tool.description.to_lowercase().contains(&q)
+            .filter(|(addr, tool)| {
+                let scope_ok = self.scope_filter.is_empty()
+                    || match (&self.scope_filter[..], &addr.scope) {
+                        ("store", crate::api::ScopeRef::Store) => true,
+                        ("agent", crate::api::ScopeRef::Agent { .. }) => true,
+                        _ => false,
+                    };
+                scope_ok
+                    && (q.is_empty()
+                        || tool.name.to_lowercase().contains(&q)
+                        || tool.description.to_lowercase().contains(&q))
             })
             .collect();
 
@@ -212,6 +221,22 @@ impl Render for ToolsView {
                                     "available".to_string()
                                 };
                                 this.refresh(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("tools-scope")
+                            .outline()
+                            .label(format!(
+                                "scope: {}",
+                                if self.scope_filter.is_empty() { "all" } else { &self.scope_filter }
+                            ))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.scope_filter = match this.scope_filter.as_str() {
+                                    "" => "store".to_string(),
+                                    "store" => "agent".to_string(),
+                                    _ => String::new(),
+                                };
+                                cx.notify();
                             })),
                     )
                     .child(

@@ -156,12 +156,163 @@ fn shell_quote(value: &str) -> String {
     }
 }
 
+/// MCP tool result as blocks: text / image / resource, plus structuredContent + isError
+/// badge (mirrors web tool-result-view.tsx; images show a placeholder card — no data-URI img).
+fn tool_result_view(result: &Value, cx: &Context<ToolRunDialog>) -> gpui_kit::AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let (content, structured, is_error) = match result {
+        Value::Null => (Vec::new(), None, false),
+        Value::Object(map) => (
+            map.get("content")
+                .and_then(|c| c.as_array())
+                .cloned()
+                .unwrap_or_default(),
+            map.get("structuredContent").cloned().filter(|v| !v.is_null()),
+            map.get("isError").and_then(|b| b.as_bool()).unwrap_or(false),
+        ),
+        other => (
+            vec![serde_json::json!({
+                "type": "text",
+                "text": other.as_str().map(str::to_string).unwrap_or_else(|| other.to_string()),
+            })],
+            None,
+            false,
+        ),
+    };
+    if content.is_empty() && structured.is_none() {
+        return div()
+            .text_sm()
+            .text_color(muted)
+            .child("(empty result)")
+            .into_any_element();
+    }
+    let mut el = v_flex().gap_2();
+    if is_error {
+        el = el.child(
+            div()
+                .rounded(cx.theme().radius)
+                .px_2()
+                .w(gpui_kit::px(48.))
+                .text_xs()
+                .bg(cx.theme().danger.opacity(0.15))
+                .text_color(cx.theme().danger)
+                .child("error"),
+        );
+    }
+    for block in &content {
+        el = el.child(content_block_view(block, is_error, cx));
+    }
+    if let Some(sc) = structured {
+        el = el.child(
+            v_flex()
+                .gap_1()
+                .child(div().text_xs().text_color(muted).child("structuredContent"))
+                .child(
+                    div()
+                        .font_family("Monaco")
+                        .text_xs()
+                        .child(serde_json::to_string_pretty(&sc).unwrap_or_default()),
+                ),
+        );
+    }
+    el.into_any_element()
+}
+
+fn content_block_view(
+    block: &Value,
+    is_error: bool,
+    cx: &Context<ToolRunDialog>,
+) -> gpui_kit::AnyElement {
+    let border = cx.theme().border;
+    let muted = cx.theme().muted_foreground;
+    match block.get("type").and_then(|t| t.as_str()).unwrap_or_default() {
+        "text" => div()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(border)
+            .text_xs()
+            .font_family("Monaco")
+            .when(is_error, |el| {
+                el.border_color(cx.theme().danger)
+                    .text_color(cx.theme().danger)
+            })
+            .child(block.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string())
+            .into_any_element(),
+        "image" => {
+            let mime = block
+                .get("mimeType")
+                .and_then(|t| t.as_str())
+                .unwrap_or("image/png");
+            let size = block
+                .get("data")
+                .and_then(|t| t.as_str())
+                .map(|d| d.len())
+                .unwrap_or(0);
+            v_flex()
+                .gap_1()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(border)
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(format!("image {mime} ({size} bytes base64)")),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .font_family("Monaco")
+                        .child(block.get("data").and_then(|t| t.as_str()).unwrap_or("").to_string()),
+                )
+                .into_any_element()
+        }
+        "resource" | "resource_link" => {
+            let resource = block.get("resource").unwrap_or(block);
+            let uri = resource.get("uri").and_then(|t| t.as_str());
+            let mime = resource
+                .get("mimeType")
+                .and_then(|t| t.as_str())
+                .or_else(|| block.get("mimeType").and_then(|t| t.as_str()));
+            let text = resource.get("text").and_then(|t| t.as_str());
+            v_flex()
+                .gap_1()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(border)
+                .children(uri.map(|u| {
+                    div()
+                        .text_xs()
+                        .child(format!("uri: {u}"))
+                }))
+                .children(mime.map(|m| {
+                    div().text_xs().text_color(muted).child(format!("mime: {m}"))
+                }))
+                .children(text.map(|t| {
+                    div()
+                        .font_family("Monaco")
+                        .text_xs()
+                        .child(t.to_string())
+                }))
+                .into_any_element()
+        }
+        _ => div()
+            .font_family("Monaco")
+            .text_xs()
+            .child(serde_json::to_string_pretty(block).unwrap_or_default())
+            .into_any_element(),
+    }
+}
+
 pub struct ToolRunDialog {
     addr: ServiceAddress,
     api: Arc<Api>,
     tool: ToolInfo,
     fields: Vec<SchemaField>,
-    result: Option<SharedString>,
+    result: Option<Value>,
     error: Option<SharedString>,
     running: bool,
 }
@@ -233,11 +384,7 @@ impl ToolRunDialog {
                 this.running = false;
                 match result {
                     Ok(value) => {
-                        this.result = Some(
-                            serde_json::to_string_pretty(&value)
-                                .unwrap_or_else(|_| format!("{value}"))
-                                .into(),
-                        );
+                        this.result = Some(value);
                     }
                     Err(e) => this.error = Some(format!("{e:#}").into()),
                 }
@@ -343,6 +490,21 @@ impl Render for ToolRunDialog {
             params_card = params_card
                 .child(div().text_xs().text_color(muted).child("This tool takes no arguments."));
         }
+        for (label, extra) in [
+            ("annotations", self.tool.annotations.as_ref()),
+            ("meta", self.tool.meta.as_ref()),
+            ("output schema", self.tool.output_schema.as_ref()),
+        ] {
+            let Some(extra) = extra else { continue };
+            params_card = params_card
+                .child(div().text_xs().text_color(muted).child(label))
+                .child(
+                    div()
+                        .font_family("Monaco")
+                        .text_xs()
+                        .child(serde_json::to_string_pretty(extra).unwrap_or_default()),
+                );
+        }
 
         let mut form = v_flex().gap_3();
         for i in 0..self.fields.len() {
@@ -424,7 +586,7 @@ impl Render for ToolRunDialog {
                                 .text_color(muted)
                                 .child("Result"),
                         )
-                        .child(div().text_xs().child(result)),
+                        .child(tool_result_view(&result, cx)),
                 )
             });
 

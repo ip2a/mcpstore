@@ -24,19 +24,19 @@ tools filter=available 写死、settings 的连接/诊断管理。
 |---|---|---|
 | auth：granted/required scopes、7 态标签、登录轮询、connection_auth_required 引导 | service-panels/auth | ⚠️ 只有 status 串 + start/refresh/logout，无轮询 |
 | MCP hub 对话框：host/port/path 参数、descriptor 展示、5s 轮询 | mcp-hub-dialog | ⚠️ 固定 `?path=/mcp&scope=store`（transport 已随网关改名移除），无 descriptor/轮询；**建议并入网关重设计，勿照旧壳补** |
-| 工具详情：annotations/meta/运行时指标块（错误率 p95/p99/last check） | tool-detail | ⚠️ 只有 schema 字段 + 跑 |
-| tool-result-view：text/图片/resource 块/structuredContent/isError 徽章 | tool-result-view.tsx | ⚠️ 整段 pretty JSON |
+| 工具详情：annotations/meta/运行时指标块（错误率 p95/p99/last check） | tool-detail | ✅ 2026-10-19 右列 Parameters 卡附 annotations/_meta/output schema JSON（运行时指标在实例页健康块，工具级 web 同样没有） |
+| tool-result-view：text/图片/resource 块/structuredContent/isError 徽章 | tool-result-view.tsx | ✅ 2026-10-19 块式渲染（text 错误红框/resource uri+mime+text/空态/error 徽章）；图片为占位卡（base64 data，桌面 img 无 data-URI） |
 | 服务详情 3-tab catalog + 右侧 doc/playground；prompt arguments JSON、template annotations/meta JSON | service-panels | ⚠️ tab 平铺、prompts 只有 name/desc |
 | 概览：server info/protocol/capabilities badges/instructions | service-panels | ⚠️ 基础字段 |
-| 服务列表：排序、4 态状态过滤、scope/agent 过滤对话框、行内 add-scope | services view | ⚠️ 只有文本搜索；add-scope 要绕去 scopes 页 |
+| 服务列表：排序、4 态状态过滤、scope/agent 过滤对话框、行内 add-scope | services view | ✅ 2026-10-19 phase 循环过滤(all/running/stopped)+名称排序；scope/agent 对话框与行内 add-scope 仍缺（scope 页可达） |
 | scopes 页：每 scope 服务下钻、ScopeServiceSheet、每 scope 的 hub/config 入口、可加服务下拉 | agents-view | ⚠️ 只有 registry 列表 + declare/reset |
-| settings Overview host 状态卡（探活/延迟/version/store name）、About 链接 | settings | ⚠️ GPUI 只显示 version |
+| settings Overview host 状态卡（探活/延迟/version/store name）、About 链接 | settings | ✅ 2026-10-19 host 行探活延迟芯片 + /health store 名（About 链接无桌面等价） |
 | cache：层浏览器/键详情/请求指标网格/复制报告 | features/cache | ⚠️ 整段 JSON dump |
-| config `?format=` 指定输出格式 | settings/config | ⚠️ GPUI 固定 native |
+| config `?format=` 指定输出格式 | settings/config | ✅ 2026-10-19 native/claude/codex 循环切换按钮 |
 | overrides PUT 只发改动字段；resource override 的 mime_type 字段 | overrides | ⚠️ 全量发送；mime_type 缺 |
 | GET /services/:name/state 独立轮询 | — | ⚠️ 用 get_service 全量，等价但重 |
 | GET /health 后端状态徽标 + 活动缓存后端展示 | dashboard/settings | ⚠️ 无展示 |
-| tools 页 scope/agent/availability 过滤对话框 | tools view | ⚠️ 文本搜索 |
+| tools 页 scope/agent/availability 过滤对话框 | tools view | ✅ 2026-10-19 availability(available/all) + scope(all/store/agent) 循环过滤 + 文本搜索（无对话框形态，桌面等价） |
 
 ## P2 — 已覆盖或桌面形态不适用
 

@@ -29,6 +29,8 @@ pub struct ServicesView {
     api: Arc<Api>,
     query: Entity<InputState>,
     search: String,
+    phase_filter: String,
+    sort_by_name: bool,
     services: Vec<ServiceInstance>,
     loading: bool,
     error: Option<SharedString>,
@@ -63,6 +65,8 @@ impl ServicesView {
             api,
             query,
             search: String::new(),
+            phase_filter: String::new(),
+            sort_by_name: false,
             services: Vec::new(),
             loading: true,
             error: None,
@@ -325,17 +329,21 @@ impl ServicesView {
 impl Render for ServicesView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let query = self.query.clone();
-        let rows: Vec<ServiceInstance> = self
+        let mut rows: Vec<ServiceInstance> = self
             .services
             .iter()
             .filter(|s| {
-                self.search.is_empty()
+                (self.search.is_empty()
                     || s.service_name
                         .to_lowercase()
-                        .contains(&self.search.to_lowercase())
+                        .contains(&self.search.to_lowercase()))
+                    && (self.phase_filter.is_empty() || s.state.phase == self.phase_filter)
             })
             .cloned()
             .collect();
+        if self.sort_by_name {
+            rows.sort_by(|a, b| a.service_name.cmp(&b.service_name));
+        }
 
         let mut list = v_flex().size_full();
         for svc in &rows {
@@ -356,6 +364,32 @@ impl Render for ServicesView {
                     .border_color(cx.theme().border)
                     .child(Icon::new(IconName::Search).text_color(cx.theme().muted_foreground))
                     .child(div().flex_1().min_w_0().child(Input::new(&query)))
+                    .child(
+                        Button::new("services-phase")
+                            .outline()
+                            .label(format!(
+                                "phase: {}",
+                                if self.phase_filter.is_empty() { "all" } else { &self.phase_filter }
+                            ))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.phase_filter = match this.phase_filter.as_str() {
+                                    "" => "running".to_string(),
+                                    "running" => "stopped".to_string(),
+                                    _ => String::new(),
+                                };
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("services-sort")
+                            .outline()
+                            .label(format!("sort: {}", if self.sort_by_name { "name" } else { "default" }))
+                            .when(self.sort_by_name, |b| b.primary())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.sort_by_name = !this.sort_by_name;
+                                cx.notify();
+                            })),
+                    )
                     .child(
                         Button::new("services-refresh")
                             .outline()

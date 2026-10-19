@@ -191,6 +191,10 @@ pub struct ToolInfo {
     pub description: String,
     #[serde(default)]
     pub input_schema: Value,
+    pub output_schema: Option<Value>,
+    pub annotations: Option<Value>,
+    #[serde(rename = "_meta")]
+    pub meta: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -453,12 +457,16 @@ impl Api {
         self.request_app("PUT", "/v1/settings", Some(payload)).await
     }
 
-    /// Probe an arbitrary core base: `GET {base}/health`; latency ms when reachable.
-    pub async fn probe_host(&self, base_url: &str) -> Option<u64> {
+    /// Probe an arbitrary core base: `GET {base}/health`; (latency ms, store name) when reachable.
+    pub async fn probe_host(&self, base_url: &str) -> Option<(u64, Option<String>)> {
         let base = format!("{}/", base_url.trim_end_matches('/'));
         let start = std::time::Instant::now();
-        self.request_at(&base, "GET", "health", None).await.ok()?;
-        Some(start.elapsed().as_millis() as u64)
+        let health = self.request_at(&base, "GET", "health", None).await.ok()?;
+        let store = health
+            .get("store")
+            .and_then(|s| s.as_str())
+            .map(str::to_string);
+        Some((start.elapsed().as_millis() as u64, store))
     }
 
     // ---- core face: services ----
@@ -693,11 +701,12 @@ impl Api {
         ).await
     }
 
-    pub async fn show_config(&self, scope: &ScopeRef) -> Result<Value> {
+    pub async fn show_config(&self, scope: &ScopeRef, format: &str) -> Result<Value> {
+        let path = format!("{}&format={}", config_path(scope, None), format);
         match scope {
             // agent config 在 core 面；store config 是 app 自有接口。
-            ScopeRef::Agent { .. } => self.request("GET", &config_path(scope, None), None).await,
-            ScopeRef::Store => self.request_app("GET", &config_path(scope, None), None).await,
+            ScopeRef::Agent { .. } => self.request("GET", &path, None).await,
+            ScopeRef::Store => self.request_app("GET", &path, None).await,
         }
     }
 

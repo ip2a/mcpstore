@@ -32,13 +32,14 @@ pub struct SettingsView {
     new_host_name: Entity<InputState>,
     new_host_url: Entity<InputState>,
     editing_host: Option<String>,
-    probes: HashMap<String, Option<u64>>,
+    probes: HashMap<String, Option<(u64, Option<String>)>>,
     diag_enabled: bool,
     diag_runtime_enabled: bool,
     runtime_max_size: Entity<InputState>,
     runtime_max_size_now: SharedString,
     retention_days: Entity<InputState>,
     retention_days_now: SharedString,
+    config_format: String,
     loading: bool,
     error: Option<SharedString>,
 }
@@ -67,6 +68,7 @@ impl SettingsView {
             runtime_max_size_now: SharedString::default(),
             retention_days,
             retention_days_now: SharedString::default(),
+            config_format: "native".to_string(),
             loading: true,
             error: None,
         };
@@ -450,7 +452,7 @@ impl Render for SettingsView {
                                 .truncate()
                                 .child(url.clone()),
                         )
-                        .when_some(probe, |el, ms| {
+                        .when_some(probe, |el, (ms, store)| {
                             el.child(
                                 div()
                                     .text_xs()
@@ -465,6 +467,11 @@ impl Render for SettingsView {
                                         "offline".to_string()
                                     }),
                             )
+                            .when_some(store.filter(|_| ms > 0), |el, store| {
+                                el.child(
+                                    div().text_xs().text_color(muted).truncate().child(store),
+                                )
+                            })
                         })
                         .when(is_active, |el| {
                             el.child(
@@ -804,19 +811,43 @@ impl Render for SettingsView {
                                     .child(
                                         Button::new("config-view")
                                             .outline()
-                                            .label(crate::dict::t(cx, crate::dict::Key::ViewConfig))
+                                            .label(format!(
+                                                "{} ({})",
+                                                crate::dict::t(cx, crate::dict::Key::ViewConfig),
+                                                self.config_format
+                                            ))
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 let api = this.api.clone();
                                                 let title =
                                                     crate::dict::t(cx, crate::dict::Key::ViewConfig);
+                                                let format = this.config_format.clone();
                                                 crate::dialogs::JsonViewDialog::open_fetch(
                                                     title,
                                                     async move {
-                                                        api.show_config(&crate::api::ScopeRef::Store).await
+                                                        api.show_config(
+                                                            &crate::api::ScopeRef::Store,
+                                                            &format,
+                                                        )
+                                                        .await
                                                     },
                                                     window,
                                                     cx,
                                                 );
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("config-format")
+                                            .ghost()
+                                            .icon(IconName::RotateCw)
+                                            .label(format!("format: {}", self.config_format))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.config_format = match this.config_format.as_str() {
+                                                    "native" => "claude",
+                                                    "claude" => "codex",
+                                                    _ => "native",
+                                                }
+                                                .to_string();
+                                                cx.notify();
                                             })),
                                     )
                                     .child(
