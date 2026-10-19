@@ -9,7 +9,7 @@ use gpui_kit::component::{
     button::Button,
     input::{Input, InputState, Textarea, TextareaState},
     spinner::Spinner,
-    ActiveTheme, Icon, IconName,
+    ActiveTheme, IconName,
 };
 use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
 use gpui_kit::component::button::ButtonVariants as _;

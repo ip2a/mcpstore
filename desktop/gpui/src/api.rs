@@ -453,6 +453,14 @@ impl Api {
         self.request_app("PUT", "/v1/settings", Some(payload)).await
     }
 
+    /// Probe an arbitrary core base: `GET {base}/health`; latency ms when reachable.
+    pub async fn probe_host(&self, base_url: &str) -> Option<u64> {
+        let base = format!("{}/", base_url.trim_end_matches('/'));
+        let start = std::time::Instant::now();
+        self.request_at(&base, "GET", "health", None).await.ok()?;
+        Some(start.elapsed().as_millis() as u64)
+    }
+
     // ---- core face: services ----
 
     pub async fn list_services(&self, view: &ScopeView) -> Result<Vec<ServiceInstance>> {

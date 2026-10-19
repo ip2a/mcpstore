@@ -11,6 +11,7 @@ use gpui_kit::{
     AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, SharedString,
     Styled as _, Window, div,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
 use gpui_kit::component::WindowExt as _;
@@ -30,6 +31,14 @@ pub struct SettingsView {
     hub_running: bool,
     new_host_name: Entity<InputState>,
     new_host_url: Entity<InputState>,
+    editing_host: Option<String>,
+    probes: HashMap<String, Option<u64>>,
+    diag_enabled: bool,
+    diag_runtime_enabled: bool,
+    runtime_max_size: Entity<InputState>,
+    runtime_max_size_now: SharedString,
+    retention_days: Entity<InputState>,
+    retention_days_now: SharedString,
     loading: bool,
     error: Option<SharedString>,
 }
@@ -38,6 +47,9 @@ impl SettingsView {
     pub fn new(api: Arc<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let new_host_name = cx.new(|cx| InputState::new(window, cx).placeholder("host name"));
         let new_host_url = cx.new(|cx| InputState::new(window, cx).placeholder("http://host:port"));
+        let runtime_max_size =
+            cx.new(|cx| InputState::new(window, cx).placeholder("max size bytes"));
+        let retention_days = cx.new(|cx| InputState::new(window, cx).placeholder("retention days"));
         let mut view = Self {
             api,
             version: None,
@@ -47,6 +59,14 @@ impl SettingsView {
             hub_running: false,
             new_host_name,
             new_host_url,
+            editing_host: None,
+            probes: HashMap::new(),
+            diag_enabled: true,
+            diag_runtime_enabled: false,
+            runtime_max_size,
+            runtime_max_size_now: SharedString::default(),
+            retention_days,
+            retention_days_now: SharedString::default(),
             loading: true,
             error: None,
         };
@@ -89,6 +109,30 @@ impl SettingsView {
                             .and_then(|l| l.as_str())
                             .map(SharedString::from);
                         this.hosts = parse_hosts(&value);
+                        let runtime_log = value
+                            .get("diagnostics")
+                            .and_then(|d| d.get("runtime_log"));
+                        this.diag_enabled = value
+                            .get("diagnostics")
+                            .and_then(|d| d.get("enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
+                        this.diag_runtime_enabled = runtime_log
+                            .and_then(|r| r.get("enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        this.runtime_max_size_now = runtime_log
+                            .and_then(|r| r.get("max_size_bytes"))
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v.to_string())
+                            .unwrap_or_default()
+                            .into();
+                        this.retention_days_now = runtime_log
+                            .and_then(|r| r.get("retention_days"))
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v.to_string())
+                            .unwrap_or_default()
+                            .into();
                         this.error = None;
                     }
                     Err(e) => this.error = Some(format!("{e:#}").into()),
@@ -97,6 +141,7 @@ impl SettingsView {
                     this.hub_running = value.get("running").and_then(|r| r.as_bool()).unwrap_or(false);
                     this.hub = Some(serde_json::to_string_pretty(&value).unwrap_or_default().into());
                 }
+                this.probe_hosts(cx);
                 cx.notify();
             })
             .ok();
@@ -154,7 +199,78 @@ impl SettingsView {
         .detach();
     }
 
-    fn add_host(&mut self, cx: &mut Context<Self>) {
+    fn persist(&mut self, payload: serde_json::Value, fail_msg: &'static str, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.update_settings(&payload).await })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result.err().map(|e| format!("{fail_msg}: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
+    fn probe_hosts(&mut self, cx: &mut Context<Self>) {
+        let Some(hosts) = self.hosts.clone() else {
+            return;
+        };
+        let api = self.api.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let results = cx
+                .background_spawn(async move {
+                    let mut out = Vec::new();
+                    for (name, url) in hosts.entries {
+                        out.push((name, api.probe_host(&url).await));
+                    }
+                    out
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.probes = results.into_iter().collect();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn reset_host_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editing_host = None;
+        self.new_host_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder("host name"));
+        self.new_host_url =
+            cx.new(|cx| InputState::new(window, cx).placeholder("http://host:port"));
+        cx.notify();
+    }
+
+    fn start_edit_host(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(hosts) = &self.hosts else {
+            return;
+        };
+        let Some((_, url)) = hosts.entries.iter().find(|(n, _)| *n == name) else {
+            return;
+        };
+        let url = url.clone();
+        self.editing_host = Some(name.clone());
+        self.new_host_name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("host name")
+                .default_value(name)
+        });
+        self.new_host_url = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("http://host:port")
+                .default_value(url)
+        });
+        cx.notify();
+    }
+
+    fn save_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.new_host_name.read(cx).value().trim().to_string();
         let url = self.new_host_url.read(cx).value().trim().to_string();
         if name.is_empty() || url.is_empty() {
@@ -162,31 +278,76 @@ impl SettingsView {
             cx.notify();
             return;
         }
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            self.error = Some("host url must start with http:// or https://".into());
+            cx.notify();
+            return;
+        }
         let mut hosts = self.hosts.clone().unwrap_or_default();
+        if let Some(old) = self.editing_host.take() {
+            hosts.entries.retain(|(n, _)| *n != old);
+        }
         if let Some(entry) = hosts.entries.iter_mut().find(|(n, _)| *n == name) {
             entry.1 = url.clone();
         } else {
             hosts.entries.push((name.clone(), url.clone()));
         }
-        let active = if hosts.active.is_empty() {
-            name.clone()
-        } else {
+        let active = if hosts.entries.iter().any(|(n, _)| *n == hosts.active) {
             hosts.active.clone()
+        } else {
+            name.clone()
         };
-        let api = self.api.clone();
+        self.reset_host_inputs(window, cx);
         let payload = serde_json::json!({ "hosts": serialize_hosts(&hosts, &active) });
-        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
-            let result = cx
-                .background_spawn(async move { api.update_settings(&payload).await })
-                .await;
-            this.update(cx, |this, cx| {
-                this.error = result.err().map(|e| format!("add host failed: {e:#}").into());
-                cx.notify();
-            })
-            .ok();
-            this.update(cx, |this, cx| this.refresh(cx)).ok();
-        })
-        .detach();
+        self.persist(payload, "save host failed", cx);
+    }
+
+    fn delete_host(&mut self, name: String, cx: &mut Context<Self>) {
+        let Some(mut hosts) = self.hosts.clone() else {
+            return;
+        };
+        if hosts.active == name {
+            self.error = Some("cannot delete the active host".into());
+            cx.notify();
+            return;
+        }
+        if hosts.entries.len() <= 1 {
+            self.error = Some("at least one host is required".into());
+            cx.notify();
+            return;
+        }
+        hosts.entries.retain(|(n, _)| *n != name);
+        let payload = serde_json::json!({ "hosts": serialize_hosts(&hosts, &hosts.active) });
+        self.persist(payload, "delete host failed", cx);
+    }
+
+    fn toggle_diagnostics(&mut self, which: &'static str, cx: &mut Context<Self>) {
+        if which == "diag" {
+            self.diag_enabled = !self.diag_enabled;
+        } else {
+            self.diag_runtime_enabled = !self.diag_runtime_enabled;
+        }
+        self.save_diagnostics(cx);
+    }
+
+    fn save_diagnostics(&mut self, cx: &mut Context<Self>) {
+        let mut runtime_log = serde_json::Map::new();
+        runtime_log.insert("enabled".into(), self.diag_runtime_enabled.into());
+        let max_text = self.runtime_max_size.read(cx).value().trim().to_string();
+        if let Ok(v) = max_text.parse::<u64>() {
+            runtime_log.insert("max_size_bytes".into(), v.into());
+        }
+        let ret_text = self.retention_days.read(cx).value().trim().to_string();
+        if let Ok(v) = ret_text.parse::<u64>() {
+            runtime_log.insert("retention_days".into(), v.into());
+        }
+        let payload = serde_json::json!({
+            "diagnostics": {
+                "enabled": self.diag_enabled,
+                "runtime_log": serde_json::Value::Object(runtime_log),
+            }
+        });
+        self.persist(payload, "save diagnostics failed", cx);
     }
 
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
@@ -264,6 +425,9 @@ impl Render for SettingsView {
             for (name, url) in &hosts.entries {
                 let is_active = *name == hosts.active;
                 let switch_name = name.clone();
+                let edit_name = name.clone();
+                let delete_name = name.clone();
+                let probe = self.probes.get(name).cloned().flatten();
                 host_rows = host_rows.child(
                     h_flex()
                         .gap_2()
@@ -286,6 +450,22 @@ impl Render for SettingsView {
                                 .truncate()
                                 .child(url.clone()),
                         )
+                        .when_some(probe, |el, ms| {
+                            el.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(if ms > 0 {
+                                        cx.theme().success
+                                    } else {
+                                        cx.theme().danger
+                                    })
+                                    .child(if ms > 0 {
+                                        format!("{ms}ms")
+                                    } else {
+                                        "offline".to_string()
+                                    }),
+                            )
+                        })
                         .when(is_active, |el| {
                             el.child(
                                 div()
@@ -304,6 +484,24 @@ impl Render for SettingsView {
                                     .label(crate::dict::t(cx, crate::dict::Key::Use))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.activate_host(switch_name.clone(), cx)
+                                    })),
+                            )
+                        })
+                        .child(
+                            Button::new(format!("host-edit-{name}"))
+                                .ghost()
+                                .icon(IconName::Pencil)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.start_edit_host(edit_name.clone(), window, cx)
+                                })),
+                        )
+                        .when(!is_active, |el| {
+                            el.child(
+                                Button::new(format!("host-del-{name}"))
+                                    .ghost()
+                                    .icon(IconName::Trash)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.delete_host(delete_name.clone(), cx)
                                     })),
                             )
                         }),
@@ -421,12 +619,117 @@ impl Render for SettingsView {
                                                 div().flex_1().child(Input::new(&self.new_host_url)),
                                             )
                                             .child(
-                                                Button::new("host-add")
+                                                Button::new("host-save")
                                                     .primary()
-                                                    .icon(IconName::Plus)
-                                                    .label(crate::dict::t(cx, crate::dict::Key::AddHost))
+                                                    .icon(if self.editing_host.is_some() {
+                                                        IconName::Pencil
+                                                    } else {
+                                                        IconName::Plus
+                                                    })
+                                                    .label(if self.editing_host.is_some() {
+                                                        crate::dict::t(cx, crate::dict::Key::Save)
+                                                    } else {
+                                                        crate::dict::t(cx, crate::dict::Key::AddHost)
+                                                    })
+                                                    .on_click(cx.listener(|this, _, window, cx| {
+                                                        this.save_host(window, cx)
+                                                    })),
+                                            )
+                                            .when(self.editing_host.is_some(), |el| {
+                                                el.child(
+                                                    Button::new("host-cancel")
+                                                        .outline()
+                                                        .label("Cancel")
+                                                        .on_click(cx.listener(
+                                                            |this, _, window, cx| {
+                                                                this.reset_host_inputs(window, cx)
+                                                            },
+                                                        )),
+                                                )
+                                            }),
+                                    ),
+                            )
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .font_semibold()
+                                            .text_sm()
+                                            .text_color(muted)
+                                            .child("Diagnostics"),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .child(
+                                                Button::new("diag-enabled")
+                                                    .outline()
+                                                    .label(format!(
+                                                        "enabled: {}",
+                                                        if self.diag_enabled { "on" } else { "off" }
+                                                    ))
+                                                    .when(self.diag_enabled, |b| b.primary())
                                                     .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.add_host(cx)
+                                                        this.toggle_diagnostics("diag", cx)
+                                                    })),
+                                            )
+                                            .child(
+                                                Button::new("diag-runtime")
+                                                    .outline()
+                                                    .label(format!(
+                                                        "runtime log: {}",
+                                                        if self.diag_runtime_enabled { "on" } else { "off" }
+                                                    ))
+                                                    .when(self.diag_runtime_enabled, |b| b.primary())
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.toggle_diagnostics("runtime", cx)
+                                                    })),
+                                            ),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(
+                                                div()
+                                                    .w_40()
+                                                    .child(Input::new(&self.runtime_max_size)),
+                                            )
+                                            .when(
+                                                !self.runtime_max_size_now.is_empty(),
+                                                |el| {
+                                                    el.child(
+                                                        div().text_xs().text_color(muted).child(
+                                                            format!(
+                                                                "now: {}",
+                                                                self.runtime_max_size_now
+                                                            ),
+                                                        ),
+                                                    )
+                                                },
+                                            )
+                                            .child(
+                                                div()
+                                                    .w_40()
+                                                    .child(Input::new(&self.retention_days)),
+                                            )
+                                            .when(
+                                                !self.retention_days_now.is_empty(),
+                                                |el| {
+                                                    el.child(
+                                                        div().text_xs().text_color(muted).child(
+                                                            format!("now: {}", self.retention_days_now),
+                                                        ),
+                                                    )
+                                                },
+                                            )
+                                            .child(
+                                                Button::new("diag-save")
+                                                    .outline()
+                                                    .label(crate::dict::t(cx, crate::dict::Key::Save))
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.save_diagnostics(cx)
                                                     })),
                                             ),
                                     ),

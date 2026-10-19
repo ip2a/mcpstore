@@ -15,8 +15,8 @@ tools filter=available 写死、settings 的连接/诊断管理。
 | `GET /services/:name/check` 按需健康探测 | features/services | ✅ 2026-10-19 服务行 Check 按钮（探活后刷新列表） |
 | tools/list `?filter=` 全部可用（GPUI 写死 `filter=available`，api.rs:480）| features/tools | ⚠️ 2026-10-19 tools 页 available/all 切换；工具策略一览仍缺 |
 | 双向 JSON/TOML 导入（粘贴 mcpServers 配置反解析成表单）| service-form* | ✅ 2026-10-19 表单内 Import 区：JSON/TOML 均收，mcpServers 单服务解包回填 |
-| settings 连接管理：host 编辑/重命名/删除、HTTPS、延迟探活 | features/settings/connection* | ⚠️ 只有 add/use（api.rs core_base 可换但 UI 无编辑） |
-| settings 诊断段：runtime_log 开关/max size/retention | features/settings | ❌ 无 UI（settings JSON 本体可看但没有入口改这段） |
+| settings 连接管理：host 编辑/重命名/删除、HTTPS、延迟探活 | features/settings/connection* | ✅ 2026-10-19 行级 编辑(预填重命名)/删除(活动主机禁删)/http(s) 校验 + 探活延迟芯片（refresh 触发，无 5s 轮询） |
+| settings 诊断段：runtime_log 开关/max size/retention | features/settings | ✅ 2026-10-19 enabled/runtime_log 开关按钮 + max_size/retention 输入保存（空=不动现值，旁显 now: 现值） |
 
 ## P1 — 部分实现（信息或操作面比 web 少）
 
