@@ -53,6 +53,7 @@ pub struct InstanceView {
     ov_key: Entity<InputState>,
     ov_name: Entity<InputState>,
     ov_desc: Entity<InputState>,
+    ov_mime: Entity<InputState>,
     loading: bool,
     error: Option<SharedString>,
 }
@@ -64,6 +65,7 @@ impl InstanceView {
         let ov_key = cx.new(|cx| InputState::new(window, cx).placeholder("tool / prompt / uri"));
         let ov_name = cx.new(|cx| InputState::new(window, cx).placeholder("display name"));
         let ov_desc = cx.new(|cx| InputState::new(window, cx).placeholder("description"));
+        let ov_mime = cx.new(|cx| InputState::new(window, cx).placeholder("mime type (resources)"));
         let mut view = Self {
             addr,
             api,
@@ -80,6 +82,7 @@ impl InstanceView {
             ov_key,
             ov_name,
             ov_desc,
+            ov_mime,
             loading: true,
             error: None,
         };
@@ -298,6 +301,7 @@ impl InstanceView {
         let key = self.ov_key.read(cx).value().trim().to_string();
         let name = self.ov_name.read(cx).value().trim().to_string();
         let desc = self.ov_desc.read(cx).value().trim().to_string();
+        let mime = self.ov_mime.read(cx).value().trim().to_string();
         if key.is_empty() {
             self.error = Some("override key is required".into());
             cx.notify();
@@ -310,6 +314,9 @@ impl InstanceView {
         }
         if !desc.is_empty() {
             patch.insert("description".into(), desc.into());
+        }
+        if !mime.is_empty() {
+            patch.insert("mime_type".into(), mime.into());
         }
         let api = self.api.clone();
         let svc = self.addr.service_name.clone();
@@ -485,6 +492,71 @@ impl Render for InstanceView {
                     fg,
                     border,
                 ));
+            if let Some(mcp) = &svc.mcp {
+                let server_info = mcp.get("serverInfo");
+                let server_label = server_info
+                    .map(|info| {
+                        let name = info
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| info.get("name").and_then(|v| v.as_str()))
+                            .unwrap_or("—");
+                        let version = info
+                            .get("version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("—");
+                        format!("{name} · {version}")
+                    })
+                    .unwrap_or_else(|| "—".into());
+                let protocol = mcp
+                    .get("protocolVersion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("—")
+                    .to_string();
+                let mut caps: Vec<&str> = Vec::new();
+                if let Some(c) = mcp.get("capabilities") {
+                    for (key, label) in [
+                        ("tools", "tools"),
+                        ("resources", "resources"),
+                        ("resourcesSubscribe", "resourceSubscriptions"),
+                        ("prompts", "prompts"),
+                        ("completions", "completions"),
+                        ("tasks", "tasks"),
+                    ] {
+                        if c.get(key).is_some() {
+                            caps.push(label);
+                        }
+                    }
+                }
+                fields = fields
+                    .child(Self::render_field("Server", server_label, muted, fg, border))
+                    .child(Self::render_field("Protocol", protocol, muted, fg, border));
+                if !caps.is_empty() {
+                    fields = fields.child(Self::render_field(
+                        "Capabilities",
+                        caps.join(", "),
+                        muted,
+                        fg,
+                        border,
+                    ));
+                }
+                if let Some(instructions) = mcp
+                    .get("instructions")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    fields = fields.child(
+                        v_flex()
+                            .gap_0p5()
+                            .child(div().text_xs().text_color(muted).child("Instructions"))
+                            .child(
+                                div().text_sm().border_b_1().border_color(border).child(
+                                    instructions.to_string(),
+                                ),
+                            ),
+                    );
+                }
+            }
             if let Some(failure) = &svc.state.failure {
                 fields = fields.child(
                     div()
@@ -666,7 +738,25 @@ impl Render for InstanceView {
                     )
                     .when_some(prompt.description.clone(), |el, desc| {
                         el.child(div().text_xs().text_color(muted).truncate().child(desc))
-                    }),
+                    })
+                    .when(
+                        prompt
+                            .arguments
+                            .as_array()
+                            .map(|a| !a.is_empty())
+                            .unwrap_or(false),
+                        |el| {
+                            el.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(
+                                        serde_json::to_string_pretty(&prompt.arguments)
+                                            .unwrap_or_default(),
+                                    ),
+                            )
+                        },
+                    ),
             );
         }
 
@@ -879,6 +969,7 @@ impl InstanceView {
                     .child(div().w_56().child(Input::new(&self.ov_key)))
                     .child(div().w_48().child(Input::new(&self.ov_name)))
                     .child(div().flex_1().child(Input::new(&self.ov_desc)))
+                    .child(div().w_40().child(Input::new(&self.ov_mime)))
                     .child(
                         Button::new("ov-add")
                             .primary()
