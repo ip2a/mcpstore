@@ -19,6 +19,19 @@ impl Default for PanelRole {
     }
 }
 
+impl PanelRole {
+    /// Default data-panel identity: the machine hostname. Stable across restarts on real
+    /// machines — containers often get random hostnames, so a random-looking default means
+    /// the operator should set an explicit panel_id.
+    pub fn default_panel_id() -> String {
+        hostname::get()
+            .map(|name| name.to_string_lossy().trim().trim_end_matches('.').to_string())
+            .ok()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "data-panel".to_string())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct StoreOptions {
     pub config_path: Option<String>,
@@ -37,5 +50,17 @@ impl Default for StoreOptions {
             namespace: None,
             panel: PanelRole::ControlPanel,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_panel_id_is_a_non_empty_name() {
+        let id = PanelRole::default_panel_id();
+        assert!(!id.is_empty());
+        assert!(!id.contains(char::is_whitespace));
     }
 }

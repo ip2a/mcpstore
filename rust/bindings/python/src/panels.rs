@@ -1,7 +1,9 @@
 //! Panel role configuration: passed to setup_store, not constructed after.
 //!
 //! - ControlPanel(): decision + connection maintenance + self-heal (default)
-//! - DataPanel(panel_id): routes calls per its local config.toml [placement] — default local, "delegate" proxies to the control panel
+//! - DataPanel(): routes calls per its local config.toml [placement] — default local, "delegate" proxies to the control panel
+//!
+//! DataPanel identity defaults to the machine hostname; pass panel_id explicitly for a stable identity.
 
 use mcpstore::PanelRole;
 use pyo3::prelude::*;
@@ -30,8 +32,11 @@ pub struct PyDataPanel {
 #[pymethods]
 impl PyDataPanel {
     #[new]
-    fn new(panel_id: String) -> Self {
-        Self { panel_id }
+    #[pyo3(signature = (panel_id = None))]
+    fn new(panel_id: Option<String>) -> Self {
+        Self {
+            panel_id: panel_id.unwrap_or_else(PanelRole::default_panel_id),
+        }
     }
 
     #[getter]
@@ -55,6 +60,6 @@ pub(crate) fn parse_panel_role(panel: &Bound<'_, PyAny>) -> PyResult<PanelRole> 
         });
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
-        "panel must be ControlPanel() or DataPanel(panel_id=...)",
+        "panel must be ControlPanel() or DataPanel()",
     ))
 }

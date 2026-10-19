@@ -766,6 +766,20 @@ mod tests {
     }
 
     #[test]
+    fn data_panel_without_panel_id_defaults_to_hostname() {
+        let cli = Cli::try_parse_from(["mcpstore", "list", "--data-panel"]).unwrap();
+        match cli.command {
+            Commands::List(args) => {
+                assert!(matches!(
+                    args.store.panel_role(),
+                    mcpstore::PanelRole::DataPanel { panel_id } if !panel_id.is_empty()
+                ));
+            }
+            _ => panic!("Expected to parse as list command"),
+        }
+    }
+
+    #[test]
     fn parses_migrate_store_command() {
         let cli = Cli::try_parse_from([
             "mcpstore",
