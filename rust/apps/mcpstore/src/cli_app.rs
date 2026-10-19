@@ -83,7 +83,6 @@ pub enum Commands {
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
-    #[command(name = "mcp")]
     #[command(visible_alias = "ui")]
     Web {
         #[arg(long)]
