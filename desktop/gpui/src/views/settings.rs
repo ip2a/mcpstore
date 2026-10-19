@@ -62,17 +62,17 @@ impl SettingsView {
             let meta = cx
                 .background_spawn({
                     let api = api.clone();
-                    async move { api.meta() }
+                    async move { api.meta().await }
                 })
                 .await;
             let hub = cx
                 .background_spawn({
                     let api = api.clone();
-                    async move { api.mcp_hub_status(HUB_QUERY) }
+                    async move { api.mcp_hub_status(HUB_QUERY).await }
                 })
                 .await;
             let settings = cx
-                .background_spawn(async move { api.get_settings() })
+                .background_spawn(async move { api.get_settings().await })
                 .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
@@ -111,7 +111,7 @@ impl SettingsView {
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let payload = serde_json::json!({ "language": lang });
             let result = cx
-                .background_spawn(async move { api.update_settings(&payload) })
+                .background_spawn(async move { api.update_settings(&payload).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result.err().map(|e| format!("save language failed: {e:#}").into());
@@ -135,7 +135,7 @@ impl SettingsView {
         let url2 = url.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.update_settings(&payload) })
+                .background_spawn(async move { api.update_settings(&payload).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error =
@@ -177,7 +177,7 @@ impl SettingsView {
         let payload = serde_json::json!({ "hosts": serialize_hosts(&hosts, &active) });
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.update_settings(&payload) })
+                .background_spawn(async move { api.update_settings(&payload).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result.err().map(|e| format!("add host failed: {e:#}").into());
@@ -204,7 +204,7 @@ impl SettingsView {
         let query = if action == "stop" { "" } else { HUB_QUERY };
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.mcp_hub_action(action, query) })
+                .background_spawn(async move { api.mcp_hub_action(action, query).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result
@@ -508,8 +508,8 @@ impl Render for SettingsView {
                                                     crate::dict::t(cx, crate::dict::Key::ViewConfig);
                                                 crate::dialogs::JsonViewDialog::open_fetch(
                                                     title,
-                                                    move || {
-                                                        api.show_config(&crate::api::ScopeRef::Store)
+                                                    async move {
+                                                        api.show_config(&crate::api::ScopeRef::Store).await
                                                     },
                                                     window,
                                                     cx,
@@ -538,7 +538,7 @@ impl Render for SettingsView {
                                                                         .background_spawn(async move {
                                                                             api.reset_config(
                                                                                 &crate::api::ScopeRef::Store,
-                                                                            )
+                                                                            ).await
                                                                         })
                                                                         .await;
                                                                     if let Err(e) = result {

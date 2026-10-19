@@ -57,7 +57,7 @@ impl ToolsView {
             let services = cx
                 .background_spawn({
                     let api = api.clone();
-                    async move { api.list_services(&ScopeView::Root) }
+                    async move { api.list_services(&ScopeView::Root).await }
                 })
                 .await;
             let Err(e) = services else {
@@ -70,7 +70,7 @@ impl ToolsView {
                                 service_name: svc.service_name.clone(),
                                 scope: svc.scope.clone(),
                             };
-                            if let Ok(tools) = api.list_tools(&addr) {
+                            if let Ok(tools) = api.list_tools(&addr).await {
                                 for tool in tools {
                                     out.push((addr.clone(), tool));
                                 }

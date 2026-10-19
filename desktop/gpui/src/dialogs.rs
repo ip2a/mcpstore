@@ -196,7 +196,7 @@ impl ToolRunDialog {
         let tool_name = self.tool.name.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.call_tool(&addr, &tool_name, args.into()) })
+                .background_spawn(async move { api.call_tool(&addr, &tool_name, args.into()).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.running = false;
@@ -442,10 +442,10 @@ impl ServiceFormDialog {
                 .background_spawn(async move {
                     match mode {
                         FormMode::Add => {
-                            api.add_service(&name, &transport, &target, Some(&description))
+                            api.add_service(&name, &transport, &target, Some(&description)).await
                         }
                         FormMode::Edit { name, scope, .. } => {
-                            api.update_service_scope(&name, &scope, &transport, &target, Some(&description))
+                            api.update_service_scope(&name, &scope, &transport, &target, Some(&description)).await
                         }
                     }
                 })
@@ -541,7 +541,7 @@ impl ToolPolicyDialog {
                 .background_spawn({
                     let api = api.clone();
                     let addr = addr.clone();
-                    async move { api.get_tool_policy(&addr).ok() }
+                    async move { api.get_tool_policy(&addr).await.ok() }
                 })
                 .await;
             let _ = handle.update(cx, |_, window, cx| {
@@ -608,9 +608,9 @@ impl ToolPolicyDialog {
             let result = cx
                 .background_spawn(async move {
                     if clear {
-                        api.clear_tool_policy(&addr)
+                        api.clear_tool_policy(&addr).await
                     } else {
-                        api.set_tool_policy(&addr, &tools)
+                        api.set_tool_policy(&addr, &tools).await
                     }
                 })
                 .await;
@@ -689,7 +689,7 @@ impl ResourceReadDialog {
         let fetch = entity.downgrade();
         cx.spawn(async move |cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.read_resource(&addr, &uri) })
+                .background_spawn(async move { api.read_resource(&addr, &uri).await })
                 .await;
             fetch
                 .update(cx, |this, cx| {
@@ -797,7 +797,7 @@ impl DeclareScopeDialog {
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
                 .background_spawn(async move {
-                    api.declare_agent_scope(&name, &agent_id, &transport, &target)
+                    api.declare_agent_scope(&name, &agent_id, &transport, &target).await
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -860,7 +860,12 @@ pub struct JsonViewDialog {
 }
 
 impl JsonViewDialog {
-    pub fn open_fetch(title: impl Into<SharedString>, fetch: impl FnOnce() -> anyhow::Result<serde_json::Value> + Send + 'static, window: &mut Window, cx: &mut gpui_kit::App) {
+    pub fn open_fetch(
+        title: impl Into<SharedString>,
+        fetch: impl std::future::Future<Output = anyhow::Result<serde_json::Value>> + Send + 'static,
+        window: &mut Window,
+        cx: &mut gpui_kit::App,
+    ) {
         let entity = cx.new(|_| Self {
             content: None,
             title: title.into(),
@@ -868,7 +873,7 @@ impl JsonViewDialog {
         });
         let fetch_entity = entity.downgrade();
         cx.spawn(async move |cx: &mut gpui_kit::AsyncApp| {
-            let result = cx.background_spawn(async move { fetch() }).await;
+            let result = cx.background_spawn(fetch).await;
             fetch_entity
                 .update(cx, |this, cx| {
                     match result {
@@ -972,7 +977,7 @@ impl ImportClientDialog {
         let api = self.api.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.import_client_services(&client, &path, &names) })
+                .background_spawn(async move { api.import_client_services(&client, &path, &names).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.running = false;

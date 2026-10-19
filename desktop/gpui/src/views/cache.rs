@@ -44,11 +44,11 @@ impl CacheView {
             let health = cx
                 .background_spawn({
                     let api = api.clone();
-                    async move { api.cache_health() }
+                    async move { api.cache_health().await }
                 })
                 .await;
             let inspect = cx
-                .background_spawn(async move { api.cache_inspect() })
+                .background_spawn(async move { api.cache_inspect().await })
                 .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
@@ -74,7 +74,7 @@ impl CacheView {
         let api = self.api.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.switch_cache(backend) })
+                .background_spawn(async move { api.switch_cache(backend).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result.err().map(|e| format!("switch failed: {e:#}").into());

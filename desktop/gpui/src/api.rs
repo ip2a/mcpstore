@@ -292,7 +292,10 @@ pub struct HostsConfig {
 }
 
 /// mcpstore 客户端。core 面如 `http://127.0.0.1:1820`，app 面如 `http://127.0.0.1:1821`。
+/// 方法都是 async：native 下被 `background_spawn` 轮询在后台线程（内部阻塞 ureq），
+/// wasm 下走浏览器 fetch（用 SendWrapper 满足 background_spawn 的 Send 约束）。
 pub struct Api {
+    #[cfg(not(target_arch = "wasm32"))]
     agent: ureq::Agent,
     core_base: std::sync::RwLock<String>,
     app_base: String,
@@ -300,16 +303,26 @@ pub struct Api {
 
 impl Api {
     pub fn new(core_base: impl Into<String>, app_base: impl Into<String>) -> Self {
-        // ponytail: single global timeout; per-request timeouts if any endpoint hangs
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(10)))
-            // 4xx/5xx arrive as Ok(Response); we parse the error body ourselves.
-            .http_status_as_error(false)
-            .build();
-        Self {
-            agent: config.new_agent(),
-            core_base: std::sync::RwLock::new(core_base.into()),
-            app_base: app_base.into(),
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // ponytail: single global timeout; per-request timeouts if any endpoint hangs
+            let config = ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(10)))
+                // 4xx/5xx arrive as Ok(Response); we parse the error body ourselves.
+                .http_status_as_error(false)
+                .build();
+            Self {
+                agent: config.new_agent(),
+                core_base: std::sync::RwLock::new(core_base.into()),
+                app_base: app_base.into(),
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self {
+                core_base: std::sync::RwLock::new(core_base.into()),
+                app_base: app_base.into(),
+            }
         }
     }
 
@@ -326,7 +339,7 @@ impl Api {
         *self.core_base.write().unwrap() = url.into();
     }
 
-    fn request_at(
+    async fn request_at(
         &self,
         base: &str,
         method: &str,
@@ -334,7 +347,8 @@ impl Api {
         body: Option<&Value>,
     ) -> Result<Value> {
         let url = format!("{}{}", base, path);
-        let send = || -> std::result::Result<(u16, String), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let (code, text) = {
             let result = if let Some(b) = body {
                 let rb = match method {
                     "PUT" => self.agent.put(&url),
@@ -353,13 +367,40 @@ impl Api {
                 Ok(mut resp) => {
                     let code = resp.status().as_u16();
                     let text = resp.body_mut().read_to_string().unwrap_or_default();
-                    Ok((code, text))
+                    (code, text)
                 }
-                Err(e) => Err(format!("{e}")),
+                Err(e) => return Err(anyhow!("backend unreachable ({method} {path}): {e}")),
             }
         };
-        let (code, text) =
-            send().map_err(|e| anyhow!("backend unreachable ({method} {path}): {e}"))?;
+        #[cfg(target_arch = "wasm32")]
+        let (code, text) = {
+            use gloo_net::http::Request;
+            // 浏览器 fetch 链不是 Send；整条链包进一个 SendWrapper（单线程 web 上安全）。
+            // ponytail: no request timeout on wasm — add AbortController if the daemon hangs.
+            let fetch = async {
+                let response = if let Some(b) = body {
+                    let rb = match method {
+                        "PUT" => Request::put(&url),
+                        _ => Request::post(&url),
+                    };
+                    rb.json(b)?.send().await
+                } else {
+                    let request = match method {
+                        "PUT" => Request::put(&url),
+                        "DELETE" => Request::delete(&url),
+                        "POST" => Request::post(&url),
+                        _ => Request::get(&url),
+                    };
+                    request.send().await
+                }?;
+                let code = response.status();
+                let text = response.text().await.unwrap_or_default();
+                Ok::<_, gloo_net::Error>((code, text))
+            };
+            send_wrapper::SendWrapper::new(fetch)
+                .await
+                .map_err(|e| anyhow!("backend unreachable ({method} {path}): {e}"))?
+        };
         let value: Value = if text.trim().is_empty() {
             Value::Null
         } else {
@@ -384,65 +425,65 @@ impl Api {
         Ok(value)
     }
 
-    fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+    async fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
         let base = self.core_base.read().unwrap().clone();
-        self.request_at(&base, method, path, body)
+        self.request_at(&base, method, path, body).await
     }
 
-    fn request_app(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
-        self.request_at(&self.app_base, method, path, body)
+    async fn request_app(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+        self.request_at(&self.app_base, method, path, body).await
     }
 
-    fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let v = self.request("GET", path, None)?;
+    async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        let v = self.request("GET", path, None).await?;
         Ok(serde_json::from_value(v)?)
     }
 
     // ---- app face (:1821) ----
 
-    pub fn meta(&self) -> Result<Value> {
-        self.request_app("GET", "/v1/meta", None)
+    pub async fn meta(&self) -> Result<Value> {
+        self.request_app("GET", "/v1/meta", None).await
     }
 
-    pub fn get_settings(&self) -> Result<Value> {
-        self.request_app("GET", "/v1/settings", None)
+    pub async fn get_settings(&self) -> Result<Value> {
+        self.request_app("GET", "/v1/settings", None).await
     }
 
-    pub fn update_settings(&self, payload: &Value) -> Result<Value> {
-        self.request_app("PUT", "/v1/settings", Some(payload))
+    pub async fn update_settings(&self, payload: &Value) -> Result<Value> {
+        self.request_app("PUT", "/v1/settings", Some(payload)).await
     }
 
     // ---- core face: services ----
 
-    pub fn list_services(&self, view: &ScopeView) -> Result<Vec<ServiceInstance>> {
-        let v = self.request("GET", &format!("/services/list{}", view.query()), None)?;
+    pub async fn list_services(&self, view: &ScopeView) -> Result<Vec<ServiceInstance>> {
+        let v = self.request("GET", &format!("/services/list{}", view.query()), None).await?;
         Ok(serde_json::from_value(v["services"].clone())?)
     }
 
-    pub fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {
-        let v = self.request("GET", "/scopes/list", None)?;
+    pub async fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {
+        let v = self.request("GET", "/scopes/list", None).await?;
         Ok(serde_json::from_value(v["scopes"].clone())?)
     }
 
-    pub fn list_agents(&self) -> Result<Vec<AgentItem>> {
-        let v = self.request("GET", "/agents/list", None)?;
+    pub async fn list_agents(&self) -> Result<Vec<AgentItem>> {
+        let v = self.request("GET", "/agents/list", None).await?;
         Ok(serde_json::from_value(v["agents"].clone())?)
     }
 
-    pub fn get_service(&self, addr: &ServiceAddress) -> Result<ServiceInstance> {
-        self.get(&addr.path())
+    pub async fn get_service(&self, addr: &ServiceAddress) -> Result<ServiceInstance> {
+        self.get(&addr.path()).await
     }
 
-    pub fn list_tools(&self, addr: &ServiceAddress) -> Result<Vec<ToolInfo>> {
+    pub async fn list_tools(&self, addr: &ServiceAddress) -> Result<Vec<ToolInfo>> {
         let v = self.request(
             "GET",
             &format!("{}{}&filter=available", addr.base_path(), "/tools/list",),
             None,
-        )?;
+        ).await?;
         Ok(serde_json::from_value(v["tools"].clone())?)
     }
 
-    pub fn call_tool(
+    pub async fn call_tool(
         &self,
         addr: &ServiceAddress,
         tool_name: &str,
@@ -452,15 +493,15 @@ impl Api {
             "POST",
             &format!("{}{}", addr.base_path(), "/tools/call"),
             Some(&serde_json::json!({ "tool_name": tool_name, "args": args })),
-        )
+        ).await
     }
 
-    pub fn lifecycle(&self, addr: &ServiceAddress, action: &str) -> Result<Value> {
-        self.request("POST", &format!("{}{}", addr.base_path(), action), None)
+    pub async fn lifecycle(&self, addr: &ServiceAddress, action: &str) -> Result<Value> {
+        self.request("POST", &format!("{}{}", addr.base_path(), action), None).await
     }
 
     /// `POST /services/{name}` — 新服务默认进 store 作用域（doc §17）。
-    pub fn add_service(
+    pub async fn add_service(
         &self,
         name: &str,
         transport: &str,
@@ -474,11 +515,11 @@ impl Api {
             "POST",
             &format!("/services/{}", urlencoding::encode(name)),
             Some(&payload),
-        )
+        ).await
     }
 
     /// `PUT /services/{name}/scopes/…` — 更新某作用域上的服务声明（编辑）。
-    pub fn update_service_scope(
+    pub async fn update_service_scope(
         &self,
         name: &str,
         scope: &ScopeRef,
@@ -489,16 +530,16 @@ impl Api {
         let mut config = build_service_config(transport, target);
         config["description"] = description.unwrap_or("").into();
         let descriptor = serde_json::json!({ "config": config });
-        self.request("PUT", &scope_descriptor_path(name, scope), Some(&descriptor))
+        self.request("PUT", &scope_descriptor_path(name, scope), Some(&descriptor)).await
     }
 
     /// `DELETE /services/{name}/scopes/…` — 从作用域移除声明（web 的“删除”）。
-    pub fn remove_service_scope(&self, name: &str, scope: &ScopeRef) -> Result<Value> {
-        self.request("DELETE", &scope_descriptor_path(name, scope), None)
+    pub async fn remove_service_scope(&self, name: &str, scope: &ScopeRef) -> Result<Value> {
+        self.request("DELETE", &scope_descriptor_path(name, scope), None).await
     }
 
     /// `PUT /services/{name}/scopes/agents/{agent_id}` — 把服务声明进 agent 作用域。
-    pub fn declare_agent_scope(
+    pub async fn declare_agent_scope(
         &self,
         name: &str,
         agent_id: &str,
@@ -514,25 +555,25 @@ impl Api {
                 urlencoding::encode(agent_id)
             ),
             Some(&serde_json::json!({ "config": config })),
-        )
+        ).await
     }
 
     /// `POST /scopes/agents/{agent_id}/reset`。
-    pub fn reset_agent_config(&self, agent_id: &str) -> Result<Value> {
+    pub async fn reset_agent_config(&self, agent_id: &str) -> Result<Value> {
         self.request(
             "POST",
             &format!("/scopes/agents/{}/reset", urlencoding::encode(agent_id)),
             None,
-        )
+        ).await
     }
 
     // ---- tool policy ----
 
-    pub fn get_tool_policy(&self, addr: &ServiceAddress) -> Result<Value> {
-        self.request("GET", &format!("{}{}", addr.base_path(), "/tool-policy"), None)
+    pub async fn get_tool_policy(&self, addr: &ServiceAddress) -> Result<Value> {
+        self.request("GET", &format!("{}{}", addr.base_path(), "/tool-policy"), None).await
     }
 
-    pub fn set_tool_policy(
+    pub async fn set_tool_policy(
         &self,
         addr: &ServiceAddress,
         available_tools: &[String],
@@ -541,47 +582,47 @@ impl Api {
             "PUT",
             &format!("{}{}", addr.base_path(), "/tool-policy"),
             Some(&serde_json::json!({ "available_tools": available_tools })),
-        )
+        ).await
     }
 
-    pub fn clear_tool_policy(&self, addr: &ServiceAddress) -> Result<Value> {
+    pub async fn clear_tool_policy(&self, addr: &ServiceAddress) -> Result<Value> {
         self.request(
             "DELETE",
             &format!("{}{}", addr.base_path(), "/tool-policy"),
             None,
-        )
+        ).await
     }
 
     // ---- resources / prompts ----
 
-    pub fn list_resources(&self, addr: &ServiceAddress) -> Result<Vec<ResourceInfo>> {
+    pub async fn list_resources(&self, addr: &ServiceAddress) -> Result<Vec<ResourceInfo>> {
         let v = self.request(
             "GET",
             &format!("{}{}", addr.base_path(), "/resources/list"),
             None,
-        )?;
+        ).await?;
         Ok(serde_json::from_value(v["resources"].clone())?)
     }
 
-    pub fn list_resource_templates(&self, addr: &ServiceAddress) -> Result<Vec<ResourceTemplateInfo>> {
+    pub async fn list_resource_templates(&self, addr: &ServiceAddress) -> Result<Vec<ResourceTemplateInfo>> {
         let v = self.request(
             "GET",
             &format!("{}{}", addr.base_path(), "/resources/templates"),
             None,
-        )?;
+        ).await?;
         Ok(serde_json::from_value(v["resource_templates"].clone())?)
     }
 
-    pub fn list_prompts(&self, addr: &ServiceAddress) -> Result<Vec<PromptInfo>> {
+    pub async fn list_prompts(&self, addr: &ServiceAddress) -> Result<Vec<PromptInfo>> {
         let v = self.request(
             "GET",
             &format!("{}{}", addr.base_path(), "/prompts/list"),
             None,
-        )?;
+        ).await?;
         Ok(serde_json::from_value(v["prompts"].clone())?)
     }
 
-    pub fn read_resource(&self, addr: &ServiceAddress, uri: &str) -> Result<Value> {
+    pub async fn read_resource(&self, addr: &ServiceAddress, uri: &str) -> Result<Value> {
         self.request(
             "GET",
             &format!(
@@ -591,87 +632,87 @@ impl Api {
                 urlencoding::encode(uri)
             ),
             None,
-        )
+        ).await
     }
 
     // ---- auth (OAuth) ----
 
-    pub fn auth_status(&self, addr: &ServiceAddress) -> Result<AuthStatusView> {
-        let v = self.request("GET", &format!("{}{}", addr.base_path(), "/auth"), None)?;
+    pub async fn auth_status(&self, addr: &ServiceAddress) -> Result<AuthStatusView> {
+        let v = self.request("GET", &format!("{}{}", addr.base_path(), "/auth"), None).await?;
         Ok(serde_json::from_value(v["auth"].clone())?)
     }
 
-    pub fn auth_action(&self, addr: &ServiceAddress, action: &str) -> Result<AuthOperationResult> {
-        let v = self.request("POST", &format!("{}{}", addr.base_path(), action), None)?;
+    pub async fn auth_action(&self, addr: &ServiceAddress, action: &str) -> Result<AuthOperationResult> {
+        let v = self.request("POST", &format!("{}{}", addr.base_path(), action), None).await?;
         Ok(serde_json::from_value(v)?)
     }
 
     // ---- overrides（core 面）----
 
-    pub fn list_overrides(&self, kind: &str) -> Result<Value> {
-        self.request("GET", &format!("/{kind}_overrides"), None)
+    pub async fn list_overrides(&self, kind: &str) -> Result<Value> {
+        self.request("GET", &format!("/{kind}_overrides"), None).await
     }
 
-    pub fn set_override(&self, kind: &str, name: &str, key: &str, patch: &Value) -> Result<Value> {
-        self.request("PUT", &override_path(kind, name, key), Some(patch))
+    pub async fn set_override(&self, kind: &str, name: &str, key: &str, patch: &Value) -> Result<Value> {
+        self.request("PUT", &override_path(kind, name, key), Some(patch)).await
     }
 
-    pub fn delete_override(&self, kind: &str, name: &str, key: &str) -> Result<Value> {
-        self.request("DELETE", &override_path(kind, name, key), None)
+    pub async fn delete_override(&self, kind: &str, name: &str, key: &str) -> Result<Value> {
+        self.request("DELETE", &override_path(kind, name, key), None).await
     }
 
     // ---- cache / config：app 自有接口，固定走 app 面 ----
 
-    pub fn cache_health(&self) -> Result<Value> {
-        self.request_app("GET", "/cache/health", None)
+    pub async fn cache_health(&self) -> Result<Value> {
+        self.request_app("GET", "/cache/health", None).await
     }
 
-    pub fn cache_inspect(&self) -> Result<Value> {
-        self.request_app("GET", "/cache/inspect", None)
+    pub async fn cache_inspect(&self) -> Result<Value> {
+        self.request_app("GET", "/cache/inspect", None).await
     }
 
-    pub fn switch_cache(&self, backend: &str) -> Result<Value> {
+    pub async fn switch_cache(&self, backend: &str) -> Result<Value> {
         self.request_app(
             "POST",
             "/cache/switch",
             Some(&serde_json::json!({ "backend": backend })),
-        )
+        ).await
     }
 
-    pub fn show_config(&self, scope: &ScopeRef) -> Result<Value> {
+    pub async fn show_config(&self, scope: &ScopeRef) -> Result<Value> {
         match scope {
             // agent config 在 core 面；store config 是 app 自有接口。
-            ScopeRef::Agent { .. } => self.request("GET", &config_path(scope, None), None),
-            ScopeRef::Store => self.request_app("GET", &config_path(scope, None), None),
+            ScopeRef::Agent { .. } => self.request("GET", &config_path(scope, None), None).await,
+            ScopeRef::Store => self.request_app("GET", &config_path(scope, None), None).await,
         }
     }
 
-    pub fn reset_config(&self, scope: &ScopeRef) -> Result<Value> {
+    pub async fn reset_config(&self, scope: &ScopeRef) -> Result<Value> {
         match scope {
             ScopeRef::Agent { agent_id } => self.request(
                 "POST",
                 &format!("/scopes/agents/{}/reset", urlencoding::encode(agent_id)),
                 None,
-            ),
-            ScopeRef::Store => self.request_app("POST", "/config/reset", None),
+            ).await,
+            ScopeRef::Store => self.request_app("POST", "/config/reset", None).await,
         }
     }
 
     // mcp-hub / client-config 是 app 自有接口（附录C），固定走 app 面。
-    pub fn mcp_hub_status(&self, query: &str) -> Result<Value> {
-        self.request_app("GET", &format!("/mcp-hub/status{query}"), None)
+    pub async fn mcp_hub_status(&self, query: &str) -> Result<Value> {
+        self.request_app("GET", &format!("/mcp-hub/status{query}"), None).await
     }
 
-    pub fn mcp_hub_action(&self, action: &str, query: &str) -> Result<Value> {
-        self.request_app("POST", &format!("/mcp-hub/{action}{query}"), None)
+    pub async fn mcp_hub_action(&self, action: &str, query: &str) -> Result<Value> {
+        self.request_app("POST", &format!("/mcp-hub/{action}{query}"), None).await
     }
 
-    pub fn import_client_services(&self, client: &str, path: &str, names: &[String]) -> Result<Value> {
+    pub async fn import_client_services(&self, client: &str, path: &str, names: &[String]) -> Result<Value> {
         self.request_app(
             "POST",
             "/client-config/import",
             Some(&serde_json::json!({ "client": client, "path": path, "names": names })),
-        )
+        ).await
     }
 }
 

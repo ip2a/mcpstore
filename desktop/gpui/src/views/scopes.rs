@@ -42,10 +42,10 @@ impl ScopesView {
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let scopes = cx.background_spawn({
                 let api = api.clone();
-                async move { api.list_scopes() }
+                async move { api.list_scopes().await }
             })
             .await;
-            let agents = cx.background_spawn(async move { api.list_agents() }).await;
+            let agents = cx.background_spawn(async move { api.list_agents().await }).await;
             this.update(cx, |this, cx| {
                 this.loading = false;
                 match (scopes, agents) {
@@ -163,7 +163,7 @@ impl Render for ScopesView {
                                                                 async move |cx: &mut gpui_kit::AsyncApp| {
                                                                     let _ = cx.background_spawn(
                                                                         async move {
-                                                                            api.reset_agent_config(&agent)
+                                                                            api.reset_agent_config(&agent).await
                                                                         },
                                                                     ).await;
                                                                 },

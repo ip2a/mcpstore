@@ -1,25 +1,7 @@
-//! mcpstore GPUI desktop control panel.
-
-mod api;
-mod app;
-mod dict;
-mod dialogs;
-mod views;
-
-use gpui_kit::{AppContext as _, WindowOptions};
-use std::sync::Arc;
+//! Desktop entry point. The wasm entry lives in the library (`lib.rs`).
 
 fn main() {
-    let api = Arc::new(api::Api::new("http://127.0.0.1:1820", "http://127.0.0.1:1821"));
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
-        .run(move |cx| {
-            gpui_kit::init(cx);
-            dict::init(dict::Lang::Auto, cx);
-            let api = api.clone();
-            gpui_kit::open_window(WindowOptions::default(), cx, move |window, cx| {
-                cx.new(|cx| app::MainWindow::new(api.clone(), window, cx))
-            })
-            .expect("failed to open window");
-        });
+        .run(mcpstore_desktop::launch_panel);
 }

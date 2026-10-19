@@ -51,7 +51,7 @@ impl ServicesView {
             loop {
                 let api = this.read_with(cx, |view, _| view.api.clone())?;
                 let result = cx
-                    .background_spawn(async move { api.list_services(&ScopeView::Root) })
+                    .background_spawn(async move { api.list_services(&ScopeView::Root).await })
                     .await;
                 apply_services(&this, cx, result);
                 cx.background_executor().timer(Duration::from_secs(5)).await;
@@ -77,7 +77,7 @@ impl ServicesView {
         let api = self.api.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.list_services(&ScopeView::Root) })
+                .background_spawn(async move { api.list_services(&ScopeView::Root).await })
                 .await;
             apply_services(&this, cx, result);
         })
@@ -90,7 +90,7 @@ impl ServicesView {
             let result = cx
                 .background_spawn({
                     let api = api.clone();
-                    async move { api.lifecycle(&addr, action) }
+                    async move { api.lifecycle(&addr, action).await }
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -101,7 +101,7 @@ impl ServicesView {
             .ok();
             // Refetch so row state reflects the action.
             let result = cx
-                .background_spawn(async move { api.list_services(&ScopeView::Root) })
+                .background_spawn(async move { api.list_services(&ScopeView::Root).await })
                 .await;
             apply_services(&this, cx, result);
         })
@@ -264,7 +264,7 @@ impl ServicesView {
                                                 cx.spawn(
                                                     async move |cx: &mut gpui_kit::AsyncApp| {
                                                         let _ = cx.background_spawn(async move {
-                                                            api.remove_service_scope(&name, &scope)
+                                                            api.remove_service_scope(&name, &scope).await
                                                         }).await;
                                                     },
                                                 )

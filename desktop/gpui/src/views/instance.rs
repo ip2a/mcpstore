@@ -95,41 +95,41 @@ impl InstanceView {
                 .background_spawn({
                     let api = api.clone();
                     let addr = addr.clone();
-                    async move { api.get_service(&addr) }
+                    async move { api.get_service(&addr).await }
                 })
                 .await;
             let tools = cx
                 .background_spawn({
                     let api = api.clone();
                     let addr = addr.clone();
-                    async move { api.list_tools(&addr) }
+                    async move { api.list_tools(&addr).await }
                 })
                 .await;
             let resources = cx
                 .background_spawn({
                     let api = api.clone();
                     let addr = addr.clone();
-                    async move { api.list_resources(&addr) }
+                    async move { api.list_resources(&addr).await }
                 })
                 .await;
             let templates = cx
                 .background_spawn({
                     let api = api.clone();
                     let addr = addr.clone();
-                    async move { api.list_resource_templates(&addr) }
+                    async move { api.list_resource_templates(&addr).await }
                 })
                 .await;
             let prompts = cx
                 .background_spawn({
                     let api = api.clone();
                     let addr = addr.clone();
-                    async move { api.list_prompts(&addr) }
+                    async move { api.list_prompts(&addr).await }
                 })
                 .await;
             let auth = cx
                 .background_spawn({
                     let api = api.clone();
-                    async move { api.auth_status(&addr) }
+                    async move { api.auth_status(&addr).await }
                 })
                 .await;
             let overrides = cx
@@ -138,7 +138,7 @@ impl InstanceView {
                     async move {
                         let mut out = Vec::new();
                         for kind in OVERRIDE_KINDS {
-                            out.push(api.list_overrides(kind).ok());
+                            out.push(api.list_overrides(kind).await.ok());
                         }
                         out
                     }
@@ -181,7 +181,7 @@ impl InstanceView {
         let addr = self.addr.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.lifecycle(&addr, action) })
+                .background_spawn(async move { api.lifecycle(&addr, action).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result.err().map(|e| format!("{action} failed: {e:#}").into());
@@ -198,7 +198,7 @@ impl InstanceView {
         let addr = self.addr.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.auth_action(&addr, action) })
+                .background_spawn(async move { api.auth_action(&addr, action).await })
                 .await;
             if let Ok(op) = &result {
                 if let Some(url) = op.authorization.clone().map(|a| a.authorization_url) {
@@ -220,7 +220,7 @@ impl InstanceView {
         let addr = self.addr.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.clear_tool_policy(&addr) })
+                .background_spawn(async move { api.clear_tool_policy(&addr).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result.err().map(|e| format!("clear policy failed: {e:#}").into());
@@ -254,7 +254,7 @@ impl InstanceView {
         let patch = serde_json::Value::Object(patch);
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.set_override(kind, &svc, &key, &patch) })
+                .background_spawn(async move { api.set_override(kind, &svc, &key, &patch).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result
@@ -296,7 +296,7 @@ impl InstanceView {
         let patch = serde_json::Value::Object(patch);
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.set_override(kind, &svc, &key, &patch) })
+                .background_spawn(async move { api.set_override(kind, &svc, &key, &patch).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result
@@ -319,7 +319,7 @@ impl InstanceView {
         let svc = self.addr.service_name.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.delete_override(kind, &svc, &key) })
+                .background_spawn(async move { api.delete_override(kind, &svc, &key).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result
