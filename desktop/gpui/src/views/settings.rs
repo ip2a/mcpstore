@@ -19,7 +19,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 
 const LANGS: [&str; 3] = ["auto", "en", "zh"];
-const HUB_QUERY: &str = "?transport=stdio&path=/mcp&scope=store";
+const HUB_QUERY: &str = "?path=/mcp&scope=store";
 
 pub struct SettingsView {
     api: Arc<Api>,
@@ -68,7 +68,7 @@ impl SettingsView {
             let hub = cx
                 .background_spawn({
                     let api = api.clone();
-                    async move { api.mcp_hub_status(HUB_QUERY).await }
+                    async move { api.gateway_status(HUB_QUERY).await }
                 })
                 .await;
             let settings = cx
@@ -204,12 +204,12 @@ impl SettingsView {
         let query = if action == "stop" { "" } else { HUB_QUERY };
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let result = cx
-                .background_spawn(async move { api.mcp_hub_action(action, query).await })
+                .background_spawn(async move { api.gateway_action(action, query).await })
                 .await;
             this.update(cx, |this, cx| {
                 this.error = result
                     .err()
-                    .map(|e| format!("mcp-hub {action} failed: {e:#}").into());
+                    .map(|e| format!("gateway {action} failed: {e:#}").into());
                 cx.notify();
             })
             .ok();
@@ -443,7 +443,7 @@ impl Render for SettingsView {
                                                     .font_semibold()
                                                     .text_sm()
                                                     .text_color(muted)
-                                                    .child(crate::dict::t(cx, crate::dict::Key::McpHub)),
+                                                    .child(crate::dict::t(cx, crate::dict::Key::Gateway)),
                                             )
                                             .when(self.hub_running, |el| {
                                                 el.child(

@@ -698,13 +698,13 @@ impl Api {
         }
     }
 
-    // mcp-hub / client-config 是 app 自有接口（附录C），固定走 app 面。
-    pub async fn mcp_hub_status(&self, query: &str) -> Result<Value> {
-        self.request_app("GET", &format!("/mcp-hub/status{query}"), None).await
+    // gateway / client-config 是 app 自有接口（附录C），固定走 app 面。
+    pub async fn gateway_status(&self, query: &str) -> Result<Value> {
+        self.request_app("GET", &format!("/gateway/status{query}"), None).await
     }
 
-    pub async fn mcp_hub_action(&self, action: &str, query: &str) -> Result<Value> {
-        self.request_app("POST", &format!("/mcp-hub/{action}{query}"), None).await
+    pub async fn gateway_action(&self, action: &str, query: &str) -> Result<Value> {
+        self.request_app("POST", &format!("/gateway/{action}{query}"), None).await
     }
 
     pub async fn import_client_services(&self, client: &str, path: &str, names: &[String]) -> Result<Value> {
