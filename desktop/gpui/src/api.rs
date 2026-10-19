@@ -206,6 +206,17 @@ pub struct ResourceInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResourceTemplateInfo {
+    #[serde(rename = "uriTemplate")]
+    pub uri_template: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(rename = "mimeType")]
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PromptInfo {
     pub name: String,
@@ -550,6 +561,15 @@ impl Api {
             None,
         )?;
         Ok(serde_json::from_value(v["resources"].clone())?)
+    }
+
+    pub fn list_resource_templates(&self, addr: &ServiceAddress) -> Result<Vec<ResourceTemplateInfo>> {
+        let v = self.request(
+            "GET",
+            &format!("{}{}", addr.base_path(), "/resources/templates"),
+            None,
+        )?;
+        Ok(serde_json::from_value(v["resource_templates"].clone())?)
     }
 
     pub fn list_prompts(&self, addr: &ServiceAddress) -> Result<Vec<PromptInfo>> {

@@ -137,6 +137,7 @@ pub enum Key {
     Enable,
     Disable,
     AddOverride,
+    Templates,
 }
 
 pub fn t(cx: &App, key: Key) -> &'static str {
@@ -319,6 +320,8 @@ pub fn t(cx: &App, key: Key) -> &'static str {
         (Key::Disable, true) => "停用",
         (Key::AddOverride, false) => "Add override",
         (Key::AddOverride, true) => "添加覆盖",
+        (Key::Templates, false) => "Templates",
+        (Key::Templates, true) => "模板",
     }
 }
 

@@ -1,6 +1,6 @@
 //! One service's detail page: overview / tools / resources / prompts / auth tabs.
 
-use crate::api::{Api, AuthStatusView, PromptInfo, ResourceInfo, ServiceAddress, ServiceInstance, ToolInfo};
+use crate::api::{Api, AuthStatusView, PromptInfo, ResourceInfo, ResourceTemplateInfo, ServiceAddress, ServiceInstance, ToolInfo};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::tab::TabBar;
 use gpui_kit::component::{
@@ -44,6 +44,7 @@ pub struct InstanceView {
     instance: Option<ServiceInstance>,
     tools: Vec<ToolInfo>,
     resources: Vec<ResourceInfo>,
+    templates: Vec<ResourceTemplateInfo>,
     prompts: Vec<PromptInfo>,
     auth: Option<AuthStatusView>,
     overrides: Vec<Option<serde_json::Value>>,
@@ -69,6 +70,7 @@ impl InstanceView {
             instance: None,
             tools: Vec::new(),
             resources: Vec::new(),
+            templates: Vec::new(),
             prompts: Vec::new(),
             auth: None,
             overrides: Vec::new(),
@@ -110,6 +112,13 @@ impl InstanceView {
                     async move { api.list_resources(&addr) }
                 })
                 .await;
+            let templates = cx
+                .background_spawn({
+                    let api = api.clone();
+                    let addr = addr.clone();
+                    async move { api.list_resource_templates(&addr) }
+                })
+                .await;
             let prompts = cx
                 .background_spawn({
                     let api = api.clone();
@@ -149,6 +158,9 @@ impl InstanceView {
                 }
                 if let Ok(resources) = resources {
                     this.resources = resources;
+                }
+                if let Ok(templates) = templates {
+                    this.templates = templates;
                 }
                 if let Ok(prompts) = prompts {
                     this.prompts = prompts;
@@ -555,6 +567,28 @@ impl Render for InstanceView {
             );
         }
 
+        let mut template_rows = v_flex();
+        for tpl in &self.templates {
+            template_rows = template_rows.child(
+                v_flex()
+                    .gap_0p5()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(border)
+                    .child(div().text_sm().truncate().child(tpl.name.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .truncate()
+                            .child(tpl.uri_template.clone()),
+                    )
+                    .when_some(tpl.description.clone(), |el, desc| {
+                        el.child(div().text_xs().text_color(muted).truncate().child(desc))
+                    }),
+            );
+        }
+
         let mut prompt_rows = v_flex();
         for prompt in &self.prompts {
             prompt_rows = prompt_rows.child(
@@ -616,7 +650,20 @@ impl Render for InstanceView {
         let content = match tab {
             Tab::Overview => fields.into_any_element(),
             Tab::Tools => tool_rows.into_any_element(),
-            Tab::Resources => resource_rows.into_any_element(),
+            Tab::Resources => v_flex()
+                .child(resource_rows)
+                .when(!self.templates.is_empty(), |el| {
+                    el.child(
+                        div()
+                            .mt_2()
+                            .font_semibold()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(crate::dict::t(cx, crate::dict::Key::Templates)),
+                    )
+                    .child(template_rows)
+                })
+                .into_any_element(),
             Tab::Prompts => prompt_rows.into_any_element(),
             Tab::Overrides => self.render_overrides(cx).into_any_element(),
             Tab::Auth => v_flex()
