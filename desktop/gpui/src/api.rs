@@ -60,14 +60,6 @@ impl ScopeView {
             }
         }
     }
-
-    pub fn label(&self) -> String {
-        match self {
-            ScopeView::Root => "root".into(),
-            ScopeView::Store => "store".into(),
-            ScopeView::Agent { agent_id } => format!("agent:{agent_id}"),
-        }
-    }
 }
 
 /// 服务寻址：服务名 + 作用域（文档 §0.4）。
@@ -288,14 +280,6 @@ pub struct HostsConfig {
     pub entries: Vec<(String, String)>,
 }
 
-/// App-face settings payload（/v1/settings）。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct SettingsPayload {
-    pub language: Option<String>,
-    pub hosts: Option<Value>,
-}
-
 /// mcpstore 客户端。core 面如 `http://127.0.0.1:1820`，app 面如 `http://127.0.0.1:1821`。
 pub struct Api {
     agent: ureq::Agent,
@@ -404,10 +388,6 @@ impl Api {
     }
 
     // ---- app face (:1821) ----
-
-    pub fn health(&self) -> Result<Value> {
-        self.request_app("GET", "/health", None)
-    }
 
     pub fn meta(&self) -> Result<Value> {
         self.request_app("GET", "/v1/meta", None)
@@ -606,28 +586,30 @@ impl Api {
         Ok(serde_json::from_value(v)?)
     }
 
-    // ---- cache ----
+    // ---- cache / config：app 自有接口，固定走 app 面 ----
 
     pub fn cache_health(&self) -> Result<Value> {
-        self.get("/cache/health")
+        self.request_app("GET", "/cache/health", None)
     }
 
     pub fn cache_inspect(&self) -> Result<Value> {
-        self.get("/cache/inspect")
+        self.request_app("GET", "/cache/inspect", None)
     }
 
     pub fn switch_cache(&self, backend: &str) -> Result<Value> {
-        self.request(
+        self.request_app(
             "POST",
             "/cache/switch",
             Some(&serde_json::json!({ "backend": backend })),
         )
     }
 
-    // ---- config / mcp-hub ----
-
     pub fn show_config(&self, scope: &ScopeRef) -> Result<Value> {
-        self.request("GET", &config_path(scope, None), None)
+        match scope {
+            // agent config 在 core 面；store config 是 app 自有接口。
+            ScopeRef::Agent { .. } => self.request("GET", &config_path(scope, None), None),
+            ScopeRef::Store => self.request_app("GET", &config_path(scope, None), None),
+        }
     }
 
     pub fn reset_config(&self, scope: &ScopeRef) -> Result<Value> {
@@ -637,16 +619,25 @@ impl Api {
                 &format!("/scopes/agents/{}/reset", urlencoding::encode(agent_id)),
                 None,
             ),
-            ScopeRef::Store => self.request("POST", "/config/reset", None),
+            ScopeRef::Store => self.request_app("POST", "/config/reset", None),
         }
     }
 
-    pub fn mcp_hub_status(&self) -> Result<Value> {
-        self.request("GET", "/mcp-hub/status", None)
+    // mcp-hub / client-config 是 app 自有接口（附录C），固定走 app 面。
+    pub fn mcp_hub_status(&self, query: &str) -> Result<Value> {
+        self.request_app("GET", &format!("/mcp-hub/status{query}"), None)
     }
 
-    pub fn mcp_hub_action(&self, action: &str) -> Result<Value> {
-        self.request("POST", &format!("/mcp-hub/{action}"), None)
+    pub fn mcp_hub_action(&self, action: &str, query: &str) -> Result<Value> {
+        self.request_app("POST", &format!("/mcp-hub/{action}{query}"), None)
+    }
+
+    pub fn import_client_services(&self, client: &str, path: &str, names: &[String]) -> Result<Value> {
+        self.request_app(
+            "POST",
+            "/client-config/import",
+            Some(&serde_json::json!({ "client": client, "path": path, "names": names })),
+        )
     }
 }
 

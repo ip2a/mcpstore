@@ -336,18 +336,10 @@ impl Render for InstanceView {
                                     .on_click({
                                         let api = self.api.clone();
                                         let addr = self.addr.clone();
-                                        let available: Vec<String> = self
-                                            .instance
-                                            .as_ref()
-                                            .map(|svc| {
-                                                svc.state.tools.items.iter().map(|i| i.name.clone()).collect()
-                                            })
-                                            .unwrap_or_default();
                                         move |_, window, cx| {
                                             crate::dialogs::ToolPolicyDialog::open(
                                                 addr.clone(),
                                                 api.clone(),
-                                                available.clone(),
                                                 window,
                                                 cx,
                                             );

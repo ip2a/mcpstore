@@ -12,18 +12,22 @@ use gpui_kit::{
     Styled as _, Window, div,
 };
 use std::sync::Arc;
-use gpui_kit::base::{h_flex, v_flex, StyledExt as _};
+use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
+use gpui_kit::component::WindowExt as _;
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
 
 const LANGS: [&str; 3] = ["auto", "en", "zh"];
+const HUB_QUERY: &str = "?transport=stdio&path=/mcp&scope=store";
 
 pub struct SettingsView {
     api: Arc<Api>,
     version: Option<SharedString>,
     language: Option<SharedString>,
     hosts: Option<HostsConfig>,
+    hub: Option<SharedString>,
+    hub_running: bool,
     new_host_name: Entity<InputState>,
     new_host_url: Entity<InputState>,
     loading: bool,
@@ -39,6 +43,8 @@ impl SettingsView {
             version: None,
             language: None,
             hosts: None,
+            hub: None,
+            hub_running: false,
             new_host_name,
             new_host_url,
             loading: true,
@@ -57,6 +63,12 @@ impl SettingsView {
                 .background_spawn({
                     let api = api.clone();
                     async move { api.meta() }
+                })
+                .await;
+            let hub = cx
+                .background_spawn({
+                    let api = api.clone();
+                    async move { api.mcp_hub_status(HUB_QUERY) }
                 })
                 .await;
             let settings = cx
@@ -81,6 +93,10 @@ impl SettingsView {
                     }
                     Err(e) => this.error = Some(format!("{e:#}").into()),
                 }
+                if let Ok(value) = hub {
+                    this.hub_running = value.get("running").and_then(|r| r.as_bool()).unwrap_or(false);
+                    this.hub = Some(serde_json::to_string_pretty(&value).unwrap_or_default().into());
+                }
                 cx.notify();
             })
             .ok();
@@ -89,6 +105,8 @@ impl SettingsView {
     }
 
     fn save_language(&mut self, lang: &'static str, cx: &mut Context<Self>) {
+        // Flip the UI immediately, then persist.
+        crate::dict::set(crate::dict::Lang::parse(Some(lang)), cx);
         let api = self.api.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
             let payload = serde_json::json!({ "language": lang });
@@ -179,6 +197,25 @@ impl SettingsView {
             cx,
         );
         cx.notify();
+    }
+
+    fn hub_action(&mut self, action: &'static str, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        let query = if action == "stop" { "" } else { HUB_QUERY };
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.mcp_hub_action(action, query) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result
+                    .err()
+                    .map(|e| format!("mcp-hub {action} failed: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
     }
 }
 
@@ -392,6 +429,147 @@ impl Render for SettingsView {
                                                         this.add_host(cx)
                                                     })),
                                             ),
+                                    ),
+                            )
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(
+                                                div()
+                                                    .font_semibold()
+                                                    .text_sm()
+                                                    .text_color(muted)
+                                                    .child(crate::dict::t(cx, crate::dict::Key::McpHub)),
+                                            )
+                                            .when(self.hub_running, |el| {
+                                                el.child(
+                                                    div()
+                                                        .rounded(cx.theme().radius)
+                                                        .px_2()
+                                                        .text_xs()
+                                                        .bg(cx.theme().success.opacity(0.15))
+                                                        .text_color(cx.theme().success)
+                                                        .child("running"),
+                                                )
+                                            }),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .child(
+                                                Button::new("hub-start")
+                                                    .outline()
+                                                    .label(crate::dict::t(cx, crate::dict::Key::Start))
+                                                    .disabled(self.hub_running)
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.hub_action("start", cx)
+                                                    })),
+                                            )
+                                            .child(
+                                                Button::new("hub-stop")
+                                                    .outline()
+                                                    .label(crate::dict::t(cx, crate::dict::Key::Stop))
+                                                    .disabled(!self.hub_running)
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.hub_action("stop", cx)
+                                                    })),
+                                            )
+                                            .child(
+                                                Button::new("hub-import")
+                                                    .outline()
+                                                    .label(crate::dict::t(cx, crate::dict::Key::ImportClient))
+                                                    .on_click(cx.listener(|this, _, window, cx| {
+                                                        crate::dialogs::ImportClientDialog::open(
+                                                            this.api.clone(),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    })),
+                                            ),
+                                    )
+                                    .when_some(self.hub.clone(), |el, hub| {
+                                        el.child(div().text_xs().child(hub))
+                                    }),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("config-view")
+                                            .outline()
+                                            .label(crate::dict::t(cx, crate::dict::Key::ViewConfig))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                let api = this.api.clone();
+                                                let title =
+                                                    crate::dict::t(cx, crate::dict::Key::ViewConfig);
+                                                crate::dialogs::JsonViewDialog::open_fetch(
+                                                    title,
+                                                    move || {
+                                                        api.show_config(&crate::api::ScopeRef::Store)
+                                                    },
+                                                    window,
+                                                    cx,
+                                                );
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("config-reset")
+                                            .ghost()
+                                            .danger()
+                                            .label(crate::dict::t(cx, crate::dict::Key::ResetConfig))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                let api = this.api.clone();
+                                                window.open_alert_dialog(cx, move |alert, _, _| {
+                                                    let api = api.clone();
+                                                    alert
+                                                        .title("Reset store config?")
+                                                        .description(
+                                                            "This restores the default store configuration.",
+                                                        )
+                                                        .on_ok(move |_, _, cx| {
+                                                            let api = api.clone();
+                                                            cx.spawn(
+                                                                async move |cx: &mut gpui_kit::AsyncApp| {
+                                                                    let result = cx
+                                                                        .background_spawn(async move {
+                                                                            api.reset_config(
+                                                                                &crate::api::ScopeRef::Store,
+                                                                            )
+                                                                        })
+                                                                        .await;
+                                                                    if let Err(e) = result {
+                                                                        let msg = format!("{e:#}");
+                                                                        let _ = cx.update(|app| {
+                                                                            if let Some(win) =
+                                                                                app.windows().pop()
+                                                                            {
+                                                                                let _ = win.update(
+                                                                                    app,
+                                                                                    |_, window, cx| {
+                                                                                        window.open_alert_dialog(
+                                                                                            cx,
+                                                                                            move |alert, _, _| {
+                                                                                                alert
+                                                                                                    .title("Reset failed")
+                                                                                                    .description(msg.clone())
+                                                                                            },
+                                                                                        );
+                                                                                    },
+                                                                                );
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                },
+                                                            )
+                                                            .detach();
+                                                            true
+                                                        })
+                                                });
+                                            })),
                                     ),
                             ),
                     ),

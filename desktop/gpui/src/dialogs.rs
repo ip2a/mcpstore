@@ -24,7 +24,6 @@ struct SchemaField {
     required: bool,
     kind: String,
     description: Option<String>,
-    default: Option<String>,
     input: Entity<InputState>,
 }
 
@@ -82,7 +81,6 @@ fn extract_fields(
                 name,
                 kind,
                 description,
-                default,
                 input,
             }
         })
@@ -266,6 +264,15 @@ impl Render for ToolRunDialog {
             .gap_3()
             .text_color(fg)
             .child(form)
+            .child(
+                h_flex().justify_end().child(
+                    Button::new("tool-run")
+                        .primary()
+                        .label(if self.running { "Running…" } else { "Run" })
+                        .disabled(self.running)
+                        .on_click(cx.listener(|this, _, _, cx| this.run(cx))),
+                ),
+            )
             .when_some(self.error.clone(), |el, error| {
                 el.child(div().text_sm().text_color(cx.theme().danger).child(error))
             })
@@ -526,14 +533,52 @@ pub struct ToolPolicyDialog {
 }
 
 impl ToolPolicyDialog {
-    pub fn open(addr: ServiceAddress, api: Arc<Api>, current: Vec<String>, window: &mut Window, cx: &mut gpui_kit::App) {
-        let text = current.join("\n");
+    pub fn open(addr: ServiceAddress, api: Arc<Api>, window: &mut Window, cx: &mut gpui_kit::App) {
+        let handle = window.window_handle();
+        cx.spawn(async move |cx: &mut gpui_kit::AsyncApp| {
+            // Prefill with the current override from the backend.
+            let current = cx
+                .background_spawn({
+                    let api = api.clone();
+                    let addr = addr.clone();
+                    async move { api.get_tool_policy(&addr).ok() }
+                })
+                .await;
+            let _ = handle.update(cx, |_, window, cx| {
+                let text = current
+                    .and_then(|v| {
+                        v.get("available_tools")
+                            .or_else(|| v.get("tools"))
+                            .and_then(|t| t.as_array())
+                            .map(|items| {
+                                items
+                                    .iter()
+                                    .filter_map(|i| i.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            })
+                    })
+                    .unwrap_or_default();
+                Self::open_inner(addr, api, text, window, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn open_inner(
+        addr: ServiceAddress,
+        api: Arc<Api>,
+        current: String,
+        window: &mut Window,
+        cx: &mut gpui_kit::App,
+    ) {
+        let text = current;
         let entity = cx.new(|cx| Self {
             addr,
             api,
             tools: cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder("available tool names, one per line (empty = allow all)")
+                    .placeholder("allowed tool names, one per line (empty = allow all)")
                     .default_value(text)
             }),
             error: None,
@@ -801,6 +846,182 @@ impl Render for DeclareScopeDialog {
                         .primary()
                         .label(if self.running { "Declaring…" } else { "Declare" })
                         .disabled(self.running || self.done)
+                        .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
+                ),
+            )
+    }
+}
+
+/// Show a fetched JSON document (config view).
+pub struct JsonViewDialog {
+    content: Option<SharedString>,
+    title: SharedString,
+    error: Option<SharedString>,
+}
+
+impl JsonViewDialog {
+    pub fn open_fetch(title: impl Into<SharedString>, fetch: impl FnOnce() -> anyhow::Result<serde_json::Value> + Send + 'static, window: &mut Window, cx: &mut gpui_kit::App) {
+        let entity = cx.new(|_| Self {
+            content: None,
+            title: title.into(),
+            error: None,
+        });
+        let fetch_entity = entity.downgrade();
+        cx.spawn(async move |cx: &mut gpui_kit::AsyncApp| {
+            let result = cx.background_spawn(async move { fetch() }).await;
+            fetch_entity
+                .update(cx, |this, cx| {
+                    match result {
+                        Ok(value) => {
+                            this.content = Some(
+                                serde_json::to_string_pretty(&value).unwrap_or_default().into(),
+                            );
+                        }
+                        Err(e) => this.error = Some(format!("{e:#}").into()),
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+        Self::mount(entity, window, cx);
+    }
+
+    fn mount(entity: Entity<Self>, window: &mut Window, cx: &mut gpui_kit::App) {
+        let entity2 = entity.clone();
+        let title = entity.read(cx).title.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title(title.clone()).child(entity2.clone())
+        });
+    }
+}
+
+impl Render for JsonViewDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .gap_2()
+            .text_color(cx.theme().foreground)
+            .when_some(self.error.clone(), |el, error| {
+                el.child(div().text_sm().text_color(cx.theme().danger).child(error))
+            })
+            .when_some(self.content.clone(), |el, content| {
+                el.child(div().text_xs().child(content))
+            })
+            .when(self.content.is_none() && self.error.is_none(), |el| {
+                el.child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(Spinner::new())
+                        .child(div().text_sm().text_color(cx.theme().muted_foreground).child("Loading…")),
+                )
+            })
+    }
+}
+
+/// Import services from a local MCP client config (app face /client-config/import).
+pub struct ImportClientDialog {
+    api: Arc<Api>,
+    client: Entity<InputState>,
+    path: Entity<InputState>,
+    names: Entity<InputState>,
+    error: Option<SharedString>,
+    done: Option<SharedString>,
+    running: bool,
+}
+
+impl ImportClientDialog {
+    pub fn open(api: Arc<Api>, window: &mut Window, cx: &mut gpui_kit::App) {
+        let entity = cx.new(|cx| Self {
+            api,
+            client: cx.new(|cx| InputState::new(window, cx).placeholder("client, e.g. claude")),
+            path: cx.new(|cx| InputState::new(window, cx).placeholder("/path/to/config.json")),
+            names: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("service names to import, one per line")
+            }),
+            error: None,
+            done: None,
+            running: false,
+        });
+        let entity2 = entity.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title("Import client services").child(entity2.clone())
+        });
+    }
+
+    fn submit(&mut self, cx: &mut Context<Self>) {
+        let client = self.client.read(cx).value().trim().to_string();
+        let path = self.path.read(cx).value().trim().to_string();
+        let names: Vec<String> = self
+            .names
+            .read(cx)
+            .value()
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect();
+        if client.is_empty() || path.is_empty() || names.is_empty() {
+            self.error = Some("client, path and at least one name are required".into());
+            cx.notify();
+            return;
+        }
+        self.running = true;
+        self.error = None;
+        cx.notify();
+        let api = self.api.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.import_client_services(&client, &path, &names) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.running = false;
+                match result {
+                    Ok(value) => {
+                        let imported = value
+                            .get("imported")
+                            .and_then(|v| v.as_array())
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+                        this.done = Some(format!("Imported {imported} services.").into());
+                    }
+                    Err(e) => this.error = Some(format!("{e:#}").into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+}
+
+impl Render for ImportClientDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let field = |label: &'static str, input: &Entity<InputState>| {
+            v_flex()
+                .gap_1()
+                .child(div().text_sm().text_color(muted).child(label))
+                .child(Input::new(input))
+        };
+        v_flex()
+            .gap_3()
+            .text_color(cx.theme().foreground)
+            .child(field("Client", &self.client))
+            .child(field("Config path", &self.path))
+            .child(field("Service names", &self.names))
+            .when_some(self.error.clone(), |el, error| {
+                el.child(div().text_sm().text_color(cx.theme().danger).child(error))
+            })
+            .when_some(self.done.clone(), |el, done| {
+                el.child(div().text_sm().text_color(cx.theme().success).child(done))
+            })
+            .child(
+                h_flex().gap_2().justify_end().child(
+                    Button::new("import-submit")
+                        .primary()
+                        .label(if self.running { "Importing…" } else { "Import" })
+                        .disabled(self.running)
                         .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
                 ),
             )

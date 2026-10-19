@@ -1,11 +1,13 @@
 //! Services dashboard: aggregate list (scope=root) + search + lifecycle actions.
 
 use crate::api::{Api, ScopeView, ServiceAddress, ServiceInstance};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::{
     button::Button,
     input::{Input, InputEvent, InputState},
     spinner::Spinner,
-    ActiveTheme, Icon, IconName,
+    ActiveTheme, Icon,
 };
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, IntoElement, ParentElement as _, Render,
@@ -208,6 +210,71 @@ impl ServicesView {
                                 this.lifecycle(disconnect_addr.clone(), "disconnect", cx);
                             })),
                     )
+                    .child(
+                        Button::new(format!("{row_id}-edit"))
+                            .ghost()
+                            .icon(IconName::Pencil)
+                            .tooltip("Edit")
+                            .on_click({
+                                let api = self.api.clone();
+                                let svc = svc.clone();
+                                move |_, window, cx| {
+                                    crate::dialogs::ServiceFormDialog::open_edit(
+                                        api.clone(),
+                                        svc.service_name.clone(),
+                                        svc.scope.clone(),
+                                        &svc,
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            }),
+                    )
+                    .child({
+                        let api = self.api.clone();
+                        let name = svc.service_name.clone();
+                        let scope = svc.scope.clone();
+                        Button::new(format!("{row_id}-remove"))
+                            .ghost()
+                            .danger()
+                            .icon(IconName::Trash)
+                            .tooltip(crate::dict::t(cx, crate::dict::Key::Remove))
+                            .on_click({
+                                let title = crate::dict::t(cx, crate::dict::Key::RemoveScopeTitle);
+                                let body = crate::dict::t(cx, crate::dict::Key::RemoveScopeBody);
+                                move |_, window, cx| {
+                                    let api = api.clone();
+                                    let name = name.clone();
+                                    let scope = scope.clone();
+                                    let title = title;
+                                    let body = body.to_string();
+                                    window.open_alert_dialog(cx, move |alert, _, _| {
+                                        let api = api.clone();
+                                        let name = name.clone();
+                                        let scope = scope.clone();
+                                        let title = title;
+                                        let body = body.clone();
+                                        alert
+                                            .title(format!("{title} ({name})"))
+                                            .description(body)
+                                            .on_ok(move |_, _, cx| {
+                                                let api = api.clone();
+                                                let name = name.clone();
+                                                let scope = scope.clone();
+                                                cx.spawn(
+                                                    async move |cx: &mut gpui_kit::AsyncApp| {
+                                                        let _ = cx.background_spawn(async move {
+                                                            api.remove_service_scope(&name, &scope)
+                                                        }).await;
+                                                    },
+                                                )
+                                                .detach();
+                                                true
+                                            })
+                                    });
+                                }
+                            })
+                    })
                     .child(
                         Button::new(format!("{row_id}-open"))
                             .ghost()

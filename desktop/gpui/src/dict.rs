@@ -20,14 +20,6 @@ impl Lang {
         }
     }
 
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::En => "en",
-            Self::Zh => "zh",
-        }
-    }
-
     fn zh(self) -> bool {
         match self {
             Self::Zh => true,
@@ -135,6 +127,11 @@ pub enum Key {
     Empty,
     Service,
     ControlPanel,
+    McpHub,
+    Start,
+    Stop,
+    ViewConfig,
+    ImportClient,
 }
 
 pub fn t(cx: &App, key: Key) -> &'static str {
@@ -297,6 +294,16 @@ pub fn t(cx: &App, key: Key) -> &'static str {
         (Key::Service, true) => "服务",
         (Key::ControlPanel, false) => "control panel",
         (Key::ControlPanel, true) => "控制面板",
+        (Key::McpHub, false) => "MCP Hub",
+        (Key::McpHub, true) => "MCP Hub",
+        (Key::Start, false) => "Start",
+        (Key::Start, true) => "启动",
+        (Key::Stop, false) => "Stop",
+        (Key::Stop, true) => "停止",
+        (Key::ViewConfig, false) => "View config",
+        (Key::ViewConfig, true) => "查看配置",
+        (Key::ImportClient, false) => "Import client services",
+        (Key::ImportClient, true) => "导入客户端服务",
     }
 }
 

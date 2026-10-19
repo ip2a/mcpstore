@@ -9,7 +9,6 @@ use gpui_kit::{
 };
 use std::sync::Arc;
 use gpui_kit::base::{h_flex, v_flex, StyledExt as _};
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
