@@ -26,13 +26,11 @@ class RustStoreBackend:
 
     @staticmethod
     def setup_store(source: Any = None, panel: Any = None, *,
-                    debug: bool | str = False,
-                    static_config: Optional[Dict[str, Any]] = None, **kwargs: Any):
+                    debug: bool | str = False, **kwargs: Any):
         """Public entry point. Delegates to StoreSetupManager."""
         from mcpstore.store.setup import StoreSetupManager
         return StoreSetupManager.setup_store(
-            source=source, panel=panel, debug=debug,
-            static_config=static_config, **kwargs,
+            source=source, panel=panel, debug=debug, **kwargs,
         )
 
     namespace = configuration.namespace

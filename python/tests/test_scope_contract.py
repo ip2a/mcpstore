@@ -6,7 +6,6 @@ from typing import Any
 from mcpstore.adapters.openai_adapter import OpenAIAdapter
 from mcpstore.core.models import ScopeDescriptor
 from mcpstore.store import RustStoreBackend
-from mcpstore.store.setup import StoreSetupManager
 
 
 class RecordingCore:
@@ -192,24 +191,6 @@ class ScopeContractTests(unittest.TestCase):
             [
                 ("list_tools", "instance-a"),
                 ("call_tool", "instance-a", "echo", {"text": "hello"}),
-            ],
-        )
-
-    def test_static_config_registers_each_definition(self) -> None:
-        StoreSetupManager._add_static_config(
-            self.store,
-            {
-                "mcpServers": {
-                    "one": {"command": "one"},
-                    "two": {"url": "https://example.test/mcp"},
-                }
-            },
-        )
-        self.assertEqual(
-            self.core.calls,
-            [
-                ("add_service", "one", {"command": "one"}),
-                ("add_service", "two", {"url": "https://example.test/mcp"}),
             ],
         )
 
