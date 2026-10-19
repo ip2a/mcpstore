@@ -49,27 +49,29 @@ pub struct StoreSourceArgs {
     /// Mount the data panel (services per its config.toml [placement] execute locally, the rest delegate to the control panel)
     #[arg(
         long = "data-panel",
-        requires = "panel_id",
-        help = "Run data panel (requires --panel-id and a shared store)"
+        help = "Run data panel (requires a shared store; panel-id defaults to hostname)"
     )]
     pub data_panel: bool,
     #[arg(
         long = "panel-id",
         value_name = "ID",
         requires = "data_panel",
-        help = "Data panel identity (required with --data-panel)"
+        help = "Data panel identity (defaults to this machine's hostname)"
     )]
     pub panel_id: Option<String>,
 }
 
 impl StoreSourceArgs {
-    /// Panel role: --data-panel (with --panel-id) → data panel; otherwise control panel (including the default).
+    /// Panel role: --data-panel → data panel (panel-id defaults to hostname); otherwise control panel (including the default).
     pub fn panel_role(&self) -> mcpstore::PanelRole {
         if self.data_panel {
-            let panel_id = self
-                .panel_id
-                .clone()
-                .expect("--panel-id is required with --data-panel");
+            let panel_id = self.panel_id.clone().unwrap_or_else(|| {
+                let id = mcpstore::PanelRole::default_panel_id();
+                eprintln!(
+                    "panel_id defaults to hostname \"{id}\"; set --panel-id for a stable identity"
+                );
+                id
+            });
             mcpstore::PanelRole::DataPanel { panel_id }
         } else {
             mcpstore::PanelRole::ControlPanel
