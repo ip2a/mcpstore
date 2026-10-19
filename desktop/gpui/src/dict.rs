@@ -132,6 +132,11 @@ pub enum Key {
     Stop,
     ViewConfig,
     ImportClient,
+    Overrides,
+    KeyLabel,
+    Enable,
+    Disable,
+    AddOverride,
 }
 
 pub fn t(cx: &App, key: Key) -> &'static str {
@@ -304,6 +309,16 @@ pub fn t(cx: &App, key: Key) -> &'static str {
         (Key::ViewConfig, true) => "查看配置",
         (Key::ImportClient, false) => "Import client services",
         (Key::ImportClient, true) => "导入客户端服务",
+        (Key::Overrides, false) => "Overrides",
+        (Key::Overrides, true) => "覆盖",
+        (Key::KeyLabel, false) => "Key",
+        (Key::KeyLabel, true) => "键",
+        (Key::Enable, false) => "Enable",
+        (Key::Enable, true) => "启用",
+        (Key::Disable, false) => "Disable",
+        (Key::Disable, true) => "停用",
+        (Key::AddOverride, false) => "Add override",
+        (Key::AddOverride, true) => "添加覆盖",
     }
 }
 

@@ -586,6 +586,20 @@ impl Api {
         Ok(serde_json::from_value(v)?)
     }
 
+    // ---- overrides（core 面）----
+
+    pub fn list_overrides(&self, kind: &str) -> Result<Value> {
+        self.request("GET", &format!("/{kind}_overrides"), None)
+    }
+
+    pub fn set_override(&self, kind: &str, name: &str, key: &str, patch: &Value) -> Result<Value> {
+        self.request("PUT", &override_path(kind, name, key), Some(patch))
+    }
+
+    pub fn delete_override(&self, kind: &str, name: &str, key: &str) -> Result<Value> {
+        self.request("DELETE", &override_path(kind, name, key), None)
+    }
+
     // ---- cache / config：app 自有接口，固定走 app 面 ----
 
     pub fn cache_health(&self) -> Result<Value> {
@@ -682,6 +696,15 @@ fn config_path(scope: &ScopeRef, service_name: Option<&str>) -> String {
         path.push_str(&format!("&service_name={}", urlencoding::encode(name)));
     }
     path
+}
+
+fn override_path(kind: &str, name: &str, key: &str) -> String {
+    let base = format!("/services/{}/{}_overrides", urlencoding::encode(name), kind);
+    match kind {
+        "resource" => format!("{base}?uri={}", urlencoding::encode(key)),
+        "resource_template" => format!("{base}?uri_template={}", urlencoding::encode(key)),
+        _ => format!("{base}/{}", urlencoding::encode(key)),
+    }
 }
 
 fn error_message(code: u16, value: &Value, raw: &str) -> String {

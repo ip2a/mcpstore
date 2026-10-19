@@ -5,13 +5,15 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::tab::TabBar;
 use gpui_kit::component::{
     button::Button,
+    input::{Input, InputState},
     spinner::Spinner,
     ActiveTheme, Icon,
 };
 use gpui_kit::{
-    AppContext as _, Context, EventEmitter, IntoElement, ParentElement as _, Render,
+    AppContext as _, Context, Entity, EventEmitter, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Window, div,
 };
+
 use std::sync::Arc;
 use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
 use gpui_kit::component::button::ButtonVariants as _;
@@ -29,8 +31,11 @@ enum Tab {
     Tools,
     Resources,
     Prompts,
+    Overrides,
     Auth,
 }
+
+const OVERRIDE_KINDS: [&str; 4] = ["tool", "prompt", "resource", "resource_template"];
 
 pub struct InstanceView {
     addr: ServiceAddress,
@@ -41,6 +46,11 @@ pub struct InstanceView {
     resources: Vec<ResourceInfo>,
     prompts: Vec<PromptInfo>,
     auth: Option<AuthStatusView>,
+    overrides: Vec<Option<serde_json::Value>>,
+    ov_kind: usize,
+    ov_key: Entity<InputState>,
+    ov_name: Entity<InputState>,
+    ov_desc: Entity<InputState>,
     loading: bool,
     error: Option<SharedString>,
 }
@@ -48,7 +58,10 @@ pub struct InstanceView {
 impl EventEmitter<BackToServices> for InstanceView {}
 
 impl InstanceView {
-    pub fn new(addr: ServiceAddress, api: Arc<Api>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(addr: ServiceAddress, api: Arc<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let ov_key = cx.new(|cx| InputState::new(window, cx).placeholder("tool / prompt / uri"));
+        let ov_name = cx.new(|cx| InputState::new(window, cx).placeholder("display name"));
+        let ov_desc = cx.new(|cx| InputState::new(window, cx).placeholder("description"));
         let mut view = Self {
             addr,
             api,
@@ -58,6 +71,11 @@ impl InstanceView {
             resources: Vec::new(),
             prompts: Vec::new(),
             auth: None,
+            overrides: Vec::new(),
+            ov_kind: 0,
+            ov_key,
+            ov_name,
+            ov_desc,
             loading: true,
             error: None,
         };
@@ -100,7 +118,22 @@ impl InstanceView {
                 })
                 .await;
             let auth = cx
-                .background_spawn(async move { api.auth_status(&addr) })
+                .background_spawn({
+                    let api = api.clone();
+                    async move { api.auth_status(&addr) }
+                })
+                .await;
+            let overrides = cx
+                .background_spawn({
+                    let api = api.clone();
+                    async move {
+                        let mut out = Vec::new();
+                        for kind in OVERRIDE_KINDS {
+                            out.push(api.list_overrides(kind).ok());
+                        }
+                        out
+                    }
+                })
                 .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
@@ -123,6 +156,7 @@ impl InstanceView {
                 if let Ok(auth) = auth {
                     this.auth = Some(auth);
                 }
+                this.overrides = overrides;
                 cx.notify();
             })
             .ok();
@@ -185,6 +219,108 @@ impl InstanceView {
         .detach();
     }
 
+    fn add_override(&mut self, cx: &mut Context<Self>) {
+        let kind = OVERRIDE_KINDS[self.ov_kind];
+        let key = self.ov_key.read(cx).value().trim().to_string();
+        let name = self.ov_name.read(cx).value().trim().to_string();
+        let desc = self.ov_desc.read(cx).value().trim().to_string();
+        if key.is_empty() {
+            self.error = Some("override key is required".into());
+            cx.notify();
+            return;
+        }
+        let mut patch = serde_json::Map::new();
+        patch.insert("enabled".into(), serde_json::Value::Bool(true));
+        if !name.is_empty() {
+            patch.insert("display_name".into(), name.into());
+        }
+        if !desc.is_empty() {
+            patch.insert("description".into(), desc.into());
+        }
+        let api = self.api.clone();
+        let svc = self.addr.service_name.clone();
+        let patch = serde_json::Value::Object(patch);
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.set_override(kind, &svc, &key, &patch) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result
+                    .err()
+                    .map(|e| format!("set override failed: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
+    fn toggle_override(&mut self, kind: &'static str, rule: serde_json::Value, cx: &mut Context<Self>) {
+        let key = override_rule_key(kind, &rule);
+        if key.is_empty() {
+            return;
+        }
+        // Preserve editable fields, flip enabled.
+        let mut patch = serde_json::Map::new();
+        for field in [
+            "display_name",
+            "description",
+            "meta",
+            "annotations",
+            "tags",
+            "arguments",
+            "safety_policy",
+            "mime_type",
+        ] {
+            if let Some(v) = rule.get(field) {
+                patch.insert(field.into(), v.clone());
+            }
+        }
+        let enabled = rule.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true);
+        patch.insert("enabled".into(), (!enabled).into());
+        let api = self.api.clone();
+        let svc = self.addr.service_name.clone();
+        let patch = serde_json::Value::Object(patch);
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.set_override(kind, &svc, &key, &patch) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result
+                    .err()
+                    .map(|e| format!("toggle override failed: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
+    fn delete_override(&mut self, kind: &'static str, rule: serde_json::Value, cx: &mut Context<Self>) {
+        let key = override_rule_key(kind, &rule);
+        if key.is_empty() {
+            return;
+        }
+        let api = self.api.clone();
+        let svc = self.addr.service_name.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn(async move { api.delete_override(kind, &svc, &key) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.error = result
+                    .err()
+                    .map(|e| format!("delete override failed: {e:#}").into());
+                cx.notify();
+            })
+            .ok();
+            this.update(cx, |this, cx| this.refresh(cx)).ok();
+        })
+        .detach();
+    }
+
     fn render_field(
         label: &'static str,
         value: String,
@@ -223,6 +359,7 @@ impl Render for InstanceView {
             crate::dict::t(cx, crate::dict::Key::Tools),
             crate::dict::t(cx, crate::dict::Key::Resources),
             crate::dict::t(cx, crate::dict::Key::Prompts),
+            crate::dict::t(cx, crate::dict::Key::Overrides),
             crate::dict::t(cx, crate::dict::Key::Auth),
         ];
         let tab_bar = TabBar::new("instance-tabs")
@@ -232,7 +369,8 @@ impl Render for InstanceView {
                 Tab::Tools => 1,
                 Tab::Resources => 2,
                 Tab::Prompts => 3,
-                Tab::Auth => 4,
+                Tab::Overrides => 4,
+                Tab::Auth => 5,
             })
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 this.tab = match ix {
@@ -240,6 +378,7 @@ impl Render for InstanceView {
                     1 => Tab::Tools,
                     2 => Tab::Resources,
                     3 => Tab::Prompts,
+                    4 => Tab::Overrides,
                     _ => Tab::Auth,
                 };
                 cx.notify();
@@ -479,6 +618,7 @@ impl Render for InstanceView {
             Tab::Tools => tool_rows.into_any_element(),
             Tab::Resources => resource_rows.into_any_element(),
             Tab::Prompts => prompt_rows.into_any_element(),
+            Tab::Overrides => self.render_overrides(cx).into_any_element(),
             Tab::Auth => v_flex()
                 .child(auth_rows)
                 .child(auth_actions)
@@ -584,4 +724,174 @@ impl Render for InstanceView {
                     ),
             )
     }
+}
+
+impl InstanceView {
+    fn render_overrides(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let svc_name = self.addr.service_name.clone();
+
+        // Add form: kind picker + key + display name + description.
+        let mut kind_buttons = h_flex().gap_2().items_center();
+        for (i, kind) in OVERRIDE_KINDS.iter().enumerate() {
+            kind_buttons = kind_buttons.child(
+                Button::new(format!("ov-kind-{kind}"))
+                    .outline()
+                    .label(*kind)
+                    .when(self.ov_kind == i, |b| b.primary())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.ov_kind = i;
+                        cx.notify();
+                    })),
+            );
+        }
+        let add_form = v_flex()
+            .gap_2()
+            .child(kind_buttons)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().w_56().child(Input::new(&self.ov_key)))
+                    .child(div().w_48().child(Input::new(&self.ov_name)))
+                    .child(div().flex_1().child(Input::new(&self.ov_desc)))
+                    .child(
+                        Button::new("ov-add")
+                            .primary()
+                            .label(crate::dict::t(cx, crate::dict::Key::AddOverride))
+                            .on_click(cx.listener(|this, _, _, cx| this.add_override(cx))),
+                    ),
+            );
+
+        // Per-kind sections listing this service's rules.
+        let mut sections = v_flex().gap_3();
+        for (i, kind) in OVERRIDE_KINDS.iter().enumerate() {
+            let mut rows = v_flex();
+            if let Some(Some(list)) = self.overrides.get(i) {
+                if let Some(rules) = list.get("overrides").and_then(|o| o.as_array()) {
+                    for rule in rules
+                        .iter()
+                        .filter(|r| r.get("service_name").and_then(|s| s.as_str()) == Some(svc_name.as_str()))
+                    {
+                        let key = override_rule_key(kind, rule);
+                        let display = rule
+                            .get("display_name")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let desc = rule
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let enabled = rule
+                            .get("enabled")
+                            .and_then(|e| e.as_bool())
+                            .unwrap_or(true);
+                        let rule_clone = rule.clone();
+                        let rule_clone2 = rule.clone();
+                        rows = rows.child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .py_1p5()
+                                .border_b_1()
+                                .border_color(cx.theme().border)
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .flex_1()
+                                        .text_sm()
+                                        .truncate()
+                                        .child(if display.is_empty() {
+                                            key.clone()
+                                        } else {
+                                            format!("{key} → {display}")
+                                        }),
+                                )
+                                .when(!desc.is_empty(), |el| {
+                                    el.child(
+                                        div()
+                                            .min_w_0()
+                                            .flex_1()
+                                            .text_xs()
+                                            .text_color(muted)
+                                            .truncate()
+                                            .child(desc),
+                                    )
+                                })
+                                .child(
+                                    div()
+                                        .rounded(cx.theme().radius)
+                                        .px_2()
+                                        .text_xs()
+                                        .when(enabled, |el| {
+                                            el.bg(cx.theme().success.opacity(0.15))
+                                                .text_color(cx.theme().success)
+                                                .child("on")
+                                        })
+                                        .when(!enabled, |el| {
+                                            el.bg(cx.theme().muted.opacity(0.4))
+                                                .text_color(muted)
+                                                .child("off")
+                                        }),
+                                )
+                                .child(
+                                    Button::new(format!("ov-toggle-{i}-{key}"))
+                                        .ghost()
+                                        .label(if enabled {
+                                            crate::dict::t(cx, crate::dict::Key::Disable)
+                                        } else {
+                                            crate::dict::t(cx, crate::dict::Key::Enable)
+                                        })
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.toggle_override(kind, rule_clone.clone(), cx)
+                                        })),
+                                )
+                                .child(
+                                    Button::new(format!("ov-del-{i}-{key}"))
+                                        .ghost()
+                                        .danger()
+                                        .icon(IconName::Trash)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.delete_override(kind, rule_clone2.clone(), cx)
+                                        })),
+                                ),
+                        );
+                    }
+                }
+            }
+            sections = sections.child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .font_semibold()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(format!("{kind}_overrides")),
+                    )
+                    .child(rows),
+            );
+        }
+
+        v_flex()
+            .gap_4()
+            .child(add_form)
+            .child(sections)
+    }
+}
+
+/// Identity of an override rule: tool/prompt use name segments, resources use query keys.
+fn override_rule_key(kind: &str, rule: &serde_json::Value) -> String {
+    let field = match kind {
+        "tool" => "tool_name",
+        "prompt" => "prompt_name",
+        "resource" => "uri",
+        _ => "uri_template",
+    };
+    rule.get(field)
+        .and_then(|k| k.as_str())
+        .unwrap_or("")
+        .to_string()
 }
