@@ -122,6 +122,9 @@ impl Render for ToolsView {
 
         let mut list = v_flex();
         for (addr, tool) in rows {
+            let open_addr = addr.clone();
+            let open_tool = tool.clone();
+            let open_api = self.api.clone();
             let id = format!(
                 "tool-{}-{}",
                 urlencoding::encode(&addr.service_name),
@@ -129,7 +132,7 @@ impl Render for ToolsView {
             );
             list = list.child(
                 v_flex()
-                    .id(id)
+                    .id(id.clone())
                     .gap_0p5()
                     .px_3()
                     .py_2()
@@ -149,6 +152,21 @@ impl Render for ToolsView {
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(addr.service_name.clone()),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                Button::new(format!("{id}-run"))
+                                    .outline()
+                                    .label("Run")
+                                    .on_click(cx.listener(move |_, _, window, cx| {
+                                        crate::dialogs::ToolRunDialog::open(
+                                            open_addr.clone(),
+                                            open_tool.clone(),
+                                            open_api.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    })),
                             ),
                     )
                     .when_some(

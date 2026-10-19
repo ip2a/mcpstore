@@ -2,6 +2,7 @@
 
 mod api;
 mod app;
+mod dialogs;
 mod views;
 
 use gpui_kit::{AppContext as _, WindowOptions};

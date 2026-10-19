@@ -261,6 +261,15 @@ impl Render for ServicesView {
                             .icon(IconName::RefreshCw)
                             .label("Refresh")
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+                    )
+                    .child(
+                        Button::new("services-add")
+                            .primary()
+                            .icon(IconName::Plus)
+                            .label("Add")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                crate::dialogs::AddServiceDialog::open(this.api.clone(), window, cx);
+                            })),
                     ),
             )
             .when_some(self.error.clone(), |el, error| {

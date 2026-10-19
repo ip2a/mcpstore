@@ -359,6 +359,36 @@ impl Api {
         self.request("POST", &format!("{}{}", addr.base_path(), action), None)
     }
 
+    /// `POST /services/{name}` — 新服务默认进 store 作用域（doc §17）。
+    pub fn add_service(
+        &self,
+        name: &str,
+        transport: &str,
+        target: &str,
+        description: Option<&str>,
+    ) -> Result<Value> {
+        let mut payload = serde_json::json!({
+            "transport": transport,
+            "env": {},
+            "headers": {},
+            "_mcpstore": { "scopes": { "store": {} } },
+        });
+        if let Some(description) = description {
+            payload["description"] = description.into();
+        }
+        if transport == "stdio" {
+            let command: Vec<&str> = target.split_whitespace().collect();
+            payload["command"] = command.into();
+        } else {
+            payload["url"] = target.into();
+        }
+        self.request(
+            "POST",
+            &format!("/services/{}", urlencoding::encode(name)),
+            Some(&payload),
+        )
+    }
+
     pub fn cache_health(&self) -> Result<Value> {
         self.get("/cache/health")
     }
