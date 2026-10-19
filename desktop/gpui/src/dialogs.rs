@@ -9,7 +9,7 @@ use gpui_kit::component::{
     button::Button,
     input::{Input, InputState, Textarea, TextareaState},
     spinner::Spinner,
-    ActiveTheme,
+    ActiveTheme, Icon, IconName,
 };
 use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
 use gpui_kit::component::button::ButtonVariants as _;
@@ -128,6 +128,34 @@ impl SchemaField {
     }
 }
 
+/// Multi-line CLI preview for running a tool from a shell (matches `mcpstore tools call`).
+fn build_tool_cli_command(
+    service_name: &str,
+    tool_name: &str,
+    scope: &ScopeRef,
+    args_json: &str,
+) -> String {
+    let mut lines = vec![
+        "mcpstore tools call \\".to_string(),
+        format!("  {} {}", shell_quote(service_name), shell_quote(tool_name)),
+    ];
+    if !args_json.is_empty() && args_json != "{}" {
+        lines.push(format!("  --arguments '{}'", args_json.replace('\'', "'\\''")));
+    }
+    if let ScopeRef::Agent { agent_id } = scope {
+        lines.push(format!("  --scope agent --agent {}", shell_quote(agent_id)));
+    }
+    lines.join("\n")
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.chars().all(|c| c.is_alphanumeric() || "-_./=@".contains(c)) {
+        value.to_string()
+    } else {
+        format!("\"{value}\"")
+    }
+}
+
 pub struct ToolRunDialog {
     addr: ServiceAddress,
     api: Arc<Api>,
@@ -224,6 +252,98 @@ impl ToolRunDialog {
 impl Render for ToolRunDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (muted, fg) = (cx.theme().muted_foreground, cx.theme().foreground);
+
+        // CLI preview from the current form values (best effort; ignore parse errors).
+        let mut args = serde_json::Map::new();
+        for field in &self.fields {
+            if let Ok((name, value)) = field.parse(cx) {
+                if !value.is_null() {
+                    args.insert(name, value);
+                }
+            }
+        }
+        let args_json = serde_json::to_string(&Value::Object(args)).unwrap_or_default();
+        let cli_command = build_tool_cli_command(
+            &self.addr.service_name,
+            &self.tool.name,
+            &self.addr.scope,
+            &args_json,
+        );
+        let cli_for_copy = cli_command.clone();
+
+        let cli_card = v_flex()
+            .gap_2()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().muted)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("CLI request"),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("tool-cli-copy")
+                            .ghost()
+                            .icon(IconName::Copy)
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+                                    cli_for_copy.clone(),
+                                ));
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .font_family("Monaco")
+                    .text_xs()
+                    .child(cli_command),
+            );
+
+        let mut params_card = v_flex()
+            .gap_2()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().muted)
+            .child(div().text_xs().text_color(muted).child("Parameters"));
+        for field in &self.fields {
+            let mut title = field.name.clone();
+            if field.required {
+                title.push_str(" *");
+            }
+            params_card = params_card.child(
+                v_flex()
+                    .gap_0p5()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().text_sm().font_medium().child(title))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted.opacity(0.7))
+                                    .child(format!("({})", field.kind)),
+                            ),
+                    )
+                    .when_some(field.description.clone(), |el, desc| {
+                        el.child(div().text_xs().text_color(muted).truncate().child(desc))
+                    }),
+            );
+        }
+        if self.fields.is_empty() {
+            params_card = params_card
+                .child(div().text_xs().text_color(muted).child("This tool takes no arguments."));
+        }
+
         let mut form = v_flex().gap_3();
         for i in 0..self.fields.len() {
             let input = self.fields[i].input.clone();
@@ -263,7 +383,7 @@ impl Render for ToolRunDialog {
             );
         }
 
-        v_flex()
+        let left = v_flex()
             .gap_3()
             .text_color(fg)
             .child(form)
@@ -306,7 +426,19 @@ impl Render for ToolRunDialog {
                         )
                         .child(div().text_xs().child(result)),
                 )
-            })
+            });
+
+        h_flex()
+            .gap_4()
+            .items_start()
+            .child(left.flex_1().min_w_0())
+            .child(
+                v_flex()
+                    .w(gpui_kit::px(320.))
+                    .gap_3()
+                    .child(cli_card)
+                    .child(params_card),
+            )
     }
 }
 
