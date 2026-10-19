@@ -1,23 +1,27 @@
 //! Data-panel routing: the panel's own config.toml `[placement]` decides local vs delegate.
 //!
-//! Keys are `"{scope}.{service}"` (`"agentA.github"`, `"store.context7"`); the only meaningful
-//! value is `"delegate"` — a missing entry, an absent section or any other value means local
-//! execution: pull the instance's kv effective_config (base + scope overrides) and run it here.
-//! The control panel never reads this section.
+//! Entries are nested by scope then service (`[placement.agentA] github = "delegate"`); the
+//! only meaningful value is `"delegate"` — a missing entry, an absent section or any other
+//! value means local execution: pull the instance's kv effective_config (base + scope
+//! overrides) and run it here. The control panel never reads this section. `store` is the
+//! reserved scope section for store-scope instances.
+
+use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::identity::InstanceId;
+use crate::identity::{InstanceId, ScopeRef};
 use crate::store::prelude::*;
 use crate::store::MCPStore;
 
 const DELEGATE: &str = "delegate";
 
-/// `"{scope}.{service}"` placement key (`"store.context7"`, `"agentA.github"`).
-fn placement_key(service_name: &str, scope: &crate::identity::ScopeRef) -> String {
+/// Config section name for the store scope (`[placement.store]`); reserved, an agent must
+/// not be named `store`.
+fn scope_token(scope: &ScopeRef) -> &str {
     match scope {
-        crate::identity::ScopeRef::Store => format!("store.{service_name}"),
-        crate::identity::ScopeRef::Agent { agent_id } => format!("{agent_id}.{service_name}"),
+        ScopeRef::Store => "store",
+        ScopeRef::Agent { agent_id } => agent_id,
     }
 }
 
@@ -29,8 +33,12 @@ impl MCPStore {
             .instance_from_kv(instance_id)
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
-        let key = placement_key(&instance.service_name, &instance.scope);
-        Ok(self.kernel.runtime.panel_placement.get(&key).map(String::as_str) != Some(DELEGATE))
+        let delegates = self.kernel.runtime.panel_placement
+            .get(scope_token(&instance.scope))
+            .and_then(|services| services.get(&instance.service_name))
+            .map(String::as_str)
+            == Some(DELEGATE);
+        Ok(!delegates)
     }
 
     /// The data panel's single connection entry for local execution (ensure_instance_connected
@@ -82,33 +90,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn placement_key_pairs_scope_and_service() {
-        assert_eq!(
-            placement_key("github", &crate::identity::ScopeRef::Store),
-            "store.github"
-        );
-        assert_eq!(
-            placement_key(
-                "github",
-                &crate::identity::ScopeRef::Agent {
-                    agent_id: "agentA".to_string()
-                }
-            ),
-            "agentA.github"
-        );
-    }
+    fn only_explicit_delegate_entry_delegates() {
+        let mut placement: HashMap<String, HashMap<String, String>> = HashMap::new();
+        placement
+            .entry("agentA".to_string())
+            .or_default()
+            .insert("github".to_string(), "delegate".to_string());
+        placement
+            .entry("store".to_string())
+            .or_default()
+            .insert("context7".to_string(), "local".to_string());
+        placement
+            .entry("agentB".to_string())
+            .or_default()
+            .insert("filesystem".to_string(), "nonsense".to_string());
 
-    #[test]
-    fn only_explicit_delegate_delegates() {
-        let mut placement = std::collections::HashMap::new();
-        placement.insert("store.github".to_string(), "delegate".to_string());
-        placement.insert("agentA.context7".to_string(), "local".to_string());
-        placement.insert("agentB.filesystem".to_string(), "nonsense".to_string());
-
-        let mode = |key: &str| placement.get(key).map(String::as_str) != Some(DELEGATE);
-        assert!(!mode("store.github")); // explicit delegate
-        assert!(mode("agentA.context7")); // explicit local
-        assert!(mode("agentB.filesystem")); // unknown value → local, no error
-        assert!(mode("agentC.gitodo")); // missing → local
+        let delegates = |scope: &str, service: &str| {
+            placement
+                .get(scope)
+                .and_then(|services| services.get(service))
+                .map(String::as_str)
+                == Some(DELEGATE)
+        };
+        assert!(delegates("agentA", "github")); // explicit delegate
+        assert!(!delegates("store", "context7")); // explicit local
+        assert!(!delegates("agentB", "filesystem")); // unknown value → local, no error
+        assert!(!delegates("agentA", "context7")); // unknown service → local
+        assert!(!delegates("agentC", "gitodo")); // unknown scope → local
     }
 }

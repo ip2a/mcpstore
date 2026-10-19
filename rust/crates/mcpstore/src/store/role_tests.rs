@@ -334,16 +334,26 @@ async fn db_query_reads_kv_without_hydrating_the_registry() {
         .is_empty());
 }
 
-/// Writes an empty mcp.json plus a `[placement]` config.toml next to it; returns the mcp.json
-/// path for `config_path` (the app config is resolved as its sibling).
-fn write_panel_config(entries: &[(&str, &str)]) -> String {
+/// Writes an empty mcp.json plus a `[placement.<scope>]` config.toml next to it; returns the
+/// mcp.json path for `config_path` (the app config is resolved as its sibling).
+fn write_panel_config(entries: &[(&str, &str, &str)]) -> String {
     let dir = std::env::temp_dir().join(format!("mcpstore-placement-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let mcp_path = dir.join("mcp.json");
     std::fs::write(&mcp_path, "{}").unwrap();
-    let mut toml = String::from("[placement]\n");
-    for (key, value) in entries {
-        toml.push_str(&format!("\"{key}\" = \"{value}\"\n"));
+    let mut by_scope = std::collections::BTreeMap::new();
+    for (scope, service, mode) in entries {
+        by_scope
+            .entry(*scope)
+            .or_insert_with(Vec::new)
+            .push((*service, *mode));
+    }
+    let mut toml = String::new();
+    for (scope, services) in by_scope {
+        toml.push_str(&format!("[placement.{scope}]\n"));
+        for (service, mode) in services {
+            toml.push_str(&format!("\"{service}\" = \"{mode}\"\n"));
+        }
     }
     std::fs::write(dir.join("config.toml"), toml).unwrap();
     mcp_path.to_string_lossy().into_owned()
@@ -359,7 +369,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
         panel: PanelRole::ControlPanel,
     })
     .unwrap();
-    let config_path = write_panel_config(&[("store.svc", "delegate")]);
+    let config_path = write_panel_config(&[("store", "svc", "delegate")]);
     let data = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(config_path),
         store: Some(JsonStoreConfig::shared_memory()),
@@ -451,7 +461,7 @@ async fn db_data_panel_default_placement_executes_locally() {
     .unwrap();
     // svc is absent from [placement] → the default is local execution; the explicit
     // delegate entry for another service proves the decision is per instance.
-    let config_path = write_panel_config(&[("store.other", "delegate")]);
+    let config_path = write_panel_config(&[("store", "other", "delegate")]);
     let data = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(config_path),
         store: Some(JsonStoreConfig::shared_memory()),
