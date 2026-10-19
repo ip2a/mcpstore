@@ -1,12 +1,13 @@
 //! Scopes page: registry of root/store/agent scopes plus the agent list.
 
-use crate::api::{Api, ScopeSummary};
+use crate::api::{Api, ScopeSummary, ScopeView, ServiceInstance};
+use crate::views::services::SelectService;
 use gpui_kit::component::{WindowExt as _, button::Button, spinner::Spinner, ActiveTheme};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::{
-    AppContext as _, Context, IntoElement, ParentElement as _, Render, SharedString,
-    Styled as _, Window, div,
+    AppContext as _, Context, EventEmitter, IntoElement, ParentElement as _, Render,
+    SharedString, Styled as _, Window, div,
 };
 use std::sync::Arc;
 use gpui_kit::base::{h_flex, v_flex, StyledExt as _};
@@ -18,9 +19,14 @@ pub struct ScopesView {
     api: Arc<Api>,
     scopes: Vec<ScopeSummary>,
     agents: Vec<(String, usize)>,
+    expanded: Option<ScopeView>,
+    expanded_loading: bool,
+    expanded_services: Vec<ServiceInstance>,
     loading: bool,
     error: Option<SharedString>,
 }
+
+impl EventEmitter<SelectService> for ScopesView {}
 
 impl ScopesView {
     pub fn new(api: Arc<Api>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -28,6 +34,9 @@ impl ScopesView {
             api,
             scopes: Vec::new(),
             agents: Vec::new(),
+            expanded: None,
+            expanded_loading: false,
+            expanded_services: Vec::new(),
             loading: true,
             error: None,
         };
@@ -67,6 +76,36 @@ impl ScopesView {
         })
         .detach();
     }
+
+    /// Drill down into a scope's service list (click again to collapse).
+    fn toggle_scope(&mut self, view: ScopeView, cx: &mut Context<Self>) {
+        if self.expanded.as_ref() == Some(&view) {
+            self.expanded = None;
+            self.expanded_services.clear();
+            cx.notify();
+            return;
+        }
+        self.expanded = Some(view.clone());
+        self.expanded_loading = true;
+        cx.notify();
+        let api = self.api.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let services = cx
+                .background_spawn(async move { api.list_services(&view).await })
+                .await;
+            this.update(cx, |this, cx| {
+                this.expanded_loading = false;
+                this.expanded_services = services.unwrap_or_default();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn open_service(&mut self, addr: crate::api::ServiceAddress, cx: &mut Context<Self>) {
+        cx.emit(SelectService(addr));
+    }
 }
 
 impl Render for ScopesView {
@@ -78,6 +117,9 @@ impl Render for ScopesView {
                 crate::api::ScopeView::Store => "store".to_string(),
                 crate::api::ScopeView::Agent { agent_id } => format!("agent:{agent_id}"),
             };
+            let drill_label = label.clone();
+            let scope_view = summary.scope.clone();
+            let expanded_here = self.expanded.as_ref() == Some(&summary.scope);
             scope_rows = scope_rows.child(
                 h_flex()
                     .justify_between()
@@ -87,12 +129,61 @@ impl Render for ScopesView {
                     .border_color(cx.theme().border)
                     .child(div().text_sm().child(label))
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} services", summary.service_count)),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("{} services", summary.service_count)),
+                            )
+                            .child(
+                                Button::new(format!("scope-drill-{}", drill_label))
+                                    .ghost()
+                                    .icon(if expanded_here {
+                                        IconName::ChevronLeft
+                                    } else {
+                                        IconName::Layers
+                                    })
+                                    .label("services")
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.toggle_scope(scope_view.clone(), cx)
+                                    })),
+                            ),
                     ),
             );
+            if expanded_here {
+                let mut drill = v_flex().gap_0p5().pl_4().pb_2().border_l_1().border_color(cx.theme().border);
+                if self.expanded_loading {
+                    drill = drill.child(
+                        h_flex()
+                            .gap_2()
+                            .py_1()
+                            .child(Spinner::new())
+                            .child(div().text_xs().text_color(cx.theme().muted_foreground).child(crate::dict::t(cx, crate::dict::Key::Loading))),
+                    );
+                } else if self.expanded_services.is_empty() {
+                    drill = drill.child(
+                        div().text_xs().text_color(cx.theme().muted_foreground).child("(no services)"),
+                    );
+                }
+                for svc in &self.expanded_services {
+                    let addr = crate::api::ServiceAddress {
+                        service_name: svc.service_name.clone(),
+                        scope: svc.scope.clone(),
+                    };
+                    drill = drill.child(
+                        Button::new(format!("drill-svc-{}-{}", svc.service_name, svc.instance_id))
+                            .ghost()
+                            .label(format!("{} · {} ({})", svc.service_name, svc.state.phase, svc.state.health))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.open_service(addr.clone(), cx)
+                            })),
+                    );
+                }
+                scope_rows = scope_rows.child(drill);
+            }
         }
 
         let mut agent_rows = v_flex();

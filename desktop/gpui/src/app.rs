@@ -39,7 +39,9 @@ pub struct MainWindow {
     settings: Entity<SettingsView>,
     instance: Option<Entity<InstanceView>>,
     instance_sub: Option<Subscription>,
+    instance_origin: Nav,
     _open_sub: Subscription,
+    _scopes_open_sub: Subscription,
 }
 
 impl MainWindow {
@@ -54,22 +56,14 @@ impl MainWindow {
             &services,
             window,
             |this, _view, event: &SelectService, window, cx| {
-                let instance = cx.new(|cx| {
-                    InstanceView::new(event.0.clone(), this.api.clone(), window, cx)
-                });
-                let back_sub = cx.subscribe_in(
-                    &instance,
-                    window,
-                    |this, _view, _event: &BackToServices, _window, cx| {
-                        this.nav = Nav::Services;
-                        this.instance = None;
-                        cx.notify();
-                    },
-                );
-                this.instance_sub = Some(back_sub);
-                this.instance = Some(instance);
-                this.nav = Nav::Instance;
-                cx.notify();
+                this.open_instance(event.0.clone(), Nav::Services, window, cx);
+            },
+        );
+        let scopes_open_sub = cx.subscribe_in(
+            &scopes,
+            window,
+            |this, _view, event: &SelectService, window, cx| {
+                this.open_instance(event.0.clone(), Nav::Scopes, window, cx);
             },
         );
 
@@ -83,8 +77,34 @@ impl MainWindow {
             settings,
             instance: None,
             instance_sub: None,
+            instance_origin: Nav::Services,
             _open_sub: open_sub,
+            _scopes_open_sub: scopes_open_sub,
         }
+    }
+
+    fn open_instance(
+        &mut self,
+        addr: crate::api::ServiceAddress,
+        origin: Nav,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let instance = cx.new(|cx| InstanceView::new(addr, self.api.clone(), window, cx));
+        let back_sub = cx.subscribe_in(
+            &instance,
+            window,
+            |this, _view, _event: &BackToServices, _window, cx| {
+                this.nav = this.instance_origin;
+                this.instance = None;
+                cx.notify();
+            },
+        );
+        self.instance_sub = Some(back_sub);
+        self.instance = Some(instance);
+        self.instance_origin = origin;
+        self.nav = Nav::Instance;
+        cx.notify();
     }
 
     fn nav_item(

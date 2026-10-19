@@ -29,9 +29,9 @@ tools filter=available 写死、settings 的连接/诊断管理。
 | 服务详情 3-tab catalog + 右侧 doc/playground；prompt arguments JSON、template annotations/meta JSON | service-panels | ✅ 2026-10-19 prompts 已附 arguments JSON；3-tab 双栏布局不搬（桌面 tab 平铺已够用） |
 | 概览：server info/protocol/capabilities badges/instructions | service-panels | ✅ 2026-10-19 Server/Protocol/Capabilities 行 + Instructions 段（mcp 块已随 get_service 返回） |
 | 服务列表：排序、4 态状态过滤、scope/agent 过滤对话框、行内 add-scope | services view | ✅ 2026-10-19 phase 循环过滤(all/running/stopped)+名称排序；scope/agent 对话框与行内 add-scope 仍缺（scope 页可达） |
-| scopes 页：每 scope 服务下钻、ScopeServiceSheet、每 scope 的 hub/config 入口、可加服务下拉 | agents-view | ⚠️ 只有 registry 列表 + declare/reset |
+| scopes 页：每 scope 服务下钻、ScopeServiceSheet、每 scope 的 hub/config 入口、可加服务下拉 | agents-view | ✅ 2026-10-19 scope 行 services 下钻列表，点击直达实例页（SelectService 事件）；sheet 形态/hub 入口不搬（桌面已有独立设置页） |
 | settings Overview host 状态卡（探活/延迟/version/store name）、About 链接 | settings | ✅ 2026-10-19 host 行探活延迟芯片 + /health store 名（About 链接无桌面等价） |
-| cache：层浏览器/键详情/请求指标网格/复制报告 | features/cache | ⚠️ 整段 JSON dump |
+| cache：层浏览器/键详情/请求指标网格/复制报告 | features/cache | ✅ 2026-10-19 layer→collection→键树（点击键弹 JSON 卡）、摘要行、复制报告按钮（请求指标网格并进报告 JSON） |
 | config `?format=` 指定输出格式 | settings/config | ✅ 2026-10-19 native/claude/codex 循环切换按钮 |
 | overrides PUT 只发改动字段；resource override 的 mime_type 字段 | overrides | ✅ 2026-10-19 本就是 patch 语义（enabled+非空字段）；表单补 mime_type 输入 |
 | GET /services/:name/state 独立轮询 | — | ⚠️ 用 get_service 全量，等价但重 |
