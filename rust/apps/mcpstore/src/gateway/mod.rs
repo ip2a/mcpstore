@@ -92,6 +92,21 @@ pub struct GatewayLaunchDescriptor {
     pub url: String,
 }
 
+/// One routed business tool call through the gateway (management tools excluded).
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct GatewayCallRecord {
+    pub at_unix_ms: u64,
+    pub tool: String,
+    pub instance_id: InstanceId,
+    pub duration_ms: u64,
+    pub success: bool,
+}
+
+/// Bounded in-memory ring of recent routed calls; read by the app-plane /gateway/requests.
+pub type GatewayCallLog = Arc<std::sync::Mutex<std::collections::VecDeque<GatewayCallRecord>>>;
+
+const GATEWAY_CALL_LOG_CAP: usize = 256;
+
 impl GatewayOptions {
     pub fn launch_descriptor(&self) -> GatewayLaunchDescriptor {
         GatewayLaunchDescriptor {
@@ -223,6 +238,7 @@ pub(crate) struct GatewayServer {
     cache_tools: Arc<HashMap<String, Tool>>,
     search_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
+    call_log: GatewayCallLog,
 }
 
 mod catalog;

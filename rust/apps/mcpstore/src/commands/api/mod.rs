@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::gateway::{
-    run_streamable_http, GatewayLaunchDescriptor, GatewayOptions, GatewayServer,
+    run_streamable_http, GatewayCallLog, GatewayLaunchDescriptor, GatewayOptions, GatewayServer,
 };
 use axum::{
     extract::State,
@@ -50,6 +50,8 @@ pub struct ApiState {
 struct GatewayProcess {
     task: JoinHandle<()>,
     descriptor: GatewayLaunchDescriptor,
+    call_log: GatewayCallLog,
+    summary: serde_json::Value,
 }
 
 /// Resolve `(service_name, scope)` to an instance_id; 404 when the service isn't declared in that scope.
@@ -131,6 +133,7 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/client-config/import", post(client::client_config_import))
         .route("/gateway/descriptor", get(client::gateway_descriptor))
         .route("/gateway/status", get(client::gateway_status))
+        .route("/gateway/requests", get(client::gateway_requests))
         .route("/gateway/start", post(client::gateway_start))
         .route("/gateway/stop", post(client::gateway_stop))
         .route("/cache/health", get(cache::health))

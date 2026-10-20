@@ -141,7 +141,41 @@ impl GatewayServer {
             cache_tools: Arc::new(cache_tools),
             search_tools: Arc::new(search_tools),
             tools: Arc::new(tools),
+            call_log: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
         })
+    }
+
+    /// Handle for the app plane to read the routed-call ring.
+    pub(crate) fn call_log_handle(&self) -> super::GatewayCallLog {
+        Arc::clone(&self.call_log)
+    }
+
+    /// Record one routed business call at the ring tail, dropping the oldest past the cap.
+    pub(crate) fn record_call(
+        &self,
+        tool: &str,
+        instance_id: InstanceId,
+        duration: std::time::Duration,
+        response: &Result<CallToolResponse, ErrorData>,
+    ) {
+        let success = match response {
+            Ok(CallToolResponse::Complete(result)) => !result.is_error,
+            _ => false,
+        };
+        let mut log = self.call_log.lock().unwrap();
+        while log.len() >= super::GATEWAY_CALL_LOG_CAP {
+            log.pop_front();
+        }
+        log.push_back(super::GatewayCallRecord {
+            at_unix_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or_default(),
+            tool: tool.to_string(),
+            instance_id,
+            duration_ms: duration.as_millis() as u64,
+            success,
+        });
     }
 
     fn instructions(&self) -> String {
@@ -527,70 +561,80 @@ impl ServerHandler for GatewayServer {
                     .remove(tool_name.as_str()))
             }
             .ok_or_else(|| ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None))?;
-            let execution = match store
-                .start_tool_execution(
-                    binding.instance_id,
-                    &binding.tool_name,
-                    args,
-                    meta.clone(),
-                    McpExecutionOptions::default(),
-                )
-                .await
-            {
-                Ok(execution) => execution,
-                Err(error) => return Ok(llm_error_result(&error)),
-            };
-            let result = match execution.wait().await {
-                Ok(McpToolExecution::Immediate { result }) => result,
-                Ok(McpToolExecution::Task { .. }) => {
-                    return Ok(llm_error_result(&mcpstore::Error::new(
-                        mcpstore::error::FailureCode::ToolFailed,
-                        "gateway tool call unexpectedly returned a task",
-                    )));
-                }
-                Err(error) => return Ok(llm_error_result(&error)),
-            };
+            let call_start = std::time::Instant::now();
+            let record_instance = binding.instance_id;
+            let response: Result<CallToolResponse, ErrorData> = async {
+                let execution = match store
+                    .start_tool_execution(
+                        binding.instance_id,
+                        &binding.tool_name,
+                        args,
+                        meta.clone(),
+                        McpExecutionOptions::default(),
+                    )
+                    .await
+                {
+                    Ok(execution) => execution,
+                    Err(error) => return Ok(llm_error_result(&error)),
+                };
+                let result = match execution.wait().await {
+                    Ok(McpToolExecution::Immediate { result }) => result,
+                    Ok(McpToolExecution::Task { .. }) => {
+                        return Ok(llm_error_result(&mcpstore::Error::new(
+                            mcpstore::error::FailureCode::ToolFailed,
+                            "gateway tool call unexpectedly returned a task",
+                        )));
+                    }
+                    Err(error) => return Ok(llm_error_result(&error)),
+                };
 
-            let mut content = Vec::with_capacity(result.content.len());
-            for item in result.content {
-                match item {
-                    ContentItem::Text { text, .. } => {
-                        content.push(ContentBlock::text(text));
-                    }
-                    ContentItem::Image {
-                        data, mime_type, ..
-                    } => {
-                        content.push(ContentBlock::image(data, mime_type));
-                    }
-                    ContentItem::Audio {
-                        data, mime_type, ..
-                    } => {
-                        content.push(ContentBlock::audio(data, mime_type));
-                    }
-                    ContentItem::Resource { resource, .. } => {
-                        content.push(match serde_json::from_value::<ResourceContents>(resource) {
-                            Ok(resource) => ContentBlock::resource(resource),
-                            Err(error) => ContentBlock::text(format!(
-                                "Failed to decode resource content: {error}"
-                            )),
-                        });
-                    }
-                    ContentItem::ResourceLink { resource, .. } => {
-                        content.push(match serde_json::from_value::<Resource>(resource) {
-                            Ok(resource) => ContentBlock::resource_link(resource),
-                            Err(error) => ContentBlock::text(format!(
-                                "Failed to decode resource link: {error}"
-                            )),
-                        });
+                let mut content = Vec::with_capacity(result.content.len());
+                for item in result.content {
+                    match item {
+                        ContentItem::Text { text, .. } => {
+                            content.push(ContentBlock::text(text));
+                        }
+                        ContentItem::Image {
+                            data, mime_type, ..
+                        } => {
+                            content.push(ContentBlock::image(data, mime_type));
+                        }
+                        ContentItem::Audio {
+                            data, mime_type, ..
+                        } => {
+                            content.push(ContentBlock::audio(data, mime_type));
+                        }
+                        ContentItem::Resource { resource, .. } => {
+                            content.push(match serde_json::from_value::<ResourceContents>(resource)
+                            {
+                                Ok(resource) => ContentBlock::resource(resource),
+                                Err(error) => ContentBlock::text(format!(
+                                    "Failed to decode resource content: {error}"
+                                )),
+                            });
+                        }
+                        ContentItem::ResourceLink { resource, .. } => {
+                            content.push(
+                                match serde_json::from_value::<Resource>(resource) {
+                                    Ok(resource) => ContentBlock::resource_link(resource),
+                                    Err(error) => ContentBlock::text(format!(
+                                        "Failed to decode resource link: {error}"
+                                    )),
+                                },
+                            );
+                        }
                     }
                 }
+
+                Ok(CallToolResponse::Complete(if result.is_error {
+                    CallToolResult::error(content)
+                } else {
+                    CallToolResult::success(content)
+                }))
             }
-
-            Ok(CallToolResponse::Complete(if result.is_error {
-                CallToolResult::error(content)
-            } else {
-                CallToolResult::success(content)
-            }))
+            .await;
+            self.record_call(&tool_name, record_instance, call_start.elapsed(), &response);
+            return response;
         }
     }
 }

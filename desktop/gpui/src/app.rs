@@ -2,6 +2,7 @@
 
 use crate::api::Api;
 use crate::views::cache::CacheView;
+use crate::views::gateway::GatewayView;
 use crate::views::instance::{BackToServices, InstanceView};
 use crate::views::scopes::ScopesView;
 use crate::views::settings::SettingsView;
@@ -24,6 +25,7 @@ enum Nav {
     Services,
     Scopes,
     Tools,
+    Gateway,
     Cache,
     Settings,
     Instance,
@@ -35,6 +37,7 @@ pub struct MainWindow {
     services: Entity<ServicesView>,
     scopes: Entity<ScopesView>,
     tools: Entity<ToolsView>,
+    gateway: Entity<GatewayView>,
     cache: Entity<CacheView>,
     settings: Entity<SettingsView>,
     instance: Option<Entity<InstanceView>>,
@@ -49,6 +52,7 @@ impl MainWindow {
         let services = cx.new(|cx| ServicesView::new(api.clone(), window, cx));
         let scopes = cx.new(|cx| ScopesView::new(api.clone(), window, cx));
         let tools = cx.new(|cx| ToolsView::new(api.clone(), window, cx));
+        let gateway = cx.new(|cx| GatewayView::new(api.clone(), window, cx));
         let cache = cx.new(|cx| CacheView::new(api.clone(), window, cx));
         let settings = cx.new(|cx| SettingsView::new(api.clone(), window, cx));
 
@@ -73,6 +77,7 @@ impl MainWindow {
             services,
             scopes,
             tools,
+            gateway,
             cache,
             settings,
             instance: None,
@@ -135,6 +140,7 @@ impl Render for MainWindow {
                 .unwrap_or_else(|| self.services.clone().into_any_element()),
             Nav::Scopes => self.scopes.clone().into_any_element(),
             Nav::Tools => self.tools.clone().into_any_element(),
+            Nav::Gateway => self.gateway.clone().into_any_element(),
             Nav::Cache => self.cache.clone().into_any_element(),
             Nav::Settings => self.settings.clone().into_any_element(),
         };
@@ -175,6 +181,12 @@ impl Render for MainWindow {
                                 .child(
                                     self.nav_item(crate::dict::t(cx, crate::dict::Key::Tools), IconName::Wrench, Nav::Tools, cx),
                                 )
+                                .child(self.nav_item(
+                                    "Gateway",
+                                    IconName::Network,
+                                    Nav::Gateway,
+                                    cx,
+                                ))
                                 .child(self.nav_item(
                                     crate::dict::t(cx, crate::dict::Key::Cache),
                                     IconName::Database,

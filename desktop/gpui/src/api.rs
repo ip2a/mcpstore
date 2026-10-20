@@ -731,6 +731,11 @@ impl Api {
         self.request_app("POST", &format!("/gateway/{action}{query}"), None).await
     }
 
+    /// Recent routed tool calls recorded by the running gateway.
+    pub async fn gateway_requests(&self) -> Result<Value> {
+        self.request_app("GET", "/gateway/requests", None).await
+    }
+
     pub async fn import_client_services(&self, client: &str, path: &str, names: &[String]) -> Result<Value> {
         self.request_app(
             "POST",

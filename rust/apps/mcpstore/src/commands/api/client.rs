@@ -19,6 +19,14 @@ pub(super) struct GatewayLaunchQuery {
     host: Option<String>,
     port: Option<u16>,
     path: Option<String>,
+    expose_session_state: Option<bool>,
+    expose_tool: Option<bool>,
+    expose_prompt: Option<bool>,
+    expose_resource: Option<bool>,
+    expose_openapi: Option<bool>,
+    expose_service: Option<bool>,
+    expose_cache: Option<bool>,
+    expose_search: Option<bool>,
 }
 
 pub(super) async fn gateway_descriptor(
@@ -39,7 +47,7 @@ pub(super) async fn gateway_status(
 ) -> ApiResult {
     let options = gateway_options(&state, &query)?;
     let descriptor = options.launch_descriptor();
-    let (running, pid) = gateway_status_inner(&state)?;
+    let (running, pid, summary) = gateway_status_inner(&state)?;
     Ok(success(
         "网关服务Status获取成功",
         json!({
@@ -49,6 +57,7 @@ pub(super) async fn gateway_status(
             "port": options.port,
             "path": options.path,
             "url": descriptor.url,
+            "summary": summary,
         }),
     ))
 }
@@ -91,6 +100,7 @@ pub(super) async fn gateway_start(
     )
     .await
     .map_err(|error| ApiError::invalid_request(error.to_string()))?;
+    let call_log = server.call_log_handle();
     let task_options = options.clone();
     let task = tokio::spawn(async move {
         if let Err(error) = run_streamable_http(server, &task_options).await {
@@ -111,6 +121,8 @@ pub(super) async fn gateway_start(
         .replace(GatewayProcess {
             task,
             descriptor: descriptor.clone(),
+            call_log,
+            summary: gateway_summary(&options),
         });
 
     Ok(success(
@@ -186,7 +198,36 @@ fn gateway_options(
         host: query.host.clone().unwrap_or_else(|| "127.0.0.1".into()),
         port: query.port.unwrap_or(app_config.gateway.port),
         path: query.path.clone().unwrap_or_else(|| "/mcp".into()),
+        expose_session_state_tools: query.expose_session_state.unwrap_or(false),
+        expose_tool_override_tools: query.expose_tool.unwrap_or(false),
+        expose_prompt_override_tools: query.expose_prompt.unwrap_or(false),
+        expose_resource_override_tools: query.expose_resource.unwrap_or(false),
+        expose_openapi_tools: query.expose_openapi.unwrap_or(false),
+        expose_service_tools: query.expose_service.unwrap_or(false),
+        expose_cache_tools: query.expose_cache.unwrap_or(false),
+        expose_search_tools: query.expose_search.unwrap_or(false),
         ..Default::default()
+    })
+}
+
+/// Running-config snapshot (scope + expose families) carried by GatewayProcess.
+fn gateway_summary(options: &GatewayOptions) -> Value {
+    let scope = match &options.scope {
+        ScopeRef::Store => "store".to_string(),
+        ScopeRef::Agent { agent_id } => format!("agent:{agent_id}"),
+    };
+    json!({
+        "scope": scope,
+        "expose": {
+            "session_state": options.expose_session_state_tools,
+            "tool": options.expose_tool_override_tools,
+            "prompt": options.expose_prompt_override_tools,
+            "resource": options.expose_resource_override_tools,
+            "openapi": options.expose_openapi_tools,
+            "service": options.expose_service_tools,
+            "cache": options.expose_cache_tools,
+            "search": options.expose_search_tools,
+        },
     })
 }
 
@@ -217,19 +258,19 @@ async fn wait_for_gateway_ready(host: &str, port: u16) -> Result<(), ApiError> {
     }
 }
 
-fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>), ApiError> {
+fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>, Option<Value>), ApiError> {
     let mut gateway = state
         .gateway
         .lock()
         .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
     let Some(process) = gateway.as_ref() else {
-        return Ok((false, None));
+        return Ok((false, None, None));
     };
     if process.task.is_finished() {
         *gateway = None;
-        return Ok((false, None));
+        return Ok((false, None, None));
     }
-    Ok((true, Some(std::process::id())))
+    Ok((true, Some(std::process::id()), Some(process.summary.clone())))
 }
 
 fn gateway_payload(process: &GatewayProcess, running: bool) -> Value {
@@ -237,7 +278,32 @@ fn gateway_payload(process: &GatewayProcess, running: bool) -> Value {
         "running": running,
         "pid": std::process::id(),
         "url": process.descriptor.url,
+        "summary": process.summary,
     })
+}
+
+pub(super) async fn gateway_requests(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let gateway = state
+        .gateway
+        .lock()
+        .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+    let Some(process) = gateway.as_ref() else {
+        return Ok(success(
+            "网关服务当前未运行",
+            json!({ "running": false, "requests": [] }),
+        ));
+    };
+    let requests: Vec<Value> = process
+        .call_log
+        .lock()
+        .map_err(|_| ApiError::invalid_request("网关服务请求记录不可用"))?
+        .iter()
+        .map(|record| serde_json::to_value(record).unwrap_or(Value::Null))
+        .collect();
+    Ok(success(
+        "网关服务请求记录获取成功",
+        json!({ "running": true, "requests": requests }),
+    ))
 }
 
 pub(super) async fn client_config_import(
