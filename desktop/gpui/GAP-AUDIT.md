@@ -13,7 +13,7 @@ tools filter=available 写死、settings 的连接/诊断管理。
 | 服务表单缺字段：`env`、`headers`、`cwd`、`oauth`(client-id/client-metadata-url)、`handshake_mode`、`startup_policy`、`restart_policy` | features/services/service-form* | ✅ 2026-10-19 全字段表单（ServiceFormDraft），definition 级 `_mcpstore` 齐全 |
 | `POST /services/:name/auth/scope-upgrade` | lib/api/service.ts | ✅ 2026-10-19 auth tab 在 required_scope 存在时显示 Upgrade 按钮 |
 | `GET /services/:name/check` 按需健康探测 | features/services | ✅ 2026-10-19 服务行 Check 按钮（探活后刷新列表） |
-| tools/list `?filter=` 全部可用（GPUI 写死 `filter=available`，api.rs:480）| features/tools | ⚠️ 2026-10-19 tools 页 available/all 切换；工具策略一览仍缺 |
+| tools/list `?filter=` 全部可用（GPUI 写死 `filter=available`，api.rs:480）| features/tools | ✅ 2026-10-19 available/all 切换；策略一览=实例页 overrides+ToolPolicyDialog 已有（web 的 availability 类型实际无 UI 消费） |
 | 双向 JSON/TOML 导入（粘贴 mcpServers 配置反解析成表单）| service-form* | ✅ 2026-10-19 表单内 Import 区：JSON/TOML 均收，mcpServers 单服务解包回填 |
 | settings 连接管理：host 编辑/重命名/删除、HTTPS、延迟探活 | features/settings/connection* | ✅ 2026-10-19 行级 编辑(预填重命名)/删除(活动主机禁删)/http(s) 校验 + 探活延迟芯片（refresh 触发，无 5s 轮询） |
 | settings 诊断段：runtime_log 开关/max size/retention | features/settings | ✅ 2026-10-19 enabled/runtime_log 开关按钮 + max_size/retention 输入保存（空=不动现值，旁显 now: 现值） |
@@ -35,7 +35,7 @@ tools filter=available 写死、settings 的连接/诊断管理。
 | config `?format=` 指定输出格式 | settings/config | ✅ 2026-10-19 native/claude/codex 循环切换按钮 |
 | overrides PUT 只发改动字段；resource override 的 mime_type 字段 | overrides | ✅ 2026-10-19 本就是 patch 语义（enabled+非空字段）；表单补 mime_type 输入 |
 | GET /services/:name/state 独立轮询 | — | ⚠️ 用 get_service 全量，等价但重 |
-| GET /health 后端状态徽标 + 活动缓存后端展示 | dashboard/settings | ⚠️ 无展示 |
+| GET /health 后端状态徽标 + 活动缓存后端展示 | dashboard/settings | ✅ 2026-10-19 settings host 行探活芯片（/health 延迟+store 名）；cache 页摘要行显示 backend |
 | tools 页 scope/agent/availability 过滤对话框 | tools view | ✅ 2026-10-19 availability(available/all) + scope(all/store/agent) 循环过滤 + 文本搜索（无对话框形态，桌面等价） |
 
 ## P2 — 已覆盖或桌面形态不适用
