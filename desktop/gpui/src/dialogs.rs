@@ -2,21 +2,23 @@
 
 use crate::api::{
     Api, ScopeRef, ServiceAddress, ServiceFormDraft, ServiceInstance, ToolInfo,
-    parse_imported_service_config,
+    build_service_config, parse_imported_service_config,
 };
 use gpui_kit::component::{
     WindowExt as _,
     button::Button,
     input::{Input, InputState, Textarea, TextareaState},
+    scroll::ScrollableElement as _,
+    select::{SearchableVec, Select, SelectState},
     spinner::Spinner,
-    ActiveTheme, IconName,
+    ActiveTheme, IconName, IndexPath,
 };
 use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, SharedString,
-    Styled as _, Window,
+    div, relative, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
+    SharedString, Styled as _, Window,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -604,12 +606,23 @@ impl Render for ToolRunDialog {
     }
 }
 
+const TRANSPORT_OPTIONS: [&str; 2] = ["stdio", "streamable-http"];
+
+fn transport_select_index(transport: &str) -> IndexPath {
+    IndexPath::new(
+        TRANSPORT_OPTIONS
+            .iter()
+            .position(|&item| item == transport)
+            .unwrap_or(0),
+    )
+}
+
 /// Add / edit service form dialog. Edit mode prefills and PUTs the scope descriptor.
 pub struct ServiceFormDialog {
     api: Arc<Api>,
     mode: FormMode,
     name: Entity<InputState>,
-    transport: Entity<InputState>,
+    transport: Entity<SelectState<SearchableVec<&'static str>>>,
     command: Entity<InputState>,
     args: Entity<TextareaState>,
     url: Entity<InputState>,
@@ -622,7 +635,6 @@ pub struct ServiceFormDialog {
     handshake_mode: Entity<InputState>,
     startup_policy: Entity<InputState>,
     restart_policy: Entity<InputState>,
-    show_import: bool,
     import_text: Entity<TextareaState>,
     error: Option<SharedString>,
     done: bool,
@@ -693,11 +705,19 @@ impl ServiceFormDialog {
         let textarea = |placeholder: &str, value: &str, window: &mut Window, cx: &mut gpui_kit::App| {
             cx.new(|cx| TextareaState::new(window, cx).placeholder(placeholder).default_value(value))
         };
+        let transport_index = transport_select_index(&draft.transport);
         let entity = cx.new(|cx| Self {
             api,
             mode,
             name: input("service name", &name_val, window, cx),
-            transport: input("stdio | streamable-http", &draft.transport, window, cx),
+            transport: cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(TRANSPORT_OPTIONS.to_vec()),
+                    Some(transport_index),
+                    window,
+                    cx,
+                )
+            }),
             command: input("e.g. uvx", &draft.command, window, cx),
             args: textarea("one arg per line", &draft.args_text, window, cx),
             url: input("https://host/mcp", &draft.url, window, cx),
@@ -720,7 +740,6 @@ impl ServiceFormDialog {
                 window,
                 cx,
             ),
-            show_import: false,
             import_text: textarea("paste JSON or TOML (mcpServers wrapper ok)", "", window, cx),
             error: None,
             done: false,
@@ -731,16 +750,29 @@ impl ServiceFormDialog {
             FormMode::Add => SharedString::from("Add service"),
             FormMode::Edit { name, .. } => format!("Edit · {name}").into(),
         };
+        // Match web: w ≈ 84vw, content body ≈ 78vh — computed from viewport, not fixed px.
+        let viewport = window.viewport_size();
+        let dialog_w = viewport.width * 0.84;
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title(title.clone()).child(entity2.clone())
+            dialog
+                .title(title.clone())
+                .w(dialog_w)
+                .child(entity2.clone())
         });
     }
 
     fn draft(&self, cx: &Context<Self>) -> ServiceFormDraft {
         let text = |state: &Entity<InputState>| state.read(cx).value().trim().to_string();
         let area = |state: &Entity<TextareaState>| state.read(cx).value().trim().to_string();
+        let transport = self
+            .transport
+            .read(cx)
+            .selected_value()
+            .copied()
+            .unwrap_or(TRANSPORT_OPTIONS[0])
+            .to_string();
         ServiceFormDraft {
-            transport: text(&self.transport),
+            transport,
             command: text(&self.command),
             args_text: area(&self.args),
             url: text(&self.url),
@@ -770,7 +802,10 @@ impl ServiceFormDialog {
                         fill(&self.name, name, window, cx);
                     }
                 }
-                fill(&self.transport, draft.transport, window, cx);
+                let transport_index = transport_select_index(&draft.transport);
+                self.transport.update(cx, |state, cx| {
+                    state.set_selected_index(Some(transport_index), window, cx);
+                });
                 fill(&self.command, draft.command, window, cx);
                 fill(&self.url, draft.url, window, cx);
                 fill(&self.description, draft.description, window, cx);
@@ -841,8 +876,14 @@ impl ServiceFormDialog {
 }
 
 impl Render for ServiceFormDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (muted, fg) = (cx.theme().muted_foreground, cx.theme().foreground);
+        let border = cx.theme().border;
+        let viewport = window.viewport_size();
+        let body_h = viewport.height * 0.78;
+        // Textareas sit in a scroll column (no definite parent height), so size
+        // them from the viewport rather than a fixed px or relative(parent).
+        let area_h = viewport.height * 0.08;
         let field = |label: &'static str, input: &Entity<InputState>| {
             v_flex()
                 .gap_1()
@@ -853,13 +894,29 @@ impl Render for ServiceFormDialog {
             v_flex()
                 .gap_1()
                 .child(div().text_sm().text_color(muted).child(label))
-                .child(Textarea::new(input).h(gpui_kit::px(72.)))
+                .child(Textarea::new(input).h(area_h))
         };
-        v_flex()
+
+        let draft = self.draft(cx);
+        let preview = serde_json::to_string_pretty(&build_service_config(&draft)).unwrap_or_default();
+
+        let left = v_flex()
             .gap_3()
-            .text_color(fg)
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_y_scrollbar()
             .child(field("Name", &self.name))
-            .child(field("Transport", &self.transport))
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(div().text_sm().text_color(muted).child("Transport"))
+                    .child(
+                        Select::new(&self.transport)
+                            .id("service-form-transport")
+                            .w_full(),
+                    ),
+            )
             .child(field("Command (stdio)", &self.command))
             .child(area("Args (stdio)", &self.args))
             .child(field("Working directory (stdio)", &self.working_dir))
@@ -871,30 +928,90 @@ impl Render for ServiceFormDialog {
             .child(field("Handshake mode", &self.handshake_mode))
             .child(field("Startup policy", &self.startup_policy))
             .child(field("Restart policy", &self.restart_policy))
-            .child(field("Description", &self.description))
+            .child(field("Description", &self.description));
+
+        let right = v_flex()
+            .gap_3()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(
+                v_flex()
+                    .gap_2()
+                    .flex_1()
+                    .min_h_0()
+                    .p_3()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(border)
+                    .bg(cx.theme().muted)
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().text_xs().text_color(muted).child("Config preview"))
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("service-form-preview-copy")
+                                    .ghost()
+                                    .icon(IconName::Copy)
+                                    .on_click({
+                                        let preview = preview.clone();
+                                        move |_, _, cx| {
+                                            cx.write_to_clipboard(
+                                                gpui_kit::ClipboardItem::new_string(preview.clone()),
+                                            );
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scrollbar()
+                            .font_family("Monaco")
+                            .text_xs()
+                            .child(preview),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().text_sm().text_color(muted).child("Import JSON/TOML"))
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("service-form-import-load")
+                                    .outline()
+                                    .label("Load into form")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.load_import(window, cx)
+                                    })),
+                            ),
+                    )
+                    .child(Textarea::new(&self.import_text).h(relative(1.))),
+            );
+
+        v_flex()
+            .gap_3()
+            .w_full()
+            .h(body_h)
+            .text_color(fg)
             .child(
                 h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("service-form-import-toggle")
-                            .outline()
-                            .label(if self.show_import { "Hide import" } else { "Import JSON/TOML" })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_import = !this.show_import;
-                                cx.notify();
-                            })),
-                    )
-                    .when(self.show_import, |el| {
-                        el.child(
-                            Button::new("service-form-import-load")
-                                .label("Load into form")
-                                .on_click(cx.listener(|this, _, window, cx| this.load_import(window, cx))),
-                        )
-                    }),
+                    .gap_4()
+                    .flex_1()
+                    .min_h_0()
+                    .items_stretch()
+                    .child(left)
+                    .child(right),
             )
-            .when(self.show_import, |el| {
-                el.child(area("Config import", &self.import_text))
-            })
             .when_some(self.error.clone(), |el, error| {
                 el.child(div().text_sm().text_color(cx.theme().danger).child(error))
             })

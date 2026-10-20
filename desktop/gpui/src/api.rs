@@ -7,6 +7,7 @@
 use anyhow::{anyhow, bail, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -934,7 +935,7 @@ pub fn parse_imported_service_config(text: &str) -> Result<(Option<String>, Valu
     Ok((None, parsed))
 }
 
-fn build_service_config(draft: &ServiceFormDraft) -> Value {
+pub(crate) fn build_service_config(draft: &ServiceFormDraft) -> Value {
     let mut config = serde_json::json!({ "transport": draft.transport });
     let description = draft.description.trim();
     if !description.is_empty() {
