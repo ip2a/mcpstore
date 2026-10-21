@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type MutableRefObject } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import type { ServiceInstance } from "@/lib/api"
 import {
@@ -10,6 +10,8 @@ export type ServiceScopeFilter = "all" | "store" | "agent"
 export type ServiceStatusFilter = "all" | ServiceDisplayStatus
 export type ServiceSortBy = "name" | "status" | "tools"
 
+const ORDER_STORAGE_KEY = "mcpstore.service-list-order"
+
 const STATUS_SORT_ORDER: Record<ServiceDisplayStatus, number> = {
   connected: 0,
   connecting: 1,
@@ -17,72 +19,63 @@ const STATUS_SORT_ORDER: Record<ServiceDisplayStatus, number> = {
   disconnected: 3,
 }
 
-function compareByStatusThenName(a: ServiceInstance, b: ServiceInstance) {
-  const statusDiff =
-    STATUS_SORT_ORDER[deriveServiceDisplayStatus(a.state)] -
-    STATUS_SORT_ORDER[deriveServiceDisplayStatus(b.state)]
-  if (statusDiff !== 0) return statusDiff
-  return a.service_name.localeCompare(b.service_name)
+function readStoredOrder() {
+  try {
+    const raw = localStorage.getItem(ORDER_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
+  } catch {
+    return []
+  }
 }
 
-function buildSessionOrderRank(services: ServiceInstance[]) {
-  return new Map(
-    [...services]
-      .sort(compareByStatusThenName)
-      .map((service, index) => [service.instance_id, index] as const),
-  )
+function writeStoredOrder(ids: string[]) {
+  try {
+    localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(ids))
+  } catch {
+    // Keep the in-memory order when storage is unavailable.
+  }
 }
 
-function ensureSessionOrderRank(
-  orderRankRef: MutableRefObject<Map<string, number> | null>,
-  services: ServiceInstance[],
-) {
-  if (orderRankRef.current === null && services.length > 0) {
-    orderRankRef.current = buildSessionOrderRank(services)
-  }
-  if (orderRankRef.current === null) {
-    orderRankRef.current = new Map()
-  }
+function compareName(a: ServiceInstance, b: ServiceInstance) {
+  return a.service_name.localeCompare(b.service_name) || a.instance_id.localeCompare(b.instance_id)
+}
 
-  let nextRank = orderRankRef.current.size
-  for (const service of services) {
-    if (!orderRankRef.current.has(service.instance_id)) {
-      orderRankRef.current.set(service.instance_id, nextRank++)
+function compareBySort(sortBy: ServiceSortBy) {
+  return (a: ServiceInstance, b: ServiceInstance) => {
+    if (sortBy === "name") return compareName(a, b)
+    if (sortBy === "tools") {
+      return (b.tools?.length || 0) - (a.tools?.length || 0) || compareName(a, b)
     }
+    return (
+      STATUS_SORT_ORDER[deriveServiceDisplayStatus(a.state)] -
+        STATUS_SORT_ORDER[deriveServiceDisplayStatus(b.state)] || compareName(a, b)
+    )
   }
-
-  return orderRankRef.current
 }
 
-function compareFilteredServices(
-  a: ServiceInstance,
-  b: ServiceInstance,
-  sortBy: ServiceSortBy,
-  orderRank: Map<string, number>,
-) {
-  if (sortBy === "name") {
-    return a.service_name.localeCompare(b.service_name)
-  }
+function sameIds(left: string[], right: string[]) {
+  return left.length === right.length && left.every((id, index) => id === right[index])
+}
 
-  if (sortBy === "tools") {
-    const toolDiff = (b.tools?.length || 0) - (a.tools?.length || 0)
-    return toolDiff || a.service_name.localeCompare(b.service_name)
-  }
-
-  const rankA = orderRank.get(a.instance_id) ?? Number.MAX_SAFE_INTEGER
-  const rankB = orderRank.get(b.instance_id) ?? Number.MAX_SAFE_INTEGER
-  return rankA - rankB || a.service_name.localeCompare(b.service_name)
+export function reconcileServiceOrder(saved: string[], services: ServiceInstance[]) {
+  const ids = new Set(services.map((service) => service.instance_id))
+  const kept = saved.filter((id) => ids.has(id))
+  const known = new Set(kept)
+  const newcomers = services
+    .filter((service) => !known.has(service.instance_id))
+    .sort(compareName)
+    .map((service) => service.instance_id)
+  return [...kept, ...newcomers]
 }
 
 export function countActiveServiceFilters(filters: {
   scopeFilter: ServiceScopeFilter
   statusFilter: ServiceStatusFilter
-  sortBy: ServiceSortBy
 }) {
   let count = 0
   if (filters.scopeFilter !== "all") count++
   if (filters.statusFilter !== "all") count++
-  if (filters.sortBy !== "status") count++
   return count
 }
 
@@ -91,13 +84,26 @@ export function useServicesList(services: ServiceInstance[]) {
   const [scopeFilter, setScopeFilter] = useState<ServiceScopeFilter>("all")
   const [agentFilter, setAgentFilter] = useState("")
   const [statusFilter, setStatusFilter] = useState<ServiceStatusFilter>("all")
-  const [sortBy, setSortBy] = useState<ServiceSortBy>("status")
-  const sessionOrderRankRef = useRef<Map<string, number> | null>(null)
+  const [order, setOrder] = useState<string[]>(readStoredOrder)
+  const resolvedOrder = useMemo(() => reconcileServiceOrder(order, services), [order, services])
+
+  useEffect(() => {
+    if (sameIds(resolvedOrder, order)) return
+    setOrder(resolvedOrder)
+    writeStoredOrder(resolvedOrder)
+  }, [order, resolvedOrder])
+
+  const orderedServices = useMemo(() => {
+    const byId = new Map(services.map((service) => [service.instance_id, service]))
+    return resolvedOrder.flatMap((id) => {
+      const service = byId.get(id)
+      return service ? [service] : []
+    })
+  }, [resolvedOrder, services])
 
   const filteredServices = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    const orderRank = ensureSessionOrderRank(sessionOrderRankRef, services)
-    const filtered = services.filter((service) => {
+    return orderedServices.filter((service) => {
       const description = String(service.effective_config.description || "")
       const scope = service.scope.type === "store" ? "store" : `agent ${service.scope.agent_id}`
       const matchesQuery = `${service.service_name} ${service.instance_id} ${scope} ${service.transport} ${description}`
@@ -114,9 +120,7 @@ export function useServicesList(services: ServiceInstance[]) {
       if (statusFilter !== "all" && deriveServiceDisplayStatus(service.state) !== statusFilter) return false
       return true
     })
-
-    return filtered.sort((a, b) => compareFilteredServices(a, b, sortBy, orderRank))
-  }, [agentFilter, query, scopeFilter, services, sortBy, statusFilter])
+  }, [agentFilter, orderedServices, query, scopeFilter, statusFilter])
 
   const totals = useMemo(() => {
     return {
@@ -125,25 +129,45 @@ export function useServicesList(services: ServiceInstance[]) {
     }
   }, [filteredServices])
 
-  const activeFilterCount = countActiveServiceFilters({ scopeFilter, statusFilter, sortBy })
+  const activeFilterCount = countActiveServiceFilters({ scopeFilter, statusFilter })
 
   const setScopeFilterValue = (value: ServiceScopeFilter) => {
     setScopeFilter(value)
     if (value !== "agent") setAgentFilter("")
   }
 
+  const commitOrder = (next: string[]) => {
+    setOrder(next)
+    writeStoredOrder(next)
+  }
+
+  const applySort = (sortBy: ServiceSortBy) => {
+    commitOrder([...services].sort(compareBySort(sortBy)).map((service) => service.instance_id))
+  }
+
+  const moveService = (fromId: string, toId: string) => {
+    if (fromId === toId) return
+    const next = resolvedOrder.slice()
+    const from = next.indexOf(fromId)
+    const to = next.indexOf(toId)
+    if (from < 0 || to < 0) return
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    commitOrder(next)
+  }
+
   return {
     activeFilterCount,
     agentFilter,
+    applySort,
     filteredServices,
+    moveService,
     query,
     scopeFilter,
     setAgentFilter,
     setQuery,
     setScopeFilter: setScopeFilterValue,
-    setSortBy,
     setStatusFilter,
-    sortBy,
     statusFilter,
     totals,
   }

@@ -14,7 +14,6 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   type ServiceScopeFilter,
-  type ServiceSortBy,
   type ServiceStatusFilter,
 } from "@/features/services/use-services-list"
 import { useI18n } from "@/lib/i18n-context"
@@ -25,10 +24,8 @@ export function ServicesFilterDialog(props: {
   agentIds: string[]
   onAgentFilterChange: (value: string) => void
   onScopeFilterChange: (value: ServiceScopeFilter) => void
-  onSortByChange: (value: ServiceSortBy) => void
   onStatusFilterChange: (value: ServiceStatusFilter) => void
   scopeFilter: ServiceScopeFilter
-  sortBy: ServiceSortBy
   statusFilter: ServiceStatusFilter
 }) {
   const { t } = useI18n()
@@ -108,21 +105,6 @@ export function ServicesFilterDialog(props: {
               </SelectContent>
             </Select>
           </Field>
-          <Field>
-            <FieldLabel>{t("sortLabel")}</FieldLabel>
-            <Select value={props.sortBy} onValueChange={(value) => props.onSortByChange(value as ServiceSortBy)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("sortLabel")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="name">{t("sortName")}</SelectItem>
-                  <SelectItem value="status">{t("sortStatus")}</SelectItem>
-                  <SelectItem value="tools">{t("sortTools")}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
         </FieldGroup>
         <DialogFooter showCloseButton>
           {props.activeFilterCount > 0 ? (
@@ -133,7 +115,6 @@ export function ServicesFilterDialog(props: {
                 props.onScopeFilterChange("all")
                 props.onAgentFilterChange("")
                 props.onStatusFilterChange("all")
-                props.onSortByChange("status")
               }}
             >
               {t("reset")}

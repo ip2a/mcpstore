@@ -8,8 +8,7 @@ use gpui_kit::component::{
     WindowExt as _,
     button::Button,
     input::{Input, InputState, Textarea, TextareaState},
-    scroll::ScrollableElement as _,
-    select::{SearchableVec, Select, SelectState},
+    select::{SearchableVec, Select, SelectEvent, SelectState},
     spinner::Spinner,
     ActiveTheme, IconName, IndexPath,
 };
@@ -17,8 +16,9 @@ use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, relative, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
-    SharedString, Styled as _, Window,
+    div, relative, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -639,6 +639,7 @@ pub struct ServiceFormDialog {
     error: Option<SharedString>,
     done: bool,
     running: bool,
+    _transport_sub: Subscription,
 }
 
 #[derive(Clone)]
@@ -706,53 +707,63 @@ impl ServiceFormDialog {
             cx.new(|cx| TextareaState::new(window, cx).placeholder(placeholder).default_value(value))
         };
         let transport_index = transport_select_index(&draft.transport);
-        let entity = cx.new(|cx| Self {
-            api,
-            mode,
-            name: input("service name", &name_val, window, cx),
-            transport: cx.new(|cx| {
+        let entity = cx.new(|cx| {
+            let transport = cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(TRANSPORT_OPTIONS.to_vec()),
                     Some(transport_index),
                     window,
                     cx,
                 )
-            }),
-            command: input("e.g. uvx", &draft.command, window, cx),
-            args: textarea("one arg per line", &draft.args_text, window, cx),
-            url: input("https://host/mcp", &draft.url, window, cx),
-            description: input("optional", &draft.description, window, cx),
-            working_dir: input("cwd, stdio only", &draft.working_dir, window, cx),
-            env: textarea("KEY=VALUE per line, stdio only", &draft.env_text, window, cx),
-            headers: textarea("KEY=VALUE per line, http only", &draft.headers_text, window, cx),
-            oauth_client_id: input("client id (or metadata url)", &draft.oauth_client_id, window, cx),
-            oauth_client_metadata_url: input(
-                "client metadata url",
-                &draft.oauth_client_metadata_url,
-                window,
-                cx,
-            ),
-            handshake_mode: input("auto | initialize | discover", &draft.handshake_mode, window, cx),
-            startup_policy: input("lazy | manual | on-store-start", &draft.startup_policy, window, cx),
-            restart_policy: input(
-                "no | on-failure[:N] | always | unless-stopped",
-                &draft.restart_policy,
-                window,
-                cx,
-            ),
-            import_text: textarea("paste JSON or TOML (mcpServers wrapper ok)", "", window, cx),
-            error: None,
-            done: false,
-            running: false,
+            });
+            // Re-render when transport changes so stdio/http field sets swap.
+            let transport_sub = cx.subscribe(&transport, |_, _, event, cx| {
+                if matches!(event, SelectEvent::Confirm(_)) {
+                    cx.notify();
+                }
+            });
+            Self {
+                api,
+                mode,
+                name: input("service name", &name_val, window, cx),
+                transport,
+                command: input("e.g. uvx", &draft.command, window, cx),
+                args: textarea("one arg per line", &draft.args_text, window, cx),
+                url: input("https://host/mcp", &draft.url, window, cx),
+                description: input("optional", &draft.description, window, cx),
+                working_dir: input("optional cwd", &draft.working_dir, window, cx),
+                env: textarea("KEY=VALUE per line", &draft.env_text, window, cx),
+                headers: textarea("KEY=VALUE per line", &draft.headers_text, window, cx),
+                oauth_client_id: input("client id (or metadata url)", &draft.oauth_client_id, window, cx),
+                oauth_client_metadata_url: input(
+                    "client metadata url",
+                    &draft.oauth_client_metadata_url,
+                    window,
+                    cx,
+                ),
+                handshake_mode: input("auto | initialize | discover", &draft.handshake_mode, window, cx),
+                startup_policy: input("lazy | manual | on-store-start", &draft.startup_policy, window, cx),
+                restart_policy: input(
+                    "no | on-failure[:N] | always | unless-stopped",
+                    &draft.restart_policy,
+                    window,
+                    cx,
+                ),
+                import_text: textarea("paste JSON or TOML (mcpServers wrapper ok)", "", window, cx),
+                error: None,
+                done: false,
+                running: false,
+                _transport_sub: transport_sub,
+            }
         });
         let entity2 = entity.clone();
         let title = match &entity2.read(cx).mode {
             FormMode::Add => SharedString::from("Add service"),
             FormMode::Edit { name, .. } => format!("Edit · {name}").into(),
         };
-        // Match web: w ≈ 84vw, content body ≈ 78vh — computed from viewport, not fixed px.
+        // Viewport-relative dialog size (smaller than the previous 84vw / 78vh).
         let viewport = window.viewport_size();
-        let dialog_w = viewport.width * 0.84;
+        let dialog_w = viewport.width * 0.70;
         window.open_dialog(cx, move |dialog, _, _| {
             dialog
                 .title(title.clone())
@@ -880,7 +891,7 @@ impl Render for ServiceFormDialog {
         let (muted, fg) = (cx.theme().muted_foreground, cx.theme().foreground);
         let border = cx.theme().border;
         let viewport = window.viewport_size();
-        let body_h = viewport.height * 0.78;
+        let body_h = viewport.height * 0.64;
         // Textareas sit in a scroll column (no definite parent height), so size
         // them from the viewport rather than a fixed px or relative(parent).
         let area_h = viewport.height * 0.08;
@@ -898,14 +909,18 @@ impl Render for ServiceFormDialog {
         };
 
         let draft = self.draft(cx);
+        let is_stdio = draft.transport == "stdio";
         let preview = serde_json::to_string_pretty(&build_service_config(&draft)).unwrap_or_default();
 
+        // Match React add-service: stdio ↔ http field sets swap with transport.
+        // overflow_y_scroll (no painted scrollbar) — still mouse/trackpad scrollable.
         let left = v_flex()
+            .id("service-form-fields")
             .gap_3()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .overflow_y_scrollbar()
+            .overflow_y_scroll()
             .child(field("Name", &self.name))
             .child(
                 v_flex()
@@ -917,18 +932,22 @@ impl Render for ServiceFormDialog {
                             .w_full(),
                     ),
             )
-            .child(field("Command (stdio)", &self.command))
-            .child(area("Args (stdio)", &self.args))
-            .child(field("Working directory (stdio)", &self.working_dir))
-            .child(area("Env (stdio)", &self.env))
-            .child(field("URL (http)", &self.url))
-            .child(area("Headers (http)", &self.headers))
-            .child(field("OAuth client id (http)", &self.oauth_client_id))
-            .child(field("OAuth client metadata URL (http)", &self.oauth_client_metadata_url))
+            .when(is_stdio, |el| {
+                el.child(field("Command", &self.command))
+                    .child(area("Args", &self.args))
+                    .child(area("Env", &self.env))
+                    .child(field("Working directory", &self.working_dir))
+            })
+            .when(!is_stdio, |el| {
+                el.child(field("URL", &self.url))
+                    .child(area("Headers", &self.headers))
+                    .child(field("OAuth client id", &self.oauth_client_id))
+                    .child(field("OAuth client metadata URL", &self.oauth_client_metadata_url))
+            })
+            .child(field("Description", &self.description))
             .child(field("Handshake mode", &self.handshake_mode))
             .child(field("Startup policy", &self.startup_policy))
-            .child(field("Restart policy", &self.restart_policy))
-            .child(field("Description", &self.description));
+            .child(field("Restart policy", &self.restart_policy));
 
         let right = v_flex()
             .gap_3()
@@ -967,9 +986,10 @@ impl Render for ServiceFormDialog {
                     )
                     .child(
                         div()
+                            .id("service-form-preview")
                             .flex_1()
                             .min_h_0()
-                            .overflow_y_scrollbar()
+                            .overflow_y_scroll()
                             .font_family("Monaco")
                             .text_xs()
                             .child(preview),

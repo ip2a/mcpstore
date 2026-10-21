@@ -1,16 +1,15 @@
 import { ArrowUpDownIcon, RefreshCwIcon } from "lucide-react"
-import { useRef, type ComponentRef } from "react"
+import { useRef, useState, type ComponentRef } from "react"
 
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Field, FieldLabel } from "@/components/ui/field"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
@@ -44,25 +43,31 @@ export function ServicesView(props: {
   const {
     activeFilterCount,
     agentFilter,
+    applySort,
     filteredServices,
+    moveService,
     query,
     scopeFilter,
     setAgentFilter,
     setQuery,
     setScopeFilter,
-    setSortBy,
     setStatusFilter,
-    sortBy,
     statusFilter,
   } = useServicesList(props.services)
   const agentIds = props.agents.map((agent) => agent.agent_id)
   const listScrollRef = useRef<ComponentRef<typeof ScrollPane>>(null)
+  const [sortOpen, setSortOpen] = useState(false)
 
   usePreserveServiceListScroll({
     busy: props.busy,
     listRootRef: listScrollRef,
     services: props.services,
   })
+
+  const sortBy = (value: ServiceSortBy) => {
+    applySort(value)
+    setSortOpen(false)
+  }
 
   return (
     <PanelCard className="h-full min-h-0 gap-0 p-0">
@@ -71,7 +76,7 @@ export function ServicesView(props: {
           {t("serviceList")}
         </label>
         <CollapsibleSearchBox id="service-list-search" placeholder={t("searchServices")} value={query} onChange={setQuery} />
-        <Dialog>
+        <Dialog open={sortOpen} onOpenChange={setSortOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
               <ArrowUpDownIcon data-icon="inline-start" />
@@ -81,22 +86,19 @@ export function ServicesView(props: {
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
               <DialogTitle>{t("sortLabel")}</DialogTitle>
+              <DialogDescription>{t("sortHint")}</DialogDescription>
             </DialogHeader>
-            <Field>
-              <FieldLabel>{t("sortLabel")}</FieldLabel>
-              <Select value={sortBy} onValueChange={(value) => setSortBy(value as ServiceSortBy)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t("sortLabel")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="status">{t("sortStatus")}</SelectItem>
-                    <SelectItem value="name">{t("sortName")}</SelectItem>
-                    <SelectItem value="tools">{t("sortTools")}</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
+            <div className="flex flex-col gap-2">
+              <Button variant="outline" onClick={() => sortBy("name")}>
+                {t("sortName")}
+              </Button>
+              <Button variant="outline" onClick={() => sortBy("status")}>
+                {t("sortStatus")}
+              </Button>
+              <Button variant="outline" onClick={() => sortBy("tools")}>
+                {t("sortTools")}
+              </Button>
+            </div>
             <DialogFooter showCloseButton />
           </DialogContent>
         </Dialog>
@@ -106,10 +108,8 @@ export function ServicesView(props: {
           agentIds={agentIds}
           onAgentFilterChange={setAgentFilter}
           onScopeFilterChange={setScopeFilter}
-          onSortByChange={setSortBy}
           onStatusFilterChange={setStatusFilter}
           scopeFilter={scopeFilter}
-          sortBy={sortBy}
           statusFilter={statusFilter}
         />
         <Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.loading}>
@@ -129,6 +129,7 @@ export function ServicesView(props: {
             allServices={props.services}
             services={filteredServices}
             onDeclareScope={props.onDeclareScope}
+            onMove={moveService}
           />
         ) : (
           <PageEmpty title={t("noServices")} description={t("noServicesInViewDescription")} onRefresh={props.onRefresh} />

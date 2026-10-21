@@ -12,6 +12,11 @@ use std::sync::Arc;
 /// Build the API client and open the main window. Runs inside `Application::run`.
 pub fn launch_panel(cx: &mut App) {
     gpui_kit::init(cx);
+    // Temporary: hide outward focus rings to evaluate a quieter control look.
+    // Focused inputs still tint their border via theme.ring.
+    gpui_kit::component::Theme::update(cx, |theme| {
+        theme.focus_ring = false;
+    });
     dict::init(dict::Lang::Auto, cx);
     let api = Arc::new(api::Api::new("http://127.0.0.1:1820", "http://127.0.0.1:1821"));
     gpui_kit::open_window(WindowOptions::default(), cx, move |window, cx| {

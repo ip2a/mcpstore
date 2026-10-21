@@ -79,6 +79,20 @@ impl ServiceAddress {
     fn path(&self) -> String {
         format!("{}{}", self.base_path(), self.scope.query())
     }
+
+    /// `/services/{name}/{suffix}?scope=…`. `suffix` has no leading slash.
+    fn subpath(&self, suffix: &str) -> String {
+        format!("{}/{}{}", self.base_path(), suffix, self.scope.query())
+    }
+
+    /// `/services/{name}/tools/list?scope=…&filter=…`
+    fn tools_list_path(&self, filter: &str) -> String {
+        format!(
+            "{}&filter={}",
+            self.subpath("tools/list"),
+            urlencoding::encode(filter)
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -507,11 +521,9 @@ impl Api {
 
     /// `filter`: "available" (default) | "all" | "removed" — mirrors the web tools filter.
     pub async fn list_tools(&self, addr: &ServiceAddress, filter: &str) -> Result<Vec<ToolInfo>> {
-        let v = self.request(
-            "GET",
-            &format!("{}{}&filter={}", addr.base_path(), "/tools/list", urlencoding::encode(filter)),
-            None,
-        ).await?;
+        let v = self
+            .request("GET", &addr.tools_list_path(filter), None)
+            .await?;
         Ok(serde_json::from_value(v["tools"].clone())?)
     }
 
@@ -529,7 +541,7 @@ impl Api {
     }
 
     pub async fn lifecycle(&self, addr: &ServiceAddress, action: &str) -> Result<Value> {
-        self.request("POST", &format!("{}{}", addr.base_path(), action), None).await
+        self.request("POST", &addr.subpath(action), None).await
     }
 
     /// `POST /services/{name}` — 新服务默认进 store 作用域（doc §17）。
@@ -649,9 +661,8 @@ impl Api {
         self.request(
             "GET",
             &format!(
-                "{}{}&uri={}",
-                addr.base_path(),
-                "/resources/read",
+                "{}&uri={}",
+                addr.subpath("resources/read"),
                 urlencoding::encode(uri)
             ),
             None,
@@ -666,7 +677,7 @@ impl Api {
     }
 
     pub async fn auth_action(&self, addr: &ServiceAddress, action: &str) -> Result<AuthOperationResult> {
-        let v = self.request("POST", &format!("{}{}", addr.base_path(), action), None).await?;
+        let v = self.request("POST", &addr.subpath(&format!("auth/{action}")), None).await?;
         Ok(serde_json::from_value(v)?)
     }
 
@@ -1102,6 +1113,38 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifecycle_path_keeps_action_segment() {
+        let store = ServiceAddress {
+            service_name: "svc".into(),
+            scope: ScopeRef::Store,
+        };
+        assert_eq!(store.subpath("connect"), "/services/svc/connect?scope=store");
+
+        let agent = ServiceAddress {
+            service_name: "天气".into(),
+            scope: ScopeRef::Agent {
+                agent_id: "a".into(),
+            },
+        };
+        assert_eq!(
+            agent.subpath("auth/start"),
+            "/services/%E5%A4%A9%E6%B0%94/auth/start?scope=agent&agent_id=a"
+        );
+    }
+
+    #[test]
+    fn tools_list_query_starts_with_question_mark() {
+        let store = ServiceAddress {
+            service_name: "clisvc".into(),
+            scope: ScopeRef::Store,
+        };
+        assert_eq!(
+            store.tools_list_path("available"),
+            "/services/clisvc/tools/list?scope=store&filter=available"
+        );
+    }
 
     #[test]
     fn scope_ref_query_roundtrip() {
