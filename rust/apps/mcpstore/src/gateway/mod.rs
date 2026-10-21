@@ -125,17 +125,18 @@ impl GatewayCallLog {
 
     /// Push at the ring tail, dropping the oldest past the cap, and wake waiters.
     fn push(&self, mut record: GatewayCallRecord) {
+        let seq;
         {
             let mut records = self.records.lock().unwrap();
             record.seq = self.latest.load(std::sync::atomic::Ordering::Relaxed) + 1;
             while records.len() >= GATEWAY_CALL_LOG_CAP {
                 records.pop_front();
             }
+            seq = record.seq;
             records.push_back(record);
         }
-        self.latest
-            .store(record.seq, std::sync::atomic::Ordering::Relaxed);
-        let _ = self.changed.send(record.seq);
+        self.latest.store(seq, std::sync::atomic::Ordering::Relaxed);
+        let _ = self.changed.send(seq);
     }
 
     pub fn latest_seq(&self) -> u64 {
@@ -289,7 +290,7 @@ pub(crate) struct GatewayServer {
     cache_tools: Arc<HashMap<String, Tool>>,
     search_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
-    call_log: GatewayCallLog,
+    call_log: Arc<GatewayCallLog>,
 }
 
 mod catalog;

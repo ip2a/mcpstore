@@ -159,7 +159,7 @@ impl GatewayServer {
         response: &Result<CallToolResponse, ErrorData>,
     ) {
         let success = match response {
-            Ok(CallToolResponse::Complete(result)) => !result.is_error,
+            Ok(CallToolResponse::Complete(result)) => result.is_error != Some(true),
             _ => false,
         };
         self.call_log.push(GatewayCallRecord {
