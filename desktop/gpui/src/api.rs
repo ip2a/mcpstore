@@ -731,9 +731,43 @@ impl Api {
         self.request_app("POST", &format!("/gateway/{action}{query}"), None).await
     }
 
-    /// Recent routed tool calls recorded by the running gateway.
-    pub async fn gateway_requests(&self) -> Result<Value> {
-        self.request_app("GET", "/gateway/requests", None).await
+    /// Recent routed tool calls; `after`+`wait_ms` long-poll (server caps the wait at 25s).
+    pub async fn gateway_requests(&self, after: u64, wait_ms: u64) -> Result<Value> {
+        self.request_app(
+            "GET",
+            &format!("/gateway/requests?after={after}&wait_ms={wait_ms}"),
+            None,
+        )
+        .await
+    }
+
+    /// Clients wired to the gateway (GET /gateway/wired).
+    pub async fn gateway_wired(&self) -> Result<Value> {
+        self.request_app("GET", "/gateway/wired", None).await
+    }
+
+    /// Write the gateway URL into a client's MCP config (POST /gateway/wire).
+    pub async fn gateway_wire(&self, client: &str, path: &str) -> Result<Value> {
+        self.request_app(
+            "POST",
+            &format!(
+                "/gateway/wire?client={}&path={}",
+                urlencoding::encode(client),
+                urlencoding::encode(path)
+            ),
+            None,
+        )
+        .await
+    }
+
+    /// Remove what wire wrote (POST /gateway/unwire); refuses hand-edited entries.
+    pub async fn gateway_unwire(&self, client: &str) -> Result<Value> {
+        self.request_app(
+            "POST",
+            &format!("/gateway/unwire?client={}", urlencoding::encode(client)),
+            None,
+        )
+        .await
     }
 
     pub async fn import_client_services(&self, client: &str, path: &str, names: &[String]) -> Result<Value> {

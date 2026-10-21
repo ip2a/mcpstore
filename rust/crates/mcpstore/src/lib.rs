@@ -4,6 +4,7 @@ pub(crate) mod agent;
 pub mod auth;
 pub mod cache;
 pub mod client_config;
+pub mod client_wire;
 pub mod config;
 pub mod config_formats;
 pub(crate) mod control;

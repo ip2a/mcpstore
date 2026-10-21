@@ -50,7 +50,7 @@ pub struct ApiState {
 struct GatewayProcess {
     task: JoinHandle<()>,
     descriptor: GatewayLaunchDescriptor,
-    call_log: GatewayCallLog,
+    call_log: std::sync::Arc<GatewayCallLog>,
     summary: serde_json::Value,
 }
 
@@ -134,6 +134,9 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/gateway/descriptor", get(client::gateway_descriptor))
         .route("/gateway/status", get(client::gateway_status))
         .route("/gateway/requests", get(client::gateway_requests))
+        .route("/gateway/wired", get(client::gateway_wired))
+        .route("/gateway/wire", post(client::gateway_wire))
+        .route("/gateway/unwire", post(client::gateway_unwire))
         .route("/gateway/start", post(client::gateway_start))
         .route("/gateway/stop", post(client::gateway_stop))
         .route("/cache/health", get(cache::health))

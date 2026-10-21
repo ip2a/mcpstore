@@ -141,12 +141,12 @@ impl GatewayServer {
             cache_tools: Arc::new(cache_tools),
             search_tools: Arc::new(search_tools),
             tools: Arc::new(tools),
-            call_log: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
+            call_log: GatewayCallLog::new(),
         })
     }
 
     /// Handle for the app plane to read the routed-call ring.
-    pub(crate) fn call_log_handle(&self) -> super::GatewayCallLog {
+    pub(crate) fn call_log_handle(&self) -> Arc<GatewayCallLog> {
         Arc::clone(&self.call_log)
     }
 
@@ -162,11 +162,8 @@ impl GatewayServer {
             Ok(CallToolResponse::Complete(result)) => !result.is_error,
             _ => false,
         };
-        let mut log = self.call_log.lock().unwrap();
-        while log.len() >= super::GATEWAY_CALL_LOG_CAP {
-            log.pop_front();
-        }
-        log.push_back(super::GatewayCallRecord {
+        self.call_log.push(GatewayCallRecord {
+            seq: 0,
             at_unix_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)

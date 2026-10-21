@@ -95,6 +95,7 @@ pub struct GatewayLaunchDescriptor {
 /// One routed business tool call through the gateway (management tools excluded).
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct GatewayCallRecord {
+    pub seq: u64,
     pub at_unix_ms: u64,
     pub tool: String,
     pub instance_id: InstanceId,
@@ -102,10 +103,60 @@ pub struct GatewayCallRecord {
     pub success: bool,
 }
 
-/// Bounded in-memory ring of recent routed calls; read by the app-plane /gateway/requests.
-pub type GatewayCallLog = Arc<std::sync::Mutex<std::collections::VecDeque<GatewayCallRecord>>>;
+/// Bounded in-memory ring of recent routed calls; read by the app-plane /gateway/requests
+/// with `?after=<seq>` long-polling (watch wakes the waiter on each push).
+pub struct GatewayCallLog {
+    records: std::sync::Mutex<std::collections::VecDeque<GatewayCallRecord>>,
+    latest: std::sync::atomic::AtomicU64,
+    changed: tokio::sync::watch::Sender<u64>,
+}
 
 const GATEWAY_CALL_LOG_CAP: usize = 256;
+
+impl GatewayCallLog {
+    pub fn new() -> Arc<Self> {
+        let (changed, _) = tokio::sync::watch::channel(0);
+        Arc::new(Self {
+            records: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            latest: std::sync::atomic::AtomicU64::new(0),
+            changed,
+        })
+    }
+
+    /// Push at the ring tail, dropping the oldest past the cap, and wake waiters.
+    fn push(&self, mut record: GatewayCallRecord) {
+        {
+            let mut records = self.records.lock().unwrap();
+            record.seq = self.latest.load(std::sync::atomic::Ordering::Relaxed) + 1;
+            while records.len() >= GATEWAY_CALL_LOG_CAP {
+                records.pop_front();
+            }
+            records.push_back(record);
+        }
+        self.latest
+            .store(record.seq, std::sync::atomic::Ordering::Relaxed);
+        let _ = self.changed.send(record.seq);
+    }
+
+    pub fn latest_seq(&self) -> u64 {
+        self.latest.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+
+    /// Records with `seq > after`, oldest first.
+    pub fn snapshot_after(&self, after: u64) -> Vec<GatewayCallRecord> {
+        self.records
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|record| record.seq > after)
+            .cloned()
+            .collect()
+    }
+}
 
 impl GatewayOptions {
     pub fn launch_descriptor(&self) -> GatewayLaunchDescriptor {

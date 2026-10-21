@@ -282,27 +282,133 @@ fn gateway_payload(process: &GatewayProcess, running: bool) -> Value {
     })
 }
 
-pub(super) async fn gateway_requests(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let gateway = state
-        .gateway
-        .lock()
-        .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
-    let Some(process) = gateway.as_ref() else {
-        return Ok(success(
-            "网关服务当前未运行",
-            json!({ "running": false, "requests": [] }),
-        ));
+#[derive(Deserialize, Default)]
+pub(super) struct GatewayRequestsQuery {
+    after: Option<u64>,
+    wait_ms: Option<u64>,
+}
+
+pub(super) async fn gateway_requests(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<GatewayRequestsQuery>,
+) -> ApiResult {
+    let call_log = {
+        let gateway = state
+            .gateway
+            .lock()
+            .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+        let Some(process) = gateway.as_ref() else {
+            return Ok(success(
+                "网关服务当前未运行",
+                json!({ "running": false, "requests": [], "latest_seq": 0 }),
+            ));
+        };
+        if process.task.is_finished() {
+            return Ok(success(
+                "网关服务当前未运行",
+                json!({ "running": false, "requests": [], "latest_seq": 0 }),
+            ));
+        }
+        Arc::clone(&process.call_log)
     };
-    let requests: Vec<Value> = process
-        .call_log
-        .lock()
-        .map_err(|_| ApiError::invalid_request("网关服务请求记录不可用"))?
+    let after = query.after.unwrap_or(0);
+    // Long-poll: block until a record past `after` arrives or the wait budget runs out.
+    if let Some(wait_ms) = query.wait_ms {
+        if wait_ms > 0 && call_log.latest_seq() <= after {
+            let mut rx = call_log.subscribe();
+            let wait = std::time::Duration::from_millis(wait_ms.min(25_000));
+            let _ = tokio::time::timeout(wait, rx.changed()).await;
+        }
+    }
+    let requests: Vec<Value> = call_log
+        .snapshot_after(after)
         .iter()
         .map(|record| serde_json::to_value(record).unwrap_or(Value::Null))
         .collect();
     Ok(success(
         "网关服务请求记录获取成功",
-        json!({ "running": true, "requests": requests }),
+        json!({
+            "running": true,
+            "requests": requests,
+            "latest_seq": call_log.latest_seq(),
+        }),
+    ))
+}
+
+fn wired_state_path(state: &ApiState) -> std::path::PathBuf {
+    let app_config_path = state.store.config_manager().app_config_path();
+    app_config_path
+        .parent()
+        .map(|dir| dir.join("gateway-wired.json"))
+        .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"))
+}
+
+#[derive(Deserialize)]
+pub(super) struct GatewayWireQuery {
+    client: String,
+    path: Option<String>,
+    url: Option<String>,
+}
+
+fn default_gateway_url(state: &ApiState) -> Result<String, ApiError> {
+    let app_config = state
+        .store
+        .config_manager()
+        .load_app_config_or_default()
+        .map_err(|error| {
+            ApiError::invalid_request(format!("Failed to load app configuration: {error}"))
+        })?;
+    Ok(format!(
+        "http://127.0.0.1:{}/mcp",
+        app_config.gateway.port
+    ))
+}
+
+pub(super) async fn gateway_wired(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let wired =
+        mcpstore::client_wire::load_wired_state(&wired_state_path(&state))
+            .map_err(ApiError::from_store)?;
+    Ok(success(
+        "网关接入状态获取成功",
+        serde_json::to_value(wired.entries)
+            .map_err(|error| ApiError::invalid_request(error.to_string()))?,
+    ))
+}
+
+pub(super) async fn gateway_wire(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<GatewayWireQuery>,
+) -> ApiResult {
+    let client = parse_client_kind(&query.client)?;
+    let path = query.path.ok_or_else(|| ApiError::missing_parameter("path"))?;
+    let url = match query.url {
+        Some(url) => url,
+        None => default_gateway_url(&state)?,
+    };
+    let entry = mcpstore::client_wire::wire_gateway(
+        client,
+        std::path::Path::new(&path),
+        &url,
+        &wired_state_path(&state),
+    )
+    .map_err(ApiError::from_store)?;
+    Ok(success(
+        "客户端已接入网关",
+        serde_json::to_value(entry).map_err(|error| ApiError::invalid_request(error.to_string()))?,
+    ))
+}
+
+pub(super) async fn gateway_unwire(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<GatewayWireQuery>,
+) -> ApiResult {
+    let client = parse_client_kind(&query.client)?;
+    let entry =
+        mcpstore::client_wire::unwire_gateway(client, &wired_state_path(&state))
+            .map_err(ApiError::from_store)?;
+    Ok(success(
+        "客户端已断开网关",
+        serde_json::to_value(entry).map_err(|error| ApiError::invalid_request(error.to_string()))?,
     ))
 }
 

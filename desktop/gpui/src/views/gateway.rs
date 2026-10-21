@@ -31,6 +31,10 @@ pub struct GatewayView {
     api: Arc<Api>,
     status: Option<Value>,
     requests: Vec<Value>,
+    latest_seq: u64,
+    wired: Vec<Value>,
+    wire_client: String,
+    wire_path: Entity<InputState>,
     scope: String,
     agent_id: Entity<InputState>,
     expose: [bool; 8],
@@ -39,12 +43,20 @@ pub struct GatewayView {
     error: Option<SharedString>,
 }
 
+const WIRE_CLIENTS: [&str; 4] = ["claude-code", "cursor", "opencode", "codex"];
+
 impl GatewayView {
     pub fn new(api: Arc<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self {
             api,
             status: None,
             requests: Vec::new(),
+            latest_seq: 0,
+            wired: Vec::new(),
+            wire_client: "claude-code".into(),
+            wire_path: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("config file path, e.g. ~/.claude.json")
+            }),
             scope: "store".into(),
             agent_id: cx.new(|cx| InputState::new(window, cx).placeholder("agent_id")),
             expose: [false; 8],
@@ -68,7 +80,13 @@ impl GatewayView {
                 })
                 .await;
             let requests = cx
-                .background_spawn(async move { api.gateway_requests().await })
+                .background_spawn({
+                    let api = api.clone();
+                    async move { api.gateway_requests(0, 0).await }
+                })
+                .await;
+            let wired = cx
+                .background_spawn(async move { api.gateway_wired().await })
                 .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
@@ -85,6 +103,13 @@ impl GatewayView {
                         .and_then(|v| v.as_array())
                         .cloned()
                         .unwrap_or_default();
+                    this.latest_seq = value
+                        .get("latest_seq")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(this.latest_seq);
+                }
+                if let Ok(value) = wired {
+                    this.wired = value.as_array().cloned().unwrap_or_default();
                 }
                 cx.notify();
             })
@@ -94,7 +119,8 @@ impl GatewayView {
         .detach();
     }
 
-    /// Poll the routed-call log every 1.5s while the gateway is running (auth-poll pattern).
+    /// Long-poll the routed-call log (`after=<seq>&wait_ms=7000`) while the gateway runs;
+    /// records arrive incrementally and a quiet gateway costs one blocked request per cycle.
     fn maybe_poll_requests(&mut self, cx: &mut Context<Self>) {
         if self.polling || !self.running() {
             return;
@@ -103,33 +129,44 @@ impl GatewayView {
         cx.notify();
         let api = self.api.clone();
         cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
-            for _ in 0..300 {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(1500))
-                    .await;
+            let mut after: u64 = 0;
+            for _ in 0..1000 {
                 let requests = cx
                     .background_spawn({
                         let api = api.clone();
-                        async move { api.gateway_requests().await }
+                        async move { api.gateway_requests(after, 7_000).await }
                     })
                     .await;
                 let mut still_running = false;
+                let mut fresh = false;
                 this.update(cx, |this, cx| {
-                    match requests {
-                        Ok(value) => {
-                            still_running = value
-                                .get("running")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-                            this.requests = value
-                                .get("requests")
-                                .and_then(|v| v.as_array())
-                                .cloned()
-                                .unwrap_or_default();
+                    if let Ok(value) = requests {
+                        still_running = value
+                            .get("running")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let new_records = value
+                            .get("requests")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        after = value
+                            .get("latest_seq")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(after);
+                        fresh = !new_records.is_empty();
+                        if fresh {
+                            this.requests.extend(new_records);
+                            let len = this.requests.len();
+                            if len > 512 {
+                                let drop = len - 512;
+                                this.requests.drain(0..drop);
+                            }
                         }
-                        Err(_) => {}
                     }
-                    cx.notify();
+                    if fresh {
+                        cx.notify();
+                    }
                 })
                 .ok();
                 if !still_running {
@@ -262,6 +299,77 @@ impl GatewayView {
         cx.notify();
     }
 
+    fn cycle_wire_client(&mut self, cx: &mut Context<Self>) {
+        let index = WIRE_CLIENTS
+            .iter()
+            .position(|c| *c == self.wire_client)
+            .map(|i| (i + 1) % WIRE_CLIENTS.len())
+            .unwrap_or(0);
+        self.wire_client = WIRE_CLIENTS[index].into();
+        cx.notify();
+    }
+
+    fn wire(&mut self, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        let client = self.wire_client.clone();
+        let path = self.wire_path.read(cx).value().trim().to_string();
+        if path.is_empty() {
+            self.error = Some("wire needs a config file path".into());
+            cx.notify();
+            return;
+        }
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn({
+                    let api = api.clone();
+                    let client = client.clone();
+                    async move { api.gateway_wire(&client, &path).await }
+                })
+                .await;
+            let wired = cx
+                .background_spawn(async move { api.gateway_wired().await })
+                .await;
+            this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.error = Some(format!("wire failed: {e:#}").into());
+                }
+                if let Ok(value) = wired {
+                    this.wired = value.as_array().cloned().unwrap_or_default();
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn unwire(&mut self, client: String, cx: &mut Context<Self>) {
+        let api = self.api.clone();
+        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
+            let result = cx
+                .background_spawn({
+                    let api = api.clone();
+                    let client = client.clone();
+                    async move { api.gateway_unwire(&client).await }
+                })
+                .await;
+            let wired = cx
+                .background_spawn(async move { api.gateway_wired().await })
+                .await;
+            this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.error = Some(format!("unwire failed: {e:#}").into());
+                }
+                if let Ok(value) = wired {
+                    this.wired = value.as_array().cloned().unwrap_or_default();
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn toggle_expose(&mut self, index: usize, cx: &mut Context<Self>) {
         self.expose[index] = !self.expose[index];
         cx.notify();
@@ -329,6 +437,32 @@ impl Render for GatewayView {
                     .label(name)
                     .when(self.expose[index], |b| b.primary())
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_expose(index, cx))),
+            );
+        }
+
+        let mut wired_rows = v_flex().gap_0p5();
+        for entry in &self.wired {
+            let client = entry.get("client").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+            let url = entry.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            wired_rows = wired_rows.child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .px_3()
+                    .py_1()
+                    .child(div().w_24().text_sm().child(client.clone()))
+                    .child(div().w_48().truncate().text_xs().font_family("Monaco").text_color(muted).child(url))
+                    .child(div().flex_1().min_w_0().truncate().text_xs().font_family("Monaco").text_color(muted).child(path))
+                    .child(
+                        Button::new(format!("gw-unwire-{client}"))
+                            .ghost()
+                            .danger()
+                            .label("Unwire")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.unwire(client.clone(), cx)
+                            })),
+                    ),
             );
         }
 
@@ -481,6 +615,48 @@ impl Render for GatewayView {
                                             }),
                                     )
                                     .child(expose_buttons),
+                            )
+                            // Connect clients (write-back)
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .p_3()
+                                    .border_1()
+                                    .rounded_md()
+                                    .border_color(cx.theme().border)
+                                    .child(
+                                        div()
+                                            .font_semibold()
+                                            .text_sm()
+                                            .text_color(muted)
+                                            .child(
+                                                "Connect clients — writes the gateway URL into the client's MCP config",
+                                            ),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .child(
+                                                Button::new("gw-wire-client")
+                                                    .outline()
+                                                    .label(self.wire_client.clone())
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.cycle_wire_client(cx)
+                                                    })),
+                                            )
+                                            .child(
+                                                div().flex_1().child(Input::new(&self.wire_path)),
+                                            )
+                                            .child(
+                                                Button::new("gw-wire")
+                                                    .primary()
+                                                    .label("Wire")
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.wire(cx)
+                                                    })),
+                                            ),
+                                    )
+                                    .when(!self.wired.is_empty(), |el| el.child(wired_rows)),
                             )
                             // Routed-call log
                             .child(
