@@ -8,6 +8,10 @@ use crate::views::scopes::ScopesView;
 use crate::views::settings::SettingsView;
 use crate::views::services::{SelectService, ServicesView};
 use crate::views::tools::ToolsView;
+#[cfg(debug_assertions)]
+use gpui_kit::component::button::Button;
+#[cfg(debug_assertions)]
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::sidebar::{
     Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenuItem, SidebarMenu,
 };
@@ -18,7 +22,7 @@ use gpui_kit::{
     Styled as _, Subscription, Window,
 };
 use std::sync::Arc;
-use gpui_kit::base::{h_flex, StyledExt as _};
+use gpui_kit::base::{h_flex, v_flex, StyledExt as _};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Nav {
@@ -202,13 +206,28 @@ impl Render for MainWindow {
                         ),
                     )
                     .footer(
-                        SidebarFooter::new().child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .truncate()
-                                .child(self.api.core_base().to_string()),
-                        ),
+                        SidebarFooter::new().child({
+                            // Debug builds only: click toggles GPUI Inspector (no shortcut needed).
+                            // Release strips this button and `toggle_inspector` entirely.
+                            let el = v_flex().gap_1().child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(self.api.core_base().to_string()),
+                            );
+                            #[cfg(debug_assertions)]
+                            let el = el.child(
+                                Button::new("toggle-inspector")
+                                    .ghost()
+                                    .icon(IconName::Inspector)
+                                    .label("Inspector")
+                                    .on_click(|_, window, cx| {
+                                        window.toggle_inspector(cx);
+                                    }),
+                            );
+                            el
+                        }),
                     ),
             )
             .child(div().flex_1().min_w_0().child(content))
