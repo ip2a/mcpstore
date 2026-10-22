@@ -2,6 +2,7 @@ import {
   BotIcon,
   DatabaseIcon,
   ServerIcon,
+  WaypointsIcon,
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -12,6 +13,7 @@ export type AppView =
   | { name: "services" }
   | { name: "agents" }
   | { name: "tools" }
+  | { name: "gateway" }
   | { name: "cache" }
   | { name: "instance"; addr: ServiceAddress }
 
@@ -27,6 +29,7 @@ export function useNavItems(): NavItem[] {
     { view: { name: "services" }, label: t("navServices"), icon: ServerIcon },
     { view: { name: "agents" }, label: t("navAgents"), icon: BotIcon },
     { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
+    { view: { name: "gateway" }, label: t("gateway"), icon: WaypointsIcon },
     { view: { name: "cache" }, label: t("navCache"), icon: DatabaseIcon },
   ]
 }

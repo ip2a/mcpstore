@@ -62,6 +62,7 @@ function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/scope") return { name: "agents" }
   if (pathname === "/tools") return { name: "tools" }
   if (pathname === "/config") return { name: "agents" }
+  if (pathname === "/gateway") return { name: "gateway" }
   if (pathname === "/cache") return { name: "cache" }
   if (pathname === "/add") return { name: "services" }
   if (pathname.startsWith("/services/")) {
