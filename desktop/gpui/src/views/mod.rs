@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod gateway;
+pub mod home;
 pub mod instance;
 pub mod scopes;
 pub mod settings;
