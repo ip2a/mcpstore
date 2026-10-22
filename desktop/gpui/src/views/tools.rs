@@ -16,6 +16,7 @@ use gpui_kit::base::{h_flex, v_flex, StyledExt as _};
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::prelude::FluentBuilder as _;
+use std::collections::BTreeMap;
 
 pub struct ToolsView {
     api: Arc<Api>,
@@ -31,7 +32,9 @@ pub struct ToolsView {
 
 impl ToolsView {
     pub fn new(api: Arc<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let query = cx.new(|cx| InputState::new(window, cx).placeholder("Search tools…"));
+        let query = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::dict::t(cx, crate::dict::TextKey::SearchTools))
+        });
         let search_sub = cx.subscribe_in(&query, window, |this, state, event, _, cx| {
             if matches!(event, InputEvent::Change) {
                 this.search = state.read(cx).value().to_string();
@@ -132,68 +135,109 @@ impl Render for ToolsView {
             })
             .collect();
 
+        // Group by service (name + scope): tools stay the rows, service is the
+        // group context they belong to. BTreeMap keeps groups sorted.
+        let mut groups: BTreeMap<(String, String), Vec<&(ServiceAddress, ToolInfo)>> =
+            BTreeMap::new();
+        for row in rows {
+            groups
+                .entry((row.0.service_name.clone(), row.0.scope.label()))
+                .or_default()
+                .push(row);
+        }
+
         let mut list = v_flex();
-        for (addr, tool) in rows {
-            let open_addr = addr.clone();
-            let open_tool = tool.clone();
-            let open_api = self.api.clone();
-            let id = format!(
-                "tool-{}-{}",
-                urlencoding::encode(&addr.service_name),
-                urlencoding::encode(&tool.name)
-            );
+        for ((service_name, scope_label), group_tools) in groups {
             list = list.child(
-                v_flex()
-                    .id(id.clone())
-                    .gap_0p5()
+                h_flex()
+                    .gap_2()
+                    .items_baseline()
                     .px_3()
-                    .py_2()
+                    .pt_3()
+                    .pb_1()
+                    .bg(cx.theme().muted)
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .font_medium()
-                                    .text_sm()
-                                    .child(tool.title.clone().unwrap_or_else(|| tool.name.clone())),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(addr.service_name.clone()),
-                            )
-                            .child(div().flex_1())
-                            .child(
-                                Button::new(format!("{id}-run"))
-                                    .outline()
-                                    .label(crate::dict::t(cx, crate::dict::Key::Run))
-                                    .on_click(cx.listener(move |_, _, window, cx| {
-                                        crate::dialogs::ToolRunDialog::open(
-                                            open_addr.clone(),
-                                            open_tool.clone(),
-                                            open_api.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    })),
-                            ),
+                        div()
+                            .font_medium()
+                            .text_sm()
+                            .child(service_name.clone()),
                     )
-                    .when_some(
-                        (!tool.description.is_empty()).then(|| tool.description.clone()),
-                        |el, desc| {
-                            el.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .truncate()
-                                    .child(desc),
-                            )
-                        },
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(scope_label),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!(
+                                "{} {n}",
+                                crate::dict::t(cx, crate::dict::TextKey::ToolCount),
+                                n = group_tools.len()
+                            )),
                     ),
             );
+            for (addr, tool) in group_tools {
+                let open_addr = addr.clone();
+                let open_tool = tool.clone();
+                let open_api = self.api.clone();
+                let id = format!(
+                    "tool-{}-{}-{}",
+                    urlencoding::encode(&addr.service_name),
+                    urlencoding::encode(&addr.scope.label()),
+                    urlencoding::encode(&tool.name)
+                );
+                list = list.child(
+                    v_flex()
+                        .id(id.clone())
+                        .gap_0p5()
+                        .px_3()
+                        .py_2()
+                        .border_b_1()
+                        .border_color(cx.theme().border)
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .font_medium()
+                                        .text_sm()
+                                        .child(tool.title.clone().unwrap_or_else(|| tool.name.clone())),
+                                )
+                                .child(div().flex_1())
+                                .child(
+                                    Button::new(format!("{id}-run"))
+                                        .outline()
+                                        .label(crate::dict::t(cx, crate::dict::TextKey::Run))
+                                        .on_click(cx.listener(move |_, _, window, cx| {
+                                            crate::dialogs::ToolRunDialog::open(
+                                                open_addr.clone(),
+                                                open_tool.clone(),
+                                                open_api.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        })),
+                                ),
+                        )
+                        .when_some(
+                            (!tool.description.is_empty()).then(|| tool.description.clone()),
+                            |el, desc| {
+                                el.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .truncate()
+                                        .child(desc),
+                                )
+                            },
+                        ),
+                );
+            }
         }
 
         v_flex()
@@ -243,7 +287,7 @@ impl Render for ToolsView {
                         Button::new("tools-refresh")
                             .outline()
                             .icon(IconName::RefreshCw)
-                            .label(crate::dict::t(cx, crate::dict::Key::Refresh))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::Refresh))
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
                     ),
             )
@@ -269,7 +313,7 @@ impl Render for ToolsView {
                             div()
                                 .text_sm()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(crate::dict::t(cx, crate::dict::Key::Loading)),
+                                .child(crate::dict::t(cx, crate::dict::TextKey::Loading)),
                         ),
                 )
             })

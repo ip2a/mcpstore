@@ -436,12 +436,12 @@ impl Render for InstanceView {
 
         // Tab bar
         let tab_names = [
-            crate::dict::t(cx, crate::dict::Key::Overview),
-            crate::dict::t(cx, crate::dict::Key::Tools),
-            crate::dict::t(cx, crate::dict::Key::Resources),
-            crate::dict::t(cx, crate::dict::Key::Prompts),
-            crate::dict::t(cx, crate::dict::Key::Overrides),
-            crate::dict::t(cx, crate::dict::Key::Auth),
+            crate::dict::t(cx, crate::dict::TextKey::Overview),
+            crate::dict::t(cx, crate::dict::TextKey::Tools),
+            crate::dict::t(cx, crate::dict::TextKey::Resources),
+            crate::dict::t(cx, crate::dict::TextKey::Prompts),
+            crate::dict::t(cx, crate::dict::TextKey::OverrideEditor),
+            crate::dict::t(cx, crate::dict::TextKey::Authentication),
         ];
         let tab_bar = TabBar::new("instance-tabs")
             .children(tab_names)
@@ -597,7 +597,7 @@ impl Render for InstanceView {
                             .child(
                                 Button::new(format!("tool-run-{}", urlencoding::encode(&tool.name)))
                                     .outline()
-                                    .label(crate::dict::t(cx, crate::dict::Key::Run))
+                                    .label(crate::dict::t(cx, crate::dict::TextKey::Run))
                                     .on_click({
                                         let api = self.api.clone();
                                         let addr = self.addr.clone();
@@ -651,7 +651,7 @@ impl Render for InstanceView {
                 Button::new("policy-clear")
                     .ghost()
                     .danger()
-                    .label(crate::dict::t(cx, crate::dict::Key::Clear))
+                    .label(crate::dict::t(cx, crate::dict::TextKey::ClearToolPolicy))
                     .disabled(!running)
                     .on_click(cx.listener(|this, _, _, cx| this.clear_policy(cx))),
             ),
@@ -682,7 +682,7 @@ impl Render for InstanceView {
                     .child(
                         Button::new(format!("res-read-{}", urlencoding::encode(&res.uri)))
                             .outline()
-                            .label(crate::dict::t(cx, crate::dict::Key::Read))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::Read))
                             .on_click({
                                 let api = self.api.clone();
                                 let addr = self.addr.clone();
@@ -767,7 +767,7 @@ impl Render for InstanceView {
         if let Some(auth) = &self.auth {
             if let Some(required) = &auth.required_scope {
                 auth_rows = auth_rows.child(Self::render_field(
-                    "Required scope",
+                    crate::dict::t(cx, crate::dict::TextKey::OauthRequiredScope),
                     required.clone(),
                     muted,
                     fg,
@@ -782,20 +782,20 @@ impl Render for InstanceView {
                 Button::new("auth-start")
                     .outline()
                     .icon(IconName::ExternalLink)
-                    .label(crate::dict::t(cx, crate::dict::Key::StartAuth))
+                    .label(crate::dict::t(cx, crate::dict::TextKey::OauthLogin))
                     .disabled(running == false && stopped == false)
                     .on_click(cx.listener(|this, _, _, cx| this.auth_action("start", cx))),
             )
             .child(
                 Button::new("auth-refresh")
                     .outline()
-                    .label(crate::dict::t(cx, crate::dict::Key::RefreshToken))
+                    .label(crate::dict::t(cx, crate::dict::TextKey::RefreshAuthorization))
                     .on_click(cx.listener(|this, _, _, cx| this.auth_action("refresh", cx))),
             )
             .child(
                 Button::new("auth-logout")
                     .outline()
-                    .label(crate::dict::t(cx, crate::dict::Key::Logout))
+                    .label(crate::dict::t(cx, crate::dict::TextKey::OauthLogout))
                     .on_click(cx.listener(|this, _, _, cx| this.auth_action("logout", cx))),
             )
             .when_some(
@@ -826,7 +826,7 @@ impl Render for InstanceView {
                             .font_semibold()
                             .text_sm()
                             .text_color(muted)
-                            .child(crate::dict::t(cx, crate::dict::Key::Templates)),
+                            .child(crate::dict::t(cx, crate::dict::TextKey::Templates)),
                     )
                     .child(template_rows)
                 })
@@ -868,7 +868,7 @@ impl Render for InstanceView {
                         Button::new("instance-connect")
                             .outline()
                             .icon(IconName::Play)
-                            .label(crate::dict::t(cx, crate::dict::Key::Connect))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::Connect))
                             .disabled(running)
                             .on_click(cx.listener(|this, _, _, cx| this.lifecycle("connect", cx))),
                     )
@@ -876,7 +876,7 @@ impl Render for InstanceView {
                         Button::new("instance-restart")
                             .outline()
                             .icon(IconName::RotateCw)
-                            .label(crate::dict::t(cx, crate::dict::Key::Restart))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::Restart))
                             .disabled(stopped)
                             .on_click(cx.listener(|this, _, _, cx| this.lifecycle("restart", cx))),
                     )
@@ -884,7 +884,7 @@ impl Render for InstanceView {
                         Button::new("instance-disconnect")
                             .outline()
                             .icon(IconName::Square)
-                            .label(crate::dict::t(cx, crate::dict::Key::Disconnect))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::Disconnect))
                             .disabled(stopped)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.lifecycle("disconnect", cx)
@@ -930,7 +930,7 @@ impl Render for InstanceView {
                                             div()
                                                 .text_sm()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child(crate::dict::t(cx, crate::dict::Key::Loading)),
+                                                .child(crate::dict::t(cx, crate::dict::TextKey::Loading)),
                                         ),
                                 )
                             })
@@ -973,7 +973,7 @@ impl InstanceView {
                     .child(
                         Button::new("ov-add")
                             .primary()
-                            .label(crate::dict::t(cx, crate::dict::Key::AddOverride))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::AddOverride))
                             .on_click(cx.listener(|this, _, _, cx| this.add_override(cx))),
                     ),
             );
@@ -1055,9 +1055,9 @@ impl InstanceView {
                                     Button::new(format!("ov-toggle-{i}-{key}"))
                                         .ghost()
                                         .label(if enabled {
-                                            crate::dict::t(cx, crate::dict::Key::Disable)
+                                            crate::dict::t(cx, crate::dict::TextKey::Disable)
                                         } else {
-                                            crate::dict::t(cx, crate::dict::Key::Enable)
+                                            crate::dict::t(cx, crate::dict::TextKey::Enable)
                                         })
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             this.toggle_override(kind, rule_clone.clone(), cx)

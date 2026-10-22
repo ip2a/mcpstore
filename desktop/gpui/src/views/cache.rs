@@ -271,7 +271,7 @@ impl Render for CacheView {
                         Button::new("cache-refresh")
                             .outline()
                             .icon(IconName::RefreshCw)
-                            .label(crate::dict::t(cx, crate::dict::Key::Refresh))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::Refresh))
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
                     ),
             )
@@ -298,7 +298,7 @@ impl Render for CacheView {
                             .when(self.loading && self.health.is_none(), |el| {
                                 el.child(
                                     h_flex().gap_2().items_center().child(Spinner::new()).child(
-                                        div().text_sm().text_color(muted).child(crate::dict::t(cx, crate::dict::Key::Loading)),
+                                        div().text_sm().text_color(muted).child(crate::dict::t(cx, crate::dict::TextKey::Loading)),
                                     ),
                                 )
                             })
@@ -310,7 +310,7 @@ impl Render for CacheView {
                                             .font_semibold()
                                             .text_sm()
                                             .text_color(muted)
-                                            .child(crate::dict::t(cx, crate::dict::Key::SwitchBackend)),
+                                            .child(crate::dict::t(cx, crate::dict::TextKey::SwitchBackend)),
                                     )
                                     .child(backend_buttons),
                             )

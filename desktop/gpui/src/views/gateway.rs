@@ -561,7 +561,7 @@ impl Render for GatewayView {
                                             .child(
                                                 Button::new("gw-start")
                                                     .primary()
-                                                    .label("Start")
+                                                    .label(crate::dict::t(cx, crate::dict::TextKey::Start))
                                                     .disabled(self.loading)
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.start(cx)
@@ -571,7 +571,7 @@ impl Render for GatewayView {
                                                 Button::new("gw-stop")
                                                     .outline()
                                                     .danger()
-                                                    .label("Stop")
+                                                    .label(crate::dict::t(cx, crate::dict::TextKey::Stop))
                                                     .disabled(!running || self.loading)
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.stop(cx)

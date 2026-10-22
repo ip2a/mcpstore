@@ -1,24 +1,24 @@
-//! Dialog entities: tool runner (schema-driven args form) and add-service form.
+//! Dialog entities: tool runner, declare-scope, cache/json viewers, etc.
+//! Service add/edit lives in [`crate::service_form`].
+
+pub use crate::service_form::ServiceFormDialog;
 
 use crate::api::{
-    Api, ScopeRef, ServiceAddress, ServiceFormDraft, ServiceInstance, ToolInfo,
-    build_service_config, parse_imported_service_config,
+    Api, ScopeRef, ServiceAddress, ServiceFormDraft, ToolInfo, build_service_config,
 };
 use gpui_kit::component::{
     WindowExt as _,
     button::Button,
     input::{Input, InputState, Textarea, TextareaState},
-    select::{SearchableVec, Select, SelectEvent, SelectState},
     spinner::Spinner,
-    ActiveTheme, IconName, IndexPath,
+    ActiveTheme, IconName,
 };
 use gpui_kit::base::{h_flex, v_flex, Disableable as _, StyledExt as _};
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, relative, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window,
+    div, relative, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render,
+    SharedString, Styled as _, Window,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -606,454 +606,6 @@ impl Render for ToolRunDialog {
     }
 }
 
-const TRANSPORT_OPTIONS: [&str; 2] = ["stdio", "streamable-http"];
-
-fn transport_select_index(transport: &str) -> IndexPath {
-    IndexPath::new(
-        TRANSPORT_OPTIONS
-            .iter()
-            .position(|&item| item == transport)
-            .unwrap_or(0),
-    )
-}
-
-/// Add / edit service form dialog. Edit mode prefills and PUTs the scope descriptor.
-pub struct ServiceFormDialog {
-    api: Arc<Api>,
-    mode: FormMode,
-    name: Entity<InputState>,
-    transport: Entity<SelectState<SearchableVec<&'static str>>>,
-    command: Entity<InputState>,
-    args: Entity<TextareaState>,
-    url: Entity<InputState>,
-    description: Entity<InputState>,
-    working_dir: Entity<InputState>,
-    env: Entity<TextareaState>,
-    headers: Entity<TextareaState>,
-    oauth_client_id: Entity<InputState>,
-    oauth_client_metadata_url: Entity<InputState>,
-    handshake_mode: Entity<InputState>,
-    startup_policy: Entity<InputState>,
-    restart_policy: Entity<InputState>,
-    import_text: Entity<TextareaState>,
-    error: Option<SharedString>,
-    done: bool,
-    running: bool,
-    _transport_sub: Subscription,
-}
-
-#[derive(Clone)]
-pub enum FormMode {
-    Add,
-    Edit {
-        name: String,
-        scope: ScopeRef,
-        config: Value,
-    },
-}
-
-impl ServiceFormDialog {
-    pub fn open_add(api: Arc<Api>, window: &mut Window, cx: &mut gpui_kit::App) {
-        Self::open(api, FormMode::Add, window, cx);
-    }
-
-    pub fn open_edit(
-        api: Arc<Api>,
-        name: String,
-        scope: ScopeRef,
-        svc: &ServiceInstance,
-        window: &mut Window,
-        cx: &mut gpui_kit::App,
-    ) {
-        let mut config = svc.effective_config.clone();
-        if config.get("transport").is_none() {
-            config["transport"] = svc.transport.clone().into();
-        }
-        if config.get("command").is_none() {
-            if let Some(command) = svc.command.clone() {
-                config["command"] = command.into();
-            }
-        }
-        if config.get("url").is_none() {
-            if let Some(url) = svc.url.clone() {
-                config["url"] = url.into();
-            }
-        }
-        Self::open(
-            api,
-            FormMode::Edit {
-                name,
-                scope,
-                config,
-            },
-            window,
-            cx,
-        );
-    }
-
-    fn open(api: Arc<Api>, mode: FormMode, window: &mut Window, cx: &mut gpui_kit::App) {
-        let name_val = match &mode {
-            FormMode::Add => String::new(),
-            FormMode::Edit { name, .. } => name.clone(),
-        };
-        let draft = match &mode {
-            FormMode::Add => ServiceFormDraft::default(),
-            FormMode::Edit { config, .. } => ServiceFormDraft::from_config(config),
-        };
-        let input = |placeholder: &str, value: &str, window: &mut Window, cx: &mut gpui_kit::App| {
-            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(value))
-        };
-        let textarea = |placeholder: &str, value: &str, window: &mut Window, cx: &mut gpui_kit::App| {
-            cx.new(|cx| TextareaState::new(window, cx).placeholder(placeholder).default_value(value))
-        };
-        let transport_index = transport_select_index(&draft.transport);
-        let entity = cx.new(|cx| {
-            let transport = cx.new(|cx| {
-                SelectState::new(
-                    SearchableVec::new(TRANSPORT_OPTIONS.to_vec()),
-                    Some(transport_index),
-                    window,
-                    cx,
-                )
-            });
-            // Re-render when transport changes so stdio/http field sets swap.
-            let transport_sub = cx.subscribe(&transport, |_, _, event, cx| {
-                if matches!(event, SelectEvent::Confirm(_)) {
-                    cx.notify();
-                }
-            });
-            Self {
-                api,
-                mode,
-                name: input("service name", &name_val, window, cx),
-                transport,
-                command: input("e.g. uvx", &draft.command, window, cx),
-                args: textarea("one arg per line", &draft.args_text, window, cx),
-                url: input("https://host/mcp", &draft.url, window, cx),
-                description: input("optional", &draft.description, window, cx),
-                working_dir: input("optional cwd", &draft.working_dir, window, cx),
-                env: textarea("KEY=VALUE per line", &draft.env_text, window, cx),
-                headers: textarea("KEY=VALUE per line", &draft.headers_text, window, cx),
-                oauth_client_id: input("client id (or metadata url)", &draft.oauth_client_id, window, cx),
-                oauth_client_metadata_url: input(
-                    "client metadata url",
-                    &draft.oauth_client_metadata_url,
-                    window,
-                    cx,
-                ),
-                handshake_mode: input("auto | initialize | discover", &draft.handshake_mode, window, cx),
-                startup_policy: input("lazy | manual | on-store-start", &draft.startup_policy, window, cx),
-                restart_policy: input(
-                    "no | on-failure[:N] | always | unless-stopped",
-                    &draft.restart_policy,
-                    window,
-                    cx,
-                ),
-                import_text: textarea("paste JSON or TOML (mcpServers wrapper ok)", "", window, cx),
-                error: None,
-                done: false,
-                running: false,
-                _transport_sub: transport_sub,
-            }
-        });
-        let entity2 = entity.clone();
-        let title = match &entity2.read(cx).mode {
-            FormMode::Add => SharedString::from("Add service"),
-            FormMode::Edit { name, .. } => format!("Edit · {name}").into(),
-        };
-        // Viewport-relative dialog size (smaller than the previous 84vw / 78vh).
-        let viewport = window.viewport_size();
-        let dialog_w = viewport.width * 0.70;
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title(title.clone())
-                .w(dialog_w)
-                .child(entity2.clone())
-        });
-    }
-
-    fn draft(&self, cx: &Context<Self>) -> ServiceFormDraft {
-        let text = |state: &Entity<InputState>| state.read(cx).value().trim().to_string();
-        let area = |state: &Entity<TextareaState>| state.read(cx).value().trim().to_string();
-        let transport = self
-            .transport
-            .read(cx)
-            .selected_value()
-            .copied()
-            .unwrap_or(TRANSPORT_OPTIONS[0])
-            .to_string();
-        ServiceFormDraft {
-            transport,
-            command: text(&self.command),
-            args_text: area(&self.args),
-            url: text(&self.url),
-            description: text(&self.description),
-            working_dir: text(&self.working_dir),
-            env_text: area(&self.env),
-            headers_text: area(&self.headers),
-            oauth_client_id: text(&self.oauth_client_id),
-            oauth_client_metadata_url: text(&self.oauth_client_metadata_url),
-            handshake_mode: text(&self.handshake_mode),
-            startup_policy: text(&self.startup_policy),
-            restart_policy: text(&self.restart_policy),
-        }
-    }
-
-    fn load_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.import_text.read(cx).value().to_string();
-        match parse_imported_service_config(&text) {
-            Ok((name, config)) => {
-                let draft = ServiceFormDraft::from_config(&config);
-                let fill =
-                    |state: &Entity<InputState>, value: String, window: &mut Window, cx: &mut Context<Self>| {
-                        state.update(cx, |state, cx| state.set_value(value, window, cx));
-                    };
-                if self.name.read(cx).value().is_empty() {
-                    if let Some(name) = name {
-                        fill(&self.name, name, window, cx);
-                    }
-                }
-                let transport_index = transport_select_index(&draft.transport);
-                self.transport.update(cx, |state, cx| {
-                    state.set_selected_index(Some(transport_index), window, cx);
-                });
-                fill(&self.command, draft.command, window, cx);
-                fill(&self.url, draft.url, window, cx);
-                fill(&self.description, draft.description, window, cx);
-                fill(&self.working_dir, draft.working_dir, window, cx);
-                fill(&self.oauth_client_id, draft.oauth_client_id, window, cx);
-                fill(&self.oauth_client_metadata_url, draft.oauth_client_metadata_url, window, cx);
-                fill(&self.handshake_mode, draft.handshake_mode, window, cx);
-                fill(&self.startup_policy, draft.startup_policy, window, cx);
-                fill(&self.restart_policy, draft.restart_policy, window, cx);
-                let fill_area =
-                    |state: &Entity<TextareaState>, value: String, window: &mut Window, cx: &mut Context<Self>| {
-                        state.update(cx, |state, cx| state.set_value(value, window, cx));
-                    };
-                fill_area(&self.args, draft.args_text, window, cx);
-                fill_area(&self.env, draft.env_text, window, cx);
-                fill_area(&self.headers, draft.headers_text, window, cx);
-                self.error = None;
-                cx.notify();
-            }
-            Err(message) => {
-                self.error = Some(message.into());
-                cx.notify();
-            }
-        }
-    }
-
-    fn submit(&mut self, cx: &mut Context<Self>) {
-        let name = self.name.read(cx).value().trim().to_string();
-        let draft = self.draft(cx);
-        if name.is_empty() {
-            self.error = Some("name is required".into());
-            cx.notify();
-            return;
-        }
-        if let Err(message) = draft.validate() {
-            self.error = Some(message.into());
-            cx.notify();
-            return;
-        }
-        self.running = true;
-        self.error = None;
-        cx.notify();
-        let api = self.api.clone();
-        let mode = self.mode.clone();
-        cx.spawn(async move |this, cx: &mut gpui_kit::AsyncApp| {
-            let result = cx
-                .background_spawn(async move {
-                    match mode {
-                        FormMode::Add => api.add_service(&name, &draft).await,
-                        FormMode::Edit { name, scope, .. } => {
-                            api.update_service_scope(&name, &scope, &draft).await
-                        }
-                    }
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.running = false;
-                match result {
-                    Ok(_) => this.done = true,
-                    Err(e) => this.error = Some(format!("{e:#}").into()),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-}
-
-impl Render for ServiceFormDialog {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (muted, fg) = (cx.theme().muted_foreground, cx.theme().foreground);
-        let border = cx.theme().border;
-        let viewport = window.viewport_size();
-        let body_h = viewport.height * 0.64;
-        // Textareas sit in a scroll column (no definite parent height), so size
-        // them from the viewport rather than a fixed px or relative(parent).
-        let area_h = viewport.height * 0.08;
-        let field = |label: &'static str, input: &Entity<InputState>| {
-            v_flex()
-                .gap_1()
-                .child(div().text_sm().text_color(muted).child(label))
-                .child(Input::new(input))
-        };
-        let area = |label: &'static str, input: &Entity<TextareaState>| {
-            v_flex()
-                .gap_1()
-                .child(div().text_sm().text_color(muted).child(label))
-                .child(Textarea::new(input).h(area_h))
-        };
-
-        let draft = self.draft(cx);
-        let is_stdio = draft.transport == "stdio";
-        let preview = serde_json::to_string_pretty(&build_service_config(&draft)).unwrap_or_default();
-
-        // Match React add-service: stdio ↔ http field sets swap with transport.
-        // overflow_y_scroll (no painted scrollbar) — still mouse/trackpad scrollable.
-        let left = v_flex()
-            .id("service-form-fields")
-            .gap_3()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .overflow_y_scroll()
-            .child(field("Name", &self.name))
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child(div().text_sm().text_color(muted).child("Transport"))
-                    .child(
-                        Select::new(&self.transport)
-                            .id("service-form-transport")
-                            .w_full(),
-                    ),
-            )
-            .when(is_stdio, |el| {
-                el.child(field("Command", &self.command))
-                    .child(area("Args", &self.args))
-                    .child(area("Env", &self.env))
-                    .child(field("Working directory", &self.working_dir))
-            })
-            .when(!is_stdio, |el| {
-                el.child(field("URL", &self.url))
-                    .child(area("Headers", &self.headers))
-                    .child(field("OAuth client id", &self.oauth_client_id))
-                    .child(field("OAuth client metadata URL", &self.oauth_client_metadata_url))
-            })
-            .child(field("Description", &self.description))
-            .child(field("Handshake mode", &self.handshake_mode))
-            .child(field("Startup policy", &self.startup_policy))
-            .child(field("Restart policy", &self.restart_policy));
-
-        let right = v_flex()
-            .gap_3()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .child(
-                v_flex()
-                    .gap_2()
-                    .flex_1()
-                    .min_h_0()
-                    .p_3()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(border)
-                    .bg(cx.theme().muted)
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(div().text_xs().text_color(muted).child("Config preview"))
-                            .child(div().flex_1())
-                            .child(
-                                Button::new("service-form-preview-copy")
-                                    .ghost()
-                                    .icon(IconName::Copy)
-                                    .on_click({
-                                        let preview = preview.clone();
-                                        move |_, _, cx| {
-                                            cx.write_to_clipboard(
-                                                gpui_kit::ClipboardItem::new_string(preview.clone()),
-                                            );
-                                        }
-                                    }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("service-form-preview")
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .font_family("Monaco")
-                            .text_xs()
-                            .child(preview),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap_2()
-                    .flex_1()
-                    .min_h_0()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(div().text_sm().text_color(muted).child("Import JSON/TOML"))
-                            .child(div().flex_1())
-                            .child(
-                                Button::new("service-form-import-load")
-                                    .outline()
-                                    .label("Load into form")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.load_import(window, cx)
-                                    })),
-                            ),
-                    )
-                    .child(Textarea::new(&self.import_text).h(relative(1.))),
-            );
-
-        v_flex()
-            .gap_3()
-            .w_full()
-            .h(body_h)
-            .text_color(fg)
-            .child(
-                h_flex()
-                    .gap_4()
-                    .flex_1()
-                    .min_h_0()
-                    .items_stretch()
-                    .child(left)
-                    .child(right),
-            )
-            .when_some(self.error.clone(), |el, error| {
-                el.child(div().text_sm().text_color(cx.theme().danger).child(error))
-            })
-            .when(self.done, |el| {
-                el.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().success)
-                        .child("Saved. The list refreshes within 5 seconds."),
-                )
-            })
-            .child(
-                h_flex().gap_2().justify_end().child(
-                    Button::new("service-form-submit")
-                        .primary()
-                        .label(if self.running { "Saving…" } else { "Save" })
-                        .disabled(self.running || self.done)
-                        .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
-                ),
-            )
-    }
-}
 
 /// Tool policy editor: available tool names, one per line.
 pub struct ToolPolicyDialog {
@@ -1182,7 +734,7 @@ impl Render for ToolPolicyDialog {
                     div()
                         .text_sm()
                         .text_color(cx.theme().success)
-                        .child("Policy saved."),
+                        .child(crate::dict::t(cx, crate::dict::TextKey::PolicySaved)),
                 )
             })
             .child(
@@ -1192,14 +744,18 @@ impl Render for ToolPolicyDialog {
                     .child(
                         Button::new("policy-clear")
                             .danger()
-                            .label("Clear")
+                            .label(crate::dict::t(cx, crate::dict::TextKey::ClearToolPolicy))
                             .disabled(self.running || self.done)
                             .on_click(cx.listener(|this, _, _, cx| this.save(cx, true))),
                     )
                     .child(
                         Button::new("policy-save")
                             .primary()
-                            .label(if self.running { "Saving…" } else { "Save" })
+                            .label(if self.running {
+                                crate::dict::t(cx, crate::dict::TextKey::Saving)
+                            } else {
+                                crate::dict::t(cx, crate::dict::TextKey::Save)
+                            })
                             .disabled(self.running || self.done)
                             .on_click(cx.listener(|this, _, _, cx| this.save(cx, false))),
                     ),

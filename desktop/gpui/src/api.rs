@@ -544,15 +544,25 @@ impl Api {
         self.request("POST", &addr.subpath(action), None).await
     }
 
-    /// `POST /services/{name}` — 新服务默认进 store 作用域（doc §17）。
-    pub async fn add_service(&self, name: &str, draft: &ServiceFormDraft) -> Result<Value> {
+    /// `POST /services/{name}` — store scope by default; pass `agent_id` for agent scope.
+    pub async fn add_service(
+        &self,
+        name: &str,
+        draft: &ServiceFormDraft,
+        agent_id: Option<&str>,
+    ) -> Result<Value> {
+        let scopes = match agent_id.map(str::trim).filter(|id| !id.is_empty()) {
+            Some(id) => serde_json::json!({ "agents": { id: {} } }),
+            None => serde_json::json!({ "store": {} }),
+        };
         let mut payload = build_service_config(draft);
-        payload["_mcpstore"] = mcpstore_extension(draft, serde_json::json!({ "store": {} }));
+        payload["_mcpstore"] = mcpstore_extension(draft, scopes);
         self.request(
             "POST",
             &format!("/services/{}", urlencoding::encode(name)),
             Some(&payload),
-        ).await
+        )
+        .await
     }
 
     /// `PUT /services/{name}/scopes/…` — 更新某作用域上的服务声明（编辑）。
@@ -808,7 +818,7 @@ fn non_empty_lines(text: &str) -> Vec<String> {
 }
 
 /// Service form draft: every field the panel can write for a service.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ServiceFormDraft {
     pub transport: String,
     pub command: String,
@@ -818,6 +828,8 @@ pub struct ServiceFormDraft {
     pub working_dir: String,
     pub env_text: String,
     pub headers_text: String,
+    /// When false, auth is omitted even if oauth fields are filled (matches React).
+    pub oauth_enabled: bool,
     pub oauth_client_id: String,
     pub oauth_client_metadata_url: String,
     pub handshake_mode: String,
@@ -825,9 +837,30 @@ pub struct ServiceFormDraft {
     pub restart_policy: String,
 }
 
-const HANDSHAKE_MODES: [&str; 3] = ["auto", "initialize", "discover"];
-const STARTUP_POLICIES: [&str; 3] = ["lazy", "manual", "on-store-start"];
-const RESTART_POLICIES: [&str; 7] = [
+impl Default for ServiceFormDraft {
+    fn default() -> Self {
+        Self {
+            transport: "stdio".into(),
+            command: "npx".into(),
+            args_text: "-y\n@modelcontextprotocol/server-filesystem\n.".into(),
+            url: String::new(),
+            description: String::new(),
+            working_dir: String::new(),
+            env_text: String::new(),
+            headers_text: String::new(),
+            oauth_enabled: false,
+            oauth_client_id: String::new(),
+            oauth_client_metadata_url: String::new(),
+            handshake_mode: "initialize".into(),
+            startup_policy: "lazy".into(),
+            restart_policy: "no".into(),
+        }
+    }
+}
+
+pub const HANDSHAKE_MODES: [&str; 3] = ["auto", "initialize", "discover"];
+pub const STARTUP_POLICIES: [&str; 3] = ["lazy", "manual", "on-store-start"];
+pub const RESTART_POLICIES: [&str; 7] = [
     "no",
     "on-failure",
     "on-failure:1",
@@ -837,7 +870,17 @@ const RESTART_POLICIES: [&str; 7] = [
     "unless-stopped",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceConfigFormat {
+    Json,
+    Toml,
+}
+
 impl ServiceFormDraft {
+    pub fn is_stdio(&self) -> bool {
+        self.transport == "stdio"
+    }
+
     /// Submit-time validation; empty handshake/policy strings mean backend defaults.
     pub fn validate(&self) -> Result<(), String> {
         if self.transport != "stdio" && self.transport != "streamable-http" {
@@ -919,6 +962,7 @@ impl ServiceFormDraft {
                 .to_string(),
             env_text: kv_text("env"),
             headers_text: kv_text("headers"),
+            oauth_enabled,
             oauth_client_id: if oauth_enabled {
                 auth.and_then(|a| a.get("client_id"))
                     .and_then(Value::as_str)
@@ -943,15 +987,47 @@ impl ServiceFormDraft {
             startup_policy: lifecycle
                 .and_then(|l| l.get("startup_policy"))
                 .and_then(Value::as_str)
-                .unwrap_or_default()
+                .unwrap_or("lazy")
                 .to_string(),
             restart_policy: lifecycle
                 .and_then(|l| l.get("restart_policy"))
                 .and_then(Value::as_str)
-                .unwrap_or_default()
+                .unwrap_or("no")
                 .to_string(),
         }
     }
+}
+
+/// Parse pasted config for a specific playground format (React parity).
+pub fn parse_imported_service_config_format(
+    format: ServiceConfigFormat,
+    text: &str,
+) -> Result<(Option<String>, Value), String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(match format {
+            ServiceConfigFormat::Json => "JSON config is required".into(),
+            ServiceConfigFormat::Toml => "TOML config is required".into(),
+        });
+    }
+    let parsed = match format {
+        ServiceConfigFormat::Json => {
+            let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+            if !value.is_object() {
+                return Err("JSON config must be an object".into());
+            }
+            value
+        }
+        ServiceConfigFormat::Toml => {
+            let toml_value: toml::Value = toml::from_str(text).map_err(|e| e.to_string())?;
+            let value = serde_json::to_value(toml_value).map_err(|e| e.to_string())?;
+            if !value.is_object() {
+                return Err("TOML config must be a table/object".into());
+            }
+            value
+        }
+    };
+    unwrap_mcp_servers(parsed)
 }
 
 /// Parse a pasted JSON or TOML service config; accepts a bare config or a
@@ -969,6 +1045,10 @@ pub fn parse_imported_service_config(text: &str) -> Result<(Option<String>, Valu
             serde_json::to_value(toml_value).map_err(|e| e.to_string())?
         }
     };
+    unwrap_mcp_servers(parsed)
+}
+
+fn unwrap_mcp_servers(parsed: Value) -> Result<(Option<String>, Value), String> {
     let Some(object) = parsed.as_object() else {
         return Err("config must be an object".into());
     };
@@ -1019,7 +1099,7 @@ pub(crate) fn build_service_config(draft: &ServiceFormDraft) -> Value {
         }
         let client_id = draft.oauth_client_id.trim();
         let metadata_url = draft.oauth_client_metadata_url.trim();
-        if !client_id.is_empty() || !metadata_url.is_empty() {
+        if draft.oauth_enabled && (!client_id.is_empty() || !metadata_url.is_empty()) {
             let mut auth = serde_json::json!({ "type": "oauth_authorization_code" });
             if !client_id.is_empty() {
                 auth["client_id"] = client_id.into();
@@ -1030,6 +1110,78 @@ pub(crate) fn build_service_config(draft: &ServiceFormDraft) -> Value {
         }
     }
     config
+}
+
+/// Serialize draft config as JSON or TOML (React playground formats).
+pub fn serialize_service_config(draft: &ServiceFormDraft, format: ServiceConfigFormat) -> String {
+    let config = build_service_config(draft);
+    match format {
+        ServiceConfigFormat::Json => {
+            format!("{}\n", serde_json::to_string_pretty(&config).unwrap_or_default())
+        }
+        ServiceConfigFormat::Toml => {
+            let toml_value = serde_json::from_value::<toml::Value>(config).unwrap_or(toml::Value::Table(Default::default()));
+            format!("{}\n", toml::to_string_pretty(&toml_value).unwrap_or_default())
+        }
+    }
+}
+
+/// CLI equivalent of React `buildAddServiceCliCommand`.
+pub fn build_add_service_cli(
+    name: &str,
+    draft: &ServiceFormDraft,
+    agent_id: Option<&str>,
+) -> String {
+    let name = {
+        let trimmed = name.trim();
+        if trimmed.is_empty() { "github" } else { trimmed }
+    };
+    let scope_flag = agent_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| format!(" \\\n  --for-agent {}", shell_quote(id)))
+        .unwrap_or_default();
+
+    if draft.is_stdio() {
+        let env = parse_kv_lines(&draft.env_text);
+        let env_flags = env
+            .iter()
+            .map(|(k, v)| format!(" \\\n  --env {k}={}", shell_quote(v.as_str().unwrap_or(""))))
+            .collect::<String>();
+        let command = {
+            let trimmed = draft.command.trim();
+            if trimmed.is_empty() { "npx" } else { trimmed }
+        };
+        let args = non_empty_lines(&draft.args_text);
+        let cmd_line = std::iter::once(command.to_string())
+            .chain(args)
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("mcpstore add \\\n  --transport stdio \\\n  {name}{scope_flag}{env_flags} \\\n  -- {cmd_line}")
+    } else {
+        let headers = parse_kv_lines(&draft.headers_text);
+        let header_flags = headers
+            .iter()
+            .map(|(k, v)| format!(" \\\n  -e {k}={}", shell_quote(v.as_str().unwrap_or(""))))
+            .collect::<String>();
+        let url = {
+            let trimmed = draft.url.trim();
+            if trimmed.is_empty() {
+                "https://example.com/mcp"
+            } else {
+                trimmed
+            }
+        };
+        format!("mcpstore add \\\n  --transport http \\\n  {name} \\\n  {url}{scope_flag}{header_flags}")
+    }
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        "''".into()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
 }
 
 /// `_mcpstore` extension: scope registry plus definition-level handshake/lifecycle.
@@ -1200,6 +1352,7 @@ mod tests {
             transport: "streamable-http".into(),
             url: "http://x/y".into(),
             headers_text: "Authorization=Bearer t".into(),
+            oauth_enabled: true,
             oauth_client_metadata_url: "https://x/.well-known/oauth".into(),
             handshake_mode: "discover".into(),
             startup_policy: "lazy".into(),

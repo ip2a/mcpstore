@@ -3,6 +3,7 @@
 use crate::api::Api;
 use crate::views::cache::CacheView;
 use crate::views::gateway::GatewayView;
+use crate::views::home::HomeView;
 use crate::views::instance::{BackToServices, InstanceView};
 use crate::views::scopes::ScopesView;
 use crate::views::settings::SettingsView;
@@ -26,6 +27,7 @@ use gpui_kit::base::{h_flex, v_flex, StyledExt as _};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Nav {
+    Home,
     Services,
     Scopes,
     Tools,
@@ -38,6 +40,7 @@ enum Nav {
 pub struct MainWindow {
     api: Arc<Api>,
     nav: Nav,
+    home: Entity<HomeView>,
     services: Entity<ServicesView>,
     scopes: Entity<ScopesView>,
     tools: Entity<ToolsView>,
@@ -49,10 +52,13 @@ pub struct MainWindow {
     instance_origin: Nav,
     _open_sub: Subscription,
     _scopes_open_sub: Subscription,
+    #[cfg(not(target_family = "wasm"))]
+    _size_sub: Subscription,
 }
 
 impl MainWindow {
     pub fn new(api: Arc<Api>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let home = cx.new(|cx| HomeView::new(api.clone(), window, cx));
         let services = cx.new(|cx| ServicesView::new(api.clone(), window, cx));
         let scopes = cx.new(|cx| ScopesView::new(api.clone(), window, cx));
         let tools = cx.new(|cx| ToolsView::new(api.clone(), window, cx));
@@ -74,10 +80,17 @@ impl MainWindow {
                 this.open_instance(event.0.clone(), Nav::Scopes, window, cx);
             },
         );
+        #[cfg(not(target_family = "wasm"))]
+        let size_sub = cx.observe_window_bounds(window, |_this, window, cx| {
+            crate::remember_panel_window(window, cx);
+        });
+        #[cfg(not(target_family = "wasm"))]
+        crate::remember_panel_window(window, cx);
 
         Self {
             api,
-            nav: Nav::Services,
+            nav: Nav::Home,
+            home,
             services,
             scopes,
             tools,
@@ -89,6 +102,8 @@ impl MainWindow {
             instance_origin: Nav::Services,
             _open_sub: open_sub,
             _scopes_open_sub: scopes_open_sub,
+            #[cfg(not(target_family = "wasm"))]
+            _size_sub: size_sub,
         }
     }
 
@@ -136,6 +151,7 @@ impl MainWindow {
 impl Render for MainWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = match self.nav {
+            Nav::Home => self.home.clone().into_any_element(),
             Nav::Services => self.services.clone().into_any_element(),
             Nav::Instance => self
                 .instance
@@ -164,41 +180,47 @@ impl Render for MainWindow {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(crate::dict::t(cx, crate::dict::Key::ControlPanel)),
+                                    .child(crate::dict::t(cx, crate::dict::TextKey::ControlPanel)),
                             ),
                     ))
                     .child(
                         SidebarGroup::new("Main").child(
                             SidebarMenu::new()
                                 .child(self.nav_item(
-                                    crate::dict::t(cx, crate::dict::Key::Services),
+                                    crate::dict::t(cx, crate::dict::TextKey::NavHome),
+                                    IconName::LayoutDashboard,
+                                    Nav::Home,
+                                    cx,
+                                ))
+                                .child(self.nav_item(
+                                    crate::dict::t(cx, crate::dict::TextKey::NavServices),
                                     IconName::Server,
                                     Nav::Services,
                                     cx,
                                 ))
                                 .child(self.nav_item(
-                                    crate::dict::t(cx, crate::dict::Key::Scopes),
+                                    crate::dict::t(cx, crate::dict::TextKey::NavAgents),
                                     IconName::Layers,
                                     Nav::Scopes,
                                     cx,
                                 ))
                                 .child(
-                                    self.nav_item(crate::dict::t(cx, crate::dict::Key::Tools), IconName::Wrench, Nav::Tools, cx),
+                                    self.nav_item(crate::dict::t(cx, crate::dict::TextKey::Tools), IconName::Wrench, Nav::Tools, cx),
                                 )
                                 .child(self.nav_item(
-                                    "Gateway",
+                                    crate::dict::t(cx, crate::dict::TextKey::Gateway),
                                     IconName::Network,
                                     Nav::Gateway,
                                     cx,
                                 ))
                                 .child(self.nav_item(
-                                    crate::dict::t(cx, crate::dict::Key::Cache),
+                                    crate::dict::t(cx, crate::dict::TextKey::NavCache),
                                     IconName::Database,
                                     Nav::Cache,
                                     cx,
                                 ))
                                 .child(self.nav_item(
-                                    crate::dict::t(cx, crate::dict::Key::Settings),
+                                    crate::dict::t(cx, crate::dict::TextKey::Settings),
                                     IconName::Settings,
                                     Nav::Settings,
                                     cx,

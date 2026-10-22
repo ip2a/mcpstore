@@ -161,7 +161,7 @@ impl Render for ScopesView {
                             .gap_2()
                             .py_1()
                             .child(Spinner::new())
-                            .child(div().text_xs().text_color(cx.theme().muted_foreground).child(crate::dict::t(cx, crate::dict::Key::Loading))),
+                            .child(div().text_xs().text_color(cx.theme().muted_foreground).child(crate::dict::t(cx, crate::dict::TextKey::Loading))),
                     );
                 } else if self.expanded_services.is_empty() {
                     drill = drill.child(
@@ -209,7 +209,7 @@ impl Render for ScopesView {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{count} {}", crate::dict::t(cx, crate::dict::Key::Instances))),
+                                    .child(format!("{count} {}", crate::dict::t(cx, crate::dict::TextKey::Instances))),
                             ),
                     )
                     .child(
@@ -218,7 +218,7 @@ impl Render for ScopesView {
                             .child(
                                 Button::new(format!("scope-declare-{agent_id}"))
                                     .outline()
-                                    .label(crate::dict::t(cx, crate::dict::Key::DeclareService))
+                                    .label(crate::dict::t(cx, crate::dict::TextKey::AddServiceScope))
                                     .on_click(move |_, window, cx| {
                                         crate::dialogs::DeclareScopeDialog::open(
                                             declare_agent.clone(),
@@ -232,7 +232,7 @@ impl Render for ScopesView {
                                 Button::new(format!("scope-reset-{agent_id}"))
                                     .ghost()
                                     .danger()
-                                    .label(crate::dict::t(cx, crate::dict::Key::ResetConfig))
+                                    .label(crate::dict::t(cx, crate::dict::TextKey::Reset))
                                     .on_click({
                                         let api = reset_api.clone();
                                         let agent = reset_agent.clone();
@@ -293,7 +293,7 @@ impl Render for ScopesView {
                         Button::new("scopes-refresh")
                             .outline()
                             .icon(IconName::RefreshCw)
-                            .label(crate::dict::t(cx, crate::dict::Key::Refresh))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::Refresh))
                             .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
                     ),
             )
@@ -327,7 +327,7 @@ impl Render for ScopesView {
                                             div()
                                                 .text_sm()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child(crate::dict::t(cx, crate::dict::Key::Loading)),
+                                                .child(crate::dict::t(cx, crate::dict::TextKey::Loading)),
                                         ),
                                 )
                             })

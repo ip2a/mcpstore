@@ -481,14 +481,14 @@ impl Render for SettingsView {
                                     .text_xs()
                                     .bg(cx.theme().success.opacity(0.15))
                                     .text_color(cx.theme().success)
-                                    .child(crate::dict::t(cx, crate::dict::Key::Active)),
+                                    .child(crate::dict::t(cx, crate::dict::TextKey::Current)),
                             )
                         })
                         .when(!is_active, |el| {
                             el.child(
                                 Button::new(format!("host-use-{name}"))
                                     .outline()
-                                    .label(crate::dict::t(cx, crate::dict::Key::Use))
+                                    .label(crate::dict::t(cx, crate::dict::TextKey::Use))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.activate_host(switch_name.clone(), cx)
                                     })),
@@ -528,13 +528,13 @@ impl Render for SettingsView {
                     .py_2()
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .child(div().font_semibold().child(crate::dict::t(cx, crate::dict::Key::Settings)))
+                    .child(div().font_semibold().child(crate::dict::t(cx, crate::dict::TextKey::Settings)))
                     .child(div().flex_1())
                     .child(
                         Button::new("settings-theme")
                             .outline()
                             .icon(IconName::Settings)
-                            .label(crate::dict::t(cx, crate::dict::Key::ToggleTheme))
+                            .label(crate::dict::t(cx, crate::dict::TextKey::ToggleTheme))
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_theme(cx))),
                     )
                     .child(
@@ -567,7 +567,7 @@ impl Render for SettingsView {
                             .when(self.loading, |el| {
                                 el.child(
                                     h_flex().gap_2().items_center().child(Spinner::new()).child(
-                                        div().text_sm().text_color(muted).child(crate::dict::t(cx, crate::dict::Key::Loading)),
+                                        div().text_sm().text_color(muted).child(crate::dict::t(cx, crate::dict::TextKey::Loading)),
                                     ),
                                 )
                             })
@@ -576,7 +576,7 @@ impl Render for SettingsView {
                                     .gap_2()
                                     .items_center()
                                     .child(
-                                        div().text_sm().text_color(muted).child(crate::dict::t(cx, crate::dict::Key::Version)),
+                                        div().text_sm().text_color(muted).child(crate::dict::t(cx, crate::dict::TextKey::Version)),
                                     )
                                     .child(
                                         div()
@@ -599,7 +599,7 @@ impl Render for SettingsView {
                                             .font_semibold()
                                             .text_sm()
                                             .text_color(muted)
-                                            .child(crate::dict::t(cx, crate::dict::Key::Language)),
+                                            .child(crate::dict::t(cx, crate::dict::TextKey::Language)),
                                     )
                                     .child(lang_buttons),
                             )
@@ -611,7 +611,7 @@ impl Render for SettingsView {
                                             .font_semibold()
                                             .text_sm()
                                             .text_color(muted)
-                                            .child(crate::dict::t(cx, crate::dict::Key::Hosts)),
+                                            .child(crate::dict::t(cx, crate::dict::TextKey::Host)),
                                     )
                                     .child(host_rows)
                                     .child(
@@ -634,9 +634,9 @@ impl Render for SettingsView {
                                                         IconName::Plus
                                                     })
                                                     .label(if self.editing_host.is_some() {
-                                                        crate::dict::t(cx, crate::dict::Key::Save)
+                                                        crate::dict::t(cx, crate::dict::TextKey::Save)
                                                     } else {
-                                                        crate::dict::t(cx, crate::dict::Key::AddHost)
+                                                        crate::dict::t(cx, crate::dict::TextKey::AddHost)
                                                     })
                                                     .on_click(cx.listener(|this, _, window, cx| {
                                                         this.save_host(window, cx)
@@ -646,7 +646,7 @@ impl Render for SettingsView {
                                                 el.child(
                                                     Button::new("host-cancel")
                                                         .outline()
-                                                        .label("Cancel")
+                                                        .label(crate::dict::t(cx, crate::dict::TextKey::Cancel))
                                                         .on_click(cx.listener(
                                                             |this, _, window, cx| {
                                                                 this.reset_host_inputs(window, cx)
@@ -734,7 +734,7 @@ impl Render for SettingsView {
                                             .child(
                                                 Button::new("diag-save")
                                                     .outline()
-                                                    .label(crate::dict::t(cx, crate::dict::Key::Save))
+                                                    .label(crate::dict::t(cx, crate::dict::TextKey::Save))
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.save_diagnostics(cx)
                                                     })),
@@ -753,7 +753,7 @@ impl Render for SettingsView {
                                                     .font_semibold()
                                                     .text_sm()
                                                     .text_color(muted)
-                                                    .child(crate::dict::t(cx, crate::dict::Key::Gateway)),
+                                                    .child(crate::dict::t(cx, crate::dict::TextKey::Gateway)),
                                             )
                                             .when(self.hub_running, |el| {
                                                 el.child(
@@ -773,7 +773,7 @@ impl Render for SettingsView {
                                             .child(
                                                 Button::new("hub-start")
                                                     .outline()
-                                                    .label(crate::dict::t(cx, crate::dict::Key::Start))
+                                                    .label(crate::dict::t(cx, crate::dict::TextKey::Start))
                                                     .disabled(self.hub_running)
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.hub_action("start", cx)
@@ -782,7 +782,7 @@ impl Render for SettingsView {
                                             .child(
                                                 Button::new("hub-stop")
                                                     .outline()
-                                                    .label(crate::dict::t(cx, crate::dict::Key::Stop))
+                                                    .label(crate::dict::t(cx, crate::dict::TextKey::Stop))
                                                     .disabled(!self.hub_running)
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.hub_action("stop", cx)
@@ -791,7 +791,7 @@ impl Render for SettingsView {
                                             .child(
                                                 Button::new("hub-import")
                                                     .outline()
-                                                    .label(crate::dict::t(cx, crate::dict::Key::ImportClient))
+                                                    .label(crate::dict::t(cx, crate::dict::TextKey::ImportClient))
                                                     .on_click(cx.listener(|this, _, window, cx| {
                                                         crate::dialogs::ImportClientDialog::open(
                                                             this.api.clone(),
@@ -813,13 +813,13 @@ impl Render for SettingsView {
                                             .outline()
                                             .label(format!(
                                                 "{} ({})",
-                                                crate::dict::t(cx, crate::dict::Key::ViewConfig),
+                                                crate::dict::t(cx, crate::dict::TextKey::ViewConfig),
                                                 self.config_format
                                             ))
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 let api = this.api.clone();
                                                 let title =
-                                                    crate::dict::t(cx, crate::dict::Key::ViewConfig);
+                                                    crate::dict::t(cx, crate::dict::TextKey::ViewConfig);
                                                 let format = this.config_format.clone();
                                                 crate::dialogs::JsonViewDialog::open_fetch(
                                                     title,
@@ -854,7 +854,7 @@ impl Render for SettingsView {
                                         Button::new("config-reset")
                                             .ghost()
                                             .danger()
-                                            .label(crate::dict::t(cx, crate::dict::Key::ResetConfig))
+                                            .label(crate::dict::t(cx, crate::dict::TextKey::Reset))
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 let api = this.api.clone();
                                                 window.open_alert_dialog(cx, move |alert, _, _| {
