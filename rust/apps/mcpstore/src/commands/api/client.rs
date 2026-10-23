@@ -1,5 +1,6 @@
 use super::*;
 use axum::{extract::Query, Json};
+use mcpstore::ScopeRef;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -342,21 +343,6 @@ fn wired_state_path(state: &ApiState) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"))
 }
 
-/// Wire ledger client mount ids (deduped): the gateway face mounts `/mcp/<id>` per client.
-pub(crate) fn wired_client_ids(state: &ApiState) -> Vec<&'static str> {
-    let Ok(wired) = mcpstore::client_wire::load_wired_state(&wired_state_path(state)) else {
-        return Vec::new();
-    };
-    let mut ids: Vec<&'static str> = Vec::new();
-    for entry in &wired.entries {
-        let id = mcpstore::agents::get(entry.client).id();
-        if !ids.contains(&id) {
-            ids.push(id);
-        }
-    }
-    ids
-}
-
 /// Re-point legacy wired entries at their caller-mounted URLs before the faces start.
 pub(crate) fn refresh_wired_urls(state: &ApiState) {
     let Ok(app_config) = state.store.config_manager().load_app_config_or_default() else {
@@ -371,11 +357,23 @@ pub(crate) fn refresh_wired_urls(state: &ApiState) {
     });
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub(super) struct GatewayWireQuery {
     client: String,
     path: Option<String>,
     url: Option<String>,
+    // Scope override: "store" or "agent"; if "agent" without agent_id, derives from client_id.
+    scope: Option<String>,
+    agent_id: Option<String>,
+    // Exposure overrides (8 flags); if omitted, all default to false.
+    expose_session_state: Option<bool>,
+    expose_tool: Option<bool>,
+    expose_prompt: Option<bool>,
+    expose_resource: Option<bool>,
+    expose_openapi: Option<bool>,
+    expose_service: Option<bool>,
+    expose_cache: Option<bool>,
+    expose_search: Option<bool>,
 }
 
 fn default_gateway_url(state: &ApiState, client: ClientKind) -> Result<String, ApiError> {
@@ -433,11 +431,58 @@ pub(super) async fn gateway_wire(
         Some(url) => url,
         None => default_gateway_url(&state, client)?,
     };
+
+    // Parse scope: explicit "store"/"agent" or None (will derive from client_id).
+    let scope = match query.scope.as_deref() {
+        Some("store") => Some(ScopeRef::Store),
+        Some("agent") => {
+            let agent_id = query
+                .agent_id
+                .as_deref()
+                .unwrap_or_else(|| mcpstore::agents::get(client).id());
+            Some(ScopeRef::Agent {
+                agent_id: agent_id.to_string(),
+            })
+        }
+        None => None, // Will derive Agent { agent_id: client.id() } in effective_scope()
+        Some(other) => {
+            return Err(ApiError::invalid_request(format!(
+                "Invalid scope '{other}'; must be 'store' or 'agent'"
+            )))
+        }
+    };
+
+    // Build expose config if any flag was set; otherwise None (will default to all false).
+    let expose = if query.expose_session_state.is_some()
+        || query.expose_tool.is_some()
+        || query.expose_prompt.is_some()
+        || query.expose_resource.is_some()
+        || query.expose_openapi.is_some()
+        || query.expose_service.is_some()
+        || query.expose_cache.is_some()
+        || query.expose_search.is_some()
+    {
+        Some(mcpstore::client_wire::ExposeConfig {
+            session_state: query.expose_session_state.unwrap_or(false),
+            tool: query.expose_tool.unwrap_or(false),
+            prompt: query.expose_prompt.unwrap_or(false),
+            resource: query.expose_resource.unwrap_or(false),
+            openapi: query.expose_openapi.unwrap_or(false),
+            service: query.expose_service.unwrap_or(false),
+            cache: query.expose_cache.unwrap_or(false),
+            search: query.expose_search.unwrap_or(false),
+        })
+    } else {
+        None
+    };
+
     let entry = mcpstore::client_wire::wire_gateway(
         client,
         std::path::Path::new(&path),
         &url,
         &wired_state_path(&state),
+        scope,
+        expose,
     )
     .map_err(ApiError::from_store)?;
     Ok(success(

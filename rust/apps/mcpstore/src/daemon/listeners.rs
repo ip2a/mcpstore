@@ -235,25 +235,50 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
         ListenerKey::Gateway => {
             // One mount per wired client (/mcp/<id>, caller identified by path) plus
             // the generic /mcp — all sharing one call log.
+            // Each mount gets its own GatewayOptions (per-client scope + expose config).
             // ponytail: each mount runs connect_target_instances + tool listing at face
             // build; if startup bleeds, build mounts lazily on first request instead.
             let shared_log = crate::gateway::GatewayCallLog::new();
             state.set_face_log(Arc::clone(&shared_log));
-            let mut mounts: Vec<(String, Option<String>)> =
-                crate::commands::api::client::wired_client_ids(state)
-                    .into_iter()
-                    .map(|id| (format!("/mcp/{id}"), Some(id.to_string())))
-                    .collect();
-            mounts.push(("/mcp".to_string(), None));
+
+            // Load wired state to get per-client scope/expose config.
+            let wired_state = mcpstore::client_wire::load_wired_state(&{
+                let app_config_path = state.store().config_manager().app_config_path();
+                app_config_path
+                    .parent()
+                    .map(|dir| dir.join("gateway-wired.json"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"))
+            })
+            .map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("failed to load wired state: {error}"),
+                )
+            })?;
+
             let mut router = Router::new();
-            let base = crate::gateway::GatewayOptions {
-                scope: ScopeRef::Store,
-                ..Default::default()
-            };
-            for (path, caller) in mounts {
+
+            // Per-client mounts: derive GatewayOptions from wired entry.
+            for entry in &wired_state.entries {
+                let scope = entry.effective_scope();
+                let expose = entry.effective_expose();
+                let options = crate::gateway::GatewayOptions {
+                    scope,
+                    expose_session_state_tools: expose.session_state,
+                    expose_tool_override_tools: expose.tool,
+                    expose_prompt_override_tools: expose.prompt,
+                    expose_resource_override_tools: expose.resource,
+                    expose_openapi_tools: expose.openapi,
+                    expose_service_tools: expose.service,
+                    expose_cache_tools: expose.cache,
+                    expose_search_tools: expose.search,
+                    ..Default::default()
+                };
+                let path = format!("/mcp/{}", mcpstore::agents::get(entry.client).id());
+                let caller = Some(mcpstore::agents::get(entry.client).id().to_string());
                 let server = crate::gateway::GatewayServer::from_store(
                     Arc::clone(state.store()),
-                    &base,
+                    &options,
                     caller,
                     Arc::clone(&shared_log),
                 )
@@ -261,11 +286,32 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
                 .map_err(|error| {
                     Error::new(
                         FailureCode::ServiceUnavailable,
-                        format!("failed to build gateway server: {error}"),
+                        format!("failed to build gateway server for {path}: {error}"),
                     )
                 })?;
                 router = router.merge(crate::gateway::streamable_http_router(server, &path));
             }
+
+            // Generic /mcp mount: Store scope, expose from config or default (all false).
+            let generic_options = crate::gateway::GatewayOptions {
+                scope: ScopeRef::Store,
+                ..Default::default()
+            };
+            let generic_server = crate::gateway::GatewayServer::from_store(
+                Arc::clone(state.store()),
+                &generic_options,
+                None,
+                Arc::clone(&shared_log),
+            )
+            .await
+            .map_err(|error| {
+                Error::new(
+                    FailureCode::ServiceUnavailable,
+                    format!("failed to build generic gateway server: {error}"),
+                )
+            })?;
+            router = router.merge(crate::gateway::streamable_http_router(generic_server, "/mcp"));
+
             Ok(router)
         }
     }
