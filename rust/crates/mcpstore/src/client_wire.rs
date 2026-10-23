@@ -344,6 +344,118 @@ pub(crate) fn unwire_codex<T: ClientSetup + ?Sized>(setup: &T, entry: &WiredEntr
     atomic_write(&entry.path, format!("{before}{}", &text[end..]).as_bytes())
 }
 
+/// Point every wired entry at its caller-mounted URL (`/mcp/<id>`). Legacy
+/// entries (url without the caller segment) are rewritten only when the user
+/// has not touched the file since wiring; hand-edited ones are skipped with a
+/// warning. Runs at daemon startup, before the faces build their mounts.
+pub fn refresh_wired_urls(state_path: &Path, url_for: impl Fn(ClientKind) -> String) {
+    let Ok(mut state) = load_wired_state(state_path) else {
+        return;
+    };
+    let mut changed = false;
+    for entry in &mut state.entries {
+        let expected = url_for(entry.client);
+        if entry.url == expected {
+            continue;
+        }
+        let setup = crate::agents::get(entry.client);
+        match setup.refresh_entry_url(entry, &expected) {
+            Ok(()) => {
+                entry.url = expected;
+                changed = true;
+            }
+            Err(error) => tracing::warn!(
+                client = ?entry.client,
+                path = %entry.path.display(),
+                %error,
+                "skipping wired url refresh"
+            ),
+        }
+    }
+    if changed {
+        let _ = save_wired_state(state_path, &state);
+    }
+}
+
+pub(crate) fn refresh_json_entry<T: ClientSetup + ?Sized>(
+    setup: &T,
+    entry: &WiredEntry,
+    url: &str,
+) -> Result<()> {
+    let bytes = fs::read(&entry.path).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to read {}: {error}", entry.path.display()),
+        )
+    })?;
+    let mut document: Value = serde_json::from_slice(&bytes).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to parse {}: {error}", entry.path.display()),
+        )
+    })?;
+    let Some(map) = document
+        .as_object_mut()
+        .and_then(|root| root.get_mut(setup.servers_key()))
+        .and_then(Value::as_object_mut)
+    else {
+        return Ok(()); // the MCP map is gone; just re-point the record
+    };
+    let Some(current) = map.get(GATEWAY_ENTRY_NAME) else {
+        return Ok(()); // our entry is gone; just re-point the record
+    };
+    if current != &setup.entry_value(&entry.url)? {
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "{} entry {GATEWAY_ENTRY_NAME} was edited by hand; refusing to update it",
+                entry.path.display()
+            ),
+        ));
+    }
+    backup(&entry.path)?;
+    map.insert(GATEWAY_ENTRY_NAME.to_string(), setup.entry_value(url)?);
+    let body = serde_json::to_vec_pretty(&document)
+        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+    atomic_write(&entry.path, &body)
+}
+
+pub(crate) fn refresh_codex_entry(entry: &WiredEntry, url: &str) -> Result<()> {
+    let text = fs::read_to_string(&entry.path).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to read {}: {error}", entry.path.display()),
+        )
+    })?;
+    let header = format!("[mcp_servers.{}]", GATEWAY_ENTRY_NAME);
+    let Some(start) = text.find(&header) else {
+        return Ok(()); // our section is gone; just re-point the record
+    };
+    let mut end = text.len();
+    if let Some((offset, _)) = text[start + header.len()..].match_indices("\n[").next() {
+        end = start + header.len() + offset + 1;
+    }
+    let old_line = format!("url = \"{}\"", entry.url);
+    let section = &text[start..end];
+    if !section.contains(&old_line) {
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "{} entry {GATEWAY_ENTRY_NAME} was edited by hand; refusing to update it",
+                entry.path.display()
+            ),
+        ));
+    }
+    backup(&entry.path)?;
+    let refreshed = format!(
+        "{}{}{}",
+        &text[..start],
+        section.replace(&old_line, &format!("url = \"{url}\"")),
+        &text[end..]
+    );
+    atomic_write(&entry.path, refreshed.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +543,57 @@ mod tests {
         fs::write(&path, text).unwrap();
         assert!(unwire_gateway(ClientKind::Cursor, &state).is_err());
         let _ = fs::remove_file(path);
+        let _ = fs::remove_file(state);
+    }
+
+    #[test]
+    fn refresh_repoints_unmodified_entries_and_skips_hand_edited() {
+        let claude_path = temp_file(
+            "refresh-claude",
+            "{\"mcpServers\":{\"demo\":{\"command\":\"node\"},\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp\"}}}",
+        );
+        let state = std::env::temp_dir().join(format!("mcpstore-refresh-{}", std::process::id()));
+        let legacy = format!(
+            "{{\"entries\":[{{\"client\":\"claude_code\",\"path\":{},\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp\",\"applied_at_unix_ms\":0}}]}}",
+            serde_json::to_string(&claude_path).unwrap()
+        );
+        fs::write(&state, legacy).unwrap();
+        refresh_wired_urls(&state, |client| {
+            assert_eq!(client, ClientKind::ClaudeCode);
+            "http://127.0.0.1:1830/mcp/claude".to_string()
+        });
+        let document: Value =
+            serde_json::from_str(&fs::read_to_string(&claude_path).unwrap()).unwrap();
+        assert_eq!(
+            document["mcpServers"]["mcpstore"]["url"],
+            "http://127.0.0.1:1830/mcp/claude"
+        );
+        let wired: WiredState =
+            serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
+        assert_eq!(wired.entries[0].url, "http://127.0.0.1:1830/mcp/claude");
+
+        // A hand-edited entry keeps its file and its record url.
+        let cursor_path = temp_file(
+            "refresh-cursor",
+            "{\"mcpServers\":{\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp\"}}}",
+        );
+        let hand_edited = format!(
+            "{{\"entries\":[{{\"client\":\"cursor\",\"path\":{},\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:9999/mcp\",\"applied_at_unix_ms\":0}}]}}",
+            serde_json::to_string(&cursor_path).unwrap()
+        );
+        fs::write(&state, hand_edited).unwrap();
+        refresh_wired_urls(&state, |_| "http://127.0.0.1:1830/mcp/cursor".to_string());
+        let document: Value =
+            serde_json::from_str(&fs::read_to_string(&cursor_path).unwrap()).unwrap();
+        assert_eq!(
+            document["mcpServers"]["mcpstore"]["url"],
+            "http://127.0.0.1:1830/mcp"
+        );
+        let wired: WiredState =
+            serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
+        assert_eq!(wired.entries[0].url, "http://127.0.0.1:9999/mcp");
+        let _ = fs::remove_file(claude_path);
+        let _ = fs::remove_file(cursor_path);
         let _ = fs::remove_file(state);
     }
 }

@@ -50,6 +50,10 @@ pub trait ClientSetup: Sync {
     fn unwire_entry(&self, entry: &WiredEntry) -> Result<()> {
         crate::client_wire::unwire_json_entry(self, entry)
     }
+    /// Point the recorded gateway entry at a new URL; refuse a hand-edited one.
+    fn refresh_entry_url(&self, entry: &WiredEntry, url: &str) -> Result<()> {
+        crate::client_wire::refresh_json_entry(self, entry, url)
+    }
     // ---- discovery ----
     /// Config file candidates in priority order (`~` expanded).
     fn default_config_paths(&self) -> Vec<PathBuf>;

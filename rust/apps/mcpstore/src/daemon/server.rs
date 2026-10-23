@@ -56,6 +56,8 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     });
     // Panel roles are internalized in the store: ControlPanel mounts the self-healing supervisor at setup;
     // DataPanel routes calls per its local config.toml [placement] (default local, "delegate" proxies to the control panel).
+    // Re-point legacy wired entries at their caller URLs before the gateway face builds its mounts.
+    crate::commands::api::client::refresh_wired_urls(&host.state);
     host.faces.start_all(&app_config, &host.state).await;
 
     let shutdown = Arc::new(tokio::sync::Notify::new());

@@ -27,7 +27,7 @@ use tower_http::cors::CorsLayer;
 mod app;
 mod auth;
 mod cache;
-mod client;
+pub(crate) mod client;
 mod envelope;
 mod openapi;
 mod parse;
@@ -45,6 +45,8 @@ use parse::{
 pub struct ApiState {
     store: Arc<MCPStore>,
     gateway: Arc<Mutex<Option<GatewayProcess>>>,
+    /// Call log of the daemon-face gateway (mounted at startup; no GatewayProcess).
+    face_log: Arc<Mutex<Option<std::sync::Arc<GatewayCallLog>>>>,
 }
 
 struct GatewayProcess {
@@ -87,12 +89,21 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
+        face_log: Arc::new(Mutex::new(None)),
     })
 }
 
 impl ApiState {
     pub(crate) fn store(&self) -> &Arc<MCPStore> {
         &self.store
+    }
+
+    pub(crate) fn set_face_log(&self, log: std::sync::Arc<GatewayCallLog>) {
+        *self.face_log.lock().unwrap() = Some(log);
+    }
+
+    pub(crate) fn face_log(&self) -> Option<std::sync::Arc<GatewayCallLog>> {
+        self.face_log.lock().unwrap().clone()
     }
 }
 

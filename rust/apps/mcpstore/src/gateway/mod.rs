@@ -97,8 +97,11 @@ pub struct GatewayLaunchDescriptor {
 pub struct GatewayCallRecord {
     pub seq: u64,
     pub at_unix_ms: u64,
+    /// Mount the call came through (`/mcp/<id>`); None = the generic `/mcp`.
+    pub caller: Option<String>,
     pub tool: String,
     pub instance_id: InstanceId,
+    pub service_name: String,
     pub duration_ms: u64,
     pub success: bool,
 }
@@ -239,6 +242,7 @@ struct ToolBinding {
     tool: Tool,
     instance_id: InstanceId,
     tool_name: String,
+    service_name: String,
 }
 
 struct GatewayToolsChangedNotification {
@@ -290,6 +294,8 @@ pub(crate) struct GatewayServer {
     cache_tools: Arc<HashMap<String, Tool>>,
     search_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
+    /// Caller identity for this mount (`/mcp/<id>` segment); None = generic `/mcp`.
+    caller: Option<String>,
     call_log: Arc<GatewayCallLog>,
 }
 

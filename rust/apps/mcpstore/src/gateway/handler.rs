@@ -20,40 +20,35 @@ use serde_json::json;
 impl GatewayServer {
     pub(crate) async fn from_store(
         store: Arc<MCPStore>,
-        scope: ScopeRef,
-        instance_id: Option<InstanceId>,
-        session_key: Option<String>,
-        expose_session_state_tools: bool,
-        expose_tool_override_tools: bool,
-        expose_prompt_override_tools: bool,
-        expose_resource_override_tools: bool,
-        expose_openapi_tools: bool,
-        expose_service_tools: bool,
-        expose_cache_tools: bool,
-        expose_search_tools: bool,
+        options: &GatewayOptions,
+        caller: Option<String>,
+        call_log: Arc<GatewayCallLog>,
     ) -> Result<Self, BoxErr> {
+        let scope = options.scope.clone();
+        let instance_id = options.instance_id;
+        let session_key = options.session_key.clone();
         connect_target_instances(&store, &scope, instance_id).await?;
         if let Some(session_key) = session_key.as_deref() {
             store.session_by_key(session_key).status().await?;
         }
         let bindings =
             build_tool_bindings(&store, &scope, instance_id, session_key.as_deref()).await?;
-        let session_state_tools = if expose_session_state_tools {
+        let session_state_tools = if options.expose_session_state_tools {
             build_session_state_tools()
         } else {
             HashMap::new()
         };
-        let tool_override_tools = if expose_tool_override_tools {
+        let tool_override_tools = if options.expose_tool_override_tools {
             build_tool_override_tools()
         } else {
             HashMap::new()
         };
-        let prompt_override_tools = if expose_prompt_override_tools {
+        let prompt_override_tools = if options.expose_prompt_override_tools {
             build_prompt_override_tools()
         } else {
             HashMap::new()
         };
-        let resource_override_tools = if expose_resource_override_tools {
+        let resource_override_tools = if options.expose_resource_override_tools {
             build_resource_override_tools()
                 .into_iter()
                 .chain(build_resource_template_override_tools())
@@ -61,22 +56,22 @@ impl GatewayServer {
         } else {
             HashMap::new()
         };
-        let openapi_tools = if expose_openapi_tools {
+        let openapi_tools = if options.expose_openapi_tools {
             build_openapi_tools()
         } else {
             HashMap::new()
         };
-        let service_tools = if expose_service_tools {
+        let service_tools = if options.expose_service_tools {
             build_service_tools()
         } else {
             HashMap::new()
         };
-        let cache_tools = if expose_cache_tools {
+        let cache_tools = if options.expose_cache_tools {
             build_cache_tools()
         } else {
             HashMap::new()
         };
-        let search_tools = if expose_search_tools {
+        let search_tools = if options.expose_search_tools {
             build_search_tools()
         } else {
             HashMap::new()
@@ -141,7 +136,8 @@ impl GatewayServer {
             cache_tools: Arc::new(cache_tools),
             search_tools: Arc::new(search_tools),
             tools: Arc::new(tools),
-            call_log: GatewayCallLog::new(),
+            caller,
+            call_log,
         })
     }
 
@@ -151,10 +147,10 @@ impl GatewayServer {
     }
 
     /// Record one routed business call at the ring tail, dropping the oldest past the cap.
-    pub(crate) fn record_call(
+    pub(super) fn record_call(
         &self,
         tool: &str,
-        instance_id: InstanceId,
+        binding: &ToolBinding,
         duration: std::time::Duration,
         response: &Result<CallToolResponse, ErrorData>,
     ) {
@@ -168,8 +164,10 @@ impl GatewayServer {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or_default(),
+            caller: self.caller.clone(),
             tool: tool.to_string(),
-            instance_id,
+            instance_id: binding.instance_id,
+            service_name: binding.service_name.clone(),
             duration_ms: duration.as_millis() as u64,
             success,
         });
@@ -559,7 +557,7 @@ impl ServerHandler for GatewayServer {
             }
             .ok_or_else(|| ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None))?;
             let call_start = std::time::Instant::now();
-            let record_instance = binding.instance_id;
+            let record_binding = binding.clone();
             let response: Result<CallToolResponse, ErrorData> = async {
                 let execution = match store
                     .start_tool_execution(
@@ -630,7 +628,7 @@ impl ServerHandler for GatewayServer {
                 }))
             }
             .await;
-            self.record_call(&tool_name, record_instance, call_start.elapsed(), &response);
+            self.record_call(&tool_name, &record_binding, call_start.elapsed(), &response);
             return response;
         }
     }

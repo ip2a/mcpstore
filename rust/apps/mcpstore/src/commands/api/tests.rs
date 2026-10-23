@@ -184,6 +184,7 @@ async fn spawn_test_api_with_state(
     let state = Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
+        face_log: Arc::new(Mutex::new(None)),
     });
     let app = full_router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {
@@ -206,6 +207,7 @@ async fn app_and_core_routers_are_disjoint() {
     let state = Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
+        face_log: Arc::new(Mutex::new(None)),
     });
     let client = reqwest::Client::new();
 

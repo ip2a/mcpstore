@@ -85,6 +85,7 @@ pub(super) async fn build_tool_bindings(
                     tool,
                     instance_id,
                     tool_name: canonical_tool_name,
+                    service_name,
                 },
             )
             .is_some()

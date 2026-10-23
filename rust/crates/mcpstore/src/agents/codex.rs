@@ -47,6 +47,9 @@ impl ClientSetup for Codex {
     fn unwire_entry(&self, entry: &WiredEntry) -> Result<()> {
         crate::client_wire::unwire_codex(self, entry)
     }
+    fn refresh_entry_url(&self, entry: &WiredEntry, url: &str) -> Result<()> {
+        crate::client_wire::refresh_codex_entry(entry, url)
+    }
     fn default_config_paths(&self) -> Vec<PathBuf> {
         vec![PathBuf::from("~/.codex/config.toml")]
     }

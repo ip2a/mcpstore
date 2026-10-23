@@ -233,28 +233,40 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
         ListenerKey::App => Ok(api::app_router(Arc::clone(state))),
         ListenerKey::Web => Ok(web_router(Arc::clone(state))),
         ListenerKey::Gateway => {
-            let server = crate::gateway::GatewayServer::from_store(
-                Arc::clone(state.store()),
-                ScopeRef::Store,
-                None,
-                None,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-            )
-            .await
-            .map_err(|error| {
-                Error::new(
-                    FailureCode::ServiceUnavailable,
-                    format!("failed to build gateway server: {error}"),
+            // One mount per wired client (/mcp/<id>, caller identified by path) plus
+            // the generic /mcp — all sharing one call log.
+            // ponytail: each mount runs connect_target_instances + tool listing at face
+            // build; if startup bleeds, build mounts lazily on first request instead.
+            let shared_log = crate::gateway::GatewayCallLog::new();
+            state.set_face_log(Arc::clone(&shared_log));
+            let mut mounts: Vec<(String, Option<String>)> =
+                crate::commands::api::client::wired_client_ids(state)
+                    .into_iter()
+                    .map(|id| (format!("/mcp/{id}"), Some(id.to_string())))
+                    .collect();
+            mounts.push(("/mcp".to_string(), None));
+            let mut router = Router::new();
+            let base = crate::gateway::GatewayOptions {
+                scope: ScopeRef::Store,
+                ..Default::default()
+            };
+            for (path, caller) in mounts {
+                let server = crate::gateway::GatewayServer::from_store(
+                    Arc::clone(state.store()),
+                    &base,
+                    caller,
+                    Arc::clone(&shared_log),
                 )
-            })?;
-            Ok(crate::gateway::streamable_http_router(server, "/mcp"))
+                .await
+                .map_err(|error| {
+                    Error::new(
+                        FailureCode::ServiceUnavailable,
+                        format!("failed to build gateway server: {error}"),
+                    )
+                })?;
+                router = router.merge(crate::gateway::streamable_http_router(server, &path));
+            }
+            Ok(router)
         }
     }
 }

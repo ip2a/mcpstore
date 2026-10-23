@@ -86,17 +86,9 @@ pub(super) async fn gateway_start(
 
     let server = GatewayServer::from_store(
         Arc::clone(&state.store),
-        options.scope.clone(),
-        options.instance_id,
-        options.session_key.clone(),
-        options.expose_session_state_tools,
-        options.expose_tool_override_tools,
-        options.expose_prompt_override_tools,
-        options.expose_resource_override_tools,
-        options.expose_openapi_tools,
-        options.expose_service_tools,
-        options.expose_cache_tools,
-        options.expose_search_tools,
+        &options,
+        None,
+        crate::gateway::GatewayCallLog::new(),
     )
     .await
     .map_err(|error| ApiError::invalid_request(error.to_string()))?;
@@ -263,14 +255,19 @@ fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>, Option<V
         .gateway
         .lock()
         .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
-    let Some(process) = gateway.as_ref() else {
-        return Ok((false, None, None));
-    };
-    if process.task.is_finished() {
-        *gateway = None;
-        return Ok((false, None, None));
+    if let Some(process) = gateway.as_ref() {
+        if process.task.is_finished() {
+            *gateway = None;
+        }
     }
-    Ok((true, Some(std::process::id()), Some(process.summary.clone())))
+    if let Some(process) = gateway.as_ref() {
+        return Ok((true, Some(std::process::id()), Some(process.summary.clone())));
+    }
+    // The daemon-face gateway mounts at startup without a GatewayProcess.
+    if state.face_log().is_some() {
+        return Ok((true, Some(std::process::id()), None));
+    }
+    Ok((false, None, None))
 }
 
 fn gateway_payload(process: &GatewayProcess, running: bool) -> Value {
@@ -293,23 +290,25 @@ pub(super) async fn gateway_requests(
     Query(query): Query<GatewayRequestsQuery>,
 ) -> ApiResult {
     let call_log = {
-        let gateway = state
+        let mut gateway = state
             .gateway
             .lock()
             .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
-        let Some(process) = gateway.as_ref() else {
-            return Ok(success(
-                "网关服务当前未运行",
-                json!({ "running": false, "requests": [], "latest_seq": 0 }),
-            ));
-        };
-        if process.task.is_finished() {
-            return Ok(success(
-                "网关服务当前未运行",
-                json!({ "running": false, "requests": [], "latest_seq": 0 }),
-            ));
+        if let Some(process) = gateway.as_ref() {
+            if process.task.is_finished() {
+                *gateway = None;
+            }
         }
-        Arc::clone(&process.call_log)
+        match gateway.as_ref() {
+            Some(process) => Some(Arc::clone(&process.call_log)),
+            None => state.face_log(),
+        }
+    };
+    let Some(call_log) = call_log else {
+        return Ok(success(
+            "网关服务当前未运行",
+            json!({ "running": false, "requests": [], "latest_seq": 0 }),
+        ));
     };
     let after = query.after.unwrap_or(0);
     // Long-poll: block until a record past `after` arrives or the wait budget runs out.
@@ -343,6 +342,35 @@ fn wired_state_path(state: &ApiState) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"))
 }
 
+/// Wire ledger client mount ids (deduped): the gateway face mounts `/mcp/<id>` per client.
+pub(crate) fn wired_client_ids(state: &ApiState) -> Vec<&'static str> {
+    let Ok(wired) = mcpstore::client_wire::load_wired_state(&wired_state_path(state)) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<&'static str> = Vec::new();
+    for entry in &wired.entries {
+        let id = mcpstore::agents::get(entry.client).id();
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+/// Re-point legacy wired entries at their caller-mounted URLs before the faces start.
+pub(crate) fn refresh_wired_urls(state: &ApiState) {
+    let Ok(app_config) = state.store.config_manager().load_app_config_or_default() else {
+        return;
+    };
+    let port = app_config.gateway.port;
+    mcpstore::client_wire::refresh_wired_urls(&wired_state_path(state), |client| {
+        format!(
+            "http://127.0.0.1:{port}/mcp/{}",
+            mcpstore::agents::get(client).id()
+        )
+    });
+}
+
 #[derive(Deserialize)]
 pub(super) struct GatewayWireQuery {
     client: String,
@@ -350,7 +378,7 @@ pub(super) struct GatewayWireQuery {
     url: Option<String>,
 }
 
-fn default_gateway_url(state: &ApiState) -> Result<String, ApiError> {
+fn default_gateway_url(state: &ApiState, client: ClientKind) -> Result<String, ApiError> {
     let app_config = state
         .store
         .config_manager()
@@ -359,8 +387,9 @@ fn default_gateway_url(state: &ApiState) -> Result<String, ApiError> {
             ApiError::invalid_request(format!("Failed to load app configuration: {error}"))
         })?;
     Ok(format!(
-        "http://127.0.0.1:{}/mcp",
-        app_config.gateway.port
+        "http://127.0.0.1:{}/mcp/{}",
+        app_config.gateway.port,
+        mcpstore::agents::get(client).id()
     ))
 }
 
@@ -383,7 +412,7 @@ pub(super) async fn gateway_wire(
     let path = query.path.ok_or_else(|| ApiError::missing_parameter("path"))?;
     let url = match query.url {
         Some(url) => url,
-        None => default_gateway_url(&state)?,
+        None => default_gateway_url(&state, client)?,
     };
     let entry = mcpstore::client_wire::wire_gateway(
         client,
