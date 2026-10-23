@@ -92,7 +92,7 @@ export function ToolsView(props: {
         ) : visibleTools.length ? (
           <ScrollPane
             className="flex-1"
-            innerClassName="grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] gap-3"
+            innerClassName="grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,12.5rem),1fr))] gap-3"
           >
             {visibleTools.map(({ instance, tool }) => {
               const key = toolKey(instance.instance_id, tool)
