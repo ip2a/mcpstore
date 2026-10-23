@@ -1,4 +1,4 @@
-import { api, buildQuery, request } from "./client";
+import { api, appRequest, buildQuery } from "./client";
 import type {
   AddServiceInput,
   AgentItem,
@@ -47,17 +47,19 @@ import type {
   UpdateSettingsPayload,
 } from "../api";
 
+// /cache/* 是 app 面接口（core 面无此路由），固定走本地 /api，不随 core base 切换。
 export async function cacheHealth(): Promise<CacheReport> {
-  return request("/cache/health");
+  return appRequest("/cache/health");
 }
 
 export async function cacheInspect(): Promise<CacheReport> {
-  return request("/cache/inspect");
+  return appRequest("/cache/inspect");
 }
 
 export async function switchCache(backend: CacheBackend) {
-  return request("/cache/switch", {
+  // 后端 CacheSwitchRequest = { store, config }；前端无配置编辑 UI，config 传空对象走后端默认。
+  return appRequest("/cache/switch", {
     method: "POST",
-    body: JSON.stringify({ backend }),
+    body: JSON.stringify({ store: backend, config: {} }),
   });
 }

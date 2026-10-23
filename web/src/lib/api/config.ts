@@ -92,22 +92,22 @@ export async function getMcpHubDescriptor(options: McpHubOptions) {
     command: string | null;
     args: string[];
     url: string | null;
-  }>(`/mcp-hub/descriptor${mcpHubQuery(options)}`);
+  }>(`/gateway/descriptor${mcpHubQuery(options)}`);
 }
 
 export async function getMcpHubStatus(options: McpHubOptions) {
-  return request<McpHubStatus>(`/mcp-hub/status${mcpHubQuery(options)}`);
+  return request<McpHubStatus>(`/gateway/status${mcpHubQuery(options)}`);
 }
 
 export async function startMcpHub(options: McpHubOptions) {
   return request<{ running: boolean; pid: number | null; transport: string; url: string | null }>(
-    `/mcp-hub/start${mcpHubQuery(options)}`,
+    `/gateway/start${mcpHubQuery(options)}`,
     { method: "POST" },
   );
 }
 
 export async function stopMcpHub() {
-  return request<{ running: boolean; pid?: number | null }>("/mcp-hub/stop", {
+  return request<{ running: boolean; pid?: number | null }>("/gateway/stop", {
     method: "POST",
   });
 }

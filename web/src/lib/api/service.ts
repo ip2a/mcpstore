@@ -1,9 +1,8 @@
-import { apiUrl, buildQuery, readJson, request, scopeParams, scopeQuery } from "./client";
+import { appApiUrl, buildQuery, readJson, request, scopeParams, scopeQuery } from "./client";
 import type {
   AgentItem,
   AuthOperationResult,
   AuthStatusView,
-  CacheBackend,
   PromptInfo,
   ResourceInfo,
   ResourceTemplateInfo,
@@ -29,8 +28,9 @@ function svcPath(
 }
 
 export async function health() {
-  return readJson<{ status: string; backend: CacheBackend }>(
-    await fetch(apiUrl("/health")),
+  // app 面路由（app 进程自身状态 {status, store}），core 面没有 /health
+  return readJson<{ status: string; store: string }>(
+    await fetch(appApiUrl("/health")),
   );
 }
 

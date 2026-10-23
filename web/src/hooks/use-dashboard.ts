@@ -48,7 +48,8 @@ export function useDashboard() {
     agentServicesQueries.map((query) => query.data || []),
   )
   const agents = agentsQuery.data || []
-  const backend = healthQuery.data?.backend as CacheBackend | undefined
+  // /health 返回 {status, store}，无 backend 字段；缓存状态走 /cache/health（cache 页自有查询）
+  const backend: CacheBackend | undefined = undefined
   const loading =
     healthQuery.isLoading ||
     storeServicesQuery.isLoading ||

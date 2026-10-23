@@ -14,13 +14,16 @@ const paths: Record<Kind, string> = {
 }
 
 function itemPath(kind: Kind, serviceName: string, key: string, scope?: ScopeRef) {
-  const path = `/services/${encodeURIComponent(serviceName)}/${paths[kind]}`
+  // tool/prompt 的组件名在路径上（/services/:name/tool_overrides/:tool_name），
+  // resource/resource_template 的 key 走 query（?uri= / ?uri_template=）。
+  const scopeQ = scope ? buildQuery(scopeParams(scope)) : ""
+  if (kind === "tool" || kind === "prompt") {
+    return `/services/${encodeURIComponent(serviceName)}/${paths[kind]}/${encodeURIComponent(key)}${scopeQ}`
+  }
   const componentQuery = kind === "resource"
     ? { uri: key }
-    : kind === "resource_template"
-      ? { uri_template: key }
-      : {}
-  return path + buildQuery({ ...componentQuery, ...(scope ? scopeParams(scope) : {}) })
+    : { uri_template: key }
+  return `/services/${encodeURIComponent(serviceName)}/${paths[kind]}${buildQuery({ ...componentQuery, ...(scope ? scopeParams(scope) : {}) })}`
 }
 
 async function list<T>(kind: Kind) {

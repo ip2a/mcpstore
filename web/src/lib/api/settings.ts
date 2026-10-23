@@ -1,4 +1,4 @@
-import { appApi, buildQuery, request } from "./client";
+import { appApi, appRequest, buildQuery, request } from "./client";
 import type {
   AddServiceInput,
   AgentItem,
@@ -53,7 +53,8 @@ export async function showConfig(
 ): Promise<ConfigReport> {
   const format = options.format ?? "native";
   const service = options.service;
-  return request(
+  // /config 是 app 面接口（core 面无此路由），固定走本地 /api，不随 core base 切换。
+  return appRequest(
     `/config${buildQuery({
       format: format === "native" ? undefined : format,
       service_name: service?.service_name,
@@ -91,7 +92,7 @@ export async function updateSettings(
 }
 
 export async function resetConfig() {
-  return request("/config/reset", { method: "POST" });
+  return appRequest("/config/reset", { method: "POST" });
 }
 
 export async function resetAgentConfig(agentId: string) {
