@@ -479,6 +479,66 @@ pub(super) async fn client_config_import(
     ))
 }
 
+/// Read-only inventory: every known client, discovered, inspected, and matched
+/// against the wire ledger. Never writes.
+pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let wired =
+        mcpstore::client_wire::load_wired_state(&wired_state_path(&state)).unwrap_or_default();
+    let clients = mcpstore::agents::all()
+        .iter()
+        .map(|setup| {
+            let kind = setup.kind();
+            let detection = mcpstore::agents::detect(*setup);
+            let detected_by = detection.as_ref().map(|detection| {
+                serde_json::to_value(detection.by).unwrap_or(Value::Null)
+            });
+            let config_exists = detection
+                .as_ref()
+                .is_some_and(|detection| detection.by == mcpstore::agents::DetectedBy::ConfigFile);
+            let config_path = match &detection {
+                Some(detection) if config_exists => detection.path.display().to_string(),
+                _ => setup
+                    .default_config_paths()
+                    .first()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
+            };
+            let inspection = if config_exists {
+                inspect_client_config(kind, &detection.as_ref().unwrap().path).ok()
+            } else {
+                None
+            };
+            let mcp_servers = inspection.as_ref().map(|inspection| {
+                inspection
+                    .services
+                    .iter()
+                    .map(|service| service.name.clone())
+                    .collect::<Vec<_>>()
+            });
+            let unsupported_fields = inspection
+                .map(|inspection| inspection.unsupported_fields)
+                .unwrap_or_default();
+            let entry = wired.entries.iter().find(|entry| entry.client == kind);
+            json!({
+                "kind": kind,
+                "id": setup.id(),
+                "label": setup.label(),
+                "detected_by": detected_by,
+                "config_path": config_path,
+                "config_exists": config_exists,
+                "mcp_servers": mcp_servers,
+                "unsupported_fields": unsupported_fields,
+                "wired": entry.is_some(),
+                "wired_url": entry.map(|entry| entry.url.clone()),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(success(
+        "客户端清单获取成功",
+        json!({ "clients": clients }),
+    ))
+}
+
 fn parse_client_kind(value: &str) -> std::result::Result<ClientKind, ApiError> {
     match value {
         "codex" => Ok(ClientKind::Codex),
