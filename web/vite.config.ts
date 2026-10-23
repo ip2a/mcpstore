@@ -15,6 +15,7 @@ export default defineConfig({
   },
   server: {
     port: 1828,
+    // App API 代理保留（本地控制面）
     proxy: {
       "/api": {
         target: "http://127.0.0.1:1821",

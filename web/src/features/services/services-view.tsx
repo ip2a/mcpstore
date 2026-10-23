@@ -15,6 +15,7 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
 import { Button } from "@/components/ui/button"
+import { AddServiceDialog } from "@/features/services/add-service-dialog"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { type ServiceSortBy } from "@/features/services/use-services-list"
@@ -33,6 +34,7 @@ export function ServicesView(props: {
   onCheck: () => void
   onConnect: (service: ServiceInstance) => void
   onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
+  onAdded: () => Promise<void>
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
   onOpen: (service: ServiceInstance) => void
@@ -116,6 +118,7 @@ export function ServicesView(props: {
           <RefreshCwIcon data-icon="inline-start" />
           {t("refresh")}
         </Button>
+        <AddServiceDialog agents={props.agents} onAdded={props.onAdded} size="sm" />
       </div>
       <ScrollPane ref={listScrollRef} className="min-h-0 flex-1 px-4 py-2">
         {props.error ? (

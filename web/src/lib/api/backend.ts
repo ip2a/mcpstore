@@ -25,7 +25,9 @@ export function syncApiBaseFromHosts(hosts: HostsConfig): void {
 
 /** App-owned API base (meta, settings, client-config). Always same-origin. */
 export function getAppApiBase(): string {
-  return DEFAULT_API_BASE;
+  // Web 模式：走 vite proxy 或 daemon web 面的 /api nest
+  // Tauri 模式：走内置服务器，默认也用 /api
+  return "/api";
 }
 
 /** Resolve an api base to an absolute URL (default `/api` -> `origin + /api`). */

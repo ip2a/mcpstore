@@ -58,7 +58,8 @@ export function useAppView(services: ServiceInstance[]) {
 }
 
 function viewFromPath(pathname: string, search: string): AppView {
-  if (pathname === "/" || pathname === "/services") return { name: "services" }
+  if (pathname === "/" || pathname === "/home") return { name: "home" }
+  if (pathname === "/services") return { name: "services" }
   if (pathname === "/scope") return { name: "agents" }
   if (pathname === "/tools") return { name: "tools" }
   if (pathname === "/config") return { name: "agents" }
@@ -75,7 +76,7 @@ function viewFromPath(pathname: string, search: string): AppView {
     }
     return { name: "instance", addr: { service_name, scope: scopeFromSearch(search) } }
   }
-  return { name: "services" }
+  return { name: "home" }
 }
 
 function pathForView(view: AppView): string {

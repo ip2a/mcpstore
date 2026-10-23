@@ -1,6 +1,8 @@
 use anyhow::Result;
-use mcpstore_cli::store_args::{build_store, StoreSourceArgs};
-use std::collections::HashSet;
+use mcpstore_cli::daemon::listeners::web_router;
+use mcpstore_cli::store_args::StoreSourceArgs;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -53,21 +55,29 @@ fn start_local_server() -> Result<String> {
                 store: None,
                 store_config: None,
                 namespace: None,
+                control_panel: false,
+                data_panel: false,
+                panel_id: None,
             };
-            let store = match build_store(&store_args) {
-                Ok(store) => store,
+            let access = match mcpstore_cli::store_args::open_store_access(&store_args, true, None).await
+            {
+                Ok(a) => a,
                 Err(error) => {
                     eprintln!("mcpstore desktop store setup failed: {error}");
                     return;
                 }
             };
-            if let Err(error) = store.load_from_source().await {
-                eprintln!("mcpstore desktop store load failed: {error}");
-                return;
-            }
+            let store = match access.embedded_store() {
+                Some(s) => std::sync::Arc::clone(s),
+                None => {
+                    eprintln!("mcpstore desktop expected embedded store");
+                    return;
+                }
+            };
             let listener = tokio::net::TcpListener::from_std(std_listener)
                 .expect("desktop listener should convert");
-            let app = mcpstore_cli::commands::web::router(store);
+            let state = mcpstore_cli::commands::api::state_for_store(store);
+            let app = web_router(state);
             if let Err(error) = axum::serve(listener, app).await {
                 eprintln!("mcpstore desktop server stopped: {error}");
             }
@@ -178,12 +188,79 @@ fn merge_path_values(preferred: &str, current: Option<OsString>) -> Option<OsStr
     std::env::join_paths(merged).ok()
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ProxyResponse {
+    status: u16,
+    body: String,
+    headers: HashMap<String, String>,
+}
+
+/// Tauri command: 代理 API 请求到配置的后端，绕过浏览器 CORS 限制
+#[tauri::command]
+async fn proxy_api_request(
+    method: String,
+    path: String,
+    body: Option<String>,
+    headers: Option<HashMap<String, String>>,
+    target_base: String,
+) -> Result<ProxyResponse, String> {
+    let url = format!("{}{}", target_base.trim_end_matches('/'), path);
+    let client = reqwest::Client::new();
+
+    let mut request = match method.to_uppercase().as_str() {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
+        "DELETE" => client.delete(&url),
+        _ => return Err(format!("Unsupported method: {}", method)),
+    };
+
+    if let Some(headers_map) = headers {
+        for (key, value) in headers_map {
+            request = request.header(key, value);
+        }
+    }
+
+    if let Some(body_str) = body {
+        request = request.body(body_str);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    let status = response.status().as_u16();
+    let response_headers: HashMap<String, String> = response
+        .headers()
+        .iter()
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|val| (k.as_str().to_string(), val.to_string()))
+        })
+        .collect();
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {}", e))?;
+
+    Ok(ProxyResponse {
+        status,
+        body,
+        headers: response_headers,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![proxy_api_request])
         .setup(|app| {
             prime_desktop_environment();
             if let Some(home) = dirs::home_dir() {

@@ -12,7 +12,7 @@ export type HostsPayload = {
   [name: string]: string | HostEntry;
 };
 
-export const DEFAULT_API_BASE = "/api";
+export const DEFAULT_API_BASE = "http://127.0.0.1:1820";
 
 export function parseHostsPayload(data: HostsPayload): HostsConfig {
   const entries: Record<string, HostEntry> = {};

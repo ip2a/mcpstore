@@ -2,7 +2,7 @@ import { useAppActions } from "@/app/use-app-actions"
 import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
-import { AppHeader } from "@/components/layout/app-header"
+import { AppSidebar } from "@/components/layout/app-sidebar"
 import { HomeHero } from "@/components/home-hero"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { AgentsView } from "@/features/agents/agents-view"
@@ -15,13 +15,16 @@ import { useServiceActions } from "@/features/services/use-service-actions"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
+import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppQueryRefreshers } from "@/hooks/use-app-query-refreshers"
 import { useDashboard } from "@/hooks/use-dashboard"
+import { useI18n } from "@/lib/i18n-context"
 import { useUiStore } from "@/stores/ui-store"
 import { cn } from "@/lib/utils"
 
 export function App() {
+  const { t } = useI18n()
   const { services, agents, backend, loading, error: dashboardError, refresh } = useDashboard()
   const {
     cacheRevision,
@@ -80,37 +83,38 @@ export function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-dvh flex-col overflow-hidden bg-background">
-        <div className="mx-auto flex w-[min(1280px,calc(100vw-24px))] shrink-0 flex-col">
-          <AppHeader
-            agents={agents}
-            pageTitle={pageTitle}
-            view={view}
-            onAdded={handleServiceAdded}
-            onBack={goBack}
-            onViewChange={setView}
-            onOpenSettings={() => setSettingsDialogOpen(true)}
-          />
-          {view.name === "services" ? (
-            <HomeHero
-              stats={{
-                loading,
-                services: services.length,
-                connecting: services.filter((service) => service.state.phase === "starting").length,
-                agents: agents.length,
-              }}
-            />
-          ) : null}
-        </div>
-
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
-          <div
-            className={cn(
-              "mx-auto flex min-h-0 w-[min(1280px,calc(100vw-24px))] min-w-0 flex-1 flex-col",
-              view.name === "instance" || view.name === "services" || view.name === "agents" || view.name === "gateway" || view.name === "cache" || view.name === "tools" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
-            )}
-          >
-          {view.name === "instance" ? (
+      <div className="flex h-dvh overflow-hidden bg-background">
+        <AppSidebar
+          view={view}
+          onViewChange={setView}
+          onOpenSettings={() => setSettingsDialogOpen(true)}
+        />
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+            {view.name === "instance" ? (
+              <Button variant="outline" size="sm" onClick={goBack}>
+                {t("back")}
+              </Button>
+            ) : null}
+            <span className="truncate text-sm font-semibold">{pageTitle}</span>
+          </header>
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
+            <div
+              className={cn(
+                "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "gateway" || view.name === "cache" || view.name === "tools" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+              )}
+            >
+            {view.name === "home" ? (
+              <HomeHero
+                stats={{
+                  loading,
+                  services: services.length,
+                  connecting: services.filter((service) => service.state.phase === "starting").length,
+                  agents: agents.length,
+                }}
+              />
+            ) : view.name === "instance" ? (
             selectedService ? (
               <ServiceDetailView
                 service={selectedService}
@@ -173,10 +177,12 @@ export function App() {
               onOpen={(service) => setView({ name: "instance", addr: service })}
               onRefresh={refresh}
               onRestart={restartServiceEntry}
+              onAdded={handleServiceAdded}
             />
           )}
-          </div>
-        </main>
+            </div>
+          </main>
+        </div>
       </div>
 
       <AppDialogs

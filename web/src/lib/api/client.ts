@@ -1,6 +1,17 @@
 import { ApiError, type ApiEnvelope, type CacheBackend, type ScopeRef } from "../api";
 import { getApiBase, getAppApiBase } from "./backend";
 
+// Tauri 环境检测
+declare global {
+  interface Window {
+    __TAURI__?: {
+      core: {
+        invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+      };
+    };
+  }
+}
+
 type FlexibleEnvelope<T> =
   ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string };
 
@@ -52,6 +63,57 @@ export async function readJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
+/** 检查是否在 Tauri 环境 */
+function isTauriEnv(): boolean {
+  return typeof window !== "undefined" && !!window.__TAURI__;
+}
+
+/** Tauri 环境下的代理请求 */
+async function tauriFetch(url: string, options: RequestInit): Promise<Response> {
+  if (!window.__TAURI__?.core?.invoke) {
+    throw new Error("Tauri invoke not available");
+  }
+
+  const urlObj = new URL(url, window.location.origin);
+  const path = urlObj.pathname + urlObj.search;
+  const targetBase = urlObj.origin;
+
+  // 只有 Core API 走代理（非同源），App API 走本地服务器
+  const isAppApi = path.startsWith("/api");
+  if (isAppApi) {
+    // App API 直接走 fetch（Tauri 内置服务器）
+    return fetch(url, options);
+  }
+
+  const headers: Record<string, string> = {};
+  if (options.headers) {
+    if (options.headers instanceof Headers) {
+      options.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+    } else if (Array.isArray(options.headers)) {
+      options.headers.forEach(([key, value]) => {
+        headers[key] = value;
+      });
+    } else {
+      Object.assign(headers, options.headers);
+    }
+  }
+
+  const result = (await window.__TAURI__.core.invoke("proxy_api_request", {
+    method: options.method || "GET",
+    path,
+    body: options.body ? String(options.body) : null,
+    headers: Object.keys(headers).length > 0 ? headers : null,
+    targetBase,
+  })) as { status: number; body: string; headers: Record<string, string> };
+
+  return new Response(result.body, {
+    status: result.status,
+    headers: new Headers(result.headers),
+  });
+}
+
 async function apiAt<T>(
   path: string,
   options: RequestInit,
@@ -69,10 +131,13 @@ async function apiAt<T>(
   }
 
   const payload = await readJson<T | FlexibleEnvelope<T>>(
-    await fetch(urlFn(path), {
+    await (isTauriEnv() ? tauriFetch(urlFn(path), {
       ...options,
       headers,
-    }),
+    }) : fetch(urlFn(path), {
+      ...options,
+      headers,
+    })),
   );
 
   if (payload && typeof payload === "object" && "success" in payload) {
@@ -122,10 +187,15 @@ async function requestAt<T>(
   init: RequestInit | undefined,
   urlFn: (path: string) => string,
 ): Promise<T> {
-  const response = await fetch(urlFn(path), {
-    headers: { "Content-Type": "application/json", ...init?.headers },
-    ...init,
-  });
+  const response = await (isTauriEnv()
+    ? tauriFetch(urlFn(path), {
+        headers: { "Content-Type": "application/json", ...init?.headers },
+        ...init,
+      })
+    : fetch(urlFn(path), {
+        headers: { "Content-Type": "application/json", ...init?.headers },
+        ...init,
+      }));
   const payload = await readJson<ApiEnvelope<T>>(response);
   if (!payload.success) {
     throw new ApiError(

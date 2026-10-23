@@ -17,6 +17,8 @@ mcpstore-cli = { path = "../../rust/apps/mcpstore" }
 anyhow = "1.0"
 axum = "0.7"
 dirs = "6.0"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 serde_json = "1"
 tauri-plugin-opener = "2"

@@ -1,6 +1,7 @@
 import {
   BotIcon,
   DatabaseIcon,
+  HouseIcon,
   ServerIcon,
   WaypointsIcon,
   WrenchIcon,
@@ -10,6 +11,7 @@ import type { ServiceAddress } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 
 export type AppView =
+  | { name: "home" }
   | { name: "services" }
   | { name: "agents" }
   | { name: "tools" }
@@ -26,6 +28,7 @@ export type NavItem = {
 export function useNavItems(): NavItem[] {
   const { t } = useI18n()
   return [
+    { view: { name: "home" }, label: t("navHome"), icon: HouseIcon },
     { view: { name: "services" }, label: t("navServices"), icon: ServerIcon },
     { view: { name: "agents" }, label: t("navAgents"), icon: BotIcon },
     { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
