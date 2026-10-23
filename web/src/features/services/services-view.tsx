@@ -72,7 +72,15 @@ export function ServicesView(props: {
   }
 
   return (
-    <PanelCard className="h-full min-h-0 gap-0 p-0">
+    <>
+      <div className="min-w-0 shrink-0 pl-4">
+        <h1 className="text-lg font-semibold">{t("servicesWorkspaceTitle")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {t("servicesWorkspaceDescription", { count: props.services.length })}
+        </p>
+      </div>
+
+      <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
       <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
         <label htmlFor="service-list-search" className="shrink-0 text-sm font-medium">
           {t("serviceList")}
@@ -138,6 +146,7 @@ export function ServicesView(props: {
           <PageEmpty title={t("noServices")} description={t("noServicesInViewDescription")} onRefresh={props.onRefresh} />
         )}
       </ScrollPane>
-    </PanelCard>
+      </PanelCard>
+    </>
   )
 }
