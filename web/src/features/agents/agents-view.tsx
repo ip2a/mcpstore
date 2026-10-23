@@ -1,24 +1,20 @@
-import { useEffect, useMemo, useState } from "react"
-import { EyeIcon, LinkIcon, PlusIcon, RefreshCwIcon, UnlinkIcon } from "lucide-react"
+import { useMemo, useState } from "react"
+import { EyeIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
 
-import { EntityRow } from "@/components/shared/entity-row"
 import { JsonBlock } from "@/components/shared/json-block"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { ServiceListCard } from "@/components/shared/service-list-card"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
 import { useScopesQuery } from "@/features/agents/queries"
-import { ServiceRowMeta } from "@/components/shared/service-row-meta"
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { type AgentItem, type ScopeSummary, type ScopeView, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
-import { getServiceEndpointLabel } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
 
 type ScopeCardId = "store" | string
@@ -31,7 +27,7 @@ function scopeIdFromSummary(summary: ScopeSummary): ScopeCardId {
 }
 
 function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string): string {
-  if (summary.scope.type === "root") return t("global")
+  if (summary.scope.type === "root") return "root"
   if (summary.scope.type === "store") return t("store")
   if (summary.scope.type === "agent") return summary.scope.agent_id
   return scopeIdFromSummary(summary)
@@ -51,7 +47,6 @@ export function AgentsView(props: {
   const [activeTab, setActiveTab] = useState<ScopeCardId>("root")
   const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("root")
   const [addScopeDialogOpen, setAddScopeDialogOpen] = useState(false)
-  const [previewServiceId, setPreviewServiceId] = useState<string | null>(null)
   const [configScopeId, setConfigScopeId] = useState(ALL_SCOPE_ID)
   const [configDialogOpen, setConfigDialogOpen] = useState(false)
   const storeConfigQuery = useStoreConfigQuery()
@@ -93,16 +88,6 @@ export function AgentsView(props: {
   const scopeError = scopeServicesError || scopeToolsError
   const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
 
-  const previewService = useMemo(
-    () => scopeServices.find((service) => service.instance_id === previewServiceId) || null,
-    [previewServiceId, scopeServices],
-  )
-
-  const previewToolCount = useMemo(() => {
-    if (!previewService) return 0
-    return scopeTools.filter(({ instance }) => instance.instance_id === previewService.instance_id).length
-  }, [previewService, scopeTools])
-
   const scopeToolCountByInstance = useMemo(() => {
     const counts = new Map<string, number>()
     for (const { instance } of scopeTools) {
@@ -110,10 +95,6 @@ export function AgentsView(props: {
     }
     return counts
   }, [scopeTools])
-
-  useEffect(() => {
-    setPreviewServiceId(null)
-  }, [activeTab, selectedScopeId])
 
   function loadScopeConfig() {
     void (configAgentId ? agentConfigQuery.refetch() : storeConfigQuery.refetch())
@@ -157,7 +138,7 @@ export function AgentsView(props: {
         onValueChange={(value) => selectScopeTab(value)}
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
       >
-        <div className="flex min-w-0 shrink-0 items-center gap-3 border-b pb-2">
+        <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
           <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
             {scopes.map((summary) => {
               const scopeId = scopeIdFromSummary(summary)
@@ -199,10 +180,6 @@ export function AgentsView(props: {
                   loadingScopeServices={loadingScopeServices}
                   onDeclareScope={handleDeclareScope}
                   onOpenService={props.onOpenService}
-                  onRemoveScope={props.onRemoveScope}
-                  previewService={previewService}
-                  previewServiceId={previewServiceId}
-                  previewToolCount={previewToolCount}
                   scopeError={scopeError}
                   scopeErrorMessage={scopeErrorMessage}
                   scopeServiceName={scopeServiceName}
@@ -211,7 +188,6 @@ export function AgentsView(props: {
                   selectedScope={selectedScope}
                   setAddScopeDialogOpen={setAddScopeDialogOpen}
                   setConfigDialogOpen={setConfigDialogOpen}
-                  setPreviewServiceId={setPreviewServiceId}
                   setScopeServiceName={setScopeServiceName}
                   loadAgentScope={loadAgentScope}
                 />
@@ -276,10 +252,6 @@ function ScopeDetailPanel({
   loadAgentScope,
   onDeclareScope,
   onOpenService,
-  onRemoveScope,
-  previewService,
-  previewServiceId,
-  previewToolCount,
   scopeError,
   scopeErrorMessage,
   scopeServiceName,
@@ -288,7 +260,6 @@ function ScopeDetailPanel({
   selectedScope,
   setAddScopeDialogOpen,
   setConfigDialogOpen,
-  setPreviewServiceId,
   setScopeServiceName,
 }: {
   activeAgentId: string
@@ -302,10 +273,6 @@ function ScopeDetailPanel({
   loadAgentScope: () => void
   onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
   onOpenService: (service: ServiceInstance) => void
-  onRemoveScope: (agentId: string, serviceName: string) => void
-  previewService: ServiceInstance | null
-  previewServiceId: string | null
-  previewToolCount: number
   scopeError: unknown
   scopeErrorMessage: string
   scopeServiceName: string
@@ -314,7 +281,6 @@ function ScopeDetailPanel({
   selectedScope: ScopeView
   setAddScopeDialogOpen: (open: boolean) => void
   setConfigDialogOpen: (open: boolean) => void
-  setPreviewServiceId: (id: string | null) => void
   setScopeServiceName: (name: string) => void
 }) {
   const { t } = useI18n()
@@ -332,62 +298,40 @@ function ScopeDetailPanel({
         </DialogContent>
       </Dialog>
 
-      <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-4">
+      <ScrollPane
+        className="min-h-0 flex-1"
+        innerClassName="grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
+      >
         {scopeError ? (
           <PageError
+            className="col-span-full"
             title={t("agentScopeFailedToLoad")}
             message={scopeErrorMessage}
             onRefresh={loadAgentScope}
           />
         ) : loadingScopeServices ? (
-          <PageSkeleton />
-        ) : (
-          <div className="flex flex-col gap-3">
-            {scopeServices.length ? (
-              <div className="border-t">
-                {scopeServices.map((service) => {
-                  const selected = service.instance_id === previewServiceId
-                  const toolCount =
-                    scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
+          <PageSkeleton className="col-span-full" />
+        ) : scopeServices.length ? (
+          scopeServices.map((service) => {
+            const toolCount =
+              scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
 
-                  return (
-                    <EntityRow
-                      key={service.instance_id}
-                      variant="inline"
-                      interactive
-                      selected={selected}
-                      className="cursor-pointer"
-                      tabIndex={0}
-                      onClick={() => setPreviewServiceId(service.instance_id)}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault()
-                          setPreviewServiceId(service.instance_id)
-                        }
-                      }}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
-                          <span className="block min-w-0 truncate font-semibold">{service.service_name}</span>
-                          <span className="block min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
-                            {getServiceEndpointLabel(service)}
-                          </span>
-                        </div>
-                        <ServiceRowMeta service={service} toolCount={toolCount} />
-                      </div>
-                    </EntityRow>
-                  )
-                })}
-              </div>
-            ) : (
-              <PageEmpty
-                title={t("noServices")}
-                description={t("noServicesDescription")}
-                onRefresh={loadAgentScope}
+            return (
+              <ServiceListCard
+                key={service.instance_id}
+                service={service}
+                toolCount={toolCount}
+                onSelect={() => onOpenService(service)}
               />
-            )}
-          </div>
+            )
+          })
+        ) : (
+          <PageEmpty
+            className="col-span-full"
+            title={t("noServices")}
+            description={t("noServicesDescription")}
+            onRefresh={loadAgentScope}
+          />
         )}
       </ScrollPane>
 
@@ -403,111 +347,6 @@ function ScopeDetailPanel({
           setScopeServiceName={setScopeServiceName}
         />
       ) : null}
-
-      <ScopeServiceSheet
-        busy={Boolean(busy)}
-        onOpenChange={(open) => {
-          if (!open) setPreviewServiceId(null)
-        }}
-        onOpenService={(service) => {
-          setPreviewServiceId(null)
-          onOpenService(service)
-        }}
-        onRemoveScope={
-          selectedScope.type === "agent" && activeAgentId
-            ? (serviceName) => {
-                setPreviewServiceId(null)
-                onRemoveScope(activeAgentId, serviceName)
-              }
-            : undefined
-        }
-        open={Boolean(previewService)}
-        service={previewService}
-        toolCount={previewToolCount}
-      />
     </>
-  )
-}
-
-function ScopeServiceSheet({
-  busy,
-  onOpenChange,
-  onOpenService,
-  onRemoveScope,
-  open,
-  service,
-  toolCount,
-}: {
-  busy: boolean
-  onOpenChange: (open: boolean) => void
-  onOpenService: (service: ServiceInstance) => void
-  onRemoveScope?: (serviceName: string) => void
-  open: boolean
-  service: ServiceInstance | null
-  toolCount: number
-}) {
-  const { t } = useI18n()
-
-  if (!service) return null
-
-  const endpoint = service.url || service.command || "-"
-  const scope = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
-  const launchLine = getServiceEndpointLabel(service)
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full max-w-md overflow-y-auto sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle className="font-mono">{service.service_name}</SheetTitle>
-          <SheetDescription className="font-mono">{launchLine}</SheetDescription>
-        </SheetHeader>
-
-        <dl className="grid gap-4 px-4 text-sm">
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("scope")}</dt>
-            <dd className="font-mono">{scope}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("status")}</dt>
-            <dd>
-              <ServiceStatusBadge state={service.state} />
-            </dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("tools")}</dt>
-            <dd>{t("toolsAvailable", { count: toolCount })}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("endpoint")}</dt>
-            <dd className="break-all font-mono">{String(endpoint)}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">{t("transport")}</dt>
-            <dd className="font-mono">{service.transport}</dd>
-          </div>
-          <div className="grid gap-1">
-            <dt className="text-muted-foreground">Instance ID</dt>
-            <dd className="break-all font-mono">{service.instance_id}</dd>
-          </div>
-        </dl>
-
-        <div className="mt-auto flex flex-col gap-2 border-t p-4">
-          <Button onClick={() => onOpenService(service)}>
-            <LinkIcon data-icon="inline-start" />
-            {t("view")} {t("service")}
-          </Button>
-          {onRemoveScope ? (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => onRemoveScope(service.service_name)}
-            >
-              <UnlinkIcon data-icon="inline-start" />
-              {t("delete")} {t("scope")}
-            </Button>
-          ) : null}
-        </div>
-      </SheetContent>
-    </Sheet>
   )
 }
