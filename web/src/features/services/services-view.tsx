@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
 import { Button } from "@/components/ui/button"
@@ -73,12 +74,10 @@ export function ServicesView(props: {
 
   return (
     <>
-      <div className="min-w-0 shrink-0 pl-4">
-        <h1 className="text-lg font-semibold">{t("servicesWorkspaceTitle")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("servicesWorkspaceDescription", { count: props.services.length })}
-        </p>
-      </div>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("servicesWorkspaceTitle")}</h1>}
+        subtitle={t("servicesWorkspaceDescription", { count: props.services.length })}
+      />
 
       <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
       <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">

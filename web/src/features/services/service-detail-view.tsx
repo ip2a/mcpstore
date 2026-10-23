@@ -449,13 +449,13 @@ export function ServiceDetailView(props: {
         subtitle={headerSubtitle || undefined}
       />
 
-      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
         <Tabs
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as ServiceDetailTab)}
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 pt-2 pb-2"
         >
-          <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
+          <div className="flex min-w-0 shrink-0 items-center gap-3">
             <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
               <TabsTrigger value="service">{t("service")}</TabsTrigger>
               <TabsTrigger value="prompts">{t("prompts")}</TabsTrigger>
