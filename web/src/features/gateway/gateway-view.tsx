@@ -73,6 +73,9 @@ function useGatewayRequestFlow() {
           if (page.requests.length > 0) {
             after = page.latest_seq
             setRecords((prev) => [...prev, ...page.requests].slice(-200))
+          } else if (!page.running) {
+            // 网关未运行时后端立即返回（不走 25s 长等），必须节流否则全速空转
+            await new Promise((resolve) => setTimeout(resolve, 3_000))
           }
         } catch {
           await new Promise((resolve) => setTimeout(resolve, 3_000))
