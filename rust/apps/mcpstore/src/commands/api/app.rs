@@ -189,7 +189,7 @@ fn hosts_payload(hosts: &HostsConfig) -> Value {
     let mut value = serde_json::Map::new();
     value.insert("active".to_string(), json!(hosts.active));
     for (name, entry) in &hosts.entries {
-        value.insert(name.clone(), json!({ "url": entry.url }));
+        value.insert(name.clone(), json!({ "urls": entry.urls }));
     }
     Value::Object(value)
 }

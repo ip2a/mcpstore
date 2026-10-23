@@ -95,13 +95,13 @@ mod tests {
                 (
                     "local".to_string(),
                     HostEntry {
-                        url: "http://127.0.0.1:1820".to_string(),
+                        urls: vec!["http://127.0.0.1:1820".to_string()],
                     },
                 ),
                 (
                     "remote".to_string(),
                     HostEntry {
-                        url: "http://192.168.1.100:1820".to_string(),
+                        urls: vec!["http://192.168.1.100:1820".to_string()],
                     },
                 ),
             ]),

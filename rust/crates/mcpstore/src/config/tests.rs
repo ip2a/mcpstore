@@ -357,11 +357,13 @@ fn test_hosts_config_roundtrip() {
 [hosts]
 active = "测试 A"
 
+# legacy single-URL shape, migrated to `urls` on load
 [hosts.local]
 url = "http://127.0.0.1:1820"
 
+# current multi-URL shape, preference order
 [hosts."测试 A"]
-url = "http://115.191.69.41:8021"
+urls = ["http://115.191.69.41:8021", "http://100.64.0.8:8021"]
 "#,
     )
     .unwrap();
@@ -374,18 +376,29 @@ url = "http://115.191.69.41:8021"
             .hosts
             .entries
             .get("local")
-            .map(|entry| entry.url.as_str()),
-        Some("http://127.0.0.1:1820")
+            .map(|entry| entry.urls.as_slice()),
+        Some(&["http://127.0.0.1:1820".to_string()][..])
     );
     assert_eq!(
         loaded
             .hosts
             .entries
             .get("测试 A")
-            .map(|entry| entry.url.as_str()),
-        Some("http://115.191.69.41:8021")
+            .map(|entry| entry.urls.as_slice()),
+        Some(
+            &[
+                "http://115.191.69.41:8021".to_string(),
+                "http://100.64.0.8:8021".to_string()
+            ][..]
+        )
     );
-    assert_eq!(loaded.hosts.active_url(), "http://115.191.69.41:8021");
+    assert_eq!(
+        loaded.hosts.active_urls(),
+        vec![
+            "http://115.191.69.41:8021".to_string(),
+            "http://100.64.0.8:8021".to_string()
+        ]
+    );
 
     let mut config = AppConfig::default();
     config.hosts = HostsConfig {
@@ -394,14 +407,14 @@ url = "http://115.191.69.41:8021"
             (
                 "local".to_string(),
                 HostEntry {
-                    url: "http://127.0.0.1:1820".to_string(),
+                    urls: vec!["http://127.0.0.1:1820".to_string()],
                 },
             ),
             (
                 "remote".to_string(),
                 HostEntry {
                     // Differs from default so sparse persist keeps it on disk
-                    url: "http://127.0.0.1:1830".to_string(),
+                    urls: vec!["http://127.0.0.1:1830".to_string()],
                 },
             ),
         ]),
@@ -413,8 +426,8 @@ url = "http://115.191.69.41:8021"
     // the default materializes it back on load.
     assert_eq!(saved.hosts.entries.len(), 2);
     assert_eq!(
-        saved.hosts.entries.get("remote").unwrap().url,
-        "http://127.0.0.1:1830"
+        saved.hosts.entries.get("remote").unwrap().urls,
+        vec!["http://127.0.0.1:1830".to_string()]
     );
 
     std::fs::remove_dir_all(&dir).ok();

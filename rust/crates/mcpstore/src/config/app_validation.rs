@@ -53,8 +53,13 @@ fn validate_hosts_config(config: &AppConfig, errors: &mut Vec<String>) {
         if name.trim().is_empty() {
             errors.push("hosts entry name cannot be empty".to_string());
         }
-        if entry.url.trim().is_empty() {
-            errors.push(format!("hosts.\"{name}\".url cannot be empty"));
+        if entry.urls.is_empty() {
+            errors.push(format!("hosts.\"{name}\".urls cannot be empty"));
+        }
+        for (index, url) in entry.urls.iter().enumerate() {
+            if url.trim().is_empty() {
+                errors.push(format!("hosts.\"{name}\".urls[{index}] cannot be empty"));
+            }
         }
     }
 

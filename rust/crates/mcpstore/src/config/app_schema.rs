@@ -56,9 +56,32 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HostEntry {
-    pub url: String,
+    /// Candidate base URLs in preference order; the first reachable one wins.
+    pub urls: Vec<String>,
+}
+
+// One-time config migration: entries written as `{ url = "..." }` (single URL)
+// normalize to `{ urls = ["..."] }` at the deserialize boundary. The runtime
+// type only knows the new shape; the file is rewritten in the new format on
+// the next config save.
+impl<'de> Deserialize<'de> for HostEntry {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Multi { urls: Vec<String> },
+            Legacy { url: String },
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Multi { urls } => Ok(Self { urls }),
+            Raw::Legacy { url } => Ok(Self { urls: vec![url] }),
+        }
+    }
 }
 
 // Custom Deserialize: serde ignores field defaults on #[serde(flatten)] maps,
@@ -99,7 +122,7 @@ pub(in crate::config) fn default_hosts_entries() -> HashMap<String, HostEntry> {
     entries.insert(
         default_hosts_active(),
         HostEntry {
-            url: default_host_url(),
+            urls: vec![default_host_url()],
         },
     );
     entries
@@ -115,12 +138,13 @@ impl Default for HostsConfig {
 }
 
 impl HostsConfig {
-    pub fn active_url(&self) -> String {
+    /// URLs of the active host in preference order.
+    pub fn active_urls(&self) -> Vec<String> {
         self.entries
             .get(&self.active)
-            .map(|entry| entry.url.clone())
-            .or_else(|| self.entries.values().next().map(|entry| entry.url.clone()))
-            .unwrap_or_else(default_host_url)
+            .map(|entry| entry.urls.clone())
+            .or_else(|| self.entries.values().next().map(|entry| entry.urls.clone()))
+            .unwrap_or_else(|| vec![default_host_url()])
     }
 }
 
