@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { GripVerticalIcon, LayersIcon, MoreHorizontalIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
 
+import { Sortable, SortableItem, SortableItemHandle } from "@/components/reui/sortable"
 import { EntityRow } from "@/components/shared/entity-row"
 import { ServiceTransitionIcon } from "@/components/shared/service-transition-icon"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
@@ -148,32 +149,20 @@ function ServiceMoreActionsDialog({
 
 function ServiceRow({
   busy,
-  dragging,
-  dropTarget,
   onAddScope,
   onConnect,
   onDisconnect,
-  onDragEnd,
-  onDragStart,
-  onDropTarget,
   onEdit,
   onMore,
-  onMove,
   onOpen,
   service,
 }: {
   busy: string | null
-  dragging: boolean
-  dropTarget: boolean
   onAddScope: (service: ServiceInstance) => void
   onConnect: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
-  onDragEnd: () => void
-  onDragStart: (instanceId: string) => void
-  onDropTarget: (instanceId: string) => void
   onEdit: (service: ServiceInstance) => void
   onMore: (service: ServiceInstance) => void
-  onMove: (fromId: string, toId: string) => void
   onOpen: (service: ServiceInstance) => void
   service: ServiceInstance
 }) {
@@ -184,19 +173,8 @@ function ServiceRow({
     <EntityRow
       variant="inline"
       interactive
-      className={dropTarget ? "cursor-pointer bg-muted" : "cursor-pointer"}
+      className="cursor-pointer"
       tabIndex={0}
-      onDragOver={(event) => {
-        if (!dragging) return
-        event.preventDefault()
-        onDropTarget(service.instance_id)
-      }}
-      onDrop={(event) => {
-        event.preventDefault()
-        const fromId = event.dataTransfer.getData("text/plain")
-        if (fromId) onMove(fromId, service.instance_id)
-        onDragEnd()
-      }}
       onClick={() => onOpen(service)}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return
@@ -224,22 +202,14 @@ function ServiceRow({
     >
       <div className="min-w-0">
         <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
-          <button
-            type="button"
-            draggable
+          <SortableItemHandle
             aria-label={t("dragService", { name: service.service_name })}
-            className="shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
             onClick={(event) => event.stopPropagation()}
-            onDragStart={(event) => {
-              event.stopPropagation()
-              event.dataTransfer.effectAllowed = "move"
-              event.dataTransfer.setData("text/plain", service.instance_id)
-              onDragStart(service.instance_id)
-            }}
-            onDragEnd={onDragEnd}
+            onKeyDown={(event) => event.stopPropagation()}
           >
             <GripVerticalIcon className="size-4" />
-          </button>
+          </SortableItemHandle>
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
           <ServiceConnectionMark state={service.state} />
           <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
@@ -269,37 +239,34 @@ export function ServiceList(props: {
   const [moreService, setMoreService] = useState<ServiceInstance | null>(null)
   const [editService, setEditService] = useState<ServiceInstance | null>(null)
   const [scopeService, setScopeService] = useState<ServiceInstance | null>(null)
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [overId, setOverId] = useState<string | null>(null)
-
-  const endDrag = () => {
-    setDragId(null)
-    setOverId(null)
-  }
 
   return (
     <>
-      <div>
+      <Sortable
+        value={props.services}
+        getItemValue={(service) => service.instance_id}
+        onValueChange={() => {}}
+        onMove={({ activeIndex, overIndex }) => {
+          const from = props.services[activeIndex]
+          const to = props.services[overIndex]
+          if (from && to) props.onMove(from.instance_id, to.instance_id)
+        }}
+      >
         {props.services.map((service) => (
-          <ServiceRow
-            key={service.instance_id}
-            busy={props.busy}
-            dragging={dragId !== null}
-            dropTarget={overId === service.instance_id && dragId !== service.instance_id}
-            onAddScope={setScopeService}
-            onConnect={props.onConnect}
-            onDisconnect={props.onDisconnect}
-            onDragEnd={endDrag}
-            onDragStart={setDragId}
-            onDropTarget={setOverId}
-            onEdit={setEditService}
-            onMore={setMoreService}
-            onMove={props.onMove}
-            onOpen={props.onOpen}
-            service={service}
-          />
+          <SortableItem key={service.instance_id} value={service.instance_id}>
+            <ServiceRow
+              busy={props.busy}
+              onAddScope={setScopeService}
+              onConnect={props.onConnect}
+              onDisconnect={props.onDisconnect}
+              onEdit={setEditService}
+              onMore={setMoreService}
+              onOpen={props.onOpen}
+              service={service}
+            />
+          </SortableItem>
         ))}
-      </div>
+      </Sortable>
       <EditServiceDialog
         open={Boolean(editService)}
         service={editService}
