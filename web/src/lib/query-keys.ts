@@ -38,4 +38,7 @@ export const queryKeys = {
   meta: ["meta"] as const,
   settings: ["settings"] as const,
   overrides: (kind: string) => ["overrides", kind] as const,
+  clients: ["clients"] as const,
+  wiredClients: ["clients", "wired"] as const,
+  gatewayStatus: ["gateway", "status"] as const,
 }

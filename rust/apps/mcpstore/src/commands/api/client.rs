@@ -409,7 +409,26 @@ pub(super) async fn gateway_wire(
     Query(query): Query<GatewayWireQuery>,
 ) -> ApiResult {
     let client = parse_client_kind(&query.client)?;
-    let path = query.path.ok_or_else(|| ApiError::missing_parameter("path"))?;
+    let path = match query.path {
+        Some(path) => path,
+        None => {
+            // No explicit path: use the client's own config file from discovery.
+            let setup = mcpstore::agents::get(client);
+            match mcpstore::agents::detect(setup) {
+                Some(detection)
+                    if detection.by == mcpstore::agents::DetectedBy::ConfigFile =>
+                {
+                    detection.path.display().to_string()
+                }
+                _ => {
+                    return Err(ApiError::invalid_request(format!(
+                        "{} 配置文件未找到",
+                        setup.label()
+                    )))
+                }
+            }
+        }
+    };
     let url = match query.url {
         Some(url) => url,
         None => default_gateway_url(&state, client)?,

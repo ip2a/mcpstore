@@ -1,5 +1,6 @@
 import {
   BotIcon,
+  CableIcon,
   DatabaseIcon,
   HouseIcon,
   ServerIcon,
@@ -14,6 +15,7 @@ export type AppView =
   | { name: "home" }
   | { name: "services" }
   | { name: "agents" }
+  | { name: "clients" }
   | { name: "tools" }
   | { name: "gateway" }
   | { name: "cache" }
@@ -31,6 +33,7 @@ export function useNavItems(): NavItem[] {
     { view: { name: "home" }, label: t("navHome"), icon: HouseIcon },
     { view: { name: "services" }, label: t("navServices"), icon: ServerIcon },
     { view: { name: "agents" }, label: t("navAgents"), icon: BotIcon },
+    { view: { name: "clients" }, label: t("navClients"), icon: CableIcon },
     { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
     { view: { name: "gateway" }, label: t("gateway"), icon: WaypointsIcon },
     { view: { name: "cache" }, label: t("navCache"), icon: DatabaseIcon },

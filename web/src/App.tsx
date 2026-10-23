@@ -9,6 +9,7 @@ import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { AgentsView } from "@/features/agents/agents-view"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { CacheView } from "@/features/cache/cache-view"
+import { ClientsView } from "@/features/clients/clients-view"
 import { GatewayView } from "@/features/gateway/gateway-view"
 import { OverviewView } from "@/features/overview/overview-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
@@ -89,7 +90,7 @@ export function App() {
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "gateway" || view.name === "cache" || view.name === "tools" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "tools" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
               )}
             >
             {view.name === "home" ? (
@@ -147,6 +148,8 @@ export function App() {
               onRunTool={runToolFromDialogState}
               isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
             />
+          ) : view.name === "clients" ? (
+            <ClientsView />
           ) : view.name === "gateway" ? (
             <GatewayView />
           ) : view.name === "cache" ? (

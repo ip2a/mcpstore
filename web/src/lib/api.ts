@@ -440,3 +440,17 @@ export {
   parseKvLines,
   formatKvLines,
 } from "./api/service-config";
+export {
+  listClients,
+  wireClient,
+  unwireClient,
+  getGatewayStatus,
+  getGatewayRequests,
+  getWiredClients,
+  type ClientInventory,
+  type DetectedBy,
+  type GatewayStatus,
+  type GatewayRequestRecord,
+  type GatewayRequestsPage,
+  type WiredEntry,
+} from "./api/clients";
