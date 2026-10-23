@@ -449,8 +449,10 @@ export {
   getWiredClients,
   type ClientInventory,
   type DetectedBy,
+  type ExposeConfig,
   type GatewayStatus,
   type GatewayRequestRecord,
   type GatewayRequestsPage,
+  type WireOptions,
   type WiredEntry,
 } from "./api/clients";

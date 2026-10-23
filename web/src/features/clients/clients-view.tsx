@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { CableIcon, CircleDashed, FileJsonIcon, FolderIcon, TerminalIcon } from "lucide-react"
 
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -5,15 +6,36 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { useClientsQuery, useClientToggle } from "@/features/clients/queries"
 import { useI18n } from "@/lib/i18n-context"
-import type { ClientInventory } from "@/lib/api"
+import type { ClientInventory, ExposeConfig, WireOptions } from "@/lib/api"
 import { cn } from "@/lib/utils"
+
+const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
+  "tool",
+  "prompt",
+  "resource",
+  "openapi",
+  "service",
+  "cache",
+  "search",
+  "session_state",
+]
 
 export function ClientsView() {
   const { t } = useI18n()
   const { data, isPending, isError, error, refetch } = useClientsQuery()
   const { toggle, busy } = useClientToggle()
+  const [wireTarget, setWireTarget] = useState<ClientInventory | null>(null)
 
   if (isError) {
     return (
@@ -33,10 +55,97 @@ export function ClientsView() {
           key={client.id}
           client={client}
           busy={busy}
-          onToggle={() => void toggle(client, client.wired)}
+          onToggle={() => {
+            if (client.wired) void toggle(client, true)
+            else setWireTarget(client)
+          }}
         />
       ))}
+      <WireDialog
+        client={wireTarget}
+        busy={busy}
+        onClose={() => setWireTarget(null)}
+        onConfirm={(client, options) => {
+          setWireTarget(null)
+          void toggle(client, false, options)
+        }}
+      />
     </ScrollPane>
+  )
+}
+
+/** 接线配置：默认专属作用域（Agent:<id>）+ 不暴露管理工具；可切 Store / 打开开关。 */
+function WireDialog({
+  client,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  client: ClientInventory | null
+  busy: boolean
+  onClose: () => void
+  onConfirm: (client: ClientInventory, options: WireOptions) => void
+}) {
+  const { t } = useI18n()
+  const [dedicatedScope, setDedicatedScope] = useState(true)
+  const [expose, setExpose] = useState<ExposeConfig>({
+    session_state: false,
+    tool: false,
+    prompt: false,
+    resource: false,
+    openapi: false,
+    service: false,
+    cache: false,
+    search: false,
+  })
+  if (!client) return null
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("clientsWireDialogTitle", { client: client.label })}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-0.5">
+              <Label htmlFor="wire-scope">{t("clientsScope")}</Label>
+              <span className="font-mono text-xs text-muted-foreground">
+                {dedicatedScope ? `Agent:${client.id}` : t("gatewayScopeStore")}
+              </span>
+            </div>
+            <Switch id="wire-scope" checked={dedicatedScope} onCheckedChange={setDedicatedScope} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>{t("clientsExpose")}</Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {EXPOSE_KEYS.map((key) => (
+                <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Switch
+                    checked={expose[key]}
+                    onCheckedChange={(on) => setExpose((prev) => ({ ...prev, [key]: on }))}
+                  />
+                  <span className="font-mono text-xs">{key}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{t("cancel")}</Button>
+          <Button
+            disabled={busy}
+            onClick={() =>
+              onConfirm(client, {
+                scope: dedicatedScope ? "agent" : "store",
+                expose,
+              })
+            }
+          >
+            {t("clientsWire")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

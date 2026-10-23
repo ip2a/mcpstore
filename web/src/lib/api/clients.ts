@@ -43,12 +43,35 @@ export type GatewayRequestsPage = {
   latest_seq: number;
 };
 
+export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string };
+
+export type ExposeConfig = {
+  session_state: boolean;
+  tool: boolean;
+  prompt: boolean;
+  resource: boolean;
+  openapi: boolean;
+  service: boolean;
+  cache: boolean;
+  search: boolean;
+};
+
 export type WiredEntry = {
   client: string;
   path: string;
   name: string;
   url: string;
   applied_at_unix_ms: number;
+  // 后端注入的生效值（缺省配置已推导为 Agent{agent_id:client_id} + 全 false）。
+  scope: ScopeRef;
+  expose: ExposeConfig;
+};
+
+/** wire 时可覆盖的作用域/暴露配置；省略即后端默认（专属 scope + 全 false）。 */
+export type WireOptions = {
+  scope?: "store" | "agent";
+  agentId?: string;
+  expose?: Partial<ExposeConfig>;
 };
 
 export function listClients(): Promise<ClientInventory[]> {
@@ -58,8 +81,22 @@ export function listClients(): Promise<ClientInventory[]> {
 }
 
 /** path/url 省略时由后端发现配置文件并生成 caller URL。 */
-export function wireClient(client: string): Promise<WiredEntry> {
-  return appApi(`/gateway/wire?client=${client}`, { method: "POST" });
+export function wireClient(client: string, options?: WireOptions): Promise<WiredEntry> {
+  const expose = options?.expose;
+  const query = buildQuery({
+    client,
+    scope: options?.scope,
+    agent_id: options?.agentId,
+    expose_session_state: expose?.session_state,
+    expose_tool: expose?.tool,
+    expose_prompt: expose?.prompt,
+    expose_resource: expose?.resource,
+    expose_openapi: expose?.openapi,
+    expose_service: expose?.service,
+    expose_cache: expose?.cache,
+    expose_search: expose?.search,
+  });
+  return appApi(`/gateway/wire${query}`, { method: "POST" });
 }
 
 export function unwireClient(client: string): Promise<WiredEntry> {

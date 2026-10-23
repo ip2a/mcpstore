@@ -7,6 +7,7 @@ import {
   listClients,
   unwireClient,
   wireClient,
+  type WireOptions,
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { toast } from "sonner"
@@ -31,7 +32,8 @@ export function useGatewayStatusQuery() {
 export function useWireClientMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: wireClient,
+    mutationFn: ({ client, options }: { client: string; options?: WireOptions }) =>
+      wireClient(client, options),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.clients })
       void queryClient.invalidateQueries({ queryKey: queryKeys.wiredClients })
@@ -52,18 +54,22 @@ export function useUnwireClientMutation() {
   })
 }
 
-/** 客户端接线/断线操作（toast + 清单失效）。 */
+/** 客户端接线/断线操作（toast + 清单失效）。wire 带 options 时覆盖作用域/暴露配置。 */
 export function useClientToggle() {
   const { t } = useI18n()
   const wire = useWireClientMutation()
   const unwire = useUnwireClientMutation()
-  async function toggle(client: { id: string; label: string }, wired: boolean) {
+  async function toggle(
+    client: { id: string; label: string },
+    wired: boolean,
+    options?: WireOptions,
+  ) {
     try {
       if (wired) {
         await unwire.mutateAsync(client.id)
         toast.success(t("clientsUnwireOk", { client: client.label }))
       } else {
-        await wire.mutateAsync(client.id)
+        await wire.mutateAsync({ client: client.id, options })
         toast.success(t("clientsWireOk", { client: client.label }))
       }
     } catch (err) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { WaypointsIcon } from "lucide-react"
+import { CableIcon, WaypointsIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
@@ -12,18 +12,20 @@ import {
   useWiredClientsQuery,
 } from "@/features/clients/queries"
 import { useI18n } from "@/lib/i18n-context"
-import { getGatewayRequests, startMcpHub, stopMcpHub, type GatewayRequestRecord } from "@/lib/api"
+import { getGatewayRequests, startMcpHub, stopMcpHub, type GatewayRequestRecord, type WiredEntry } from "@/lib/api"
 
 export function GatewayView() {
   const { t } = useI18n()
   const status = useGatewayStatusQuery()
   const clients = useClientsQuery()
+  const wired = useWiredClientsQuery()
   const records = useGatewayRequestFlow()
   const [busy, setBusy] = useState(false)
 
   const wiredLabels = (clients.data ?? [])
     .filter((client) => client.wired)
     .map((client) => client.label)
+  const labelById = new Map((clients.data ?? []).map((client) => [client.id, client.label]))
 
   async function handleStart() {
     setBusy(true)
@@ -84,6 +86,8 @@ export function GatewayView() {
           </span>
         </div>
       </PanelCard>
+
+      <WiredClientsCard labelById={labelById} wired={wired.data ?? []} />
 
       <PanelCard variant="plain" className="gap-2">
         <div className="border-b pb-2 text-sm font-medium">{t("gatewayRequestsTitle")}</div>
@@ -147,6 +151,65 @@ function FlowRow({ record }: { record: GatewayRequestRecord }) {
           {record.success ? "OK" : "ERR"}
         </Badge>
         <span className="text-xs text-muted-foreground">{record.duration_ms}ms</span>
+      </span>
+    </div>
+  )
+}
+
+/** 已接入客户端：每个挂载点的作用域 + 暴露配置（/gateway/wired 返回生效值）。 */
+function WiredClientsCard({
+  labelById,
+  wired,
+}: {
+  labelById: Map<string, string>
+  wired: WiredEntry[]
+}) {
+  const { t } = useI18n()
+  return (
+    <PanelCard variant="plain" className="gap-2">
+      <div className="border-b pb-2 text-sm font-medium">{t("gatewayWiredTitle")}</div>
+      {wired.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("gatewayWiredEmpty")}</p>
+      ) : (
+        wired.map((entry) => (
+          <WiredClientRow key={entry.client} entry={entry} labelById={labelById} />
+        ))
+      )}
+    </PanelCard>
+  )
+}
+
+function WiredClientRow({
+  entry,
+  labelById,
+}: {
+  entry: WiredEntry
+  labelById: Map<string, string>
+}) {
+  const { t } = useI18n()
+  const exposeOn = Object.entries(entry.expose)
+    .filter(([, on]) => on)
+    .map(([key]) => key)
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
+      <CableIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate text-sm font-medium">
+        {labelById.get(entry.client) ?? entry.client}
+      </span>
+      <Badge variant="secondary" className="shrink-0 font-mono text-xs">
+        {entry.scope.type === "agent" ? `Agent:${entry.scope.agent_id}` : t("gatewayScopeStore")}
+      </Badge>
+      {exposeOn.length > 0 ? (
+        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+          {exposeOn.join(", ")}
+        </span>
+      ) : (
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          {t("gatewayExposeNone")}
+        </span>
+      )}
+      <span className="ml-auto min-w-0 truncate font-mono text-xs text-muted-foreground">
+        {entry.url}
       </span>
     </div>
   )
