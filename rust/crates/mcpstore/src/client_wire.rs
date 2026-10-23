@@ -22,6 +22,8 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::agents::ClientSetup;
+
 /// The server name we write into each client's MCP map.
 pub const GATEWAY_ENTRY_NAME: &str = "mcpstore";
 
@@ -79,34 +81,6 @@ fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
     })
 }
 
-/// The MCP map key for a client's document.
-fn servers_key(client: ClientKind) -> &'static str {
-    match client {
-        ClientKind::Codex => "mcp_servers",
-        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
-        ClientKind::OpenCode => "mcp",
-    }
-}
-
-fn entry_value(client: ClientKind, url: &str) -> Result<Value> {
-    Ok(match client {
-        ClientKind::ClaudeCode | ClientKind::Cursor => json!({ "url": url }),
-        ClientKind::OpenCode => json!({ "type": "remote", "url": url, "enabled": true }),
-        ClientKind::Codex => {
-            return Err(Error::new(
-                FailureCode::Internal,
-                "Codex uses TOML; wire via the TOML path",
-            ))
-        }
-        ClientKind::ClaudeDesktop => {
-            return Err(Error::new(
-                FailureCode::Internal,
-                "Claude Desktop does not support remote MCP servers",
-            ))
-        }
-    })
-}
-
 fn now_unix_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -135,6 +109,7 @@ pub fn wire_gateway(
     url: &str,
     state_path: &Path,
 ) -> Result<WiredEntry> {
+    let setup = crate::agents::get(client);
     let mut state = load_wired_state(state_path)?;
     if state.entries.iter().any(|entry| entry.client == client) {
         return Err(Error::new(
@@ -149,17 +124,19 @@ pub fn wire_gateway(
         url: url.to_string(),
         applied_at_unix_ms: now_unix_ms(),
     };
-    match client {
-        ClientKind::Codex => wire_codex(path, url)?,
-        _ => wire_json(client, path, url)?,
-    }
+    setup.wire_entry(path, url)?;
     state.entries.push(entry.clone());
     save_wired_state(state_path, &state)?;
     Ok(entry)
 }
 
-fn wire_json(client: ClientKind, path: &Path, url: &str) -> Result<()> {
-    let value = entry_value(client, url)?;
+pub(crate) fn wire_json_entry<T: ClientSetup + ?Sized>(
+    setup: &T,
+    path: &Path,
+    url: &str,
+) -> Result<()> {
+    let key = setup.servers_key();
+    let value = setup.entry_value(url)?;
     let mut document: Value = if path.exists() {
         let bytes = fs::read(path).map_err(|error| {
             Error::new(
@@ -183,12 +160,12 @@ fn wire_json(client: ClientKind, path: &Path, url: &str) -> Result<()> {
         )
     })?;
     let servers = root
-        .entry(servers_key(client))
+        .entry(key)
         .or_insert_with(|| Value::Object(Map::new()));
     let map = servers.as_object_mut().ok_or_else(|| {
         Error::new(
             FailureCode::Internal,
-            format!("{} must contain a JSON object", servers_key(client)),
+            format!("{} must contain a JSON object", key),
         )
     })?;
     if map.contains_key(GATEWAY_ENTRY_NAME) {
@@ -204,7 +181,8 @@ fn wire_json(client: ClientKind, path: &Path, url: &str) -> Result<()> {
     atomic_write(path, &body)
 }
 
-fn wire_codex(path: &Path, url: &str) -> Result<()> {
+pub(crate) fn wire_codex<T: ClientSetup + ?Sized>(setup: &T, path: &Path, url: &str) -> Result<()> {
+    let key = setup.servers_key();
     if path.exists() {
         let text = fs::read_to_string(path).map_err(|error| {
             Error::new(
@@ -218,9 +196,7 @@ fn wire_codex(path: &Path, url: &str) -> Result<()> {
                 format!("Failed to parse {}: {error}", path.display()),
             )
         })?;
-        let table = parsed
-            .get(servers_key(ClientKind::Codex))
-            .and_then(toml::Value::as_table);
+        let table = parsed.get(key).and_then(toml::Value::as_table);
         if table
             .map(|table| table.contains_key(GATEWAY_ENTRY_NAME))
             .unwrap_or(false)
@@ -231,9 +207,7 @@ fn wire_codex(path: &Path, url: &str) -> Result<()> {
             ));
         }
         // An inline `mcp_servers = {...}` table can't be extended by a dotted header.
-        if table.is_none()
-            && parsed.get(servers_key(ClientKind::Codex)).is_some()
-        {
+        if table.is_none() && parsed.get(key).is_some() {
             return Err(Error::new(
                 FailureCode::Internal,
                 "mcp_servers is an inline table; cannot append a section",
@@ -258,6 +232,7 @@ fn wire_codex(path: &Path, url: &str) -> Result<()> {
 
 /// Remove the gateway entry we recorded for a client; refuse when the user edited it.
 pub fn unwire_gateway(client: ClientKind, state_path: &Path) -> Result<WiredEntry> {
+    let setup = crate::agents::get(client);
     let mut state = load_wired_state(state_path)?;
     let index = state
         .entries
@@ -270,30 +245,16 @@ pub fn unwire_gateway(client: ClientKind, state_path: &Path) -> Result<WiredEntr
             )
         })?;
     let entry = state.entries[index].clone();
-    match client {
-        ClientKind::Codex => unwire_codex(&entry)?,
-        _ => unwire_json(&entry)?,
-    }
+    setup.unwire_entry(&entry)?;
     state.entries.remove(index);
     save_wired_state(state_path, &state)?;
     Ok(entry)
 }
 
-fn refuse_if_modified(current: &Value, entry: &WiredEntry) -> Result<()> {
-    let ours = entry_value(entry.client, &entry.url)?;
-    if current != &ours {
-        return Err(Error::new(
-            FailureCode::Internal,
-            format!(
-                "{} entry {GATEWAY_ENTRY_NAME} was edited by hand; refusing to remove it",
-                entry.path.display()
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn unwire_json(entry: &WiredEntry) -> Result<()> {
+pub(crate) fn unwire_json_entry<T: ClientSetup + ?Sized>(
+    setup: &T,
+    entry: &WiredEntry,
+) -> Result<()> {
     let bytes = fs::read(&entry.path).map_err(|error| {
         Error::new(
             FailureCode::Internal,
@@ -308,7 +269,7 @@ fn unwire_json(entry: &WiredEntry) -> Result<()> {
     })?;
     let map = document
         .as_object_mut()
-        .and_then(|root| root.get_mut(servers_key(entry.client)))
+        .and_then(|root| root.get_mut(setup.servers_key()))
         .and_then(Value::as_object_mut)
         .ok_or_else(|| {
             Error::new(
@@ -321,7 +282,16 @@ fn unwire_json(entry: &WiredEntry) -> Result<()> {
         return Ok(());
     };
     let current = current.clone();
-    refuse_if_modified(&current, entry)?;
+    // An entry the user edited since is theirs; removal is refused.
+    if current != setup.entry_value(&entry.url)? {
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!(
+                "{} entry {GATEWAY_ENTRY_NAME} was edited by hand; refusing to remove it",
+                entry.path.display()
+            ),
+        ));
+    }
     backup(&entry.path)?;
     map.remove(GATEWAY_ENTRY_NAME);
     let body = serde_json::to_vec_pretty(&document)
@@ -329,7 +299,7 @@ fn unwire_json(entry: &WiredEntry) -> Result<()> {
     atomic_write(&entry.path, &body)
 }
 
-fn unwire_codex(entry: &WiredEntry) -> Result<()> {
+pub(crate) fn unwire_codex<T: ClientSetup + ?Sized>(setup: &T, entry: &WiredEntry) -> Result<()> {
     let text = fs::read_to_string(&entry.path).map_err(|error| {
         Error::new(
             FailureCode::Internal,
@@ -341,9 +311,8 @@ fn unwire_codex(entry: &WiredEntry) -> Result<()> {
         return Ok(()); // already gone; just drop the record
     };
     let mut end = text.len();
-    for (offset, _) in text[start + header.len()..].match_indices("\n[") {
+    if let Some((offset, _)) = text[start + header.len()..].match_indices("\n[").next() {
         end = start + header.len() + offset + 1;
-        break;
     }
     let body = text[start..end].to_string();
     let parsed: toml::Value = toml::from_str(&body).map_err(|error| {
@@ -353,7 +322,7 @@ fn unwire_codex(entry: &WiredEntry) -> Result<()> {
         )
     })?;
     let current_url = parsed
-        .get(servers_key(ClientKind::Codex))
+        .get(setup.servers_key())
         .and_then(|servers| servers.get(GATEWAY_ENTRY_NAME))
         .and_then(|table| table.get("url"))
         .and_then(toml::Value::as_str);

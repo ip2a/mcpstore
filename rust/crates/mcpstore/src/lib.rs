@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 pub(crate) mod agent;
+pub mod agents;
 pub mod auth;
 pub mod cache;
 pub mod client_config;

@@ -1,7 +1,9 @@
 //! Read-only inspection of programming-assistant MCP configuration files.
 //!
 //! This module deliberately stops before mutation and keeps unknown fields available
-//! to callers that need to inspect or import existing service definitions.
+//! to callers that need to inspect or import existing service definitions. The
+//! per-client knowledge (where the MCP map lives, which entry fields import) lives
+//! in `agents`; this module drives it through the registry.
 
 use crate::{config::ServerConfig, Error, FailureCode, Result};
 use serde_json::{Map, Value};
@@ -76,135 +78,13 @@ pub fn import_selected_services(
                 })?;
             Ok((
                 name.clone(),
-                imported_server_config(inspection.client, name, &service.config)?,
+                crate::agents::get(inspection.client).import_service(name, &service.config)?,
             ))
         })
         .collect()
 }
 
-fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Result<ServerConfig> {
-    let object = value.as_object().ok_or_else(|| {
-        Error::new(
-            FailureCode::Internal,
-            format!("Service {name} configuration must be an object"),
-        )
-    })?;
-    let unsupported = object
-        .keys()
-        .filter(|field| !supported_fields(client).contains(&field.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    if !unsupported.is_empty() {
-        return Err(Error::new(
-            FailureCode::Internal,
-            format!(
-                "Service {name} contains fields that cannot be imported: {}",
-                unsupported.join(", ")
-            ),
-        ));
-    }
-
-    let (command, args, env) = if client == ClientKind::OpenCode {
-        let command = match object.get("command") {
-            Some(Value::Array(parts)) => {
-                let mut parts = parts
-                    .iter()
-                    .map(|part| {
-                        part.as_str().map(str::to_owned).ok_or_else(|| {
-                            Error::new(
-                                FailureCode::Internal,
-                                format!("Service {name} command must be an array of strings"),
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                if parts.is_empty() {
-                    return Err(Error::new(
-                        FailureCode::Internal,
-                        format!("Service {name} command cannot be empty"),
-                    ));
-                }
-                let executable = parts.remove(0);
-                (Some(executable), parts)
-            }
-            None => (None, Vec::new()),
-            _ => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} command must be an array of strings"),
-                ))
-            }
-        };
-        (
-            command.0,
-            command.1,
-            string_map(object.get("environment"), name, "environment")?,
-        )
-    } else {
-        (
-            optional_string(object.get("command"), name, "command")?,
-            string_array(object.get("args"), name, "args")?,
-            string_map(object.get("env"), name, "env")?,
-        )
-    };
-    let url = optional_string(object.get("url"), name, "url")?;
-    if command.is_some() == url.is_some() {
-        return Err(Error::new(
-            FailureCode::Internal,
-            format!("Service {name} must set exactly one of command or url"),
-        ));
-    }
-    if client == ClientKind::OpenCode {
-        match object.get("type").and_then(Value::as_str) {
-            Some("local") if command.is_none() => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Local service {name} is missing command"),
-                ))
-            }
-            Some("remote") if url.is_none() => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Remote service {name} is missing url"),
-                ))
-            }
-            Some("local" | "remote") | None => {}
-            Some(kind) => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} uses unsupported OpenCode type: {kind}"),
-                ))
-            }
-        }
-        if object.get("enabled") == Some(&Value::Bool(false)) {
-            return Err(Error::new(
-                FailureCode::Internal,
-                format!("Service {name} is disabled in OpenCode"),
-            ));
-        }
-        if object.contains_key("timeout") {
-            return Err(Error::new(
-                FailureCode::Internal,
-                format!("Service {name} timeout has no safe MCPStore mapping"),
-            ));
-        }
-    }
-    Ok(ServerConfig {
-        url,
-        command,
-        args,
-        env,
-        headers: string_map(object.get("headers"), name, "headers")?,
-        transport: Some(if object.contains_key("url") {
-            "streamable-http".into()
-        } else {
-            "stdio".into()
-        }),
-        ..ServerConfig::default()
-    })
-}
-
-fn optional_string(value: Option<&Value>, name: &str, field: &str) -> Result<Option<String>> {
+pub(crate) fn optional_string(value: Option<&Value>, name: &str, field: &str) -> Result<Option<String>> {
     value
         .map(|value| {
             value.as_str().map(str::to_owned).ok_or_else(|| {
@@ -217,7 +97,7 @@ fn optional_string(value: Option<&Value>, name: &str, field: &str) -> Result<Opt
         .transpose()
 }
 
-fn string_array(value: Option<&Value>, name: &str, field: &str) -> Result<Vec<String>> {
+pub(crate) fn string_array(value: Option<&Value>, name: &str, field: &str) -> Result<Vec<String>> {
     let Some(value) = value else {
         return Ok(Vec::new());
     };
@@ -241,7 +121,7 @@ fn string_array(value: Option<&Value>, name: &str, field: &str) -> Result<Vec<St
         .collect()
 }
 
-fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<String, String>> {
+pub(crate) fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<String, String>> {
     let Some(value) = value else {
         return Ok(HashMap::new());
     };
@@ -268,28 +148,11 @@ fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<
         .collect()
 }
 
-fn supported_fields(client: ClientKind) -> &'static [&'static str] {
-    match client {
-        ClientKind::Codex
-        | ClientKind::ClaudeCode
-        | ClientKind::Cursor
-        | ClientKind::ClaudeDesktop => &["command", "args", "env", "url", "headers"],
-        ClientKind::OpenCode => &[
-            "type",
-            "command",
-            "url",
-            "headers",
-            "enabled",
-            "environment",
-            "timeout",
-        ],
-    }
-}
-
 pub fn inspect_client_config(
     client: ClientKind,
     path: impl AsRef<Path>,
 ) -> Result<ClientConfigInspection> {
+    let setup = crate::agents::get(client);
     let path = path.as_ref().to_path_buf();
     let bytes = fs::read(&path).map_err(|error| {
         Error::new(
@@ -297,14 +160,14 @@ pub fn inspect_client_config(
             format!("Failed to read {}: {error}", path.display()),
         )
     })?;
-    let (format, document) = match client {
-        ClientKind::Codex => (
+    let (format, document) = match setup.format() {
+        ConfigFormat::Toml => (
             ConfigFormat::Toml,
             toml::from_str::<toml::Value>(&String::from_utf8_lossy(&bytes))
                 .map_err(|error| {
                     Error::new(
                         FailureCode::Internal,
-                        format!("Codex configuration format error: {error}"),
+                        format!("{} configuration format error: {error}", setup.label()),
                     )
                 })
                 .and_then(|value| {
@@ -312,33 +175,25 @@ pub fn inspect_client_config(
                         .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                 })?,
         ),
-        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => (
+        ConfigFormat::Json => (
             ConfigFormat::Json,
             serde_json::from_slice(&bytes).map_err(|error| {
                 Error::new(
                     FailureCode::Internal,
-                    format!("Claude Code configuration format error: {error}"),
-                )
-            })?,
-        ),
-        ClientKind::OpenCode => (
-            ConfigFormat::Json,
-            serde_json::from_slice(&bytes).map_err(|error| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("OpenCode configuration format error: {error}"),
+                    format!("{} configuration format error: {error}", setup.label()),
                 )
             })?,
         ),
     };
-    let services = service_map(client, &document)?
+    let key = setup.servers_key();
+    let services = service_map(key, &document)?
         .iter()
         .map(|(name, config)| ClientMcpService {
             name: name.clone(),
             config: config.clone(),
         })
         .collect();
-    let unsupported_fields = unsupported_fields(client, &document);
+    let unsupported_fields = unsupported_fields(key, setup.supported_fields(), &document);
     Ok(ClientConfigInspection {
         client,
         path,
@@ -350,12 +205,7 @@ pub fn inspect_client_config(
     })
 }
 
-fn service_map(client: ClientKind, document: &Value) -> Result<&Map<String, Value>> {
-    let key = match client {
-        ClientKind::Codex => "mcp_servers",
-        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
-        ClientKind::OpenCode => "mcp",
-    };
+fn service_map<'a>(key: &str, document: &'a Value) -> Result<&'a Map<String, Value>> {
     match document.get(key) {
         None => Ok(&EMPTY_SERVICES),
         Some(value) => value.as_object().ok_or_else(|| {
@@ -369,15 +219,8 @@ fn service_map(client: ClientKind, document: &Value) -> Result<&Map<String, Valu
 
 static EMPTY_SERVICES: std::sync::LazyLock<Map<String, Value>> = std::sync::LazyLock::new(Map::new);
 
-fn unsupported_fields(client: ClientKind, document: &Value) -> Vec<String> {
-    let Some(servers) = document
-        .get(match client {
-            ClientKind::Codex => "mcp_servers",
-            ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
-            ClientKind::OpenCode => "mcp",
-        })
-        .and_then(Value::as_object)
-    else {
+fn unsupported_fields(key: &str, supported: &[&str], document: &Value) -> Vec<String> {
+    let Some(servers) = document.get(key).and_then(Value::as_object) else {
         return vec![];
     };
     let mut result = Vec::new();
@@ -386,11 +229,7 @@ fn unsupported_fields(client: ClientKind, document: &Value) -> Vec<String> {
             result.push(format!("{name}: entry must be an object"));
             continue;
         };
-        let supported = supported_fields(client);
-        for key in object
-            .keys()
-            .filter(|key| !supported.contains(&key.as_str()))
-        {
+        for key in object.keys().filter(|key| !supported.contains(&key.as_str())) {
             result.push(format!("{name}.{key}"));
         }
     }
