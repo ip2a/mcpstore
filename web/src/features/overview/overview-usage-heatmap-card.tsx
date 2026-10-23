@@ -12,16 +12,17 @@ import { cn } from "@/lib/utils"
 
 const WEEKS = 53
 const DAY_LABELS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const
+const DAY_LABEL_COL = "1.75rem"
 
 type HeatMetric = "token" | "requests" | "cost"
 
 function cellLevel(week: number, day: number, metric: HeatMetric): number {
-  if (week < 32) return 0
   const seed = (week * 7 + day) * (metric === "cost" ? 3 : metric === "requests" ? 5 : 1)
   const wave = Math.sin(seed * 0.17) * 0.5 + 0.5
-  const ramp = (week - 32) / (WEEKS - 32)
-  const dayBias = day <= 4 ? 1 : 0.65
-  const raw = wave * ramp * dayBias
+  const ramp = 0.35 + 0.65 * (week / (WEEKS - 1))
+  const dayBias = day <= 4 ? 1 : 0.72
+  const metricBias = metric === "requests" ? 0.85 : 1
+  const raw = wave * ramp * dayBias * metricBias
   if (raw < 0.08) return 0
   if (raw < 0.22) return 1
   if (raw < 0.4) return 2
@@ -51,6 +52,8 @@ const MONTH_MARKERS = [
   { week: 45, label: "9月" },
   { week: 49, label: "10月" },
 ]
+
+const HEATMAP_GRID_TEMPLATE = `${DAY_LABEL_COL} repeat(${WEEKS}, minmax(0, 1fr))`
 
 export function OverviewUsageHeatmapCard({ className }: { className?: string }) {
   const { t } = useI18n()
@@ -92,48 +95,52 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
         </ToggleGroup>
       </CardHeader>
 
-      <CardContent className="overflow-x-auto pb-2">
-        <div className="min-w-[720px]">
-          <div className="relative mb-1 h-4 pl-8">
+      <CardContent className="min-w-0 pb-2">
+        <div
+          className="grid w-full min-w-0 gap-[3px]"
+          style={{ gridTemplateColumns: HEATMAP_GRID_TEMPLATE }}
+        >
+          <div aria-hidden className="h-4" />
+          <div
+            className="relative col-start-2 h-4"
+            style={{ gridColumn: `2 / span ${WEEKS}` }}
+          >
             {MONTH_MARKERS.map((m) => (
               <span
                 key={`${m.week}-${m.label}`}
-                className="absolute text-[10px] text-muted-foreground"
-                style={{ left: `calc(2rem + ${m.week} * 13px)` }}
+                className="absolute text-[10px] leading-none text-muted-foreground"
+                style={{ left: `${(m.week / WEEKS) * 100}%` }}
               >
                 {m.label}
               </span>
             ))}
           </div>
-          <div className="flex gap-1">
-            <div className="flex w-7 shrink-0 flex-col gap-[3px] pt-[2px] text-[10px] text-muted-foreground">
-              {DAY_LABELS.map((_, day) => (
-                <div key={day} className="flex h-[11px] items-center leading-none">
-                  {dayLabel(day)}
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-[3px]">
+
+          {DAY_LABELS.map((_, day) => (
+            <div key={day} className="contents">
+              <div className="flex items-center text-[10px] leading-none text-muted-foreground">
+                {dayLabel(day)}
+              </div>
               {Array.from({ length: WEEKS }, (_, week) => (
-                <div key={week} className="flex flex-col gap-[3px]">
-                  {grid.map((row, day) => (
-                    <div
-                      key={day}
-                      title={`${dayLabel(day) || DAY_LABELS[day]} · W${week + 1}`}
-                      className={cn("size-[11px] rounded-[2px]", LEVEL_CLASS[row[week]])}
-                    />
-                  ))}
-                </div>
+                <div
+                  key={week}
+                  title={`${dayLabel(day) || DAY_LABELS[day]} · W${week + 1}`}
+                  className={cn(
+                    "aspect-square w-full min-w-0 rounded-[3px]",
+                    LEVEL_CLASS[grid[day][week]],
+                  )}
+                />
               ))}
             </div>
-          </div>
-          <div className="mt-3 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
-            <span>{t("homeLess")}</span>
-            {LEVEL_CLASS.map((cls, i) => (
-              <div key={i} className={cn("size-[11px] rounded-[2px]", cls)} />
-            ))}
-            <span>{t("homeMore")}</span>
-          </div>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
+          <span>{t("homeLess")}</span>
+          {LEVEL_CLASS.map((cls, i) => (
+            <div key={i} className={cn("size-2.5 shrink-0 rounded-[3px]", cls)} />
+          ))}
+          <span>{t("homeMore")}</span>
         </div>
       </CardContent>
     </Card>
