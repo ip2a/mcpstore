@@ -1,5 +1,6 @@
 import { SettingsIcon } from "lucide-react"
 
+import { CoreBadge } from "@/components/layout/core-badge"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
@@ -19,6 +20,9 @@ export function AppBottomBar({ onOpenSettings }: { onOpenSettings: () => void })
       >
         <SettingsIcon aria-hidden="true" className="size-4 shrink-0" />
       </button>
+      <div className="ml-auto flex min-w-0 items-center pr-2">
+        <CoreBadge />
+      </div>
     </footer>
   )
 }
