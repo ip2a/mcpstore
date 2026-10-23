@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
-use tauri::{LogicalSize, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{LogicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 // Mirrors `web/src/App.tsx` shell: w-[min(1280px,calc(100vw-24px))]
 const WEB_CONTENT_MAX_WIDTH: f64 = 1280.0;
@@ -85,13 +84,6 @@ fn start_local_server() -> Result<String> {
     });
 
     Ok(url)
-}
-
-fn logical_state_from_physical(size: PhysicalSize<u32>, scale_factor: f64) -> WindowState {
-    WindowState {
-        width: ((size.width as f64) / scale_factor).round().max(1.0) as u32,
-        height: ((size.height as f64) / scale_factor).round().max(1.0) as u32,
-    }
 }
 
 fn compute_min_inner_size(window: &WebviewWindow) -> MinInnerSize {
@@ -292,29 +284,13 @@ pub fn run() {
 
             apply_min_inner_size(&window);
 
-            let latest_window_state = Arc::new(Mutex::new(initial_state));
-            let latest_window_state_handle = Arc::clone(&latest_window_state);
             let event_window = window.clone();
             window.on_window_event(move |event| match event {
-                WindowEvent::Resized(size) => {
-                    if let Ok(scale_factor) = event_window.scale_factor() {
-                        if let Ok(mut state) = latest_window_state_handle.lock() {
-                            *state = logical_state_from_physical(*size, scale_factor);
-                        }
-                    }
-                }
                 WindowEvent::Moved(_) => {
                     apply_min_inner_size(&event_window);
                 }
-                WindowEvent::ScaleFactorChanged {
-                    scale_factor,
-                    new_inner_size,
-                    ..
-                } => {
+                WindowEvent::ScaleFactorChanged { .. } => {
                     apply_min_inner_size(&event_window);
-                    if let Ok(mut state) = latest_window_state_handle.lock() {
-                        *state = logical_state_from_physical(*new_inner_size, *scale_factor);
-                    }
                 }
                 _ => {}
             });
