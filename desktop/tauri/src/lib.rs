@@ -257,6 +257,11 @@ async fn proxy_api_request(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Persists size/position/maximized/fullscreen per window label and
+        // restores on next launch — the cross-platform standard from
+        // docs/调研文档-成熟保存窗口大小方案v1.md. Registered before setup so the
+        // state applies to the window created below.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
