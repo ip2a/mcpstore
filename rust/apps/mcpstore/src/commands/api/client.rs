@@ -9,6 +9,8 @@ pub(super) struct ClientConfigImportRequest {
     client: String,
     path: String,
     names: Vec<String>,
+    // Absent = the client's bound agent scope; "store" lands in the global store scope.
+    scope: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Default)]
@@ -488,8 +490,8 @@ pub(super) async fn gateway_wire(
         None
     };
 
-    // Ensure client-agent binding exists; if scope is Agent, register the agent in the store
-    // by adding a placeholder service so it appears in /agents/list.
+    // Ensure client-agent binding exists (persists client-agents.json; the agent itself
+    // materializes when real services are imported into its scope).
     let agent_registry_path = {
         let app_config_path = state.store.config_manager().app_config_path();
         app_config_path
@@ -497,35 +499,9 @@ pub(super) async fn gateway_wire(
             .map(|dir| dir.join("client-agents.json"))
             .unwrap_or_else(|| std::path::PathBuf::from("client-agents.json"))
     };
-    let bound_agent_id =
+    let _bound_agent_id =
         mcpstore::client_agent::ensure_client_agent_binding(&agent_registry_path, client)
             .map_err(ApiError::from_store)?;
-
-    // If wiring to an agent scope, ensure the agent exists in the store (add placeholder if needed).
-    let final_scope = scope.clone().unwrap_or_else(|| ScopeRef::Agent {
-        agent_id: bound_agent_id.clone(),
-    });
-    if let ScopeRef::Agent { agent_id } = &final_scope {
-        if state.store.find_agent(agent_id).await.ok().flatten().is_none() {
-            // Agent not found — add a placeholder service to register it.
-            let placeholder_name = format!("_agent_placeholder:{agent_id}");
-            let placeholder_config = mcpstore::config::ServerConfig {
-                command: Some("echo".to_string()),
-                args: vec!["placeholder".to_string()],
-                ..Default::default()
-            };
-            let descriptor = mcpstore::config::ScopeDescriptor {
-                config: placeholder_config.base_config(),
-                ..Default::default()
-            };
-            let _ = state
-                .store
-                .declare_service_scope(&placeholder_name, &final_scope, descriptor)
-                .await;
-            let _ = state.store.add_service(&placeholder_name, placeholder_config).await;
-            // Ignore errors — placeholder registration is best-effort.
-        }
-    }
 
     let entry = mcpstore::client_wire::wire_gateway(
         client,
@@ -581,7 +557,57 @@ pub(super) async fn client_config_import(
         .iter()
         .map(|(name, config)| json!({"name": name, "transport": config.infer_transport()}))
         .collect::<Vec<_>>();
-    for (name, config) in services {
+    // Default landing scope: the client's bound agent (created on first import/wire);
+    // explicit scope=store opts out. Agent visibility in /agents/list comes from these
+    // real services — nothing placeholder is added anywhere.
+    let scope = match request.scope.as_deref() {
+        Some("store") => ScopeRef::Store,
+        Some(other) => {
+            return Err(ApiError::invalid_request(format!(
+                "Invalid scope '{other}'; must be 'store' or 'agent'"
+            )))
+        }
+        None => {
+            let agent_registry_path = {
+                let app_config_path = state.store.config_manager().app_config_path();
+                app_config_path
+                    .parent()
+                    .map(|dir| dir.join("client-agents.json"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("client-agents.json"))
+            };
+            let agent_id = mcpstore::client_agent::ensure_client_agent_binding(
+                &agent_registry_path,
+                client,
+            )
+            .map_err(ApiError::from_store)?;
+            ScopeRef::Agent { agent_id }
+        }
+    };
+    for (name, mut config) in services {
+        if let ScopeRef::Agent { agent_id } = &scope {
+            // Stamp the agent ownership into the service config (same shape as the
+            // daemon AddService op): scopes.agents[agent_id] on the mcpstore extension.
+            let previous = config.mcpstore.take();
+            let mut scopes = mcpstore::config::ScopeDeclarations::default();
+            scopes
+                .agents
+                .insert(agent_id.clone(), mcpstore::config::ScopeDescriptor::default());
+            config.mcpstore = Some(mcpstore::config::McpStoreExtension {
+                scopes,
+                lifecycle: previous
+                    .as_ref()
+                    .and_then(|extension| extension.lifecycle.clone()),
+                handshake_mode: previous
+                    .as_ref()
+                    .and_then(|extension| extension.handshake_mode),
+                revision: previous
+                    .as_ref()
+                    .map(|extension| extension.revision)
+                    .unwrap_or(1)
+                    .max(1),
+                extra: previous.map(|extension| extension.extra).unwrap_or_default(),
+            });
+        }
         state
             .store
             .add_service(&name, config)
@@ -589,8 +615,8 @@ pub(super) async fn client_config_import(
             .map_err(ApiError::from_store)?;
     }
     Ok(success(
-        "编程助手服务导入成功",
-        json!({"imported": summaries}),
+        "Client config services imported successfully",
+        json!({"imported": summaries, "scope": scope}),
     ))
 }
 
