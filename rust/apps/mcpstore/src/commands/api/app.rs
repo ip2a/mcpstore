@@ -144,6 +144,13 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
 
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "node": {
+            "id": state.store.panel_id(),
+            "mode": match state.store.panel_role() {
+                mcpstore::PanelRole::ControlPanel => "control",
+                mcpstore::PanelRole::DataPanel { .. } => "data",
+            },
+        },
         "settings": settings_payload(&config),
         "settings_paths": settings_paths_payload(config_manager.mcp_path()),
         "config_file": {
