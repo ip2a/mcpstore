@@ -5,7 +5,6 @@ import { Sortable, SortableItem, SortableItemHandle } from "@/components/reui/so
 import { EntityRow } from "@/components/shared/entity-row"
 import { ServiceTransitionIcon } from "@/components/shared/service-transition-icon"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
-import { ServiceConnectionMark } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
@@ -211,7 +210,6 @@ function ServiceRow({
       <div className="min-w-0">
         <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
-          <ServiceConnectionMark state={service.state} />
           <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
             {getServiceEndpointLabel(service)}
           </span>
