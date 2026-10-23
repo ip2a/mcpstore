@@ -16,6 +16,8 @@ import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
 import { ToolDetailView } from "@/features/tools/tool-detail-view"
+import { PromptsView } from "@/features/prompts/prompts-view"
+import { ResourcesView } from "@/features/resources/resources-view"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
@@ -96,7 +98,7 @@ export function App() {
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "tools" || view.name === "tool" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "prompts" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
               )}
             >
             {view.name === "home" ? (
@@ -161,6 +163,10 @@ export function App() {
               onRunTool={runToolFromDialogState}
               isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
             />
+          ) : view.name === "resources" ? (
+            <ResourcesView />
+          ) : view.name === "prompts" ? (
+            <PromptsView />
           ) : view.name === "clients" ? (
             <ClientsView />
           ) : view.name === "gateway" ? (

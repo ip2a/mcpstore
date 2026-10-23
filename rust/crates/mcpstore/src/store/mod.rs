@@ -190,6 +190,7 @@ impl MCPStore {
                     registry,
                     auth: auth_coordinator.clone(),
                     state: state_manager,
+                    refresh_mutex: tokio::sync::Mutex::new(()),
                 },
                 execution: ExecutionEngine {
                     pool,

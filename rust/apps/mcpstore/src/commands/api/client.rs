@@ -561,12 +561,12 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
 fn parse_client_kind(value: &str) -> std::result::Result<ClientKind, ApiError> {
     match value {
         "codex" => Ok(ClientKind::Codex),
-        "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
+        "claude" | "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
         "opencode" | "open-code" => Ok(ClientKind::OpenCode),
         "cursor" => Ok(ClientKind::Cursor),
         "claude_desktop" | "claude-desktop" => Ok(ClientKind::ClaudeDesktop),
         _ => Err(ApiError::invalid_parameter(
-            "client 必须是 codex、claude_code、opencode、cursor 或 claude_desktop",
+            "client 必须是 codex、claude、opencode、cursor 或 claude-desktop",
             Some("client"),
         )),
     }
