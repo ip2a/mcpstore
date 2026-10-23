@@ -548,6 +548,8 @@ mod tests {
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
+            None,
+            None,
         )
         .unwrap();
         let text = fs::read_to_string(&path).unwrap();
@@ -557,7 +559,7 @@ mod tests {
             "http://127.0.0.1:1830/mcp"
         );
         // Existing keys keep their order with preserve_order.
-        assert_eq!(text.find("\"mcpServers\"").unwrap() < text.find("\"other\"").unwrap(), true);
+        assert!(text.find("\"mcpServers\"").unwrap() < text.find("\"other\"").unwrap());
         assert!(path.with_extension("mcpstore-bak").exists());
         let removed = unwire_gateway(ClientKind::ClaudeCode, &state).unwrap();
         assert_eq!(removed.url, entry.url);
@@ -581,6 +583,8 @@ mod tests {
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
+            None,
+            None,
         )
         .unwrap();
         let text = fs::read_to_string(&path).unwrap();
@@ -604,6 +608,8 @@ mod tests {
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
+            None,
+            None,
         )
         .unwrap();
         let text = fs::read_to_string(&path).unwrap().replace("1830", "9999");
@@ -662,5 +668,31 @@ mod tests {
         let _ = fs::remove_file(claude_path);
         let _ = fs::remove_file(cursor_path);
         let _ = fs::remove_file(state);
+    }
+
+    #[test]
+    fn effective_scope_and_expose_derive_defaults_from_stored_entry() {
+        let document = |scope: &str| {
+            format!(
+                "{{\"client\":\"codex\",\"path\":\"/tmp/x\",\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp/codex\",\"applied_at_unix_ms\":0{scope}}}"
+            )
+        };
+        let entry: WiredEntry =
+            serde_json::from_str(&document("")).unwrap();
+        assert_eq!(
+            entry.effective_scope(),
+            ScopeRef::Agent {
+                agent_id: "codex".to_string()
+            }
+        );
+        assert_eq!(entry.effective_expose(), ExposeConfig::default());
+
+        let entry: WiredEntry = serde_json::from_str(&document(
+            ",\"scope\":{\"type\":\"store\"},\"expose\":{\"tool\":true}",
+        ))
+        .unwrap();
+        assert_eq!(entry.effective_scope(), ScopeRef::Store);
+        assert!(entry.effective_expose().tool);
+        assert!(!entry.effective_expose().search);
     }
 }

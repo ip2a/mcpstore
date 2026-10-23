@@ -395,9 +395,21 @@ pub(super) async fn gateway_wired(State(state): State<Arc<ApiState>>) -> ApiResu
     let wired =
         mcpstore::client_wire::load_wired_state(&wired_state_path(&state))
             .map_err(ApiError::from_store)?;
+    // Resolve per-client effective scope/expose so the frontend sees derived defaults,
+    // not absent fields (the stored entry omits them when unset).
+    let mut entries = Vec::with_capacity(wired.entries.len());
+    for entry in &wired.entries {
+        let mut value = serde_json::to_value(entry)
+            .map_err(|error| ApiError::invalid_request(error.to_string()))?;
+        value["scope"] = serde_json::to_value(entry.effective_scope())
+            .map_err(|error| ApiError::invalid_request(error.to_string()))?;
+        value["expose"] = serde_json::to_value(entry.effective_expose())
+            .map_err(|error| ApiError::invalid_request(error.to_string()))?;
+        entries.push(value);
+    }
     Ok(success(
         "网关接入状态获取成功",
-        serde_json::to_value(wired.entries)
+        serde_json::to_value(entries)
             .map_err(|error| ApiError::invalid_request(error.to_string()))?,
     ))
 }
