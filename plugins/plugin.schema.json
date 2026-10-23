@@ -1,0 +1,161 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPStore Client Plugin Manifest",
+  "type": "object",
+  "required": ["plugin", "config", "discover"],
+  "additionalProperties": false,
+  "properties": {
+    "plugin": {
+      "type": "object",
+      "required": ["id", "label", "spec_version"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Unique plugin identifier matching folder name"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable client name"
+        },
+        "spec_version": {
+          "type": "integer",
+          "const": 1,
+          "description": "Plugin specification version"
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional client description"
+        },
+        "icon": {
+          "type": "string",
+          "description": "Relative path to icon file (must resolve inside plugin folder)"
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "required": ["format", "servers_key", "supported_fields"],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["json", "toml"],
+          "description": "Configuration file format"
+        },
+        "servers_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Top-level key where MCP servers are stored"
+        },
+        "supported_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Field names accepted in server entries"
+        },
+        "command_shape": {
+          "type": "string",
+          "enum": ["string", "array"],
+          "default": "string",
+          "description": "Command field representation: 'string' or 'array'"
+        },
+        "validate_type_field": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enforce consistency between 'type' field and entry structure"
+        },
+        "reject_disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Refuse to import entries with enabled: false"
+        }
+      }
+    },
+    "gateway_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url_key": {
+          "type": "string",
+          "default": "url",
+          "description": "Field name for gateway URL in generated entries"
+        },
+        "extra": {
+          "type": "object",
+          "description": "Additional fixed fields to include in gateway entries"
+        },
+        "supports_remote": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether client accepts remote MCP servers"
+        }
+      }
+    },
+    "discover": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "config_paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Config file candidates in priority order (~ expanded)"
+        },
+        "config_paths_macos": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "macOS-specific override for config_paths"
+        },
+        "config_paths_linux": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Linux-specific override for config_paths"
+        },
+        "config_paths_windows": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Windows-specific override for config_paths"
+        },
+        "config_dirs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Directories whose existence suggests the client"
+        },
+        "config_dirs_macos": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "macOS-specific override for config_dirs"
+        },
+        "config_dirs_linux": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Linux-specific override for config_dirs"
+        },
+        "config_dirs_windows": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Windows-specific override for config_dirs"
+        },
+        "cli_commands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "CLI executables to search for on PATH"
+        }
+      },
+      "anyOf": [
+        { "required": ["config_paths"] },
+        { "required": ["config_paths_macos"] },
+        { "required": ["config_paths_linux"] },
+        { "required": ["config_paths_windows"] },
+        { "required": ["config_dirs"] },
+        { "required": ["config_dirs_macos"] },
+        { "required": ["config_dirs_linux"] },
+        { "required": ["config_dirs_windows"] },
+        { "required": ["cli_commands"] }
+      ]
+    }
+  }
+}

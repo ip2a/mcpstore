@@ -1,0 +1,18 @@
+[plugin]
+id = "omp"
+label = "Oh My Pi"
+spec_version = 1
+description = "Oh My Pi coding agent (@oh-my-pi/pi-coding-agent)"
+
+[config]
+format = "json"
+servers_key = "mcpServers"
+supported_fields = ["command", "args", "env", "url", "headers", "type"]
+
+[gateway_entry]
+url_key = "url"
+
+[discover]
+config_paths = ["~/.omp/agent/mcp.json"]
+config_dirs = ["~/.omp/agent", "~/.omp"]
+cli_commands = ["omp"]
