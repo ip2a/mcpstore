@@ -1,28 +1,20 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Card, CardContent } from "@/components/ui/card"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
 const WEEKS = 53
 const DAY_LABELS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const
 const DAY_LABEL_COL = "1.75rem"
+const TOTAL_DAYS = WEEKS * DAY_LABELS.length
 
-type HeatMetric = "token" | "requests" | "cost"
-
-function cellLevel(week: number, day: number, metric: HeatMetric): number {
-  const seed = (week * 7 + day) * (metric === "cost" ? 3 : metric === "requests" ? 5 : 1)
+function cellLevel(week: number, day: number): number {
+  const seed = week * 7 + day
   const wave = Math.sin(seed * 0.17) * 0.5 + 0.5
   const ramp = 0.35 + 0.65 * (week / (WEEKS - 1))
   const dayBias = day <= 4 ? 1 : 0.72
-  const metricBias = metric === "requests" ? 0.85 : 1
-  const raw = wave * ramp * dayBias * metricBias
+  const raw = wave * ramp * dayBias
   if (raw < 0.08) return 0
   if (raw < 0.22) return 1
   if (raw < 0.4) return 2
@@ -37,6 +29,16 @@ const LEVEL_CLASS = [
   "bg-[#8b89dc]",
   "bg-[#5b5bd5]",
 ] as const
+
+const LEVEL_LABEL_KEY = [
+  "homeHeatLevelIdle",
+  "homeHeatLevelLow",
+  "homeHeatLevelMid",
+  "homeHeatLevelHigh",
+  "homeHeatLevelPeak",
+] as const
+
+const TOKEN_BY_LEVEL = [0, 420, 1_800, 4_200, 9_500] as const
 
 const MONTH_MARKERS = [
   { week: 0, label: "11月" },
@@ -55,15 +57,37 @@ const MONTH_MARKERS = [
 
 const HEATMAP_GRID_TEMPLATE = `${DAY_LABEL_COL} repeat(${WEEKS}, minmax(0, 1fr))`
 
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(Math.round(n))
+}
+
 export function OverviewUsageHeatmapCard({ className }: { className?: string }) {
   const { t } = useI18n()
-  const [metric, setMetric] = useState<HeatMetric>("token")
 
   const grid = useMemo(() => {
     return DAY_LABELS.map((_, day) =>
-      Array.from({ length: WEEKS }, (_, week) => cellLevel(week, day, metric)),
+      Array.from({ length: WEEKS }, (_, week) => cellLevel(week, day)),
     )
-  }, [metric])
+  }, [])
+
+  const { totalTokens, activeDays, levelCounts } = useMemo(() => {
+    let tokens = 0
+    let active = 0
+    const counts = [0, 0, 0, 0, 0]
+    for (let day = 0; day < grid.length; day++) {
+      for (let week = 0; week < grid[day].length; week++) {
+        const level = grid[day][week]
+        counts[level]++
+        tokens += TOKEN_BY_LEVEL[level]
+        if (level > 0) active++
+      }
+    }
+    return { totalTokens: tokens, activeDays: active, levelCounts: counts }
+  }, [grid])
+
+  const activeRate = Math.round((activeDays / TOTAL_DAYS) * 100)
 
   const dayLabel = (day: number) => {
     if (day === 0) return t("homeWeekMon")
@@ -74,31 +98,53 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
   }
 
   return (
-    <Card className={cn("gap-3", className)}>
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-0">
-        <div>
-          <CardTitle className="text-base">{t("homeUsageHeatmap")}</CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("homeUsageHeatmapWeeks", { weeks: WEEKS })}
-          </p>
+    <Card className={cn("gap-0", className)}>
+      <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
+        <div className="grid shrink-0 grid-cols-2 gap-8 pb-4">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">{t("homeTokens")}</p>
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+              <span className="text-3xl font-semibold tabular-nums tracking-tight">
+                {formatCompact(totalTokens)}
+              </span>
+              <span className="text-sm text-muted-foreground">token</span>
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("homeUsageHeatmapWeeks", { weeks: WEEKS })}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">{t("homeHeatmapActiveDays")}</p>
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+              <span className="text-3xl font-semibold tabular-nums tracking-tight">
+                {activeRate}%
+              </span>
+              <span className="text-sm text-muted-foreground">{t("homeHeatmapActive")}</span>
+            </p>
+            <div
+              className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-valuenow={activeRate}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className="h-full rounded-full bg-[#5b5bd5] transition-[width]"
+                style={{ width: `${activeRate}%` }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("homeHeatmapDaysOf", { active: activeDays, total: TOTAL_DAYS })}
+            </p>
+          </div>
         </div>
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          value={metric}
-          onValueChange={(v) => v && setMetric(v as HeatMetric)}
-        >
-          <ToggleGroupItem value="token">Token</ToggleGroupItem>
-          <ToggleGroupItem value="requests">{t("homeLlmCalls")}</ToggleGroupItem>
-          <ToggleGroupItem value="cost">{t("homeMetricCost")}</ToggleGroupItem>
-        </ToggleGroup>
-      </CardHeader>
 
-      <CardContent className="min-w-0 pb-2">
         <div
-          className="grid w-full min-w-0 gap-[3px]"
-          style={{ gridTemplateColumns: HEATMAP_GRID_TEMPLATE }}
+          className="grid min-h-0 w-full min-w-0 flex-1 gap-[3px]"
+          style={{
+            gridTemplateColumns: HEATMAP_GRID_TEMPLATE,
+            gridTemplateRows: `auto repeat(${DAY_LABELS.length}, auto)`,
+          }}
         >
           <div aria-hidden className="h-4" />
           <div
@@ -126,7 +172,7 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
                   key={week}
                   title={`${dayLabel(day) || DAY_LABELS[day]} · W${week + 1}`}
                   className={cn(
-                    "aspect-square w-full min-w-0 rounded-[3px]",
+                    "aspect-square w-full rounded-[4px]",
                     LEVEL_CLASS[grid[day][week]],
                   )}
                 />
@@ -135,12 +181,18 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
           ))}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
-          <span>{t("homeLess")}</span>
-          {LEVEL_CLASS.map((cls, i) => (
-            <div key={i} className={cn("size-2.5 shrink-0 rounded-[3px]", cls)} />
+        <div className="mt-3 flex shrink-0 flex-wrap items-center justify-start gap-x-4 gap-y-2">
+          {LEVEL_CLASS.map((cls, level) => (
+            <div key={level} className="flex items-center gap-1.5">
+              <div className={cn("size-3 shrink-0 rounded-[4px]", cls)} />
+              <span className="text-xs text-muted-foreground">
+                {t(LEVEL_LABEL_KEY[level])}
+              </span>
+              <span className="text-xs tabular-nums text-foreground/80">
+                {t("homeHeatLegendDays", { count: levelCounts[level] })}
+              </span>
+            </div>
           ))}
-          <span>{t("homeMore")}</span>
         </div>
       </CardContent>
     </Card>

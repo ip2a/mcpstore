@@ -4,7 +4,6 @@ import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppBottomBar } from "@/components/layout/app-bottom-bar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
-import { HomeHero } from "@/components/home-hero"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { AgentsView } from "@/features/agents/agents-view"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
@@ -102,17 +101,7 @@ export function App() {
               )}
             >
             {view.name === "home" ? (
-              <>
-                <HomeHero
-                  stats={{
-                    loading,
-                    services: services.length,
-                    connecting: services.filter((service) => service.state.phase === "starting").length,
-                    agents: agents.length,
-                  }}
-                />
-                <OverviewView />
-              </>
+              <OverviewView />
             ) : view.name === "instance" ? (
             selectedService ? (
               <ServiceDetailView

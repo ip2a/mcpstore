@@ -4,6 +4,7 @@ import { ActivityIcon, AlertCircleIcon, CheckIcon, FileTextIcon, InfoIcon, Monit
 import { toast } from "sonner"
 
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
+import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,7 +17,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { hostsToList, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
-import { isDesktopShell, UpdateButton, useAppUpdater } from "@/features/settings/updater"
+import { formatReleaseVersion, isDesktopShell, UpdateButton, useAppUpdater, useAppVersionLabel } from "@/features/settings/updater"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
 import { getApiBase, syncApiBaseFromHosts } from "@/lib/api/backend"
@@ -44,6 +45,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const metaQuery = useSettingsMetaQuery(open)
   const settingsMutation = useUpdateSettingsMutation()
   const { phase, progress, version: updateAvailable, checkForUpdate, restartToUpdate } = useAppUpdater()
+  const appVersion = useAppVersionLabel()
   const meta = metaQuery.data
   const loading = metaQuery.isFetching && !draft
   const error = metaQuery.error instanceof Error ? metaQuery.error.message : ""
@@ -219,11 +221,22 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   ) : null}
 
                   {section === "about" ? (
-                    <section className="flex flex-col">
-                      <img alt="mcpstore" className="size-12" src="/logo.png" />
-                      <SectionHead title={t("about")} description={t("settingsDescription")} />
+                    <section className="flex flex-col gap-5">
+                      <McpstoreAsciiBanner />
+                      <SectionHead
+                        title={t("about")}
+                        description={t("settingsDescription")}
+                        action={
+                          <img
+                            alt="mcpstore"
+                            className="size-8 shrink-0"
+                            src="/logo.png"
+                          />
+                        }
+                      />
                       <div className="divide-y">
-                        <AboutRow label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />
+                        <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
+                        <AboutRow label={t("sdkVersion")} value={formatReleaseVersion(meta?.version)} />
                         {isDesktopShell ? (
                           <AboutRow
                             label={updateAvailable ? t("updateAvailable", { version: `v${updateAvailable}` }) : t("checkUpdates")}
@@ -237,8 +250,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             }
                           />
                         ) : null}
-                        <AboutRow label={t("github")} href="https://github.com/ip2a/mcpstore" value="github.com/ip2a/mcpstore" />
-                        <AboutRow label={t("rustCrate")} href="https://crates.io/crates/mcpstore" value="crates.io/crates/mcpstore" />
+                        <AboutRow label={t("github")} href="https://github.com/ip2a/mcpstore" value="https://github.com/ip2a/mcpstore" />
+                        <AboutRow label={t("rustCrate")} href="https://crates.io/crates/mcpstore" value="https://crates.io/crates/mcpstore" />
+                        <AboutRow label={t("pythonPackage")} href="https://pypi.org/project/mcpstore/" value="https://pypi.org/project/mcpstore/" />
+                        <AboutRow label={t("npmPackage")} href="https://www.npmjs.com/package/@ip2a/mcpstore" value="https://www.npmjs.com/package/@ip2a/mcpstore" />
                       </div>
                     </section>
                   ) : null}

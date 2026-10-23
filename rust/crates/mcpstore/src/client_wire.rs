@@ -16,7 +16,7 @@
 //! A byte-level span-splice editor (magpie's approach) can replace this when loss shows.
 
 use crate::client_config::ClientKind;
-use crate::{Error, FailureCode, Result};
+use crate::{Error, FailureCode, Result, ScopeRef};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
@@ -27,6 +27,42 @@ use crate::agents::ClientSetup;
 /// The server name we write into each client's MCP map.
 pub const GATEWAY_ENTRY_NAME: &str = "mcpstore";
 
+/// Exposure configuration: which management tool families are visible in the gateway.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExposeConfig {
+    #[serde(default)]
+    pub session_state: bool,
+    #[serde(default)]
+    pub tool: bool,
+    #[serde(default)]
+    pub prompt: bool,
+    #[serde(default)]
+    pub resource: bool,
+    #[serde(default)]
+    pub openapi: bool,
+    #[serde(default)]
+    pub service: bool,
+    #[serde(default)]
+    pub cache: bool,
+    #[serde(default)]
+    pub search: bool,
+}
+
+impl Default for ExposeConfig {
+    fn default() -> Self {
+        Self {
+            session_state: false,
+            tool: false,
+            prompt: false,
+            resource: false,
+            openapi: false,
+            service: false,
+            cache: false,
+            search: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WiredEntry {
     pub client: ClientKind,
@@ -34,6 +70,29 @@ pub struct WiredEntry {
     pub name: String,
     pub url: String,
     pub applied_at_unix_ms: u64,
+    /// Per-client scope override; if None, defaults to Agent { agent_id: client.id() }.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ScopeRef>,
+    /// Per-client exposure config; if None, defaults to ExposeConfig::default() (all false).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expose: Option<ExposeConfig>,
+}
+
+impl WiredEntry {
+    /// Returns the effective scope for this client: explicit scope field or derived from client_id.
+    pub fn effective_scope(&self) -> ScopeRef {
+        self.scope.clone().unwrap_or_else(|| {
+            let client_id = crate::agents::get(self.client).id();
+            ScopeRef::Agent {
+                agent_id: client_id.to_string(),
+            }
+        })
+    }
+
+    /// Returns the effective exposure config: explicit expose field or all-false default.
+    pub fn effective_expose(&self) -> ExposeConfig {
+        self.expose.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -103,11 +162,17 @@ fn backup(path: &Path) -> Result<()> {
 }
 
 /// Insert (or refresh) the gateway entry in the client's MCP configuration and record it.
+/// Wire a gateway URL into the client's MCP config, persisting the entry in wired state.
+///
+/// `scope` and `expose`: if provided, stored explicitly; if None, will use defaults on load
+/// (scope derives from client_id, expose defaults to all false).
 pub fn wire_gateway(
     client: ClientKind,
     path: &Path,
     url: &str,
     state_path: &Path,
+    scope: Option<ScopeRef>,
+    expose: Option<ExposeConfig>,
 ) -> Result<WiredEntry> {
     let setup = crate::agents::get(client);
     let mut state = load_wired_state(state_path)?;
@@ -123,6 +188,8 @@ pub fn wire_gateway(
         name: GATEWAY_ENTRY_NAME.to_string(),
         url: url.to_string(),
         applied_at_unix_ms: now_unix_ms(),
+        scope,
+        expose,
     };
     setup.wire_entry(path, url)?;
     state.entries.push(entry.clone());

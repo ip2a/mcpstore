@@ -1,18 +1,19 @@
-import { ScrollPane } from "@/components/shared/scroll-pane"
 import { OverviewUsageChartCard } from "@/features/overview/overview-usage-chart-card"
 import { OverviewUsageHeatmapCard } from "@/features/overview/overview-usage-heatmap-card"
-import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
+
+const panelCardClass =
+  "@container flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-card shadow-xs"
 
 export function OverviewView() {
-  const { t } = useI18n()
-
   return (
-    <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
-      <div className="flex items-center gap-2 px-0.5">
-        <span className="text-xs text-muted-foreground">{t("homeMockHint")}</span>
-      </div>
-      <OverviewUsageChartCard />
-      <OverviewUsageHeatmapCard />
-    </ScrollPane>
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      <OverviewUsageChartCard
+        className={cn(panelCardClass, "min-h-0 flex-[1.15] gap-0 py-0 shadow-xs")}
+      />
+      <OverviewUsageHeatmapCard
+        className={cn(panelCardClass, "min-h-0 flex-1 gap-0 py-0 shadow-xs")}
+      />
+    </div>
   )
 }

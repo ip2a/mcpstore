@@ -143,7 +143,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
 
   return (
     <Card className={cn("gap-0 py-0", className)}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <ToggleGroup
           type="single"
           variant="outline"
@@ -182,8 +182,11 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
         </div>
       </div>
 
-      <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <ChartContainer config={chartConfig} className="h-[280px] w-full min-w-0">
+      <CardContent className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <ChartContainer
+          config={chartConfig}
+          className="aspect-auto min-h-[140px] h-full w-full min-w-0 flex-1"
+        >
           <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
