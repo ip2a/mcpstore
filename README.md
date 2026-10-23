@@ -2,6 +2,10 @@
   <strong>English</strong> | <a href="README_zh.md">简体中文</a>
 </h4>
 
+<p align="center">
+  <img src="docs/assets/images/logo.png" width="128" alt="mcpstore logo">
+</p>
+
 <h1 align="center">mcpstore</h1>
 
 <p align="center">

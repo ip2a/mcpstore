@@ -220,6 +220,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
                   {section === "about" ? (
                     <section className="flex flex-col">
+                      <img alt="mcpstore" className="size-12" src="/logo.png" />
                       <SectionHead title={t("about")} description={t("settingsDescription")} />
                       <div className="divide-y">
                         <AboutRow label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />

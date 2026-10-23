@@ -47,7 +47,8 @@ export function AppSidebar({
   return (
     <aside className="flex w-48 shrink-0 flex-col border-r bg-card/40">
       <div className="flex h-14 shrink-0 items-center border-b px-4">
-        <button className="font-mono font-bold" type="button" onClick={() => onViewChange({ name: "home" })}>
+        <button className="flex items-center gap-2 font-mono font-bold" type="button" onClick={() => onViewChange({ name: "home" })}>
+          <img alt="" aria-hidden="true" className="size-6" src="/logo.png" />
           mcpstore
         </button>
       </div>
