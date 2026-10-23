@@ -1,8 +1,9 @@
-import { ArrowLeftIcon, ClipboardIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
+import { ClipboardIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import {
   ToolDetailDocBody,
@@ -59,25 +60,43 @@ export function ToolDetailView(props: {
     }
   }
 
+  const toolLabel = tool?.name || props.toolName
+  const scopeLabel = instance
+    ? instance.scope.type === "store"
+      ? t("storeScope")
+      : t("agentScopeLabel", { agentId: instance.scope.agent_id || "-" })
+    : undefined
+  const headerSubtitle = instance
+    ? [instance.service_name, scopeLabel].filter(Boolean).join(" · ")
+    : undefined
+
   if (!instance) {
     return (
-      <PanelCard className="h-full min-h-0">
-        <PageEmpty title={t("noToolSelected")} description={t("noToolSelectedDescription")} onRefresh={props.onBack} />
-      </PanelCard>
+      <>
+        <WorkspaceBreadcrumb
+          ariaLabel={t("tool")}
+          parentLabel={t("toolRegistryTitle")}
+          onParentClick={props.onBack}
+          currentLabel={toolLabel}
+        />
+        <PanelCard className="h-full min-h-0 flex-1">
+          <PageEmpty title={t("noToolSelected")} description={t("noToolSelectedDescription")} onRefresh={props.onBack} />
+        </PanelCard>
+      </>
     )
   }
 
   return (
-    <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-      <div className="flex flex-wrap items-center gap-3 border-b pb-2">
-        <Button size="sm" variant="outline" onClick={props.onBack}>
-          <ArrowLeftIcon data-icon="inline-start" />
-          {t("back")}
-        </Button>
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-xs uppercase text-muted-foreground">{t("tool")}</p>
-          <h2 className="truncate text-lg font-semibold">{tool?.name || props.toolName}</h2>
-        </div>
+    <>
+      <WorkspaceBreadcrumb
+        ariaLabel={t("tool")}
+        parentLabel={t("toolRegistryTitle")}
+        onParentClick={props.onBack}
+        currentLabel={toolLabel}
+        subtitle={headerSubtitle}
+      />
+      <PanelCard variant="plain" className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
           {tool ? (
             <Button
@@ -142,7 +161,8 @@ export function ToolDetailView(props: {
       ) : (
         <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
       )}
-    </PanelCard>
+      </PanelCard>
+    </>
   )
 }
 

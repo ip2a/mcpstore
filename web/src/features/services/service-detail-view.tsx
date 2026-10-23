@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { PageEmpty, PageError } from "@/components/shared/page-states";
 import { PanelCard } from "@/components/shared/panel-card";
+import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header";
 import { ScrollPane } from "@/components/shared/scroll-pane";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { SelectableRowButton } from "@/components/shared/selectable-row-button";
@@ -39,7 +40,6 @@ import {
 } from "@/lib/api";
 import { formatServiceLaunchLine } from "@/lib/service-info";
 import { useI18n } from "@/lib/i18n-context";
-import { cn } from "@/lib/utils";
 
 import {
   ServiceOverviewPane,
@@ -437,43 +437,19 @@ export function ServiceDetailView(props: {
     );
   }
 
+  const headerSubtitle = [transport, description].filter(Boolean).join(" · ");
+
   return (
     <>
-      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-        <section className="flex shrink-0 flex-col gap-3 border-b pb-4">
-          <div className="min-w-0">
-            <p className="font-mono text-xs uppercase text-muted-foreground">
-              {t("service")}
-            </p>
-            <button
-              type="button"
-              onClick={() => setActiveTab("service")}
-              className={cn(
-                "mt-1 block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-lg font-semibold underline-offset-4 outline-none transition-opacity",
-                "hover:underline active:opacity-70",
-                activeTab === "service" && "underline",
-              )}
-              title={service.service_name}
-            >
-              {service.service_name}
-            </button>
-            <p
-              className="mt-1 truncate font-mono text-xs text-muted-foreground"
-              title={transport}
-            >
-              {transport}
-            </p>
-            {description ? (
-              <p
-                className="mt-2 line-clamp-2 text-sm text-muted-foreground"
-                title={description}
-              >
-                {description}
-              </p>
-            ) : null}
-          </div>
-        </section>
+      <WorkspaceBreadcrumb
+        ariaLabel={t("serviceDetail")}
+        parentLabel={t("servicesWorkspaceTitle")}
+        onParentClick={props.onBack}
+        currentLabel={service.service_name}
+        subtitle={headerSubtitle || undefined}
+      />
 
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         <Tabs
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as ServiceDetailTab)}

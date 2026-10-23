@@ -1,37 +1,79 @@
 import { useEffect, useState } from "react"
 import { WaypointsIcon } from "lucide-react"
+import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   useClientsQuery,
   useGatewayStatusQuery,
   useWiredClientsQuery,
 } from "@/features/clients/queries"
 import { useI18n } from "@/lib/i18n-context"
-import { getGatewayRequests, type GatewayRequestRecord } from "@/lib/api"
+import { getGatewayRequests, startMcpHub, stopMcpHub, type GatewayRequestRecord } from "@/lib/api"
 
 export function GatewayView() {
   const { t } = useI18n()
   const status = useGatewayStatusQuery()
   const clients = useClientsQuery()
   const records = useGatewayRequestFlow()
+  const [busy, setBusy] = useState(false)
 
   const wiredLabels = (clients.data ?? [])
     .filter((client) => client.wired)
     .map((client) => client.label)
 
+  async function handleStart() {
+    setBusy(true)
+    try {
+      await startMcpHub({ transport: "streamable-http", scope: "store" })
+      await status.refetch()
+      toast.success(t("gatewayStarted"))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleStop() {
+    setBusy(true)
+    try {
+      await stopMcpHub()
+      await status.refetch()
+      toast.success(t("gatewayStopped"))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
       <PanelCard variant="plain" className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-          <strong className="font-mono text-sm font-medium">{t("gateway")}</strong>
-          {status.data?.running ? (
-            <Badge variant="default">{t("homeRunning")}</Badge>
-          ) : (
-            <Badge variant="destructive">{t("gatewayStopped")}</Badge>
-          )}
+          <div className="flex items-center gap-2">
+            <strong className="font-mono text-sm font-medium">{t("gateway")}</strong>
+            {status.data?.running ? (
+              <Badge variant="default">{t("homeRunning")}</Badge>
+            ) : (
+              <Badge variant="destructive">{t("gatewayStopped")}</Badge>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {status.data?.running ? (
+              <Button disabled={busy} size="sm" variant="outline" onClick={handleStop}>
+                {t("gatewayStop")}
+              </Button>
+            ) : (
+              <Button disabled={busy} size="sm" onClick={handleStart}>
+                {t("gatewayStart")}
+              </Button>
+            )}
+          </div>
         </div>
         <div className="flex flex-col gap-1 font-mono text-xs text-muted-foreground">
           <span className="truncate">
