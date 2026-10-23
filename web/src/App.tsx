@@ -2,6 +2,7 @@ import { useAppActions } from "@/app/use-app-actions"
 import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
+import { AppBottomBar } from "@/components/layout/app-bottom-bar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { HomeHero } from "@/components/home-hero"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -9,22 +10,20 @@ import { AgentsView } from "@/features/agents/agents-view"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { CacheView } from "@/features/cache/cache-view"
 import { GatewayView } from "@/features/gateway/gateway-view"
+import { OverviewView } from "@/features/overview/overview-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
-import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppQueryRefreshers } from "@/hooks/use-app-query-refreshers"
 import { useDashboard } from "@/hooks/use-dashboard"
-import { useI18n } from "@/lib/i18n-context"
 import { useUiStore } from "@/stores/ui-store"
 import { cn } from "@/lib/utils"
 
 export function App() {
-  const { t } = useI18n()
   const { services, agents, backend, loading, error: dashboardError, refresh } = useDashboard()
   const {
     cacheRevision,
@@ -37,7 +36,6 @@ export function App() {
   } = useAppQueryRefreshers()
   const {
     goBack,
-    pageTitle,
     refreshSelectedService,
     selectedService,
     selectedServiceError,
@@ -83,22 +81,11 @@ export function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex h-dvh overflow-hidden bg-background">
-        <AppSidebar
-          view={view}
-          onViewChange={setView}
-          onOpenSettings={() => setSettingsDialogOpen(true)}
-        />
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
-            {view.name === "instance" ? (
-              <Button variant="outline" size="sm" onClick={goBack}>
-                {t("back")}
-              </Button>
-            ) : null}
-            <span className="truncate text-sm font-semibold">{pageTitle}</span>
-          </header>
-          <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
+      <div className="flex h-dvh flex-col overflow-hidden bg-background">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <AppSidebar view={view} onViewChange={setView} />
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
@@ -106,14 +93,17 @@ export function App() {
               )}
             >
             {view.name === "home" ? (
-              <HomeHero
-                stats={{
-                  loading,
-                  services: services.length,
-                  connecting: services.filter((service) => service.state.phase === "starting").length,
-                  agents: agents.length,
-                }}
-              />
+              <>
+                <HomeHero
+                  stats={{
+                    loading,
+                    services: services.length,
+                    connecting: services.filter((service) => service.state.phase === "starting").length,
+                    agents: agents.length,
+                  }}
+                />
+                <OverviewView />
+              </>
             ) : view.name === "instance" ? (
             selectedService ? (
               <ServiceDetailView
@@ -181,8 +171,10 @@ export function App() {
             />
           )}
             </div>
-          </main>
+            </main>
+          </div>
         </div>
+        <AppBottomBar onOpenSettings={() => setSettingsDialogOpen(true)} />
       </div>
 
       <AppDialogs

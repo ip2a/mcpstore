@@ -26,6 +26,13 @@ pub fn app_config_path_for_mcp_path(mcp_path: impl AsRef<Path>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(APP_CONFIG_FILENAME))
 }
 
+/// Default app config location: fixed under the user data dir, independent of
+/// where mcp.json resolved. config.toml is local device state, not tied to the
+/// service-definition file.
+pub fn app_config_path() -> PathBuf {
+    default_user_data_dir().join(APP_CONFIG_FILENAME)
+}
+
 fn search_paths(filename: &str) -> Vec<PathBuf> {
     let mut paths = Vec::with_capacity(3);
 
@@ -75,5 +82,12 @@ mod tests {
     fn app_config_path_uses_mcp_parent() {
         let p = app_config_path_for_mcp_path("/tmp/custom/mcp.json");
         assert_eq!(p, PathBuf::from("/tmp/custom/config.toml"));
+    }
+
+    #[test]
+    fn default_app_config_path_is_fixed_under_user_data_dir() {
+        let p = app_config_path();
+        assert!(p.starts_with(default_user_data_dir()));
+        assert!(p.ends_with("config.toml"));
     }
 }

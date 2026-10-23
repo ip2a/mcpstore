@@ -68,5 +68,7 @@ pub(in crate::config) fn default_hosts_active() -> String {
 }
 
 pub(in crate::config) fn default_host_url() -> String {
-    "/api".to_string()
+    // Local core daemon's real address (not app glue layer path "/api").
+    // Derives from default_server_port to stay in sync when port changes.
+    format!("http://127.0.0.1:{}", default_server_port())
 }

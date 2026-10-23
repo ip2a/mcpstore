@@ -18,7 +18,9 @@ impl ConfigManager {
     pub fn new() -> Self {
         let mcp_path = resolver::resolve_mcp_config_path();
         Self {
-            app_config_path: resolver::app_config_path_for_mcp_path(&mcp_path),
+            // Default app config is fixed under the user data dir (device state),
+            // not colocated with mcp.json — only explicit with_path() colocates.
+            app_config_path: resolver::app_config_path(),
             mcp_path,
         }
     }
@@ -103,10 +105,18 @@ impl ConfigManager {
 
     pub fn save_app_config(&self, config: &AppConfig) -> Result<()> {
         validate_app_config(config)?;
+
+        // Compute sparse representation: only write fields that differ from defaults
+        let sparse_value = super::sparse::diff_from_default(config)?;
+
         if let Some(parent) = self.app_config_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = toml::to_string_pretty(config)?;
+
+        // Serialize sparse value as TOML
+        let toml_value: toml::Value = serde_json::from_value(sparse_value)?;
+        let content = toml::to_string_pretty(&toml_value)?;
+
         // Flush must be atomic (temp file + rename) so a mid-write crash can't corrupt the config file.
         let tmp = self.app_config_path.with_extension("toml.tmp");
         std::fs::write(&tmp, content)?;

@@ -17,6 +17,7 @@ pub mod models;
 pub mod resolver;
 mod server_validation;
 mod service_schema;
+mod sparse;
 #[cfg(test)]
 mod tests;
 pub mod validator;

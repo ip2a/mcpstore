@@ -12,7 +12,8 @@ export type HostsPayload = {
   [name: string]: string | HostEntry;
 };
 
-export const DEFAULT_API_BASE = "http://127.0.0.1:1820";
+// REMOVED: DEFAULT_API_BASE hardcoded constant
+// Frontend now always reads from backend meta to maintain single source of truth
 
 export function parseHostsPayload(data: HostsPayload): HostsConfig {
   const entries: Record<string, HostEntry> = {};

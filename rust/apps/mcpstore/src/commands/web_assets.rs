@@ -136,5 +136,54 @@ pub async fn serve_react_app(request: axum::extract::Request) -> Response {
         return StatusCode::NOT_FOUND.into_response();
     }
 
-    response_for_asset("index.html")
+    serve_index_html_with_hint(&request)
+}
+
+/// index.html bytes from override dir or embedded assets.
+fn index_html_contents() -> Option<Vec<u8>> {
+    if let Some(dir) = override_assets_dir() {
+        let safe = safe_asset_path(&dir, "index.html")?;
+        return std::fs::read(safe).ok();
+    }
+    find("index.html").map(|(bytes, _)| bytes.to_vec())
+}
+
+/// Serve index.html with the daemon's core address injected, so the web UI
+/// auto-connects to whichever daemon served it (paseo-style connection hint).
+fn serve_index_html_with_hint(request: &axum::extract::Request) -> Response {
+    let Some(config) = request
+        .extensions()
+        .get::<std::sync::Arc<mcpstore::AppConfig>>()
+        .cloned()
+    else {
+        return response_for_asset("index.html");
+    };
+    let bytes = match index_html_contents() {
+        Some(bytes) => bytes,
+        None => return response_for_asset("index.html"),
+    };
+    let html = match String::from_utf8(bytes) {
+        Ok(html) => html,
+        Err(_) => return response_for_asset("index.html"),
+    };
+
+    let hint = format!(
+        r#"<script>window.__MCPSTORE_CORE_HINT__={{"url":"http://{}:{}}}</script>"#,
+        config.server.host, config.server.port
+    );
+    let injected = if html.contains("</head>") {
+        html.replace("</head>", &format!("{hint}</head>"))
+    } else {
+        format!("{hint}{html}")
+    };
+
+    (
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        )],
+        injected,
+    )
+        .into_response()
 }

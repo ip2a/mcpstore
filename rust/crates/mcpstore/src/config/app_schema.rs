@@ -61,27 +61,55 @@ pub struct HostEntry {
     pub url: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// Custom Deserialize: serde ignores field defaults on #[serde(flatten)] maps,
+// so a plain derive would start from an empty map and lose the default entry
+// for keys omitted from disk by sparse persist.
+impl<'de> Deserialize<'de> for HostsConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default = "default_hosts_active")]
+            active: String,
+            #[serde(flatten)]
+            entries: HashMap<String, HostEntry>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let mut entries = default_hosts_entries();
+        entries.extend(raw.entries);
+        Ok(Self {
+            active: raw.active,
+            entries,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct HostsConfig {
     #[serde(default = "default_hosts_active")]
     pub active: String,
     #[serde(flatten)]
-    #[serde(default)]
     pub entries: HashMap<String, HostEntry>,
+}
+
+pub(in crate::config) fn default_hosts_entries() -> HashMap<String, HostEntry> {
+    let mut entries = HashMap::new();
+    entries.insert(
+        default_hosts_active(),
+        HostEntry {
+            url: default_host_url(),
+        },
+    );
+    entries
 }
 
 impl Default for HostsConfig {
     fn default() -> Self {
-        let mut entries = HashMap::new();
-        entries.insert(
-            default_hosts_active(),
-            HostEntry {
-                url: default_host_url(),
-            },
-        );
         Self {
             active: default_hosts_active(),
-            entries,
+            entries: default_hosts_entries(),
         }
     }
 }

@@ -2,16 +2,12 @@ import { useAddServiceForm } from "@/features/services/use-add-service-form"
 import { AddServicePlaygroundAside } from "@/features/services/add-service-playground-aside"
 import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
 import { getUiTransportMode, resolveHttpTransport } from "@/features/services/service-config-draft"
-import { ServiceRestartPolicySelect, ServiceStartupPolicySelect } from "@/features/services/service-lifecycle-fields"
 import { DialogFormFooter } from "@/components/shared/dialog-form"
-import { AgentIdPicker } from "@/components/shared/agent-id-picker"
-import { FieldCollapsible } from "@/components/shared/field-collapsible"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Button } from "@/components/ui/button"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useI18n } from "@/lib/i18n-context"
 import { getAgentId } from "@/features/agents/model"
@@ -98,58 +94,29 @@ export function AddServiceForm({
               </Field>
             </div>
 
-            <ServiceConfigFormFields
-              fields={configFields}
-              onFieldsChange={setConfigFields}
-              scopeExtra={
-                <FieldCollapsible title={t("scope")}>
-                  <div className="flex items-center gap-3">
-                    <span className="shrink-0 text-sm text-muted-foreground">{t("agent")}</span>
-                    <Switch
-                      id="add-service-agent-scope"
-                      checked={scope === "agent"}
-                      onCheckedChange={(useAgent) => {
-                        setScope(useAgent ? "agent" : "store")
-                        if (!useAgent) {
-                          setAgentId("")
-                        }
-                      }}
-                      aria-label={t("agent")}
-                    />
-                    <AgentIdPicker
-                      id="agentId"
-                      name="agentId"
-                      agentIds={agentIds}
-                      value={agentId}
-                      disabled={scope !== "agent"}
-                      required={scope === "agent"}
-                      placeholder={scope === "agent" ? t("agentIdPlaceholder") : t("store")}
-                      onChange={setAgentId}
-                    />
-                  </div>
-                </FieldCollapsible>
-              }
-            />
-
-            <FieldCollapsible title={t("lifecyclePolicy")}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ServiceStartupPolicySelect value={startupPolicy} onChange={setStartupPolicy} />
-                <ServiceRestartPolicySelect value={restartPolicy} onChange={setRestartPolicy} />
-              </div>
-            </FieldCollapsible>
+            <ServiceConfigFormFields fields={configFields} onFieldsChange={setConfigFields} />
           </FieldGroup>
         </ScrollPane>
 
         <AddServicePlaygroundAside
           agentId={agentId}
+          agentIds={agentIds}
           className="min-h-0 max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none"
           fields={configFields}
           name={serviceName}
           previewFormat={previewFormat}
+          restartPolicy={restartPolicy}
           scope={scope}
+          showLifecycleTab
+          showScopeTab
+          startupPolicy={startupPolicy}
+          onAgentIdChange={setAgentId}
           onFieldsChange={setConfigFields}
           onNameChange={setServiceName}
           onPreviewFormatChange={setPreviewFormat}
+          onRestartPolicyChange={setRestartPolicy}
+          onScopeChange={setScope}
+          onStartupPolicyChange={setStartupPolicy}
         />
       </div>
 

@@ -193,12 +193,34 @@ impl ListenerManager {
 
 /// Web 面：静态资源 + 同源 /api → App 面（App API 固定描述本机 daemon）。
 pub fn web_router(state: Arc<ApiState>) -> Router {
-    let api = Router::new().nest("/api", api::app_router(state));
-    Router::new()
+    let api = Router::new().nest("/api", api::app_router(Arc::clone(&state)));
+
+    // Load config for connection hint injection
+    let config = state
+        .store()
+        .config_manager()
+        .load_app_config_or_default()
+        .ok()
+        .map(Arc::new);
+
+    let mut router = Router::new()
         .merge(api)
         .route("/api", any(api_not_found))
         .route("/api/*path", any(api_not_found))
-        .fallback(crate::commands::web_assets::serve_react_app)
+        .fallback(crate::commands::web_assets::serve_react_app);
+
+    // Inject config into all requests via layer
+    if let Some(cfg) = config {
+        router = router.layer(axum::middleware::from_fn(move |mut req: axum::extract::Request, next: axum::middleware::Next| {
+            let cfg = Arc::clone(&cfg);
+            async move {
+                req.extensions_mut().insert(cfg);
+                next.run(req).await
+            }
+        }));
+    }
+
+    router
 }
 
 async fn api_not_found() -> StatusCode {

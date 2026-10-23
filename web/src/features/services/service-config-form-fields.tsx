@@ -1,30 +1,20 @@
-import type { ReactNode } from "react"
-
 import { FieldCollapsible } from "@/components/shared/field-collapsible"
 import { KeyValuePairsEditor } from "@/components/shared/key-value-pairs-editor"
 import { StringListEditor } from "@/components/shared/string-list-editor"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useI18n } from "@/lib/i18n-context"
-import {
-  HANDSHAKE_MODES,
-  getUiTransportMode,
-  type HandshakeMode,
-  type ServiceConfigFields,
-} from "@/features/services/service-config-draft"
+import { getUiTransportMode, type ServiceConfigFields } from "@/features/services/service-config-draft"
 import { cn } from "@/lib/utils"
 
 export function ServiceConfigFormFields({
   className,
-  scopeExtra,
   fields,
   onFieldsChange,
 }: {
   className?: string
-  scopeExtra?: ReactNode
   fields: ServiceConfigFields
   onFieldsChange: (fields: ServiceConfigFields) => void
 }) {
@@ -160,40 +150,6 @@ export function ServiceConfigFormFields({
         </>
       )}
 
-      <FieldCollapsible title={t("description")}>
-        <Input
-          id="config-description"
-          value={fields.description}
-          placeholder={t("optionalDescription")}
-          onChange={(event) => updateFields({ description: event.target.value })}
-        />
-      </FieldCollapsible>
-
-      <FieldCollapsible title={t("handshakeMode")}>
-        <Field orientation="responsive">
-          <FieldLabel htmlFor="config-handshake-mode">{t("handshakeMode")}</FieldLabel>
-          <Select
-            value={fields.handshakeMode}
-            onValueChange={(value) => updateFields({ handshakeMode: value as HandshakeMode })}
-          >
-            <SelectTrigger id="config-handshake-mode" className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {HANDSHAKE_MODES.map((mode) => (
-                  <SelectItem key={mode} value={mode}>
-                    {t(`handshake${mode.charAt(0).toUpperCase()}${mode.slice(1)}`)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <span className="text-xs text-muted-foreground">{t("handshakeModeHint")}</span>
-      </FieldCollapsible>
-
-      {scopeExtra}
     </div>
   )
 }

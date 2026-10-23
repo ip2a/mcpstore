@@ -358,7 +358,7 @@ fn test_hosts_config_roundtrip() {
 active = "测试 A"
 
 [hosts.local]
-url = "/api"
+url = "http://127.0.0.1:1820"
 
 [hosts."测试 A"]
 url = "http://115.191.69.41:8021"
@@ -375,7 +375,7 @@ url = "http://115.191.69.41:8021"
             .entries
             .get("local")
             .map(|entry| entry.url.as_str()),
-        Some("/api")
+        Some("http://127.0.0.1:1820")
     );
     assert_eq!(
         loaded
@@ -394,13 +394,14 @@ url = "http://115.191.69.41:8021"
             (
                 "local".to_string(),
                 HostEntry {
-                    url: "/api".to_string(),
+                    url: "http://127.0.0.1:1820".to_string(),
                 },
             ),
             (
                 "remote".to_string(),
                 HostEntry {
-                    url: "http://127.0.0.1:1820".to_string(),
+                    // Differs from default so sparse persist keeps it on disk
+                    url: "http://127.0.0.1:1830".to_string(),
                 },
             ),
         ]),
@@ -408,7 +409,13 @@ url = "http://115.191.69.41:8021"
     mgr.save_app_config(&config).unwrap();
     let saved = mgr.load_app_config().unwrap();
     assert_eq!(saved.hosts.active, "remote");
+    // "local" equals the default entry so sparse persist omits it from disk;
+    // the default materializes it back on load.
     assert_eq!(saved.hosts.entries.len(), 2);
+    assert_eq!(
+        saved.hosts.entries.get("remote").unwrap().url,
+        "http://127.0.0.1:1830"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
