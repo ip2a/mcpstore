@@ -488,6 +488,45 @@ pub(super) async fn gateway_wire(
         None
     };
 
+    // Ensure client-agent binding exists; if scope is Agent, register the agent in the store
+    // by adding a placeholder service so it appears in /agents/list.
+    let agent_registry_path = {
+        let app_config_path = state.store.config_manager().app_config_path();
+        app_config_path
+            .parent()
+            .map(|dir| dir.join("client-agents.json"))
+            .unwrap_or_else(|| std::path::PathBuf::from("client-agents.json"))
+    };
+    let bound_agent_id =
+        mcpstore::client_agent::ensure_client_agent_binding(&agent_registry_path, client)
+            .map_err(ApiError::from_store)?;
+
+    // If wiring to an agent scope, ensure the agent exists in the store (add placeholder if needed).
+    let final_scope = scope.clone().unwrap_or_else(|| ScopeRef::Agent {
+        agent_id: bound_agent_id.clone(),
+    });
+    if let ScopeRef::Agent { agent_id } = &final_scope {
+        if state.store.find_agent(agent_id).await.ok().flatten().is_none() {
+            // Agent not found — add a placeholder service to register it.
+            let placeholder_name = format!("_agent_placeholder:{agent_id}");
+            let placeholder_config = mcpstore::config::ServerConfig {
+                command: Some("echo".to_string()),
+                args: vec!["placeholder".to_string()],
+                ..Default::default()
+            };
+            let descriptor = mcpstore::config::ScopeDescriptor {
+                config: placeholder_config.base_config(),
+                ..Default::default()
+            };
+            let _ = state
+                .store
+                .declare_service_scope(&placeholder_name, &final_scope, descriptor)
+                .await;
+            let _ = state.store.add_service(&placeholder_name, placeholder_config).await;
+            // Ignore errors — placeholder registration is best-effort.
+        }
+    }
+
     let entry = mcpstore::client_wire::wire_gateway(
         client,
         std::path::Path::new(&path),
