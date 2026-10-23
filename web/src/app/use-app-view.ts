@@ -41,9 +41,13 @@ export function useAppView(services: ServiceInstance[]) {
   const pageTitle = selectedService?.service_name || viewTitle
   const setView = useCallback((nextView: AppView) => navigate(pathForView(nextView)), [navigate])
   const goBack = useCallback(() => {
+    if (view.name === "tool") {
+      navigate("/tools", { replace: location.key === "default" })
+      return
+    }
     if (location.key !== "default") navigate(-1)
     else navigate("/services", { replace: true })
-  }, [location.key, navigate])
+  }, [location.key, navigate, view.name])
 
   return {
     goBack,
@@ -62,6 +66,22 @@ function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/services") return { name: "services" }
   if (pathname === "/scope") return { name: "agents" }
   if (pathname === "/tools") return { name: "tools" }
+  if (pathname.startsWith("/tools/")) {
+    const rest = pathname.slice("/tools/".length)
+    const slash = rest.indexOf("/")
+    if (slash > 0) {
+      let instanceId: string
+      let toolName: string
+      try {
+        instanceId = decodeURIComponent(rest.slice(0, slash))
+        toolName = decodeURIComponent(rest.slice(slash + 1))
+      } catch {
+        instanceId = rest.slice(0, slash)
+        toolName = rest.slice(slash + 1)
+      }
+      return { name: "tool", instanceId, toolName }
+    }
+  }
   if (pathname === "/config") return { name: "agents" }
   if (pathname === "/gateway") return { name: "gateway" }
   if (pathname === "/cache") return { name: "cache" }
@@ -82,6 +102,9 @@ function viewFromPath(pathname: string, search: string): AppView {
 function pathForView(view: AppView): string {
   if (view.name === "services") return "/services"
   if (view.name === "agents") return "/scope"
+  if (view.name === "tool") {
+    return `/tools/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.toolName)}`
+  }
   if (view.name === "instance") {
     const base = `/services/${encodeURIComponent(view.addr.service_name)}`
     const query =

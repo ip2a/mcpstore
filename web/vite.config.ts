@@ -8,6 +8,8 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // node_modules 是软链共享时，依赖预构建缓存按 checkout 隔离，避免 lockfile 来回失效互相重打包
+  cacheDir: path.resolve(dirname, "../local/vite-cache"),
   resolve: {
     alias: {
       "@": path.resolve(dirname, "./src"),

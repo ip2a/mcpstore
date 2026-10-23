@@ -196,20 +196,20 @@ function ServiceRow({
             <MoreHorizontalIcon data-icon="inline-start" />
             {t("more")}
           </Button>
+          <SortableItemHandle
+            aria-label={t("dragService", { name: service.service_name })}
+            render={<Button variant="outline" size="icon-sm" />}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <GripVerticalIcon />
+          </SortableItemHandle>
         </>
       }
       actionsProps={{ onClick: (event) => event.stopPropagation() }}
     >
       <div className="min-w-0">
         <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
-          <SortableItemHandle
-            aria-label={t("dragService", { name: service.service_name })}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-          >
-            <GripVerticalIcon className="size-4" />
-          </SortableItemHandle>
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
           <ServiceConnectionMark state={service.state} />
           <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>

@@ -14,6 +14,7 @@ import { OverviewView } from "@/features/overview/overview-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
+import { ToolDetailView } from "@/features/tools/tool-detail-view"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
@@ -83,13 +84,17 @@ export function App() {
     <TooltipProvider>
       <div className="flex h-dvh flex-col overflow-hidden bg-background">
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <AppSidebar view={view} onViewChange={setView} />
+          <AppSidebar
+            view={view}
+            onViewChange={setView}
+            onOpenSettings={() => setSettingsDialogOpen(true)}
+          />
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "gateway" || view.name === "cache" || view.name === "tools" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "gateway" || view.name === "cache" || view.name === "tools" || view.name === "tool" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
               )}
             >
             {view.name === "home" ? (
@@ -143,7 +148,14 @@ export function App() {
             <ToolsView
               agents={agents}
               services={services}
-              onToolDetail={setToolDetail}
+              onOpenTool={(instanceId, toolName) => setView({ name: "tool", instanceId, toolName })}
+            />
+          ) : view.name === "tool" ? (
+            <ToolDetailView
+              instanceId={view.instanceId}
+              toolName={view.toolName}
+              services={services}
+              onBack={goBack}
               onRunTool={runToolFromDialogState}
               isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
             />
@@ -174,7 +186,7 @@ export function App() {
             </main>
           </div>
         </div>
-        <AppBottomBar onOpenSettings={() => setSettingsDialogOpen(true)} />
+        <AppBottomBar />
       </div>
 
       <AppDialogs

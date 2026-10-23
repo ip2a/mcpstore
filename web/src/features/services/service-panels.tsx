@@ -24,7 +24,6 @@ import {
   ToolDetailDocHeader,
   ToolPlaygroundAside,
 } from "@/components/shared/tool-detail-playground";
-import { TwoPanePage } from "@/components/shared/two-pane-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -64,8 +63,8 @@ import { cn } from "@/lib/utils";
 import { OverrideEditor } from "@/features/overrides/override-editor";
 
 export type CatalogTab = "tools" | "resources" | "prompts";
+export type ServiceDetailTab = "service" | CatalogTab;
 export type ResourceSubTab = "items" | "templates";
-export type RightPaneView = "service" | "catalog";
 
 export function resourceMimeType(resource: ResourceInfo) {
   return String(resource.mimeType || "").trim();
@@ -84,8 +83,7 @@ export function promptArgCount(prompt: PromptInfo) {
   return 0;
 }
 
-export function ServicePreviewHeader({
-  rightPaneView,
+export function ServicePreviewActions({
   activeTab,
   resourceSubTab,
   loading,
@@ -94,10 +92,6 @@ export function ServicePreviewHeader({
   selectedResource,
   selectedTemplate,
   selectedPrompt,
-  toolCount,
-  resourceCount,
-  templateCount,
-  promptCount,
   onRefresh,
   onConnect,
   onDisconnect,
@@ -105,9 +99,9 @@ export function ServicePreviewHeader({
   onRun,
   runningTool,
   onDetail,
+  className,
 }: {
-  rightPaneView: RightPaneView;
-  activeTab: CatalogTab;
+  activeTab: ServiceDetailTab;
   resourceSubTab: ResourceSubTab;
   loading: boolean;
   service: ServiceInstance;
@@ -115,10 +109,6 @@ export function ServicePreviewHeader({
   selectedResource: ResourceInfo | null;
   selectedTemplate: ResourceTemplateInfo | null;
   selectedPrompt: PromptInfo | null;
-  toolCount: number;
-  resourceCount: number;
-  templateCount: number;
-  promptCount: number;
   onRefresh: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
@@ -126,29 +116,12 @@ export function ServicePreviewHeader({
   onRun?: () => void;
   runningTool?: boolean;
   onDetail?: () => void;
+  className?: string;
 }) {
   const { t } = useI18n();
-  const title =
-    rightPaneView === "service"
-      ? service.service_name
-      : activeTab === "tools"
-        ? selectedTool?.name || t("toolsAvailable", { count: toolCount })
-        : activeTab === "resources"
-          ? resourceSubTab === "templates"
-            ? selectedTemplate?.title ||
-              selectedTemplate?.name ||
-              (selectedTemplate ? resourceTemplateUri(selectedTemplate) : "") ||
-              t("templatesAvailable", { count: templateCount })
-            : selectedResource?.title ||
-              selectedResource?.name ||
-              selectedResource?.uri ||
-              t("resourcesAvailable", { count: resourceCount })
-          : selectedPrompt?.title ||
-            selectedPrompt?.name ||
-            t("promptsAvailable", { count: promptCount });
 
   const copyPayload =
-    rightPaneView === "service"
+    activeTab === "service"
       ? service
       : activeTab === "tools"
         ? selectedTool
@@ -180,83 +153,56 @@ export function ServicePreviewHeader({
     }
   }
 
-  const showToolHeader =
-    rightPaneView === "catalog" &&
-    activeTab === "tools" &&
-    Boolean(selectedTool);
-
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b pb-2">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        {showToolHeader ? (
-          <h2
-            className="shrink-0 truncate font-mono text-sm font-medium"
-            title={selectedTool!.name}
-          >
-            {selectedTool!.name}
-          </h2>
-        ) : (
-          <div className="flex min-w-0 flex-col gap-1">
-            <strong
-              className="truncate font-mono text-sm font-medium"
-              title={title}
-            >
-              {title}
-            </strong>
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 flex-wrap justify-end gap-2">
-        {rightPaneView === "service" ? (
-          <ServiceConnectionButton
-            busy={busy}
-            instanceId={service.instance_id}
-            state={service.state}
-            onConnect={onConnect}
-            onDisconnect={onDisconnect}
-          />
-        ) : null}
-        {rightPaneView === "catalog" && activeTab === "tools" && onRun ? (
-          <Button size="sm" onClick={onRun} disabled={runningTool}>
-            {runningTool ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <WrenchIcon data-icon="inline-start" />
-            )}
-            {runningTool ? t("executing") : t("run")}
-          </Button>
-        ) : null}
-        {rightPaneView === "catalog" && activeTab === "tools" && onDetail ? (
-          <Button size="sm" variant="outline" onClick={onDetail}>
-            <EyeIcon data-icon="inline-start" />
-            {t("details")}
-          </Button>
-        ) : null}
-        {rightPaneView === "catalog" &&
-        activeTab === "resources" &&
-        resourceSubTab === "items" &&
-        selectedResource ? (
-          <Button size="sm" variant="outline" onClick={onReadResource}>
-            <FileIcon data-icon="inline-start" />
-            {t("read")}
-          </Button>
-        ) : null}
-        {copyPayload ? (
-          <Button size="sm" variant="outline" onClick={onCopy}>
-            <ClipboardIcon data-icon="inline-start" />
-            {t("copy")}
-          </Button>
-        ) : null}
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onRefresh}
-          disabled={loading}
-        >
-          <RefreshCwIcon data-icon="inline-start" />
-          {t("refresh")}
+    <div className={cn("flex shrink-0 flex-wrap items-center justify-end gap-2", className)}>
+      {activeTab === "service" ? (
+        <ServiceConnectionButton
+          busy={busy}
+          instanceId={service.instance_id}
+          state={service.state}
+          onConnect={onConnect}
+          onDisconnect={onDisconnect}
+        />
+      ) : null}
+      {activeTab === "tools" && onRun ? (
+        <Button size="sm" onClick={onRun} disabled={runningTool}>
+          {runningTool ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <WrenchIcon data-icon="inline-start" />
+          )}
+          {runningTool ? t("executing") : t("run")}
         </Button>
-      </div>
+      ) : null}
+      {activeTab === "tools" && onDetail ? (
+        <Button size="sm" variant="outline" onClick={onDetail}>
+          <EyeIcon data-icon="inline-start" />
+          {t("details")}
+        </Button>
+      ) : null}
+      {activeTab === "resources" &&
+      resourceSubTab === "items" &&
+      selectedResource ? (
+        <Button size="sm" variant="outline" onClick={onReadResource}>
+          <FileIcon data-icon="inline-start" />
+          {t("read")}
+        </Button>
+      ) : null}
+      {copyPayload ? (
+        <Button size="sm" variant="outline" onClick={onCopy}>
+          <ClipboardIcon data-icon="inline-start" />
+          {t("copy")}
+        </Button>
+      ) : null}
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onRefresh}
+        disabled={loading}
+      >
+        <RefreshCwIcon data-icon="inline-start" />
+        {t("refresh")}
+      </Button>
     </div>
   );
 }

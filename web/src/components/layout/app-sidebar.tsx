@@ -1,6 +1,8 @@
 import type { LucideIcon } from "lucide-react"
+import { SettingsIcon } from "lucide-react"
 
 import { type AppView, useNavItems } from "@/app/app-view"
+import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
 function SidebarItem({
@@ -36,33 +38,42 @@ function SidebarItem({
 }
 
 export function AppSidebar({
+  onOpenSettings,
   onViewChange,
   view,
 }: {
+  onOpenSettings: () => void
   onViewChange: (view: AppView) => void
   view: AppView
 }) {
+  const { t } = useI18n()
   const navItems = useNavItems()
 
   return (
     <aside className="flex w-48 shrink-0 flex-col border-r bg-card/40">
-      <div className="flex h-14 shrink-0 items-center border-b px-4">
-        <button className="flex items-center gap-2 font-mono font-bold" type="button" onClick={() => onViewChange({ name: "home" })}>
-          <img alt="" aria-hidden="true" className="size-6" src="/logo.png" />
-          mcpstore
-        </button>
-      </div>
-      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2 pt-3">
         {navItems.map((item) => (
           <SidebarItem
             key={item.view.name}
-            active={view.name === item.view.name || (view.name === "instance" && item.view.name === "services")}
+            active={
+              view.name === item.view.name ||
+              (view.name === "instance" && item.view.name === "services") ||
+              (view.name === "tool" && item.view.name === "tools")
+            }
             icon={item.icon}
             label={item.label}
             onSelect={() => onViewChange(item.view)}
           />
         ))}
       </nav>
+      <div className="shrink-0 border-t p-2">
+        <SidebarItem
+          active={false}
+          icon={SettingsIcon}
+          label={t("settings")}
+          onSelect={onOpenSettings}
+        />
+      </div>
     </aside>
   )
 }
