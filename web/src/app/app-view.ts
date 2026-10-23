@@ -17,6 +17,7 @@ export type AppView =
   | { name: "agents" }
   | { name: "clients" }
   | { name: "tools" }
+  | { name: "tool"; instanceId: string; toolName: string }
   | { name: "gateway" }
   | { name: "cache" }
   | { name: "instance"; addr: ServiceAddress }
@@ -44,5 +45,6 @@ export function useViewTitle(view: AppView): string {
   const { t } = useI18n()
   const items = useNavItems()
   if (view.name === "instance") return view.addr.service_name
+  if (view.name === "tool") return view.toolName
   return items.find((item) => item.view.name === view.name)?.label || t("navServices")
 }

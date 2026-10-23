@@ -3,10 +3,8 @@ import { toast } from "sonner"
 
 import { getAgentId } from "@/features/agents/model"
 import { useAgentServicesQuery } from "@/features/agents/queries"
-import { type InstanceTool, useInstanceToolsQueries } from "@/features/tools/queries"
-import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
+import { useInstanceToolsQueries } from "@/features/tools/queries"
 import {
-  callInstanceTool,
   clearInstanceToolPolicy,
   listInstanceTools,
   setInstanceToolPolicy,
@@ -14,7 +12,6 @@ import {
   type ServiceInstance,
   type ToolVisibilityFilter,
 } from "@/lib/api"
-import { toolKey } from "@/lib/tool-info"
 
 export function countActiveToolFilters(filters: {
   instanceId: string
@@ -35,7 +32,6 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
   const [instanceId, setInstanceId] = useState("all")
   const [query, setQuery] = useState("")
   const [visibilityFilter, setVisibilityFilter] = useState<ToolVisibilityFilter>("available")
-  const [selectedToolKey, setSelectedToolKey] = useState<string | null>(null)
   const agentServicesQuery = useAgentServicesQuery(scope === "agent" ? agentId : "")
   const scopeInstances = scope === "agent" ? agentServicesQuery.data || [] : services
   const selectedInstances = instanceId === "all"
@@ -96,24 +92,6 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
     const text = `${tool.name} ${tool.description} ${instance.service_name} ${scopeLabel}`.toLowerCase()
     return text.includes(query.trim().toLowerCase())
   })
-  const selectedTool = visibleTools.find(({ instance, tool }) => toolKey(instance.instance_id, tool) === selectedToolKey)
-    || visibleTools[0]
-
-  useEffect(() => {
-    setSelectedToolKey(selectedTool ? toolKey(selectedTool.instance.instance_id, selectedTool.tool) : null)
-  }, [selectedTool])
-
-  function makeRunner(item: InstanceTool): NonNullable<ToolDialogState> & NonNullable<ToolDetailState> {
-    const { instance, tool } = item
-    const scopeLabel = instance.scope.type === "store" ? "store" : `agent ${instance.scope.agent_id}`
-    return {
-      tool,
-      service: instance,
-      sourceLabel: `${instance.service_name} · ${scopeLabel}`,
-      onRun: (args) => callInstanceTool(instance, tool.name, args),
-    }
-  }
-
   const activeFilterCount = countActiveToolFilters({ instanceId, scope, visibilityFilter })
 
   return {
@@ -125,12 +103,9 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
     instanceId,
     loadTools,
     loading,
-    makeRunner,
     query,
     scope,
     scopeInstances,
-    selectedTool,
-    selectedToolKey,
     setAgentId,
     setInstanceId,
     setToolAvailability,
@@ -139,7 +114,6 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
     visibilityFilter,
     setQuery,
     setScope,
-    setSelectedToolKey,
     visibleTools,
   }
 }

@@ -52,7 +52,10 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
         >
           <span className="flex min-w-0 items-baseline gap-2">
             <span className="shrink-0 font-mono text-xs uppercase text-muted-foreground">{t("store")}</span>
-            <strong className="shrink-0 truncate">mcpstore</strong>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <img alt="" aria-hidden="true" className="size-4 shrink-0" src="/logo.png" />
+              <strong className="truncate font-mono">mcpstore</strong>
+            </span>
             <PathText
               value={`${subtitle} · ${statsLine}`}
               className="min-w-0 truncate"
@@ -82,7 +85,10 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
         </pre>
       </button>
       <div className="flex min-w-0 flex-col items-start justify-center gap-2 self-stretch border-l pl-4">
-        <h1 className="m-0 w-full truncate text-left text-2xl font-semibold leading-none">mcpstore</h1>
+        <h1 className="m-0 flex w-full min-w-0 items-center gap-2.5 text-left text-2xl font-semibold leading-none">
+          <img alt="" aria-hidden="true" className="size-8 shrink-0" src="/logo.png" />
+          <span className="truncate font-mono">mcpstore</span>
+        </h1>
         <PathText value={subtitle} className="block w-full min-w-0 text-left" wrap="all" />
       </div>
     </section>

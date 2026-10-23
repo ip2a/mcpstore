@@ -1,69 +1,40 @@
 import { useEffect, useMemo, useState } from "react"
-import { EyeIcon, LinkIcon, PlusIcon, RefreshCwIcon, UnlinkIcon, WaypointsIcon } from "lucide-react"
+import { EyeIcon, LinkIcon, PlusIcon, RefreshCwIcon, UnlinkIcon } from "lucide-react"
 
 import { EntityRow } from "@/components/shared/entity-row"
 import { JsonBlock } from "@/components/shared/json-block"
-import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { SectionHeading } from "@/components/shared/section-heading"
-import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
-import { ClientConfigPanel } from "@/features/config/client-config-panel"
 import { useScopesQuery } from "@/features/agents/queries"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { ServiceConnectionMark, ServiceStatusBadge } from "@/components/shared/service-status-badge"
-import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
-import { getAgentId } from "@/features/agents/model"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
-import { isServiceConnected } from "@/features/services/service-display-status"
 import { type AgentItem, type ScopeSummary, type ScopeView, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { getServiceEndpointLabel } from "@/lib/service-info"
-import { getToolSchema } from "@/lib/tool-info"
 import { cn } from "@/lib/utils"
 
-type RightPaneView = "overview" | "scope"
 type ScopeCardId = "store" | string
-type ScopeConnectionStats = { services: number; connected: number; disconnected: number }
 
 const ALL_SCOPE_ID = "all"
 const STORE_SCOPE_ID = "store"
 
-function connectionStatsForServices(services: ServiceInstance[]): ScopeConnectionStats {
-  let connected = 0
-  for (const service of services) {
-    if (isServiceConnected(service.state)) connected += 1
-  }
-  return {
-    services: services.length,
-    connected,
-    disconnected: services.length - connected,
-  }
+function scopeIdFromSummary(summary: ScopeSummary): ScopeCardId {
+  return summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
 }
 
-function scopeStatsFromServices(services: ServiceInstance[]) {
-  const storeServices = services.filter((service) => service.scope.type === "store")
-  const agents = new Map<string, ScopeConnectionStats>()
-  for (const service of services) {
-    if (service.scope.type !== "agent") continue
-    const agentId = service.scope.agent_id
-    const current = agents.get(agentId) || { services: 0, connected: 0, disconnected: 0 }
-    current.services += 1
-    if (isServiceConnected(service.state)) current.connected += 1
-    else current.disconnected += 1
-    agents.set(agentId, current)
-  }
-  return {
-    root: connectionStatsForServices(services),
-    store: connectionStatsForServices(storeServices),
-    agents,
-  }
+function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string): string {
+  if (summary.scope.type === "root") return t("global")
+  if (summary.scope.type === "store") return t("store")
+  if (summary.scope.type === "agent") return summary.scope.agent_id
+  return scopeIdFromSummary(summary)
 }
 
 export function AgentsView(props: {
@@ -77,13 +48,12 @@ export function AgentsView(props: {
   onRemoveScope: (agentId: string, serviceName: string) => void
 }) {
   const { t } = useI18n()
-  const [rightPaneView, setRightPaneView] = useState<RightPaneView>("overview")
-  const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>(STORE_SCOPE_ID)
+  const [activeTab, setActiveTab] = useState<ScopeCardId>("root")
+  const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("root")
   const [addScopeDialogOpen, setAddScopeDialogOpen] = useState(false)
   const [previewServiceId, setPreviewServiceId] = useState<string | null>(null)
   const [configScopeId, setConfigScopeId] = useState(ALL_SCOPE_ID)
   const [configDialogOpen, setConfigDialogOpen] = useState(false)
-  const [mcpHubDialogOpen, setMcpHubDialogOpen] = useState(false)
   const storeConfigQuery = useStoreConfigQuery()
   const configAgentId = configScopeId.startsWith("agent:") ? configScopeId.slice(6) : ""
   const agentConfigQuery = useAgentConfigQuery(configAgentId)
@@ -119,21 +89,9 @@ export function AgentsView(props: {
     setScopeServiceName,
   } = useAgentScope({ busy: props.busy, selectedScope, services: props.services })
 
-  const storeServices = useMemo(
-    () => props.services.filter((service) => service.scope.type === "store"),
-    [props.services],
-  )
-
-  const scopeStats = useMemo(() => scopeStatsFromServices(props.services), [props.services])
-
   const loadingScope = loadingScopeServices || loadingScopeTools
   const scopeError = scopeServicesError || scopeToolsError
   const scopeErrorMessage = scopeServicesError ? scopeServicesErrorMessage : scopeToolsErrorMessage
-  const scopeTitle = selectedScopeId === "root"
-    ? t("global")
-    : selectedScopeId === STORE_SCOPE_ID
-      ? t("store")
-      : selectedScopeId
 
   const previewService = useMemo(
     () => scopeServices.find((service) => service.instance_id === previewServiceId) || null,
@@ -153,61 +111,15 @@ export function AgentsView(props: {
     return counts
   }, [scopeTools])
 
-  const scopeConnectionStats = useMemo(
-    () => connectionStatsForServices(scopeServices),
-    [scopeServices],
-  )
-
-  const scopeTotalParamCount = useMemo(() => {
-    if (!scopeTools.length) return null
-    return scopeTools.reduce((sum, { tool }) => {
-      const schema = getToolSchema(tool) as { properties?: Record<string, unknown> }
-      return sum + Object.keys(schema.properties || {}).length
-    }, 0)
-  }, [scopeTools])
-
-  const scopeReadinessStatus = useMemo(() => {
-    if (!scopeServices.length) return t("unknown")
-    const allReady = scopeServices.every((service) => service.state.readiness.status === "ready")
-    if (allReady && scopeConnectionStats.connected === scopeConnectionStats.services) return "ready"
-    if (scopeConnectionStats.connected === 0) return t("statusDisconnected")
-    return t("agentServicesConnectionCount", {
-      connected: scopeConnectionStats.connected,
-      services: scopeConnectionStats.services,
-    })
-  }, [scopeConnectionStats.connected, scopeConnectionStats.services, scopeServices, t])
-
-  const scopeHealthHint = useMemo(() => {
-    if (!scopeServices.length) return undefined
-    const healthyCount = scopeServices.filter((service) => service.state.health === "healthy").length
-    if (healthyCount === scopeServices.length) return "healthy"
-    if (healthyCount === 0) return "unhealthy"
-    return `${healthyCount}/${scopeServices.length}`
-  }, [scopeServices])
-
   useEffect(() => {
     setPreviewServiceId(null)
-  }, [selectedScopeId, rightPaneView])
+  }, [activeTab, selectedScopeId])
 
   function loadScopeConfig() {
     void (configAgentId ? agentConfigQuery.refetch() : storeConfigQuery.refetch())
   }
 
-  const workspaceStats = useMemo(() => {
-    const agentServiceCount = props.agents.reduce((sum, agent) => sum + agent.instance_ids.length, 0)
-    return {
-      scopeCount: 1 + props.agents.length,
-      serviceCount: storeServices.length + agentServiceCount,
-      catalogCount: props.services.length,
-    }
-  }, [props.agents, props.services.length, storeServices.length])
-
-  function showWorkspaceOverview() {
-    setConfigScopeId(ALL_SCOPE_ID)
-    setRightPaneView("overview")
-  }
-
-  function selectScope(scopeId: ScopeCardId) {
+  function selectScopeTab(scopeId: ScopeCardId) {
     setConfigScopeId(
       scopeId === "root"
         ? ALL_SCOPE_ID
@@ -216,309 +128,134 @@ export function AgentsView(props: {
           : `agent:${scopeId}`,
     )
     setSelectedScopeId(scopeId)
-    setRightPaneView("scope")
-  }
-
-  function scopeCardMeta(summary: ScopeSummary) {
-    const stats =
-      summary.scope.type === "root"
-        ? scopeStats.root
-        : summary.scope.type === "store"
-          ? scopeStats.store
-          : scopeStats.agents.get(summary.scope.agent_id) || {
-              services: 0,
-              connected: 0,
-              disconnected: 0,
-            }
-    return t("agentServicesConnectionCount", {
-      services: stats.services,
-      connected: stats.connected,
-    })
+    setActiveTab(scopeId)
   }
 
   async function handleDeclareScope(agentId: string, serviceName: string) {
     await props.onDeclareScope(agentId, serviceName)
   }
 
+  function handleRefresh() {
+    void props.onRefresh()
+    void loadAgentScope()
+  }
+
+  const scopeTabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+
   return (
-    <TwoPanePage variant="full" className="h-full min-h-0 flex-1 gap-4">
-      <PanelCard className="@container flex h-full min-h-0 flex-col">
-        <section className="flex flex-col gap-3 border-b pb-4">
-          <div className="min-w-0">
-            <p className="font-mono text-xs uppercase text-muted-foreground">{t("scope")}</p>
-            <button
-              type="button"
-              onClick={showWorkspaceOverview}
-              className={cn(
-                "mt-1 block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-lg font-semibold underline-offset-4 outline-none transition-opacity",
-                "hover:underline active:opacity-70",
-                rightPaneView === "overview" && "underline",
-              )}
-              title={t("agentWorkspaceTitle")}
-            >
-              {t("agentWorkspaceTitle")}
-            </button>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("agentWorkspaceDescription", { count: props.agents.length })}
-            </p>
-          </div>
-        </section>
+    <>
+      <div className="min-w-0 shrink-0 pl-4">
+        <h1 className="text-lg font-semibold">{t("agentWorkspaceTitle")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {t("agentWorkspaceDescription", { count: props.agents.length })}
+        </p>
+      </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pt-3">
-          {props.loading ? (
-            <PageSkeleton />
-          ) : (
-            <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-              {scopes.map((summary) => {
-                const scopeId =
-                  summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
-                const title =
-                  summary.scope.type === "root"
-                    ? t("global")
-                    : summary.scope.type === "store"
-                      ? t("store")
-                      : summary.scope.type === "agent"
-                        ? summary.scope.agent_id
-                        : scopeId
-                return (
-                  <SelectableRowButton
-                    key={scopeId}
-                    meta={scopeCardMeta(summary)}
-                    onClick={() => selectScope(scopeId)}
-                    selected={scopeId === selectedScopeId && rightPaneView === "scope"}
-                    title={title}
-                  />
-                )
-              })}
-            </ScrollPane>
-          )}
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => selectScopeTab(value)}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+      >
+        <div className="flex min-w-0 shrink-0 items-center gap-3 border-b pb-2">
+          <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+            {scopes.map((summary) => {
+              const scopeId = scopeIdFromSummary(summary)
+              const title = scopeTitleFromSummary(summary, t)
+              return (
+                <TabsTrigger key={scopeId} value={scopeId} title={title} className="flex-none">
+                  {title}
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
+          <ScopeActions
+            className="ml-auto"
+            busy={Boolean(props.busy)}
+            canAddService={selectedScope.type === "agent" && addableServiceNames.length > 0}
+            loading={props.loading || loadingScope}
+            onAddService={() => setAddScopeDialogOpen(true)}
+            onDetails={() => {
+              loadScopeConfig()
+              setConfigDialogOpen(true)
+            }}
+            onRefresh={handleRefresh}
+          />
         </div>
+
+        {scopes.map((summary) => {
+          const scopeId = scopeIdFromSummary(summary)
+          return (
+            <TabsContent key={scopeId} value={scopeId} className={scopeTabContentClassName}>
+              {activeTab === scopeId ? (
+                <ScopeDetailPanel
+                  addScopeDialogOpen={addScopeDialogOpen}
+                  addableServiceNames={addableServiceNames}
+                  activeAgentId={activeAgentId}
+                  busy={props.busy}
+                  configDialogOpen={configDialogOpen}
+                  configLoading={configLoading}
+                  configValue={configValue}
+                  loadingScopeServices={loadingScopeServices}
+                  onDeclareScope={handleDeclareScope}
+                  onOpenService={props.onOpenService}
+                  onRemoveScope={props.onRemoveScope}
+                  previewService={previewService}
+                  previewServiceId={previewServiceId}
+                  previewToolCount={previewToolCount}
+                  scopeError={scopeError}
+                  scopeErrorMessage={scopeErrorMessage}
+                  scopeServiceName={scopeServiceName}
+                  scopeServices={scopeServices}
+                  scopeToolCountByInstance={scopeToolCountByInstance}
+                  selectedScope={selectedScope}
+                  setAddScopeDialogOpen={setAddScopeDialogOpen}
+                  setConfigDialogOpen={setConfigDialogOpen}
+                  setPreviewServiceId={setPreviewServiceId}
+                  setScopeServiceName={setScopeServiceName}
+                  loadAgentScope={loadAgentScope}
+                />
+              ) : null}
+            </TabsContent>
+          )
+        })}
+      </Tabs>
       </PanelCard>
-
-      <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-        {rightPaneView === "overview" ? (
-          <>
-            <WorkspacePreviewHeader
-              loading={props.loading}
-              onRefresh={() => {
-                void props.onRefresh()
-                void loadAgentScope()
-              }}
-            />
-
-            <MetricGrid columns="four">
-              <MetricTile
-                variant="compact"
-                label={t("scope")}
-                value={String(workspaceStats.scopeCount)}
-                title={String(workspaceStats.scopeCount)}
-                hint={t("registeredAgentScopes")}
-              />
-              <MetricTile
-                variant="compact"
-                label={t("services")}
-                value={String(workspaceStats.serviceCount)}
-                hint={t("inScope", { count: workspaceStats.serviceCount })}
-              />
-              <MetricTile
-                variant="compact"
-                label={t("catalog")}
-                value={String(workspaceStats.catalogCount)}
-                hint={t("allServices")}
-              />
-              <MetricTile
-                variant="compact"
-                label={t("store")}
-                value={String(storeServices.length)}
-                hint={t("storeScope")}
-              />
-            </MetricGrid>
-
-            <ScrollPane className="flex-1">
-              <AgentWorkspaceOverview agents={props.agents} services={props.services} storeServices={storeServices} />
-            </ScrollPane>
-          </>
-        ) : (
-          <>
-            <AgentPreviewHeader
-              busy={Boolean(props.busy)}
-              canAddService={selectedScope.type === "agent" && addableServiceNames.length > 0}
-              loading={props.loading || loadingScope}
-              onAddService={() => setAddScopeDialogOpen(true)}
-              onDetails={() => {
-                loadScopeConfig()
-                setConfigDialogOpen(true)
-              }}
-              onHub={() => setMcpHubDialogOpen(true)}
-              onRefresh={() => {
-                void props.onRefresh()
-                void loadAgentScope()
-              }}
-              scopeTitle={scopeTitle}
-            />
-
-            <section className="shrink-0 border-b pb-4">
-              <MetricGrid columns="four">
-                <MetricTile
-                  variant="compact"
-                  label={t("status")}
-                  value={scopeReadinessStatus}
-                  title={scopeReadinessStatus}
-                  hint={scopeHealthHint}
-                />
-                <MetricTile
-                  variant="compact"
-                  label={t("totalParamCount")}
-                  value={scopeTotalParamCount === null ? "" : String(scopeTotalParamCount)}
-                  title={
-                    scopeTotalParamCount === null
-                      ? undefined
-                      : t("paramCount", { count: scopeTotalParamCount })
-                  }
-                  hint={
-                    scopeTools.length
-                      ? t("itemsCount", { count: scopeTools.length })
-                      : undefined
-                  }
-                />
-                <MetricTile variant="compact" label={t("uptime")} value="" />
-                <MetricTile
-                  variant="compact"
-                  label={t("catalog")}
-                  value={String(scopeTools.length)}
-                  hint={
-                    scopeServices.length
-                      ? `${scopeServices.length} ${t("services").toLowerCase()}`
-                      : undefined
-                  }
-                />
-              </MetricGrid>
-            </section>
-
-            <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
-              <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-4 overflow-hidden sm:max-w-2xl">
-                <DialogHeader className="shrink-0">
-                  <DialogTitle>{t("configuration")}</DialogTitle>
-                </DialogHeader>
-                <div className="min-h-0 shrink overflow-hidden">
-                  {configLoading && !configValue ? <PageSkeleton /> : <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />}
-                </div>
-              </DialogContent>
-            </Dialog>
-
-            <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-4">
-            {scopeError ? (
-              <PageError
-                title={t("agentScopeFailedToLoad")}
-                message={scopeErrorMessage}
-                onRefresh={loadAgentScope}
-              />
-            ) : loadingScopeServices ? (
-              <PageSkeleton />
-            ) : (
-              <div className="flex flex-col gap-3">
-                {scopeServices.length ? (
-                    <div className="border-t">
-                      {scopeServices.map((service) => {
-                        const selected = service.instance_id === previewServiceId
-                        const toolCount =
-                          scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
-
-                        return (
-                          <EntityRow
-                            key={service.instance_id}
-                            variant="inline"
-                            interactive
-                            selected={selected}
-                            className="cursor-pointer"
-                            tabIndex={0}
-                            onClick={() => setPreviewServiceId(service.instance_id)}
-                            onKeyDown={(event) => {
-                              if (event.target !== event.currentTarget) return
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault()
-                                setPreviewServiceId(service.instance_id)
-                              }
-                            }}
-                          >
-                            <div className="min-w-0">
-                              <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
-                                <span className="block min-w-0 truncate font-semibold">{service.service_name}</span>
-                                <ServiceConnectionMark state={service.state} />
-                                <span className="block min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
-                                  {getServiceEndpointLabel(service)}
-                                </span>
-                              </div>
-                              <ServiceRowMeta service={service} toolCount={toolCount} />
-                            </div>
-                          </EntityRow>
-                        )
-                      })}
-                    </div>
-                ) : (
-                  <PageEmpty
-                    title={t("noServices")}
-                    description={t("noServicesDescription")}
-                    onRefresh={loadAgentScope}
-                  />
-                )}
-              </div>
-            )}
-
-            {(selectedScope.type === "store" || selectedScope.type === "agent") && (
-              <ClientConfigPanel scope={selectedScope} open={mcpHubDialogOpen} onOpenChange={setMcpHubDialogOpen} />
-            )}
-            </ScrollPane>
-
-            {selectedScope.type === "agent" ? (
-              <AddScopeServiceDialog
-                addableServiceNames={addableServiceNames}
-                agentId={activeAgentId}
-                busy={props.busy}
-                onDeclareScope={handleDeclareScope}
-                onOpenChange={setAddScopeDialogOpen}
-                open={addScopeDialogOpen}
-                scopeServiceName={scopeServiceName}
-                setScopeServiceName={setScopeServiceName}
-              />
-            ) : null}
-
-            <ScopeServiceSheet
-              busy={Boolean(props.busy)}
-              onOpenChange={(open) => {
-                if (!open) setPreviewServiceId(null)
-              }}
-              onOpenService={(service) => {
-                setPreviewServiceId(null)
-                props.onOpenService(service)
-              }}
-              onRemoveScope={
-                selectedScope.type === "agent" && activeAgentId
-                  ? (serviceName) => {
-                      setPreviewServiceId(null)
-                      props.onRemoveScope(activeAgentId, serviceName)
-                    }
-                  : undefined
-              }
-              open={Boolean(previewService)}
-              service={previewService}
-              toolCount={previewToolCount}
-            />
-          </>
-        )}
-      </PanelCard>
-    </TwoPanePage>
+    </>
   )
 }
 
-function WorkspacePreviewHeader({ loading, onRefresh }: { loading: boolean; onRefresh: () => void }) {
+function ScopeActions({
+  busy,
+  canAddService,
+  className,
+  loading,
+  onAddService,
+  onDetails,
+  onRefresh,
+}: {
+  busy: boolean
+  canAddService: boolean
+  className?: string
+  loading: boolean
+  onAddService: () => void
+  onDetails: () => void
+  onRefresh: () => void
+}) {
   const { t } = useI18n()
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2">
-      <strong className="truncate font-mono text-sm font-medium" title={t("agentWorkspaceTitle")}>
-        {t("agentWorkspaceTitle")}
-      </strong>
+    <div className={cn("flex shrink-0 gap-2", className)}>
+      {canAddService ? (
+        <Button size="sm" variant="outline" onClick={onAddService} disabled={busy}>
+          <PlusIcon data-icon="inline-start" />
+          {t("assignService")}
+        </Button>
+      ) : null}
+      <Button size="sm" variant="outline" onClick={onDetails} disabled={loading}>
+        <EyeIcon data-icon="inline-start" />
+        {t("details")}
+      </Button>
       <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
         <RefreshCwIcon data-icon="inline-start" />
         {t("refresh")}
@@ -527,102 +264,169 @@ function WorkspacePreviewHeader({ loading, onRefresh }: { loading: boolean; onRe
   )
 }
 
-function AgentWorkspaceOverview({
-  agents,
-  services,
-  storeServices,
-}: {
-  agents: AgentItem[]
-  services: ServiceInstance[]
-  storeServices: ServiceInstance[]
-}) {
-  const { t } = useI18n()
-
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <section className="border-b pb-4">
-        <SectionHeading title={t("storeScope")} titleAs="h2" className="border-b-0 pb-3" />
-        <p className="break-words font-mono text-sm text-muted-foreground">
-          {storeServices.length
-            ? storeServices.map((service) => service.service_name).join(" · ")
-            : t("noServices")}
-        </p>
-      </section>
-      <section className="border-b pb-4">
-        <SectionHeading title={t("registeredAgentScopes")} titleAs="h2" className="border-b-0 pb-3" />
-        {agents.length ? (
-          <dl className="grid gap-3 text-sm">
-            {agents.map((agent) => {
-              const agentId = getAgentId(agent)
-              const instanceIds = new Set(agent.instance_ids)
-              const scopedServices = services.filter((service) => instanceIds.has(service.instance_id))
-              return (
-                <div key={agentId || JSON.stringify(agent)} className="grid gap-1">
-                  <dt className="font-mono text-muted-foreground">{agentId || "-"}</dt>
-                  <dd className="break-words font-mono">
-                    {scopedServices.length
-                      ? scopedServices.map((service) => service.service_name).join(" · ")
-                      : t("noServices")}
-                  </dd>
-                </div>
-              )
-            })}
-          </dl>
-        ) : (
-          <PageEmpty title={t("noScopes")} description={t("noScopesDescription")} />
-        )}
-      </section>
-    </div>
-  )
-}
-
-function AgentPreviewHeader({
+function ScopeDetailPanel({
+  activeAgentId,
+  addableServiceNames,
+  addScopeDialogOpen,
   busy,
-  canAddService,
-  loading,
-  onAddService,
-  onDetails,
-  onHub,
-  onRefresh,
-  scopeTitle,
+  configDialogOpen,
+  configLoading,
+  configValue,
+  loadingScopeServices,
+  loadAgentScope,
+  onDeclareScope,
+  onOpenService,
+  onRemoveScope,
+  previewService,
+  previewServiceId,
+  previewToolCount,
+  scopeError,
+  scopeErrorMessage,
+  scopeServiceName,
+  scopeServices,
+  scopeToolCountByInstance,
+  selectedScope,
+  setAddScopeDialogOpen,
+  setConfigDialogOpen,
+  setPreviewServiceId,
+  setScopeServiceName,
 }: {
-  busy: boolean
-  canAddService: boolean
-  loading: boolean
-  onAddService: () => void
-  onDetails: () => void
-  onHub: () => void
-  onRefresh: () => void
-  scopeTitle: string
+  activeAgentId: string
+  addableServiceNames: string[]
+  addScopeDialogOpen: boolean
+  busy: string | null
+  configDialogOpen: boolean
+  configLoading: boolean
+  configValue: unknown
+  loadingScopeServices: boolean
+  loadAgentScope: () => void
+  onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
+  onOpenService: (service: ServiceInstance) => void
+  onRemoveScope: (agentId: string, serviceName: string) => void
+  previewService: ServiceInstance | null
+  previewServiceId: string | null
+  previewToolCount: number
+  scopeError: unknown
+  scopeErrorMessage: string
+  scopeServiceName: string
+  scopeServices: ServiceInstance[]
+  scopeToolCountByInstance: Map<string, number>
+  selectedScope: ScopeView
+  setAddScopeDialogOpen: (open: boolean) => void
+  setConfigDialogOpen: (open: boolean) => void
+  setPreviewServiceId: (id: string | null) => void
+  setScopeServiceName: (name: string) => void
 }) {
   const { t } = useI18n()
 
   return (
-    <div className="flex flex-nowrap items-center justify-between gap-3 border-b pb-2">
-      <strong className="min-w-0 flex-1 truncate font-mono text-sm font-medium" title={scopeTitle}>
-        {scopeTitle}
-      </strong>
-      <div className="flex shrink-0 gap-2">
-        {canAddService ? (
-          <Button size="sm" variant="outline" onClick={onAddService} disabled={busy}>
-            <PlusIcon data-icon="inline-start" />
-            {t("assignService")}
-          </Button>
-        ) : null}
-        <Button size="sm" variant="outline" onClick={onHub} disabled={loading}>
-          <WaypointsIcon data-icon="inline-start" />
-          hub
-        </Button>
-        <Button size="sm" variant="outline" onClick={onDetails} disabled={loading}>
-          <EyeIcon data-icon="inline-start" />
-          {t("details")}
-        </Button>
-        <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-          <RefreshCwIcon data-icon="inline-start" />
-          {t("refresh")}
-        </Button>
-      </div>
-    </div>
+    <>
+      <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+        <DialogContent className="flex max-h-[min(85vh,720px)] flex-col gap-4 overflow-hidden sm:max-w-2xl">
+          <DialogHeader className="shrink-0">
+            <DialogTitle>{t("configuration")}</DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 shrink overflow-hidden">
+            {configLoading && !configValue ? <PageSkeleton /> : <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-4">
+        {scopeError ? (
+          <PageError
+            title={t("agentScopeFailedToLoad")}
+            message={scopeErrorMessage}
+            onRefresh={loadAgentScope}
+          />
+        ) : loadingScopeServices ? (
+          <PageSkeleton />
+        ) : (
+          <div className="flex flex-col gap-3">
+            {scopeServices.length ? (
+              <div className="border-t">
+                {scopeServices.map((service) => {
+                  const selected = service.instance_id === previewServiceId
+                  const toolCount =
+                    scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
+
+                  return (
+                    <EntityRow
+                      key={service.instance_id}
+                      variant="inline"
+                      interactive
+                      selected={selected}
+                      className="cursor-pointer"
+                      tabIndex={0}
+                      onClick={() => setPreviewServiceId(service.instance_id)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault()
+                          setPreviewServiceId(service.instance_id)
+                        }
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
+                          <span className="block min-w-0 truncate font-semibold">{service.service_name}</span>
+                          <ServiceConnectionMark state={service.state} />
+                          <span className="block min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
+                            {getServiceEndpointLabel(service)}
+                          </span>
+                        </div>
+                        <ServiceRowMeta service={service} toolCount={toolCount} />
+                      </div>
+                    </EntityRow>
+                  )
+                })}
+              </div>
+            ) : (
+              <PageEmpty
+                title={t("noServices")}
+                description={t("noServicesDescription")}
+                onRefresh={loadAgentScope}
+              />
+            )}
+          </div>
+        )}
+      </ScrollPane>
+
+      {selectedScope.type === "agent" ? (
+        <AddScopeServiceDialog
+          addableServiceNames={addableServiceNames}
+          agentId={activeAgentId}
+          busy={busy}
+          onDeclareScope={onDeclareScope}
+          onOpenChange={setAddScopeDialogOpen}
+          open={addScopeDialogOpen}
+          scopeServiceName={scopeServiceName}
+          setScopeServiceName={setScopeServiceName}
+        />
+      ) : null}
+
+      <ScopeServiceSheet
+        busy={Boolean(busy)}
+        onOpenChange={(open) => {
+          if (!open) setPreviewServiceId(null)
+        }}
+        onOpenService={(service) => {
+          setPreviewServiceId(null)
+          onOpenService(service)
+        }}
+        onRemoveScope={
+          selectedScope.type === "agent" && activeAgentId
+            ? (serviceName) => {
+                setPreviewServiceId(null)
+                onRemoveScope(activeAgentId, serviceName)
+              }
+            : undefined
+        }
+        open={Boolean(previewService)}
+        service={previewService}
+        toolCount={previewToolCount}
+      />
+    </>
   )
 }
 

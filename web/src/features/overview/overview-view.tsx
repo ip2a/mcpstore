@@ -1,25 +1,21 @@
-import { useState, type ComponentProps, type ReactNode } from "react"
+import { useState, type ComponentProps } from "react"
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Line,
   LineChart,
-  PolarAngleAxis,
-  RadialBar,
-  RadialBarChart,
   XAxis,
   YAxis,
 } from "recharts"
-import { InfoIcon, RefreshCwIcon } from "lucide-react"
+import { RefreshCwIcon } from "lucide-react"
 
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { OverviewStatCards } from "@/features/overview/overview-stat-cards"
 import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardAction,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -30,21 +26,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n-context"
-
-// TODO(api): every figure below is sample data — swap the datasets, card
-// values and gauge for the stats API once the backend exposes usage metrics.
-const MOCK = {
-  hitRate: 52.41,
-  callsTotal: "2.1K",
-  callsOk: "1.9K",
-  callsErr: "145",
-  tokensTotal: "282M",
-  tokensPrompt: "280M",
-  valueTotal: "$790.59",
-  valueCacheRw: "$73.53",
-}
 
 type Range = "10m" | "1h" | "1d" | "1w" | "1mo" | "custom"
 
@@ -132,9 +114,6 @@ export function OverviewView() {
   const tokensConfig = {
     tokens: { label: t("homeTokens"), color: "var(--chart-1)" },
   } satisfies ChartConfig
-  const hitConfig = {
-    hit: { label: t("homeCacheHitRate"), color: "var(--chart-2)" },
-  } satisfies ChartConfig
 
   return (
     <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
@@ -185,58 +164,7 @@ export function OverviewView() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label={t("homeCacheHitRate")} hint={t("hintCacheHitRate")} footnote="">
-          <CardContent className="w-fit px-4">
-            <div className="relative">
-              <ChartContainer config={hitConfig} className="size-24">
-                <RadialBarChart
-                  data={[{ key: "hit", value: MOCK.hitRate }]}
-                  startAngle={90}
-                  endAngle={-270}
-                  innerRadius={31}
-                  outerRadius={40}
-                >
-                  <PolarAngleAxis type="number" domain={[0, 100]} tick={false} tickLine={false} axisLine={false} />
-                  <RadialBar
-                    dataKey="value"
-                    background={{ fill: "var(--muted)" }}
-                    cornerRadius={999}
-                    fill="var(--color-hit)"
-                  />
-                </RadialBarChart>
-              </ChartContainer>
-              <div className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums">
-                {MOCK.hitRate.toFixed(2)}%
-              </div>
-            </div>
-          </CardContent>
-        </StatCard>
-
-        <StatCard
-          label={t("homeLlmCalls")}
-          hint={t("hintLlmCalls")}
-          footnote={t("homeCallsDetail", { ok: MOCK.callsOk, err: MOCK.callsErr })}
-        >
-          <ValueBody value={MOCK.callsTotal} />
-        </StatCard>
-
-        <StatCard
-          label={t("homeTokens")}
-          hint={t("hintTokens")}
-          footnote={t("homePromptTokens", { count: MOCK.tokensPrompt })}
-        >
-          <ValueBody value={MOCK.tokensTotal} />
-        </StatCard>
-
-        <StatCard
-          label={t("homeValueEstimate")}
-          hint={t("hintValueEstimate")}
-          footnote={t("homeCacheRw", { amount: MOCK.valueCacheRw })}
-        >
-          <ValueBody value={MOCK.valueTotal} />
-        </StatCard>
-      </div>
+      <OverviewStatCards />
 
       <Card>
         <CardHeader>
@@ -262,47 +190,5 @@ export function OverviewView() {
         </CardContent>
       </Card>
     </ScrollPane>
-  )
-}
-
-function StatCard({
-  footnote,
-  hint,
-  label,
-  children,
-}: {
-  footnote: string
-  hint: string
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <Card className="gap-3 py-4">
-      <CardHeader className="px-4">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-        <CardAction>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" aria-label={hint}>
-                <InfoIcon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{hint}</TooltipContent>
-          </Tooltip>
-        </CardAction>
-      </CardHeader>
-      {children}
-      {footnote ? (
-        <CardFooter className="px-4 text-xs text-muted-foreground">{footnote}</CardFooter>
-      ) : null}
-    </Card>
-  )
-}
-
-function ValueBody({ value }: { value: string }) {
-  return (
-    <CardContent className="px-4">
-      <div className="text-2xl font-semibold tabular-nums">{value}</div>
-    </CardContent>
   )
 }
