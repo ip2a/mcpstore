@@ -63,10 +63,14 @@
           "default": "string",
           "description": "Command field representation: 'string' or 'array'"
         },
-        "validate_type_field": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enforce consistency between 'type' field and entry structure"
+        "env_key": {
+          "type": "string",
+          "description": "Key holding the environment map, when it is not 'env'"
+        },
+        "type_map": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["command", "url"] },
+          "description": "When present, an entry's 'type' must be one of these values and the field it maps to must be set; a type value outside the map is rejected"
         },
         "reject_disabled": {
           "type": "boolean",

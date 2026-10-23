@@ -260,7 +260,12 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
 
             // Per-client mounts: derive GatewayOptions from wired entry.
             for entry in &wired_state.entries {
-                let scope = entry.effective_scope();
+                let scope = entry.effective_scope().map_err(|error| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("failed to resolve scope for {}: {error}", entry.client_id),
+                    )
+                })?;
                 let expose = entry.effective_expose();
                 let options = crate::gateway::GatewayOptions {
                     scope,
@@ -274,8 +279,8 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
                     expose_search_tools: expose.search,
                     ..Default::default()
                 };
-                let path = format!("/mcp/{}", mcpstore::agents::get(entry.client).id());
-                let caller = Some(mcpstore::agents::get(entry.client).id().to_string());
+                let path = format!("/mcp/{}", entry.client_id);
+                let caller = Some(entry.client_id.clone());
                 let server = crate::gateway::GatewayServer::from_store(
                     Arc::clone(state.store()),
                     &options,

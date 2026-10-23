@@ -351,11 +351,8 @@ pub(crate) fn refresh_wired_urls(state: &ApiState) {
         return;
     };
     let port = app_config.gateway.port;
-    mcpstore::client_wire::refresh_wired_urls(&wired_state_path(state), |client| {
-        format!(
-            "http://127.0.0.1:{port}/mcp/{}",
-            mcpstore::agents::get(client).id()
-        )
+    mcpstore::client_wire::refresh_wired_urls(&wired_state_path(state), |client_id| {
+        format!("http://127.0.0.1:{port}/mcp/{client_id}")
     });
 }
 
@@ -378,7 +375,7 @@ pub(super) struct GatewayWireQuery {
     expose_search: Option<bool>,
 }
 
-fn default_gateway_url(state: &ApiState, client: ClientKind) -> Result<String, ApiError> {
+fn default_gateway_url(state: &ApiState, client_id: &str) -> Result<String, ApiError> {
     let app_config = state
         .store
         .config_manager()
@@ -389,7 +386,7 @@ fn default_gateway_url(state: &ApiState, client: ClientKind) -> Result<String, A
     Ok(format!(
         "http://127.0.0.1:{}/mcp/{}",
         app_config.gateway.port,
-        mcpstore::agents::get(client).id()
+        client_id
     ))
 }
 
@@ -403,7 +400,8 @@ pub(super) async fn gateway_wired(State(state): State<Arc<ApiState>>) -> ApiResu
     for entry in &wired.entries {
         let mut value = serde_json::to_value(entry)
             .map_err(|error| ApiError::invalid_request(error.to_string()))?;
-        value["scope"] = serde_json::to_value(entry.effective_scope())
+        let scope = entry.effective_scope().map_err(ApiError::from_store)?;
+        value["scope"] = serde_json::to_value(scope)
             .map_err(|error| ApiError::invalid_request(error.to_string()))?;
         value["expose"] = serde_json::to_value(entry.effective_expose())
             .map_err(|error| ApiError::invalid_request(error.to_string()))?;
@@ -420,12 +418,24 @@ pub(super) async fn gateway_wire(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayWireQuery>,
 ) -> ApiResult {
-    let client = parse_client_kind(&query.client)?;
+    let setup = mcpstore::agents::by_id(&query.client).ok_or_else(|| {
+        ApiError::invalid_parameter(
+            format!(
+                "unknown client plugin: {}; installed: {}",
+                query.client,
+                mcpstore::agents::all()
+                    .iter()
+                    .map(|setup| setup.id())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Some("client"),
+        )
+    })?;
     let path = match query.path {
         Some(path) => path,
         None => {
             // No explicit path: use the client's own config file from discovery.
-            let setup = mcpstore::agents::get(client);
             match mcpstore::agents::detect(setup) {
                 Some(detection)
                     if detection.by == mcpstore::agents::DetectedBy::ConfigFile =>
@@ -443,22 +453,19 @@ pub(super) async fn gateway_wire(
     };
     let url = match query.url {
         Some(url) => url,
-        None => default_gateway_url(&state, client)?,
+        None => default_gateway_url(&state, setup.id())?,
     };
 
     // Parse scope: explicit "store"/"agent" or None (will derive from client_id).
     let scope = match query.scope.as_deref() {
         Some("store") => Some(ScopeRef::Store),
         Some("agent") => {
-            let agent_id = query
-                .agent_id
-                .as_deref()
-                .unwrap_or_else(|| mcpstore::agents::get(client).id());
+            let agent_id = query.agent_id.as_deref().unwrap_or_else(|| setup.id());
             Some(ScopeRef::Agent {
                 agent_id: agent_id.to_string(),
             })
         }
-        None => None, // Will derive Agent { agent_id: client.id() } in effective_scope()
+        None => None, // Will derive Agent { agent_id: client_id } in effective_scope()
         Some(other) => {
             return Err(ApiError::invalid_request(format!(
                 "Invalid scope '{other}'; must be 'store' or 'agent'"
@@ -500,11 +507,11 @@ pub(super) async fn gateway_wire(
             .unwrap_or_else(|| std::path::PathBuf::from("client-agents.json"))
     };
     let _bound_agent_id =
-        mcpstore::client_agent::ensure_client_agent_binding(&agent_registry_path, client)
+        mcpstore::client_agent::ensure_client_agent_binding(&agent_registry_path, setup.id())
             .map_err(ApiError::from_store)?;
 
     let entry = mcpstore::client_wire::wire_gateway(
-        client,
+        setup.id(),
         std::path::Path::new(&path),
         &url,
         &wired_state_path(&state),
@@ -522,9 +529,8 @@ pub(super) async fn gateway_unwire(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayWireQuery>,
 ) -> ApiResult {
-    let client = parse_client_kind(&query.client)?;
     let entry =
-        mcpstore::client_wire::unwire_gateway(client, &wired_state_path(&state))
+        mcpstore::client_wire::unwire_gateway(&query.client, &wired_state_path(&state))
             .map_err(ApiError::from_store)?;
     Ok(success(
         "客户端已断开网关",
@@ -536,8 +542,8 @@ pub(super) async fn client_config_import(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<ClientConfigImportRequest>,
 ) -> ApiResult {
-    let client = parse_client_kind(&request.client)?;
-    let inspection = inspect_client_config(client, &request.path).map_err(ApiError::from_store)?;
+    let inspection =
+        inspect_client_config(&request.client, &request.path).map_err(ApiError::from_store)?;
     let services =
         import_selected_services(&inspection, &request.names).map_err(ApiError::from_store)?;
     for (name, _) in &services {
@@ -577,7 +583,7 @@ pub(super) async fn client_config_import(
             };
             let agent_id = mcpstore::client_agent::ensure_client_agent_binding(
                 &agent_registry_path,
-                client,
+                &request.client,
             )
             .map_err(ApiError::from_store)?;
             ScopeRef::Agent { agent_id }
@@ -628,7 +634,6 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
     let clients = mcpstore::agents::all()
         .iter()
         .map(|setup| {
-            let kind = setup.kind();
             let detection = mcpstore::agents::detect(*setup);
             let detected_by = detection.as_ref().map(|detection| {
                 serde_json::to_value(detection.by).unwrap_or(Value::Null)
@@ -645,7 +650,7 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
                     .unwrap_or_default(),
             };
             let inspection = if config_exists {
-                inspect_client_config(kind, &detection.as_ref().unwrap().path).ok()
+                inspect_client_config(setup.id(), &detection.as_ref().unwrap().path).ok()
             } else {
                 None
             };
@@ -659,9 +664,11 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
             let unsupported_fields = inspection
                 .map(|inspection| inspection.unsupported_fields)
                 .unwrap_or_default();
-            let entry = wired.entries.iter().find(|entry| entry.client == kind);
+            let entry = wired
+                .entries
+                .iter()
+                .find(|entry| entry.client_id == setup.id());
             json!({
-                "kind": kind,
                 "id": setup.id(),
                 "label": setup.label(),
                 "detected_by": detected_by,
@@ -678,18 +685,4 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
         "客户端清单获取成功",
         json!({ "clients": clients }),
     ))
-}
-
-fn parse_client_kind(value: &str) -> std::result::Result<ClientKind, ApiError> {
-    match value {
-        "codex" => Ok(ClientKind::Codex),
-        "claude" | "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
-        "opencode" | "open-code" => Ok(ClientKind::OpenCode),
-        "cursor" => Ok(ClientKind::Cursor),
-        "claude_desktop" | "claude-desktop" => Ok(ClientKind::ClaudeDesktop),
-        _ => Err(ApiError::invalid_parameter(
-            "client 必须是 codex、claude、opencode、cursor 或 claude-desktop",
-            Some("client"),
-        )),
-    }
 }

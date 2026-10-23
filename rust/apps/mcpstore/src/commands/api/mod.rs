@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 use mcpstore::{
-    client_config::{import_selected_services, inspect_client_config, ClientKind},
+    client_config::{import_selected_services, inspect_client_config},
     config::ScopeDescriptor,
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,

@@ -4,7 +4,6 @@
 //! This mapping is persisted so that the agent scope remains stable across daemon restarts.
 //! The agent itself doesn't need explicit registration — its first service instance creates it.
 
-use crate::client_config::ClientKind;
 use crate::{Error, FailureCode, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -60,19 +59,15 @@ pub fn save_client_agent_registry(path: &Path, registry: &ClientAgentRegistry) -
 }
 
 /// Get or assign an agent_id for a client. If the client has no binding yet, creates one
-/// with agent_id = client.id() and persists it.
-pub fn ensure_client_agent_binding(
-    registry_path: &Path,
-    client: ClientKind,
-) -> Result<String> {
+/// with agent_id = client_id and persists it.
+pub fn ensure_client_agent_binding(registry_path: &Path, client_id: &str) -> Result<String> {
     let mut registry = load_client_agent_registry(registry_path)?;
-    let client_key = crate::agents::get(client).id().to_string();
 
-    if let Some(binding) = registry.bindings.get(&client_key) {
+    if let Some(binding) = registry.bindings.get(client_id) {
         return Ok(binding.agent_id.clone());
     }
 
-    let agent_id = client_key.clone();
+    let agent_id = client_id.to_string();
     let binding = ClientAgentBinding {
         agent_id: agent_id.clone(),
         created_at_unix_ms: std::time::SystemTime::now()
@@ -80,7 +75,7 @@ pub fn ensure_client_agent_binding(
             .unwrap()
             .as_millis() as u64,
     };
-    registry.bindings.insert(client_key, binding);
+    registry.bindings.insert(client_id.to_string(), binding);
     save_client_agent_registry(registry_path, &registry)?;
     Ok(agent_id)
 }
@@ -92,14 +87,14 @@ mod tests {
     #[test]
     fn ensure_binding_creates_and_persists_on_first_call() {
         let path = std::env::temp_dir().join(format!("mcpstore-agent-{}", std::process::id()));
-        let agent_id = ensure_client_agent_binding(&path, ClientKind::ClaudeCode).unwrap();
+        let agent_id = ensure_client_agent_binding(&path, "claude").unwrap();
         assert_eq!(agent_id, "claude");
 
         let registry = load_client_agent_registry(&path).unwrap();
         assert_eq!(registry.bindings.len(), 1);
         assert_eq!(registry.bindings["claude"].agent_id, "claude");
 
-        let again = ensure_client_agent_binding(&path, ClientKind::ClaudeCode).unwrap();
+        let again = ensure_client_agent_binding(&path, "claude").unwrap();
         assert_eq!(again, "claude");
         let _ = fs::remove_file(path);
     }

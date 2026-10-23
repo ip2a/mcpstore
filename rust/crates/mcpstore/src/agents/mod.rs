@@ -1,12 +1,10 @@
 //! Per coding-client setup: where its MCP configuration lives, what shape its
-//! gateway entry takes, and how to wire and unwire it. One module per client;
-//! `client_config` and `client_wire` dispatch through [`all`].
+//! gateway entry takes, and how to wire and unwire it. Every client is a
+//! declarative manifest (`plugins/<id>/plugin.toml`) driven by
+//! [`manifest_setup::ManifestSetup`]; `client_config` and `client_wire`
+//! dispatch through [`all`] and [`by_id`].
 
-pub mod claude;
-pub mod claude_desktop;
-pub mod codex;
-pub mod cursor;
-pub mod opencode;
+pub mod manifest_setup;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,16 +12,10 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::client_config::{
-    optional_string, string_array, string_map, ClientKind, ConfigFormat,
-};
-use crate::client_wire::WiredEntry;
 use crate::{Error, FailureCode, Result, ServerConfig};
 
 /// Everything the store needs to set up one coding client.
 pub trait ClientSetup: Sync {
-    /// Registry key spelled as [`ClientKind`].
-    fn kind(&self) -> ClientKind;
     /// Stable id: the gateway URL segment (`/mcp/<id>`) and UI key.
     fn id(&self) -> &'static str;
     /// Human name shown in the UI.
@@ -42,17 +34,31 @@ pub trait ClientSetup: Sync {
     /// Convert one of the client's MCP entries into a store service config.
     fn import_service(&self, name: &str, value: &Value) -> Result<ServerConfig>;
     // ---- gateway wiring ----
-    /// Insert the gateway entry into the client's document.
+    /// Insert the gateway entry into the client's document. JSON documents
+    /// write a JSON object; TOML documents append a dotted-header table.
     fn wire_entry(&self, path: &Path, url: &str) -> Result<()> {
-        crate::client_wire::wire_json_entry(self, path, url)
+        match self.format() {
+            ConfigFormat::Json => crate::client_wire::wire_json_entry(self, path, url),
+            ConfigFormat::Toml => crate::client_wire::wire_toml_entry(self, path, url),
+        }
     }
     /// Remove the recorded gateway entry; refuse a hand-edited one.
-    fn unwire_entry(&self, entry: &WiredEntry) -> Result<()> {
-        crate::client_wire::unwire_json_entry(self, entry)
+    fn unwire_entry(&self, entry: &crate::client_wire::WiredEntry) -> Result<()> {
+        match self.format() {
+            ConfigFormat::Json => crate::client_wire::unwire_json_entry(self, entry),
+            ConfigFormat::Toml => crate::client_wire::unwire_toml_entry(self, entry),
+        }
     }
     /// Point the recorded gateway entry at a new URL; refuse a hand-edited one.
-    fn refresh_entry_url(&self, entry: &WiredEntry, url: &str) -> Result<()> {
-        crate::client_wire::refresh_json_entry(self, entry, url)
+    fn refresh_entry_url(
+        &self,
+        entry: &crate::client_wire::WiredEntry,
+        url: &str,
+    ) -> Result<()> {
+        match self.format() {
+            ConfigFormat::Json => crate::client_wire::refresh_json_entry(self, entry, url),
+            ConfigFormat::Toml => crate::client_wire::refresh_toml_entry(self, entry, url),
+        }
     }
     // ---- discovery ----
     /// Config file candidates in priority order (`~` expanded).
@@ -65,27 +71,36 @@ pub trait ClientSetup: Sync {
     }
 }
 
-/// Every client the store knows, in UI order.
-pub fn all() -> &'static [&'static dyn ClientSetup] {
-    const SETUPS: &[&dyn ClientSetup] = &[
-        &claude::Claude,
-        &codex::Codex,
-        &opencode::OpenCode,
-        &cursor::Cursor,
-        &claude_desktop::ClaudeDesktop,
-    ];
-    SETUPS
-}
+pub use crate::client_config::ConfigFormat;
 
-/// The setup for one client; the match is exhaustive over [`ClientKind`].
-pub fn get(kind: ClientKind) -> &'static dyn ClientSetup {
-    match kind {
-        ClientKind::ClaudeCode => &claude::Claude,
-        ClientKind::Codex => &codex::Codex,
-        ClientKind::OpenCode => &opencode::OpenCode,
-        ClientKind::Cursor => &cursor::Cursor,
-        ClientKind::ClaudeDesktop => &claude_desktop::ClaudeDesktop,
-    }
+/// Every client the store knows, in UI order. Parsed once, leaked for the
+/// process lifetime; a built-in manifest that fails to load is a build bug
+/// and panics rather than shipping a silently missing client.
+pub fn all() -> &'static [&'static dyn ClientSetup] {
+    static SETUPS: std::sync::LazyLock<&'static [&'static dyn ClientSetup]> =
+        std::sync::LazyLock::new(|| {
+            const BUILTINS: &[(&str, &str)] = &[
+                ("claude", include_str!("../../../../../plugins/claude/plugin.toml")),
+                ("codex", include_str!("../../../../../plugins/codex/plugin.toml")),
+                ("opencode", include_str!("../../../../../plugins/opencode/plugin.toml")),
+                ("cursor", include_str!("../../../../../plugins/cursor/plugin.toml")),
+                ("pi", include_str!("../../../../../plugins/pi/plugin.toml")),
+                ("omp", include_str!("../../../../../plugins/omp/plugin.toml")),
+            ];
+            let setups: Vec<&'static dyn ClientSetup> = BUILTINS
+                .iter()
+                .map(|(id, source)| match manifest_setup::ManifestSetup::from_toml(source) {
+                    Ok(setup) => {
+                        let leaked: &'static manifest_setup::ManifestSetup =
+                            Box::leak(Box::new(setup));
+                        leaked as &'static dyn ClientSetup
+                    }
+                    Err(error) => panic!("built-in client plugin {id} failed to load: {error}"),
+                })
+                .collect();
+            Box::leak(setups.into_boxed_slice())
+        });
+    *SETUPS
 }
 
 /// The setup whose [`ClientSetup::id`] is `id`.
@@ -161,8 +176,8 @@ fn find_command(commands: &[&str]) -> Option<PathBuf> {
     if commands.is_empty() {
         return None;
     }
-    let mut dirs: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-        .collect();
+    let mut dirs: Vec<PathBuf> =
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
     if let Some(home) = home_dir() {
         for extra in [".local/bin", ".bun/bin"] {
             let dir = home.join(extra);
@@ -182,12 +197,9 @@ fn find_command(commands: &[&str]) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-// ---- shared import helpers (used by the per-client `import_service`) ----
+// ---- shared import helpers (used by `ManifestSetup::import_service`) ----
 
-pub(crate) fn as_object<'a>(
-    name: &str,
-    value: &'a Value,
-) -> Result<&'a Map<String, Value>> {
+pub(crate) fn as_object<'a>(name: &str, value: &'a Value) -> Result<&'a Map<String, Value>> {
     value.as_object().ok_or_else(|| {
         Error::new(
             FailureCode::Internal,
@@ -218,21 +230,6 @@ pub(crate) fn reject_unsupported(
     ))
 }
 
-/// The field layout every client but OpenCode uses: a string command, an
-/// args array, and an `env` map.
-pub(crate) type StandardFields = (Option<String>, Vec<String>, HashMap<String, String>);
-
-pub(crate) fn standard_fields(
-    name: &str,
-    object: &Map<String, Value>,
-) -> Result<StandardFields> {
-    Ok((
-        optional_string(object.get("command"), name, "command")?,
-        string_array(object.get("args"), name, "args")?,
-        string_map(object.get("env"), name, "env")?,
-    ))
-}
-
 /// Build the store service config after per-client field extraction: exactly
 /// one of command and url, and the transport inferred from which is present.
 pub(crate) fn build_service(
@@ -242,7 +239,14 @@ pub(crate) fn build_service(
     args: Vec<String>,
     env: HashMap<String, String>,
 ) -> Result<ServerConfig> {
-    let url = optional_string(object.get("url"), name, "url")?;
+    let url = object
+        .get("url")
+        .map(|value| {
+            value.as_str().map(str::to_owned).ok_or_else(|| {
+                Error::new(FailureCode::Internal, format!("Service {name} url must be a string"))
+            })
+        })
+        .transpose()?;
     if command.is_some() == url.is_some() {
         return Err(Error::new(
             FailureCode::Internal,
@@ -254,7 +258,7 @@ pub(crate) fn build_service(
         command,
         args,
         env,
-        headers: string_map(object.get("headers"), name, "headers")?,
+        headers: crate::client_config::string_map(object.get("headers"), name, "headers")?,
         transport: Some(if object.contains_key("url") {
             "streamable-http".into()
         } else {
@@ -270,12 +274,12 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn registry_covers_every_client_kind() {
-        for setup in all() {
-            assert_eq!(get(setup.kind()).id(), setup.id());
-        }
-        assert_eq!(all().len(), 5);
+    fn registry_lists_every_builtin_in_ui_order() {
+        let ids: Vec<_> = all().iter().map(|setup| setup.id()).collect();
+        assert_eq!(ids, ["claude", "codex", "opencode", "cursor", "pi", "omp"]);
         assert_eq!(by_id("claude").expect("claude").label(), "Claude Code");
+        assert_eq!(by_id("pi").expect("pi").label(), "Pi");
+        assert_eq!(by_id("omp").expect("omp").label(), "Oh My Pi");
         assert!(by_id("unknown").is_none());
     }
 
@@ -295,9 +299,6 @@ mod tests {
     }
 
     impl ClientSetup for Probe {
-        fn kind(&self) -> ClientKind {
-            ClientKind::Cursor
-        }
         fn id(&self) -> &'static str {
             "probe"
         }

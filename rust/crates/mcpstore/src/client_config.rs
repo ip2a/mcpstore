@@ -13,16 +13,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ClientKind {
-    Codex,
-    ClaudeCode,
-    OpenCode,
-    Cursor,
-    ClaudeDesktop,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ConfigFormat {
     Json,
@@ -31,7 +21,7 @@ pub enum ConfigFormat {
 
 #[derive(Debug, Clone)]
 pub struct ClientConfigInspection {
-    pub client: ClientKind,
+    pub client_id: String,
     pub path: PathBuf,
     pub format: ConfigFormat,
     pub content_hash: String,
@@ -78,45 +68,15 @@ pub fn import_selected_services(
                 })?;
             Ok((
                 name.clone(),
-                crate::agents::get(inspection.client).import_service(name, &service.config)?,
+                crate::agents::by_id(&inspection.client_id)
+                    .ok_or_else(|| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("Unknown client plugin: {}", inspection.client_id),
+                        )
+                    })?
+                    .import_service(name, &service.config)?,
             ))
-        })
-        .collect()
-}
-
-pub(crate) fn optional_string(value: Option<&Value>, name: &str, field: &str) -> Result<Option<String>> {
-    value
-        .map(|value| {
-            value.as_str().map(str::to_owned).ok_or_else(|| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} {field} must be a string"),
-                )
-            })
-        })
-        .transpose()
-}
-
-pub(crate) fn string_array(value: Option<&Value>, name: &str, field: &str) -> Result<Vec<String>> {
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    value
-        .as_array()
-        .ok_or_else(|| {
-            Error::new(
-                FailureCode::Internal,
-                format!("Service {name} {field} must be an array of strings"),
-            )
-        })?
-        .iter()
-        .map(|value| {
-            value.as_str().map(str::to_owned).ok_or_else(|| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} {field} must be an array of strings"),
-                )
-            })
         })
         .collect()
 }
@@ -149,10 +109,15 @@ pub(crate) fn string_map(value: Option<&Value>, name: &str, field: &str) -> Resu
 }
 
 pub fn inspect_client_config(
-    client: ClientKind,
+    client_id: &str,
     path: impl AsRef<Path>,
 ) -> Result<ClientConfigInspection> {
-    let setup = crate::agents::get(client);
+    let setup = crate::agents::by_id(client_id).ok_or_else(|| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Unknown client plugin: {client_id}"),
+        )
+    })?;
     let path = path.as_ref().to_path_buf();
     let bytes = fs::read(&path).map_err(|error| {
         Error::new(
@@ -195,7 +160,7 @@ pub fn inspect_client_config(
         .collect();
     let unsupported_fields = unsupported_fields(key, setup.supported_fields(), &document);
     Ok(ClientConfigInspection {
-        client,
+        client_id: client_id.to_string(),
         path,
         format,
         content_hash: content_hash(&bytes),
@@ -260,7 +225,7 @@ mod tests {
     #[test]
     fn inspects_claude_without_dropping_unknown_fields() {
         let path = sample("claude");
-        let result = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let result = inspect_client_config("claude", &path).unwrap();
         assert_eq!(result.services.len(), 1);
         assert_eq!(result.document["other"], 1);
         assert_eq!(result.unsupported_fields, vec!["demo.custom"]);
@@ -274,7 +239,7 @@ mod tests {
             "[mcp_servers.demo]\ncommand = 'node'\nargs = ['server.js']\n",
         )
         .unwrap();
-        let result = inspect_client_config(ClientKind::Codex, &path).unwrap();
+        let result = inspect_client_config("codex", &path).unwrap();
         assert_eq!(result.services[0].name, "demo");
         assert_eq!(result.format, ConfigFormat::Toml);
         let _ = fs::remove_file(path);
@@ -287,22 +252,26 @@ mod tests {
             "{\"mcp\":{\"demo\":{\"type\":\"local\",\"command\":[\"node\",\"server.js\"]}}}",
         )
         .unwrap();
-        let result = inspect_client_config(ClientKind::OpenCode, &path).unwrap();
+        let result = inspect_client_config("opencode", &path).unwrap();
         assert_eq!(result.services[0].config["type"], "local");
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn inspects_cursor_and_claude_desktop_json() {
-        for client in [ClientKind::Cursor, ClientKind::ClaudeDesktop] {
-            let path = sample(match client {
-                ClientKind::Cursor => "cursor",
-                _ => "desktop",
-            });
+    fn inspects_cursor_and_omp_json() {
+        for client in ["cursor", "omp"] {
+            let path = sample(client);
             let result = inspect_client_config(client, &path).unwrap();
             assert!(result.services.iter().any(|service| service.name == "demo"));
             let _ = fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn unknown_client_id_is_an_error() {
+        let path = sample("unknown");
+        assert!(inspect_client_config("not-a-plugin", &path).is_err());
+        let _ = fs::remove_file(path);
     }
 
     #[test]
@@ -313,7 +282,7 @@ mod tests {
             r#"{"mcpServers":{"stdio":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"}},"remote":{"url":"http://127.0.0.1/mcp","headers":{"Authorization":"Bearer secret"}}}}"#,
         )
         .unwrap();
-        let inspection = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let inspection = inspect_client_config("claude", &path).unwrap();
         let imported = import_selected_services(&inspection, &["stdio".into()]).unwrap();
         assert_eq!(imported.len(), 1);
         assert_eq!(imported[0].0, "stdio");
@@ -333,7 +302,7 @@ mod tests {
             r#"{"mcp":{"local":{"type":"local","command":["node","server.js"],"environment":{"TOKEN":"secret"}},"lossy":{"type":"remote","url":"http://127.0.0.1/mcp","timeout":1000}}}"#,
         )
         .unwrap();
-        let inspection = inspect_client_config(ClientKind::OpenCode, &path).unwrap();
+        let inspection = inspect_client_config("opencode", &path).unwrap();
         let imported = import_selected_services(&inspection, &["local".into()]).unwrap();
         assert_eq!(imported[0].1.command.as_deref(), Some("node"));
         assert_eq!(imported[0].1.args, ["server.js"]);
@@ -347,7 +316,7 @@ mod tests {
     fn accepts_config_without_mcp_section() {
         let path = sample("bad");
         fs::write(&path, "{\"other\":1}").unwrap();
-        let result = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let result = inspect_client_config("claude", &path).unwrap();
         assert!(result.services.is_empty());
         let _ = fs::remove_file(path);
     }

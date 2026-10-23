@@ -7,7 +7,13 @@ description = "Pi coding agent with native MCP support (0.99+)"
 [config]
 format = "json"
 servers_key = "mcpServers"
-supported_fields = ["command", "args", "env", "url", "headers", "cwd", "oauth", "type", "exposure", "toolExposure", "enabled", "timeout"]
+supported_fields = ["type", "command", "args", "env", "url", "headers", "enabled"]
+reject_disabled = true
+
+[config.type_map]
+stdio = "command"
+http = "url"
+"streamable-http" = "url"
 
 [gateway_entry]
 url_key = "url"

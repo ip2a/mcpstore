@@ -172,7 +172,7 @@ function WiredClientsCard({
         <p className="text-sm text-muted-foreground">{t("gatewayWiredEmpty")}</p>
       ) : (
         wired.map((entry) => (
-          <WiredClientRow key={entry.client} entry={entry} labelById={labelById} />
+          <WiredClientRow key={entry.client_id} entry={entry} labelById={labelById} />
         ))
       )}
     </PanelCard>
@@ -194,7 +194,7 @@ function WiredClientRow({
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
       <CableIcon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate text-sm font-medium">
-        {labelById.get(entry.client) ?? entry.client}
+        {labelById.get(entry.client_id) ?? entry.client_id}
       </span>
       <Badge variant="secondary" className="shrink-0 font-mono text-xs">
         {entry.scope.type === "agent" ? `Agent:${entry.scope.agent_id}` : t("gatewayScopeStore")}

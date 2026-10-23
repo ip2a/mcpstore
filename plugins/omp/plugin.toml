@@ -7,7 +7,10 @@ description = "Oh My Pi coding agent (@oh-my-pi/pi-coding-agent)"
 [config]
 format = "json"
 servers_key = "mcpServers"
-supported_fields = ["command", "args", "env", "url", "headers", "type"]
+supported_fields = ["type", "command", "args", "env", "url", "headers"]
+
+[config.type_map]
+http = "url"
 
 [gateway_entry]
 url_key = "url"

@@ -6,10 +6,14 @@ spec_version = 1
 [config]
 format = "json"
 servers_key = "mcp"
-supported_fields = ["type", "command", "url", "headers", "enabled", "environment", "timeout"]
+supported_fields = ["type", "command", "url", "headers", "enabled", "environment"]
 command_shape = "array"
-validate_type_field = true
+env_key = "environment"
 reject_disabled = true
+
+[config.type_map]
+local = "command"
+remote = "url"
 
 [gateway_entry]
 url_key = "url"

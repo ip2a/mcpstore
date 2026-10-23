@@ -15,7 +15,6 @@
 //! is append-only (`[mcp_servers.<name>]` table at end of file, comments preserved).
 //! A byte-level span-splice editor (magpie's approach) can replace this when loss shows.
 
-use crate::client_config::ClientKind;
 use crate::{Error, FailureCode, Result, ScopeRef};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -65,12 +64,12 @@ impl Default for ExposeConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WiredEntry {
-    pub client: ClientKind,
+    pub client_id: String,
     pub path: PathBuf,
     pub name: String,
     pub url: String,
     pub applied_at_unix_ms: u64,
-    /// Per-client scope override; if None, defaults to Agent { agent_id: client.id() }.
+    /// Per-client scope override; if None, defaults to Agent { agent_id: client_id }.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<ScopeRef>,
     /// Per-client exposure config; if None, defaults to ExposeConfig::default() (all false).
@@ -80,12 +79,21 @@ pub struct WiredEntry {
 
 impl WiredEntry {
     /// Returns the effective scope for this client: explicit scope field or derived from client_id.
-    pub fn effective_scope(&self) -> ScopeRef {
-        self.scope.clone().unwrap_or_else(|| {
-            let client_id = crate::agents::get(self.client).id();
-            ScopeRef::Agent {
-                agent_id: client_id.to_string(),
-            }
+    pub fn effective_scope(&self) -> Result<ScopeRef> {
+        if let Some(scope) = &self.scope {
+            return Ok(scope.clone());
+        }
+        let setup = crate::agents::by_id(&self.client_id).ok_or_else(|| {
+            Error::new(
+                FailureCode::Internal,
+                format!(
+                    "Client plugin {} is not installed; rewire the client or remove the stale entry",
+                    self.client_id
+                ),
+            )
+        })?;
+        Ok(ScopeRef::Agent {
+            agent_id: setup.id().to_string(),
         })
     }
 
@@ -167,23 +175,32 @@ fn backup(path: &Path) -> Result<()> {
 /// `scope` and `expose`: if provided, stored explicitly; if None, will use defaults on load
 /// (scope derives from client_id, expose defaults to all false).
 pub fn wire_gateway(
-    client: ClientKind,
+    client_id: &str,
     path: &Path,
     url: &str,
     state_path: &Path,
     scope: Option<ScopeRef>,
     expose: Option<ExposeConfig>,
 ) -> Result<WiredEntry> {
-    let setup = crate::agents::get(client);
+    let setup = crate::agents::by_id(client_id).ok_or_else(|| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Unknown client plugin: {client_id}"),
+        )
+    })?;
     let mut state = load_wired_state(state_path)?;
-    if state.entries.iter().any(|entry| entry.client == client) {
+    if state
+        .entries
+        .iter()
+        .any(|entry| entry.client_id == client_id)
+    {
         return Err(Error::new(
             FailureCode::Internal,
-            format!("Client {client:?} is already wired; unwire it first"),
+            format!("Client {client_id} is already wired; unwire it first"),
         ));
     }
     let entry = WiredEntry {
-        client,
+        client_id: client_id.to_string(),
         path: path.to_path_buf(),
         name: GATEWAY_ENTRY_NAME.to_string(),
         url: url.to_string(),
@@ -248,7 +265,7 @@ pub(crate) fn wire_json_entry<T: ClientSetup + ?Sized>(
     atomic_write(path, &body)
 }
 
-pub(crate) fn wire_codex<T: ClientSetup + ?Sized>(setup: &T, path: &Path, url: &str) -> Result<()> {
+pub(crate) fn wire_toml_entry<T: ClientSetup + ?Sized>(setup: &T, path: &Path, url: &str) -> Result<()> {
     let key = setup.servers_key();
     if path.exists() {
         let text = fs::read_to_string(path).map_err(|error| {
@@ -277,7 +294,7 @@ pub(crate) fn wire_codex<T: ClientSetup + ?Sized>(setup: &T, path: &Path, url: &
         if table.is_none() && parsed.get(key).is_some() {
             return Err(Error::new(
                 FailureCode::Internal,
-                "mcp_servers is an inline table; cannot append a section",
+                format!("{key} is an inline table; cannot append a section"),
             ));
         }
         backup(path)?;
@@ -286,29 +303,34 @@ pub(crate) fn wire_codex<T: ClientSetup + ?Sized>(setup: &T, path: &Path, url: &
             text.push('\n');
         }
         text.push_str(&format!(
-            "\n[mcp_servers.{GATEWAY_ENTRY_NAME}]\nurl = \"{url}\"\n"
+            "\n[{key}.{GATEWAY_ENTRY_NAME}]\nurl = \"{url}\"\n"
         ));
         atomic_write(path, text.as_bytes())
     } else {
         atomic_write(
             path,
-            format!("[mcp_servers.{GATEWAY_ENTRY_NAME}]\nurl = \"{url}\"\n").as_bytes(),
+            format!("[{key}.{GATEWAY_ENTRY_NAME}]\nurl = \"{url}\"\n").as_bytes(),
         )
     }
 }
 
 /// Remove the gateway entry we recorded for a client; refuse when the user edited it.
-pub fn unwire_gateway(client: ClientKind, state_path: &Path) -> Result<WiredEntry> {
-    let setup = crate::agents::get(client);
+pub fn unwire_gateway(client_id: &str, state_path: &Path) -> Result<WiredEntry> {
+    let setup = crate::agents::by_id(client_id).ok_or_else(|| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Unknown client plugin: {client_id}"),
+        )
+    })?;
     let mut state = load_wired_state(state_path)?;
     let index = state
         .entries
         .iter()
-        .position(|entry| entry.client == client)
+        .position(|entry| entry.client_id == client_id)
         .ok_or_else(|| {
             Error::new(
                 FailureCode::Internal,
-                format!("Client {client:?} is not wired"),
+                format!("Client {client_id} is not wired"),
             )
         })?;
     let entry = state.entries[index].clone();
@@ -366,14 +388,14 @@ pub(crate) fn unwire_json_entry<T: ClientSetup + ?Sized>(
     atomic_write(&entry.path, &body)
 }
 
-pub(crate) fn unwire_codex<T: ClientSetup + ?Sized>(setup: &T, entry: &WiredEntry) -> Result<()> {
+pub(crate) fn unwire_toml_entry<T: ClientSetup + ?Sized>(setup: &T, entry: &WiredEntry) -> Result<()> {
     let text = fs::read_to_string(&entry.path).map_err(|error| {
         Error::new(
             FailureCode::Internal,
             format!("Failed to read {}: {error}", entry.path.display()),
         )
     })?;
-    let header = format!("[mcp_servers.{}]", GATEWAY_ENTRY_NAME);
+    let header = format!("[{}.{}]", setup.servers_key(), GATEWAY_ENTRY_NAME);
     let Some(start) = text.find(&header) else {
         return Ok(()); // already gone; just drop the record
     };
@@ -414,25 +436,33 @@ pub(crate) fn unwire_codex<T: ClientSetup + ?Sized>(setup: &T, entry: &WiredEntr
 /// Point every wired entry at its caller-mounted URL (`/mcp/<id>`). Legacy
 /// entries (url without the caller segment) are rewritten only when the user
 /// has not touched the file since wiring; hand-edited ones are skipped with a
-/// warning. Runs at daemon startup, before the faces build their mounts.
-pub fn refresh_wired_urls(state_path: &Path, url_for: impl Fn(ClientKind) -> String) {
+/// warning. Entries whose plugin is no longer installed are skipped too.
+/// Runs at daemon startup, before the faces build their mounts.
+pub fn refresh_wired_urls(state_path: &Path, url_for: impl Fn(&str) -> String) {
     let Ok(mut state) = load_wired_state(state_path) else {
         return;
     };
     let mut changed = false;
     for entry in &mut state.entries {
-        let expected = url_for(entry.client);
+        let expected = url_for(&entry.client_id);
         if entry.url == expected {
             continue;
         }
-        let setup = crate::agents::get(entry.client);
+        let Some(setup) = crate::agents::by_id(&entry.client_id) else {
+            tracing::warn!(
+                client_id = %entry.client_id,
+                path = %entry.path.display(),
+                "skipping wired url refresh: client plugin not installed"
+            );
+            continue;
+        };
         match setup.refresh_entry_url(entry, &expected) {
             Ok(()) => {
                 entry.url = expected;
                 changed = true;
             }
             Err(error) => tracing::warn!(
-                client = ?entry.client,
+                client_id = %entry.client_id,
                 path = %entry.path.display(),
                 %error,
                 "skipping wired url refresh"
@@ -487,14 +517,18 @@ pub(crate) fn refresh_json_entry<T: ClientSetup + ?Sized>(
     atomic_write(&entry.path, &body)
 }
 
-pub(crate) fn refresh_codex_entry(entry: &WiredEntry, url: &str) -> Result<()> {
+pub(crate) fn refresh_toml_entry<T: ClientSetup + ?Sized>(
+    setup: &T,
+    entry: &WiredEntry,
+    url: &str,
+) -> Result<()> {
     let text = fs::read_to_string(&entry.path).map_err(|error| {
         Error::new(
             FailureCode::Internal,
             format!("Failed to read {}: {error}", entry.path.display()),
         )
     })?;
-    let header = format!("[mcp_servers.{}]", GATEWAY_ENTRY_NAME);
+    let header = format!("[{}.{}]", setup.servers_key(), GATEWAY_ENTRY_NAME);
     let Some(start) = text.find(&header) else {
         return Ok(()); // our section is gone; just re-point the record
     };
@@ -544,7 +578,7 @@ mod tests {
         );
         let state = std::env::temp_dir().join(format!("mcpstore-wired-{}", std::process::id()));
         let entry = wire_gateway(
-            ClientKind::ClaudeCode,
+            "claude",
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
@@ -552,6 +586,7 @@ mod tests {
             None,
         )
         .unwrap();
+        assert_eq!(entry.client_id, "claude");
         let text = fs::read_to_string(&path).unwrap();
         let document: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(
@@ -561,12 +596,23 @@ mod tests {
         // Existing keys keep their order with preserve_order.
         assert!(text.find("\"mcpServers\"").unwrap() < text.find("\"other\"").unwrap());
         assert!(path.with_extension("mcpstore-bak").exists());
-        let removed = unwire_gateway(ClientKind::ClaudeCode, &state).unwrap();
+        let removed = unwire_gateway("claude", &state).unwrap();
         assert_eq!(removed.url, entry.url);
         let document: Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert!(document["mcpServers"].get("mcpstore").is_none());
         assert_eq!(document["mcpServers"]["demo"]["command"], "node");
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(state);
+    }
+
+    #[test]
+    fn unknown_client_id_refuses_to_wire() {
+        let path = temp_file("ghost", "{}");
+        let state = std::env::temp_dir().join(format!("mcpstore-wired-gh-{}", std::process::id()));
+        let error = wire_gateway("not-a-plugin", &path, "http://x/mcp", &state, None, None)
+            .unwrap_err();
+        assert!(error.to_string().contains("Unknown client plugin"), "{error}");
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(state);
     }
@@ -579,7 +625,7 @@ mod tests {
         );
         let state = std::env::temp_dir().join(format!("mcpstore-wired-codex-{}", std::process::id()));
         wire_gateway(
-            ClientKind::Codex,
+            "codex",
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
@@ -590,7 +636,7 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("# my codex config"));
         assert!(text.contains("[mcp_servers.mcpstore]\nurl = \"http://127.0.0.1:1830/mcp\""));
-        unwire_gateway(ClientKind::Codex, &state).unwrap();
+        unwire_gateway("codex", &state).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(!text.contains("mcp_servers.mcpstore"));
         assert!(text.contains("[mcp_servers.demo]"));
@@ -604,7 +650,7 @@ mod tests {
         let path = temp_file("edited", "{}");
         let state = std::env::temp_dir().join(format!("mcpstore-wired-ed-{}", std::process::id()));
         wire_gateway(
-            ClientKind::Cursor,
+            "cursor",
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
@@ -614,7 +660,7 @@ mod tests {
         .unwrap();
         let text = fs::read_to_string(&path).unwrap().replace("1830", "9999");
         fs::write(&path, text).unwrap();
-        assert!(unwire_gateway(ClientKind::Cursor, &state).is_err());
+        assert!(unwire_gateway("cursor", &state).is_err());
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(state);
     }
@@ -627,12 +673,12 @@ mod tests {
         );
         let state = std::env::temp_dir().join(format!("mcpstore-refresh-{}", std::process::id()));
         let legacy = format!(
-            "{{\"entries\":[{{\"client\":\"claude_code\",\"path\":{},\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp\",\"applied_at_unix_ms\":0}}]}}",
+            "{{\"entries\":[{{\"client_id\":\"claude\",\"path\":{},\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp\",\"applied_at_unix_ms\":0}}]}}",
             serde_json::to_string(&claude_path).unwrap()
         );
         fs::write(&state, legacy).unwrap();
-        refresh_wired_urls(&state, |client| {
-            assert_eq!(client, ClientKind::ClaudeCode);
+        refresh_wired_urls(&state, |client_id| {
+            assert_eq!(client_id, "claude");
             "http://127.0.0.1:1830/mcp/claude".to_string()
         });
         let document: Value =
@@ -651,7 +697,7 @@ mod tests {
             "{\"mcpServers\":{\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp\"}}}",
         );
         let hand_edited = format!(
-            "{{\"entries\":[{{\"client\":\"cursor\",\"path\":{},\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:9999/mcp\",\"applied_at_unix_ms\":0}}]}}",
+            "{{\"entries\":[{{\"client_id\":\"cursor\",\"path\":{},\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:9999/mcp\",\"applied_at_unix_ms\":0}}]}}",
             serde_json::to_string(&cursor_path).unwrap()
         );
         fs::write(&state, hand_edited).unwrap();
@@ -674,13 +720,13 @@ mod tests {
     fn effective_scope_and_expose_derive_defaults_from_stored_entry() {
         let document = |scope: &str| {
             format!(
-                "{{\"client\":\"codex\",\"path\":\"/tmp/x\",\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp/codex\",\"applied_at_unix_ms\":0{scope}}}"
+                "{{\"client_id\":\"codex\",\"path\":\"/tmp/x\",\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp/codex\",\"applied_at_unix_ms\":0{scope}}}"
             )
         };
         let entry: WiredEntry =
             serde_json::from_str(&document("")).unwrap();
         assert_eq!(
-            entry.effective_scope(),
+            entry.effective_scope().unwrap(),
             ScopeRef::Agent {
                 agent_id: "codex".to_string()
             }
@@ -691,8 +737,18 @@ mod tests {
             ",\"scope\":{\"type\":\"store\"},\"expose\":{\"tool\":true}",
         ))
         .unwrap();
-        assert_eq!(entry.effective_scope(), ScopeRef::Store);
+        assert_eq!(entry.effective_scope().unwrap(), ScopeRef::Store);
         assert!(entry.effective_expose().tool);
         assert!(!entry.effective_expose().search);
+    }
+
+    #[test]
+    fn effective_scope_refuses_an_uninstalled_plugin() {
+        let entry: WiredEntry = serde_json::from_str(
+            "{\"client_id\":\"ghost\",\"path\":\"/tmp/x\",\"name\":\"mcpstore\",\"url\":\"http://x/mcp\",\"applied_at_unix_ms\":0}",
+        )
+        .unwrap();
+        let error = entry.effective_scope().unwrap_err();
+        assert!(error.to_string().contains("not installed"), "{error}");
     }
 }

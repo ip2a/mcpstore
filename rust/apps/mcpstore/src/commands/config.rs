@@ -1,6 +1,6 @@
 use clap::{Args, Subcommand};
 use mcpstore::{
-    client_config::{import_selected_services, inspect_client_config, ClientKind},
+    client_config::{import_selected_services, inspect_client_config},
     config::ConfigManager,
 };
 use serde_json::{json, Value};
@@ -234,7 +234,7 @@ async fn import_client(
     names_file: String,
     source: StoreSourceArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let inspection = inspect_client_config(parse_client(&client)?, &path)?;
+    let inspection = inspect_client_config(&client, &path)?;
     let names: Vec<String> = serde_json::from_str(&std::fs::read_to_string(names_file)?)?;
     let services = import_selected_services(&inspection, &names)?;
     let store = load_kernel(&source).await?.store().clone();
@@ -249,17 +249,6 @@ async fn import_client(
         println!("imported {name} (transport={transport})");
     }
     Ok(())
-}
-
-fn parse_client(value: &str) -> Result<ClientKind, Box<dyn std::error::Error>> {
-    match value {
-        "codex" => Ok(ClientKind::Codex),
-        "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
-        "opencode" | "open-code" => Ok(ClientKind::OpenCode),
-        "cursor" => Ok(ClientKind::Cursor),
-        "claude_desktop" | "claude-desktop" => Ok(ClientKind::ClaudeDesktop),
-        _ => Err(format!("unsupported client: {value}").into()),
-    }
 }
 fn mgr(path: Option<String>) -> ConfigManager {
     match path {

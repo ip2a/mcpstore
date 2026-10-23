@@ -34,7 +34,8 @@ Every `plugin.toml` must conform to this structure:
 - **`command_shape`** (string, optional, default `"string"`): How the command field is represented:
   - `"string"`: Single string value (Claude, Cursor, Codex).
   - `"array"`: Array of strings with first element as executable (OpenCode).
-- **`validate_type_field`** (boolean, optional, default `false`): If `true`, enforce consistency between `type` field value and entry structure (OpenCode: `type="local"` requires `command`, `type="remote"` requires `url`).
+- **`env_key`** (string, optional, default `"env"`): The key holding the environment map, when the client names it differently (OpenCode uses `"environment"`).
+- **`type_map`** (table, optional): When present, an entry's `type` field must be one of these values, and the field it maps to (`"command"` or `"url"`) must be set. A `type` value outside the map is rejected. Examples: OpenCode `{ local = "command", remote = "url" }`; Pi `{ stdio = "command", http = "url" }`; omp `{ http = "url" }` (entries typed `sse` are refused).
 - **`reject_disabled`** (boolean, optional, default `false`): If `true`, refuse to import entries with `enabled: false`.
 
 ### `[gateway_entry]` (optional)
@@ -72,7 +73,7 @@ At least one of `config_paths`, `config_dirs`, or `cli_commands` must be non-emp
    - `command_shape`: Must be `"string"` or `"array"`.
 5. **Import behavior**:
    - Server entries with fields not in `supported_fields` are rejected with named field list.
-   - If `validate_type_field=true`, `type` field presence and value are checked against entry structure.
+   - When `type_map` is set, a `type` value outside the map is rejected, and the mapped field must be present.
    - If `reject_disabled=true`, entries with `enabled: false` are skipped with clear message.
 6. **Fail loud**: Malformed manifests, missing icon files, duplicate IDs, and incompatible `spec_version` all produce named errors. Plugins never silently fail.
 

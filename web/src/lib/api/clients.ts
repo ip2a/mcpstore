@@ -4,7 +4,6 @@ import { appApi, buildQuery } from "./client";
 export type DetectedBy = "config_file" | "config_dir" | "command";
 
 export type ClientInventory = {
-  kind: string;
   id: string;
   label: string;
   detected_by: DetectedBy | null;
@@ -57,7 +56,7 @@ export type ExposeConfig = {
 };
 
 export type WiredEntry = {
-  client: string;
+  client_id: string;
   path: string;
   name: string;
   url: string;
