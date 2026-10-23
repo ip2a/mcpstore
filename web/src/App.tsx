@@ -88,6 +88,7 @@ export function App() {
           <AppSidebar
             view={view}
             onViewChange={setView}
+            settingsOpen={settingsDialogOpen}
             onOpenSettings={() => setSettingsDialogOpen(true)}
           />
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">

@@ -40,10 +40,12 @@ function SidebarItem({
 export function AppSidebar({
   onOpenSettings,
   onViewChange,
+  settingsOpen,
   view,
 }: {
   onOpenSettings: () => void
   onViewChange: (view: AppView) => void
+  settingsOpen: boolean
   view: AppView
 }) {
   const { t } = useI18n()
@@ -65,15 +67,13 @@ export function AppSidebar({
             onSelect={() => onViewChange(item.view)}
           />
         ))}
-      </nav>
-      <div className="shrink-0 border-t p-2">
         <SidebarItem
-          active={false}
+          active={settingsOpen}
           icon={SettingsIcon}
           label={t("settings")}
           onSelect={onOpenSettings}
         />
-      </div>
+      </nav>
     </aside>
   )
 }
