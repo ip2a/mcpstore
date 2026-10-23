@@ -20,7 +20,7 @@ import { isDesktopShell, UpdateButton, useAppUpdater } from "@/features/settings
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { type UiLanguage } from "@/lib/api"
 import { getApiBase, syncApiBaseFromHosts } from "@/lib/api/backend"
-import { resolveActiveHostUrl, validateHostsConfig } from "@/lib/api/hosts"
+import { resolveActiveHostUrls, validateHostsConfig } from "@/lib/api/hosts"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/query-keys"
@@ -72,7 +72,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       toast.error(validationError)
       return
     }
-    const activeUrl = resolveActiveHostUrl(draft.hosts)
+    const activeUrl = resolveActiveHostUrls(draft.hosts)[0] ?? ""
     const apiBaseChanged = activeUrl.trim() !== getApiBase()
     try {
       await settingsMutation.mutateAsync(payloadFromDraft(draft))
@@ -349,7 +349,7 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
     async function probeAll() {
       await Promise.all(
         hosts.map(async (host) => {
-          const status = await probeHost(host.url)
+          const status = await probeHost(host.urls[0] ?? "")
           if (!cancelled) setStatuses((current) => ({ ...current, [host.name]: status }))
         }),
       )
@@ -390,8 +390,13 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
                 </Badge>
                 <Badge variant="secondary">
                   <MonitorIcon />
-                  {formatHostAddress(host.url)}
+                  {formatHostAddress(host.urls[0] ?? "")}
                 </Badge>
+                {host.urls.length > 1 ? (
+                  <Badge variant="secondary" title={host.urls.join("\n")}>
+                    +{host.urls.length - 1}
+                  </Badge>
+                ) : null}
                 <Badge variant="secondary">{status?.version ? `v${status.version}` : "-"}</Badge>
                 {online && status?.latencyMs != null ? (
                   <Badge variant="secondary" className="tabular-nums">
@@ -555,11 +560,11 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
   const [pendingFullUrlBody, setPendingFullUrlBody] = useState("")
   const [editingName, setEditingName] = useState<string | null>(null)
   const [editName, setEditName] = useState("")
-  const [editUrl, setEditUrl] = useState("")
+  const [editUrls, setEditUrls] = useState("")
   const [latencies, setLatencies] = useState<Record<string, number | null>>({})
   const [checking, setChecking] = useState<Record<string, boolean>>({})
 
-  function patchHosts(nextEntries: Record<string, { url: string }>, active = draft.hosts.active) {
+  function patchHosts(nextEntries: Record<string, { urls: string[] }>, active = draft.hosts.active) {
     patchDraft({ hosts: { active, entries: nextEntries } })
   }
 
@@ -581,7 +586,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
       await Promise.all(
         hosts.map(async (host) => {
           if (cancelled) return
-          await refreshLatency(host.name, host.url)
+          await refreshLatency(host.name, host.urls[0] ?? "")
         }),
       )
     }
@@ -619,7 +624,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     if (!pendingValid || !name || !url) return
     patchHosts({
       ...draft.hosts.entries,
-      [name]: { url },
+      [name]: { urls: [url] },
     })
     resetPending()
     setAddingOpen(false)
@@ -643,23 +648,31 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     setPendingFullUrlMode(true)
   }
 
+  /** One URL per line; order is the failover preference. */
+  function parseEditUrls(): string[] {
+    return editUrls
+      .split("\n")
+      .map((url) => url.trim())
+      .filter((url) => url !== "")
+  }
+
   function saveEdit() {
     if (!editingName) return
     const name = editName.trim()
-    const url = editUrl.trim()
-    if (!name || !url) return
+    const urls = parseEditUrls()
+    if (!name || urls.length === 0) return
     if (name !== editingName && Object.prototype.hasOwnProperty.call(draft.hosts.entries, name)) {
       toast.error(t("saveFailed"))
       return
     }
     const entries = { ...draft.hosts.entries }
     delete entries[editingName]
-    entries[name] = { url }
+    entries[name] = { urls }
     const active = draft.hosts.active === editingName ? name : draft.hosts.active
     patchHosts(entries, active)
     setEditingName(null)
     setEditName("")
-    setEditUrl("")
+    setEditUrls("")
   }
 
   function removeHost(name: string) {
@@ -672,21 +685,21 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     if (editingName === name) {
       setEditingName(null)
       setEditName("")
-      setEditUrl("")
+      setEditUrls("")
     }
     toast.success(t("connectionDeleted"))
   }
 
-  function toggleEdit(host: { name: string; url: string }) {
+  function toggleEdit(host: { name: string; urls: string[] }) {
     if (editingName === host.name) {
       setEditingName(null)
       setEditName("")
-      setEditUrl("")
+      setEditUrls("")
       return
     }
     setEditingName(host.name)
     setEditName(host.name)
-    setEditUrl(host.url)
+    setEditUrls(host.urls.join("\n"))
     setAddingOpen(false)
   }
 
@@ -704,7 +717,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
             onClick={() => {
               setEditingName(null)
               setEditName("")
-              setEditUrl("")
+              setEditUrls("")
               resetPending()
               setAddingOpen(true)
             }}
@@ -738,7 +751,9 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                     onClick={() => patchDraft({ hosts: { ...draft.hosts, active: host.name } })}
                   >
                     <span className="block truncate text-sm font-medium">{host.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{host.url}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {host.urls.length > 1 ? `${formatHostAddress(host.urls[0] ?? "")} +${host.urls.length - 1}` : host.urls[0]}
+                    </span>
                   </button>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-xs text-muted-foreground tabular-nums">
@@ -754,7 +769,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                       size="icon-sm"
                       aria-label={t("refresh")}
                       disabled={isChecking}
-                      onClick={() => void refreshLatency(host.name, host.url, { notify: true })}
+                      onClick={() => void refreshLatency(host.name, host.urls[0] ?? "", { notify: true })}
                     >
                       <RefreshCwIcon className={cn("size-3.5", isChecking && "animate-spin")} />
                     </Button>
@@ -803,13 +818,15 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                               <Label htmlFor={`host-url-${host.name}`}>{t("coreBackendUrlLabel")}</Label>
                               <InputGroup>
-                                <InputGroupInput
+                                <InputGroupTextarea
                                   id={`host-url-${host.name}`}
-                                  value={editUrl}
-                                  onChange={(event) => setEditUrl(event.target.value)}
+                                  className="min-h-20 font-mono text-xs"
+                                  value={editUrls}
+                                  onChange={(event) => setEditUrls(event.target.value)}
                                   placeholder={t("coreBackendUrlPlaceholder")}
                                 />
                               </InputGroup>
+                              <p className="text-xs text-muted-foreground">{t("coreBackendUrlHint")}</p>
                             </div>
                             <div className="flex gap-2">
                               <Button type="button" size="sm" onClick={saveEdit}>

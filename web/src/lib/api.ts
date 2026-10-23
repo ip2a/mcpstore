@@ -266,7 +266,7 @@ export type LogSettingsPayload = {
 };
 
 export type HostEntry = {
-  url: string;
+  urls: string[];
 };
 
 export type HostsPayload = {
@@ -306,6 +306,7 @@ export type ConfigFilePayload = {
 
 export type MetaPayload = {
   version?: string;
+  node?: { id: string; mode: string };
   settings?: SettingsPayload;
   settings_paths?: SettingsPathsPayload;
   config_file?: ConfigFilePayload;

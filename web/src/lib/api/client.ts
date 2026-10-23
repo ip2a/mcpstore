@@ -1,5 +1,5 @@
 import { ApiError, type ApiEnvelope, type CacheBackend, type ScopeRef } from "../api";
-import { getApiBase, getAppApiBase } from "./backend";
+import { advanceCoreUrl, getAppApiBase, getApiBase } from "./backend";
 
 // Tauri 环境检测
 declare global {
@@ -15,8 +15,7 @@ declare global {
 type FlexibleEnvelope<T> =
   ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string };
 
-/** Core 后端 base（可切换，默认 /api；指向本地 lib 或远程 mcpstore）。 */
-export function apiUrl(path: string) {
+function apiUrl(path: string) {
   return `${getApiBase()}${path}`;
 }
 
@@ -114,10 +113,40 @@ async function tauriFetch(url: string, options: RequestInit): Promise<Response> 
   });
 }
 
+function isRetryableMethod(method: string | undefined): boolean {
+  const normalized = (method ?? "GET").toUpperCase();
+  return normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS";
+}
+
+/**
+ * Core 请求统一入口：当前 URL 网络级失败时按 active host 的 urls 顺序降级。
+ * 幂等方法（GET/HEAD/OPTIONS）立即在下一候选上重试；其余方法只切换候选、
+ * 不自动重试（请求可能已到达对端），由调用方决定是否重发。候选耗尽时抛出
+ * 原始错误（明确失败，不静默重试死循环）。
+ */
+async function coreFetch(path: string, init: RequestInit): Promise<Response> {
+  for (;;) {
+    try {
+      const url = apiUrl(path);
+      return await (isTauriEnv() ? tauriFetch(url, init) : fetch(url, init));
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      const hasFallback = advanceCoreUrl();
+      if (!isRetryableMethod(init.method) || !hasFallback) throw error;
+    }
+  }
+}
+
+/** App 请求入口：固定同源，无降级。 */
+async function appFetch(path: string, init: RequestInit): Promise<Response> {
+  const url = `${getAppApiBase()}${path}`;
+  return isTauriEnv() ? tauriFetch(url, init) : fetch(url, init);
+}
+
 async function apiAt<T>(
   path: string,
   options: RequestInit,
-  urlFn: (path: string) => string,
+  fetcher: (path: string, init: RequestInit) => Promise<Response>,
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
@@ -131,13 +160,10 @@ async function apiAt<T>(
   }
 
   const payload = await readJson<T | FlexibleEnvelope<T>>(
-    await (isTauriEnv() ? tauriFetch(urlFn(path), {
+    await fetcher(path, {
       ...options,
       headers,
-    }) : fetch(urlFn(path), {
-      ...options,
-      headers,
-    })),
+    }),
   );
 
   if (payload && typeof payload === "object" && "success" in payload) {
@@ -169,33 +195,28 @@ async function apiAt<T>(
   return payload as T;
 }
 
-/** Core 接口调用（走可切换的 apiUrl）。 */
+/** Core 接口调用（走可切换的 coreFetch，含多 URL 降级）。 */
 export function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  return apiAt<T>(path, options, apiUrl);
+  return apiAt<T>(path, options, coreFetch);
 }
 
-/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
+/** App 自有接口调用（固定走 appFetch，不随 core 后端切换）。 */
 export function appApi<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  return apiAt<T>(path, options, appApiUrl);
+  return apiAt<T>(path, options, appFetch);
 }
 
 async function requestAt<T>(
   path: string,
   init: RequestInit | undefined,
-  urlFn: (path: string) => string,
+  fetcher: (path: string, init: RequestInit) => Promise<Response>,
 ): Promise<T> {
-  const response = await (isTauriEnv()
-    ? tauriFetch(urlFn(path), {
-        headers: { "Content-Type": "application/json", ...init?.headers },
-        ...init,
-      })
-    : fetch(urlFn(path), {
-        headers: { "Content-Type": "application/json", ...init?.headers },
-        ...init,
-      }));
+  const response = await fetcher(path, {
+    headers: { "Content-Type": "application/json", ...init?.headers },
+    ...init,
+  });
   const payload = await readJson<ApiEnvelope<T>>(response);
   if (!payload.success) {
     throw new ApiError(
@@ -207,12 +228,12 @@ async function requestAt<T>(
   return payload.data as T;
 }
 
-/** Core 接口调用（走可切换的 apiUrl）。 */
+/** Core 接口调用（走可切换的 coreFetch，含多 URL 降级）。 */
 export function request<T>(path: string, init?: RequestInit): Promise<T> {
-  return requestAt<T>(path, init, apiUrl);
+  return requestAt<T>(path, init, coreFetch);
 }
 
-/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
+/** App 自有接口调用（固定走 appFetch，不随 core 后端切换）。 */
 export function appRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  return requestAt<T>(path, init, appApiUrl);
+  return requestAt<T>(path, init, appFetch);
 }
