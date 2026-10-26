@@ -196,6 +196,7 @@ impl MCPStore {
                     pool,
                     supervisor: Default::default(),
                     event_bus: event_bus.clone(),
+                    telemetry: std::sync::OnceLock::new(),
                 },
                 persistence: PersistenceRouter {
                     store_config: tokio::sync::RwLock::new(store_config),
@@ -235,6 +236,26 @@ impl MCPStore {
     /// This process's panel role.
     pub fn panel_role(&self) -> &PanelRole {
         &self.kernel.runtime.panel_role
+    }
+
+    /// Attach the request-telemetry sink (host opts in; SDK default = off).
+    /// Idempotent: the first attach wins.
+    pub fn set_telemetry(
+        &self,
+        telemetry: Option<std::sync::Arc<dyn crate::telemetry::RequestTelemetry>>,
+    ) {
+        let _ = self.kernel.execution.telemetry.set(telemetry);
+    }
+
+    /// The attached telemetry sink, if any.
+    pub fn telemetry(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::telemetry::RequestTelemetry>> {
+        self.kernel
+            .execution
+            .telemetry
+            .get()
+            .and_then(|slot| slot.clone())
     }
 
     /// Mount the control panel's self-healing supervisor (idempotent).

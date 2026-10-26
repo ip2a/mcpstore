@@ -41,4 +41,6 @@ export const queryKeys = {
   clients: ["clients"] as const,
   wiredClients: ["clients", "wired"] as const,
   gatewayStatus: ["gateway", "status"] as const,
+  usageStats: ["gateway", "usage-stats"] as const,
+  gatewayHistory: ["gateway", "requests-history"] as const,
 }

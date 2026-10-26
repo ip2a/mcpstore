@@ -33,6 +33,7 @@ mod openapi;
 mod parse;
 mod service;
 mod session;
+mod telemetry;
 
 use envelope::{success, ApiError, ApiResult};
 
@@ -47,6 +48,9 @@ pub struct ApiState {
     gateway: Arc<Mutex<Option<GatewayProcess>>>,
     /// Call log of the daemon-face gateway (mounted at startup; no GatewayProcess).
     face_log: Arc<Mutex<Option<std::sync::Arc<GatewayCallLog>>>>,
+    /// Host-side telemetry persistence for history/detail/stats queries. The
+    /// recording path goes through the store's sink; queries need the concrete type.
+    telemetry: Arc<Mutex<Option<std::sync::Arc<crate::telemetry::TelemetryLog>>>>,
 }
 
 struct GatewayProcess {
@@ -90,6 +94,7 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
         store,
         gateway: Arc::new(Mutex::new(None)),
         face_log: Arc::new(Mutex::new(None)),
+        telemetry: Arc::new(Mutex::new(None)),
     })
 }
 
@@ -104,6 +109,16 @@ impl ApiState {
 
     pub(crate) fn face_log(&self) -> Option<std::sync::Arc<GatewayCallLog>> {
         self.face_log.lock().unwrap().clone()
+    }
+
+    pub(crate) fn set_telemetry(&self, log: std::sync::Arc<crate::telemetry::TelemetryLog>) {
+        *self.telemetry.lock().unwrap() = Some(log);
+    }
+
+    pub(crate) fn telemetry(
+        &self,
+    ) -> Option<std::sync::Arc<crate::telemetry::TelemetryLog>> {
+        self.telemetry.lock().unwrap().clone()
     }
 }
 
@@ -146,6 +161,9 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/gateway/descriptor", get(client::gateway_descriptor))
         .route("/gateway/status", get(client::gateway_status))
         .route("/gateway/requests", get(client::gateway_requests))
+        .route("/gateway/requests/history", get(telemetry::requests_history))
+        .route("/gateway/requests/detail/:id", get(telemetry::request_detail))
+        .route("/gateway/stats", get(telemetry::usage_stats))
         .route("/gateway/wired", get(client::gateway_wired))
         .route("/gateway/wire", post(client::gateway_wire))
         .route("/gateway/unwire", post(client::gateway_unwire))
@@ -154,6 +172,10 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/cache/health", get(cache::health))
         .route("/cache/inspect", get(cache::inspect))
         .route("/cache/switch", post(cache::switch))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit_mutations,
+        ))
         .with_state(state)
 }
 
@@ -385,7 +407,56 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             "/openapi_imports/bundle_artifact",
             post(openapi::store_bundle_openapi_artifact),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit_mutations,
+        ))
         .with_state(state)
+}
+
+/// Audit every mutating API operation (POST/PUT/DELETE on the app and core planes)
+/// into request telemetry: method, path, query, body, duration, HTTP outcome.
+/// Read-only calls are not recorded. The request body is buffered once so the
+/// handler sees the same bytes; 2 MiB cap matches the existing API payloads.
+async fn audit_mutations(
+    State(state): State<Arc<ApiState>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if matches!(
+        request.method(),
+        &axum::http::Method::GET | &axum::http::Method::HEAD | &axum::http::Method::OPTIONS
+    ) {
+        return next.run(request).await;
+    }
+    let Some(telemetry) = state.store.telemetry() else {
+        return next.run(request).await;
+    };
+    let method = request.method().to_string();
+    let path = request.uri().path().to_string();
+    let query = request.uri().query().map(str::to_string);
+    let (parts, body) = request.into_parts();
+    let body = axum::body::to_bytes(body, 2 * 1024 * 1024)
+        .await
+        .unwrap_or_default();
+    let body_text = (!body.is_empty()).then(|| String::from_utf8_lossy(&body).into_owned());
+    let started = std::time::Instant::now();
+    let response = next
+        .run(axum::extract::Request::from_parts(
+            parts,
+            axum::body::Body::from(body),
+        ))
+        .await;
+    let mut record =
+        mcpstore::telemetry::RequestRecord::new("management", format!("{method} {path}"));
+    record.duration_ms = started.elapsed().as_millis() as i64;
+    record.args_json = Some(json!({ "query": query, "body": body_text }).to_string());
+    record.success = response.status().is_success();
+    if !record.success {
+        record.error_summary = Some(format!("HTTP {}", response.status().as_u16()));
+    }
+    telemetry.record(record);
+    response
 }
 
 #[cfg(test)]

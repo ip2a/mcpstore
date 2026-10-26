@@ -3772,6 +3772,7 @@ dependencies = [
  "nucleo-matcher",
  "reqwest 0.12.28",
  "rmcp",
+ "rusqlite",
  "serde",
  "serde_json",
  "subtle",

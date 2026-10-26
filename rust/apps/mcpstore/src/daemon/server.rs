@@ -30,6 +30,11 @@ struct DaemonHost {
 /// Start the KernelHost: create one StoreKernel and accept typed IPC requests.
 pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
     let store = load_kernel(&args).await?.store().clone();
+    // Request telemetry (host-owned SQLite; the SDK only sees the sink trait):
+    // fail loud — a daemon that can't record its calls points at broken storage.
+    let telemetry = crate::telemetry::TelemetryLog::open(crate::telemetry::default_db_path())
+        .map_err(|error| format!("request telemetry db unavailable: {error}"))?;
+    store.set_telemetry(Some(telemetry.clone()));
     crate::daemon::ensure::persist_start_args(&args)?;
     crate::daemon::protocol::cleanup_stale_files();
 
@@ -38,6 +43,7 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     std::fs::write(&pid_path, pid.to_string())?;
     let (listener, endpoint) = HostListener::bind()?;
     let state = crate::commands::api::state_for_store(Arc::clone(&store));
+    state.set_telemetry(telemetry);
     let app_config = store.config_manager().load_app_config_or_default()?;
     let remote_listener = bind_remote_listener(&app_config).await?;
     let host_remote_token = app_config.server.rpc_token.clone();
@@ -576,6 +582,9 @@ fn execution_options(payload: &Value) -> McpExecutionOptions {
     }
     if let Some(timeout) = payload.get("max_total_timeout").and_then(Value::as_u64) {
         options = options.with_max_total_timeout(Duration::from_millis(timeout));
+    }
+    if let Some(caller) = payload.get("caller").and_then(Value::as_str) {
+        options = options.with_caller(caller);
     }
     options
 }

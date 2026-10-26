@@ -10,6 +10,7 @@ pub mod error;
 pub mod gateway;
 pub mod schema_cache;
 pub mod store_args;
+pub mod telemetry;
 pub mod tui;
 
 pub type BoxErr = Box<dyn std::error::Error>;

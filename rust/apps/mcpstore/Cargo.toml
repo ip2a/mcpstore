@@ -38,6 +38,9 @@ crossterm = "0.28"
 inquire = "0.7"
 nucleo-matcher = "0.3"
 
+# Request telemetry persistence (app/daemon layer only; the SDK stays storage-free)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 mcpstore = { path = "../../crates/mcpstore", default-features = false, features = ["light", "redis", "valkey", "test-shared-memory"] }
 chrono = { workspace = true }
 rmcp = { workspace = true }

@@ -470,6 +470,20 @@ impl ServerHandler for GatewayServer {
         let default_session_key = self.session_key.clone();
         let meta = request.meta.clone();
         let arguments = request.arguments.unwrap_or_default();
+        let management_tool = is_session_state_tool
+            || is_tool_override_tool
+            || is_prompt_override_tool
+            || is_resource_override_tool
+            || is_openapi_tool
+            || is_service_tool
+            || is_cache_tool
+            || is_search_tool;
+        let management_store = Arc::clone(&store);
+        let management_caller = self.caller.clone();
+        let management_scope = scope_label(&scope);
+        let management_tool_name = tool_name.clone();
+        let management_args = management_tool.then(|| Value::Object(arguments.clone()));
+        let management_started = std::time::Instant::now();
         async move {
             if is_session_state_tool {
                 return call_session_state_tool(
@@ -558,6 +572,13 @@ impl ServerHandler for GatewayServer {
             .ok_or_else(|| ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None))?;
             let call_start = std::time::Instant::now();
             let record_binding = binding.clone();
+            let mut execution_options = McpExecutionOptions::default();
+            if let Some(caller) = self.caller.clone() {
+                execution_options = execution_options.with_caller(caller);
+            }
+            if let Some(session_key) = session_key.as_deref() {
+                execution_options = execution_options.with_session_key(session_key);
+            }
             let response: Result<CallToolResponse, ErrorData> = async {
                 let execution = match store
                     .start_tool_execution(
@@ -565,7 +586,7 @@ impl ServerHandler for GatewayServer {
                         &binding.tool_name,
                         args,
                         meta.clone(),
-                        McpExecutionOptions::default(),
+                        execution_options,
                     )
                     .await
                 {
@@ -629,9 +650,63 @@ impl ServerHandler for GatewayServer {
             }
             .await;
             self.record_call(&tool_name, &record_binding, call_start.elapsed(), &response);
-            return response;
+            if management_tool {
+                record_management_call(
+                    &management_store,
+                    management_caller.as_deref(),
+                    &management_scope,
+                    &management_tool_name,
+                    management_args,
+                    management_started.elapsed(),
+                    &response,
+                );
+            }
+            response
         }
     }
+}
+
+fn scope_label(scope: &mcpstore::ScopeRef) -> String {
+    match scope {
+        mcpstore::ScopeRef::Store => "store".to_string(),
+        mcpstore::ScopeRef::Agent { agent_id } => format!("agent:{agent_id}"),
+    }
+}
+
+/// Gateway management tools (session-state/override/openapi/service/cache/search)
+/// execute store methods directly instead of the business execution funnel, so
+/// they are audited here. One record per management call, full args and result.
+fn record_management_call(
+    store: &MCPStore,
+    caller: Option<&str>,
+    scope: &str,
+    tool_name: &str,
+    args: Option<Value>,
+    duration: std::time::Duration,
+    response: &Result<CallToolResponse, ErrorData>,
+) {
+    let Some(telemetry) = store.telemetry() else {
+        return;
+    };
+    let mut record = mcpstore::telemetry::RequestRecord::new("management", tool_name);
+    record.duration_ms = duration.as_millis() as i64;
+    record.caller = caller.map(str::to_string);
+    record.scope = Some(scope.to_string());
+    record.args_json = args.map(|args| args.to_string());
+    match response {
+        Ok(CallToolResponse::Complete(result)) => {
+            record.success = result.is_error != Some(true);
+            record.result_json = serde_json::to_string(result).ok();
+        }
+        Ok(_) => {
+            record.success = false;
+        }
+        Err(error) => {
+            record.success = false;
+            record.error_summary = Some(error.to_string());
+        }
+    }
+    telemetry.record(record);
 }
 
 /// LLM-facing tool failure: `isError: true` plus one text block carrying the

@@ -22,13 +22,29 @@ use crate::transport::{McpTask, McpToolExecution, ToolCallResult};
 
 const EXECUTION_UPDATE_BUFFER: usize = 64;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct McpExecutionOptions {
     pub idle_timeout: Option<Duration>,
     pub max_total_timeout: Option<Duration>,
+    /// Request-telemetry origin: gateway mount id (`/mcp/<client>`), `panel:<id>`
+    /// for delegated executions; None = local (CLI/facade/library).
+    pub caller: Option<String>,
+    /// Business session key for telemetry attribution (gateway business calls).
+    pub session_key: Option<String>,
 }
 
 impl McpExecutionOptions {
+    /// Set the telemetry caller origin (builder style).
+    pub fn with_caller(mut self, caller: impl Into<String>) -> Self {
+        self.caller = Some(caller.into());
+        self
+    }
+
+    pub fn with_session_key(mut self, session_key: impl Into<String>) -> Self {
+        self.session_key = Some(session_key.into());
+        self
+    }
+
     pub fn with_idle_timeout(mut self, timeout: Duration) -> Self {
         self.idle_timeout = Some(timeout);
         self
@@ -168,7 +184,7 @@ impl McpConnection {
         let request = match client
             .send_cancellable_request(
                 ClientRequest::CallToolRequest(CallToolRequest::new(params)),
-                options.peer_options(),
+                options.clone().peer_options(),
             )
             .await
         {
@@ -194,7 +210,7 @@ impl McpConnection {
                 instance_id,
                 request,
                 retry_params,
-                options,
+                options.clone(),
                 &mut progress_notifications,
                 cancellation_rx,
                 handler,
@@ -302,7 +318,7 @@ async fn drive_tool_request(
         request = match peer
             .send_cancellable_request(
                 ClientRequest::CallToolRequest(CallToolRequest::new(params.clone())),
-                options.peer_options(),
+                options.clone().peer_options(),
             )
             .await
         {

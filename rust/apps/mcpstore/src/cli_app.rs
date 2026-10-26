@@ -92,6 +92,33 @@ pub enum Commands {
 }
 
 pub fn run() -> Result<(), BoxErr> {
+    let started = std::time::Instant::now();
+    let result = run_inner();
+    audit_cli_command(started, &result);
+    result
+}
+
+/// Audit every CLI command into request telemetry (kind=management). Best-effort:
+/// a broken telemetry file must not take down the command itself.
+fn audit_cli_command(started: std::time::Instant, result: &Result<(), BoxErr>) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut record =
+        mcpstore::telemetry::RequestRecord::new("management", format!("cli {}", args.join(" ")));
+    let tool = record.tool.take().unwrap_or_default();
+    record.tool = Some(tool.chars().take(200).collect());
+    record.duration_ms = started.elapsed().as_millis() as i64;
+    record.success = result.is_ok();
+    if let Some(error) = result.as_ref().err() {
+        record.error_summary = Some(error.to_string());
+    }
+    record.args_json = Some(serde_json::json!({ "argv": args }).to_string());
+    if let Err(error) = crate::telemetry::record_once(&crate::telemetry::default_db_path(), record)
+    {
+        tracing::warn!(%error, "cli command audit failed");
+    }
+}
+
+fn run_inner() -> Result<(), BoxErr> {
     let cli = Cli::parse();
 
     // TUI runs its own blocking event loop and creates its own runtime,

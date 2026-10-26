@@ -456,3 +456,13 @@ export {
   type WireOptions,
   type WiredEntry,
 } from "./api/clients";
+export {
+  getUsageStats,
+  getRequestHistory,
+  getRequestDetail,
+  type RequestRecord,
+  type HistoryPage,
+  type UsageStats,
+  type UsageSeriesPoint,
+  type UsageTotals,
+} from "./api/telemetry";

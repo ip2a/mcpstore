@@ -25,6 +25,7 @@ pub(crate) mod service;
 pub mod session;
 pub mod state;
 pub mod store;
+pub mod telemetry;
 pub mod transport;
 
 // Facade re-exports: configuration
