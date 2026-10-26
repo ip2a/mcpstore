@@ -143,6 +143,10 @@ export function App() {
               services={services}
               onOpenTool={(instanceId, toolName) => setView({ name: "tool", instanceId, toolName })}
             />
+          ) : view.name === "resources" ? (
+            <ResourcesView />
+          ) : view.name === "prompts" ? (
+            <PromptsView />
           ) : view.name === "tool" ? (
             <ToolDetailView
               instanceId={view.instanceId}
@@ -152,10 +156,6 @@ export function App() {
               onRunTool={runToolFromDialogState}
               isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
             />
-          ) : view.name === "resources" ? (
-            <ResourcesView />
-          ) : view.name === "prompts" ? (
-            <PromptsView />
           ) : view.name === "clients" ? (
             <ClientsView />
           ) : view.name === "gateway" ? (

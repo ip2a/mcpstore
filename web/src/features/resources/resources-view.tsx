@@ -13,7 +13,7 @@ export function ResourcesView() {
       </div>
 
       <PanelCard className="flex min-h-0 flex-1 flex-col">
-        <PageEmpty title={t("resources")} description={t("resourceRegistryPlaceholder")} />
+        <PageEmpty title={t("noResourcesFound")} description={t("resourceRegistryPlaceholder")} />
       </PanelCard>
     </>
   )

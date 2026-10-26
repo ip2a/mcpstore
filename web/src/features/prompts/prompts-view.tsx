@@ -13,7 +13,7 @@ export function PromptsView() {
       </div>
 
       <PanelCard className="flex min-h-0 flex-1 flex-col">
-        <PageEmpty title={t("prompts")} description={t("promptRegistryPlaceholder")} />
+        <PageEmpty title={t("noPromptsFound")} description={t("promptRegistryPlaceholder")} />
       </PanelCard>
     </>
   )
