@@ -24,6 +24,7 @@ export type AppView =
   | { name: "prompts" }
   | { name: "gateway" }
   | { name: "cache" }
+  | { name: "settings" }
   | { name: "instance"; addr: ServiceAddress }
 
 export type NavItem = {
@@ -52,5 +53,6 @@ export function useViewTitle(view: AppView): string {
   const items = useNavItems()
   if (view.name === "instance") return view.addr.service_name
   if (view.name === "tool") return view.toolName
+  if (view.name === "settings") return t("settings")
   return items.find((item) => item.view.name === view.name)?.label || t("navServices")
 }

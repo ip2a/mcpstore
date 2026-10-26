@@ -88,6 +88,7 @@ function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/clients") return { name: "clients" }
   if (pathname === "/gateway") return { name: "gateway" }
   if (pathname === "/cache") return { name: "cache" }
+  if (pathname === "/settings") return { name: "settings" }
   if (pathname === "/add") return { name: "services" }
   if (pathname.startsWith("/services/")) {
     const raw = pathname.slice("/services/".length)

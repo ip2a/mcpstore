@@ -14,6 +14,7 @@ import { OverviewView } from "@/features/overview/overview-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
+import { SettingsView } from "@/features/settings/settings-view"
 import { ToolDetailView } from "@/features/tools/tool-detail-view"
 import { PromptsView } from "@/features/prompts/prompts-view"
 import { ResourcesView } from "@/features/resources/resources-view"
@@ -74,8 +75,6 @@ export function App() {
   })
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
   const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
-  const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
-  const setSettingsDialogOpen = useUiStore((state) => state.setSettingsDialogOpen)
   const { closeDeleteDialog, closeResetDialog, confirmReset, deleteTarget, resetTarget, setDeleteTarget, setResetTarget } = useAppConfirmations({ refreshConfigQueries, runAction })
   const handleServiceAdded = async () => {
     await refresh()
@@ -86,18 +85,13 @@ export function App() {
     <TooltipProvider>
       <div className="flex h-dvh flex-col overflow-hidden bg-background">
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <AppSidebar
-            view={view}
-            onViewChange={setView}
-            settingsOpen={settingsDialogOpen}
-            onOpenSettings={() => setSettingsDialogOpen(true)}
-          />
+          <AppSidebar view={view} onViewChange={setView} />
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "prompts" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "agents" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "prompts" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
               )}
             >
             {view.name === "home" ? (
@@ -162,6 +156,8 @@ export function App() {
             <GatewayView />
           ) : view.name === "cache" ? (
             <CacheView backend={backend} revision={cacheRevision} onRefreshDashboard={refresh} onSwitch={() => setCacheDialogOpen(true)} />
+          ) : view.name === "settings" ? (
+            <SettingsView />
           ) : (
             <ServicesView
               services={services}
@@ -193,7 +189,6 @@ export function App() {
         cacheDialogOpen={cacheDialogOpen}
         deleteTarget={deleteTarget}
         resetTarget={resetTarget}
-        settingsDialogOpen={settingsDialogOpen}
         toolDetail={toolDetail}
         toolDialog={null}
         toolResult={toolResult}
@@ -207,7 +202,6 @@ export function App() {
         onDeleteDialogOpenChange={closeDeleteDialog}
         onResetDialogOpenChange={closeResetDialog}
         onRunToolFromDetail={openToolRunnerFromDetail}
-        onSettingsDialogOpenChange={setSettingsDialogOpen}
         onToolDetailOpenChange={closeToolDetail}
         onToolDialogOpenChange={closeToolDialog}
         onToolResultOpenChange={closeToolResult}

@@ -1,18 +1,27 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ActivityIcon, AlertCircleIcon, CheckIcon, FileTextIcon, InfoIcon, MonitorIcon, NetworkIcon, PencilIcon, PlusIcon, RefreshCwIcon, SaveIcon, ServerIcon, SettingsIcon, SlidersHorizontalIcon, Trash2Icon, type LucideIcon } from "lucide-react"
+import { ActivityIcon, FileTextIcon, InfoIcon, MonitorIcon, NetworkIcon, PencilIcon, PlusIcon, RefreshCwIcon, SaveIcon, ServerIcon, SlidersHorizontalIcon, Trash2Icon, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
+import { PanelCard } from "@/components/shared/panel-card"
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
@@ -37,26 +46,34 @@ const sectionIcons: Record<SectionId, LucideIcon> = {
 
 const compactInputGroupClass = "w-20 shrink-0 !w-20"
 
-export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function SettingsView() {
   const { setLanguageOverride, t } = useI18n()
   const queryClient = useQueryClient()
-  const [section, setSection] = useState<SectionId>("general")
+  const [activeTab, setActiveTab] = useState<SectionId>("overview")
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
-  const metaQuery = useSettingsMetaQuery(open)
+  const metaQuery = useSettingsMetaQuery(true)
   const settingsMutation = useUpdateSettingsMutation()
   const { phase, progress, version: updateAvailable, checkForUpdate, restartToUpdate } = useAppUpdater()
   const appVersion = useAppVersionLabel()
   const meta = metaQuery.data
   const loading = metaQuery.isFetching && !draft
-  const error = metaQuery.error instanceof Error ? metaQuery.error.message : ""
+  const error = metaQuery.error
+  const errorMessage = error instanceof Error ? error.message : error ? String(error) : t("settingsUnavailable")
   const saving = settingsMutation.isPending
 
   const configFile = meta?.config_file
   const configContent = useMemo(() => configFile?.content || "", [configFile?.content])
 
+  const headerLine = useMemo(() => {
+    if (!draft) return t("settingsDescription")
+    const parts = [draft.hosts.active]
+    if (configFile?.path) parts.push(configFile.path)
+    return parts.join(" · ")
+  }, [configFile?.path, draft, t])
+
   useEffect(() => {
-    if (open && meta?.settings) setDraft(settingsDraft(meta.settings))
-  }, [meta, open])
+    if (meta?.settings) setDraft(settingsDraft(meta.settings))
+  }, [meta])
 
   function patchDraft(patch: Partial<SettingsDraft>) {
     setDraft((current) => (current ? { ...current, ...patch } : current))
@@ -66,8 +83,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     setDraft((current) => (current ? { ...current, diagnostics: { ...current.diagnostics, ...patch } } : current))
   }
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  async function handleSave() {
     if (!draft) return
     const validationError = validateHostsConfig(draft.hosts)
     if (validationError) {
@@ -87,200 +103,206 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       }
       toast.success(t("saved"))
       await queryClient.invalidateQueries({ queryKey: queryKeys.meta })
-      onOpenChange(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("saveFailed"))
     }
   }
 
-  function handleOpenChange(nextOpen: boolean) {
-    if (!nextOpen) {
-      setSection("general")
-    }
-    onOpenChange(nextOpen)
-  }
+  const stateGuard =
+    error && !draft ? (
+      <PageError
+        title={t("settingsUnavailable")}
+        message={errorMessage}
+        onRefresh={() => void metaQuery.refetch()}
+      />
+    ) : loading && !draft ? (
+      <PageSkeleton />
+    ) : null
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex h-[min(78vh,640px)] !w-[94vw] !max-w-[94vw] flex-col gap-0 p-0 sm:!w-[72vw] sm:!max-w-[72vw]">
-        <DialogHeader className="border-b px-4 py-4 sm:px-5">
-          <DialogTitle className="flex items-center gap-2">
-            <SettingsIcon className="size-4" />
-            {t("settings")}
-          </DialogTitle>
-        </DialogHeader>
+    <>
+      <div className="min-w-0 shrink-0 pl-4">
+        <h1 className="text-lg font-semibold">{t("settings")}</h1>
+        <p className="mt-1 truncate font-mono text-sm text-muted-foreground" title={headerLine}>
+          {headerLine}
+        </p>
+      </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[144px_minmax(0,1fr)]">
-          <nav className="flex flex-col gap-1 border-r p-3" aria-label={t("settingsNav")}>
-            {sections.map((item) => {
-              const Icon = sectionIcons[item.id]
-              return (
-                <Button
-                  key={item.id}
-                  type="button"
-                  variant={section === item.id ? "secondary" : "ghost"}
-                  className="justify-start"
-                  onClick={() => setSection(item.id)}
-                >
-                  <Icon data-icon="inline-start" />
-                  {t(item.labelKey)}
-                </Button>
-              )
-            })}
-          </nav>
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        {stateGuard ?? (
+          draft ? (
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) => setActiveTab(value as SectionId)}
+              className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+            >
+              <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
+                <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start gap-1">
+                  {sections.map((item) => {
+                    const Icon = sectionIcons[item.id]
+                    const label = t(item.labelKey)
+                    return (
+                      <TabsTrigger key={item.id} value={item.id} title={label}>
+                        <Icon />
+                        {label}
+                      </TabsTrigger>
+                    )
+                  })}
+                </TabsList>
+                <div className="ml-auto flex shrink-0 gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void metaQuery.refetch()} disabled={metaQuery.isFetching}>
+                    <RefreshCwIcon data-icon="inline-start" />
+                    {t("refresh")}
+                  </Button>
+                  <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
+                    {saving ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
+                    {t("save")}
+                  </Button>
+                </div>
+              </div>
 
-          <ScrollArea className="min-h-0">
-            <div className="p-4 sm:p-5">
-              {loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
-              {error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
+              <TabsContent value="overview" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+                <ScrollPane className="flex-1">
+                  <OverviewSection draft={draft} />
+                </ScrollPane>
+              </TabsContent>
 
-              {!loading && !error && draft ? (
-                <DialogForm id="settings-form" onSubmit={onSubmit}>
-                  {section === "overview" ? <OverviewSection draft={draft} /> : null}
+              <TabsContent value="general" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+                <ScrollPane className="flex-1">
+                  <section className="flex flex-col gap-5">
+                    <SectionHead title={t("general")} />
+                    <FieldGroup>
+                      <Field orientation="responsive">
+                        <FieldContent>
+                          <FieldTitle>{t("language")}</FieldTitle>
+                          <FieldDescription>{t("chooseLanguage")}</FieldDescription>
+                        </FieldContent>
+                        <Select value={draft.language} onValueChange={(value) => patchDraft({ language: value as UiLanguage })}>
+                          <SelectTrigger className="w-44">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="auto">{t("auto")}</SelectItem>
+                              <SelectItem value="zh">{t("chinese")}</SelectItem>
+                              <SelectItem value="en">{t("english")}</SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </FieldGroup>
 
-                  {section === "connection" ? (
-                    <ConnectionSection draft={draft} patchDraft={patchDraft} />
-                  ) : null}
+                    <SectionHead title={t("coreBackend")} />
+                    <BackendFields draft={draft} patchDraft={patchDraft} />
+                  </section>
+                </ScrollPane>
+              </TabsContent>
 
-                  {section === "general" ? (
-                    <section className="flex flex-col gap-5">
-                      <SectionHead title={t("general")} />
-                      <FieldGroup>
-                        <Field orientation="responsive">
-                          <FieldContent>
-                            <FieldTitle>{t("language")}</FieldTitle>
-                            <FieldDescription>{t("chooseLanguage")}</FieldDescription>
-                          </FieldContent>
-                          <Select value={draft.language} onValueChange={(value) => patchDraft({ language: value as UiLanguage })}>
-                            <SelectTrigger className="w-44">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectGroup>
-                                <SelectItem value="auto">{t("auto")}</SelectItem>
-                                <SelectItem value="zh">{t("chinese")}</SelectItem>
-                                <SelectItem value="en">{t("english")}</SelectItem>
-                              </SelectGroup>
-                            </SelectContent>
-                          </Select>
-                        </Field>
-                      </FieldGroup>
+              <TabsContent value="connection" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+                <ScrollPane className="flex-1">
+                  <ConnectionSection draft={draft} patchDraft={patchDraft} />
+                </ScrollPane>
+              </TabsContent>
 
-                      <SectionHead title={t("coreBackend")} />
-                      <BackendFields draft={draft} patchDraft={patchDraft} />
-                    </section>
-                  ) : null}
-
-                  {section === "config" ? (
-                    <section className="flex flex-col gap-4">
-                      <SectionHead title={t("configFile")} description={configFile?.path || t("configFileMissing")} />
-                      <InputGroup>
-                        <InputGroupTextarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
-                      </InputGroup>
-                    </section>
-                  ) : null}
-
-                  {section === "diagnostics" ? (
-                    <section className="flex flex-col gap-5">
-                      <SectionHead title={t("diagnostics")} description={t("diagnosticsDescription")} />
-                      <FieldGroup>
-                        <ToggleField title={t("diagnosticsEnabled")} description={t("diagnosticsEnabledDescription")} checked={draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ enabled })} />
-                        <ToggleField title={t("runtimeLogEnabled")} description={t("runtimeLogEnabledDescription")} checked={draft.diagnostics.runtime_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ runtime_enabled: enabled })} />
-                        <p className="text-xs text-muted-foreground">{t("runtimeLogRestartNotice")}</p>
-                        <Field orientation="responsive">
-                          <FieldContent>
-                            <FieldTitle>{t("runtimeLogMaxSize")}</FieldTitle>
-                            <FieldDescription>{t("runtimeLogMaxSizeDescription")}</FieldDescription>
-                          </FieldContent>
-                          <InputGroup className={compactInputGroupClass}>
-                            <InputGroupInput
-                              inputMode="decimal"
-                              value={String(draft.diagnostics.runtime_max_size_bytes / 1024 / 1024).replace(/\.0$/, "")}
-                              onChange={(event) => patchDiagnostics({ runtime_max_size_bytes: Math.max(1, Number(event.target.value || 1) * 1024 * 1024) })}
-                            />
-                            <InputGroupAddon align="inline-end">MB</InputGroupAddon>
-                          </InputGroup>
-                        </Field>
-                        <Field orientation="responsive">
-                          <FieldContent>
-                            <FieldTitle>{t("runtimeLogRetentionDays")}</FieldTitle>
-                            <FieldDescription>{t("unlimited")}</FieldDescription>
-                          </FieldContent>
-                          <InputGroup className={compactInputGroupClass}>
-                            <InputGroupInput
-                              inputMode="numeric"
-                              placeholder={t("unlimitedPlaceholder")}
-                              value={draft.diagnostics.runtime_retention_days ?? ""}
-                              onChange={(event) => patchDiagnostics({ runtime_retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
-                            />
-                            <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
-                          </InputGroup>
-                        </Field>
-                      </FieldGroup>
-                    </section>
-                  ) : null}
-
-                  {section === "about" ? (
-                    <section className="flex flex-col gap-5">
-                      <McpstoreAsciiBanner />
-                      <SectionHead
-                        title={t("about")}
-                        description={t("settingsDescription")}
-                        action={
-                          <img
-                            alt="mcpstore"
-                            className="size-8 shrink-0"
-                            src="/logo.png"
+              <TabsContent value="diagnostics" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+                <ScrollPane className="flex-1">
+                  <section className="flex flex-col gap-5">
+                    <SectionHead title={t("diagnostics")} description={t("diagnosticsDescription")} />
+                    <FieldGroup>
+                      <ToggleField title={t("diagnosticsEnabled")} description={t("diagnosticsEnabledDescription")} checked={draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ enabled })} />
+                      <ToggleField title={t("runtimeLogEnabled")} description={t("runtimeLogEnabledDescription")} checked={draft.diagnostics.runtime_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ runtime_enabled: enabled })} />
+                      <p className="text-xs text-muted-foreground">{t("runtimeLogRestartNotice")}</p>
+                      <Field orientation="responsive">
+                        <FieldContent>
+                          <FieldTitle>{t("runtimeLogMaxSize")}</FieldTitle>
+                          <FieldDescription>{t("runtimeLogMaxSizeDescription")}</FieldDescription>
+                        </FieldContent>
+                        <InputGroup className={compactInputGroupClass}>
+                          <InputGroupInput
+                            inputMode="decimal"
+                            value={String(draft.diagnostics.runtime_max_size_bytes / 1024 / 1024).replace(/\.0$/, "")}
+                            onChange={(event) => patchDiagnostics({ runtime_max_size_bytes: Math.max(1, Number(event.target.value || 1) * 1024 * 1024) })}
                           />
-                        }
-                      />
-                      <div className="divide-y">
-                        <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
-                        <AboutRow label={t("sdkVersion")} value={formatReleaseVersion(meta?.version)} />
-                        {isDesktopShell ? (
-                          <AboutRow
-                            label={updateAvailable ? t("updateAvailable", { version: `v${updateAvailable}` }) : t("checkUpdates")}
-                            action={
-                              <UpdateButton
-                                phase={phase}
-                                progress={progress}
-                                onCheck={() => void checkForUpdate()}
-                                onRestart={restartToUpdate}
-                              />
-                            }
+                          <InputGroupAddon align="inline-end">MB</InputGroupAddon>
+                        </InputGroup>
+                      </Field>
+                      <Field orientation="responsive">
+                        <FieldContent>
+                          <FieldTitle>{t("runtimeLogRetentionDays")}</FieldTitle>
+                          <FieldDescription>{t("unlimited")}</FieldDescription>
+                        </FieldContent>
+                        <InputGroup className={compactInputGroupClass}>
+                          <InputGroupInput
+                            inputMode="numeric"
+                            placeholder={t("unlimitedPlaceholder")}
+                            value={draft.diagnostics.runtime_retention_days ?? ""}
+                            onChange={(event) => patchDiagnostics({ runtime_retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
                           />
-                        ) : null}
-                        <AboutRow label={t("github")} href="https://github.com/ip2a/mcpstore" value="https://github.com/ip2a/mcpstore" />
-                        <AboutRow label={t("rustCrate")} href="https://crates.io/crates/mcpstore" value="https://crates.io/crates/mcpstore" />
-                        <AboutRow label={t("pythonPackage")} href="https://pypi.org/project/mcpstore/" value="https://pypi.org/project/mcpstore/" />
-                        <AboutRow label={t("npmPackage")} href="https://www.npmjs.com/package/@ip2a/mcpstore" value="https://www.npmjs.com/package/@ip2a/mcpstore" />
-                      </div>
-                    </section>
-                  ) : null}
+                          <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
+                        </InputGroup>
+                      </Field>
+                    </FieldGroup>
+                  </section>
+                </ScrollPane>
+              </TabsContent>
 
-                </DialogForm>
-              ) : null}
-            </div>
-          </ScrollArea>
-        </div>
+              <TabsContent value="config" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+                <ScrollPane className="flex-1">
+                  <section className="flex flex-col gap-4">
+                    <SectionHead title={t("configFile")} description={configFile?.path || t("configFileMissing")} />
+                    <InputGroup>
+                      <InputGroupTextarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
+                    </InputGroup>
+                  </section>
+                </ScrollPane>
+              </TabsContent>
 
-        {draft ? (
-          <DialogFormFooter
-            className="shrink-0 border-t px-4 py-3 sm:px-5"
-            onCancel={() => handleOpenChange(false)}
-            submitDisabled={!draft}
-            submitLabel={
-              <>
-                {!saving ? <SaveIcon data-icon="inline-start" /> : null}
-                {t("save")}
-              </>
-            }
-            submitButtonProps={{ form: "settings-form" }}
-            submitting={saving}
-          />
-        ) : null}
-      </DialogContent>
-    </Dialog>
+              <TabsContent value="about" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+                <ScrollPane className="flex-1">
+                  <section className="flex flex-col gap-5">
+                    <McpstoreAsciiBanner />
+                    <SectionHead
+                      title={t("about")}
+                      description={t("settingsDescription")}
+                      action={
+                        <img
+                          alt="mcpstore"
+                          className="size-8 shrink-0"
+                          src="/logo.png"
+                        />
+                      }
+                    />
+                    <div className="divide-y">
+                      <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
+                      <AboutRow label={t("sdkVersion")} value={formatReleaseVersion(meta?.version)} />
+                      {isDesktopShell ? (
+                        <AboutRow
+                          label={updateAvailable ? t("updateAvailable", { version: `v${updateAvailable}` }) : t("checkUpdates")}
+                          action={
+                            <UpdateButton
+                              phase={phase}
+                              progress={progress}
+                              onCheck={() => void checkForUpdate()}
+                              onRestart={restartToUpdate}
+                            />
+                          }
+                        />
+                      ) : null}
+                      <AboutRow label={t("github")} href="https://github.com/ip2a/mcpstore" value="https://github.com/ip2a/mcpstore" />
+                      <AboutRow label={t("rustCrate")} href="https://crates.io/crates/mcpstore" value="https://crates.io/crates/mcpstore" />
+                      <AboutRow label={t("pythonPackage")} href="https://pypi.org/project/mcpstore/" value="https://pypi.org/project/mcpstore/" />
+                      <AboutRow label={t("npmPackage")} href="https://www.npmjs.com/package/@ip2a/mcpstore" value="https://www.npmjs.com/package/@ip2a/mcpstore" />
+                    </div>
+                  </section>
+                </ScrollPane>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <PageSkeleton />
+          )
+        )}
+      </PanelCard>
+    </>
   )
 }
 
@@ -321,35 +343,6 @@ function AboutRow({ href, label, value, action }: { href?: string; label: string
       ) : (
         <span className="min-w-0 truncate text-sm font-medium">{value}</span>
       )}
-    </div>
-  )
-}
-
-function SettingsLoading({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-      <Spinner />
-      {label}
-    </div>
-  )
-}
-
-function SettingsError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  const { t } = useI18n()
-
-  return (
-    <div className="flex flex-col gap-3 rounded-md border border-destructive/30 p-4 text-sm">
-      <div className="flex items-start gap-2 text-destructive">
-        <AlertCircleIcon className="mt-0.5 size-4" />
-        <div>
-          <p className="font-medium">{t("settingsUnavailable")}</p>
-          <p className="mt-1 text-muted-foreground">{message}</p>
-        </div>
-      </div>
-      <Button type="button" variant="outline" className="w-fit" onClick={onRetry}>
-        <RefreshCwIcon data-icon="inline-start" />
-        {t("retry")}
-      </Button>
     </div>
   )
 }
@@ -634,6 +627,11 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     setPendingFullUrlBody("")
   }
 
+  function handleAddDialogOpenChange(open: boolean) {
+    if (!open) resetPending()
+    setAddingOpen(open)
+  }
+
   function addHost() {
     const name = pendingName.trim()
     const url = pendingUrlValue.trim()
@@ -864,97 +862,106 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
         </div>
       </div>
 
-      {addingOpen ? (
-        <div className="flex flex-col gap-4 rounded-md border p-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pending-host-name">{t("host")}</Label>
-            <InputGroup>
-              <InputGroupInput
-                id="pending-host-name"
-                autoFocus
-                value={pendingName}
-                onChange={(event) => setPendingName(event.target.value)}
-                placeholder={t("host")}
-                className={cn(
-                  pendingName.trim() &&
-                    Object.prototype.hasOwnProperty.call(draft.hosts.entries, pendingName.trim()) &&
-                    "border-destructive/50",
-                )}
-              />
-            </InputGroup>
-          </div>
+      <Dialog open={addingOpen} onOpenChange={handleAddDialogOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("addHost")}</DialogTitle>
+            <DialogDescription>{t("connectionDescription")}</DialogDescription>
+          </DialogHeader>
 
-          {pendingFullUrlMode ? (
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="connection-full-url">{t("fullUrl")}</Label>
-              <div className="flex items-center gap-2">
-                <span className="shrink-0 font-mono text-sm text-muted-foreground">{pendingSecure ? "https://" : "http://"}</span>
-                <InputGroup className="min-w-0 flex-1">
-                  <InputGroupInput
-                    id="connection-full-url"
-                    value={pendingFullUrlBody}
-                    onChange={(event) => {
-                      const next = parseFullUrlBodyInput(event.target.value)
-                      setPendingFullUrlBody(next.body)
-                      if (next.secure != null) setPendingSecure(next.secure)
-                    }}
-                    placeholder="127.0.0.1:1820/api"
-                    className={cn(pendingFullUrlBody.trim() && !parsedRawUrl && "border-destructive/50")}
-                  />
-                </InputGroup>
-              </div>
+              <Label htmlFor="pending-host-name">{t("host")}</Label>
+              <InputGroup>
+                <InputGroupInput
+                  id="pending-host-name"
+                  autoFocus
+                  value={pendingName}
+                  onChange={(event) => setPendingName(event.target.value)}
+                  placeholder={t("host")}
+                  className={cn(
+                    pendingName.trim() &&
+                      Object.prototype.hasOwnProperty.call(draft.hosts.entries, pendingName.trim()) &&
+                      "border-destructive/50",
+                  )}
+                />
+              </InputGroup>
             </div>
-          ) : (
-            <div className="flex flex-col gap-4 sm:flex-row">
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <Label htmlFor="connection-host">{t("coreBackendUrlLabel")}</Label>
+
+            {pendingFullUrlMode ? (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="connection-full-url">{t("fullUrl")}</Label>
                 <div className="flex items-center gap-2">
                   <span className="shrink-0 font-mono text-sm text-muted-foreground">{pendingSecure ? "https://" : "http://"}</span>
                   <InputGroup className="min-w-0 flex-1">
                     <InputGroupInput
-                      id="connection-host"
-                      value={pendingHost}
-                      onChange={(event) => setPendingHost(event.target.value)}
-                      placeholder="127.0.0.1"
+                      id="connection-full-url"
+                      value={pendingFullUrlBody}
+                      onChange={(event) => {
+                        const next = parseFullUrlBodyInput(event.target.value)
+                        setPendingFullUrlBody(next.body)
+                        if (next.secure != null) setPendingSecure(next.secure)
+                      }}
+                      placeholder="127.0.0.1:1820/api"
+                      className={cn(pendingFullUrlBody.trim() && !parsedRawUrl && "border-destructive/50")}
                     />
                   </InputGroup>
                 </div>
               </div>
-              <div className="flex w-full flex-col gap-1.5 sm:w-32">
-                <Label htmlFor="connection-port">{t("port")}</Label>
-                <InputGroup>
-                  <InputGroupInput
-                    id="connection-port"
-                    inputMode="numeric"
-                    value={pendingPort}
-                    onChange={(event) => setPendingPort(event.target.value.replace(/\D/g, ""))}
-                    placeholder="1820"
-                  />
-                </InputGroup>
+            ) : (
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <Label htmlFor="connection-host">{t("coreBackendUrlLabel")}</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 font-mono text-sm text-muted-foreground">{pendingSecure ? "https://" : "http://"}</span>
+                    <InputGroup className="min-w-0 flex-1">
+                      <InputGroupInput
+                        id="connection-host"
+                        value={pendingHost}
+                        onChange={(event) => setPendingHost(event.target.value)}
+                        placeholder="127.0.0.1"
+                      />
+                    </InputGroup>
+                  </div>
+                </div>
+                <div className="flex w-full flex-col gap-1.5 sm:w-32">
+                  <Label htmlFor="connection-port">{t("port")}</Label>
+                  <InputGroup>
+                    <InputGroupInput
+                      id="connection-port"
+                      inputMode="numeric"
+                      value={pendingPort}
+                      onChange={(event) => setPendingPort(event.target.value.replace(/\D/g, ""))}
+                      placeholder="1820"
+                    />
+                  </InputGroup>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={pendingSecure} onCheckedChange={setPendingSecure} aria-label={t("useHttps")} />
-              {t("useHttps")}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={pendingFullUrlMode} onCheckedChange={setFullUrlMode} aria-label={t("useFullUrl")} />
-              {t("useFullUrl")}
-            </label>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("delete")} onClick={() => { resetPending(); setAddingOpen(false) }}>
-                <Trash2Icon className="size-3.5 text-destructive" />
-              </Button>
-              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("add")} disabled={!pendingValid} onClick={addHost}>
-                <CheckIcon className="size-3.5" />
-              </Button>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={pendingSecure} onCheckedChange={setPendingSecure} aria-label={t("useHttps")} />
+                {t("useHttps")}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={pendingFullUrlMode} onCheckedChange={setFullUrlMode} aria-label={t("useFullUrl")} />
+                {t("useFullUrl")}
+              </label>
             </div>
           </div>
-        </div>
-      ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => handleAddDialogOpenChange(false)}>
+              {t("cancel")}
+            </Button>
+            <Button type="button" disabled={!pendingValid} onClick={addHost}>
+              <PlusIcon data-icon="inline-start" />
+              {t("addHost")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }
