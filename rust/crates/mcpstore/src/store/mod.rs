@@ -258,6 +258,26 @@ impl MCPStore {
             .and_then(|slot| slot.clone())
     }
 
+    /// Attach the frame-telemetry sink (host opts in; SDK default = off).
+    /// Idempotent: the first attach wins. Read lazily by upstream connections
+    /// at connect time.
+    pub fn set_frame_telemetry(
+        &self,
+        sink: Option<std::sync::Arc<dyn crate::telemetry::FrameTelemetry>>,
+    ) {
+        self.kernel
+            .execution
+            .pool
+            .attach_frame_telemetry(sink);
+    }
+
+    /// The attached frame-telemetry sink, if any.
+    pub fn frame_telemetry(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::telemetry::FrameTelemetry>> {
+        self.kernel.execution.pool.frame_telemetry()
+    }
+
     /// Mount the control panel's self-healing supervisor (idempotent).
     /// Called by ControlPanel; not mounted means no self-healing.
     pub fn attach_control_supervisor(self: &std::sync::Arc<Self>) -> Result<()> {

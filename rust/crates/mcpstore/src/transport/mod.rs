@@ -23,6 +23,7 @@ mod resources;
 mod stdio;
 mod task_state;
 mod tasks;
+mod telemetry_transport;
 mod tools;
 
 pub(crate) use elicitation::McpElicitationController;
