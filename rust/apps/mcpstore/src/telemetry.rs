@@ -12,12 +12,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use mcpstore::telemetry::RequestRecord;
+use mcpstore::telemetry::{FrameRecord, RequestRecord};
 use rusqlite::{Connection, types::Value};
 
 /// Records older than this are purged at open and once per hour by the writer.
 // ponytail: constant retention; wire to `[diagnostics]` config when a real need shows up.
 const RETENTION_DAYS: i64 = 30;
+/// Frames decay faster than requests (handshake/list chatter dominates), so
+/// they live on a shorter clock.
+// ponytail: same as RETENTION_DAYS — promote both together when configurable.
+const FRAME_RETENTION_DAYS: i64 = 7;
 /// Per-field cap on stored args/result JSON; oversized payloads are truncated
 /// and flagged instead of silently bloating the DB.
 // ponytail: 1 MiB flat cap; make configurable if a payload-heavy workload complains.
@@ -66,6 +70,25 @@ pub struct UsageStats {
     pub by_service: Vec<UsageSeriesPoint>,
     pub by_tool: Vec<UsageSeriesPoint>,
     pub by_instance: Vec<UsageSeriesPoint>,
+}
+
+/// One connection's frame timeline summary (a session spans handshake → close).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FrameSessionSummary {
+    pub session_id: String,
+    pub face: String,
+    pub caller: Option<String>,
+    pub peer: Option<String>,
+    pub instance_id: Option<String>,
+    pub first_ts_unix_ms: i64,
+    pub last_ts_unix_ms: i64,
+    pub frame_count: i64,
+}
+
+/// What crosses the writer queue: completed requests or raw frames.
+enum TelemetryItem {
+    Request(RequestRecord),
+    Frame(FrameRecord),
 }
 
 const SELECT_COLUMNS: &str = "id, request_id, started_at_unix_ms, duration_ms, kind, caller, \
@@ -117,13 +140,37 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_requests_service_tool
             ON requests(service_name, tool, started_at_unix_ms);
         CREATE INDEX IF NOT EXISTS idx_requests_success_time
-            ON requests(success, started_at_unix_ms);",
+            ON requests(success, started_at_unix_ms);
+        CREATE TABLE IF NOT EXISTS frames (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            ts_unix_ms INTEGER NOT NULL,
+            face TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            method TEXT,
+            jsonrpc_id TEXT,
+            kind TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            truncated INTEGER NOT NULL DEFAULT 0,
+            caller TEXT,
+            instance_id TEXT,
+            peer TEXT,
+            transport TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_frames_session ON frames(session_id, ts_unix_ms);
+        CREATE INDEX IF NOT EXISTS idx_frames_face_time ON frames(face, ts_unix_ms);",
     )
 }
 
 fn purge_expired(conn: &Connection) -> rusqlite::Result<()> {
-    let cutoff = now_ms() - RETENTION_DAYS * 24 * 3600 * 1000;
-    conn.execute("DELETE FROM requests WHERE started_at_unix_ms < ?1", [cutoff])?;
+    let request_cutoff = now_ms() - RETENTION_DAYS * 24 * 3600 * 1000;
+    conn.execute(
+        "DELETE FROM requests WHERE started_at_unix_ms < ?1",
+        [request_cutoff],
+    )?;
+    let frame_cutoff = now_ms() - FRAME_RETENTION_DAYS * 24 * 3600 * 1000;
+    conn.execute("DELETE FROM frames WHERE ts_unix_ms < ?1", [frame_cutoff])?;
     Ok(())
 }
 
@@ -203,11 +250,61 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestRecord> {
     })
 }
 
+const FRAME_COLUMNS: &str = "id, session_id, ts_unix_ms, face, direction, method, jsonrpc_id, \
+     kind, payload, size_bytes, truncated, caller, instance_id, peer, transport";
+
+fn insert_frame_batch(conn: &Connection, batch: &[FrameRecord]) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO frames (session_id, ts_unix_ms, face, direction, method, jsonrpc_id, kind, \
+         payload, size_bytes, truncated, caller, instance_id, peer, transport)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+    )?;
+    for record in batch {
+        stmt.execute(rusqlite::params![
+            record.session_id,
+            record.ts_unix_ms,
+            record.face,
+            record.direction,
+            record.method,
+            record.jsonrpc_id,
+            record.kind,
+            record.payload,
+            record.size_bytes,
+            record.truncated,
+            record.caller,
+            record.instance_id,
+            record.peer,
+            record.transport,
+        ])?;
+    }
+    Ok(())
+}
+
+fn row_to_frame(row: &rusqlite::Row<'_>) -> rusqlite::Result<FrameRecord> {
+    Ok(FrameRecord {
+        id: Some(row.get(0)?),
+        session_id: row.get(1)?,
+        ts_unix_ms: row.get(2)?,
+        face: row.get(3)?,
+        direction: row.get(4)?,
+        method: row.get(5)?,
+        jsonrpc_id: row.get(6)?,
+        kind: row.get(7)?,
+        payload: row.get(8)?,
+        size_bytes: row.get(9)?,
+        truncated: row.get::<_, i64>(10)? != 0,
+        caller: row.get(11)?,
+        instance_id: row.get(12)?,
+        peer: row.get(13)?,
+        transport: row.get(14)?,
+    })
+}
+
 /// One telemetry file per data directory. Clone the handle freely; dropping the
 /// last clone lets the writer thread drain the queue and exit.
 pub struct TelemetryLog {
     path: PathBuf,
-    tx: std::sync::mpsc::SyncSender<RequestRecord>,
+    tx: std::sync::mpsc::SyncSender<TelemetryItem>,
     dropped: AtomicU64,
 }
 
@@ -221,7 +318,7 @@ impl TelemetryLog {
             init_schema(&conn)?;
             purge_expired(&conn)?;
         }
-        let (tx, rx) = std::sync::mpsc::sync_channel::<RequestRecord>(QUEUE_CAP);
+        let (tx, rx) = std::sync::mpsc::sync_channel::<TelemetryItem>(QUEUE_CAP);
         let writer_path = path.clone();
         std::thread::Builder::new()
             .name("telemetry-writer".to_string())
@@ -234,7 +331,7 @@ impl TelemetryLog {
                 loop {
                     match rx.recv_timeout(Duration::from_millis(100)) {
                         Ok(first) => {
-                            let mut batch = Vec::with_capacity(8);
+                            let mut batch = Vec::with_capacity(BATCH_MAX);
                             batch.push(first);
                             while batch.len() < BATCH_MAX {
                                 match rx.try_recv() {
@@ -242,8 +339,23 @@ impl TelemetryLog {
                                     Err(_) => break,
                                 }
                             }
-                            if let Err(error) = insert_batch(&conn, &batch) {
-                                tracing::warn!(%error, count = batch.len(), "telemetry insert failed");
+                            let mut requests = Vec::with_capacity(batch.len());
+                            let mut frames = Vec::new();
+                            for item in batch {
+                                match item {
+                                    TelemetryItem::Request(record) => requests.push(record),
+                                    TelemetryItem::Frame(record) => frames.push(record),
+                                }
+                            }
+                            if !requests.is_empty() {
+                                if let Err(error) = insert_batch(&conn, &requests) {
+                                    tracing::warn!(%error, count = requests.len(), "telemetry insert failed");
+                                }
+                            }
+                            if !frames.is_empty() {
+                                if let Err(error) = insert_frame_batch(&conn, &frames) {
+                                    tracing::warn!(%error, count = frames.len(), "frame insert failed");
+                                }
                             }
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -275,7 +387,21 @@ impl TelemetryLog {
     pub fn record(&self, mut record: RequestRecord) {
         (record.args_json, record.args_truncated) = cap_payload(record.args_json.take());
         (record.result_json, record.result_truncated) = cap_payload(record.result_json.take());
-        match self.tx.try_send(record) {
+        self.send(TelemetryItem::Request(record));
+    }
+
+    /// Queue a frame — same contract as [`record`](Self::record).
+    pub fn record_frame(&self, mut record: FrameRecord) {
+        (record.payload, record.truncated) =
+            match cap_payload(Some(std::mem::take(&mut record.payload))) {
+                (Some(payload), truncated) => (payload, truncated),
+                (None, truncated) => (String::new(), truncated),
+            };
+        self.send(TelemetryItem::Frame(record));
+    }
+
+    fn send(&self, item: TelemetryItem) {
+        match self.tx.try_send(item) {
             Ok(()) => {}
             Err(std::sync::mpsc::TrySendError::Full(_)) => {
                 let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
@@ -348,6 +474,65 @@ impl TelemetryLog {
         }
     }
 
+    /// Sessions with frames inside the trailing `hours` window, newest first.
+    /// Every frame in a session carries the same caller/peer/instance values,
+    /// so the aggregate picks any non-null one.
+    pub fn frame_sessions(
+        &self,
+        face: Option<&str>,
+        hours: i64,
+    ) -> rusqlite::Result<Vec<FrameSessionSummary>> {
+        let conn = self.read_conn()?;
+        let from = now_ms() - hours.max(1) * 3600 * 1000;
+        let mut sql = "SELECT session_id, MAX(face), MAX(caller), MAX(peer), MAX(instance_id), \
+             MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*) FROM frames WHERE ts_unix_ms >= ?1"
+            .to_string();
+        if face.is_some() {
+            sql.push_str(" AND face = ?2");
+        }
+        sql.push_str(" GROUP BY session_id ORDER BY MAX(ts_unix_ms) DESC LIMIT 100");
+        let mut stmt = conn.prepare(&sql)?;
+        let map_row = |row: &rusqlite::Row<'_>| {
+            Ok(FrameSessionSummary {
+                session_id: row.get(0)?,
+                face: row.get(1)?,
+                caller: row.get(2)?,
+                peer: row.get(3)?,
+                instance_id: row.get(4)?,
+                first_ts_unix_ms: row.get(5)?,
+                last_ts_unix_ms: row.get(6)?,
+                frame_count: row.get(7)?,
+            })
+        };
+        let rows = match face {
+            Some(face) => stmt.query_map(rusqlite::params![from, face], map_row)?,
+            None => stmt.query_map([from], map_row)?,
+        };
+        rows.collect()
+    }
+
+    /// One session's frame timeline, oldest first.
+    pub fn frame_history(&self, session_id: &str, limit: u32) -> rusqlite::Result<Vec<FrameRecord>> {
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {FRAME_COLUMNS} FROM frames WHERE session_id = ?1 ORDER BY id LIMIT ?2"
+        ))?;
+        let limit = limit.clamp(1, 1000) as i64;
+        let rows = stmt.query_map(rusqlite::params![session_id, limit], row_to_frame)?;
+        rows.collect()
+    }
+
+    pub fn frame_detail(&self, id: i64) -> rusqlite::Result<Option<FrameRecord>> {
+        let conn = self.read_conn()?;
+        let mut stmt =
+            conn.prepare(&format!("SELECT {FRAME_COLUMNS} FROM frames WHERE id = ?1"))?;
+        let mut rows = stmt.query_map([id], row_to_frame)?;
+        match rows.next() {
+            Some(row) => row.map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Tool-call usage stats over the trailing `hours` window, hourly buckets,
     /// split per dimension. Only `kind = 'tool'` counts.
     pub fn usage_stats(&self, hours: u32) -> rusqlite::Result<UsageStats> {
@@ -408,6 +593,12 @@ impl TelemetryLog {
 impl mcpstore::telemetry::RequestTelemetry for TelemetryLog {
     fn record(&self, record: RequestRecord) {
         TelemetryLog::record(self, record);
+    }
+}
+
+impl mcpstore::telemetry::FrameTelemetry for TelemetryLog {
+    fn record_frame(&self, record: FrameRecord) {
+        TelemetryLog::record_frame(self, record);
     }
 }
 
@@ -548,6 +739,67 @@ mod tests {
             .len(),
             0
         );
+        std::fs::remove_file(&path).ok();
+    }
+
+    fn frame(session_id: &str, face: &str, direction: &str, method: Option<&str>) -> FrameRecord {
+        let mut record = FrameRecord::new(session_id, face, direction);
+        record.method = method.map(str::to_string);
+        record.kind = match (method, direction) {
+            (Some(_), "up") => "request".to_string(),
+            (Some(_), _) => "notification".to_string(),
+            (None, _) => "response".to_string(),
+        };
+        record.caller = (face == "gateway").then(|| "claude".to_string());
+        record.instance_id = (face == "upstream").then(|| "inst-1".to_string());
+        record.peer = Some("peer-x".to_string());
+        record.transport = (face == "upstream").then(|| "stdio".to_string());
+        record.payload = format!(r#"{{"jsonrpc":"2.0","method":"{method:?}"}}"#);
+        record.size_bytes = record.payload.len() as i64;
+        record
+    }
+
+    #[test]
+    fn frame_roundtrip_sessions_history_and_retention() {
+        let path = temp_path("frames");
+        {
+            let log = TelemetryLog::open(&path).unwrap();
+            log.record_frame(frame("s-gw", "gateway", "up", Some("initialize")));
+            log.record_frame(frame("s-gw", "gateway", "down", None));
+            log.record_frame(frame("s-up", "upstream", "up", Some("tools/list")));
+            log.record_frame(frame("s-up", "upstream", "down", None));
+            std::thread::sleep(Duration::from_millis(300));
+
+            let sessions = log.frame_sessions(None, 24).unwrap();
+            assert_eq!(sessions.len(), 2);
+            let gw = sessions.iter().find(|s| s.face == "gateway").unwrap();
+            assert_eq!(gw.session_id, "s-gw");
+            assert_eq!(gw.frame_count, 2);
+            assert_eq!(gw.caller.as_deref(), Some("claude"));
+            let up = log.frame_sessions(Some("upstream"), 24).unwrap();
+            assert_eq!(up.len(), 1);
+            assert_eq!(up[0].instance_id.as_deref(), Some("inst-1"));
+
+            let history = log.frame_history("s-up", 50).unwrap();
+            assert_eq!(history.len(), 2);
+            assert_eq!(history[0].direction, "up");
+            assert_eq!(history[1].direction, "down");
+            let id = history[0].id.unwrap();
+            assert_eq!(
+                log.frame_detail(id).unwrap().unwrap().method.as_deref(),
+                Some("tools/list")
+            );
+
+            // Backdate one session's frames beyond the frame clock, reopen:
+            // frames go, requests stay (their retention is longer).
+            let conn = open_connection(&path).unwrap();
+            let old = now_ms() - (FRAME_RETENTION_DAYS + 1) * 24 * 3600 * 1000;
+            conn.execute("UPDATE frames SET ts_unix_ms = ?1", [old]).unwrap();
+            drop(conn);
+        }
+        let log = TelemetryLog::open(&path).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(log.frame_sessions(None, 24).unwrap().is_empty());
         std::fs::remove_file(&path).ok();
     }
 }
