@@ -111,6 +111,29 @@ pub struct DiscoverSection {
     pub cli_commands: Vec<String>,
 }
 
+impl DiscoverSection {
+    /// Config file candidates for the current platform: the per-OS override
+    /// list when set, else the base list.
+    pub fn platform_config_paths(&self) -> Vec<PathBuf> {
+        ManifestSetup::platform_paths(
+            &self.config_paths,
+            &self.config_paths_macos,
+            &self.config_paths_linux,
+            &self.config_paths_windows,
+        )
+    }
+
+    /// Config dir candidates for the current platform.
+    pub fn platform_config_dirs(&self) -> Vec<PathBuf> {
+        ManifestSetup::platform_paths(
+            &self.config_dirs,
+            &self.config_dirs_macos,
+            &self.config_dirs_linux,
+            &self.config_dirs_windows,
+        )
+    }
+}
+
 /// A [`ClientSetup`] built from a manifest. The strings the trait hands out as
 /// `&'static` are leaked once here, at construction; a setup lives for the
 /// process lifetime, so nothing is reclaimed and nothing leaks per call.

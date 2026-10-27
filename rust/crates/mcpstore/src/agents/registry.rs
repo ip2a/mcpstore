@@ -99,12 +99,43 @@ pub fn reload() {
     *REGISTRY.write().expect("plugin registry lock") = Some(active);
 }
 
+/// Enable a plugin: it must be on disk. Install and enablement are separate
+/// acts — installing from the market leaves the plugin disabled.
+pub fn enable(id: &str) -> Result<()> {
+    if !plugins_dir().join(id).join("plugin.toml").is_file() {
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("plugin {id} is not installed"),
+        ));
+    }
+    let mut enabled = current_enabled();
+    if !enabled.iter().any(|enabled_id| enabled_id == id) {
+        enabled.push(id.to_string());
+        set_enabled(&enabled)?;
+    }
+    reload();
+    Ok(())
+}
+
+/// Disable a plugin: remove it from the enabled list only, folder untouched.
+/// Wiring protection lives with the API caller.
+pub fn disable(id: &str) -> Result<()> {
+    let mut enabled = current_enabled();
+    let before = enabled.len();
+    enabled.retain(|enabled_id| enabled_id != id);
+    if enabled.len() != before {
+        set_enabled(&enabled)?;
+    }
+    reload();
+    Ok(())
+}
+
 fn scan_current() -> (Arc<[Arc<dyn ClientSetup>]>, Vec<PluginReport>) {
     let enabled = current_enabled();
     scan(&plugins_dir(), &enabled)
 }
 
-fn current_enabled() -> Vec<String> {
+pub(crate) fn current_enabled() -> Vec<String> {
     crate::config::ConfigManager::new()
         .load_app_config_or_default()
         .map(|config| config.plugins.enabled)
@@ -113,7 +144,7 @@ fn current_enabled() -> Vec<String> {
 
 /// Persist the enabled list back to `config.toml`. Callers run this before the
 /// daemon serves, so there is no competing writer to race.
-fn set_enabled(enabled: &[String]) -> Result<()> {
+pub(crate) fn set_enabled(enabled: &[String]) -> Result<()> {
     let manager = crate::config::ConfigManager::new();
     let mut config = manager
         .load_app_config_or_default()

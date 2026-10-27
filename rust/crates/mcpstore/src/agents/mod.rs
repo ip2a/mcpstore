@@ -6,6 +6,7 @@
 //! registry in [`registry`].
 
 pub mod manifest_setup;
+pub mod market;
 pub mod registry;
 
 use std::collections::HashMap;
@@ -101,7 +102,21 @@ pub struct Detection {
 /// Find one client on this machine: its config file, else a known folder,
 /// else one of its commands on the (extended) PATH.
 pub fn detect(setup: &dyn ClientSetup) -> Option<Detection> {
-    for path in expand_tilde(setup.default_config_paths()) {
+    detect_by_discovery(
+        setup.default_config_paths(),
+        setup.config_dirs(),
+        setup.cli_commands().iter().map(|command| command.to_string()).collect(),
+    )
+}
+
+/// Discovery over raw rules, shared by the registry (`detect`) and market
+/// detection (which has manifests only in the index, not on disk).
+pub fn detect_by_discovery(
+    config_paths: Vec<PathBuf>,
+    config_dirs: Vec<PathBuf>,
+    cli_commands: Vec<String>,
+) -> Option<Detection> {
+    for path in expand_tilde(config_paths) {
         if path.is_file() {
             return Some(Detection {
                 path,
@@ -109,7 +124,7 @@ pub fn detect(setup: &dyn ClientSetup) -> Option<Detection> {
             });
         }
     }
-    for dir in expand_tilde(setup.config_dirs()) {
+    for dir in expand_tilde(config_dirs) {
         if dir.is_dir() {
             return Some(Detection {
                 path: dir,
@@ -117,7 +132,8 @@ pub fn detect(setup: &dyn ClientSetup) -> Option<Detection> {
             });
         }
     }
-    find_command(setup.cli_commands()).map(|path| Detection {
+    let commands: Vec<&str> = cli_commands.iter().map(String::as_str).collect();
+    find_command(&commands).map(|path| Detection {
         path,
         by: DetectedBy::Command,
     })
