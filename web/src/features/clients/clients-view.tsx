@@ -23,6 +23,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useClientsQuery, useClientToggle, useClientVersionQuery } from "@/features/clients/queries"
+import { ClientPluginsDialog } from "@/features/clients/client-plugins-dialog"
 import { useI18n } from "@/lib/i18n-context"
 import type { ClientInventory, ExposeConfig, WireOptions } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -43,15 +44,21 @@ export function ClientsView() {
   const { data, isPending, isError, error, refetch } = useClientsQuery()
   const { toggle, busy } = useClientToggle()
   const [wireTarget, setWireTarget] = useState<ClientInventory | null>(null)
+  const [pluginsOpen, setPluginsOpen] = useState(false)
 
   const clients = data ?? []
 
   return (
     <>
-      <WorkspacePageHeader
-        title={<h1 className="text-lg font-semibold">{t("clientsWorkspaceTitle")}</h1>}
-        subtitle={t("clientsWorkspaceDescription", { count: clients.length })}
-      />
+      <div className="flex shrink-0 items-center justify-between gap-2 pl-4">
+        <WorkspacePageHeader
+          title={<h1 className="text-lg font-semibold">{t("clientsWorkspaceTitle")}</h1>}
+          subtitle={t("clientsWorkspaceDescription", { count: clients.length })}
+        />
+        <Button variant="outline" size="sm" className="mr-4" onClick={() => setPluginsOpen(true)}>
+          {t("clientPluginsTitle")}
+        </Button>
+      </div>
 
       {isError ? (
         <PageError
@@ -86,6 +93,8 @@ export function ClientsView() {
           void toggle(client, false, options)
         }}
       />
+
+      <ClientPluginsDialog open={pluginsOpen} onOpenChange={setPluginsOpen} />
     </>
   )
 }
