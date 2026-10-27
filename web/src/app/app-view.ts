@@ -1,5 +1,4 @@
 import {
-  BotIcon,
   CableIcon,
   DatabaseIcon,
   FileStackIcon,
@@ -16,7 +15,6 @@ import { useI18n } from "@/lib/i18n-context"
 export type AppView =
   | { name: "home" }
   | { name: "services" }
-  | { name: "agents" }
   | { name: "clients" }
   | { name: "tools" }
   | { name: "tool"; instanceId: string; toolName: string }
@@ -38,7 +36,6 @@ export function useNavItems(): NavItem[] {
   return [
     { view: { name: "home" }, label: t("navHome"), icon: HouseIcon },
     { view: { name: "services" }, label: t("navServices"), icon: ServerIcon },
-    { view: { name: "agents" }, label: t("navAgents"), icon: BotIcon },
     { view: { name: "clients" }, label: t("navClients"), icon: CableIcon },
     { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
     { view: { name: "resources" }, label: t("navResources"), icon: FileStackIcon },

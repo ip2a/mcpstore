@@ -20,12 +20,13 @@ import { useI18n } from "@/lib/i18n-context"
 
 export function ServicesFilterDialog(props: {
   activeFilterCount: number
-  agentFilter: string
-  agentIds: string[]
-  onAgentFilterChange: (value: string) => void
-  onScopeFilterChange: (value: ServiceScopeFilter) => void
+  agentFilter?: string
+  agentIds?: string[]
+  hideScopeFilters?: boolean
+  onAgentFilterChange?: (value: string) => void
+  onScopeFilterChange?: (value: ServiceScopeFilter) => void
   onStatusFilterChange: (value: ServiceStatusFilter) => void
-  scopeFilter: ServiceScopeFilter
+  scopeFilter?: ServiceScopeFilter
   statusFilter: ServiceStatusFilter
 }) {
   const { t } = useI18n()
@@ -48,43 +49,50 @@ export function ServicesFilterDialog(props: {
           <DialogTitle>{t("filter")}</DialogTitle>
         </DialogHeader>
         <FieldGroup className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            <FieldLabel>{t("scope")}</FieldLabel>
-            <Select value={props.scopeFilter} onValueChange={(value) => props.onScopeFilterChange(value as ServiceScopeFilter)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("scope")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="all">{t("filterAll")}</SelectItem>
-                  <SelectItem value="store">{t("store")}</SelectItem>
-                  <SelectItem value="agent">{t("agent")}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel>{t("agent")}</FieldLabel>
-            <Select
-              value={props.agentFilter || "all"}
-              onValueChange={(value) => props.onAgentFilterChange(value === "all" ? "" : value)}
-              disabled={props.scopeFilter !== "agent"}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("agent")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="all">{t("filterAll")}</SelectItem>
-                  {props.agentIds.map((agentId) => (
-                    <SelectItem key={agentId} value={agentId}>
-                      {agentId}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
+          {props.hideScopeFilters ? null : (
+            <>
+              <Field>
+                <FieldLabel>{t("scope")}</FieldLabel>
+                <Select
+                  value={props.scopeFilter}
+                  onValueChange={(value) => props.onScopeFilterChange?.(value as ServiceScopeFilter)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("scope")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">{t("filterAll")}</SelectItem>
+                      <SelectItem value="store">{t("store")}</SelectItem>
+                      <SelectItem value="agent">{t("agent")}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel>{t("agent")}</FieldLabel>
+                <Select
+                  value={props.agentFilter || "all"}
+                  onValueChange={(value) => props.onAgentFilterChange?.(value === "all" ? "" : value)}
+                  disabled={props.scopeFilter !== "agent"}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("agent")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">{t("filterAll")}</SelectItem>
+                      {(props.agentIds || []).map((agentId) => (
+                        <SelectItem key={agentId} value={agentId}>
+                          {agentId}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </>
+          )}
           <Field>
             <FieldLabel>{t("status")}</FieldLabel>
             <Select
@@ -112,8 +120,8 @@ export function ServicesFilterDialog(props: {
               variant="ghost"
               size="sm"
               onClick={() => {
-                props.onScopeFilterChange("all")
-                props.onAgentFilterChange("")
+                props.onScopeFilterChange?.("all")
+                props.onAgentFilterChange?.("")
                 props.onStatusFilterChange("all")
               }}
             >

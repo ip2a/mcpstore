@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from "react"
 
 import { SearchBox } from "@/components/shared/search-box"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 type CollapsibleSearchBoxProps = {
   id?: string
+  inline?: boolean
   placeholder: string
   value: string
   onChange: (value: string) => void
@@ -15,7 +17,7 @@ type CollapsibleSearchBoxProps = {
 // - 有值时强制展开
 // - Escape 清空并收起
 // - 失焦且无值时收起
-export function CollapsibleSearchBox({ id, placeholder, value, onChange }: CollapsibleSearchBoxProps) {
+export function CollapsibleSearchBox({ id, inline = false, placeholder, value, onChange }: CollapsibleSearchBoxProps) {
   const [open, setOpen] = useState(() => value.length > 0)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -35,7 +37,7 @@ export function CollapsibleSearchBox({ id, placeholder, value, onChange }: Colla
       <Button
         variant="outline"
         size="sm"
-        className="ml-auto gap-1.5"
+        className={cn("gap-1.5", !inline && "ml-auto")}
         onClick={() => setOpen(true)}
         aria-label={placeholder}
       >
@@ -47,7 +49,7 @@ export function CollapsibleSearchBox({ id, placeholder, value, onChange }: Colla
 
   return (
     // ml-auto + flex-1：折叠态靠右，展开态吃掉所有剩余空间
-    <div className="ml-auto flex min-w-0 flex-1 items-center">
+    <div className={cn("flex min-w-0 items-center", !inline && "ml-auto flex-1", inline && "w-48")}>
       <SearchBox
         ref={inputRef}
         id={id}
