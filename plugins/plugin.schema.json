@@ -7,7 +7,7 @@
   "properties": {
     "plugin": {
       "type": "object",
-      "required": ["id", "label", "spec_version"],
+      "required": ["id", "label", "spec_version", "plugin_version"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -24,6 +24,11 @@
           "type": "integer",
           "const": 1,
           "description": "Plugin specification version"
+        },
+        "plugin_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Plugin content version (MAJOR.MINOR.PATCH), compared against the market index for update hints"
         },
         "description": {
           "type": "string",

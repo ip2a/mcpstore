@@ -29,6 +29,9 @@ pub struct PluginMetadata {
     pub id: String,
     pub label: String,
     pub spec_version: u32,
+    /// Plugin content version ("MAJOR.MINOR.PATCH"); compared against the
+    /// market index for update hints.
+    pub plugin_version: String,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
@@ -135,6 +138,18 @@ fn leak_strs(values: &[String]) -> &'static [&'static str] {
     )
 }
 
+/// Exactly three non-empty digit segments: "MAJOR.MINOR.PATCH".
+pub(crate) fn valid_plugin_version(version: &str) -> bool {
+    let mut parts = version.split('.');
+    for _ in 0..3 {
+        match parts.next() {
+            Some(part) if !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()) => {}
+            _ => return false,
+        }
+    }
+    parts.next().is_none()
+}
+
 impl ManifestSetup {
     /// Parse and validate one manifest from TOML source.
     pub fn from_toml(source: &str) -> Result<Self> {
@@ -148,6 +163,15 @@ impl ManifestSetup {
                 format!(
                     "plugin {id}: unsupported spec_version {}, want 1",
                     manifest.plugin.spec_version
+                ),
+            ));
+        }
+        if !valid_plugin_version(&manifest.plugin.plugin_version) {
+            return Err(Error::new(
+                FailureCode::Internal,
+                format!(
+                    "plugin {id}: plugin_version {:?} must be MAJOR.MINOR.PATCH",
+                    manifest.plugin.plugin_version
                 ),
             ));
         }
@@ -421,6 +445,7 @@ mod tests {
 id = "x"
 label = "X"
 spec_version = 1
+plugin_version = "1.0.0"
 typo_field = true
 
 [config]
@@ -437,6 +462,35 @@ config_paths = ["~/x.json"]
     }
 
     #[test]
+    fn plugin_version_must_be_semver_triplet() {
+        let source = |version: &str| {
+            format!(
+                r#"
+[plugin]
+id = "x"
+label = "X"
+spec_version = 1
+plugin_version = "{version}"
+
+[config]
+format = "json"
+servers_key = "mcpServers"
+supported_fields = ["command"]
+
+[discover]
+config_paths = ["~/x.json"]
+"#
+            )
+        };
+        let err = ManifestSetup::from_toml(&source("1.0")).unwrap_err();
+        assert!(err.to_string().contains("plugin_version"), "{err}");
+        let err = ManifestSetup::from_toml(&source("1.0.0.0")).unwrap_err();
+        assert!(err.to_string().contains("plugin_version"), "{err}");
+        let setup = ManifestSetup::from_toml(&source("1.2.10")).unwrap();
+        assert_eq!(setup.manifest.plugin.plugin_version, "1.2.10");
+    }
+
+    #[test]
     fn wrong_spec_version_names_the_wanted_version() {
         let err = ManifestSetup::from_toml(
             r#"
@@ -444,6 +498,7 @@ config_paths = ["~/x.json"]
 id = "x"
 label = "X"
 spec_version = 2
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -466,6 +521,7 @@ config_paths = ["~/x.json"]
 id = "x"
 label = "X"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -486,6 +542,7 @@ supported_fields = ["command"]
 id = "x"
 label = "X"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -529,6 +586,7 @@ config_paths = ["~/x.json"]
 id = "x"
 label = "X"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -553,6 +611,7 @@ config_paths = ["~/x.json"]
 id = "x"
 label = "X"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -584,6 +643,7 @@ config_paths = ["~/x.json"]
 id = "x"
 label = "X"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -603,6 +663,7 @@ config_paths = ["~/x.json"]
 id = "y"
 label = "Y"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -625,6 +686,7 @@ config_paths = ["~/y.json"]
 id = "z"
 label = "Z"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"
@@ -652,6 +714,7 @@ config_paths = ["~/z.json"]
 id = "x"
 label = "X"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"

@@ -2,6 +2,7 @@
 id = "claude"
 label = "Claude Code"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "json"

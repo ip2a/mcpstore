@@ -2,6 +2,7 @@
 id = "omp"
 label = "Oh My Pi"
 spec_version = 1
+plugin_version = "1.0.0"
 description = "Oh My Pi coding agent (@oh-my-pi/pi-coding-agent)"
 
 [config]

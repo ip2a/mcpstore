@@ -2,6 +2,7 @@
 id = "pi"
 label = "Pi"
 spec_version = 1
+plugin_version = "1.0.0"
 description = "Pi coding agent with native MCP support (0.99+)"
 
 [config]

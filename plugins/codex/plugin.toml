@@ -2,6 +2,7 @@
 id = "codex"
 label = "Codex"
 spec_version = 1
+plugin_version = "1.0.0"
 
 [config]
 format = "toml"
