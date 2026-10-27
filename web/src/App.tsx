@@ -15,7 +15,9 @@ import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
 import { SettingsView } from "@/features/settings/settings-view"
 import { ToolDetailView } from "@/features/tools/tool-detail-view"
+import { PromptDetailView } from "@/features/prompts/prompt-detail-view"
 import { PromptsView } from "@/features/prompts/prompts-view"
+import { ResourceDetailView } from "@/features/resources/resource-detail-view"
 import { ResourcesView } from "@/features/resources/resources-view"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
@@ -90,7 +92,7 @@ export function App() {
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "prompts" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "resource" || view.name === "prompts" || view.name === "prompt" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
               )}
             >
             {view.name === "home" ? (
@@ -126,9 +128,17 @@ export function App() {
               onOpenTool={(instanceId, toolName) => setView({ name: "tool", instanceId, toolName })}
             />
           ) : view.name === "resources" ? (
-            <ResourcesView />
+            <ResourcesView
+              agents={agents}
+              services={services}
+              onOpenResource={(instanceId, resourceUri) => setView({ name: "resource", instanceId, resourceUri })}
+            />
           ) : view.name === "prompts" ? (
-            <PromptsView />
+            <PromptsView
+              agents={agents}
+              services={services}
+              onOpenPrompt={(instanceId, promptName) => setView({ name: "prompt", instanceId, promptName })}
+            />
           ) : view.name === "tool" ? (
             <ToolDetailView
               instanceId={view.instanceId}
@@ -137,6 +147,20 @@ export function App() {
               onBack={goBack}
               onRunTool={runToolFromDialogState}
               isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
+            />
+          ) : view.name === "resource" ? (
+            <ResourceDetailView
+              instanceId={view.instanceId}
+              resourceUri={view.resourceUri}
+              services={services}
+              onBack={goBack}
+            />
+          ) : view.name === "prompt" ? (
+            <PromptDetailView
+              instanceId={view.instanceId}
+              promptName={view.promptName}
+              services={services}
+              onBack={goBack}
             />
           ) : view.name === "clients" ? (
             <ClientsView />

@@ -14,13 +14,11 @@ import {
 } from "@/lib/api"
 
 export function countActiveToolFilters(filters: {
-  instanceId: string
   scope: "store" | "agent"
   visibilityFilter: ToolVisibilityFilter
 }) {
   let count = 0
   if (filters.scope !== "store") count++
-  if (filters.instanceId !== "all") count++
   if (filters.visibilityFilter !== "available") count++
   return count
 }
@@ -51,6 +49,10 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
   useEffect(() => {
     if (!agentId && agentIds[0]) setAgentId(agentIds[0])
   }, [agentId, agentIds])
+
+  useEffect(() => {
+    setInstanceId("all")
+  }, [scope, agentId])
 
   useEffect(() => {
     if (instanceId !== "all" && !scopeInstances.some((instance) => instance.instance_id === instanceId)) {
@@ -92,7 +94,7 @@ export function useToolsRegistry({ agents, services }: { agents: AgentItem[]; se
     const text = `${tool.name} ${tool.description} ${instance.service_name} ${scopeLabel}`.toLowerCase()
     return text.includes(query.trim().toLowerCase())
   })
-  const activeFilterCount = countActiveToolFilters({ instanceId, scope, visibilityFilter })
+  const activeFilterCount = countActiveToolFilters({ scope, visibilityFilter })
 
   return {
     activeFilterCount,

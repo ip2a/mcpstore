@@ -5,12 +5,10 @@ import { useAgentServicesQuery } from "@/features/agents/queries"
 import type { AgentItem, ServiceInstance } from "@/lib/api"
 
 export function countActiveMcpRegistryFilters(filters: {
-  instanceId: string
   scope: "store" | "agent"
 }) {
   let count = 0
   if (filters.scope !== "store") count++
-  if (filters.instanceId !== "all") count++
   return count
 }
 
@@ -32,12 +30,16 @@ export function useMcpRegistryScope({ agents, services }: { agents: AgentItem[];
   }, [agentId, agentIds])
 
   useEffect(() => {
+    setInstanceId("all")
+  }, [scope, agentId])
+
+  useEffect(() => {
     if (instanceId !== "all" && !scopeInstances.some((instance) => instance.instance_id === instanceId)) {
       setInstanceId("all")
     }
   }, [instanceId, scopeInstances])
 
-  const activeFilterCount = countActiveMcpRegistryFilters({ instanceId, scope })
+  const activeFilterCount = countActiveMcpRegistryFilters({ scope })
 
   return {
     activeFilterCount,

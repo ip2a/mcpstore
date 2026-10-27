@@ -1,6 +1,5 @@
 import { ListFilterIcon } from "lucide-react"
 
-import { SearchBox } from "@/components/shared/search-box"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,52 +19,34 @@ export function McpRegistryFilterDialog(props: {
   activeFilterCount: number
   agentId: string
   agentIds: string[]
-  compact?: boolean
+  hideServiceFilter?: boolean
   instanceId: string
   onAgentIdChange: (value: string) => void
   onInstanceIdChange: (value: string) => void
-  onQueryChange: (value: string) => void
   onScopeChange: (value: "store" | "agent") => void
-  query: string
   scope: "store" | "agent"
   scopeInstances: ServiceInstance[]
-  searchPlaceholder: string
 }) {
   const { t } = useI18n()
 
   return (
     <Dialog>
       <DialogTrigger asChild>
-        {props.compact ? (
-          <Button variant="outline" size="icon-sm" aria-label={t("filter")} className="relative shrink-0">
-            <ListFilterIcon />
-            {props.activeFilterCount > 0 ? (
-              <Badge variant="secondary" className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[10px] leading-none">
-                {props.activeFilterCount}
-              </Badge>
-            ) : null}
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm">
-            <ListFilterIcon data-icon="inline-start" />
-            {t("filter")}
-            {props.activeFilterCount > 0 ? (
-              <Badge variant="secondary" className="h-5 min-w-5 px-1.5">
-                {props.activeFilterCount}
-              </Badge>
-            ) : null}
-          </Button>
-        )}
+        <Button variant="outline" size="sm">
+          <ListFilterIcon data-icon="inline-start" />
+          {t("filter")}
+          {props.activeFilterCount > 0 ? (
+            <Badge variant="secondary" className="h-5 min-w-5 px-1.5">
+              {props.activeFilterCount}
+            </Badge>
+          ) : null}
+        </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("filter")}</DialogTitle>
         </DialogHeader>
         <FieldGroup>
-          <Field>
-            <FieldLabel>{t("search")}</FieldLabel>
-            <SearchBox placeholder={props.searchPlaceholder} value={props.query} onChange={props.onQueryChange} />
-          </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field>
               <FieldLabel>{t("scope")}</FieldLabel>
@@ -103,26 +84,28 @@ export function McpRegistryFilterDialog(props: {
                 </SelectContent>
               </Select>
             </Field>
-            <Field className="col-span-2">
-              <FieldLabel>{t("service")}</FieldLabel>
-              <Select value={props.instanceId} onValueChange={props.onInstanceIdChange}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t("service")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="all">{t("allServices")}</SelectItem>
-                    {props.scopeInstances.map((service) => (
-                      <SelectItem key={service.instance_id} value={service.instance_id}>
-                        {service.scope.type === "store"
-                          ? `${service.service_name} · ${t("store")}`
-                          : `${service.service_name} · ${t("agent")} ${service.scope.agent_id}`}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
+            {props.hideServiceFilter ? null : (
+              <Field className="col-span-2">
+                <FieldLabel>{t("service")}</FieldLabel>
+                <Select value={props.instanceId} onValueChange={props.onInstanceIdChange}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("service")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">{t("allServices")}</SelectItem>
+                      {props.scopeInstances.map((service) => (
+                        <SelectItem key={service.instance_id} value={service.instance_id}>
+                          {service.scope.type === "store"
+                            ? `${service.service_name} · ${t("store")}`
+                            : `${service.service_name} · ${t("agent")} ${service.scope.agent_id}`}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
           </div>
         </FieldGroup>
         <DialogFooter showCloseButton />
