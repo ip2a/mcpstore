@@ -89,6 +89,7 @@ function viewFromPath(pathname: string, search: string): AppView {
     if (parsed) return { name: "prompt", instanceId: parsed.instanceId, promptName: parsed.key }
   }
   if (pathname === "/clients") return { name: "clients" }
+  if (pathname === "/plugins") return { name: "plugins" }
   if (pathname === "/gateway") return { name: "gateway" }
   if (pathname === "/cache") return { name: "cache" }
   if (pathname === "/settings") return { name: "settings" }

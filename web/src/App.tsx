@@ -19,6 +19,7 @@ import { PromptDetailView } from "@/features/prompts/prompt-detail-view"
 import { PromptsView } from "@/features/prompts/prompts-view"
 import { ResourceDetailView } from "@/features/resources/resource-detail-view"
 import { ResourcesView } from "@/features/resources/resources-view"
+import { PluginsView } from "@/features/plugins/plugins-view"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
@@ -92,7 +93,7 @@ export function App() {
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "gateway" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "resource" || view.name === "prompts" || view.name === "prompt" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "plugins" || view.name === "gateway" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "resource" || view.name === "prompts" || view.name === "prompt" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
               )}
             >
             {view.name === "home" ? (
@@ -164,6 +165,8 @@ export function App() {
             />
           ) : view.name === "clients" ? (
             <ClientsView />
+          ) : view.name === "plugins" ? (
+            <PluginsView />
           ) : view.name === "gateway" ? (
             <GatewayView />
           ) : view.name === "cache" ? (
