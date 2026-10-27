@@ -78,6 +78,26 @@ pub(super) async fn usage_stats(
 }
 
 #[derive(Deserialize)]
+pub(super) struct DailyStatsQuery {
+    days: Option<u32>,
+}
+
+/// GET /gateway/stats/daily — per-day tool-call totals (UTC day buckets).
+pub(super) async fn usage_stats_daily(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<DailyStatsQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let days = telemetry
+        .daily_stats(query.days.unwrap_or(35).min(400))
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success(
+        "每日用量统计获取成功",
+        serde_json::to_value(days).unwrap_or(Value::Null),
+    ))
+}
+
+#[derive(Deserialize)]
 pub(super) struct FrameSessionsQuery {
     face: Option<String>,
     hours: Option<i64>,

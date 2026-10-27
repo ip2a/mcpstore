@@ -588,6 +588,29 @@ impl TelemetryLog {
             by_instance: series("instance_id")?,
         })
     }
+
+    /// Per-day tool-call totals (UTC day buckets) over the trailing `days` window.
+    pub fn daily_stats(&self, days: u32) -> rusqlite::Result<Vec<UsageTotals>> {
+        let conn = self.read_conn()?;
+        let to = now_ms();
+        let from = to - i64::from(days.max(1)) * 24 * 3600 * 1000;
+        let mut stmt = conn.prepare(
+            "SELECT (started_at_unix_ms / 86400000) * 86400000 AS bucket, COUNT(*), \
+             SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), AVG(duration_ms), MAX(duration_ms) \
+             FROM requests WHERE kind = 'tool' AND started_at_unix_ms >= ?1 \
+             GROUP BY bucket ORDER BY bucket",
+        )?;
+        let rows = stmt.query_map([from], |row| {
+            Ok(UsageTotals {
+                bucket_unix_ms: row.get(0)?,
+                calls: row.get(1)?,
+                errors: row.get(2)?,
+                avg_ms: row.get(3)?,
+                max_ms: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
 }
 
 impl mcpstore::telemetry::RequestTelemetry for TelemetryLog {
@@ -686,6 +709,26 @@ mod tests {
         let (payload, truncated) = cap_payload(Some("短".repeat(10)));
         assert!(!truncated);
         assert_eq!(payload.unwrap().chars().count(), 10);
+    }
+
+    #[test]
+    fn daily_stats_groups_by_utc_day() {
+        let path = temp_path("daily");
+        let log = TelemetryLog::open(&path).unwrap();
+        log.record(tool_record("claude", "fs", true));
+        log.record(tool_record("codex", "git", true));
+        std::thread::sleep(Duration::from_millis(300));
+
+        let days = log.daily_stats(35).unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].calls, 2);
+        assert_eq!(days[0].errors, 0);
+        assert_eq!(
+            days[0].bucket_unix_ms % 86_400_000,
+            0,
+            "bucket must be UTC-day aligned"
+        );
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

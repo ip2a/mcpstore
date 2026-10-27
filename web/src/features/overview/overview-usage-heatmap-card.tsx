@@ -1,26 +1,18 @@
 import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 
 import { Card, CardContent } from "@/components/ui/card"
 import { useI18n } from "@/lib/i18n-context"
+import { getDailyUsageStats } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
-const WEEKS = 53
+const WEEKS = 5
+const DAY_ROWS = 7 // Mon..Sun
+const DAY_MS = 86_400_000
 const DAY_LABELS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const
 const DAY_LABEL_COL = "1.75rem"
-const TOTAL_DAYS = WEEKS * DAY_LABELS.length
-
-function cellLevel(week: number, day: number): number {
-  const seed = week * 7 + day
-  const wave = Math.sin(seed * 0.17) * 0.5 + 0.5
-  const ramp = 0.35 + 0.65 * (week / (WEEKS - 1))
-  const dayBias = day <= 4 ? 1 : 0.72
-  const raw = wave * ramp * dayBias
-  if (raw < 0.08) return 0
-  if (raw < 0.22) return 1
-  if (raw < 0.4) return 2
-  if (raw < 0.62) return 3
-  return 4
-}
+const TOTAL_CELLS = WEEKS * DAY_ROWS
 
 const LEVEL_CLASS = [
   "bg-muted",
@@ -38,24 +30,16 @@ const LEVEL_LABEL_KEY = [
   "homeHeatLevelPeak",
 ] as const
 
-const TOKEN_BY_LEVEL = [0, 420, 1_800, 4_200, 9_500] as const
-
-const MONTH_MARKERS = [
-  { week: 0, label: "11月" },
-  { week: 5, label: "12月" },
-  { week: 9, label: "1月" },
-  { week: 14, label: "2月" },
-  { week: 18, label: "3月" },
-  { week: 23, label: "4月" },
-  { week: 27, label: "5月" },
-  { week: 32, label: "6月" },
-  { week: 36, label: "7月" },
-  { week: 41, label: "8月" },
-  { week: 45, label: "9月" },
-  { week: 49, label: "10月" },
-]
-
 const HEATMAP_GRID_TEMPLATE = `${DAY_LABEL_COL} repeat(${WEEKS}, minmax(0, 1fr))`
+
+/** UTC-day bucket → { calls, errors } for one calendar day. */
+type DayCell = {
+  bucketUnixMs: number
+  date: string // "M/D"
+  calls: number
+  errors: number
+  future: boolean
+}
 
 function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -63,31 +47,79 @@ function formatCompact(n: number): string {
   return String(Math.round(n))
 }
 
+/** Columns of Mon..Sun weeks ending with the current (partial) week; UTC-day aligned. */
+function buildWeeks(days: { bucket_unix_ms: number; calls: number; errors: number }[]): DayCell[][] {
+  const byBucket = new Map(days.map((day) => [day.bucket_unix_ms, day]))
+  const nowBucket = Math.floor(Date.now() / DAY_MS) * DAY_MS
+  const weekday = (new Date(nowBucket).getUTCDay() + 6) % 7 // 0=Mon
+  const thisMonday = nowBucket - weekday * DAY_MS
+  const cell = (bucketUnixMs: number): DayCell => {
+    const found = byBucket.get(bucketUnixMs)
+    const date = new Date(bucketUnixMs)
+    return {
+      bucketUnixMs,
+      date: `${date.getUTCMonth() + 1}/${date.getUTCDate()}`,
+      calls: found?.calls ?? 0,
+      errors: found?.errors ?? 0,
+      future: bucketUnixMs > nowBucket,
+    }
+  }
+  return Array.from({ length: DAY_ROWS }, (_, day) =>
+    Array.from({ length: WEEKS }, (_, week) => {
+      const monday = thisMonday - (WEEKS - 1 - week) * 7 * DAY_MS
+      return cell(monday + day * DAY_MS)
+    }),
+  )
+}
+
+function cellLevel(calls: number, maxCalls: number): number {
+  if (calls <= 0) return 0
+  if (maxCalls <= 0) return 0
+  return Math.min(4, Math.max(1, Math.ceil((calls / maxCalls) * 4)))
+}
+
 export function OverviewUsageHeatmapCard({ className }: { className?: string }) {
   const { t } = useI18n()
+  const { data: daily } = useQuery({
+    queryKey: queryKeys.dailyUsageStats,
+    queryFn: () => getDailyUsageStats(35),
+    refetchInterval: 60_000,
+  })
 
-  const grid = useMemo(() => {
-    return DAY_LABELS.map((_, day) =>
-      Array.from({ length: WEEKS }, (_, week) => cellLevel(week, day)),
-    )
-  }, [])
+  const weeks = useMemo(() => buildWeeks(daily ?? []), [daily])
 
-  const { totalTokens, activeDays, levelCounts } = useMemo(() => {
-    let tokens = 0
+  const { totalCalls, activeDays, pastCells, levelCounts, maxCalls, mondayLabels } = useMemo(() => {
+    let calls = 0
     let active = 0
+    let past = 0
+    let max = 0
     const counts = [0, 0, 0, 0, 0]
-    for (let day = 0; day < grid.length; day++) {
-      for (let week = 0; week < grid[day].length; week++) {
-        const level = grid[day][week]
-        counts[level]++
-        tokens += TOKEN_BY_LEVEL[level]
-        if (level > 0) active++
+    for (let day = 0; day < weeks.length; day++) {
+      for (let week = 0; week < weeks[day].length; week++) {
+        if (weeks[day][week].future) continue
+        past++
+        calls += weeks[day][week].calls
+        if (weeks[day][week].calls > 0) active++
+        max = Math.max(max, weeks[day][week].calls)
       }
     }
-    return { totalTokens: tokens, activeDays: active, levelCounts: counts }
-  }, [grid])
+    for (let day = 0; day < weeks.length; day++) {
+      for (let week = 0; week < weeks[day].length; week++) {
+        counts[cellLevel(weeks[day][week].calls, max)]++
+      }
+    }
+    const labels = weeks[0].map((cell) => cell.date)
+    return {
+      totalCalls: calls,
+      activeDays: active,
+      pastCells: past,
+      levelCounts: counts,
+      maxCalls: max,
+      mondayLabels: labels,
+    }
+  }, [weeks])
 
-  const activeRate = Math.round((activeDays / TOTAL_DAYS) * 100)
+  const activeRate = pastCells > 0 ? Math.round((activeDays / pastCells) * 100) : 0
 
   const dayLabel = (day: number) => {
     if (day === 0) return t("homeWeekMon")
@@ -102,12 +134,12 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
       <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
         <div className="grid shrink-0 grid-cols-2 gap-8 pb-4">
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{t("homeTokens")}</p>
+            <p className="text-xs text-muted-foreground">{t("homeHeatmapCalls")}</p>
             <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
               <span className="text-3xl font-semibold tabular-nums tracking-tight">
-                {formatCompact(totalTokens)}
+                {formatCompact(totalCalls)}
               </span>
-              <span className="text-sm text-muted-foreground">token</span>
+              <span className="text-sm text-muted-foreground">calls</span>
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {t("homeUsageHeatmapWeeks", { weeks: WEEKS })}
@@ -134,7 +166,7 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
               />
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {t("homeHeatmapDaysOf", { active: activeDays, total: TOTAL_DAYS })}
+              {t("homeHeatmapDaysOf", { active: activeDays, total: pastCells || TOTAL_CELLS })}
             </p>
           </div>
         </div>
@@ -143,7 +175,7 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
           className="grid min-h-0 w-full min-w-0 flex-1 gap-[3px]"
           style={{
             gridTemplateColumns: HEATMAP_GRID_TEMPLATE,
-            gridTemplateRows: `auto repeat(${DAY_LABELS.length}, auto)`,
+            gridTemplateRows: `auto repeat(${DAY_ROWS}, auto)`,
           }}
         >
           <div aria-hidden className="h-4" />
@@ -151,13 +183,13 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
             className="relative col-start-2 h-4"
             style={{ gridColumn: `2 / span ${WEEKS}` }}
           >
-            {MONTH_MARKERS.map((m) => (
+            {mondayLabels.map((label, week) => (
               <span
-                key={`${m.week}-${m.label}`}
+                key={`${week}-${label}`}
                 className="absolute text-[10px] leading-none text-muted-foreground"
-                style={{ left: `${(m.week / WEEKS) * 100}%` }}
+                style={{ left: `${(week / WEEKS) * 100}%` }}
               >
-                {m.label}
+                {label}
               </span>
             ))}
           </div>
@@ -167,16 +199,23 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
               <div className="flex items-center text-[10px] leading-none text-muted-foreground">
                 {dayLabel(day)}
               </div>
-              {Array.from({ length: WEEKS }, (_, week) => (
-                <div
-                  key={week}
-                  title={`${dayLabel(day) || DAY_LABELS[day]} · W${week + 1}`}
-                  className={cn(
-                    "aspect-square w-full rounded-[4px]",
-                    LEVEL_CLASS[grid[day][week]],
-                  )}
-                />
-              ))}
+              {Array.from({ length: WEEKS }, (_, week) => {
+                const cell = weeks[day][week]
+                const level = cellLevel(cell.calls, maxCalls)
+                return (
+                  <div
+                    key={week}
+                    title={t("homeHeatmapCellTitle", {
+                      date: cell.date,
+                      calls: cell.future ? 0 : cell.calls,
+                    })}
+                    className={cn(
+                      "aspect-square w-full rounded-[4px]",
+                      cell.future ? "bg-muted/40" : LEVEL_CLASS[level],
+                    )}
+                  />
+                )
+              })}
             </div>
           ))}
         </div>

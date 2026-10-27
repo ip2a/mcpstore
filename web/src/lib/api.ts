@@ -459,6 +459,7 @@ export {
 } from "./api/clients";
 export {
   getUsageStats,
+  getDailyUsageStats,
   getRequestHistory,
   getRequestDetail,
   getFrameSessions,

@@ -52,6 +52,11 @@ export function getUsageStats(hours = 24): Promise<UsageStats> {
   return appApi(`/gateway/stats${buildQuery({ hours })}`);
 }
 
+/** 每日工具调用总量（UTC 天桶），热力图数据源。 */
+export function getDailyUsageStats(days = 35): Promise<UsageTotals[]> {
+  return appApi(`/gateway/stats/daily${buildQuery({ days })}`);
+}
+
 export function getRequestHistory(
   params: {
     limit?: number;
