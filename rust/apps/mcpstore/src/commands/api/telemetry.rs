@@ -77,6 +77,62 @@ pub(super) async fn usage_stats(
     Ok(success("用量统计获取成功", serde_json::to_value(stats).unwrap_or(Value::Null)))
 }
 
+#[derive(Deserialize)]
+pub(super) struct FrameSessionsQuery {
+    face: Option<String>,
+    hours: Option<i64>,
+}
+
+/// GET /gateway/frames/sessions — sessions with recorded frames, newest first.
+pub(super) async fn frame_sessions(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<FrameSessionsQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let sessions = telemetry
+        .frame_sessions(query.face.as_deref(), query.hours.unwrap_or(24))
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success("帧会话获取成功", serde_json::to_value(sessions).unwrap_or(Value::Null)))
+}
+
+#[derive(Deserialize)]
+pub(super) struct FrameHistoryQuery {
+    session_id: String,
+    limit: Option<u32>,
+}
+
+/// GET /gateway/frames/history — one session's frame timeline, oldest first.
+pub(super) async fn frame_history(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<FrameHistoryQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let frames = telemetry
+        .frame_history(&query.session_id, query.limit.unwrap_or(200))
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success("帧时间线获取成功", serde_json::to_value(frames).unwrap_or(Value::Null)))
+}
+
+/// GET /gateway/frames/detail/:id — one frame including the full envelope.
+pub(super) async fn frame_detail(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<i64>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let record = telemetry
+        .frame_detail(id)
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                mcpstore::error::FailureCode::Internal,
+                format!("frame record {id} not found"),
+                None,
+                None,
+            )
+        })?;
+    Ok(success("帧详情获取成功", serde_json::to_value(record).unwrap_or(Value::Null)))
+}
+
 fn require_telemetry(
     state: &ApiState,
 ) -> Result<std::sync::Arc<crate::telemetry::TelemetryLog>, ApiError> {

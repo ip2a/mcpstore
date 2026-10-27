@@ -35,6 +35,9 @@ pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::erro
     let telemetry = crate::telemetry::TelemetryLog::open(crate::telemetry::default_db_path())
         .map_err(|error| format!("request telemetry db unavailable: {error}"))?;
     store.set_telemetry(Some(telemetry.clone()));
+    // Frame telemetry rides the same file (frames table) and the same handle.
+    let frame_sink: std::sync::Arc<dyn mcpstore::telemetry::FrameTelemetry> = telemetry.clone();
+    store.set_frame_telemetry(Some(frame_sink));
     crate::daemon::ensure::persist_start_args(&args)?;
     crate::daemon::protocol::cleanup_stale_files();
 
