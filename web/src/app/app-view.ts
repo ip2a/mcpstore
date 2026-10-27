@@ -19,7 +19,9 @@ export type AppView =
   | { name: "tools" }
   | { name: "tool"; instanceId: string; toolName: string }
   | { name: "resources" }
+  | { name: "resource"; instanceId: string; resourceUri: string }
   | { name: "prompts" }
+  | { name: "prompt"; instanceId: string; promptName: string }
   | { name: "gateway" }
   | { name: "cache" }
   | { name: "settings" }
@@ -50,6 +52,8 @@ export function useViewTitle(view: AppView): string {
   const items = useNavItems()
   if (view.name === "instance") return view.addr.service_name
   if (view.name === "tool") return view.toolName
+  if (view.name === "resource") return view.resourceUri
+  if (view.name === "prompt") return view.promptName
   if (view.name === "settings") return t("settings")
   return items.find((item) => item.view.name === view.name)?.label || t("navServices")
 }

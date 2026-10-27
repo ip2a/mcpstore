@@ -56,7 +56,9 @@ export function AppSidebar({
             active={
               view.name === item.view.name ||
               (view.name === "instance" && item.view.name === "services") ||
-              (view.name === "tool" && item.view.name === "tools")
+              (view.name === "tool" && item.view.name === "tools") ||
+              (view.name === "resource" && item.view.name === "resources") ||
+              (view.name === "prompt" && item.view.name === "prompts")
             }
             icon={item.icon}
             label={item.label}
