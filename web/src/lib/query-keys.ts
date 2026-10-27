@@ -46,4 +46,7 @@ export const queryKeys = {
   gatewayStatus: ["gateway", "status"] as const,
   usageStats: ["gateway", "usage-stats"] as const,
   gatewayHistory: ["gateway", "requests-history"] as const,
+  gatewayFrameSessions: ["gateway", "frames-sessions"] as const,
+  gatewayFrameHistory: (sessionId: string) =>
+    ["gateway", "frames-history", sessionId] as const,
 }

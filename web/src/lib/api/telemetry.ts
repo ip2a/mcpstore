@@ -68,3 +68,53 @@ export function getRequestHistory(
 export function getRequestDetail(id: number): Promise<RequestRecord> {
   return appApi(`/gateway/requests/detail/${id}`);
 }
+
+/** 一次连接（握手→断开/挂载级聚合）的帧会话摘要。 */
+export type FrameSessionSummary = {
+  session_id: string;
+  face: "gateway" | "upstream";
+  caller: string | null;
+  peer: string | null;
+  instance_id: string | null;
+  first_ts_unix_ms: number;
+  last_ts_unix_ms: number;
+  frame_count: number;
+};
+
+/** 一条原始 JSON-RPC 帧。up=client→server 方向，down=server→client。 */
+export type FrameRecord = {
+  id: number;
+  session_id: string;
+  ts_unix_ms: number;
+  face: "gateway" | "upstream";
+  direction: "up" | "down";
+  method: string | null;
+  jsonrpc_id: string | null;
+  kind: "request" | "response" | "notification" | "error";
+  payload: string;
+  size_bytes: number;
+  truncated: boolean;
+  caller: string | null;
+  instance_id: string | null;
+  peer: string | null;
+  transport: string | null;
+};
+
+export function getFrameSessions(
+  params: { face?: string; hours?: number } = {},
+): Promise<FrameSessionSummary[]> {
+  return appApi(`/gateway/frames/sessions${buildQuery(params)}`);
+}
+
+export function getFrameHistory(
+  sessionId: string,
+  limit = 200,
+): Promise<FrameRecord[]> {
+  return appApi(
+    `/gateway/frames/history${buildQuery({ session_id: sessionId, limit })}`,
+  );
+}
+
+export function getFrameDetail(id: number): Promise<FrameRecord> {
+  return appApi(`/gateway/frames/detail/${id}`);
+}
