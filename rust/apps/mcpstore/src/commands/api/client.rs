@@ -441,7 +441,7 @@ pub(super) async fn gateway_wire(
         Some(path) => path,
         None => {
             // No explicit path: use the client's own config file from discovery.
-            match mcpstore::agents::detect(setup) {
+            match mcpstore::agents::detect(setup.as_ref()) {
                 Some(detection)
                     if detection.by == mcpstore::agents::DetectedBy::ConfigFile =>
                 {
@@ -643,7 +643,8 @@ pub(super) async fn client_version(Path(client_id): Path<String>) -> ApiResult {
     let version = tokio::time::timeout(
         Duration::from_millis(800),
         tokio::task::spawn_blocking(move || {
-            mcpstore::agents::by_id(&probe_id).and_then(mcpstore::agents::cli_version)
+            mcpstore::agents::by_id(&probe_id)
+                .and_then(|setup| mcpstore::agents::cli_version(setup.as_ref()))
         }),
     )
     .await
@@ -664,7 +665,7 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
     let clients = mcpstore::agents::all()
         .iter()
         .map(|setup| {
-            let detection = mcpstore::agents::detect(*setup);
+            let detection = mcpstore::agents::detect(setup.as_ref());
             let detected_by = detection.as_ref().map(|detection| {
                 serde_json::to_value(detection.by).unwrap_or(Value::Null)
             });

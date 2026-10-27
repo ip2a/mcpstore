@@ -225,6 +225,16 @@ impl ManifestSetup {
         self.manifest.config.env_key.as_deref().unwrap_or("env")
     }
 
+    /// Content version from the manifest; shown in UI, compared against market.
+    pub fn plugin_version(&self) -> &str {
+        &self.manifest.plugin.plugin_version
+    }
+
+    /// Plugin specification version the manifest declares.
+    pub fn spec_version(&self) -> u32 {
+        self.manifest.plugin.spec_version
+    }
+
     /// Paths for the current platform: the per-OS override list when set, else the base list.
     fn platform_paths(
         base: &[String],

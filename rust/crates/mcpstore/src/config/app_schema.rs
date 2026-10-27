@@ -36,6 +36,10 @@ pub struct AppConfig {
     /// The control panel never reads this section.
     #[serde(default)]
     pub placement: HashMap<String, String>,
+    /// Client-plugin state: which installed plugins are enabled, and where the
+    /// market index lives.
+    #[serde(default)]
+    pub plugins: PluginsConfig,
 }
 
 impl Default for AppConfig {
@@ -52,6 +56,27 @@ impl Default for AppConfig {
             diagnostics: DiagnosticsConfig::default(),
             hosts: HostsConfig::default(),
             placement: HashMap::new(),
+            plugins: PluginsConfig::default(),
+        }
+    }
+}
+
+/// Plugin enablement and market source. `enabled` lists plugin ids; an id
+/// pointing at an uninstalled plugin is harmless and ignored by the registry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginsConfig {
+    #[serde(default)]
+    pub enabled: Vec<String>,
+    /// Market index base URLs, tried in order.
+    #[serde(default = "default_market_urls")]
+    pub market_urls: Vec<String>,
+}
+
+impl Default for PluginsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: Vec::new(),
+            market_urls: default_market_urls(),
         }
     }
 }

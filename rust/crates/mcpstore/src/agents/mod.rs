@@ -1,10 +1,12 @@
 //! Per coding-client setup: where its MCP configuration lives, what shape its
 //! gateway entry takes, and how to wire and unwire it. Every client is a
-//! declarative manifest (`plugins/<id>/plugin.toml`) driven by
+//! declarative manifest (`plugin.toml`) driven by
 //! [`manifest_setup::ManifestSetup`]; `client_config` and `client_wire`
-//! dispatch through [`all`] and [`by_id`].
+//! dispatch through [`all`] and [`by_id`], which read the disk-backed
+//! registry in [`registry`].
 
 pub mod manifest_setup;
+pub mod registry;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,8 +16,13 @@ use serde_json::{Map, Value};
 
 use crate::{Error, FailureCode, Result, ServerConfig};
 
+pub use registry::{
+    all, by_id, load_trace, plugins_dir, registry_report, reload, save_trace, DetectionTrace,
+    DetectedClient, PluginReport,
+};
+
 /// Everything the store needs to set up one coding client.
-pub trait ClientSetup: Sync {
+pub trait ClientSetup: Send + Sync {
     /// Stable id: the gateway URL segment (`/mcp/<id>`) and UI key.
     fn id(&self) -> &'static str;
     /// Human name shown in the UI.
@@ -72,41 +79,6 @@ pub trait ClientSetup: Sync {
 }
 
 pub use crate::client_config::ConfigFormat;
-
-/// Every client the store knows, in UI order. Parsed once, leaked for the
-/// process lifetime; a built-in manifest that fails to load is a build bug
-/// and panics rather than shipping a silently missing client.
-pub fn all() -> &'static [&'static dyn ClientSetup] {
-    static SETUPS: std::sync::LazyLock<&'static [&'static dyn ClientSetup]> =
-        std::sync::LazyLock::new(|| {
-            const BUILTINS: &[(&str, &str)] = &[
-                ("claude", include_str!("../../../../../plugins/claude/plugin.toml")),
-                ("codex", include_str!("../../../../../plugins/codex/plugin.toml")),
-                ("opencode", include_str!("../../../../../plugins/opencode/plugin.toml")),
-                ("cursor", include_str!("../../../../../plugins/cursor/plugin.toml")),
-                ("pi", include_str!("../../../../../plugins/pi/plugin.toml")),
-                ("omp", include_str!("../../../../../plugins/omp/plugin.toml")),
-            ];
-            let setups: Vec<&'static dyn ClientSetup> = BUILTINS
-                .iter()
-                .map(|(id, source)| match manifest_setup::ManifestSetup::from_toml(source) {
-                    Ok(setup) => {
-                        let leaked: &'static manifest_setup::ManifestSetup =
-                            Box::leak(Box::new(setup));
-                        leaked as &'static dyn ClientSetup
-                    }
-                    Err(error) => panic!("built-in client plugin {id} failed to load: {error}"),
-                })
-                .collect();
-            Box::leak(setups.into_boxed_slice())
-        });
-    *SETUPS
-}
-
-/// The setup whose [`ClientSetup::id`] is `id`.
-pub fn by_id(id: &str) -> Option<&'static dyn ClientSetup> {
-    all().iter().copied().find(|setup| setup.id() == id)
-}
 
 // ---- discovery ----
 
@@ -322,16 +294,6 @@ pub(crate) fn build_service(
 mod tests {
     use super::*;
     use std::fs;
-
-    #[test]
-    fn registry_lists_every_builtin_in_ui_order() {
-        let ids: Vec<_> = all().iter().map(|setup| setup.id()).collect();
-        assert_eq!(ids, ["claude", "codex", "opencode", "cursor", "pi", "omp"]);
-        assert_eq!(by_id("claude").expect("claude").label(), "Claude Code");
-        assert_eq!(by_id("pi").expect("pi").label(), "Pi");
-        assert_eq!(by_id("omp").expect("omp").label(), "Oh My Pi");
-        assert!(by_id("unknown").is_none());
-    }
 
     #[test]
     fn tilde_expands_against_home() {
