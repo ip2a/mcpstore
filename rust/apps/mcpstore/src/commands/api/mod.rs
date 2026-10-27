@@ -157,6 +157,7 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/config", get(service::store_show_config))
         .route("/config/reset", post(service::store_reset_config))
         .route("/client-config/import", post(client::client_config_import))
+        .route("/clients/:id/version", get(client::client_version))
         .route("/clients", get(client::clients_list))
         .route("/gateway/descriptor", get(client::gateway_descriptor))
         .route("/gateway/status", get(client::gateway_status))

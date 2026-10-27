@@ -40,18 +40,15 @@ export function PageEmpty({ title, description, onRefresh }: { title: string; de
   )
 }
 
-export function PageError({ title, message, onRefresh }: { title: string; message: string; onRefresh?: () => void }) {
+export function PageError({ onRefresh }: { title?: string; message?: string; onRefresh?: () => void }) {
   const { t } = useI18n()
 
   return (
     <Alert className="border-border/80 bg-muted/30 text-foreground shadow-none [&>svg]:text-muted-foreground">
       <ServerOffIcon />
       <div className="flex min-w-0 flex-col gap-1">
-        <AlertTitle>{title}</AlertTitle>
-        <AlertDescription className="text-muted-foreground">
-          <span>暂时无法获取数据，请确认后端服务已启动。</span>
-          <span className="text-xs text-muted-foreground/70">{message}</span>
-        </AlertDescription>
+        <AlertTitle>Display error</AlertTitle>
+        <AlertDescription className="text-muted-foreground">Please check the logs.</AlertDescription>
       </div>
       {onRefresh ? (
         <div className="mt-1">

@@ -197,6 +197,56 @@ fn find_command(commands: &[&str]) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// Best-effort semver from the client's first CLI on PATH (`--version`, then `-V`).
+pub fn cli_version(setup: &dyn ClientSetup) -> Option<String> {
+    setup
+        .cli_commands()
+        .iter()
+        .find_map(|command| query_command_version(command))
+}
+
+fn query_command_version(command: &str) -> Option<String> {
+    for args in [["--version"], ["-V"]] {
+        let output = std::process::Command::new(command)
+            .args(args)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(version) = extract_version_token(stdout.trim()) {
+            return Some(version);
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(version) = extract_version_token(stderr.trim()) {
+            return Some(version);
+        }
+    }
+    None
+}
+
+fn extract_version_token(text: &str) -> Option<String> {
+    if text.is_empty() {
+        return None;
+    }
+    for token in text.split_whitespace() {
+        let trimmed = token.trim_matches(|c| c == 'v' || c == '(' || c == ')' || c == ',');
+        if looks_like_version(trimmed) {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn looks_like_version(token: &str) -> bool {
+    let parts: Vec<&str> = token.split('.').collect();
+    parts.len() >= 2
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+}
+
 // ---- shared import helpers (used by `ManifestSetup::import_service`) ----
 
 pub(crate) fn as_object<'a>(name: &str, value: &'a Value) -> Result<&'a Map<String, Value>> {

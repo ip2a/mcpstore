@@ -5,6 +5,7 @@ import { JsonBlock } from "@/components/shared/json-block"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { ServiceListCard } from "@/components/shared/service-list-card"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
 import { useScopesQuery } from "@/features/agents/queries"
@@ -125,12 +126,10 @@ export function AgentsView(props: {
 
   return (
     <>
-      <div className="min-w-0 shrink-0 pl-4">
-        <h1 className="text-lg font-semibold">{t("agentWorkspaceTitle")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("agentWorkspaceDescription", { count: props.agents.length })}
-        </p>
-      </div>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("agentWorkspaceTitle")}</h1>}
+        subtitle={t("agentWorkspaceDescription", { count: props.agents.length })}
+      />
 
       <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <Tabs

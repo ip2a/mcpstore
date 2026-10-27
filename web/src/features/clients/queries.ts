@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
+  getClientVersion,
   getGatewayRequests,
   getGatewayStatus,
   getWiredClients,
@@ -15,6 +16,17 @@ import { useI18n } from "@/lib/i18n-context"
 
 export function useClientsQuery() {
   return useQuery({ queryKey: queryKeys.clients, queryFn: listClients })
+}
+
+/** CLI semver probe; isolated from the clients list so listing stays fast. */
+export function useClientVersionQuery(clientId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.clientVersion(clientId),
+    queryFn: () => getClientVersion(clientId),
+    enabled,
+    staleTime: 60_000,
+    retry: false,
+  })
 }
 
 export function useWiredClientsQuery() {

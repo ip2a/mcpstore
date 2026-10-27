@@ -6,6 +6,7 @@ export type DetectedBy = "config_file" | "config_dir" | "command";
 export type ClientInventory = {
   id: string;
   label: string;
+  version?: string | null;
   detected_by: DetectedBy | null;
   config_path: string;
   config_exists: boolean;
@@ -76,6 +77,12 @@ export type WireOptions = {
 export function listClients(): Promise<ClientInventory[]> {
   return appApi<{ clients: ClientInventory[] }>("/clients").then(
     (payload) => payload.clients,
+  );
+}
+
+export function getClientVersion(clientId: string): Promise<string | null> {
+  return appApi<{ version: string | null }>(`/clients/${clientId}/version`).then(
+    (payload) => payload.version,
   );
 }
 

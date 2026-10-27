@@ -442,6 +442,7 @@ export {
 } from "./api/service-config";
 export {
   listClients,
+  getClientVersion,
   wireClient,
   unwireClient,
   getGatewayStatus,

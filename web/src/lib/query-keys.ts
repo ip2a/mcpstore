@@ -39,6 +39,7 @@ export const queryKeys = {
   settings: ["settings"] as const,
   overrides: (kind: string) => ["overrides", kind] as const,
   clients: ["clients"] as const,
+  clientVersion: (clientId: string) => ["clients", clientId, "version"] as const,
   wiredClients: ["clients", "wired"] as const,
   gatewayStatus: ["gateway", "status"] as const,
   usageStats: ["gateway", "usage-stats"] as const,

@@ -1,5 +1,10 @@
+use std::time::Duration;
+
 use super::*;
-use axum::{extract::Query, Json};
+use axum::{
+    extract::{Path, Query},
+    Json,
+};
 use mcpstore::ScopeRef;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -623,6 +628,31 @@ pub(super) async fn client_config_import(
     Ok(success(
         "Client config services imported successfully",
         json!({"imported": summaries, "scope": scope}),
+    ))
+}
+
+/// Best-effort CLI semver; runs off the async runtime with a hard timeout.
+pub(super) async fn client_version(Path(client_id): Path<String>) -> ApiResult {
+    if mcpstore::agents::by_id(&client_id).is_none() {
+        return Err(ApiError::invalid_parameter(
+            format!("unknown client: {client_id}"),
+            Some("client_id"),
+        ));
+    }
+    let probe_id = client_id.clone();
+    let version = tokio::time::timeout(
+        Duration::from_millis(800),
+        tokio::task::spawn_blocking(move || {
+            mcpstore::agents::by_id(&probe_id).and_then(mcpstore::agents::cli_version)
+        }),
+    )
+    .await
+    .ok()
+    .and_then(|result| result.ok())
+    .flatten();
+    Ok(success(
+        "客户端版本获取成功",
+        json!({ "client_id": client_id, "version": version }),
     ))
 }
 
