@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::process::Command;
-use tauri::{LogicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 // Mirrors `web/src/App.tsx` shell: w-[min(1280px,calc(100vw-24px))]
 const WEB_CONTENT_MAX_WIDTH: f64 = 1280.0;
@@ -262,6 +262,22 @@ pub fn run() {
             prime_desktop_environment();
             if let Some(home) = dirs::home_dir() {
                 let _ = std::env::set_current_dir(home);
+            }
+
+            // First launch only: materialize the bundled plugins that match
+            // agents on this machine, then never read the bundle again. A
+            // missing or broken bundle means zero materialized plugins — the
+            // agents page can still install from the market.
+            if let Some(bundle) = app
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|dir| dir.join("plugins"))
+            {
+                match mcpstore::agents::registry::materialize_bundle(&bundle) {
+                    Ok(count) => eprintln!("mcpstore desktop materialized {count} bundled plugin(s)"),
+                    Err(error) => eprintln!("mcpstore desktop plugin materialization failed: {error}"),
+                }
             }
 
             let url = start_local_server()?;
