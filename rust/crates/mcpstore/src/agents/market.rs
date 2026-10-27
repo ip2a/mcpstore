@@ -42,12 +42,15 @@ pub struct MarketIndex {
     pub plugins: Vec<MarketEntry>,
 }
 
-/// One installed plugin as the market sees it.
+/// One market entry as the UI sees it: its version, whether it is installed
+/// here, and whether the market is ahead of the installed copy.
 #[derive(Debug, Serialize)]
-pub struct UpdateHint {
+pub struct MarketListing {
     pub id: String,
-    pub installed: String,
-    pub market: String,
+    pub label: String,
+    pub plugin_version: String,
+    pub description: Option<String>,
+    pub installed: Option<String>,
     pub update_available: bool,
 }
 
@@ -113,30 +116,34 @@ fn installed_version(id: &str) -> Option<String> {
     ManifestSetup::from_toml(&source).ok().map(|setup| setup.plugin_version().to_string())
 }
 
-/// Pull the market index, refresh the version cache in the trace, and report
-/// update hints for everything installed. Display only — updates happen when
-/// the user asks for one.
-pub async fn refresh_market_cache(urls: &[String]) -> Result<Vec<UpdateHint>> {
+/// Pull the market index, refresh the version cache in the trace, and list
+/// every market entry with its install/update status. Updates happen when the
+/// user asks for one — this only reports.
+pub async fn list_market(urls: &[String]) -> Result<Vec<MarketListing>> {
     let (index, _) = fetch_index(urls).await?;
     let mut trace = load_trace();
-    let mut hints = Vec::new();
+    let mut listings = Vec::new();
     for entry in &index.plugins {
         trace
             .market_versions
             .insert(entry.id.clone(), entry.plugin_version.clone());
-        if let Some(installed) = installed_version(&entry.id) {
-            let update_available = version_gt(&entry.plugin_version, &installed);
-            hints.push(UpdateHint {
-                id: entry.id.clone(),
-                installed,
-                market: entry.plugin_version.clone(),
-                update_available,
-            });
-        }
+        let installed = installed_version(&entry.id);
+        let update_available = installed
+            .as_deref()
+            .map(|installed| version_gt(&entry.plugin_version, installed))
+            .unwrap_or(false);
+        listings.push(MarketListing {
+            id: entry.id.clone(),
+            label: entry.label.clone(),
+            plugin_version: entry.plugin_version.clone(),
+            description: entry.description.clone(),
+            installed,
+            update_available,
+        });
     }
     trace.market_fetched_at = Some(now_rfc3339());
     save_trace(&trace)?;
-    Ok(hints)
+    Ok(listings)
 }
 
 /// Run the market's discovery rules against this machine and report every
@@ -268,10 +275,11 @@ pub async fn install(id: &str, urls: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Uninstall one plugin: remove the folder and every trace of it. The market
-/// does not check wiring; that protection lives with the API caller, which
-/// refuses while the client still has gateway entries.
+/// Uninstall one plugin: remove the folder and every trace of it. Refuses
+/// while the client still has gateway entries — those files are owned by the
+/// wire ledger.
 pub async fn uninstall(id: &str) -> Result<()> {
+    super::registry::refuse_while_wired(id, "uninstalling")?;
     let target = plugins_dir().join(id);
     if !target.is_dir() {
         return Err(Error::new(

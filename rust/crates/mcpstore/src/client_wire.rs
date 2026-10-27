@@ -109,6 +109,15 @@ pub struct WiredState {
     pub entries: Vec<WiredEntry>,
 }
 
+/// Default ledger location: `gateway-wired.json` beside the app config.
+pub fn wired_state_default_path() -> PathBuf {
+    crate::config::ConfigManager::new()
+        .app_config_path()
+        .parent()
+        .map(|dir| dir.join("gateway-wired.json"))
+        .unwrap_or_else(|| PathBuf::from("gateway-wired.json"))
+}
+
 pub fn load_wired_state(path: &Path) -> Result<WiredState> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| {
@@ -561,6 +570,10 @@ pub(crate) fn refresh_toml_entry<T: ClientSetup + ?Sized>(
 mod tests {
     use super::*;
 
+    fn setup() {
+        crate::agents::registry::install_for_tests();
+    }
+
     fn temp_file(suffix: &str, body: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "mcpstore-wire-{suffix}-{}",
@@ -572,6 +585,7 @@ mod tests {
 
     #[test]
     fn wire_and_unwire_claude_code() {
+        setup();
         let path = temp_file(
             "claude",
             "{\"mcpServers\":{\"demo\":{\"command\":\"node\"}},\"other\":1}",
@@ -608,6 +622,7 @@ mod tests {
 
     #[test]
     fn unknown_client_id_refuses_to_wire() {
+        setup();
         let path = temp_file("ghost", "{}");
         let state = std::env::temp_dir().join(format!("mcpstore-wired-gh-{}", std::process::id()));
         let error = wire_gateway("not-a-plugin", &path, "http://x/mcp", &state, None, None)
@@ -619,6 +634,7 @@ mod tests {
 
     #[test]
     fn wire_codex_appends_a_table_and_unwire_removes_it() {
+        setup();
         let path = temp_file(
             "codex",
             "# my codex config\nmodel = \"o3\"\n\n[mcp_servers.demo]\ncommand = \"node\"\n",
@@ -647,6 +663,7 @@ mod tests {
 
     #[test]
     fn unwire_refuses_a_hand_edited_entry() {
+        setup();
         let path = temp_file("edited", "{}");
         let state = std::env::temp_dir().join(format!("mcpstore-wired-ed-{}", std::process::id()));
         wire_gateway(
@@ -667,6 +684,7 @@ mod tests {
 
     #[test]
     fn refresh_repoints_unmodified_entries_and_skips_hand_edited() {
+        setup();
         let claude_path = temp_file(
             "refresh-claude",
             "{\"mcpServers\":{\"demo\":{\"command\":\"node\"},\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp\"}}}",
@@ -718,6 +736,7 @@ mod tests {
 
     #[test]
     fn effective_scope_and_expose_derive_defaults_from_stored_entry() {
+        setup();
         let document = |scope: &str| {
             format!(
                 "{{\"client_id\":\"codex\",\"path\":\"/tmp/x\",\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp/codex\",\"applied_at_unix_ms\":0{scope}}}"

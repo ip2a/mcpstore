@@ -342,7 +342,7 @@ pub(super) async fn gateway_requests(
     ))
 }
 
-fn wired_state_path(state: &ApiState) -> std::path::PathBuf {
+pub(super) fn wired_state_path(state: &ApiState) -> std::path::PathBuf {
     let app_config_path = state.store.config_manager().app_config_path();
     app_config_path
         .parent()

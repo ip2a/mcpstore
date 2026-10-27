@@ -352,6 +352,13 @@ async fn execute_operation(
         KernelOperation::GetDaemonConfig => get_daemon_config(host),
         KernelOperation::SetDaemonConfig => set_daemon_config(host, payload).await,
         KernelOperation::StopHost => Ok(json!({"message": "KernelHost stopping"})),
+        KernelOperation::PluginList => plugin_list(host),
+        KernelOperation::PluginMarket => plugin_market(host).await,
+        KernelOperation::PluginDetect => plugin_detect(host).await,
+        KernelOperation::PluginInstall => plugin_install(host, payload).await,
+        KernelOperation::PluginUninstall => plugin_uninstall(payload).await,
+        KernelOperation::PluginEnable => plugin_enable(payload).await,
+        KernelOperation::PluginDisable => plugin_disable(payload).await,
         KernelOperation::SubscribeEvents | KernelOperation::StreamToolExecution => {
             unreachable!("stream operations are handled before the request deadline")
         }
@@ -415,6 +422,77 @@ async fn set_daemon_config(host: &DaemonHost, payload: Value) -> Result<Value, E
     }
     manager.save_app_config(&config).map_err(config_error)?;
     Ok(json!({"applied": "hot", "key": key}))
+}
+
+// ---- plugin operations ----
+
+fn plugin_market_urls(host: &DaemonHost) -> Vec<String> {
+    host.store
+        .config_manager()
+        .load_app_config_or_default()
+        .map(|config| config.plugins.market_urls)
+        .unwrap_or_default()
+}
+
+fn plugin_id(payload: &Value) -> Result<String, Error> {
+    crate::daemon::ops::required_str(payload, "id")
+}
+
+fn plugin_list(host: &DaemonHost) -> Result<Value, Error> {
+    let trace = mcpstore::agents::registry::load_trace();
+    let plugins: Vec<Value> = mcpstore::agents::registry::registry_report()
+        .into_iter()
+        .map(|report| {
+            let mut value = serde_json::to_value(&report)
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+            if let Some(version) = trace.market_versions.get(&report.id) {
+                value["market_version"] = json!(version);
+            }
+            Ok(value)
+        })
+        .collect::<Result<Vec<Value>, Error>>()?;
+    Ok(json!({
+        "plugins": plugins,
+        "last_detect": trace.last_detect,
+        "market_fetched_at": trace.market_fetched_at,
+    }))
+}
+
+async fn plugin_market(host: &DaemonHost) -> Result<Value, Error> {
+    let urls = plugin_market_urls(host);
+    let plugins = mcpstore::agents::market::list_market(&urls).await?;
+    Ok(json!({ "plugins": plugins }))
+}
+
+async fn plugin_detect(host: &DaemonHost) -> Result<Value, Error> {
+    let urls = plugin_market_urls(host);
+    let detected = mcpstore::agents::market::detect_from_market(&urls).await?;
+    Ok(json!({ "detected": detected }))
+}
+
+async fn plugin_install(host: &DaemonHost, payload: Value) -> Result<Value, Error> {
+    let id = plugin_id(&payload)?;
+    let urls = plugin_market_urls(host);
+    mcpstore::agents::market::install(&id, &urls).await?;
+    Ok(json!({ "id": id, "installed": true, "enabled": false }))
+}
+
+async fn plugin_uninstall(payload: Value) -> Result<Value, Error> {
+    let id = plugin_id(&payload)?;
+    mcpstore::agents::market::uninstall(&id).await?;
+    Ok(json!({ "id": id, "installed": false }))
+}
+
+async fn plugin_enable(payload: Value) -> Result<Value, Error> {
+    let id = plugin_id(&payload)?;
+    mcpstore::agents::registry::enable(&id)?;
+    Ok(json!({ "id": id, "enabled": true }))
+}
+
+async fn plugin_disable(payload: Value) -> Result<Value, Error> {
+    let id = plugin_id(&payload)?;
+    mcpstore::agents::registry::disable(&id)?;
+    Ok(json!({ "id": id, "enabled": false }))
 }
 #[cfg(test)]
 mod tests {

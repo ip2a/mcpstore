@@ -248,6 +248,64 @@ impl KernelClient {
         .await
         .map(|(result, _)| result)
     }
+
+    pub async fn plugin_list(&mut self) -> Result<Value, Error> {
+        self.request(KernelOperation::PluginList, Value::Null, Duration::from_secs(30))
+            .await
+            .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_market(&mut self) -> Result<Value, Error> {
+        self.request(KernelOperation::PluginMarket, Value::Null, Duration::from_secs(120))
+            .await
+            .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_detect(&mut self) -> Result<Value, Error> {
+        self.request(KernelOperation::PluginDetect, Value::Null, Duration::from_secs(120))
+            .await
+            .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_install(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginInstall,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(180),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_uninstall(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginUninstall,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_enable(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginEnable,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_disable(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginDisable,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
 }
 
 /// 连接本机 daemon（默认 namespace）并请求优雅停机。

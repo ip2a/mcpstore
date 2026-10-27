@@ -4,6 +4,7 @@ pub mod config;
 pub mod daemon_cmd;
 pub mod elicitation;
 pub mod mcp;
+pub mod plugin;
 pub mod protocol;
 pub mod task;
 pub mod ui_web;

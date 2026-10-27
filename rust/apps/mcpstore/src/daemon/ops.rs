@@ -408,6 +408,13 @@ pub(crate) async fn execute(
         | KernelOperation::StopHost
         | KernelOperation::StatusHost
         | KernelOperation::GetDaemonConfig
+        | KernelOperation::PluginList
+        | KernelOperation::PluginMarket
+        | KernelOperation::PluginDetect
+        | KernelOperation::PluginInstall
+        | KernelOperation::PluginUninstall
+        | KernelOperation::PluginEnable
+        | KernelOperation::PluginDisable
         | KernelOperation::SetDaemonConfig => {
             unreachable!("stream/admin operations are handled by the daemon server")
         }

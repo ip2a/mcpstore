@@ -117,9 +117,32 @@ pub fn enable(id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Refuse to act on a plugin whose client still carries gateway entries.
+/// Those files belong to the wire ledger; mutating the plugin behind its
+/// back would corrupt them. A corrupt ledger is a hard stop, never a pass.
+/// Shared by disable and market uninstall.
+pub(crate) fn refuse_while_wired(id: &str, action: &str) -> Result<()> {
+    let wired = crate::client_wire::load_wired_state(
+        &crate::client_wire::wired_state_default_path(),
+    )
+    .map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("cannot verify wiring for plugin {id}: {error}"),
+        )
+    })?;
+    if wired.entries.iter().any(|entry| entry.client_id == id) {
+        return Err(Error::new(
+            FailureCode::InvalidInput,
+            format!("plugin {id} still has gateway entries; unwire it before {action}"),
+        ));
+    }
+    Ok(())
+}
+
 /// Disable a plugin: remove it from the enabled list only, folder untouched.
-/// Wiring protection lives with the API caller.
 pub fn disable(id: &str) -> Result<()> {
+    refuse_while_wired(id, "disabling")?;
     let mut enabled = current_enabled();
     let before = enabled.len();
     enabled.retain(|enabled_id| enabled_id != id);

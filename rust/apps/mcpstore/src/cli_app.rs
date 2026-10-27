@@ -55,6 +55,10 @@ pub enum Commands {
         json: bool,
     },
     Auth(commands::auth::AuthArgs),
+    Plugin {
+        #[command(subcommand)]
+        action: commands::plugin::PluginAction,
+    },
     Config {
         #[command(subcommand)]
         action: Option<commands::config::ConfigAction>,
@@ -152,6 +156,7 @@ fn run_inner() -> Result<(), BoxErr> {
             Commands::Daemon { action } => commands::daemon_cmd::run_daemon(action).await,
             Commands::Api { json } => commands::daemon_cmd::face_view("core", json).await,
             Commands::Auth(args) => commands::auth::run(args, embedded, endpoint.clone()).await,
+            Commands::Plugin { action } => commands::plugin::run(action).await,
             Commands::Config {
                 action,
                 edits,

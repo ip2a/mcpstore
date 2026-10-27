@@ -31,6 +31,7 @@ pub(crate) mod client;
 mod envelope;
 mod openapi;
 mod parse;
+mod plugins;
 mod service;
 mod session;
 mod telemetry;
@@ -159,6 +160,13 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/client-config/import", post(client::client_config_import))
         .route("/clients/:id/version", get(client::client_version))
         .route("/clients", get(client::clients_list))
+        .route("/plugins", get(plugins::plugins_list))
+        .route("/plugins/market", get(plugins::plugins_market))
+        .route("/plugins/detect", post(plugins::plugins_detect))
+        .route("/plugins/:id/install", post(plugins::plugin_install))
+        .route("/plugins/:id/uninstall", post(plugins::plugin_uninstall))
+        .route("/plugins/:id/enable", post(plugins::plugin_enable))
+        .route("/plugins/:id/disable", post(plugins::plugin_disable))
         .route("/gateway/descriptor", get(client::gateway_descriptor))
         .route("/gateway/status", get(client::gateway_status))
         .route("/gateway/requests", get(client::gateway_requests))

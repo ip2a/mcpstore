@@ -209,6 +209,10 @@ fn content_hash(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    fn setup() {
+        crate::agents::registry::install_for_tests();
+    }
     fn sample(suffix: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "mcpstore-client-config-{suffix}-{}",
@@ -224,6 +228,7 @@ mod tests {
     }
     #[test]
     fn inspects_claude_without_dropping_unknown_fields() {
+        setup();
         let path = sample("claude");
         let result = inspect_client_config("claude", &path).unwrap();
         assert_eq!(result.services.len(), 1);
@@ -233,6 +238,7 @@ mod tests {
     }
     #[test]
     fn inspects_codex_toml() {
+        setup();
         let path = std::env::temp_dir().join(format!("mcpstore-codex-{}", std::process::id()));
         fs::write(
             &path,
@@ -246,6 +252,7 @@ mod tests {
     }
     #[test]
     fn inspects_opencode_local_service() {
+        setup();
         let path = std::env::temp_dir().join(format!("mcpstore-opencode-{}", std::process::id()));
         fs::write(
             &path,
@@ -259,6 +266,7 @@ mod tests {
 
     #[test]
     fn inspects_cursor_and_omp_json() {
+        setup();
         for client in ["cursor", "omp"] {
             let path = sample(client);
             let result = inspect_client_config(client, &path).unwrap();
@@ -269,6 +277,7 @@ mod tests {
 
     #[test]
     fn unknown_client_id_is_an_error() {
+        setup();
         let path = sample("unknown");
         assert!(inspect_client_config("not-a-plugin", &path).is_err());
         let _ = fs::remove_file(path);
@@ -276,6 +285,7 @@ mod tests {
 
     #[test]
     fn imports_only_explicitly_selected_services_into_server_configs() {
+        setup();
         let path = sample("import");
         fs::write(
             &path,
@@ -295,6 +305,7 @@ mod tests {
 
     #[test]
     fn imports_opencode_command_array_and_rejects_lossy_fields() {
+        setup();
         let path =
             std::env::temp_dir().join(format!("mcpstore-import-opencode-{}", std::process::id()));
         fs::write(
@@ -314,6 +325,7 @@ mod tests {
 
     #[test]
     fn accepts_config_without_mcp_section() {
+        setup();
         let path = sample("bad");
         fs::write(&path, "{\"other\":1}").unwrap();
         let result = inspect_client_config("claude", &path).unwrap();
