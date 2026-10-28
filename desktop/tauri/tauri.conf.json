@@ -16,6 +16,9 @@
       "app",
       "dmg"
     ],
+    "externalBin": [
+      "binaries/mcpstore"
+    ],
     "resources": {
       "../../plugins/": "plugins/"
     },

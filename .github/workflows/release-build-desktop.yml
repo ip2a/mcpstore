@@ -47,6 +47,19 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Build web application
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build daemon sidecar
+        run: |
+          cargo build --release --target ${{ matrix.target }} --manifest-path rust/Cargo.toml -p mcpstore-cli --bin mcpstore
+          mkdir -p desktop/tauri/binaries
+          cp rust/target/${{ matrix.target }}/release/mcpstore desktop/tauri/binaries/mcpstore-${{ matrix.target }}
+          chmod +x desktop/tauri/binaries/mcpstore-${{ matrix.target }}
+
       - name: Build Tauri app
         working-directory: desktop/tauri
         run: |

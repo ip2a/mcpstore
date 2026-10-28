@@ -81,6 +81,8 @@ mcpstore api --host 127.0.0.1 --port 1820
 
 图形界面即控制面：管理 MCP 服务与工具，可查看参数、试跑调用。当前为 Beta，可从 [GitHub Releases](https://github.com/ip2a/mcpstore/releases/latest) 下载。
 
+桌面端是 CLI 同一个 `mcpstore` daemon 之上的薄壳：启动时先附着本机已有 daemon，没有就用 App 内置的 daemon 二进制拉起一个，然后加载 daemon 的 Web 面。全部业务状态（配置、遥测、网关、插件）都在唯一 daemon 的 `~/.mcpstore` 里。
+
 <p align="center">
   <img src="./docs/assets/images/app-tools.png" width="100%" alt="mcpstore 工具面板">
 </p>

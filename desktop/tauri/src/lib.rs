@@ -1,11 +1,13 @@
-use anyhow::Result;
-use mcpstore_cli::daemon::listeners::web_router;
-use mcpstore_cli::store_args::StoreSourceArgs;
+use anyhow::{anyhow, Result};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::process::Command;
-use tauri::{LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use std::process::{Child, Command, Stdio};
+use std::time::Duration;
+use tauri::{
+    AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 
 // Mirrors `web/src/App.tsx` shell: w-[min(1280px,calc(100vw-24px))]
 const WEB_CONTENT_MAX_WIDTH: f64 = 1280.0;
@@ -36,54 +38,87 @@ struct WindowState {
     height: u32,
 }
 
-fn start_local_server() -> Result<String> {
-    let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    let addr = std_listener.local_addr()?;
-    std_listener.set_nonblocking(true)?;
-    let url = format!("http://{}", addr);
+fn daemon_web_url(app: &AppHandle) -> Result<String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        if !mcpstore_cli::daemon::ensure::is_daemon_ready().await {
+            start_daemon(app)?;
+            mcpstore_cli::daemon::ensure::wait_daemon_ready(Duration::from_secs(30)).await?;
+        }
 
-    std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("desktop server runtime should build");
-        runtime.block_on(async move {
-            let store_args = StoreSourceArgs {
-                config_path: None,
-                source: mcpstore_cli::store_args::SourceArg::Local,
-                store: None,
-                store_config: None,
-                namespace: None,
-                control_panel: false,
-                data_panel: false,
-                panel_id: None,
-            };
-            let access = match mcpstore_cli::store_args::open_store_access(&store_args, true, None).await
-            {
-                Ok(a) => a,
-                Err(error) => {
-                    eprintln!("mcpstore desktop store setup failed: {error}");
-                    return;
+        let client = Client::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let mut admin = match mcpstore_cli::daemon::client::connect_admin(None).await {
+                Ok(client) => client,
+                Err(error) if tokio::time::Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let _ = error;
+                    continue;
                 }
+                Err(error) => return Err(error.into()),
             };
-            let store = match access.embedded_store() {
-                Some(s) => std::sync::Arc::clone(s),
-                None => {
-                    eprintln!("mcpstore desktop expected embedded store");
-                    return;
+            let status = admin.status_host().await?;
+            if let Some(bind) = status["listeners"].as_array().and_then(|listeners| {
+                listeners.iter().find_map(|listener| {
+                    (listener["key"] == "web" && listener["running"] == true)
+                        .then(|| listener["bind"].as_str())
+                        .flatten()
+                })
+            }) {
+                let url = format!("http://{bind}");
+                if client.get(format!("{url}/api/health")).send().await.is_ok() {
+                    return Ok(url);
                 }
-            };
-            let listener = tokio::net::TcpListener::from_std(std_listener)
-                .expect("desktop listener should convert");
-            let state = mcpstore_cli::commands::api::state_for_store(store);
-            let app = web_router(state);
-            if let Err(error) = axum::serve(listener, app).await {
-                eprintln!("mcpstore desktop server stopped: {error}");
             }
-        });
-    });
+            if tokio::time::Instant::now() >= deadline {
+                return Err(anyhow!("daemon web face did not become ready"));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
+}
 
-    Ok(url)
+fn start_daemon(app: &AppHandle) -> Result<Child> {
+    // tauri-build copies the externalBin sidecar (built as
+    // binaries/mcpstore-<target-triple>) next to the compiled app binary with
+    // the triple stripped: target/debug/mcpstore in dev, Contents/MacOS/mcpstore
+    // in a packaged .app. It does NOT live under resource_dir().
+    let executable = std::env::current_exe()?
+        .parent()
+        .map(|dir| {
+            dir.join(if cfg!(windows) {
+                "mcpstore.exe"
+            } else {
+                "mcpstore"
+            })
+        })
+        .filter(|path| path.is_file())
+        .ok_or_else(|| anyhow!("packaged mcpstore daemon binary is missing"))?;
+    // Bundled plugins ship as Resources/plugins; the daemon's own first-launch
+    // materialization scans cwd/plugins, so run it from resource_dir().
+    let resource_dir = app.path().resource_dir()?;
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("home directory is unavailable"))?;
+    let log_path = home
+        .join(".mcpstore")
+        .join("logs")
+        .join("desktop-daemon.out");
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)?;
+    Ok(Command::new(executable)
+        .arg("start")
+        .current_dir(resource_dir)
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .spawn()?)
 }
 
 fn compute_min_inner_size(window: &WebviewWindow) -> MinInnerSize {
@@ -108,10 +143,7 @@ fn compute_min_inner_size(window: &WebviewWindow) -> MinInnerSize {
 
 fn apply_min_inner_size(window: &WebviewWindow) {
     let min_size = compute_min_inner_size(window);
-    let _ = window.set_min_size(Some(LogicalSize::new(
-        min_size.width,
-        min_size.height,
-    )));
+    let _ = window.set_min_size(Some(LogicalSize::new(min_size.width, min_size.height)));
 }
 
 fn prime_desktop_environment() {
@@ -264,23 +296,7 @@ pub fn run() {
                 let _ = std::env::set_current_dir(home);
             }
 
-            // First launch only: materialize the bundled plugins that match
-            // agents on this machine, then never read the bundle again. A
-            // missing or broken bundle means zero materialized plugins — the
-            // agents page can still install from the market.
-            if let Some(bundle) = app
-                .path()
-                .resource_dir()
-                .ok()
-                .map(|dir| dir.join("plugins"))
-            {
-                match mcpstore::agents::registry::materialize_bundle(&bundle) {
-                    Ok(count) => eprintln!("mcpstore desktop materialized {count} bundled plugin(s)"),
-                    Err(error) => eprintln!("mcpstore desktop plugin materialization failed: {error}"),
-                }
-            }
-
-            let url = start_local_server()?;
+            let url = daemon_web_url(&app.handle())?;
             let initial_state = WindowState {
                 width: DEFAULT_INNER_WIDTH as u32,
                 height: DEFAULT_INNER_HEIGHT as u32,
