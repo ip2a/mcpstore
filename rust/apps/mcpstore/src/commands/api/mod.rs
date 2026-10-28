@@ -174,6 +174,7 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/gateway/requests/detail/:id", get(telemetry::request_detail))
         .route("/gateway/stats", get(telemetry::usage_stats))
         .route("/gateway/stats/daily", get(telemetry::usage_stats_daily))
+        .route("/gateway/stats/heatmap", get(telemetry::usage_stats_heatmap))
         .route("/gateway/frames/sessions", get(telemetry::frame_sessions))
         .route("/gateway/frames/history", get(telemetry::frame_history))
         .route("/gateway/frames/detail/:id", get(telemetry::frame_detail))

@@ -97,6 +97,22 @@ pub(super) async fn usage_stats_daily(
     ))
 }
 
+/// GET /gateway/stats/heatmap — per-day MCP-primitive call situation from the
+/// frame capture (gateway face), for the usage heatmap.
+pub(super) async fn usage_stats_heatmap(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<DailyStatsQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let days = telemetry
+        .heatmap_stats(query.days.unwrap_or(371).min(400))
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success(
+        "热力图统计获取成功",
+        serde_json::to_value(days).unwrap_or(Value::Null),
+    ))
+}
+
 #[derive(Deserialize)]
 pub(super) struct FrameSessionsQuery {
     face: Option<String>,

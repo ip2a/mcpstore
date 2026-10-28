@@ -51,6 +51,18 @@ pub struct UsageTotals {
     pub max_ms: i64,
 }
 
+/// One day of the frame-capture heatmap: client requests per MCP primitive
+/// (gateway face) plus error envelopes seen that day.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HeatmapDay {
+    pub bucket_unix_ms: i64,
+    pub tool_calls: i64,
+    pub resource_calls: i64,
+    pub prompt_calls: i64,
+    pub other_calls: i64,
+    pub errors: i64,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct UsageSeriesPoint {
     pub bucket_unix_ms: i64,
@@ -611,6 +623,38 @@ impl TelemetryLog {
         })?;
         rows.collect()
     }
+
+    /// Per-day MCP-primitive call situation from the frame capture (gateway face only —
+    /// client-driven surface; upstream would double-count). Counts client requests per
+    /// primitive (tools/resources/prompts/other) plus down-stream error envelopes.
+    pub fn heatmap_stats(&self, days: u32) -> rusqlite::Result<Vec<HeatmapDay>> {
+        let conn = self.read_conn()?;
+        let to = now_ms();
+        let from = to - i64::from(days.max(1)) * 24 * 3600 * 1000;
+        let mut stmt = conn.prepare(
+            "SELECT (ts_unix_ms / 86400000) * 86400000 AS bucket, \
+             SUM(CASE WHEN kind = 'request' AND method LIKE 'tools/%' THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'request' AND method LIKE 'resources/%' THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'request' AND method LIKE 'prompts/%' THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'request' AND (method IS NULL OR \
+                  (method NOT LIKE 'tools/%' AND method NOT LIKE 'resources/%' \
+                   AND method NOT LIKE 'prompts/%')) THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'error' THEN 1 ELSE 0 END) \
+             FROM frames WHERE face = 'gateway' AND ts_unix_ms >= ?1 \
+             GROUP BY bucket ORDER BY bucket",
+        )?;
+        let rows = stmt.query_map([from], |row| {
+            Ok(HeatmapDay {
+                bucket_unix_ms: row.get(0)?,
+                tool_calls: row.get(1)?,
+                resource_calls: row.get(2)?,
+                prompt_calls: row.get(3)?,
+                other_calls: row.get(4)?,
+                errors: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
 }
 
 impl mcpstore::telemetry::RequestTelemetry for TelemetryLog {
@@ -709,6 +753,48 @@ mod tests {
         let (payload, truncated) = cap_payload(Some("短".repeat(10)));
         assert!(!truncated);
         assert_eq!(payload.unwrap().chars().count(), 10);
+    }
+
+    #[test]
+    fn heatmap_stats_groups_primitives_by_utc_day() {
+        let path = temp_path("heatmap");
+        let log = TelemetryLog::open(&path).unwrap();
+
+        let mut tool = FrameRecord::new("gw:s", "gateway", "up");
+        tool.from_envelope(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call"}));
+        log.record_frame(tool);
+
+        let mut read = FrameRecord::new("gw:s", "gateway", "up");
+        read.from_envelope(&serde_json::json!({"jsonrpc":"2.0","id":2,"method":"resources/read"}));
+        log.record_frame(read);
+
+        let mut error = FrameRecord::new("gw:s", "gateway", "down");
+        error.from_envelope(&serde_json::json!({"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}));
+        log.record_frame(error);
+
+        // Upstream face frames must not count (gateway face only).
+        let mut upstream = FrameRecord::new("up:s", "upstream", "up");
+        upstream.from_envelope(&serde_json::json!({"jsonrpc":"2.0","id":9,"method":"tools/call"}));
+        log.record_frame(upstream);
+
+        let mut init = FrameRecord::new("gw:s", "gateway", "up");
+        init.from_envelope(&serde_json::json!({"jsonrpc":"2.0","id":3,"method":"initialize"}));
+        log.record_frame(init);
+
+        let mut notification = FrameRecord::new("gw:s", "gateway", "up");
+        notification.from_envelope(&serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+        log.record_frame(notification);
+        std::thread::sleep(Duration::from_millis(300));
+
+        let days = log.heatmap_stats(53 * 7).unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].tool_calls, 1);
+        assert_eq!(days[0].resource_calls, 1);
+        assert_eq!(days[0].prompt_calls, 0);
+        assert_eq!(days[0].other_calls, 1, "initialize is an other-request; notifications are not calls");
+        assert_eq!(days[0].errors, 1);
+        assert_eq!(days[0].bucket_unix_ms % 86_400_000, 0);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

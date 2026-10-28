@@ -57,6 +57,20 @@ export function getDailyUsageStats(days = 35): Promise<UsageTotals[]> {
   return appApi(`/gateway/stats/daily${buildQuery({ days })}`);
 }
 
+/** 帧捕获维度的每日原语调用情况（gateway 面），首页热力图数据源。 */
+export type HeatmapDay = {
+  bucket_unix_ms: number;
+  tool_calls: number;
+  resource_calls: number;
+  prompt_calls: number;
+  other_calls: number;
+  errors: number;
+};
+
+export function getHeatmapStats(days = 371): Promise<HeatmapDay[]> {
+  return appApi(`/gateway/stats/heatmap${buildQuery({ days })}`);
+}
+
 export function getRequestHistory(
   params: {
     limit?: number;

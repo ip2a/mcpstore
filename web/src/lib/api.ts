@@ -460,6 +460,7 @@ export {
 export {
   getUsageStats,
   getDailyUsageStats,
+  getHeatmapStats,
   getRequestHistory,
   getRequestDetail,
   getFrameSessions,
@@ -470,6 +471,7 @@ export {
   type UsageStats,
   type UsageSeriesPoint,
   type UsageTotals,
+  type HeatmapDay,
   type FrameSessionSummary,
   type FrameRecord,
 } from "./api/telemetry";
