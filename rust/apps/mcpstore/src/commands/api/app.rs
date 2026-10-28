@@ -19,6 +19,7 @@ pub(super) struct UpdateSettingsRequest {
     diagnostics: Option<UpdateDiagnosticsRequest>,
     api: Option<UpdateApiRequest>,
     web: Option<UpdateWebRequest>,
+    gateway: Option<UpdateGatewayRequest>,
     hosts: Option<HostsConfig>,
 }
 
@@ -29,6 +30,11 @@ struct UpdateApiRequest {
 
 #[derive(Deserialize)]
 struct UpdateWebRequest {
+    port: Option<u16>,
+}
+
+#[derive(Deserialize)]
+struct UpdateGatewayRequest {
     port: Option<u16>,
 }
 
@@ -91,6 +97,18 @@ pub(super) async fn update_settings(
                 ));
             }
             config.web.port = port;
+        }
+    }
+
+    if let Some(gateway) = payload.gateway {
+        if let Some(port) = gateway.port {
+            if port == 0 {
+                return Err(ApiError::invalid_parameter(
+                    "网关端口必须大于 0",
+                    Some("gateway.port"),
+                ));
+            }
+            config.gateway.port = port;
         }
     }
 
@@ -172,6 +190,9 @@ fn settings_payload(config: &AppConfig) -> Value {
         "web": {
             "host": config.web.host,
             "port": config.web.port,
+        },
+        "gateway": {
+            "port": config.gateway.port,
         },
         "diagnostics": {
             "enabled": config.diagnostics.enabled,

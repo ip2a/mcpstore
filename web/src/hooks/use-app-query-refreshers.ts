@@ -27,16 +27,16 @@ export function useAppQueryRefreshers() {
 
   async function refreshServiceRegistryQueries() {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.instances }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
+      queryClient.refetchQueries({ queryKey: queryKeys.instances }),
+      queryClient.refetchQueries({ queryKey: queryKeys.agents }),
     ])
   }
 
   async function refreshAgentQueries(agentId: string) {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentServices(agentId) }),
+      queryClient.refetchQueries({ queryKey: queryKeys.agents }),
+      queryClient.refetchQueries({ queryKey: queryKeys.agent(agentId) }),
+      queryClient.refetchQueries({ queryKey: queryKeys.agentServices(agentId) }),
     ])
   }
 

@@ -22,13 +22,21 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import {
+  ClientPluginMarketCard,
+  ClientPluginRowActions,
+  useClientPluginMarketQuery,
+  useClientPluginsQuery,
+  usePluginAction,
+  usePluginUpdate,
+} from "@/features/clients/client-plugins-panel"
 import { useClientsQuery, useClientToggle, useClientVersionQuery } from "@/features/clients/queries"
-import { ClientPluginsDialog } from "@/features/clients/client-plugins-dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { ClientInventory, ExposeConfig, WireOptions } from "@/lib/api"
+import type { ClientInventory, ExposeConfig, WireOptions, WireResult } from "@/lib/api"
+import type { ClientPlugin, MarketPlugin } from "@/lib/api/plugins"
 import { cn } from "@/lib/utils"
 
-const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
+export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "tool",
   "prompt",
   "resource",
@@ -39,25 +47,77 @@ const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "session_state",
 ]
 
+/** 作用域 + 8 个暴露开关的表单体，供接线弹窗与网关页编辑弹窗共用。 */
+export function WireOptionsFields({
+  dedicatedScope,
+  dedicatedScopeLabel,
+  expose,
+  onDedicatedScopeChange,
+  onExposeChange,
+}: {
+  dedicatedScope: boolean
+  dedicatedScopeLabel: string
+  expose: ExposeConfig
+  onDedicatedScopeChange: (dedicated: boolean) => void
+  onExposeChange: (expose: ExposeConfig) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="wire-scope">{t("clientsScope")}</Label>
+          <span className="font-mono text-xs text-muted-foreground">
+            {dedicatedScope ? dedicatedScopeLabel : t("gatewayScopeStore")}
+          </span>
+        </div>
+        <Switch id="wire-scope" checked={dedicatedScope} onCheckedChange={onDedicatedScopeChange} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label>{t("clientsExpose")}</Label>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+          {EXPOSE_KEYS.map((key) => (
+            <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+              <Switch
+                checked={expose[key]}
+                onCheckedChange={(on) => onExposeChange({ ...expose, [key]: on })}
+              />
+              <span className="font-mono text-xs">{key}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
 export function ClientsView() {
   const { t } = useI18n()
   const { data, isPending, isError, error, refetch } = useClientsQuery()
   const { toggle, busy } = useClientToggle()
+  const pluginAction = usePluginAction()
+  const pluginUpdate = usePluginUpdate()
+  const pluginsQuery = useClientPluginsQuery()
+  const marketQuery = useClientPluginMarketQuery()
   const [wireTarget, setWireTarget] = useState<ClientInventory | null>(null)
-  const [pluginsOpen, setPluginsOpen] = useState(false)
+  const [wireConflict, setWireConflict] = useState<WireConflictState | null>(null)
 
   const clients = data ?? []
+  const pluginBusy = busy || pluginAction.isPending || pluginUpdate.isPending
+  const installedById = Object.fromEntries(
+    (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
+  ) as Record<string, ClientPlugin>
+  const marketById = Object.fromEntries(
+    (marketQuery.data?.plugins ?? []).map((entry) => [entry.id, entry]),
+  ) as Record<string, MarketPlugin>
 
   return (
     <>
-      <div className="flex shrink-0 items-center justify-between gap-2 pl-4">
+      <div className="flex shrink-0 items-center gap-2 pl-4">
         <WorkspacePageHeader
           title={<h1 className="text-lg font-semibold">{t("clientsWorkspaceTitle")}</h1>}
           subtitle={t("clientsWorkspaceDescription", { count: clients.length })}
         />
-        <Button variant="outline" size="sm" className="mr-4" onClick={() => setPluginsOpen(true)}>
-          {t("clientPluginsTitle")}
-        </Button>
       </div>
 
       {isError ? (
@@ -75,12 +135,22 @@ export function ClientsView() {
               <ClientRow
                 key={client.id}
                 client={client}
-                busy={busy}
+                busy={pluginBusy}
+                installed={installedById[client.id]}
+                marketEntry={marketById[client.id]}
                 onWire={() => setWireTarget(client)}
                 onUnwire={() => void toggle(client, true)}
+                onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
+                onUpdate={(id) => pluginUpdate.mutate(id)}
               />
             ))}
           </PanelCard>
+          <ClientPluginMarketCard
+            busy={pluginBusy}
+            onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+            onUpdate={(id) => pluginUpdate.mutate(id)}
+          />
         </ScrollPane>
       )}
 
@@ -88,15 +158,31 @@ export function ClientsView() {
         client={wireTarget}
         busy={busy}
         onClose={() => setWireTarget(null)}
-        onConfirm={(client, options) => {
+        onConfirm={async (client, options) => {
           setWireTarget(null)
-          void toggle(client, false, options)
+          const result = await toggle(client, false, options)
+          if (result?.outcome === "conflict") setWireConflict({ client, options, result })
         }}
       />
 
-      <ClientPluginsDialog open={pluginsOpen} onOpenChange={setPluginsOpen} />
+      <WireConflictDialog
+        state={wireConflict}
+        busy={busy}
+        onClose={() => setWireConflict(null)}
+        onReplace={async (client, options) => {
+          setWireConflict(null)
+          await toggle(client, false, options, true)
+        }}
+      />
     </>
   )
+}
+
+/** 接线冲突：目标文件里已有一条内容不一致的 mcpstore 条目，等用户确认替换。 */
+type WireConflictState = {
+  client: ClientInventory
+  options: WireOptions
+  result: Extract<WireResult, { outcome: "conflict" }>
 }
 
 /** 接线配置：默认专属作用域（Agent:<id>）+ 不暴露管理工具；可切 Store / 打开开关。 */
@@ -131,29 +217,13 @@ function WireDialog({
           <DialogTitle>{t("clientsWireDialogTitle", { client: client.label })}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex flex-col gap-0.5">
-              <Label htmlFor="wire-scope">{t("clientsScope")}</Label>
-              <span className="font-mono text-xs text-muted-foreground">
-                {dedicatedScope ? `Agent:${client.id}` : t("gatewayScopeStore")}
-              </span>
-            </div>
-            <Switch id="wire-scope" checked={dedicatedScope} onCheckedChange={setDedicatedScope} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label>{t("clientsExpose")}</Label>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              {EXPOSE_KEYS.map((key) => (
-                <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
-                  <Switch
-                    checked={expose[key]}
-                    onCheckedChange={(on) => setExpose((prev) => ({ ...prev, [key]: on }))}
-                  />
-                  <span className="font-mono text-xs">{key}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+          <WireOptionsFields
+            dedicatedScope={dedicatedScope}
+            dedicatedScopeLabel={`Agent:${client.id}`}
+            expose={expose}
+            onDedicatedScopeChange={setDedicatedScope}
+            onExposeChange={setExpose}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{t("cancel")}</Button>
@@ -174,16 +244,74 @@ function WireDialog({
   )
 }
 
+/** 冲突确认：并排展示现有条目与将写入的值，用户确认后带 force 重发替换。 */
+function WireConflictDialog({
+  state,
+  busy,
+  onClose,
+  onReplace,
+}: {
+  state: WireConflictState | null
+  busy: boolean
+  onClose: () => void
+  onReplace: (client: ClientInventory, options: WireOptions) => void
+}) {
+  const { t } = useI18n()
+  if (!state) return null
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{t("clientsWireConflictTitle", { client: state.client.label })}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {t("clientsWireConflictMessage", { path: state.result.path })}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0">
+            <Label>{t("clientsWireConflictCurrent")}</Label>
+            <pre className="mt-1 max-h-36 overflow-auto rounded-md bg-muted p-2 font-mono text-xs break-all whitespace-pre-wrap">
+              {JSON.stringify(state.result.current, null, 2)}
+            </pre>
+          </div>
+          <div className="min-w-0">
+            <Label>{t("clientsWireConflictExpected")}</Label>
+            <pre className="mt-1 max-h-36 overflow-auto rounded-md bg-muted p-2 font-mono text-xs break-all whitespace-pre-wrap">
+              {JSON.stringify(state.result.expected, null, 2)}
+            </pre>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{t("cancel")}</Button>
+          <Button disabled={busy} onClick={() => onReplace(state.client, state.options)}>
+            {t("clientsWireConflictReplace")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ClientRow({
   busy,
   client,
+  installed,
+  marketEntry,
   onWire,
   onUnwire,
+  onInstall,
+  onUninstall,
+  onUpdate,
 }: {
   busy: boolean
   client: ClientInventory
+  installed: ClientPlugin | undefined
+  marketEntry: MarketPlugin | undefined
   onWire: () => void
   onUnwire: () => void
+  onInstall: (id: string) => void
+  onUninstall: (id: string) => void
+  onUpdate: (id: string) => void
 }) {
   const { t } = useI18n()
   const [detailOpen, setDetailOpen] = useState(false)
@@ -251,6 +379,16 @@ function ClientRow({
             <ChevronRightIcon className="size-3.5" />
           </button>
         )}
+
+        <ClientPluginRowActions
+          clientId={client.id}
+          busy={busy}
+          installed={installed}
+          marketEntry={marketEntry}
+          onInstall={onInstall}
+          onUninstall={onUninstall}
+          onUpdate={onUpdate}
+        />
 
         <Switch
           checked={client.wired}

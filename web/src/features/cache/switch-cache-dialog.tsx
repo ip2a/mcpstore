@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { useI18n } from "@/lib/i18n-context"
 import { switchCache, type CacheBackend } from "@/lib/api"
 
-const cacheOptions: CacheBackend[] = ["memory", "redis", "openkeyv_memory", "openkeyv_redis"]
+const cacheOptions: CacheBackend[] = ["memory", "redis"]
 
 export function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { open: boolean; current?: CacheBackend; onOpenChange: (open: boolean) => void; onChanged: () => Promise<void> }) {
   const { t } = useI18n()

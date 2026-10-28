@@ -4,7 +4,9 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CableIcon,
+  PencilIcon,
   RefreshCwIcon,
+  SettingsIcon,
   WaypointsIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -14,10 +16,30 @@ import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { EXPOSE_KEYS } from "@/features/clients/clients-view"
+import {
   useClientsQuery,
   useGatewayStatusQuery,
+  useWireClientMutation,
   useWiredClientsQuery,
 } from "@/features/clients/queries"
+import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import {
@@ -27,12 +49,22 @@ import {
   getRequestHistory,
   startMcpHub,
   stopMcpHub,
+  type ExposeConfig,
   type FrameRecord,
   type FrameSessionSummary,
   type GatewayRequestRecord,
+  type McpHubOptions,
   type RequestRecord,
+  type ScopeRef,
   type WiredEntry,
 } from "@/lib/api"
+
+const DEFAULT_LAUNCH_OPTIONS: McpHubOptions = {
+  transport: "streamable-http",
+  scope: "store",
+  host: "127.0.0.1",
+  path: "/mcp",
+}
 
 export function GatewayView() {
   const { t } = useI18n()
@@ -40,19 +72,35 @@ export function GatewayView() {
   const clients = useClientsQuery()
   const wired = useWiredClientsQuery()
   const records = useGatewayRequestFlow()
+  const meta = useSettingsMetaQuery()
+  const updateSettings = useUpdateSettingsMutation()
   const [busy, setBusy] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [launchOptions, setLaunchOptions] = useState<McpHubOptions>(DEFAULT_LAUNCH_OPTIONS)
 
   const wiredLabels = (clients.data ?? [])
     .filter((client) => client.wired)
     .map((client) => client.label)
   const labelById = new Map((clients.data ?? []).map((client) => [client.id, client.label]))
 
-  async function handleStart() {
+  const defaultPort = meta.data?.settings?.gateway?.port
+  useEffect(() => {
+    if (defaultPort) {
+      setLaunchOptions((prev) => (prev.port ? prev : { ...prev, port: defaultPort }))
+    }
+  }, [defaultPort])
+
+  async function handleStart(options: McpHubOptions, persistPort: boolean) {
     setBusy(true)
     try {
-      await startMcpHub({ transport: "streamable-http", scope: "store" })
+      await startMcpHub(options)
+      if (persistPort && options.port) {
+        await updateSettings.mutateAsync({ gateway: { port: options.port } })
+        await meta.refetch()
+      }
       await status.refetch()
       toast.success(t("gatewayStarted"))
+      setSettingsOpen(false)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
     } finally {
@@ -75,6 +123,15 @@ export function GatewayView() {
 
   return (
     <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
+      <LaunchSettingsDialog
+        busy={busy}
+        onOpenChange={setSettingsOpen}
+        onStart={handleStart}
+        open={settingsOpen}
+        options={launchOptions}
+        setOptions={setLaunchOptions}
+      />
+
       <PanelCard variant="plain" className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
           <div className="flex items-center gap-2">
@@ -86,12 +143,25 @@ export function GatewayView() {
             )}
           </div>
           <div className="flex gap-2">
+            <Button
+              disabled={busy}
+              size="sm"
+              variant="outline"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <SettingsIcon data-icon="inline-start" />
+              {t("gatewaySettings")}
+            </Button>
             {status.data?.running ? (
               <Button disabled={busy} size="sm" variant="outline" onClick={handleStop}>
                 {t("gatewayStop")}
               </Button>
             ) : (
-              <Button disabled={busy} size="sm" onClick={handleStart}>
+              <Button
+                disabled={busy}
+                size="sm"
+                onClick={() => handleStart(launchOptions, false)}
+              >
                 {t("gatewayStart")}
               </Button>
             )}
@@ -122,6 +192,193 @@ export function GatewayView() {
 
       <FrameStreamCard />
     </ScrollPane>
+  )
+}
+
+/** 启动参数表单：transport/host/port/path/scope，可选把 port 存为下次默认值。 */
+function LaunchSettingsDialog({
+  busy,
+  onOpenChange,
+  onStart,
+  open,
+  options,
+  setOptions,
+}: {
+  busy: boolean
+  onOpenChange: (open: boolean) => void
+  onStart: (options: McpHubOptions, persistPort: boolean) => void
+  open: boolean
+  options: McpHubOptions
+  setOptions: (update: (prev: McpHubOptions) => McpHubOptions) => void
+}) {
+  const { t } = useI18n()
+  const [persistPort, setPersistPort] = useState(true)
+  const isHttp = options.transport === "streamable-http"
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[min(85vh,720px)] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("gatewaySettings")}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>{t("gatewayTransport")}</Label>
+            <Select
+              value={options.transport}
+              onValueChange={(value) =>
+                setOptions((prev) => ({
+                  ...prev,
+                  transport: value as McpHubOptions["transport"],
+                }))
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="streamable-http">streamable-http</SelectItem>
+                <SelectItem value="stdio">stdio</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>{t("gatewayScope")}</Label>
+            <Select
+              value={options.scope ?? "store"}
+              onValueChange={(value) =>
+                setOptions((prev) => ({ ...prev, scope: value as "store" | "agent" }))
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="store">{t("gatewayScopeStore")}</SelectItem>
+                <SelectItem value="agent">{t("gatewayScopeAgent")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {options.scope === "agent" ? (
+            <div className="flex flex-col gap-1.5">
+              <Label>{t("gatewayAgentId")}</Label>
+              <Input
+                value={options.agentId ?? ""}
+                onChange={(event) =>
+                  setOptions((prev) => ({ ...prev, agentId: event.target.value }))
+                }
+                placeholder="agent-id"
+              />
+            </div>
+          ) : null}
+
+          {isHttp ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("gatewayHost")}</Label>
+                  <Input
+                    value={options.host ?? ""}
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, host: event.target.value }))
+                    }
+                    placeholder="127.0.0.1"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t("gatewayPort")}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={options.port ?? ""}
+                    onChange={(event) =>
+                      setOptions((prev) => ({
+                        ...prev,
+                        port: event.target.value ? Number(event.target.value) : undefined,
+                      }))
+                    }
+                    placeholder="1230"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>{t("gatewayPath")}</Label>
+                <Input
+                  value={options.path ?? ""}
+                  onChange={(event) =>
+                    setOptions((prev) => ({ ...prev, path: event.target.value }))
+                  }
+                  placeholder="/mcp"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2">
+                <Label htmlFor="gateway-persist-port" className="text-sm font-normal">
+                  {t("gatewayPersistPort")}
+                </Label>
+                <Switch
+                  id="gateway-persist-port"
+                  checked={persistPort}
+                  onCheckedChange={setPersistPort}
+                />
+              </div>
+            </>
+          ) : null}
+
+          <div className="flex flex-col gap-1.5">
+            <Label>{t("gatewayInstanceId")}</Label>
+            <Input
+              value={options.instanceId ?? ""}
+              onChange={(event) =>
+                setOptions((prev) => ({ ...prev, instanceId: event.target.value || undefined }))
+              }
+              placeholder={t("gatewayInstanceIdPlaceholder")}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>{t("gatewaySessionKey")}</Label>
+            <Input
+              value={options.sessionKey ?? ""}
+              onChange={(event) =>
+                setOptions((prev) => ({ ...prev, sessionKey: event.target.value || undefined }))
+              }
+              placeholder={t("gatewaySessionKeyPlaceholder")}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>{t("clientsExpose")}</Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {EXPOSE_KEYS.map((key) => (
+                <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Switch
+                    checked={options.expose?.[key] ?? false}
+                    onCheckedChange={(checked) =>
+                      setOptions((prev) => ({
+                        ...prev,
+                        expose: { ...prev.expose, [key]: checked },
+                      }))
+                    }
+                  />
+                  <span className="font-mono text-xs">{key}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            disabled={busy}
+            onClick={() => onStart(options, isHttp && persistPort)}
+          >
+            {t("gatewayStart")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -376,6 +633,7 @@ function WiredClientsCard({
   wired: WiredEntry[]
 }) {
   const { t } = useI18n()
+  const [editing, setEditing] = useState<WiredEntry | null>(null)
   return (
     <PanelCard variant="plain" className="gap-2">
       <div className="border-b pb-2 text-sm font-medium">{t("gatewayWiredTitle")}</div>
@@ -383,9 +641,19 @@ function WiredClientsCard({
         <p className="text-sm text-muted-foreground">{t("gatewayWiredEmpty")}</p>
       ) : (
         wired.map((entry) => (
-          <WiredClientRow key={entry.client_id} entry={entry} labelById={labelById} />
+          <WiredClientRow
+            key={entry.client_id}
+            entry={entry}
+            labelById={labelById}
+            onEdit={() => setEditing(entry)}
+          />
         ))
       )}
+      <WireEditDialog
+        entry={editing}
+        labelById={labelById}
+        onOpenChange={(open) => !open && setEditing(null)}
+      />
     </PanelCard>
   )
 }
@@ -393,9 +661,11 @@ function WiredClientsCard({
 function WiredClientRow({
   entry,
   labelById,
+  onEdit,
 }: {
   entry: WiredEntry
   labelById: Map<string, string>
+  onEdit: () => void
 }) {
   const { t } = useI18n()
   const exposeOn = Object.entries(entry.expose)
@@ -419,10 +689,131 @@ function WiredClientRow({
           {t("gatewayExposeNone")}
         </span>
       )}
-      <span className="ml-auto min-w-0 truncate font-mono text-xs text-muted-foreground">
+      <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
         {entry.url}
       </span>
+      <Button
+        className="ml-auto shrink-0"
+        size="icon-sm"
+        variant="ghost"
+        onClick={onEdit}
+        aria-label={t("gatewayEditWire")}
+      >
+        <PencilIcon className="size-3.5" />
+      </Button>
     </div>
+  )
+}
+
+/** 编辑已接入客户端：重新调用 /gateway/wire（幂等）覆盖 scope + 8 个暴露开关。 */
+function WireEditDialog({
+  entry,
+  labelById,
+  onOpenChange,
+}: {
+  entry: WiredEntry | null
+  labelById: Map<string, string>
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useI18n()
+  const wire = useWireClientMutation()
+  const [scope, setScope] = useState<ScopeRef>({ type: "store" })
+  const [expose, setExpose] = useState<ExposeConfig | null>(null)
+
+  useEffect(() => {
+    if (entry) {
+      setScope(entry.scope)
+      setExpose(entry.expose)
+    }
+  }, [entry])
+
+  if (!entry || !expose) {
+    return <Dialog open={false} onOpenChange={onOpenChange} />
+  }
+
+  async function handleSave() {
+    try {
+      await wire.mutateAsync({
+        client: entry!.client_id,
+        options: {
+          scope: scope.type,
+          agentId: scope.type === "agent" ? scope.agent_id : undefined,
+          expose: expose!,
+        },
+      })
+      toast.success(t("clientsWireOk", { client: labelById.get(entry!.client_id) ?? entry!.client_id }))
+      onOpenChange(false)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  return (
+    <Dialog open={Boolean(entry)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {t("gatewayEditWireTitle", {
+              client: labelById.get(entry.client_id) ?? entry.client_id,
+            })}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>{t("gatewayScope")}</Label>
+            <Select
+              value={scope.type}
+              onValueChange={(value) =>
+                setScope(
+                  value === "agent"
+                    ? { type: "agent", agent_id: scope.type === "agent" ? scope.agent_id : entry.client_id }
+                    : { type: "store" },
+                )
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="store">{t("gatewayScopeStore")}</SelectItem>
+                <SelectItem value="agent">{t("gatewayScopeAgent")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {scope.type === "agent" ? (
+            <div className="flex flex-col gap-1.5">
+              <Label>{t("gatewayAgentId")}</Label>
+              <Input
+                value={scope.agent_id}
+                onChange={(event) => setScope({ type: "agent", agent_id: event.target.value })}
+                placeholder="agent-id"
+              />
+            </div>
+          ) : null}
+          <div className="flex flex-col gap-2">
+            <Label>{t("clientsExpose")}</Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {EXPOSE_KEYS.map((key) => (
+                <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Switch
+                    checked={expose[key]}
+                    onCheckedChange={(checked) =>
+                      setExpose((prev) => (prev ? { ...prev, [key]: checked } : prev))
+                    }
+                  />
+                  <span className="font-mono text-xs">{key}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button disabled={wire.isPending} onClick={handleSave}>
+            {t("save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

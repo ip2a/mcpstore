@@ -44,10 +44,18 @@ pub trait ClientSetup: Send + Sync {
     // ---- gateway wiring ----
     /// Insert the gateway entry into the client's document. JSON documents
     /// write a JSON object; TOML documents append a dotted-header table.
-    fn wire_entry(&self, path: &Path, url: &str) -> Result<()> {
+    /// An identical prior entry is adopted (recording it without touching the
+    /// file); a differing one is reported as [`EntryWrite::Diverged`] unless
+    /// `force` replaces it.
+    fn wire_entry(
+        &self,
+        path: &Path,
+        url: &str,
+        force: bool,
+    ) -> Result<crate::client_wire::EntryWrite> {
         match self.format() {
-            ConfigFormat::Json => crate::client_wire::wire_json_entry(self, path, url),
-            ConfigFormat::Toml => crate::client_wire::wire_toml_entry(self, path, url),
+            ConfigFormat::Json => crate::client_wire::wire_json_entry(self, path, url, force),
+            ConfigFormat::Toml => crate::client_wire::wire_toml_entry(self, path, url, force),
         }
     }
     /// Remove the recorded gateway entry; refuse a hand-edited one.

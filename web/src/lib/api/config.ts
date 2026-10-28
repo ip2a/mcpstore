@@ -48,6 +48,7 @@ import type {
   UpdateServiceScopeInput,
   UpdateSettingsPayload,
 } from "../api";
+import type { ExposeConfig } from "./clients";
 
 export type McpHubOptions = {
   scope?: "store" | "agent";
@@ -58,6 +59,7 @@ export type McpHubOptions = {
   path?: string;
   instanceId?: string;
   sessionKey?: string;
+  expose?: Partial<ExposeConfig>;
 };
 
 export type McpHubStatus = {
@@ -74,6 +76,7 @@ export type McpHubStatus = {
 };
 
 function mcpHubQuery(options: McpHubOptions) {
+  const expose = options.expose;
   return buildQuery({
     scope: options.scope,
     agent_id: options.agentId,
@@ -83,6 +86,14 @@ function mcpHubQuery(options: McpHubOptions) {
     path: options.path,
     instance_id: options.instanceId,
     session_key: options.sessionKey,
+    expose_session_state: expose?.session_state,
+    expose_tool: expose?.tool,
+    expose_prompt: expose?.prompt,
+    expose_resource: expose?.resource,
+    expose_openapi: expose?.openapi,
+    expose_service: expose?.service,
+    expose_cache: expose?.cache,
+    expose_search: expose?.search,
   });
 }
 

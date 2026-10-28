@@ -74,6 +74,14 @@ export type WireOptions = {
   expose?: Partial<ExposeConfig>;
 };
 
+/**
+ * wire 返回：正常接入（条目已写入或原样收编），或发现一条内容不一致的既有
+ * mcpstore 条目——带路径与当前值/期望值，前端确认后带 force 重发即可替换。
+ */
+export type WireResult =
+  | ({ outcome: "wired" } & WiredEntry)
+  | { outcome: "conflict"; path: string; current: unknown; expected: unknown };
+
 export function listClients(): Promise<ClientInventory[]> {
   return appApi<{ clients: ClientInventory[] }>("/clients").then(
     (payload) => payload.clients,
@@ -87,7 +95,11 @@ export function getClientVersion(clientId: string): Promise<string | null> {
 }
 
 /** path/url 省略时由后端发现配置文件并生成 caller URL。 */
-export function wireClient(client: string, options?: WireOptions): Promise<WiredEntry> {
+export function wireClient(
+  client: string,
+  options?: WireOptions,
+  force = false,
+): Promise<WireResult> {
   const expose = options?.expose;
   const query = buildQuery({
     client,
@@ -101,6 +113,7 @@ export function wireClient(client: string, options?: WireOptions): Promise<Wired
     expose_service: expose?.service,
     expose_cache: expose?.cache,
     expose_search: expose?.search,
+    force: force || undefined,
   });
   return appApi(`/gateway/wire${query}`, { method: "POST" });
 }

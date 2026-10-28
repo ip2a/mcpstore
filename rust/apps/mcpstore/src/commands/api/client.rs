@@ -378,6 +378,8 @@ pub(super) struct GatewayWireQuery {
     expose_service: Option<bool>,
     expose_cache: Option<bool>,
     expose_search: Option<bool>,
+    // Replace a diverging existing mcpstore entry (the confirm step of the wire-conflict flow).
+    force: Option<bool>,
 }
 
 fn default_gateway_url(state: &ApiState, client_id: &str) -> Result<String, ApiError> {
@@ -515,19 +517,24 @@ pub(super) async fn gateway_wire(
         mcpstore::client_agent::ensure_client_agent_binding(&agent_registry_path, setup.id())
             .map_err(ApiError::from_store)?;
 
-    let entry = mcpstore::client_wire::wire_gateway(
+    let outcome = mcpstore::client_wire::wire_gateway(
         setup.id(),
         std::path::Path::new(&path),
         &url,
         &wired_state_path(&state),
         scope,
         expose,
+        query.force.unwrap_or(false),
     )
     .map_err(ApiError::from_store)?;
-    Ok(success(
-        "客户端已接入网关",
-        serde_json::to_value(entry).map_err(|error| ApiError::invalid_request(error.to_string()))?,
-    ))
+    let payload = serde_json::to_value(outcome)
+        .map_err(|error| ApiError::invalid_request(error.to_string()))?;
+    let message = if payload["outcome"] == "conflict" {
+        "检测到内容不一致的既有 mcpstore 条目"
+    } else {
+        "客户端已接入网关"
+    };
+    Ok(success(message, payload))
 }
 
 pub(super) async fn gateway_unwire(

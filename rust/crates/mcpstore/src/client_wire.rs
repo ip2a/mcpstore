@@ -178,11 +178,35 @@ fn backup(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Insert (or refresh) the gateway entry in the client's MCP configuration and record it.
+/// What a wire attempt did to the client's document.
+#[derive(Debug, PartialEq)]
+pub enum EntryWrite {
+    /// No prior entry (or `force` overwrote one); the document was written.
+    Written,
+    /// A prior entry identical to ours; the document was untouched.
+    Adopted,
+    /// A prior entry differing from ours; the document was untouched.
+    Diverged(Value),
+}
+
+/// Terminal result of [`wire_gateway`]: wired, or blocked by a diverging prior entry.
+#[derive(Debug, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum WireOutcome {
+    Wired(WiredEntry),
+    Conflict {
+        path: PathBuf,
+        current: Value,
+        expected: Value,
+    },
+}
+
 /// Wire a gateway URL into the client's MCP config, persisting the entry in wired state.
 ///
 /// `scope` and `expose`: if provided, stored explicitly; if None, will use defaults on load
-/// (scope derives from client_id, expose defaults to all false).
+/// (scope derives from client_id, expose defaults to all false). An identical prior entry
+/// is adopted into the ledger unchanged; a differing one is reported as [`WireOutcome::Conflict`]
+/// unless `force` replaces it.
 pub fn wire_gateway(
     client_id: &str,
     path: &Path,
@@ -190,7 +214,8 @@ pub fn wire_gateway(
     state_path: &Path,
     scope: Option<ScopeRef>,
     expose: Option<ExposeConfig>,
-) -> Result<WiredEntry> {
+    force: bool,
+) -> Result<WireOutcome> {
     let setup = crate::agents::by_id(client_id).ok_or_else(|| {
         Error::new(
             FailureCode::Internal,
@@ -217,17 +242,28 @@ pub fn wire_gateway(
         scope,
         expose,
     };
-    setup.wire_entry(path, url)?;
+    let write = setup.wire_entry(path, url, force)?;
+    match write {
+        EntryWrite::Diverged(current) => {
+            return Ok(WireOutcome::Conflict {
+                path: path.to_path_buf(),
+                current,
+                expected: setup.entry_value(url)?,
+            });
+        }
+        EntryWrite::Adopted | EntryWrite::Written => {}
+    }
     state.entries.push(entry.clone());
     save_wired_state(state_path, &state)?;
-    Ok(entry)
+    Ok(WireOutcome::Wired(entry))
 }
 
 pub(crate) fn wire_json_entry<T: ClientSetup + ?Sized>(
     setup: &T,
     path: &Path,
     url: &str,
-) -> Result<()> {
+    force: bool,
+) -> Result<EntryWrite> {
     let key = setup.servers_key();
     let value = setup.entry_value(url)?;
     let mut document: Value = if path.exists() {
@@ -261,66 +297,83 @@ pub(crate) fn wire_json_entry<T: ClientSetup + ?Sized>(
             format!("{} must contain a JSON object", key),
         )
     })?;
-    if map.contains_key(GATEWAY_ENTRY_NAME) {
-        return Err(Error::new(
-            FailureCode::Internal,
-            format!("{} already defines {GATEWAY_ENTRY_NAME}", path.display()),
-        ));
+    if let Some(current) = map.get(GATEWAY_ENTRY_NAME).cloned() {
+        if current == value {
+            return Ok(EntryWrite::Adopted);
+        }
+        if !force {
+            return Ok(EntryWrite::Diverged(current));
+        }
     }
     backup(path)?;
     map.insert(GATEWAY_ENTRY_NAME.to_string(), value);
     let body = serde_json::to_vec_pretty(&document)
         .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-    atomic_write(path, &body)
+    atomic_write(path, &body).map(|()| EntryWrite::Written)
 }
 
-pub(crate) fn wire_toml_entry<T: ClientSetup + ?Sized>(setup: &T, path: &Path, url: &str) -> Result<()> {
+pub(crate) fn wire_toml_entry<T: ClientSetup + ?Sized>(
+    setup: &T,
+    path: &Path,
+    url: &str,
+    force: bool,
+) -> Result<EntryWrite> {
     let key = setup.servers_key();
-    if path.exists() {
-        let text = fs::read_to_string(path).map_err(|error| {
-            Error::new(
-                FailureCode::Internal,
-                format!("Failed to read {}: {error}", path.display()),
-            )
-        })?;
-        let parsed: toml::Value = toml::from_str(&text).map_err(|error| {
-            Error::new(
-                FailureCode::Internal,
-                format!("Failed to parse {}: {error}", path.display()),
-            )
-        })?;
-        let table = parsed.get(key).and_then(toml::Value::as_table);
-        if table
-            .map(|table| table.contains_key(GATEWAY_ENTRY_NAME))
-            .unwrap_or(false)
-        {
-            return Err(Error::new(
-                FailureCode::Internal,
-                format!("{} already defines {GATEWAY_ENTRY_NAME}", path.display()),
-            ));
-        }
-        // An inline `mcp_servers = {...}` table can't be extended by a dotted header.
-        if table.is_none() && parsed.get(key).is_some() {
-            return Err(Error::new(
-                FailureCode::Internal,
-                format!("{key} is an inline table; cannot append a section"),
-            ));
-        }
-        backup(path)?;
-        let mut text = text;
-        if !text.ends_with('\n') && !text.is_empty() {
-            text.push('\n');
-        }
-        text.push_str(&format!(
-            "\n[{key}.{GATEWAY_ENTRY_NAME}]\nurl = \"{url}\"\n"
-        ));
-        atomic_write(path, text.as_bytes())
-    } else {
-        atomic_write(
-            path,
-            format!("[{key}.{GATEWAY_ENTRY_NAME}]\nurl = \"{url}\"\n").as_bytes(),
-        )
+    let header = format!("[{key}.{GATEWAY_ENTRY_NAME}]");
+    let section = format!("\n{header}\nurl = \"{url}\"\n");
+    if !path.exists() {
+        let fresh = format!("{header}\nurl = \"{url}\"\n");
+        return atomic_write(path, fresh.as_bytes()).map(|()| EntryWrite::Written);
     }
+    let text = fs::read_to_string(path).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to read {}: {error}", path.display()),
+        )
+    })?;
+    let parsed: toml::Value = toml::from_str(&text).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Failed to parse {}: {error}", path.display()),
+        )
+    })?;
+    let table = parsed.get(key).and_then(toml::Value::as_table);
+    // An inline `mcp_servers = {...}` table can't be extended by a dotted header.
+    if table.is_none() && parsed.get(key).is_some() {
+        return Err(Error::new(
+            FailureCode::Internal,
+            format!("{key} is an inline table; cannot append a section"),
+        ));
+    }
+    let current_url = table
+        .and_then(|t| t.get(GATEWAY_ENTRY_NAME))
+        .and_then(|t| t.get("url"))
+        .and_then(toml::Value::as_str);
+    if let Some(current) = current_url {
+        if current == url {
+            return Ok(EntryWrite::Adopted);
+        }
+        if !force {
+            return Ok(EntryWrite::Diverged(json!({ "url": current })));
+        }
+    }
+    let mut text = text;
+    if current_url.is_some() {
+        // Splice out the stale section so the append below can't duplicate it.
+        if let Some(start) = text.find(&header) {
+            let mut end = text.len();
+            if let Some((offset, _)) = text[start + header.len()..].match_indices("\n[").next() {
+                end = start + header.len() + offset + 1;
+            }
+            text.replace_range(start..end, "");
+        }
+    }
+    backup(path)?;
+    if !text.ends_with('\n') && !text.is_empty() {
+        text.push('\n');
+    }
+    text.push_str(&section);
+    atomic_write(path, text.as_bytes()).map(|()| EntryWrite::Written)
 }
 
 /// Remove the gateway entry we recorded for a client; refuse when the user edited it.
@@ -574,6 +627,13 @@ mod tests {
         crate::agents::registry::install_for_tests();
     }
 
+    fn wired(outcome: Result<WireOutcome>) -> WiredEntry {
+        match outcome.unwrap() {
+            WireOutcome::Wired(entry) => entry,
+            WireOutcome::Conflict { .. } => panic!("expected wired, got conflict"),
+        }
+    }
+
     fn temp_file(suffix: &str, body: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "mcpstore-wire-{suffix}-{}",
@@ -591,15 +651,15 @@ mod tests {
             "{\"mcpServers\":{\"demo\":{\"command\":\"node\"}},\"other\":1}",
         );
         let state = std::env::temp_dir().join(format!("mcpstore-wired-{}", std::process::id()));
-        let entry = wire_gateway(
+        let entry = wired(wire_gateway(
             "claude",
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
             None,
             None,
-        )
-        .unwrap();
+            false,
+        ));
         assert_eq!(entry.client_id, "claude");
         let text = fs::read_to_string(&path).unwrap();
         let document: Value = serde_json::from_str(&text).unwrap();
@@ -621,12 +681,75 @@ mod tests {
     }
 
     #[test]
+    fn wire_adopts_identical_entry_and_reports_diverging_one() {
+        setup();
+        let state = std::env::temp_dir().join(format!("mcpstore-wired-ad-{}", std::process::id()));
+        // Ledger lost, entry still present and identical → adopted, file untouched.
+        let path = temp_file(
+            "adopt",
+            "{\"mcpServers\":{\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp/claude\"}}}",
+        );
+        let identical = fs::read_to_string(&path).unwrap();
+        wired(wire_gateway(
+            "claude",
+            &path,
+            "http://127.0.0.1:1830/mcp/claude",
+            &state,
+            None,
+            None,
+            false,
+        ));
+        assert_eq!(fs::read_to_string(&path).unwrap(), identical);
+        unwire_gateway("claude", &state).unwrap();
+        // Hand-edited entry with no ledger record → conflict, document untouched.
+        let diverged = "{\"mcpServers\":{\"mcpstore\":{\"url\":\"http://127.0.0.1:9999/mcp\"}}}";
+        fs::write(&path, diverged).unwrap();
+        let WireOutcome::Conflict { current, expected, .. } = wire_gateway(
+            "claude",
+            &path,
+            "http://127.0.0.1:1830/mcp/claude",
+            &state,
+            None,
+            None,
+            false,
+        )
+        .unwrap()
+        else {
+            panic!("expected conflict");
+        };
+        assert_eq!(current["url"], "http://127.0.0.1:9999/mcp");
+        assert_eq!(expected["url"], "http://127.0.0.1:1830/mcp/claude");
+        assert_eq!(fs::read_to_string(&path).unwrap(), diverged);
+        // force → replaced, ledger records the client.
+        wired(wire_gateway(
+            "claude",
+            &path,
+            "http://127.0.0.1:1830/mcp/claude",
+            &state,
+            None,
+            None,
+            true,
+        ));
+        let document: Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            document["mcpServers"]["mcpstore"]["url"],
+            "http://127.0.0.1:1830/mcp/claude"
+        );
+        let state_json: Value = serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
+        assert_eq!(state_json["entries"].as_array().unwrap().len(), 1);
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(state);
+    }
+
+    #[test]
     fn unknown_client_id_refuses_to_wire() {
         setup();
         let path = temp_file("ghost", "{}");
         let state = std::env::temp_dir().join(format!("mcpstore-wired-gh-{}", std::process::id()));
-        let error = wire_gateway("not-a-plugin", &path, "http://x/mcp", &state, None, None)
-            .unwrap_err();
+        let error =
+            wire_gateway("not-a-plugin", &path, "http://x/mcp", &state, None, None, false)
+                .unwrap_err();
         assert!(error.to_string().contains("Unknown client plugin"), "{error}");
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(state);
@@ -640,15 +763,15 @@ mod tests {
             "# my codex config\nmodel = \"o3\"\n\n[mcp_servers.demo]\ncommand = \"node\"\n",
         );
         let state = std::env::temp_dir().join(format!("mcpstore-wired-codex-{}", std::process::id()));
-        wire_gateway(
+        wired(wire_gateway(
             "codex",
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
             None,
             None,
-        )
-        .unwrap();
+            false,
+        ));
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("# my codex config"));
         assert!(text.contains("[mcp_servers.mcpstore]\nurl = \"http://127.0.0.1:1830/mcp\""));
@@ -662,19 +785,65 @@ mod tests {
     }
 
     #[test]
+    fn wire_toml_force_replaces_a_diverging_section() {
+        setup();
+        let path = temp_file(
+            "codex-force",
+            "model = \"o3\"\n\n[mcp_servers.mcpstore]\nurl = \"http://127.0.0.1:9999/mcp\"\n\n[mcp_servers.demo]\ncommand = \"node\"\n",
+        );
+        let state = std::env::temp_dir().join(format!("mcpstore-wired-cf-{}", std::process::id()));
+        let WireOutcome::Conflict { .. } = wire_gateway(
+            "codex",
+            &path,
+            "http://127.0.0.1:1830/mcp",
+            &state,
+            None,
+            None,
+            false,
+        )
+        .unwrap()
+        else {
+            panic!("expected conflict");
+        };
+        wired(wire_gateway(
+            "codex",
+            &path,
+            "http://127.0.0.1:1830/mcp",
+            &state,
+            None,
+            None,
+            true,
+        ));
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("9999"));
+        assert!(text.contains("[mcp_servers.mcpstore]\nurl = \"http://127.0.0.1:1830/mcp\""));
+        // One replacement section only — a duplicate header would be invalid TOML.
+        let parsed: toml::Value = toml::from_str(&text).unwrap();
+        assert_eq!(
+            parsed["mcp_servers"]["mcpstore"]["url"],
+            "http://127.0.0.1:1830/mcp".into()
+        );
+        assert_eq!(parsed["mcp_servers"]["demo"]["command"], "node".into());
+        unwire_gateway("codex", &state).unwrap();
+        assert!(!fs::read_to_string(&path).unwrap().contains("mcp_servers.mcpstore"));
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(state);
+    }
+
+    #[test]
     fn unwire_refuses_a_hand_edited_entry() {
         setup();
         let path = temp_file("edited", "{}");
         let state = std::env::temp_dir().join(format!("mcpstore-wired-ed-{}", std::process::id()));
-        wire_gateway(
+        wired(wire_gateway(
             "cursor",
             &path,
             "http://127.0.0.1:1830/mcp",
             &state,
             None,
             None,
-        )
-        .unwrap();
+            false,
+        ));
         let text = fs::read_to_string(&path).unwrap().replace("1830", "9999");
         fs::write(&path, text).unwrap();
         assert!(unwire_gateway("cursor", &state).is_err());

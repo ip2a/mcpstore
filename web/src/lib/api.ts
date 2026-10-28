@@ -1,5 +1,4 @@
-export type CacheBackend =
-  "memory" | "redis" | "openkeyv_memory" | "openkeyv_redis";
+export type CacheBackend = "memory" | "redis";
 
 export type DesiredState = "running" | "stopped";
 export type RuntimePhase = "stopped" | "starting" | "running" | "stopping";
@@ -278,6 +277,7 @@ export type SettingsPayload = {
   language?: UiLanguage;
   api?: { host?: string; port?: number; url_prefix?: string };
   web?: { host?: string; port?: number };
+  gateway?: { port?: number };
   diagnostics?: DiagnosticsSettingsPayload;
   hosts?: HostsPayload;
   [key: string]: unknown;
@@ -317,6 +317,7 @@ export type UpdateSettingsPayload = {
   language?: UiLanguage;
   api?: { port?: number };
   web?: { port?: number };
+  gateway?: { port?: number };
   diagnostics?: DiagnosticsSettingsPayload;
   hosts?: HostsPayload;
   [key: string]: unknown;
@@ -455,6 +456,7 @@ export {
   type GatewayRequestRecord,
   type GatewayRequestsPage,
   type WireOptions,
+  type WireResult,
   type WiredEntry,
 } from "./api/clients";
 export {

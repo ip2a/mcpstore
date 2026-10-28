@@ -19,6 +19,34 @@ pub async fn start(args: StartArgs) -> Result<(), BoxErr> {
 
     crate::daemon::protocol::cleanup_stale_files();
 
+    // First launch: materialize bundled plugins for detected clients.
+    // Try common bundle locations: development repo or installed resources.
+    let mut bundle_candidates = Vec::new();
+    
+    // Development: relative to current directory
+    if let Ok(cwd) = std::env::current_dir() {
+        bundle_candidates.push(cwd.join("plugins"));
+        if let Some(parent) = cwd.parent() {
+            bundle_candidates.push(parent.join("plugins"));
+        }
+    }
+    
+    for bundle in bundle_candidates {
+        if bundle.is_dir() {
+            match mcpstore::agents::registry::materialize_bundle(&bundle) {
+                Ok(count) if count > 0 => {
+                    println!("[Plugin] Materialized {count} bundled plugin(s) from {}", bundle.display());
+                    break;
+                }
+                Ok(_) => {} // Already materialized
+                Err(error) => {
+                    eprintln!("[Plugin] Materialization from {} failed: {error}", bundle.display());
+                }
+            }
+            break;
+        }
+    }
+
     // Run the daemon in the foreground (user can background with `&` or systemd).
     crate::daemon::server::start_daemon(args.store).await?;
     Ok(())
