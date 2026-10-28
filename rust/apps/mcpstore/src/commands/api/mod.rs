@@ -29,6 +29,7 @@ mod auth;
 mod cache;
 pub(crate) mod client;
 mod envelope;
+mod hosts;
 mod openapi;
 mod parse;
 mod plugins;
@@ -52,6 +53,7 @@ pub struct ApiState {
     /// Host-side telemetry persistence for history/detail/stats queries. The
     /// recording path goes through the store's sink; queries need the concrete type.
     telemetry: Arc<Mutex<Option<std::sync::Arc<crate::telemetry::TelemetryLog>>>>,
+    http_client: reqwest::Client,
 }
 
 struct GatewayProcess {
@@ -91,11 +93,18 @@ async fn resolve_instance(
 
 /// Build the daemon-shared ApiState.
 pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
+    let http_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .expect("host routing HTTP client configuration is valid");
     Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
         face_log: Arc::new(Mutex::new(None)),
         telemetry: Arc::new(Mutex::new(None)),
+        http_client,
     })
 }
 
@@ -116,9 +125,7 @@ impl ApiState {
         *self.telemetry.lock().unwrap() = Some(log);
     }
 
-    pub(crate) fn telemetry(
-        &self,
-    ) -> Option<std::sync::Arc<crate::telemetry::TelemetryLog>> {
+    pub(crate) fn telemetry(&self) -> Option<std::sync::Arc<crate::telemetry::TelemetryLog>> {
         self.telemetry.lock().unwrap().clone()
     }
 }
@@ -127,18 +134,35 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
     full_router(state_for_store(store), prefix)
 }
 
-/// App plane: the daemon itself (health/meta/settings/config/client import/gateway/cache), always local.
+/// App plane: panel-local operations plus selected-host resource forwarding.
 pub fn app_router(state: Arc<ApiState>) -> Router {
-    app_routes(state).layer(CorsLayer::permissive())
+    let route_state = Arc::clone(&state);
+    let resources = resource_routes(Arc::clone(&route_state))
+        .merge(core_routes(route_state.clone()))
+        .layer(axum::middleware::from_fn_with_state(
+            route_state,
+            hosts::route_selected_host,
+        ));
+    app_routes(state)
+        .layer(axum::middleware::from_fn(hosts::reject_selected_host))
+        .merge(resources)
+        .layer(CorsLayer::permissive())
 }
 
-/// Core plane: all store business; follows the core base to a remote daemon.
+/// Core plane: daemon business and resource-local app operations.
 pub fn core_router(state: Arc<ApiState>) -> Router {
-    core_routes(state).layer(CorsLayer::permissive())
+    Router::new()
+        .route("/health", get(app::health))
+        .route("/v1/daemon/meta", get(app::daemon_meta))
+        .with_state(state.clone())
+        .merge(resource_routes(Arc::clone(&state)))
+        .merge(core_routes(state))
+        .layer(CorsLayer::permissive())
 }
 
 fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
     let full = app_routes(state.clone())
+        .merge(resource_routes(state.clone()))
         .merge(core_routes(state))
         .layer(CorsLayer::permissive());
     if prefix.is_empty() {
@@ -150,13 +174,10 @@ fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
 
 fn app_routes(state: Arc<ApiState>) -> Router {
     Router::new()
-        // ===== app: app config / meta / history (app-only, not core) =====
         .route("/health", get(app::health))
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
-        // ===== config / client import / gateway / cache (app-only, not core) =====
-        .route("/config", get(service::store_show_config))
-        .route("/config/reset", post(service::store_reset_config))
+        .route("/v1/hosts/:name/status", get(hosts::host_status))
         .route("/client-config/import", post(client::client_config_import))
         .route("/clients/:id/version", get(client::client_version))
         .route("/clients", get(client::clients_list))
@@ -167,20 +188,36 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/plugins/:id/uninstall", post(plugins::plugin_uninstall))
         .route("/plugins/:id/enable", post(plugins::plugin_enable))
         .route("/plugins/:id/disable", post(plugins::plugin_disable))
-        .route("/gateway/descriptor", get(client::gateway_descriptor))
-        .route("/gateway/status", get(client::gateway_status))
-        .route("/gateway/requests", get(client::gateway_requests))
-        .route("/gateway/requests/history", get(telemetry::requests_history))
-        .route("/gateway/requests/detail/:id", get(telemetry::request_detail))
-        .route("/gateway/stats", get(telemetry::usage_stats))
-        .route("/gateway/stats/daily", get(telemetry::usage_stats_daily))
-        .route("/gateway/stats/heatmap", get(telemetry::usage_stats_heatmap))
-        .route("/gateway/frames/sessions", get(telemetry::frame_sessions))
-        .route("/gateway/frames/history", get(telemetry::frame_history))
-        .route("/gateway/frames/detail/:id", get(telemetry::frame_detail))
         .route("/gateway/wired", get(client::gateway_wired))
         .route("/gateway/wire", post(client::gateway_wire))
         .route("/gateway/unwire", post(client::gateway_unwire))
+        .with_state(state)
+}
+
+fn resource_routes(state: Arc<ApiState>) -> Router {
+    Router::new()
+        .route("/config", get(service::store_show_config))
+        .route("/config/reset", post(service::store_reset_config))
+        .route("/gateway/descriptor", get(client::gateway_descriptor))
+        .route("/gateway/status", get(client::gateway_status))
+        .route("/gateway/requests", get(client::gateway_requests))
+        .route(
+            "/gateway/requests/history",
+            get(telemetry::requests_history),
+        )
+        .route(
+            "/gateway/requests/detail/:id",
+            get(telemetry::request_detail),
+        )
+        .route("/gateway/stats", get(telemetry::usage_stats))
+        .route("/gateway/stats/daily", get(telemetry::usage_stats_daily))
+        .route(
+            "/gateway/stats/heatmap",
+            get(telemetry::usage_stats_heatmap),
+        )
+        .route("/gateway/frames/sessions", get(telemetry::frame_sessions))
+        .route("/gateway/frames/history", get(telemetry::frame_history))
+        .route("/gateway/frames/detail/:id", get(telemetry::frame_detail))
         .route("/gateway/start", post(client::gateway_start))
         .route("/gateway/stop", post(client::gateway_stop))
         .route("/cache/health", get(cache::health))

@@ -181,12 +181,7 @@ async fn spawn_test_api_with_state(
 ) -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<ApiState>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let state = Arc::new(ApiState {
-        store,
-        gateway: Arc::new(Mutex::new(None)),
-        face_log: Arc::new(Mutex::new(None)),
-        telemetry: Arc::new(Mutex::new(None)),
-    });
+    let state = state_for_store(store);
     let app = full_router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -195,7 +190,7 @@ async fn spawn_test_api_with_state(
 }
 
 #[tokio::test]
-async fn app_and_core_routers_are_disjoint() {
+async fn app_and_core_routers_expose_the_expected_faces() {
     let store_path = unique_temp_dir_path("split-api-store").with_extension("json");
     std::fs::write(&store_path, b"{}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -205,12 +200,7 @@ async fn app_and_core_routers_are_disjoint() {
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
-    let state = Arc::new(ApiState {
-        store,
-        gateway: Arc::new(Mutex::new(None)),
-        face_log: Arc::new(Mutex::new(None)),
-        telemetry: Arc::new(Mutex::new(None)),
-    });
+    let state = state_for_store(store);
     let client = reqwest::Client::new();
 
     let app_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -230,7 +220,8 @@ async fn app_and_core_routers_are_disjoint() {
             .unwrap();
     });
 
-    // The app plane only hosts the daemon itself; business routes are absent.
+    // The app face owns panel-local routes and exposes resource routes through
+    // the selected-host facade when a selector is supplied.
     assert_eq!(
         client
             .get(format!("http://{app_addr}/health"))
@@ -247,19 +238,22 @@ async fn app_and_core_routers_are_disjoint() {
             .await
             .unwrap()
             .status(),
-        axum::http::StatusCode::NOT_FOUND
+        axum::http::StatusCode::OK
     );
 
-    // The core plane is the opposite: business routes present, app-only routes absent.
+    // A panel-local endpoint never accepts a resource selector.
     assert_eq!(
         client
-            .get(format!("http://{core_addr}/services/list"))
+            .get(format!("http://{app_addr}/health"))
+            .header(hosts::HOST_HEADER, "local")
             .send()
             .await
             .unwrap()
             .status(),
-        axum::http::StatusCode::OK
+        axum::http::StatusCode::BAD_REQUEST
     );
+
+    // The core face exposes the daemon health contract and resource routes.
     assert_eq!(
         client
             .get(format!("http://{core_addr}/health"))
@@ -267,7 +261,7 @@ async fn app_and_core_routers_are_disjoint() {
             .await
             .unwrap()
             .status(),
-        axum::http::StatusCode::NOT_FOUND
+        axum::http::StatusCode::OK
     );
 
     app_handle.abort();
@@ -355,7 +349,7 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     let partial_import = client
         .post(format!("{base_url}/client-config/import"))
         .json(&json!({
-            "client": "claude_code",
+            "client": "claude",
             "path": path,
             "names": ["new", "conflict"]
         }))
@@ -373,15 +367,21 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     let import = client
         .post(format!("{base_url}/client-config/import"))
         .json(&json!({
-            "client": "claude_code",
+            "client": "claude",
             "path": path,
             "names": ["existing"]
         }))
         .send()
         .await
         .unwrap();
-    assert!(import.status().is_success());
+    let import_status = import.status();
     let import_body = import.text().await.unwrap();
+    assert!(
+        import_status.is_success(),
+        "status={} body={}",
+        import_status,
+        import_body
+    );
     assert!(import_body.contains("existing"));
     assert!(!import_body.contains(secret));
     assert!(!import_body.contains("Bearer header-secret"));

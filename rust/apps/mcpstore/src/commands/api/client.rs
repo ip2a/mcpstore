@@ -269,7 +269,11 @@ fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>, Option<V
         }
     }
     if let Some(process) = gateway.as_ref() {
-        return Ok((true, Some(std::process::id()), Some(process.summary.clone())));
+        return Ok((
+            true,
+            Some(std::process::id()),
+            Some(process.summary.clone()),
+        ));
     }
     // The daemon-face gateway mounts at startup without a GatewayProcess.
     if state.face_log().is_some() {
@@ -392,15 +396,13 @@ fn default_gateway_url(state: &ApiState, client_id: &str) -> Result<String, ApiE
         })?;
     Ok(format!(
         "http://127.0.0.1:{}/mcp/{}",
-        app_config.gateway.port,
-        client_id
+        app_config.gateway.port, client_id
     ))
 }
 
 pub(super) async fn gateway_wired(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let wired =
-        mcpstore::client_wire::load_wired_state(&wired_state_path(&state))
-            .map_err(ApiError::from_store)?;
+    let wired = mcpstore::client_wire::load_wired_state(&wired_state_path(&state))
+        .map_err(ApiError::from_store)?;
     // Resolve per-client effective scope/expose so the frontend sees derived defaults,
     // not absent fields (the stored entry omits them when unset).
     let mut entries = Vec::with_capacity(wired.entries.len());
@@ -444,9 +446,7 @@ pub(super) async fn gateway_wire(
         None => {
             // No explicit path: use the client's own config file from discovery.
             match mcpstore::agents::detect(setup.as_ref()) {
-                Some(detection)
-                    if detection.by == mcpstore::agents::DetectedBy::ConfigFile =>
-                {
+                Some(detection) if detection.by == mcpstore::agents::DetectedBy::ConfigFile => {
                     detection.path.display().to_string()
                 }
                 _ => {
@@ -541,12 +541,12 @@ pub(super) async fn gateway_unwire(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayWireQuery>,
 ) -> ApiResult {
-    let entry =
-        mcpstore::client_wire::unwire_gateway(&query.client, &wired_state_path(&state))
-            .map_err(ApiError::from_store)?;
+    let entry = mcpstore::client_wire::unwire_gateway(&query.client, &wired_state_path(&state))
+        .map_err(ApiError::from_store)?;
     Ok(success(
         "客户端已断开网关",
-        serde_json::to_value(entry).map_err(|error| ApiError::invalid_request(error.to_string()))?,
+        serde_json::to_value(entry)
+            .map_err(|error| ApiError::invalid_request(error.to_string()))?,
     ))
 }
 
@@ -554,10 +554,10 @@ pub(super) async fn client_config_import(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<ClientConfigImportRequest>,
 ) -> ApiResult {
-    let inspection =
-        inspect_client_config(&request.client, &request.path).map_err(ApiError::from_store)?;
-    let services =
-        import_selected_services(&inspection, &request.names).map_err(ApiError::from_store)?;
+    let inspection = inspect_client_config(&request.client, &request.path)
+        .map_err(|error| ApiError::invalid_request(error.message().to_string()))?;
+    let services = import_selected_services(&inspection, &request.names)
+        .map_err(|error| ApiError::invalid_request(error.message().to_string()))?;
     for (name, _) in &services {
         if state
             .store
@@ -607,9 +607,10 @@ pub(super) async fn client_config_import(
             // daemon AddService op): scopes.agents[agent_id] on the mcpstore extension.
             let previous = config.mcpstore.take();
             let mut scopes = mcpstore::config::ScopeDeclarations::default();
-            scopes
-                .agents
-                .insert(agent_id.clone(), mcpstore::config::ScopeDescriptor::default());
+            scopes.agents.insert(
+                agent_id.clone(),
+                mcpstore::config::ScopeDescriptor::default(),
+            );
             config.mcpstore = Some(mcpstore::config::McpStoreExtension {
                 scopes,
                 lifecycle: previous
@@ -623,7 +624,9 @@ pub(super) async fn client_config_import(
                     .map(|extension| extension.revision)
                     .unwrap_or(1)
                     .max(1),
-                extra: previous.map(|extension| extension.extra).unwrap_or_default(),
+                extra: previous
+                    .map(|extension| extension.extra)
+                    .unwrap_or_default(),
             });
         }
         state
@@ -673,9 +676,9 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
         .iter()
         .map(|setup| {
             let detection = mcpstore::agents::detect(setup.as_ref());
-            let detected_by = detection.as_ref().map(|detection| {
-                serde_json::to_value(detection.by).unwrap_or(Value::Null)
-            });
+            let detected_by = detection
+                .as_ref()
+                .map(|detection| serde_json::to_value(detection.by).unwrap_or(Value::Null));
             let config_exists = detection
                 .as_ref()
                 .is_some_and(|detection| detection.by == mcpstore::agents::DetectedBy::ConfigFile);
@@ -719,8 +722,5 @@ pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResul
             })
         })
         .collect::<Vec<_>>();
-    Ok(success(
-        "客户端清单获取成功",
-        json!({ "clients": clients }),
-    ))
+    Ok(success("客户端清单获取成功", json!({ "clients": clients })))
 }

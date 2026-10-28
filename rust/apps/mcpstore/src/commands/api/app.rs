@@ -58,6 +58,25 @@ pub(super) async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
     }))
 }
 
+pub(super) async fn daemon_meta(State(state): State<Arc<ApiState>>) -> ApiResult {
+    Ok(success(
+        "Daemon metadata fetched",
+        json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "node": {
+                "id": state.store.panel_id(),
+                "mode": match state.store.panel_role() {
+                    mcpstore::PanelRole::ControlPanel => "control",
+                    mcpstore::PanelRole::DataPanel { .. } => "data",
+                },
+            },
+            "features": {
+                "app_host_routing_v1": true
+            },
+        }),
+    ))
+}
+
 pub(super) async fn meta(State(state): State<Arc<ApiState>>) -> ApiResult {
     let payload = app_meta_payload(&state)?;
     Ok(success("应用元信息获取成功", payload))

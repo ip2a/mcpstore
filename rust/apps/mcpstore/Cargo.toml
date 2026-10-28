@@ -46,6 +46,7 @@ mcpstore = { path = "../../crates/mcpstore", default-features = false, features 
 chrono = { workspace = true }
 rmcp = { workspace = true }
 url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 blake3 = "1"
 subtle = "2.6"
 
