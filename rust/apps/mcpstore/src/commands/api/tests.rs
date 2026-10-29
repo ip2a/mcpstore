@@ -1846,9 +1846,11 @@ async fn panel_settings_write_failure_keeps_config_update_reported() {
     std::fs::create_dir_all(&fixture_dir).unwrap();
     let config_path = fixture_dir.join("mcp.json");
     std::fs::write(&config_path, b"{}").unwrap();
+    // The hosts key is present, so load_or_migrate performs no migration
+    // write; the failure must come from the settings PUT's own panel save.
     std::fs::write(
         fixture_dir.join("panel-settings.json"),
-        r#"{ "language": "en" }"#,
+        r#"{ "language": "en", "hosts": { "active": "local" } }"#,
     )
     .unwrap();
     // A directory at the temp path makes the second (panel) write fail while
@@ -1943,9 +1945,12 @@ async fn cross_resource_import_writes_definitions_without_local_paths() {
     std::fs::create_dir_all(&store_dir).unwrap();
     let store_path = store_dir.join("mcp.json");
     std::fs::write(&store_path, b"{}").unwrap();
+    // Hosts live in the panel's own panel-settings.json next to config.toml.
     std::fs::write(
-        store_dir.join("config.toml"),
-        format!("[hosts.remote-u]\nurls = [\"{upstream_url}\"]\n"),
+        store_dir.join("panel-settings.json"),
+        format!(
+            "{{\"language\":\"en\",\"hosts\":{{\"active\":\"local\",\"remote-u\":{{\"urls\":[\"{upstream_url}\"]}}}}}}\n"
+        ),
     )
     .unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -2063,9 +2068,12 @@ async fn cross_resource_import_preflight_rejects_conflicts_without_writes() {
     std::fs::create_dir_all(&store_dir).unwrap();
     let store_path = store_dir.join("mcp.json");
     std::fs::write(&store_path, b"{}").unwrap();
+    // Hosts live in the panel's own panel-settings.json next to config.toml.
     std::fs::write(
-        store_dir.join("config.toml"),
-        format!("[hosts.remote-u]\nurls = [\"{upstream_url}\"]\n"),
+        store_dir.join("panel-settings.json"),
+        format!(
+            "{{\"language\":\"en\",\"hosts\":{{\"active\":\"local\",\"remote-u\":{{\"urls\":[\"{upstream_url}\"]}}}}}}\n"
+        ),
     )
     .unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {

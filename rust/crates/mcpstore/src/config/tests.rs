@@ -334,50 +334,33 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("level = \"info\""));
     assert!(!template.contains("[monitoring]"));
     assert!(!template.contains("[standalone]"));
-    assert!(template.contains("[hosts]"));
-    assert!(template.contains("active = \"local\""));
+    // Hosts live in the panel's own panel-settings.json now, not in the
+    // daemon config template.
+    assert!(!template.contains("[hosts]"));
 }
 
 #[test]
 fn test_hosts_config_roundtrip() {
-    use std::collections::HashMap;
-
     use super::{HostEntry, HostsConfig};
 
-    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
-    std::fs::write(
-        mgr.app_config_path(),
-        r#"
-[hosts]
-active = "测试 A"
-
-# legacy single-URL shape, migrated to `urls` on load
-[hosts.local]
-url = "http://127.0.0.1:1820"
-
-# current multi-URL shape, preference order
-[hosts."测试 A"]
-urls = ["http://115.191.69.41:8021", "http://100.64.0.8:8021"]
-"#,
-    )
+    // Legacy single-`url` entries migrate to `urls`; multi-URL entries pass
+    // through in preference order; `active` selects which one wins.
+    let hosts: HostsConfig = serde_json::from_value(serde_json::json!({
+        "active": "测试 A",
+        "local": { "url": "http://127.0.0.1:1820" },
+        "测试 A": { "urls": ["http://115.191.69.41:8021", "http://100.64.0.8:8021"] }
+    }))
     .unwrap();
-
-    let loaded = mgr.load_app_config().unwrap();
-    assert_eq!(loaded.hosts.active, "测试 A");
-    assert_eq!(loaded.hosts.entries.len(), 2);
+    assert_eq!(hosts.active, "测试 A");
     assert_eq!(
-        loaded
-            .hosts
+        hosts
             .entries
             .get("local")
             .map(|entry| entry.urls.as_slice()),
         Some(&["http://127.0.0.1:1820".to_string()][..])
     );
     assert_eq!(
-        loaded
-            .hosts
+        hosts
             .entries
             .get("测试 A")
             .map(|entry| entry.urls.as_slice()),
@@ -389,44 +372,12 @@ urls = ["http://115.191.69.41:8021", "http://100.64.0.8:8021"]
         )
     );
     assert_eq!(
-        loaded.hosts.active_urls(),
+        hosts.active_urls(),
         vec![
             "http://115.191.69.41:8021".to_string(),
             "http://100.64.0.8:8021".to_string()
         ]
     );
-
-    let mut config = AppConfig::default();
-    config.hosts = HostsConfig {
-        active: "remote".to_string(),
-        entries: HashMap::from([
-            (
-                "local".to_string(),
-                HostEntry {
-                    urls: vec!["http://127.0.0.1:1820".to_string()],
-                },
-            ),
-            (
-                "remote".to_string(),
-                HostEntry {
-                    // Differs from default so sparse persist keeps it on disk
-                    urls: vec!["http://127.0.0.1:1830".to_string()],
-                },
-            ),
-        ]),
-    };
-    mgr.save_app_config(&config).unwrap();
-    let saved = mgr.load_app_config().unwrap();
-    assert_eq!(saved.hosts.active, "remote");
-    // "local" equals the default entry so sparse persist omits it from disk;
-    // the default materializes it back on load.
-    assert_eq!(saved.hosts.entries.len(), 2);
-    assert_eq!(
-        saved.hosts.entries.get("remote").unwrap().urls,
-        vec!["http://127.0.0.1:1830".to_string()]
-    );
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

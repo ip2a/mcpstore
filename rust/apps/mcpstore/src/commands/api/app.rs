@@ -137,10 +137,6 @@ pub(super) async fn update_settings(
         }
     }
 
-    if let Some(hosts) = payload.hosts {
-        config.hosts = hosts;
-    }
-
     if let Some(diagnostics) = payload.diagnostics {
         if let Some(enabled) = diagnostics.enabled {
             config.diagnostics.enabled = enabled;
@@ -171,6 +167,9 @@ pub(super) async fn update_settings(
         panel_settings::load_or_migrate(config_manager).map_err(ApiError::invalid_request)?;
     if let Some(language) = language {
         panel_settings.language = language;
+    }
+    if let Some(hosts) = payload.hosts {
+        panel_settings.hosts = hosts;
     }
 
     config_manager
@@ -245,7 +244,7 @@ fn settings_payload(config: &AppConfig, panel_settings: &PanelSettings) -> Value
                 "retention_days": config.diagnostics.runtime_log.retention_days,
             },
         },
-        "hosts": hosts_payload(&config.hosts),
+        "hosts": hosts_payload(&panel_settings.hosts),
     })
 }
 

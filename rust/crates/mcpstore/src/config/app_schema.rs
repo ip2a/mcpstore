@@ -25,8 +25,6 @@ pub struct AppConfig {
     pub service_defaults: ServiceDefaultsConfig,
     #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
-    #[serde(default)]
-    pub hosts: HostsConfig,
     /// Per-panel placement decisions, data-panel only. Keys are `"{scope}.{service}"`
     /// (e.g. `"agentA.github"`, `"store.context7"`); the only meaningful value is
     /// `"delegate"` (the control panel executes). Missing entries, an absent section or
@@ -51,7 +49,6 @@ impl Default for AppConfig {
             health_check: HealthCheckConfig::default(),
             service_defaults: ServiceDefaultsConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
-            hosts: HostsConfig::default(),
             placement: HashMap::new(),
             plugins: PluginsConfig::default(),
         }

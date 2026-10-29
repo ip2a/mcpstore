@@ -60,20 +60,19 @@ pub(super) async fn host_status(
     State(state): State<std::sync::Arc<ApiState>>,
     Path(name): Path<String>,
 ) -> ApiResult {
-    let config = state
-        .store()
-        .config_manager()
-        .load_app_config_or_default()
-        .map_err(|error| ApiError::invalid_request(error.to_string()))?;
-    let entry = config.hosts.entries.get(&name).ok_or_else(|| {
-        ApiError::not_found(
-            mcpstore::error::FailureCode::InvalidInput,
-            format!("host {name} is not configured"),
-            Some("host"),
-            None,
-        )
-    })?;
-    let status = probe_host(&name, entry, &state.http_client).await?;
+    let entry = super::panel_settings::load_hosts(state.store().config_manager())
+        .entries
+        .get(&name)
+        .cloned()
+        .ok_or_else(|| {
+            ApiError::not_found(
+                mcpstore::error::FailureCode::InvalidInput,
+                format!("host {name} is not configured"),
+                Some("host"),
+                None,
+            )
+        })?;
+    let status = probe_host(&name, &entry, &state.http_client).await?;
     Ok(success(
         "Host status fetched",
         serde_json::to_value(status)
@@ -112,13 +111,11 @@ pub(super) fn resolve_selected(
             Some(HOST_HEADER),
         ));
     }
-    let config = state
-        .store()
-        .config_manager()
-        .load_app_config_or_default()
-        .map_err(|error| ApiError::internal(error.to_string()))?;
-    match config.hosts.entries.get(name) {
-        Some(entry) => Ok(Some((name.to_owned(), entry.clone()))),
+    match super::panel_settings::load_hosts(state.store().config_manager())
+        .entries
+        .remove(name)
+    {
+        Some(entry) => Ok(Some((name.to_owned(), entry))),
         None => Err(ApiError::invalid_parameter(
             format!("host {name} is not configured"),
             Some(HOST_HEADER),
@@ -723,10 +720,10 @@ mod tests {
         let store_path =
             std::env::temp_dir().join(format!("host-routing-{}.json", std::process::id()));
         std::fs::write(&store_path, b"{}").unwrap();
-        let app_config_path = store_path.with_file_name("config.toml");
+        let panel_settings_path = store_path.with_file_name("panel-settings.json");
         std::fs::write(
-            &app_config_path,
-            "[hosts]\nactive = \"remote\"\n[hosts.remote]\nurls = [\"http://127.0.0.1:9\"]\n",
+            &panel_settings_path,
+            "{\"language\":\"en\",\"hosts\":{\"active\":\"remote\",\"remote\":{\"urls\":[\"http://127.0.0.1:9\"]}}}\n",
         )
         .unwrap();
         let store = mcpstore::MCPStore::setup_with_options(mcpstore::StoreOptions {
@@ -756,6 +753,6 @@ mod tests {
         ));
         handle.abort();
         let _ = std::fs::remove_file(store_path);
-        let _ = std::fs::remove_file(app_config_path);
+        let _ = std::fs::remove_file(panel_settings_path);
     }
 }

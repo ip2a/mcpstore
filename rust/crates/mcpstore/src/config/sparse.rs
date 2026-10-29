@@ -57,8 +57,6 @@ pub fn diff_from_default(config: &AppConfig) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{HostEntry, HostsConfig};
-    use std::collections::HashMap;
 
     #[test]
     fn diff_only_includes_changed_fields() {
@@ -84,36 +82,5 @@ mod tests {
 
         // No user intent, nothing written
         assert!(diff.as_object().unwrap().is_empty());
-    }
-
-    #[test]
-    fn diff_custom_hosts_preserved() {
-        let mut config = AppConfig::default();
-        config.hosts = HostsConfig {
-            active: "remote".to_string(),
-            entries: HashMap::from([
-                (
-                    "local".to_string(),
-                    HostEntry {
-                        urls: vec!["http://127.0.0.1:1820".to_string()],
-                    },
-                ),
-                (
-                    "remote".to_string(),
-                    HostEntry {
-                        urls: vec!["http://192.168.1.100:1820".to_string()],
-                    },
-                ),
-            ]),
-        };
-
-        let diff = diff_from_default(&config).unwrap();
-        let diff_obj = diff.as_object().unwrap();
-
-        assert!(diff_obj.contains_key("hosts"));
-        let hosts = &diff_obj["hosts"];
-        // HostsConfig.entries is #[serde(flatten)] -> flattened wire shape
-        assert_eq!(hosts["active"], "remote");
-        assert!(hosts.get("remote").is_some());
     }
 }

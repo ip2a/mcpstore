@@ -4,20 +4,26 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use mcpstore::config::ConfigManager;
+use mcpstore::config::{ConfigManager, HostsConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct PanelSettings {
     pub language: String,
+    /// The panel's own address book of daemons. Flat entries deserialize via
+    /// HostsConfig, which also swallows unknown keys (its `entries` map is
+    /// flattened), so unknown-field strictness for the rest of the file comes
+    /// from HostEntry parse errors — still an explicit failure.
+    #[serde(default)]
+    pub hosts: HostsConfig,
 }
 
 impl Default for PanelSettings {
     fn default() -> Self {
         Self {
             language: "en".to_string(),
+            hosts: HostsConfig::default(),
         }
     }
 }
@@ -36,30 +42,71 @@ pub(super) fn persistence_lock() -> MutexGuard<'static, ()> {
 
 pub(super) fn load_or_migrate(manager: &ConfigManager) -> Result<PanelSettings, String> {
     let path = panel_settings_path(manager);
+    let raw = manager
+        .load_raw_app_config_value()
+        .map_err(|error| error.to_string())?;
     if path.exists() {
-        let settings: PanelSettings =
-            serde_json::from_slice(&std::fs::read(&path).map_err(|error| error.to_string())?)
-                .map_err(|error| error.to_string())?;
+        let content = std::fs::read(&path).map_err(|error| error.to_string())?;
+        let mut settings: PanelSettings =
+            serde_json::from_slice(&content).map_err(|error| error.to_string())?;
+        // One-time adoption: a file written before hosts moved here has no
+        // `hosts` key; pull the daemon config's `[hosts]` in once and rewrite.
+        let has_hosts_key = serde_json::from_slice::<Value>(&content)
+            .ok()
+            .is_some_and(|value| value.get("hosts").is_some());
+        if !has_hosts_key {
+            settings.hosts = hosts_from_legacy_config(&raw);
+            save(&path, &settings)?;
+        }
         validate(&settings)?;
         return Ok(settings);
     }
 
-    let raw = manager
-        .load_raw_app_config_value()
-        .map_err(|error| error.to_string())?;
-    let Some(language) = raw
+    let language = raw
         .get("ui")
         .and_then(|ui| ui.get("language"))
-        .and_then(Value::as_str)
-    else {
-        return Ok(PanelSettings::default());
-    };
+        .and_then(Value::as_str);
     let settings = PanelSettings {
-        language: normalize_language(language)?,
+        language: match language {
+            Some(language) => normalize_language(language)?,
+            None => "en".to_string(),
+        },
+        hosts: hosts_from_legacy_config(&raw),
     };
-    save(&path, &settings)?;
-    remove_legacy_language(manager, raw)?;
+    if language.is_some() || settings_has_hosts(&raw) {
+        save(&path, &settings)?;
+        if language.is_some() {
+            remove_legacy_language(manager, raw.clone())?;
+        }
+    }
     Ok(settings)
+}
+
+fn settings_has_hosts(raw: &Value) -> bool {
+    raw.get("hosts")
+        .is_some_and(|hosts| hosts.as_object().is_some_and(|hosts| !hosts.is_empty()))
+}
+
+/// Adopt the daemon config's `[hosts]` section (legacy single-`url` entries
+/// normalize inside HostsConfig's deserializer). Absent section → default.
+fn hosts_from_legacy_config(raw: &Value) -> HostsConfig {
+    raw.get("hosts")
+        .cloned()
+        .map(|hosts| serde_json::from_value(hosts).unwrap_or_default())
+        .unwrap_or_default()
+}
+
+/// Hot-path read for request routing: no migration, no lock, no writes.
+/// A missing or unreadable file yields the default registry (local only).
+pub(super) fn load_hosts(manager: &ConfigManager) -> HostsConfig {
+    let path = panel_settings_path(manager);
+    std::fs::read(path)
+        .ok()
+        .and_then(|content| {
+            let settings: Result<PanelSettings, _> = serde_json::from_slice(&content);
+            settings.ok().map(|settings| settings.hosts)
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn save_for_manager(
@@ -186,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_fields_are_rejected() {
+    fn unknown_fields_are_ignored_but_bad_hosts_entries_fail() {
         let dir = unique_dir("unknown-fields");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -196,6 +243,17 @@ mod tests {
         .unwrap();
         let manager = ConfigManager::with_path(dir.join("mcp.json"));
 
+        // HostsConfig's flattened entries map swallows unknown top-level keys
+        // (documented on PanelSettings); the file still loads.
+        assert_eq!(load_or_migrate(&manager).unwrap().language, "en");
+
+        // Strictness survives where it matters: a hosts entry that fails
+        // HostEntry's untagged deserialization is an explicit error.
+        std::fs::write(
+            dir.join("panel-settings.json"),
+            r#"{ "language": "en", "hosts": { "x": { "urls": "not-a-list" } } }"#,
+        )
+        .unwrap();
         assert!(load_or_migrate(&manager).is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -267,6 +325,7 @@ mod tests {
             &manager,
             &PanelSettings {
                 language: "zh".into(),
+                hosts: Default::default(),
             },
         )
         .unwrap();

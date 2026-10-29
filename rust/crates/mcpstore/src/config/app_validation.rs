@@ -15,7 +15,6 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
     validate_gateway_config(config, &mut errors);
     validate_health_check_config(&config.health_check, &mut errors);
     validate_diagnostics_config(config, &mut errors);
-    validate_hosts_config(config, &mut errors);
 
     if !errors.is_empty() {
         return Err(ConfigError::Invalid(errors.join("; ")));
@@ -39,35 +38,4 @@ fn validate_diagnostics_config(config: &AppConfig, errors: &mut Vec<String>) {
         &["trace", "debug", "info", "warn", "error"],
         errors,
     );
-}
-
-fn validate_hosts_config(config: &AppConfig, errors: &mut Vec<String>) {
-    let hosts = &config.hosts;
-    if hosts.entries.is_empty() {
-        errors.push("hosts must contain at least one host".to_string());
-        return;
-    }
-
-    for (name, entry) in &hosts.entries {
-        if name.trim().is_empty() {
-            errors.push("hosts entry name cannot be empty".to_string());
-        }
-        if entry.urls.is_empty() {
-            errors.push(format!("hosts.\"{name}\".urls cannot be empty"));
-        }
-        for (index, url) in entry.urls.iter().enumerate() {
-            if url.trim().is_empty() {
-                errors.push(format!("hosts.\"{name}\".urls[{index}] cannot be empty"));
-            }
-        }
-    }
-
-    if hosts.active.trim().is_empty() {
-        errors.push("hosts.active cannot be empty".to_string());
-    } else if !hosts.entries.contains_key(&hosts.active) {
-        errors.push(format!(
-            "hosts.active \"{}\" does not match any configured host",
-            hosts.active
-        ));
-    }
 }
