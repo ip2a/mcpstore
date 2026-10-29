@@ -1881,3 +1881,216 @@ async fn panel_settings_write_failure_keeps_config_update_reported() {
     handle.abort();
     std::fs::remove_dir_all(&fixture_dir).ok();
 }
+
+#[tokio::test]
+async fn cross_resource_import_writes_definitions_without_local_paths() {
+    use axum::{extract::Path as AxPath, response::IntoResponse, Json as AxJson};
+    use std::sync::Mutex as StdMutex;
+
+    // Fixture client config on this (panel) host.
+    let path = unique_temp_dir_path("cross-import-config").with_extension("json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "mcpServers": {
+                "good": {"command": "echo", "args": ["x"]},
+                "bad": {"command": "explode", "args": ["y"]}
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // Fake selected daemon: GET /services/:name answers 404, POST records and
+    // fails for "bad" — enough to exercise pre-flight and partial failure.
+    #[derive(Clone, Default)]
+    struct UpstreamLog {
+        posts: Arc<StdMutex<Vec<(String, Value)>>>,
+    }
+    async fn service_probe(AxPath(_name): AxPath<String>) -> impl IntoResponse {
+        axum::http::StatusCode::NOT_FOUND
+    }
+    async fn service_add(
+        State(log): State<UpstreamLog>,
+        AxPath(name): AxPath<String>,
+        AxJson(body): AxJson<Value>,
+    ) -> impl IntoResponse {
+        log.posts.lock().unwrap().push((name, body.clone()));
+        if body.get("command") == Some(&json!("explode")) {
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        } else {
+            axum::http::StatusCode::OK
+        }
+    }
+    let log = UpstreamLog::default();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new()
+            .route(
+                "/services/:name",
+                get(service_probe).post(service_add).with_state(log.clone()),
+            )
+            .fallback(get(|| async { axum::http::StatusCode::NOT_FOUND }));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    // Store whose hosts table registers the upstream as remote-u. The store
+    // file lives in a dedicated dir so its sibling config.toml is test-local.
+    let store_dir = unique_temp_dir_path("cross-import-store");
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let store_path = store_dir.join("mcp.json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    std::fs::write(
+        store_dir.join("config.toml"),
+        format!("[hosts.remote-u]\nurls = [\"{upstream_url}\"]\n"),
+    )
+    .unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle, state) = spawn_test_api_with_state(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    // Unknown host never reaches anywhere.
+    let unknown = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "ghost")
+        .json(&json!({"client": "claude", "path": path, "names": ["good"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    // agent scope is a panel-host concept; cross-resource import rejects it.
+    let agent_scope = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["good"], "scope": "agent"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(agent_scope.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    // The actual import: partial failure is reported per service.
+    let import = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["good", "bad"]}))
+        .send()
+        .await
+        .unwrap();
+    assert!(import.status().is_success());
+    let payload = import.json::<Value>().await.unwrap();
+    let data = &payload["data"];
+    assert_eq!(data["target"], json!("remote-u"));
+    assert_eq!(data["scope"], json!("store"));
+    assert_eq!(
+        data["imported"],
+        json!([{"name": "good", "transport": "stdio"}])
+    );
+    assert_eq!(data["failed"].as_array().unwrap().len(), 1);
+    assert_eq!(data["failed"][0]["name"], json!("bad"));
+
+    // Local paths never travel; only parsed definitions do.
+    let posts = log.posts.lock().unwrap();
+    assert_eq!(posts.len(), 2);
+    assert!(posts.iter().any(|(name, body)| name == "good"
+        && body.get("path").is_none()
+        && body.get("client").is_none()));
+    drop(posts);
+
+    // Nothing landed in the local store.
+    assert!(state
+        .store
+        .get_definition_config("good")
+        .await
+        .unwrap()
+        .is_none());
+    drop(handle);
+    drop(upstream_handle);
+}
+
+#[tokio::test]
+async fn cross_resource_import_preflight_rejects_conflicts_without_writes() {
+    use axum::{extract::Path as AxPath, response::IntoResponse};
+    use std::sync::Mutex as StdMutex;
+
+    let path = unique_temp_dir_path("cross-import-conflict").with_extension("json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "mcpServers": {"existing": {"command": "echo"}}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    #[derive(Clone, Default)]
+    struct PostLog {
+        posts: Arc<StdMutex<Vec<String>>>,
+    }
+    async fn existing() -> impl IntoResponse {
+        axum::http::StatusCode::OK
+    }
+    async fn record_post(
+        AxPath(name): AxPath<String>,
+        State(log): State<PostLog>,
+    ) -> impl IntoResponse {
+        log.posts.lock().unwrap().push(name);
+        axum::http::StatusCode::OK
+    }
+    let log = PostLog::default();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new()
+            .route("/services/existing", get(existing))
+            .route("/services/:name", post(record_post).with_state(log.clone()));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    let store_dir = unique_temp_dir_path("cross-import-conflict-store");
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let store_path = store_dir.join("mcp.json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    std::fs::write(
+        store_dir.join("config.toml"),
+        format!("[hosts.remote-u]\nurls = [\"{upstream_url}\"]\n"),
+    )
+    .unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(format!("http://{addr}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["existing"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(body["errors"][0]["code"], json!("invalid_input"));
+    // Pre-flight ran before any write: the upstream received zero POSTs.
+    assert!(log.posts.lock().unwrap().is_empty());
+
+    drop(handle);
+    drop(upstream_handle);
+}

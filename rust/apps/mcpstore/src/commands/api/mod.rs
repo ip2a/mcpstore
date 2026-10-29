@@ -144,9 +144,16 @@ pub fn app_router(state: Arc<ApiState>) -> Router {
             route_state,
             hosts::route_selected_host,
         ));
+    // Cross-resource import orchestrates in the handler: read the client
+    // config on this host, then write parsed definitions to the selected
+    // daemon. It neither proxies the whole request nor rejects the selector.
+    let orchestrated_import = Router::new()
+        .route("/client-config/import", post(client::client_config_import))
+        .with_state(Arc::clone(&state));
     app_routes(state)
         .layer(axum::middleware::from_fn(hosts::reject_selected_host))
         .merge(resources)
+        .merge(orchestrated_import)
         .layer(CorsLayer::permissive())
 }
 
@@ -164,7 +171,12 @@ pub fn core_router(state: Arc<ApiState>) -> Router {
 fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
     let full = app_routes(state.clone())
         .merge(resource_routes(state.clone()))
-        .merge(core_routes(state))
+        .merge(core_routes(Arc::clone(&state)))
+        .merge(
+            Router::new()
+                .route("/client-config/import", post(client::client_config_import))
+                .with_state(state),
+        )
         .layer(CorsLayer::permissive());
     if prefix.is_empty() {
         full
@@ -179,7 +191,6 @@ fn app_routes(state: Arc<ApiState>) -> Router {
         .route("/v1/meta", get(app::meta))
         .route("/v1/settings", put(app::update_settings))
         .route("/v1/hosts/:name/status", get(hosts::host_status))
-        .route("/client-config/import", post(client::client_config_import))
         .route("/clients/:id/version", get(client::client_version))
         .route("/clients", get(client::clients_list))
         .route("/plugins", get(plugins::plugins_list))

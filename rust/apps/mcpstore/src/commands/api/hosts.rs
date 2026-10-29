@@ -94,30 +94,51 @@ pub(super) async fn reject_selected_host(
     next.run(request).await
 }
 
+/// Resolve the `X-MCPStore-Host` selector against the persisted hosts table.
+/// `None` means "no header, act locally"; an unknown or empty name is an error.
+pub(super) fn resolve_selected(
+    state: &ApiState,
+    headers: &HeaderMap,
+) -> Result<Option<(String, HostEntry)>, ApiError> {
+    let Some(raw_name) = headers.get(HOST_HEADER) else {
+        return Ok(None);
+    };
+    let name = raw_name
+        .to_str()
+        .map_err(|_| ApiError::invalid_parameter("invalid host selector", Some(HOST_HEADER)))?;
+    if name.is_empty() {
+        return Err(ApiError::invalid_parameter(
+            "invalid host selector",
+            Some(HOST_HEADER),
+        ));
+    }
+    let config = state
+        .store()
+        .config_manager()
+        .load_app_config_or_default()
+        .map_err(|error| ApiError::internal(error.to_string()))?;
+    match config.hosts.entries.get(name) {
+        Some(entry) => Ok(Some((name.to_owned(), entry.clone()))),
+        None => Err(ApiError::invalid_parameter(
+            format!("host {name} is not configured"),
+            Some(HOST_HEADER),
+        )),
+    }
+}
+
 pub(super) async fn route_selected_host(
     State(state): State<std::sync::Arc<ApiState>>,
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
     let (parts, body) = request.into_parts();
-    let Some(raw_name) = parts.headers.get(HOST_HEADER) else {
-        return next.run(Request::from_parts(parts, body)).await;
-    };
-    let name = match raw_name.to_str() {
-        Ok(value) if !value.is_empty() => value.to_owned(),
-        _ => return error_response(StatusCode::BAD_REQUEST, "invalid host selector"),
-    };
-    let config = match state.store().config_manager().load_app_config_or_default() {
-        Ok(config) => config,
-        Err(error) => {
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string());
-        }
-    };
-    let Some(entry) = config.hosts.entries.get(&name) else {
-        return error_response(StatusCode::BAD_REQUEST, "host is not configured");
+    let entry = match resolve_selected(&state, &parts.headers) {
+        Ok(Some((_, entry))) => entry,
+        Ok(None) => return next.run(Request::from_parts(parts, body)).await,
+        Err(error) => return error_response(error.status, &error.message),
     };
     let client = state.http_client.clone();
-    match forward(&client, entry, Request::from_parts(parts, body)).await {
+    match forward(&client, &entry, Request::from_parts(parts, body)).await {
         Ok(response) => response,
         Err((status, message)) => error_response(status, &message),
     }
@@ -202,7 +223,7 @@ async fn forward(
     ))
 }
 
-fn join_url(base: &str, path_and_query: &str) -> Result<Url, (StatusCode, String)> {
+pub(super) fn join_url(base: &str, path_and_query: &str) -> Result<Url, (StatusCode, String)> {
     let mut base =
         Url::parse(base).map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     if !matches!(base.scheme(), "http" | "https")

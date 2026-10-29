@@ -148,8 +148,12 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
     };
     let pid = std::process::id();
     process.task.abort();
-    if process.task.await.is_err() {
-        return Err(ApiError::invalid_request("停止网关服务失败"));
+    // abort() itself makes the join fail with cancelled — that is the success
+    // path. Only a real panic while shutting down is an error.
+    if let Err(error) = process.task.await {
+        if !error.is_cancelled() {
+            return Err(ApiError::invalid_request("停止网关服务失败"));
+        }
     }
     Ok(success(
         "网关服务已停止",
@@ -552,12 +556,30 @@ pub(super) async fn gateway_unwire(
 
 pub(super) async fn client_config_import(
     State(state): State<Arc<ApiState>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<ClientConfigImportRequest>,
 ) -> ApiResult {
+    // The client config is read and parsed on this panel host regardless of the
+    // target: a selected daemon receives parsed definitions, never a local path.
     let inspection = inspect_client_config(&request.client, &request.path)
         .map_err(|error| ApiError::invalid_request(error.message().to_string()))?;
     let services = import_selected_services(&inspection, &request.names)
         .map_err(|error| ApiError::invalid_request(error.message().to_string()))?;
+    match super::hosts::resolve_selected(&state, &headers)? {
+        None => import_into_local(&state, request, services).await,
+        Some((host_name, entry)) => {
+            import_into_selected(&state, &host_name, &entry, &request, services).await
+        }
+    }
+}
+
+/// Local import: definitions land in this daemon's store, scoped to the
+/// client's bound agent unless scope=store opts out.
+async fn import_into_local(
+    state: &ApiState,
+    request: ClientConfigImportRequest,
+    services: Vec<(String, ServerConfig)>,
+) -> ApiResult {
     for (name, _) in &services {
         if state
             .store
@@ -638,6 +660,130 @@ pub(super) async fn client_config_import(
     Ok(success(
         "Client config services imported successfully",
         json!({"imported": summaries, "scope": scope}),
+    ))
+}
+
+/// Cross-resource import: parsed definitions are written to the selected
+/// daemon through its /services/:name API. Pre-flight rejects any name that
+/// already exists there instead of overwriting. The remote batch is not one
+/// transaction — every per-service outcome is reported as-is, and already
+/// written entries must not be retried as if they had not executed.
+/// stdio commands, working dirs and absolute paths from this host keep
+/// executing on the selected daemon; nothing about the local path travels.
+async fn import_into_selected(
+    state: &ApiState,
+    host_name: &str,
+    entry: &mcpstore::config::HostEntry,
+    request: &ClientConfigImportRequest,
+    services: Vec<(String, ServerConfig)>,
+) -> ApiResult {
+    match request.scope.as_deref() {
+        None | Some("store") => {}
+        Some(other) => {
+            return Err(ApiError::invalid_parameter(
+                format!("Invalid scope '{other}'; cross-resource import only supports 'store'"),
+                Some("scope"),
+            ))
+        }
+    }
+    let client = &state.http_client;
+
+    if services.is_empty() {
+        return Ok(success(
+            "No services selected",
+            json!({"imported": [], "failed": [], "scope": "store", "target": host_name}),
+        ));
+    }
+
+    // Find the reachable candidate with a GET probe (GETs rotate candidates).
+    let mut selected_base = None;
+    let mut last_error = String::from("no candidate URLs configured");
+    for base in &entry.urls {
+        let probe = super::hosts::join_url(base, &format!("/services/{}", services[0].0))
+            .map_err(|(_, message)| ApiError::invalid_request(message))?;
+        match client.get(probe).send().await {
+            Ok(response) => {
+                selected_base = Some(base.clone());
+                if response.status().is_success() {
+                    return Err(ApiError::invalid_request(format!(
+                        "host {host_name} 已存在服务 {}，拒绝覆盖",
+                        services[0].0
+                    )));
+                }
+                break;
+            }
+            Err(error) => last_error = error.to_string(),
+        }
+    }
+    let Some(base) = selected_base else {
+        return Err(ApiError::invalid_request(format!(
+            "host {host_name} 不可达（{last_error}），未执行任何写入"
+        )));
+    };
+
+    // Pre-flight every name on the reachable base before writing any: a
+    // conflict rejects the whole import instead of overwriting.
+    for (name, _) in &services {
+        let url = super::hosts::join_url(&base, &format!("/services/{name}"))
+            .map_err(|(_, message)| ApiError::invalid_request(message))?;
+        let response = client.get(url).send().await.map_err(|error| {
+            ApiError::invalid_request(format!("host {host_name} 预检 {name} 失败：{error}"))
+        })?;
+        match response.status() {
+            status if status.as_u16() == 404 => {}
+            status if status.is_success() => {
+                return Err(ApiError::invalid_request(format!(
+                    "host {host_name} 已存在服务 {name}，拒绝覆盖"
+                )))
+            }
+            status => {
+                return Err(ApiError::invalid_request(format!(
+                    "host {host_name} 预检 {name} 返回 {status}，未执行任何写入"
+                )))
+            }
+        }
+    }
+
+    let mut imported = Vec::new();
+    let mut failed = Vec::new();
+    for (name, config) in &services {
+        let summary = json!({"name": name, "transport": config.infer_transport()});
+        let url = match super::hosts::join_url(&base, &format!("/services/{name}")) {
+            Ok(url) => url,
+            Err((_, message)) => {
+                failed.push(json!({"name": name, "error": message}));
+                continue;
+            }
+        };
+        let body = match serde_json::to_value(config) {
+            Ok(body) => body,
+            Err(error) => {
+                failed.push(json!({"name": name, "error": error.to_string()}));
+                continue;
+            }
+        };
+        match client.post(url).json(&body).send().await {
+            Ok(response) if response.status().is_success() => imported.push(summary),
+            Ok(response) => failed.push(json!({
+                "name": name,
+                "error": format!("host {host_name} returned status {}", response.status()),
+            })),
+            Err(error) => failed.push(json!({"name": name, "error": error.to_string()})),
+        }
+    }
+    if imported.is_empty() && !failed.is_empty() {
+        let names = failed
+            .iter()
+            .filter_map(|item| item["name"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(ApiError::invalid_request(format!(
+            "跨资源导入 {host_name} 全部失败：{names}"
+        )));
+    }
+    Ok(success(
+        format!("跨资源导入完成：定义将在 {host_name} 上执行"),
+        json!({"imported": imported, "failed": failed, "scope": "store", "target": host_name}),
     ))
 }
 
