@@ -17,8 +17,8 @@ mcpstore-cli = { path = "../../rust/apps/mcpstore" }
 anyhow = "1.0"
 dirs = "6.0"
 reqwest = { version = "0.12", features = ["json"] }
-serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
+# Required by the tauri::generate_context! macro expansion, not by hand-written code.
 serde_json = "1"
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
