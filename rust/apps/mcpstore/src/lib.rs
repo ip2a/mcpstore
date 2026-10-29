@@ -14,3 +14,7 @@ pub mod telemetry;
 pub mod tui;
 
 pub type BoxErr = Box<dyn std::error::Error>;
+
+/// Panel/desktop shells read the daemon config (e.g. the `[web]` panel bind)
+/// without linking the full SDK surface.
+pub use mcpstore::config::ConfigManager;

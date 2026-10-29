@@ -37,7 +37,10 @@ struct WindowState {
     height: u32,
 }
 
-fn daemon_web_url(app: &AppHandle) -> Result<String> {
+/// The desktop loads the standalone web panel process (`mcpstore web`), which
+/// owns the /api face and the static frontend. The daemon is only attached or
+/// started first because the panel forwards every resource request to it.
+fn panel_url(app: &AppHandle) -> Result<String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -47,45 +50,47 @@ fn daemon_web_url(app: &AppHandle) -> Result<String> {
             mcpstore_cli::daemon::ensure::wait_daemon_ready(Duration::from_secs(30)).await?;
         }
 
+        // Same precedence as the panel itself: config.toml [web], default port.
+        let web = mcpstore_cli::ConfigManager::new()
+            .load_app_config_or_default()
+            .map_err(|error| anyhow!("failed to load config.toml: {error}"))?
+            .web;
+        let url = format!("http://127.0.0.1:{}", web.port);
         let client = Client::new();
+        if client
+            .get(format!("{url}/api/health"))
+            .send()
+            .await
+            .is_ok()
+        {
+            return Ok(url);
+        }
+        start_panel(app)?;
+
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
         loop {
-            let mut admin = match mcpstore_cli::daemon::client::connect_admin(None).await {
-                Ok(client) => client,
-                Err(error) if tokio::time::Instant::now() < deadline => {
-                    tokio::time::sleep(Duration::from_millis(200)).await;
-                    let _ = error;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            };
-            let status = admin.status_host().await?;
-            if let Some(bind) = status["listeners"].as_array().and_then(|listeners| {
-                listeners.iter().find_map(|listener| {
-                    (listener["key"] == "web" && listener["running"] == true)
-                        .then(|| listener["bind"].as_str())
-                        .flatten()
-                })
-            }) {
-                let url = format!("http://{bind}");
-                if client.get(format!("{url}/api/health")).send().await.is_ok() {
-                    return Ok(url);
-                }
+            if client
+                .get(format!("{url}/api/health"))
+                .send()
+                .await
+                .is_ok()
+            {
+                return Ok(url);
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err(anyhow!("daemon web face did not become ready"));
+                return Err(anyhow!("web panel did not become ready"));
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     })
 }
 
-fn start_daemon(app: &AppHandle) -> Result<Child> {
+fn sidecar_binary() -> Result<std::path::PathBuf> {
     // tauri-build copies the externalBin sidecar (built as
     // binaries/mcpstore-<target-triple>) next to the compiled app binary with
     // the triple stripped: target/debug/mcpstore in dev, Contents/MacOS/mcpstore
     // in a packaged .app. It does NOT live under resource_dir().
-    let executable = std::env::current_exe()?
+    std::env::current_exe()?
         .parent()
         .map(|dir| {
             dir.join(if cfg!(windows) {
@@ -95,15 +100,17 @@ fn start_daemon(app: &AppHandle) -> Result<Child> {
             })
         })
         .filter(|path| path.is_file())
-        .ok_or_else(|| anyhow!("packaged mcpstore daemon binary is missing"))?;
-    // Bundled plugins ship as Resources/plugins; the daemon's own first-launch
-    // materialization scans cwd/plugins, so run it from resource_dir().
-    let resource_dir = app.path().resource_dir()?;
+        .ok_or_else(|| anyhow!("packaged mcpstore daemon binary is missing"))
+}
+
+fn spawn_sidecar(
+    app: &AppHandle,
+    arg: &'static str,
+    log_name: &str,
+    current_dir: Option<std::path::PathBuf>,
+) -> Result<Child> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("home directory is unavailable"))?;
-    let log_path = home
-        .join(".mcpstore")
-        .join("logs")
-        .join("desktop-daemon.out");
+    let log_path = home.join(".mcpstore").join("logs").join(log_name);
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -111,13 +118,27 @@ fn start_daemon(app: &AppHandle) -> Result<Child> {
         .create(true)
         .append(true)
         .open(log_path)?;
-    Ok(Command::new(executable)
-        .arg("start")
-        .current_dir(resource_dir)
+    let mut command = Command::new(sidecar_binary()?);
+    command.arg(arg);
+    if let Some(dir) = current_dir {
+        command.current_dir(dir);
+    }
+    Ok(command
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log)
         .spawn()?)
+}
+
+fn start_daemon(app: &AppHandle) -> Result<Child> {
+    // Bundled plugins ship as Resources/plugins; the daemon's own first-launch
+    // materialization scans cwd/plugins, so run it from resource_dir().
+    let resource_dir = app.path().resource_dir()?;
+    spawn_sidecar(app, "start", "desktop-daemon.out", Some(resource_dir))
+}
+
+fn start_panel(app: &AppHandle) -> Result<Child> {
+    spawn_sidecar(app, "web", "desktop-panel.out", None)
 }
 
 fn compute_min_inner_size(window: &WebviewWindow) -> MinInnerSize {
@@ -228,7 +249,7 @@ pub fn run() {
                 let _ = std::env::set_current_dir(home);
             }
 
-            let url = daemon_web_url(&app.handle())?;
+            let url = panel_url(&app.handle())?;
             let initial_state = WindowState {
                 width: DEFAULT_INNER_WIDTH as u32,
                 height: DEFAULT_INNER_HEIGHT as u32,
