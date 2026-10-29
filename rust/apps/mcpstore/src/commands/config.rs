@@ -173,11 +173,7 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         on_off(config.server.core_enabled),
         config.server.port
     );
-    println!(
-        "  web:  {} port={}",
-        on_off(config.server.web_enabled),
-        config.server.web_port
-    );
+    println!("  web (panel process): port={}", config.web.port);
     println!(
         "  gateway: standalone process, port={}",
         config.gateway.port

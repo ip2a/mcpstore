@@ -197,10 +197,7 @@ pub async fn face_view(face: &str, json: bool) -> Result<(), BoxErr> {
         }
         None => {
             let config = ConfigManager::new().load_app_config_or_default()?;
-            let (enabled, port) = match face {
-                "core" => (config.server.core_enabled, config.server.port),
-                _ => (config.server.web_enabled, config.server.web_port),
-            };
+            let (enabled, port) = (config.server.core_enabled, config.server.port);
             if json {
                 println!(
                     "{}",

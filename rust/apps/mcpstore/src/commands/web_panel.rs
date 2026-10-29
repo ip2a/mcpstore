@@ -21,6 +21,7 @@ pub async fn run(
     let host = host.unwrap_or(web.host);
     let port = port.unwrap_or(web.port);
 
+    api::adopt_panel_settings(&config_manager)?;
     let state = Arc::new(api::PanelState::new(Arc::clone(&config_manager)));
     // Same-origin /api (panel routes + forwarding) and the static frontend,
     // mirroring the daemon's web face layout.
@@ -28,13 +29,15 @@ pub async fn run(
     let router = axum::Router::new()
         .nest("/api", api::panel_router(state))
         .fallback(web_assets::serve_react_app)
-        .layer(axum::middleware::from_fn(move |mut request: axum::extract::Request, next: axum::middleware::Next| {
-            let config = Arc::clone(&config);
-            async move {
-                request.extensions_mut().insert(config);
-                next.run(request).await
-            }
-        }));
+        .layer(axum::middleware::from_fn(
+            move |mut request: axum::extract::Request, next: axum::middleware::Next| {
+                let config = Arc::clone(&config);
+                async move {
+                    request.extensions_mut().insert(config);
+                    next.run(request).await
+                }
+            },
+        ));
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
     let url = format!("http://{host}:{port}");

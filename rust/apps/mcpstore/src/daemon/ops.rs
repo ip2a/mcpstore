@@ -570,9 +570,6 @@ pub(crate) fn plan_config_change(
             if server.core_enabled {
                 planned.push((ListenerKey::Core, Some(server.port)));
             }
-            if server.web_enabled {
-                planned.push((ListenerKey::Web, Some(server.web_port)));
-            }
             server.host = host;
             Ok(planned)
         }
@@ -589,18 +586,12 @@ pub(crate) fn plan_config_change(
                 .then_some(vec![(ListenerKey::Core, Some(port))])
                 .unwrap_or_default())
         }
-        "web" => {
-            let on = parse_switch(value, "web")?;
-            server.web_enabled = on;
-            Ok(vec![(ListenerKey::Web, on.then_some(server.web_port))])
-        }
         "web-port" => {
+            // The web panel is a standalone process (mcpstore web); the daemon
+            // only records the port in [web], no listener to rebind.
             let port = parse_port(value, "web-port")?;
-            server.web_port = port;
-            Ok(server
-                .web_enabled
-                .then_some(vec![(ListenerKey::Web, Some(port))])
-                .unwrap_or_default())
+            config.web.port = port;
+            Ok(Vec::new())
         }
         "gateway-port" => {
             // The gateway is a standalone child process (mcpstore gateway); the
@@ -612,7 +603,7 @@ pub(crate) fn plan_config_change(
         other => Err(Error::new(
             FailureCode::InvalidInput,
             format!(
-                "unknown config key {other:?}; available: host, core, core-port, web, web-port, gateway, gateway-port"
+                "unknown config key {other:?}; available: host, core, core-port, web-port, gateway, gateway-port"
             ),
         )),
     }

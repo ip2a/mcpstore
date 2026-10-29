@@ -108,6 +108,14 @@ impl PanelCtx for PanelState {
     }
 }
 
+/// One-time panel asset adoption at panel startup: a panel-settings.json from
+/// before the hosts move adopts the daemon config's `[hosts]` section. Doing
+/// it at boot keeps the request-routing hot path read-only.
+pub(crate) fn adopt_panel_settings(manager: &ConfigManager) -> Result<(), String> {
+    let _persistence = panel_settings::persistence_lock();
+    panel_settings::load_or_migrate(manager).map(|_| ())
+}
+
 fn host_http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -167,10 +175,6 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
 }
 
 impl ApiState {
-    pub(crate) fn store(&self) -> &Arc<MCPStore> {
-        &self.store
-    }
-
     pub(crate) fn set_telemetry(&self, log: std::sync::Arc<crate::telemetry::TelemetryLog>) {
         *self.telemetry.lock().unwrap() = Some(log);
     }

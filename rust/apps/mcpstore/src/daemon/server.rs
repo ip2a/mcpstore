@@ -509,13 +509,12 @@ mod tests {
     #[test]
     fn plan_port_change_rebinds_only_that_face() {
         let mut config = config();
-        let planned = plan_config_change(&mut config, "web-port", &json!(1829)).unwrap();
+        let planned = plan_config_change(&mut config, "core-port", &json!(1822)).unwrap();
         assert_eq!(
             planned,
-            vec![(crate::daemon::listeners::ListenerKey::Web, Some(1829))]
+            vec![(crate::daemon::listeners::ListenerKey::Core, Some(1822))]
         );
-        assert_eq!(config.server.web_port, 1829);
-        assert_eq!(config.server.port, 1820);
+        assert_eq!(config.server.port, 1822);
     }
 
     #[test]
@@ -528,21 +527,21 @@ mod tests {
     }
 
     #[test]
-    fn plan_face_off_stops_listener() {
+    fn plan_web_port_is_panel_config_without_rebinding() {
         let mut config = config();
-        let planned = plan_config_change(&mut config, "web", &json!("off")).unwrap();
-        assert_eq!(
-            planned,
-            vec![(crate::daemon::listeners::ListenerKey::Web, None)]
-        );
-        assert!(!config.server.web_enabled);
+        // The web panel is a standalone process: only [web].port is recorded.
+        let planned = plan_config_change(&mut config, "web-port", &json!(1829)).unwrap();
+        assert_eq!(planned, Vec::new());
+        assert_eq!(config.web.port, 1829);
+        // The old daemon web-face switch is gone.
+        assert!(plan_config_change(&mut config, "web", &json!("off")).is_err());
     }
 
     #[test]
     fn plan_host_rebinds_all_enabled_faces() {
         let mut config = config();
         let planned = plan_config_change(&mut config, "host", &json!("192.168.1.10")).unwrap();
-        assert_eq!(planned.len(), 2); // gateway off by default
+        assert_eq!(planned.len(), 1); // core only; web panel and gateway are separate processes
         assert_eq!(config.server.host, "192.168.1.10");
     }
 
@@ -560,7 +559,6 @@ mod tests {
         assert!(plan_config_change(&mut config, "nope", &json!(1)).is_err());
         assert!(plan_config_change(&mut config, "web-port", &json!(0)).is_err());
         assert!(plan_config_change(&mut config, "web-port", &json!("1829")).is_err());
-        assert!(plan_config_change(&mut config, "web", &json!("maybe")).is_err());
     }
 }
 

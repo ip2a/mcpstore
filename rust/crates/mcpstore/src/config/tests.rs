@@ -685,10 +685,10 @@ fn test_server_settings_daemon_surfaces_default() {
     let server = ServerSettings::default();
     assert_eq!(server.host, "127.0.0.1");
     assert_eq!(server.port, 1820);
-    assert_eq!(server.web_port, 1828);
     assert!(server.core_enabled);
-    assert!(server.web_enabled);
     assert!(!server.auto_open_browser);
+    // The web panel is a separate process; its bind lives in [web].
+    assert_eq!(WebSettings::default().port, 1828);
     assert_eq!(GatewayConfig::default().port, 1830);
 }
 
@@ -699,12 +699,12 @@ fn test_save_app_config_round_trips_without_tmp_residue() {
     let mgr = ConfigManager::with_path(dir.join("mcp.json"));
 
     let mut config = AppConfig::default();
-    config.server.web_port = 1829;
+    config.web.port = 1829;
     config.gateway.port = 1831;
     mgr.save_app_config(&config).unwrap();
 
     let loaded = mgr.load_app_config().unwrap();
-    assert_eq!(loaded.server.web_port, 1829);
+    assert_eq!(loaded.web.port, 1829);
     assert_eq!(loaded.gateway.port, 1831);
     assert!(!mgr.app_config_path().with_extension("toml.tmp").exists());
 
