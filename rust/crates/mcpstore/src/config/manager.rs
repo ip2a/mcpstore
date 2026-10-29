@@ -107,7 +107,8 @@ impl ConfigManager {
         validate_app_config(config)?;
 
         // Compute sparse representation: only write fields that differ from defaults
-        let sparse_value = super::sparse::diff_from_default(config)?;
+        let sparse_value =
+            self.carry_over_foreign_sections(super::sparse::diff_from_default(config)?)?;
 
         if let Some(parent) = self.app_config_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -122,6 +123,31 @@ impl ConfigManager {
         std::fs::write(&tmp, content)?;
         std::fs::rename(&tmp, &self.app_config_path)?;
         Ok(())
+    }
+
+    /// A save rewrites the sections AppConfig owns; top-level sections the
+    /// schema no longer knows (e.g. a `[ui]` pending panel-settings migration)
+    /// are carried over untouched instead of being silently dropped. Known
+    /// sections are replaced wholesale, so reverting a field to its default
+    /// still disappears from the file.
+    fn carry_over_foreign_sections(&self, sparse: Value) -> Result<Value> {
+        let known_keys: std::collections::HashSet<String> =
+            serde_json::to_value(AppConfig::default())?
+                .as_object()
+                .map(|object| object.keys().cloned().collect())
+                .unwrap_or_default();
+        let mut merged = sparse.as_object().cloned().unwrap_or_default();
+        if self.app_config_path.exists() {
+            let raw = self.load_raw_app_config_value()?;
+            if let Some(raw_object) = raw.as_object() {
+                for (key, value) in raw_object {
+                    if !known_keys.contains(key) && !merged.contains_key(key) {
+                        merged.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        Ok(Value::Object(merged))
     }
 
     pub fn default_app_config_toml(&self) -> Result<String> {

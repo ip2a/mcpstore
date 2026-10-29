@@ -762,3 +762,42 @@ fn test_save_app_config_round_trips_without_tmp_residue() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn save_preserves_foreign_top_level_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    std::fs::write(
+        &path,
+        "[ui]\nlanguage = \"zh\"\ntheme = \"dark\"\n\n[api]\nport = 1822\n",
+    )
+    .unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    // A save that knows nothing about [ui] must not drop it: the panel
+    // migration has not read it yet.
+    mgr.save_app_config(&AppConfig::default()).unwrap();
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["ui"]["language"], json!("zh"));
+    assert_eq!(raw["ui"]["theme"], json!("dark"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn save_still_drops_reverted_fields_from_known_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    std::fs::write(&path, "[api]\nport = 1822\nurl_prefix = \"/x\"\n").unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    // [api] is owned: a config back at defaults rewrites the section, the
+    // stale non-default values must not leak back from the old file.
+    mgr.save_app_config(&AppConfig::default()).unwrap();
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert!(raw.get("api").is_none());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
