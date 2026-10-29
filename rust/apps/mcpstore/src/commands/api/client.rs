@@ -379,8 +379,8 @@ pub(super) async fn gateway_requests(
     Ok(success("网关服务请求记录获取成功", payload["data"].clone()))
 }
 
-pub(super) fn wired_state_path(state: &ApiState) -> std::path::PathBuf {
-    let app_config_path = state.store.config_manager().app_config_path();
+pub(super) fn wired_state_path<T: PanelCtx>(state: &T) -> std::path::PathBuf {
+    let app_config_path = state.config_manager().app_config_path();
     app_config_path
         .parent()
         .map(|dir| dir.join("gateway-wired.json"))
@@ -419,9 +419,8 @@ pub(super) struct GatewayWireQuery {
     force: Option<bool>,
 }
 
-fn default_gateway_url(state: &ApiState, client_id: &str) -> Result<String, ApiError> {
+fn default_gateway_url<T: PanelCtx>(state: &T, client_id: &str) -> Result<String, ApiError> {
     let app_config = state
-        .store
         .config_manager()
         .load_app_config_or_default()
         .map_err(|error| {
@@ -433,8 +432,8 @@ fn default_gateway_url(state: &ApiState, client_id: &str) -> Result<String, ApiE
     ))
 }
 
-pub(super) async fn gateway_wired(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let wired = mcpstore::client_wire::load_wired_state(&wired_state_path(&state))
+pub(super) async fn gateway_wired<T: PanelCtx>(State(state): State<Arc<T>>) -> ApiResult {
+    let wired = mcpstore::client_wire::load_wired_state(&wired_state_path(state.as_ref()))
         .map_err(ApiError::from_store)?;
     // Resolve per-client effective scope/expose so the frontend sees derived defaults,
     // not absent fields (the stored entry omits them when unset).
@@ -456,8 +455,8 @@ pub(super) async fn gateway_wired(State(state): State<Arc<ApiState>>) -> ApiResu
     ))
 }
 
-pub(super) async fn gateway_wire(
-    State(state): State<Arc<ApiState>>,
+pub(super) async fn gateway_wire<T: PanelCtx>(
+    State(state): State<Arc<T>>,
     Query(query): Query<GatewayWireQuery>,
 ) -> ApiResult {
     let setup = mcpstore::agents::by_id(&query.client).ok_or_else(|| {
@@ -493,7 +492,7 @@ pub(super) async fn gateway_wire(
     };
     let url = match query.url {
         Some(url) => url,
-        None => default_gateway_url(&state, setup.id())?,
+        None => default_gateway_url(state.as_ref(), setup.id())?,
     };
 
     // Parse scope: explicit "store"/"agent" or None (will derive from client_id).
@@ -540,7 +539,7 @@ pub(super) async fn gateway_wire(
     // Ensure client-agent binding exists (persists client-agents.json; the agent itself
     // materializes when real services are imported into its scope).
     let agent_registry_path = {
-        let app_config_path = state.store.config_manager().app_config_path();
+        let app_config_path = state.config_manager().app_config_path();
         app_config_path
             .parent()
             .map(|dir| dir.join("client-agents.json"))
@@ -554,7 +553,7 @@ pub(super) async fn gateway_wire(
         setup.id(),
         std::path::Path::new(&path),
         &url,
-        &wired_state_path(&state),
+        &wired_state_path(state.as_ref()),
         scope,
         expose,
         query.force.unwrap_or(false),
@@ -570,12 +569,13 @@ pub(super) async fn gateway_wire(
     Ok(success(message, payload))
 }
 
-pub(super) async fn gateway_unwire(
-    State(state): State<Arc<ApiState>>,
+pub(super) async fn gateway_unwire<T: PanelCtx>(
+    State(state): State<Arc<T>>,
     Query(query): Query<GatewayWireQuery>,
 ) -> ApiResult {
-    let entry = mcpstore::client_wire::unwire_gateway(&query.client, &wired_state_path(&state))
-        .map_err(ApiError::from_store)?;
+    let entry =
+        mcpstore::client_wire::unwire_gateway(&query.client, &wired_state_path(state.as_ref()))
+            .map_err(ApiError::from_store)?;
     Ok(success(
         "客户端已断开网关",
         serde_json::to_value(entry)
@@ -583,8 +583,8 @@ pub(super) async fn gateway_unwire(
     ))
 }
 
-pub(super) async fn client_config_import(
-    State(state): State<Arc<ApiState>>,
+pub(super) async fn client_config_import<T: PanelCtx>(
+    State(state): State<Arc<T>>,
     headers: axum::http::HeaderMap,
     Json(request): Json<ClientConfigImportRequest>,
 ) -> ApiResult {
@@ -594,24 +594,48 @@ pub(super) async fn client_config_import(
         .map_err(|error| ApiError::invalid_request(error.message().to_string()))?;
     let services = import_selected_services(&inspection, &request.names)
         .map_err(|error| ApiError::invalid_request(error.message().to_string()))?;
-    match super::hosts::resolve_selected(&state, &headers)? {
-        None => import_into_local(&state, request, services).await,
+    match super::hosts::resolve_selected(state.as_ref(), &headers)? {
+        None => match state.daemon() {
+            // Embedded daemon: definitions land in-process.
+            Some(daemon) => import_into_local(state.as_ref(), daemon, request, services).await,
+            // Standalone web panel: the local daemon is just the "local" entry.
+            None => {
+                let (name, entry) = local_host_entry(state.as_ref())?;
+                import_into_selected(state.as_ref(), &name, &entry, &request, services).await
+            }
+        },
         Some((host_name, entry)) => {
-            import_into_selected(&state, &host_name, &entry, &request, services).await
+            import_into_selected(state.as_ref(), &host_name, &entry, &request, services).await
         }
     }
 }
 
+/// The panel's own daemon: the hosts entry named "local". Missing is a loud
+/// error — the panel never falls back to an embedded store.
+fn local_host_entry<T: PanelCtx>(
+    state: &T,
+) -> Result<(String, mcpstore::config::HostEntry), ApiError> {
+    super::panel_settings::load_hosts(state.config_manager())
+        .entries
+        .remove("local")
+        .map(|entry| ("local".to_owned(), entry))
+        .ok_or_else(|| {
+            ApiError::invalid_request(
+                "no local daemon: add a 'local' entry to the panel hosts table",
+            )
+        })
+}
+
 /// Local import: definitions land in this daemon's store, scoped to the
 /// client's bound agent unless scope=store opts out.
-async fn import_into_local(
-    state: &ApiState,
+async fn import_into_local<T: PanelCtx>(
+    state: &T,
+    daemon: &MCPStore,
     request: ClientConfigImportRequest,
     services: Vec<(String, ServerConfig)>,
 ) -> ApiResult {
     for (name, _) in &services {
-        if state
-            .store
+        if daemon
             .get_definition_config(name)
             .await
             .map_err(ApiError::from_store)?
@@ -638,7 +662,7 @@ async fn import_into_local(
         }
         None => {
             let agent_registry_path = {
-                let app_config_path = state.store.config_manager().app_config_path();
+                let app_config_path = state.config_manager().app_config_path();
                 app_config_path
                     .parent()
                     .map(|dir| dir.join("client-agents.json"))
@@ -680,8 +704,7 @@ async fn import_into_local(
                     .unwrap_or_default(),
             });
         }
-        state
-            .store
+        daemon
             .add_service(&name, config)
             .await
             .map_err(ApiError::from_store)?;
@@ -699,8 +722,8 @@ async fn import_into_local(
 /// written entries must not be retried as if they had not executed.
 /// stdio commands, working dirs and absolute paths from this host keep
 /// executing on the selected daemon; nothing about the local path travels.
-async fn import_into_selected(
-    state: &ApiState,
+async fn import_into_selected<T: PanelCtx>(
+    state: &T,
     host_name: &str,
     entry: &mcpstore::config::HostEntry,
     request: &ClientConfigImportRequest,
@@ -715,7 +738,7 @@ async fn import_into_selected(
             ))
         }
     }
-    let client = &state.http_client;
+    let client = state.http_client();
 
     if services.is_empty() {
         return Ok(success(
@@ -844,9 +867,9 @@ pub(super) async fn client_version(Path(client_id): Path<String>) -> ApiResult {
 
 /// Read-only inventory: every known client, discovered, inspected, and matched
 /// against the wire ledger. Never writes.
-pub(super) async fn clients_list(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let wired =
-        mcpstore::client_wire::load_wired_state(&wired_state_path(&state)).unwrap_or_default();
+pub(super) async fn clients_list<T: PanelCtx>(State(state): State<Arc<T>>) -> ApiResult {
+    let wired = mcpstore::client_wire::load_wired_state(&wired_state_path(state.as_ref()))
+        .unwrap_or_default();
     let clients = mcpstore::agents::all()
         .iter()
         .map(|setup| {

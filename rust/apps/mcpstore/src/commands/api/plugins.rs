@@ -6,13 +6,12 @@
 use std::sync::Arc;
 
 use super::envelope::{success, ApiError, ApiResult};
-use super::ApiState;
+use super::PanelCtx;
 use axum::extract::{Path, State};
 use serde_json::{json, Value};
 
-fn market_urls(state: &ApiState) -> Vec<String> {
+fn market_urls<T: PanelCtx>(state: &T) -> Vec<String> {
     state
-        .store
         .config_manager()
         .load_app_config_or_default()
         .map(|config| config.plugins.market_urls)
@@ -21,7 +20,7 @@ fn market_urls(state: &ApiState) -> Vec<String> {
 
 /// Registry view plus the trace cache: what is installed, what is enabled,
 /// what detection saw, and the last market versions we know about.
-pub(super) async fn plugins_list(State(_state): State<Arc<ApiState>>) -> ApiResult {
+pub(super) async fn plugins_list<T: PanelCtx>(State(_state): State<Arc<T>>) -> ApiResult {
     let trace = mcpstore::agents::registry::load_trace();
     let plugins: Vec<Value> = mcpstore::agents::registry::registry_report()
         .into_iter()
@@ -50,8 +49,8 @@ pub(super) async fn plugins_list(State(_state): State<Arc<ApiState>>) -> ApiResu
 
 /// The market index, refreshed into the trace cache, with install/update
 /// status per entry.
-pub(super) async fn plugins_market(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let urls = market_urls(&state);
+pub(super) async fn plugins_market<T: PanelCtx>(State(state): State<Arc<T>>) -> ApiResult {
+    let urls = market_urls(state.as_ref());
     let listings = mcpstore::agents::market::list_market(&urls)
         .await
         .map_err(ApiError::from_store)?;
@@ -66,19 +65,19 @@ pub(super) async fn plugins_market(State(state): State<Arc<ApiState>>) -> ApiRes
 
 /// Detect uninstalled clients on this machine using the market's discovery
 /// rules. Reports only; nothing is installed.
-pub(super) async fn plugins_detect(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let urls = market_urls(&state);
+pub(super) async fn plugins_detect<T: PanelCtx>(State(state): State<Arc<T>>) -> ApiResult {
+    let urls = market_urls(state.as_ref());
     let hits = mcpstore::agents::market::detect_from_market(&urls)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("客户端探测完成", json!({ "detected": hits })))
 }
 
-pub(super) async fn plugin_install(
-    State(state): State<Arc<ApiState>>,
+pub(super) async fn plugin_install<T: PanelCtx>(
+    State(state): State<Arc<T>>,
     Path(id): Path<String>,
 ) -> ApiResult {
-    let urls = market_urls(&state);
+    let urls = market_urls(state.as_ref());
     mcpstore::agents::market::install(&id, &urls)
         .await
         .map_err(ApiError::from_store)?;
@@ -88,8 +87,8 @@ pub(super) async fn plugin_install(
     ))
 }
 
-pub(super) async fn plugin_uninstall(
-    State(_state): State<Arc<ApiState>>,
+pub(super) async fn plugin_uninstall<T: PanelCtx>(
+    State(_state): State<Arc<T>>,
     Path(id): Path<String>,
 ) -> ApiResult {
     mcpstore::agents::market::uninstall(&id)
@@ -98,8 +97,8 @@ pub(super) async fn plugin_uninstall(
     Ok(success(&format!("插件 {id} 已卸载"), json!({ "id": id })))
 }
 
-pub(super) async fn plugin_enable(
-    State(_state): State<Arc<ApiState>>,
+pub(super) async fn plugin_enable<T: PanelCtx>(
+    State(_state): State<Arc<T>>,
     Path(id): Path<String>,
 ) -> ApiResult {
     mcpstore::agents::registry::enable(&id).map_err(ApiError::from_store)?;
@@ -109,8 +108,8 @@ pub(super) async fn plugin_enable(
     ))
 }
 
-pub(super) async fn plugin_disable(
-    State(_state): State<Arc<ApiState>>,
+pub(super) async fn plugin_disable<T: PanelCtx>(
+    State(_state): State<Arc<T>>,
     Path(id): Path<String>,
 ) -> ApiResult {
     mcpstore::agents::registry::disable(&id).map_err(ApiError::from_store)?;

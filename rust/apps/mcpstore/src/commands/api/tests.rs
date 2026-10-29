@@ -2102,3 +2102,153 @@ async fn cross_resource_import_preflight_rejects_conflicts_without_writes() {
     drop(handle);
     drop(upstream_handle);
 }
+
+// ===== standalone web panel (PanelState, no embedded store) =====
+
+/// Panel process over a fixture dir; writes a panel-settings.json when `hosts`
+/// JSON is given.
+async fn spawn_test_panel(hosts: Option<Value>) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let dir = unique_temp_dir_path("panel-state");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut settings = json!({ "language": "en" });
+    if let Some(hosts) = hosts {
+        settings["hosts"] = hosts;
+    }
+    std::fs::write(dir.join("panel-settings.json"), settings.to_string()).unwrap();
+    let config_manager = Arc::new(mcpstore::config::ConfigManager::with_path(
+        dir.join("mcp.json"),
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = panel_router(Arc::new(PanelState::new(config_manager)));
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+#[tokio::test]
+async fn panel_serves_panel_routes_without_a_store() {
+    let (addr, handle) = spawn_test_panel(None).await;
+    let client = reqwest::Client::new();
+
+    let health = client
+        .get(format!("http://{addr}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status(), axum::http::StatusCode::OK);
+    let body = health.json::<Value>().await.unwrap();
+    assert_eq!(body["data"]["node"]["id"], json!("control"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_forwards_unrouted_paths_to_the_local_entry() {
+    // Fake local daemon: an upstream that answers /ping.
+    async fn ping() -> &'static str {
+        "pong"
+    }
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new().route("/ping", axum::routing::get(ping));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": [upstream_url] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    // No selector, no matching panel route → the "local" entry.
+    let response = client
+        .get(format!("http://{addr}/ping"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "pong");
+
+    handle.abort();
+    drop(upstream_handle);
+}
+
+#[tokio::test]
+async fn panel_fails_loud_when_no_local_daemon_is_configured() {
+    // urls: [] — the deserializer always seeds a default "local" entry, so a
+    // user unsetting it is modeled as an entry with no usable URL.
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": [] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/services/list"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(body["success"], json!(false));
+    let message = body["message"].as_str().unwrap();
+    assert!(
+        message.contains("no reachable URL"),
+        "unexpected message: {message}"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_forwards_dead_local_daemon_as_503() {
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": ["http://127.0.0.1:9"] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/services/list"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = response.json::<Value>().await.unwrap();
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("host request failed"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_rejects_selector_on_panel_local_routes() {
+    let (addr, handle) = spawn_test_panel(None).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/v1/meta"))
+        .header(hosts::HOST_HEADER, "remote")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    handle.abort();
+}

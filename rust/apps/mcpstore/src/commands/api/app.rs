@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use super::{
     envelope::{success, ApiError, ApiResult},
     panel_settings::{self, PanelSettings},
-    ApiState,
+    ApiState, PanelCtx,
 };
 
 #[derive(Deserialize)]
@@ -52,10 +52,14 @@ struct UpdateRuntimeLogRequest {
     retention_days: Option<Option<u64>>,
 }
 
-pub(super) async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
+pub(super) async fn health<T: PanelCtx>(State(state): State<Arc<T>>) -> Json<Value> {
+    let store = match state.daemon() {
+        Some(daemon) => Some(daemon.current_store_name().await),
+        None => None,
+    };
     Json(json!({
         "status": "ok",
-        "store": state.store.current_store_name().await,
+        "store": store,
     }))
 }
 
@@ -78,16 +82,16 @@ pub(super) async fn daemon_meta(State(state): State<Arc<ApiState>>) -> ApiResult
     ))
 }
 
-pub(super) async fn meta(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let payload = app_meta_payload(&state)?;
+pub(super) async fn meta<T: PanelCtx>(State(state): State<Arc<T>>) -> ApiResult {
+    let payload = app_meta_payload(state.as_ref())?;
     Ok(success("应用元信息获取成功", payload))
 }
 
-pub(super) async fn update_settings(
-    State(state): State<Arc<ApiState>>,
+pub(super) async fn update_settings<T: PanelCtx>(
+    State(state): State<Arc<T>>,
     Json(payload): Json<UpdateSettingsRequest>,
 ) -> ApiResult {
-    let config_manager = state.store.config_manager();
+    let config_manager = state.config_manager();
     let mut config = config_manager
         .load_app_config_or_default()
         .map_err(config_api_error)?;
@@ -184,8 +188,8 @@ pub(super) async fn update_settings(
     ))
 }
 
-fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
-    let config_manager = state.store.config_manager();
+fn app_meta_payload<T: PanelCtx>(state: &T) -> Result<Value, ApiError> {
+    let config_manager = state.config_manager();
     let config = config_manager
         .load_app_config_or_default()
         .map_err(config_api_error)?;
@@ -202,14 +206,23 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
     let panel_settings =
         panel_settings::load_or_migrate(config_manager).map_err(ApiError::invalid_request)?;
 
-    Ok(json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "node": {
-            "id": state.store.panel_id(),
-            "mode": match state.store.panel_role() {
+    let (node_id, node_mode) = match state.daemon() {
+        Some(daemon) => (
+            daemon.panel_id(),
+            match daemon.panel_role() {
                 mcpstore::PanelRole::ControlPanel => "control",
                 mcpstore::PanelRole::DataPanel { .. } => "data",
             },
+        ),
+        // The standalone web panel is a control panel without a store.
+        None => (mcpstore::state::CONTROL_NODE_ID.to_string(), "control"),
+    };
+
+    Ok(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "node": {
+            "id": node_id,
+            "mode": node_mode,
         },
         "settings": settings_payload(&config, &panel_settings),
         "settings_paths": settings_paths_payload(config_manager.mcp_path()),

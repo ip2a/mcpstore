@@ -89,10 +89,15 @@ pub enum Commands {
     MigrateStore(commands::mcp::MigrateStoreArgs),
     /// Standalone gateway process: wired per-client mounts + one generic /mcp mount
     Gateway(commands::gateway_cmd::GatewayArgs),
+    /// Standalone web panel process: frontend + panel API, no embedded store
     #[command(visible_alias = "ui")]
     Web {
+        /// Bind address (defaults to config.toml [web].host)
         #[arg(long)]
-        json: bool,
+        host: Option<String>,
+        /// Bind port (defaults to config.toml [web].port)
+        #[arg(long)]
+        port: Option<u16>,
     },
     Tui(crate::tui::TuiArgs),
 }
@@ -205,7 +210,7 @@ fn run_inner() -> Result<(), BoxErr> {
                 commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
             }
             Commands::Gateway(args) => commands::gateway_cmd::run(args).await,
-            Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
+            Commands::Web { host, port } => commands::web_panel::run(host, port).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
     });
@@ -824,13 +829,14 @@ mod tests {
 
     #[test]
     fn parses_web_command() {
-        let cli = Cli::try_parse_from(["mcpstore", "web", "--json"]).unwrap();
+        let cli = Cli::try_parse_from(["mcpstore", "web", "--port", "9000"]).unwrap();
         match cli.command {
-            Commands::Web { json } => assert!(json),
-            _ => panic!("Expected to parse as web view command"),
+            Commands::Web { host, port } => {
+                assert!(host.is_none());
+                assert_eq!(port, Some(9000));
+            }
+            _ => panic!("Expected to parse as web panel command"),
         }
-        // startup semantics removed: the old flag must fail to parse
-        assert!(Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).is_err());
     }
 
     #[test]

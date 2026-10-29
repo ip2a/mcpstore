@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::{
     envelope::{success, ApiError, ApiResult},
-    ApiState,
+    PanelCtx,
 };
 
 pub(super) const HOST_HEADER: &str = "x-mcpstore-host";
@@ -56,11 +56,11 @@ struct RemoteHealth {
     store: Option<String>,
 }
 
-pub(super) async fn host_status(
-    State(state): State<std::sync::Arc<ApiState>>,
+pub(super) async fn host_status<T: PanelCtx>(
+    State(state): State<std::sync::Arc<T>>,
     Path(name): Path<String>,
 ) -> ApiResult {
-    let entry = super::panel_settings::load_hosts(state.store().config_manager())
+    let entry = super::panel_settings::load_hosts(state.config_manager())
         .entries
         .get(&name)
         .cloned()
@@ -72,7 +72,7 @@ pub(super) async fn host_status(
                 None,
             )
         })?;
-    let status = probe_host(&name, &entry, &state.http_client).await?;
+    let status = probe_host(&name, &entry, state.http_client()).await?;
     Ok(success(
         "Host status fetched",
         serde_json::to_value(status)
@@ -95,8 +95,8 @@ pub(super) async fn reject_selected_host(
 
 /// Resolve the `X-MCPStore-Host` selector against the persisted hosts table.
 /// `None` means "no header, act locally"; an unknown or empty name is an error.
-pub(super) fn resolve_selected(
-    state: &ApiState,
+pub(super) fn resolve_selected<T: PanelCtx>(
+    state: &T,
     headers: &HeaderMap,
 ) -> Result<Option<(String, HostEntry)>, ApiError> {
     let Some(raw_name) = headers.get(HOST_HEADER) else {
@@ -111,7 +111,7 @@ pub(super) fn resolve_selected(
             Some(HOST_HEADER),
         ));
     }
-    match super::panel_settings::load_hosts(state.store().config_manager())
+    match super::panel_settings::load_hosts(state.config_manager())
         .entries
         .remove(name)
     {
@@ -123,21 +123,74 @@ pub(super) fn resolve_selected(
     }
 }
 
-pub(super) async fn route_selected_host(
-    State(state): State<std::sync::Arc<ApiState>>,
+/// Daemon web face: a selector forwards to that host, no selector falls
+/// through to the embedded handlers.
+pub(super) async fn route_selected_host<T: PanelCtx>(
+    State(state): State<std::sync::Arc<T>>,
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
     let (parts, body) = request.into_parts();
-    let entry = match resolve_selected(&state, &parts.headers) {
+    let entry = match resolve_selected(state.as_ref(), &parts.headers) {
         Ok(Some((_, entry))) => entry,
         Ok(None) => return next.run(Request::from_parts(parts, body)).await,
         Err(error) => return error_response(error.status, &error.message),
     };
-    let client = state.http_client.clone();
-    match forward(&client, &entry, Request::from_parts(parts, body)).await {
+    match forward(
+        state.http_client(),
+        &entry,
+        Request::from_parts(parts, body),
+    )
+    .await
+    {
         Ok(response) => response,
         Err((status, message)) => error_response(status, &message),
+    }
+}
+
+/// Web panel fallback: every unmatched /api path forwards to a daemon. A
+/// selector picks the host; without one the panel's "local" entry is the
+/// target. A missing or unreachable daemon is a loud error — the panel has no
+/// embedded store to fall back on.
+pub(super) async fn forward_any<T: PanelCtx>(
+    State(state): State<std::sync::Arc<T>>,
+    request: Request<Body>,
+) -> Response {
+    let (parts, body) = request.into_parts();
+    let entry = match resolve_selected(state.as_ref(), &parts.headers) {
+        Ok(Some((_, entry))) => entry,
+        Ok(None) => match super::panel_settings::load_hosts(state.config_manager())
+            .entries
+            .remove("local")
+        {
+            Some(entry) => entry,
+            None => {
+                return error_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "no local daemon: add a 'local' entry to the panel hosts table",
+                )
+            }
+        },
+        Err(error) => return error_response(error.status, &error.message),
+    };
+    match forward(
+        state.http_client(),
+        &entry,
+        Request::from_parts(parts, body),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err((status, message)) => {
+            // The panel's upstream is always a daemon: unreachable is 503,
+            // only a timeout keeps its own code.
+            let status = if status == StatusCode::GATEWAY_TIMEOUT {
+                status
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            };
+            error_response(status, &message)
+        }
     }
 }
 

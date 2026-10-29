@@ -11,7 +11,7 @@ use axum::{
 };
 use mcpstore::{
     client_config::{import_selected_services, inspect_client_config},
-    config::ScopeDescriptor,
+    config::{ConfigManager, ScopeDescriptor},
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
     ResourceTemplateOverridePatch, ScopeRef, ScopeView, ServerConfig, ToolOverridePatch,
@@ -42,6 +42,17 @@ use parse::{
     parse_scope_ref, ScopeQuery,
 };
 
+/// What a panel-local handler needs from its host process. The daemon's
+/// [`ApiState`] and the standalone web panel's [`PanelState`] both provide it;
+/// [`PanelCtx::daemon`] tells them apart — `Some` in the daemon (local imports
+/// land in-process), `None` in the web panel (the local daemon is reached over
+/// HTTP like any other host).
+pub(crate) trait PanelCtx: Send + Sync + 'static {
+    fn config_manager(&self) -> &ConfigManager;
+    fn daemon(&self) -> Option<&MCPStore>;
+    fn http_client(&self) -> &reqwest::Client;
+}
+
 #[derive(Clone)]
 pub struct ApiState {
     store: Arc<MCPStore>,
@@ -50,6 +61,60 @@ pub struct ApiState {
     /// recording path goes through the store's sink; queries need the concrete type.
     telemetry: Arc<Mutex<Option<std::sync::Arc<crate::telemetry::TelemetryLog>>>>,
     http_client: reqwest::Client,
+}
+
+/// State of the standalone web panel process: no embedded store, panel assets
+/// on local disk, every daemon — including the local one — reached over HTTP.
+#[derive(Clone)]
+pub(crate) struct PanelState {
+    config_manager: Arc<ConfigManager>,
+    http_client: reqwest::Client,
+}
+
+impl PanelState {
+    pub(crate) fn new(config_manager: Arc<ConfigManager>) -> Self {
+        Self {
+            config_manager,
+            http_client: host_http_client(),
+        }
+    }
+}
+
+impl PanelCtx for ApiState {
+    fn config_manager(&self) -> &ConfigManager {
+        self.store.config_manager()
+    }
+
+    fn daemon(&self) -> Option<&MCPStore> {
+        Some(&self.store)
+    }
+
+    fn http_client(&self) -> &reqwest::Client {
+        &self.http_client
+    }
+}
+
+impl PanelCtx for PanelState {
+    fn config_manager(&self) -> &ConfigManager {
+        &self.config_manager
+    }
+
+    fn daemon(&self) -> Option<&MCPStore> {
+        None
+    }
+
+    fn http_client(&self) -> &reqwest::Client {
+        &self.http_client
+    }
+}
+
+fn host_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .expect("host routing HTTP client configuration is valid")
 }
 
 /// A gateway child process (`mcpstore gateway`) spawned by POST /gateway/start.
@@ -93,17 +158,11 @@ async fn resolve_instance(
 
 /// Build the daemon-shared ApiState.
 pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
-    let http_client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .expect("host routing HTTP client configuration is valid");
     Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
         telemetry: Arc::new(Mutex::new(None)),
-        http_client,
+        http_client: host_http_client(),
     })
 }
 
@@ -127,23 +186,48 @@ pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
 
 /// App plane: panel-local operations plus selected-host resource forwarding.
 pub fn app_router(state: Arc<ApiState>) -> Router {
-    let route_state = Arc::clone(&state);
-    let resources = resource_routes(Arc::clone(&route_state))
-        .merge(core_routes(route_state.clone()))
+    let resources = resource_routes(Arc::clone(&state))
+        .merge(core_routes(Arc::clone(&state)))
         .layer(axum::middleware::from_fn_with_state(
-            route_state,
-            hosts::route_selected_host,
+            Arc::clone(&state),
+            hosts::route_selected_host::<ApiState>,
         ));
     // Cross-resource import orchestrates in the handler: read the client
     // config on this host, then write parsed definitions to the selected
     // daemon. It neither proxies the whole request nor rejects the selector.
     let orchestrated_import = Router::new()
-        .route("/client-config/import", post(client::client_config_import))
+        .route(
+            "/client-config/import",
+            post(client::client_config_import::<ApiState>),
+        )
         .with_state(Arc::clone(&state));
-    app_routes(state)
+    app_routes::<ApiState>()
         .layer(axum::middleware::from_fn(hosts::reject_selected_host))
+        .with_state(state)
         .merge(resources)
         .merge(orchestrated_import)
+        .layer(CorsLayer::permissive())
+}
+
+/// Router of the standalone web panel: panel-local operations answer locally,
+/// everything else forwards to a daemon — a selector routes to that host, and
+/// without a selector the panel's "local" entry is the target. No embedded
+/// store anywhere: a missing or unreachable daemon is a loud 503.
+pub(crate) fn panel_router<T: PanelCtx>(state: Arc<T>) -> Router {
+    let app = app_routes::<T>()
+        .layer(axum::middleware::from_fn(hosts::reject_selected_host))
+        .with_state(Arc::clone(&state));
+    let import = Router::new()
+        .route(
+            "/client-config/import",
+            post(client::client_config_import::<T>),
+        )
+        .with_state(Arc::clone(&state));
+    let forward = Router::<Arc<T>>::new()
+        .fallback(hosts::forward_any::<T>)
+        .with_state(Arc::clone(&state));
+    app.merge(import)
+        .merge(forward)
         .layer(CorsLayer::permissive())
 }
 
@@ -159,13 +243,17 @@ pub fn core_router(state: Arc<ApiState>) -> Router {
 }
 
 fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
-    let full = app_routes(state.clone())
-        .merge(resource_routes(state.clone()))
+    let full = app_routes::<ApiState>()
+        .with_state(Arc::clone(&state))
+        .merge(resource_routes(Arc::clone(&state)))
         .merge(core_routes(Arc::clone(&state)))
         .merge(
             Router::new()
-                .route("/client-config/import", post(client::client_config_import))
-                .with_state(state),
+                .route(
+                    "/client-config/import",
+                    post(client::client_config_import::<ApiState>),
+                )
+                .with_state(Arc::clone(&state)),
         )
         .layer(CorsLayer::permissive());
     if prefix.is_empty() {
@@ -175,25 +263,27 @@ fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
     }
 }
 
-fn app_routes(state: Arc<ApiState>) -> Router {
+fn app_routes<T: PanelCtx>() -> Router<Arc<T>> {
     Router::new()
-        .route("/health", get(app::health))
-        .route("/v1/meta", get(app::meta))
-        .route("/v1/settings", put(app::update_settings))
-        .route("/v1/hosts/:name/status", get(hosts::host_status))
+        .route("/health", get(app::health::<T>))
+        .route("/v1/meta", get(app::meta::<T>))
+        .route("/v1/settings", put(app::update_settings::<T>))
+        .route("/v1/hosts/:name/status", get(hosts::host_status::<T>))
         .route("/clients/:id/version", get(client::client_version))
-        .route("/clients", get(client::clients_list))
-        .route("/plugins", get(plugins::plugins_list))
-        .route("/plugins/market", get(plugins::plugins_market))
-        .route("/plugins/detect", post(plugins::plugins_detect))
-        .route("/plugins/:id/install", post(plugins::plugin_install))
-        .route("/plugins/:id/uninstall", post(plugins::plugin_uninstall))
-        .route("/plugins/:id/enable", post(plugins::plugin_enable))
-        .route("/plugins/:id/disable", post(plugins::plugin_disable))
-        .route("/gateway/wired", get(client::gateway_wired))
-        .route("/gateway/wire", post(client::gateway_wire))
-        .route("/gateway/unwire", post(client::gateway_unwire))
-        .with_state(state)
+        .route("/clients", get(client::clients_list::<T>))
+        .route("/plugins", get(plugins::plugins_list::<T>))
+        .route("/plugins/market", get(plugins::plugins_market::<T>))
+        .route("/plugins/detect", post(plugins::plugins_detect::<T>))
+        .route("/plugins/:id/install", post(plugins::plugin_install::<T>))
+        .route(
+            "/plugins/:id/uninstall",
+            post(plugins::plugin_uninstall::<T>),
+        )
+        .route("/plugins/:id/enable", post(plugins::plugin_enable::<T>))
+        .route("/plugins/:id/disable", post(plugins::plugin_disable::<T>))
+        .route("/gateway/wired", get(client::gateway_wired::<T>))
+        .route("/gateway/wire", post(client::gateway_wire::<T>))
+        .route("/gateway/unwire", post(client::gateway_unwire::<T>))
 }
 
 fn resource_routes(state: Arc<ApiState>) -> Router {
