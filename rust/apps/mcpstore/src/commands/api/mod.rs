@@ -3,9 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::gateway::{
-    run_streamable_http, GatewayCallLog, GatewayLaunchDescriptor, GatewayOptions, GatewayServer,
-};
+use crate::gateway::{GatewayLaunchDescriptor, GatewayOptions};
 use axum::{
     extract::State,
     routing::{get, post, put},
@@ -21,7 +19,6 @@ use mcpstore::{
 use serde_json::json;
 #[cfg(test)]
 use serde_json::Value;
-use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 
 mod app;
@@ -49,18 +46,20 @@ use parse::{
 pub struct ApiState {
     store: Arc<MCPStore>,
     gateway: Arc<Mutex<Option<GatewayProcess>>>,
-    /// Call log of the daemon-face gateway (mounted at startup; no GatewayProcess).
-    face_log: Arc<Mutex<Option<std::sync::Arc<GatewayCallLog>>>>,
     /// Host-side telemetry persistence for history/detail/stats queries. The
     /// recording path goes through the store's sink; queries need the concrete type.
     telemetry: Arc<Mutex<Option<std::sync::Arc<crate::telemetry::TelemetryLog>>>>,
     http_client: reqwest::Client,
 }
 
+/// A gateway child process (`mcpstore gateway`) spawned by POST /gateway/start.
+/// The routed-call log lives inside the child; /gateway/requests forwards to it.
 struct GatewayProcess {
-    task: JoinHandle<()>,
+    child: tokio::process::Child,
+    pid: u32,
+    /// Management URL of the child's /calls route.
+    calls_url: String,
     descriptor: GatewayLaunchDescriptor,
-    call_log: std::sync::Arc<GatewayCallLog>,
     summary: serde_json::Value,
 }
 
@@ -103,7 +102,6 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
-        face_log: Arc::new(Mutex::new(None)),
         telemetry: Arc::new(Mutex::new(None)),
         http_client,
     })
@@ -112,14 +110,6 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
 impl ApiState {
     pub(crate) fn store(&self) -> &Arc<MCPStore> {
         &self.store
-    }
-
-    pub(crate) fn set_face_log(&self, log: std::sync::Arc<GatewayCallLog>) {
-        *self.face_log.lock().unwrap() = Some(log);
-    }
-
-    pub(crate) fn face_log(&self) -> Option<std::sync::Arc<GatewayCallLog>> {
-        self.face_log.lock().unwrap().clone()
     }
 
     pub(crate) fn set_telemetry(&self, log: std::sync::Arc<crate::telemetry::TelemetryLog>) {

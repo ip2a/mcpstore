@@ -559,10 +559,6 @@ pub(crate) fn plan_config_change(
 ) -> Result<Vec<(crate::daemon::listeners::ListenerKey, Option<u16>)>, Error> {
     use crate::daemon::listeners::ListenerKey;
 
-    fn gateway_target(config: &AppConfig) -> Option<u16> {
-        config.gateway.enabled.then_some(config.gateway.port)
-    }
-
     let server = &mut config.server;
     match key {
         "host" => {
@@ -578,10 +574,6 @@ pub(crate) fn plan_config_change(
                 planned.push((ListenerKey::Web, Some(server.web_port)));
             }
             server.host = host;
-            let gateway = gateway_target(config);
-            if gateway.is_some() {
-                planned.push((ListenerKey::Gateway, gateway));
-            }
             Ok(planned)
         }
         "core" => {
@@ -610,17 +602,12 @@ pub(crate) fn plan_config_change(
                 .then_some(vec![(ListenerKey::Web, Some(port))])
                 .unwrap_or_default())
         }
-        "gateway" => {
-            let on = parse_switch(value, "gateway")?;
-            config.gateway.enabled = on;
-            Ok(vec![(ListenerKey::Gateway, gateway_target(config))])
-        }
         "gateway-port" => {
+            // The gateway is a standalone child process (mcpstore gateway); the
+            // daemon only records the port, no listener to rebind.
             let port = parse_port(value, "gateway-port")?;
             config.gateway.port = port;
-            Ok(gateway_target(config)
-                .map(|_| vec![(ListenerKey::Gateway, Some(port))])
-                .unwrap_or_default())
+            Ok(Vec::new())
         }
         other => Err(Error::new(
             FailureCode::InvalidInput,

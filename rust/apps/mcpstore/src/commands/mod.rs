@@ -3,6 +3,7 @@ pub mod auth;
 pub mod config;
 pub mod daemon_cmd;
 pub mod elicitation;
+pub mod gateway_cmd;
 pub mod mcp;
 pub mod plugin;
 pub mod protocol;

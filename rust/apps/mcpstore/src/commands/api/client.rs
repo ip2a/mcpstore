@@ -78,12 +78,12 @@ pub(super) async fn gateway_start(
 
     let descriptor = options.launch_descriptor();
     {
-        let process = state
+        let mut process = state
             .gateway
             .lock()
             .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
-        if let Some(existing) = process.as_ref() {
-            if !existing.task.is_finished() {
+        if let Some(existing) = process.as_mut() {
+            if existing.child.try_wait().ok().flatten().is_none() {
                 return Ok(success(
                     "网关服务已经在运行",
                     gateway_payload(existing, true),
@@ -92,44 +92,72 @@ pub(super) async fn gateway_start(
         }
     }
 
-    let server = GatewayServer::from_store(
-        Arc::clone(&state.store),
-        &options,
-        None,
-        crate::gateway::GatewayCallLog::new(),
-    )
-    .await
-    .map_err(|error| ApiError::invalid_request(error.to_string()))?;
-    let call_log = server.call_log_handle();
-    let task_options = options.clone();
-    let task = tokio::spawn(async move {
-        if let Err(error) = run_streamable_http(server, &task_options).await {
-            tracing::error!("[GATEWAY] Gateway server stopped: {error}");
+    // The gateway runs as its own `mcpstore gateway` child process; this daemon
+    // supervises it (pid, stop) and forwards the call stream to its /calls route.
+    let exe = std::env::current_exe()
+        .map_err(|error| ApiError::internal(format!("无法定位 mcpstore 可执行文件: {error}")))?;
+    let mut command = tokio::process::Command::new(exe);
+    command
+        .arg("gateway")
+        .args(["--host", &options.host])
+        .args(["--port", &options.port.to_string()])
+        .args(["--path", &options.path]);
+    if let ScopeRef::Agent { agent_id } = &options.scope {
+        command.args(["--scope", "agent", "--agent", agent_id]);
+    }
+    if let Some(key) = &options.session_key {
+        command.args(["--session-key", key]);
+    }
+    if let Some(id) = &options.instance_id {
+        command.args(["--instance-id", &id.to_string()]);
+    }
+    for (flag, on) in [
+        ("--expose-session-state-tools", options.expose_session_state_tools),
+        ("--expose-tool-override-tools", options.expose_tool_override_tools),
+        ("--expose-prompt-override-tools", options.expose_prompt_override_tools),
+        ("--expose-resource-override-tools", options.expose_resource_override_tools),
+        ("--expose-openapi-tools", options.expose_openapi_tools),
+        ("--expose-service-tools", options.expose_service_tools),
+        ("--expose-cache-tools", options.expose_cache_tools),
+        ("--expose-search-tools", options.expose_search_tools),
+    ] {
+        if on {
+            command.arg(flag);
         }
-    });
+    }
+    let mut child = command
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| ApiError::invalid_request(format!("网关子进程启动失败: {error}")))?;
+    let pid = child.id().unwrap_or_default();
     if let Err(error) = wait_for_gateway_ready(&options.host, options.port).await {
-        task.abort();
-        if task.await.is_err() {
-            return Err(ApiError::invalid_request("停止网关服务失败"));
-        }
+        let _ = child.kill().await;
+        let _ = child.wait().await;
         return Err(error);
     }
+    let probe_host = match options.host.as_str() {
+        "0.0.0.0" => "127.0.0.1",
+        "::" => "::1",
+        value => value,
+    };
+    let calls_url = format!("http://{probe_host}:{}/calls", options.port);
     state
         .gateway
         .lock()
         .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?
         .replace(GatewayProcess {
-            task,
+            pid,
+            calls_url,
             descriptor: descriptor.clone(),
-            call_log,
             summary: gateway_summary(&options),
+            child,
         });
 
     Ok(success(
         "网关服务启动成功",
         json!({
             "running": true,
-            "pid": std::process::id(),
+            "pid": pid,
             "url": descriptor.url,
         }),
     ))
@@ -143,18 +171,16 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
             .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
         gateway.take()
     };
-    let Some(process) = process else {
+    let Some(mut process) = process else {
         return Ok(success("网关服务当前未运行", json!({ "running": false })));
     };
-    let pid = std::process::id();
-    process.task.abort();
-    // abort() itself makes the join fail with cancelled — that is the success
-    // path. Only a real panic while shutting down is an error.
-    if let Err(error) = process.task.await {
-        if !error.is_cancelled() {
-            return Err(ApiError::invalid_request("停止网关服务失败"));
-        }
+    let pid = process.pid;
+    if let Err(error) = process.child.kill().await {
+        return Err(ApiError::invalid_request(format!(
+            "停止网关服务失败: {error}"
+        )));
     }
+    let _ = process.child.wait().await;
     Ok(success(
         "网关服务已停止",
         json!({ "running": false, "pid": pid }),
@@ -267,29 +293,21 @@ fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>, Option<V
         .gateway
         .lock()
         .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
-    if let Some(process) = gateway.as_ref() {
-        if process.task.is_finished() {
-            *gateway = None;
+    if let Some(process) = gateway.as_mut() {
+        if process.child.try_wait().ok().flatten().is_some() {
+            *gateway = None; // child exited on its own
         }
     }
-    if let Some(process) = gateway.as_ref() {
-        return Ok((
-            true,
-            Some(std::process::id()),
-            Some(process.summary.clone()),
-        ));
+    match gateway.as_ref() {
+        Some(process) => Ok((true, Some(process.pid), Some(process.summary.clone()))),
+        None => Ok((false, None, None)),
     }
-    // The daemon-face gateway mounts at startup without a GatewayProcess.
-    if state.face_log().is_some() {
-        return Ok((true, Some(std::process::id()), None));
-    }
-    Ok((false, None, None))
 }
 
 fn gateway_payload(process: &GatewayProcess, running: bool) -> Value {
     json!({
         "running": running,
-        "pid": std::process::id(),
+        "pid": process.pid,
         "url": process.descriptor.url,
         "summary": process.summary,
     })
@@ -305,49 +323,48 @@ pub(super) async fn gateway_requests(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayRequestsQuery>,
 ) -> ApiResult {
-    let call_log = {
+    let calls_url = {
         let mut gateway = state
             .gateway
             .lock()
             .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
-        if let Some(process) = gateway.as_ref() {
-            if process.task.is_finished() {
-                *gateway = None;
+        if let Some(process) = gateway.as_mut() {
+            if process.child.try_wait().ok().flatten().is_some() {
+                *gateway = None; // child exited on its own
             }
         }
         match gateway.as_ref() {
-            Some(process) => Some(Arc::clone(&process.call_log)),
-            None => state.face_log(),
+            Some(process) => Some(process.calls_url.clone()),
+            None => None,
         }
     };
-    let Some(call_log) = call_log else {
+    let Some(calls_url) = calls_url else {
         return Ok(success(
             "网关服务当前未运行",
             json!({ "running": false, "requests": [], "latest_seq": 0 }),
         ));
     };
-    let after = query.after.unwrap_or(0);
-    // Long-poll: block until a record past `after` arrives or the wait budget runs out.
+    // Forward to the child's /calls route; it owns the call log and the same
+    // `after` + `wait_ms` long-poll semantics.
+    let mut url = reqwest::Url::parse(&calls_url)
+        .map_err(|error| ApiError::internal(format!("网关管理地址无效: {error}")))?;
+    url.query_pairs_mut()
+        .append_pair("after", &query.after.unwrap_or(0).to_string());
     if let Some(wait_ms) = query.wait_ms {
-        if wait_ms > 0 && call_log.latest_seq() <= after {
-            let mut rx = call_log.subscribe();
-            let wait = std::time::Duration::from_millis(wait_ms.min(25_000));
-            let _ = tokio::time::timeout(wait, rx.changed()).await;
-        }
+        url.query_pairs_mut()
+            .append_pair("wait_ms", &wait_ms.to_string());
     }
-    let requests: Vec<Value> = call_log
-        .snapshot_after(after)
-        .iter()
-        .map(|record| serde_json::to_value(record).unwrap_or(Value::Null))
-        .collect();
-    Ok(success(
-        "网关服务请求记录获取成功",
-        json!({
-            "running": true,
-            "requests": requests,
-            "latest_seq": call_log.latest_seq(),
-        }),
-    ))
+    let response = state
+        .http_client
+        .get(url)
+        .send()
+        .await
+        .map_err(|_| ApiError::invalid_request("网关服务已退出"))?;
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|_| ApiError::invalid_request("网关服务响应无法解析"))?;
+    Ok(success("网关服务请求记录获取成功", payload["data"].clone()))
 }
 
 pub(super) fn wired_state_path(state: &ApiState) -> std::path::PathBuf {

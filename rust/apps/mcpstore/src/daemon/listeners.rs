@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use axum::routing::any;
 use axum::{http::StatusCode, Router};
 use mcpstore::error::{Error, FailureCode};
-use mcpstore::{AppConfig, ScopeRef};
+use mcpstore::AppConfig;
 use serde::Serialize;
 
 use crate::commands::api::{self, ApiState};
@@ -15,17 +15,15 @@ use crate::commands::api::{self, ApiState};
 pub enum ListenerKey {
     Core,
     Web,
-    Gateway,
 }
 
-const ALL_KEYS: [ListenerKey; 3] = [ListenerKey::Core, ListenerKey::Web, ListenerKey::Gateway];
+const ALL_KEYS: [ListenerKey; 2] = [ListenerKey::Core, ListenerKey::Web];
 
 impl ListenerKey {
     fn name(self) -> &'static str {
         match self {
             Self::Core => "core",
             Self::Web => "web",
-            Self::Gateway => "gateway",
         }
     }
 
@@ -33,7 +31,6 @@ impl ListenerKey {
         match self {
             Self::Core => 0,
             Self::Web => 1,
-            Self::Gateway => 2,
         }
     }
 }
@@ -54,13 +51,13 @@ struct ListenerSlot {
 /// 热重绑语义：先 bind 新地址成功 → abort 旧任务；bind 失败时旧 listener 原样运行。
 pub struct ListenerManager {
     // ponytail: 全局一把锁；daemon 管理操作串行到达，无争用场景
-    slots: Mutex<[Option<ListenerSlot>; 3]>,
+    slots: Mutex<[Option<ListenerSlot>; 2]>,
 }
 
 impl ListenerManager {
     pub fn new() -> Self {
         Self {
-            slots: Mutex::new([None, None, None]),
+            slots: Mutex::new([None, None]),
         }
     }
 
@@ -69,7 +66,6 @@ impl ListenerManager {
     /// （与热切换「失败保留旧 listener」同一哲学）。
     pub async fn start_all(&self, config: &AppConfig, state: &Arc<ApiState>) {
         let server = &config.server;
-        let gateway = &config.gateway;
         for (key, port) in [
             (
                 ListenerKey::Core,
@@ -78,10 +74,6 @@ impl ListenerManager {
             (
                 ListenerKey::Web,
                 server.web_enabled.then_some(server.web_port),
-            ),
-            (
-                ListenerKey::Gateway,
-                gateway.enabled.then_some(gateway.port),
             ),
         ] {
             match port {
@@ -157,7 +149,7 @@ impl ListenerManager {
         for slot in slots.iter_mut().flatten() {
             slot.task.abort();
         }
-        *slots = [None, None, None];
+        *slots = [None, None];
     }
 
     pub fn snapshot(&self) -> Vec<ListenerStatus> {
@@ -222,96 +214,6 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
     match key {
         ListenerKey::Core => Ok(api::core_router(Arc::clone(state))),
         ListenerKey::Web => Ok(web_router(Arc::clone(state))),
-        ListenerKey::Gateway => {
-            // One mount per wired client (/mcp/<id>, caller identified by path) plus
-            // the generic /mcp — all sharing one call log.
-            // Each mount gets its own GatewayOptions (per-client scope + expose config).
-            // ponytail: each mount runs connect_target_instances + tool listing at face
-            // build; if startup bleeds, build mounts lazily on first request instead.
-            let shared_log = crate::gateway::GatewayCallLog::new();
-            state.set_face_log(Arc::clone(&shared_log));
-
-            // Load wired state to get per-client scope/expose config.
-            let wired_state = mcpstore::client_wire::load_wired_state(&{
-                let app_config_path = state.store().config_manager().app_config_path();
-                app_config_path
-                    .parent()
-                    .map(|dir| dir.join("gateway-wired.json"))
-                    .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"))
-            })
-            .map_err(|error| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("failed to load wired state: {error}"),
-                )
-            })?;
-
-            let mut router = Router::new();
-
-            // Per-client mounts: derive GatewayOptions from wired entry.
-            for entry in &wired_state.entries {
-                let scope = entry.effective_scope().map_err(|error| {
-                    Error::new(
-                        FailureCode::Internal,
-                        format!("failed to resolve scope for {}: {error}", entry.client_id),
-                    )
-                })?;
-                let expose = entry.effective_expose();
-                let options = crate::gateway::GatewayOptions {
-                    scope,
-                    expose_session_state_tools: expose.session_state,
-                    expose_tool_override_tools: expose.tool,
-                    expose_prompt_override_tools: expose.prompt,
-                    expose_resource_override_tools: expose.resource,
-                    expose_openapi_tools: expose.openapi,
-                    expose_service_tools: expose.service,
-                    expose_cache_tools: expose.cache,
-                    expose_search_tools: expose.search,
-                    ..Default::default()
-                };
-                let path = format!("/mcp/{}", entry.client_id);
-                let caller = Some(entry.client_id.clone());
-                let server = crate::gateway::GatewayServer::from_store(
-                    Arc::clone(state.store()),
-                    &options,
-                    caller,
-                    Arc::clone(&shared_log),
-                )
-                .await
-                .map_err(|error| {
-                    Error::new(
-                        FailureCode::ServiceUnavailable,
-                        format!("failed to build gateway server for {path}: {error}"),
-                    )
-                })?;
-                router = router.merge(crate::gateway::streamable_http_router(server, &path));
-            }
-
-            // Generic /mcp mount: Store scope, expose from config or default (all false).
-            let generic_options = crate::gateway::GatewayOptions {
-                scope: ScopeRef::Store,
-                ..Default::default()
-            };
-            let generic_server = crate::gateway::GatewayServer::from_store(
-                Arc::clone(state.store()),
-                &generic_options,
-                None,
-                Arc::clone(&shared_log),
-            )
-            .await
-            .map_err(|error| {
-                Error::new(
-                    FailureCode::ServiceUnavailable,
-                    format!("failed to build generic gateway server: {error}"),
-                )
-            })?;
-            router = router.merge(crate::gateway::streamable_http_router(
-                generic_server,
-                "/mcp",
-            ));
-
-            Ok(router)
-        }
     }
 }
 
@@ -344,7 +246,7 @@ mod tests {
     fn key_names_and_indices_are_stable() {
         assert_eq!(ListenerKey::Core.name(), "core");
         assert_eq!(ListenerKey::Web.index(), 1);
-        assert_eq!(ALL_KEYS.len(), 3);
+        assert_eq!(ALL_KEYS.len(), 2);
     }
 
     #[test]

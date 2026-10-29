@@ -58,8 +58,6 @@ pub struct ConfigEdits {
     pub web: Option<String>,
     #[arg(long = "web-port")]
     pub web_port: Option<u16>,
-    #[arg(long = "gateway")]
-    pub gateway: Option<String>,
     #[arg(long = "gateway-port")]
     pub gateway_port: Option<u16>,
 }
@@ -81,9 +79,6 @@ impl ConfigEdits {
         }
         if let Some(value) = self.web_port {
             pairs.push(("web-port", json!(value)));
-        }
-        if let Some(value) = &self.gateway {
-            pairs.push(("gateway", json!(value)));
         }
         if let Some(value) = self.gateway_port {
             pairs.push(("gateway-port", json!(value)));
@@ -184,8 +179,7 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         config.server.web_port
     );
     println!(
-        "  gateway:  {} port={}",
-        on_off(config.gateway.enabled),
+        "  gateway: standalone process, port={}",
         config.gateway.port
     );
     println!("Use this command to change settings: mcpstore config --<key> <value>");

@@ -11,8 +11,7 @@ use rmcp::{
     },
     service::{ClientLifecycleMode, ClientServiceExt},
     transport::{
-        streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
-        StreamableHttpClientTransport, TokioChildProcess,
+        streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
     },
 };
 use tokio::io::AsyncReadExt;
@@ -105,15 +104,15 @@ where
 }
 
 #[tokio::test]
-async fn mcp_server_projects_and_routes_conflicting_capabilities() -> TestResult {
+async fn gateway_projects_and_routes_conflicting_capabilities() -> TestResult {
     run_test_with_timeout(
-        "mcp_server_projects_and_routes_conflicting_capabilities",
-        mcp_server_projects_and_routes_conflicting_capabilities_inner(),
+        "gateway_projects_and_routes_conflicting_capabilities",
+        gateway_projects_and_routes_conflicting_capabilities_inner(),
     )
     .await
 }
 
-async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> TestResult {
+async fn gateway_projects_and_routes_conflicting_capabilities_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
@@ -158,28 +157,18 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
     let first_prompt_namespace = format!("first__{first_id}");
     let second_prompt_namespace = format!("second__{second_id}");
 
-    let (transport, stderr) =
-        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp")
-                .arg("--config-path")
-                .arg(config_path.display().to_string())
-                .current_dir(rust_root());
-        }))
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let mut stderr = stderr.expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
+    let gateway_child = spawn_gateway(&[
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ])
+    .await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
         Err(error) => {
-            let stderr_output = stderr_task.await??;
+            let stderr_output = gateway_child.shutdown().await;
             return Err(format!(
-                "conflict mcp handshake failed: {error}; stderr:\
-{stderr_output}"
+                "conflict gateway handshake failed: {error}; stderr:\n{stderr_output}"
             )
             .into());
         }
@@ -309,24 +298,15 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
         .map(|resource| resource.uri.clone())
         .collect::<Vec<_>>();
     client.cancel().await?;
-    let _ = stderr_task.await?;
+    let _ = gateway_child.shutdown().await;
 
-    let (transport, stderr) =
-        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp")
-                .arg("--config-path")
-                .arg(config_path.display().to_string())
-                .current_dir(rust_root());
-        }))
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let mut stderr = stderr.expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-    let client = ().serve_with_lifecycle(transport, discover_lifecycle()).await?;
+    let gateway_child = spawn_gateway(&[
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ])
+    .await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = connect_http_client(&base_url).await?;
 
     assert_eq!(
         client
@@ -357,20 +337,20 @@ async fn mcp_server_projects_and_routes_conflicting_capabilities_inner() -> Test
     );
 
     client.cancel().await?;
-    let _ = stderr_task.await?;
+    let _ = gateway_child.shutdown().await;
     Ok(())
 }
 
 #[tokio::test]
-async fn mcp_server_command_exposes_only_selected_instance_over_stdio() -> TestResult {
+async fn gateway_command_exposes_only_selected_instance_over_stdio() -> TestResult {
     run_test_with_timeout(
-        "mcp_server_command_exposes_only_selected_instance_over_stdio",
-        mcp_server_command_exposes_only_selected_instance_over_stdio_inner(),
+        "gateway_command_exposes_only_selected_instance_over_stdio",
+        gateway_command_exposes_only_selected_instance_over_stdio_inner(),
     )
     .await
 }
 
-async fn mcp_server_command_exposes_only_selected_instance_over_stdio_inner() -> TestResult {
+async fn gateway_command_exposes_only_selected_instance_over_stdio_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
@@ -401,30 +381,20 @@ async fn mcp_server_command_exposes_only_selected_instance_over_stdio_inner() ->
     }
 
     let instance_id = ServiceInstanceKey::new("selected", ScopeRef::Store).instance_id();
-    let (transport, stderr) =
-        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp")
-                .arg("--config-path")
-                .arg(config_path.display().to_string())
-                .arg("--instance-id")
-                .arg(instance_id.to_string())
-                .current_dir(rust_root());
-        }))
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    let mut stderr = stderr.expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
+    let gateway_child = spawn_gateway(&[
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+        "--instance-id".to_string(),
+        instance_id.to_string(),
+    ])
+    .await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
         Err(error) => {
-            let stderr_output = stderr_task.await??;
+            let stderr_output = gateway_child.shutdown().await;
             return Err(format!(
-                "instance mcp handshake failed: {error}; stderr:\n{stderr_output}"
+                "instance gateway handshake failed: {error}; stderr:\n{stderr_output}"
             )
             .into());
         }
@@ -487,27 +457,25 @@ async fn mcp_server_command_exposes_only_selected_instance_over_stdio_inner() ->
     }
 
     client.cancel().await?;
-    let _ = stderr_task.await?;
+    let _ = gateway_child.shutdown().await;
     Ok(())
 }
 
 #[tokio::test]
-async fn mcp_server_command_exposes_session_scope_over_stdio() -> TestResult {
+async fn gateway_command_exposes_session_scope_over_stdio() -> TestResult {
     let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
         eprintln!("skipping session aggregate test: MCPSTORE_TEST_REDIS_URL is not set");
         return Ok(());
     };
 
     run_test_with_timeout(
-        "mcp_server_command_exposes_session_scope_over_stdio",
-        mcp_server_command_exposes_session_scope_over_stdio_inner(redis_url),
+        "gateway_command_exposes_session_scope_over_stdio",
+        gateway_command_exposes_session_scope_over_stdio_inner(redis_url),
     )
     .await
 }
 
-async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
-    redis_url: String,
-) -> TestResult {
+async fn gateway_command_exposes_session_scope_over_stdio_inner(redis_url: String) -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
@@ -571,30 +539,19 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
         }])
         .await?;
 
-    let (transport, stderr) =
-        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp")
-                .args(store_args)
-                .arg("--session-key")
-                .arg("store:aggregate-e2e")
-                .current_dir(rust_root());
-        }))
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    let mut stderr = stderr.expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
+    let mut gateway_args: Vec<String> = store_args.iter().map(|arg| (*arg).to_string()).collect();
+    gateway_args.push("--session-key".to_string());
+    gateway_args.push("store:aggregate-e2e".to_string());
+    let gateway_child = spawn_gateway(&gateway_args).await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
         Err(error) => {
-            let stderr_output = stderr_task.await??;
-            return Err(
-                format!("session mcp handshake failed: {error}; stderr:\n{stderr_output}").into(),
-            );
+            let stderr_output = gateway_child.shutdown().await;
+            return Err(format!(
+                "session gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
         }
     };
 
@@ -650,151 +607,20 @@ async fn mcp_server_command_exposes_session_scope_over_stdio_inner(
     }
 
     client.cancel().await?;
-    let _ = stderr_task.await?;
+    let _ = gateway_child.shutdown().await;
     Ok(())
 }
 
 #[tokio::test]
-async fn mcp_server_command_exposes_store_tools_over_stdio() -> TestResult {
+async fn gateway_exposes_search_meta_tool_when_flag_is_set() -> TestResult {
     run_test_with_timeout(
-        "mcp_server_command_exposes_store_tools_over_stdio",
-        mcp_server_command_exposes_store_tools_over_stdio_inner(),
+        "gateway_exposes_search_meta_tool_when_flag_is_set",
+        gateway_exposes_search_meta_tool_when_flag_is_set_inner(),
     )
     .await
 }
 
-async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult {
-    let repo_root = repo_root();
-    let temp_dir = unique_temp_dir();
-    let config_path = temp_dir.join("mcp.json");
-    let pythonpath = format!(
-        "{}:{}",
-        repo_root.join("python/src").display(),
-        repo_root
-            .join("rust/apps/mcpstore/tests/fixtures")
-            .display()
-    );
-    let fixture = fixture_script();
-
-    let add_args = vec![
-        "add".to_string(),
-        "demo".to_string(),
-        "--config-path".to_string(),
-        config_path.display().to_string(),
-        "--transport".to_string(),
-        "stdio".to_string(),
-        "--env".to_string(),
-        format!("PYTHONPATH={pythonpath}"),
-        "--".to_string(),
-        "python3".to_string(),
-        fixture.display().to_string(),
-    ];
-    let add_stdout = assert_success(&run_cli(&add_args), "add");
-    assert!(add_stdout.contains("[Success] Service added: demo"));
-    let tool_name = "demo__greet".to_string();
-
-    let (transport, stderr) =
-        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp")
-                .arg("--config-path")
-                .arg(config_path.display().to_string())
-                .current_dir(rust_root());
-        }))
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    let mut stderr = stderr.expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-
-    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
-        Ok(client) => client,
-        Err(error) => {
-            let stderr_output = stderr_task.await??;
-            return Err(format!("mcp 握手失败: {error}; stderr:\n{stderr_output}").into());
-        }
-    };
-    let tools = client.list_all_tools().await?;
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0].name.as_ref(), tool_name);
-
-    let resources = client.list_all_resources().await?;
-    assert_eq!(resources.len(), 1);
-    let resource_uri = resources[0].uri.clone();
-    assert!(resource_uri.starts_with("mcpstore://aggregate/"));
-    assert!(
-        resource_uri.ends_with("fixture:%2F%2Fdocs%2Freadme"),
-        "unexpected aggregate URI: {resource_uri}"
-    );
-
-    let resource_templates = client.list_all_resource_templates().await?;
-    assert!(resource_templates.is_empty());
-
-    let resource = client
-        .read_resource(ReadResourceRequestParams::new(resource_uri))
-        .await?;
-    assert_eq!(resource.contents.len(), 1);
-    match &resource.contents[0] {
-        ResourceContents::TextResourceContents { text, .. } => {
-            assert_eq!(text, "This is the MCPStore fixture resource.");
-        }
-        other => panic!("unexpected resource content: {other:?}"),
-    }
-
-    let prompts = client.list_all_prompts().await?;
-    assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0].name, "explain");
-
-    let prompt = client
-        .get_prompt(
-            GetPromptRequestParams::new("explain").with_arguments(
-                serde_json::json!({"topic": "stdio"})
-                    .as_object()
-                    .cloned()
-                    .unwrap(),
-            ),
-        )
-        .await?;
-    assert_eq!(prompt.messages.len(), 1);
-    match &prompt.messages[0].content {
-        ContentBlock::Text(text) => {
-            assert_eq!(text.text, "Explain stdio via fixture prompt.");
-        }
-        other => panic!("unexpected prompt content: {other:?}"),
-    }
-
-    let args: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_value(serde_json::json!({"name": "World"}))?;
-    let result = client
-        .call_tool(CallToolRequestParams::new(tool_name).with_arguments(args))
-        .await?;
-
-    let text = result
-        .content
-        .first()
-        .and_then(ContentBlock::as_text)
-        .map(|text| text.text.as_str())
-        .expect("expected text result");
-    assert_eq!(text, "Hello, World!");
-
-    client.cancel().await?;
-    let _ = stderr_task.await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn mcp_server_exposes_search_meta_tool_when_flag_is_set() -> TestResult {
-    run_test_with_timeout(
-        "mcp_server_exposes_search_meta_tool_when_flag_is_set",
-        mcp_server_exposes_search_meta_tool_when_flag_is_set_inner(),
-    )
-    .await
-}
-
-async fn mcp_server_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult {
+async fn gateway_exposes_search_meta_tool_when_flag_is_set_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
@@ -823,29 +649,21 @@ async fn mcp_server_exposes_search_meta_tool_when_flag_is_set_inner() -> TestRes
     let add_stdout = assert_success(&run_cli(&add_args), "add");
     assert!(add_stdout.contains("[Success] Service added: demo"));
 
-    let (transport, stderr) =
-        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp")
-                .arg("--config-path")
-                .arg(config_path.display().to_string())
-                .arg("--expose-search-tools")
-                .current_dir(rust_root());
-        }))
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    let mut stderr = stderr.expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-
-    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
+    let gateway_child = spawn_gateway(&[
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+        "--expose-search-tools".to_string(),
+    ])
+    .await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
         Err(error) => {
-            let stderr_output = stderr_task.await??;
-            return Err(format!("mcp 握手失败: {error}; stderr:\n{stderr_output}").into());
+            let stderr_output = gateway_child.shutdown().await;
+            return Err(format!(
+                "search gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
         }
     };
 
@@ -901,20 +719,20 @@ async fn mcp_server_exposes_search_meta_tool_when_flag_is_set_inner() -> TestRes
     );
 
     client.cancel().await?;
-    let _ = stderr_task.await?;
+    let _ = gateway_child.shutdown().await;
     Ok(())
 }
 
 #[tokio::test]
-async fn mcp_server_command_exposes_agent_scope_over_stdio() -> TestResult {
+async fn gateway_command_exposes_agent_scope_over_stdio() -> TestResult {
     run_test_with_timeout(
-        "mcp_server_command_exposes_agent_scope_over_stdio",
-        mcp_server_command_exposes_agent_scope_over_stdio_inner(),
+        "gateway_command_exposes_agent_scope_over_stdio",
+        gateway_command_exposes_agent_scope_over_stdio_inner(),
     )
     .await
 }
 
-async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
+async fn gateway_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
@@ -948,34 +766,24 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
     assert!(add_stdout.contains("[Success] Service added: demo"));
     let tool_name = "demo__greet".to_string();
 
-    let (transport, stderr) =
-        TokioChildProcess::builder(tokio::process::Command::new(cli_bin()).configure(|cmd| {
-            cmd.arg("mcp")
-                .arg("--scope")
-                .arg("agent")
-                .arg("--agent")
-                .arg("agent-a")
-                .arg("--config-path")
-                .arg(config_path.display().to_string())
-                .current_dir(rust_root());
-        }))
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    let mut stderr = stderr.expect("stderr must be piped");
-    let stderr_task = tokio::spawn(async move {
-        let mut buffer = String::new();
-        stderr.read_to_string(&mut buffer).await?;
-        Ok::<_, std::io::Error>(buffer)
-    });
-
-    let client = match ().serve_with_lifecycle(transport, discover_lifecycle()).await {
+    let gateway_child = spawn_gateway(&[
+        "--scope".to_string(),
+        "agent".to_string(),
+        "--agent".to_string(),
+        "agent-a".to_string(),
+        "--config-path".to_string(),
+        config_path.display().to_string(),
+    ])
+    .await?;
+    let base_url = format!("http://127.0.0.1:{}/mcp", gateway_child.port);
+    let client = match connect_http_client(&base_url).await {
         Ok(client) => client,
         Err(error) => {
-            let stderr_output = stderr_task.await??;
-            return Err(
-                format!("agent scope mcp 握手失败: {error}; stderr:\n{stderr_output}").into(),
-            );
+            let stderr_output = gateway_child.shutdown().await;
+            return Err(format!(
+                "agent scope gateway handshake failed: {error}; stderr:\n{stderr_output}"
+            )
+            .into());
         }
     };
 
@@ -1011,20 +819,20 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
     }
 
     client.cancel().await?;
-    let _ = stderr_task.await?;
+    let _ = gateway_child.shutdown().await;
     Ok(())
 }
 
 #[tokio::test]
-async fn mcp_server_command_exposes_store_tools_over_streamable_http() -> TestResult {
+async fn gateway_command_exposes_store_tools_over_streamable_http() -> TestResult {
     run_test_with_timeout(
-        "mcp_server_command_exposes_store_tools_over_streamable_http",
-        mcp_server_command_exposes_store_tools_over_streamable_http_inner(),
+        "gateway_command_exposes_store_tools_over_streamable_http",
+        gateway_command_exposes_store_tools_over_streamable_http_inner(),
     )
     .await
 }
 
-async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> TestResult {
+async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
@@ -1056,9 +864,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
     let tool_name = "demo__greet".to_string();
 
     let mut child = tokio::process::Command::new(cli_bin())
-        .arg("mcp")
-        .arg("--transport")
-        .arg("streamable-http")
+        .arg("gateway")
         .arg("--host")
         .arg("127.0.0.1")
         .arg("--port")
@@ -1158,6 +964,46 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
     let _ = child.wait().await;
     let _ = stderr_task.await?;
     Ok(())
+}
+
+/// A spawned `mcpstore gateway` child; `port` is a pre-reserved local port.
+struct GatewayChild {
+    child: tokio::process::Child,
+    port: u16,
+}
+
+async fn spawn_gateway(args: &[String]) -> Result<GatewayChild, Box<dyn std::error::Error>> {
+    let port = reserve_local_port();
+    let child = tokio::process::Command::new(cli_bin())
+        .arg("gateway")
+        .arg("--host")
+        .arg("127.0.0.1")
+        .arg("--port")
+        .arg(port.to_string())
+        .args(args)
+        .current_dir(rust_root())
+        .kill_on_drop(true)
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()?;
+    Ok(GatewayChild { child, port })
+}
+
+impl GatewayChild {
+    /// Collect stderr (bounded), terminate the child, and reap it.
+    async fn shutdown(mut self) -> String {
+        let mut text = String::new();
+        if let Some(mut stderr) = self.child.stderr.take() {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                stderr.read_to_string(&mut text),
+            )
+            .await;
+        }
+        let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
+        text
+    }
 }
 
 async fn connect_http_client(

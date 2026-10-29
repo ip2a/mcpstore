@@ -141,11 +141,6 @@ impl GatewayServer {
         })
     }
 
-    /// Handle for the app plane to read the routed-call ring.
-    pub(crate) fn call_log_handle(&self) -> Arc<GatewayCallLog> {
-        Arc::clone(&self.call_log)
-    }
-
     /// Record one routed business call at the ring tail, dropping the oldest past the cap.
     pub(super) fn record_call(
         &self,

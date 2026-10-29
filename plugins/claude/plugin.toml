@@ -11,6 +11,7 @@ supported_fields = ["command", "args", "env", "url", "headers"]
 
 [gateway_entry]
 url_key = "url"
+extra = { type = "http" }
 
 [discover]
 config_paths = ["~/.claude.json"]

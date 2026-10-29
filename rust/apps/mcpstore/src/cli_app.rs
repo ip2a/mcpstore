@@ -87,6 +87,8 @@ pub enum Commands {
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
+    /// Standalone gateway process: wired per-client mounts + one generic /mcp mount
+    Gateway(commands::gateway_cmd::GatewayArgs),
     #[command(visible_alias = "ui")]
     Web {
         #[arg(long)]
@@ -202,6 +204,7 @@ fn run_inner() -> Result<(), BoxErr> {
             Commands::MigrateStore(args) => {
                 commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
             }
+            Commands::Gateway(args) => commands::gateway_cmd::run(args).await,
             Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }

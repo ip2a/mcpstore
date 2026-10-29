@@ -174,15 +174,12 @@ impl HostsConfig {
 pub struct GatewayConfig {
     #[serde(default = "default_gateway_port")]
     pub port: u16,
-    #[serde(default)]
-    pub enabled: bool,
 }
 
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
             port: default_gateway_port(),
-            enabled: false,
         }
     }
 }

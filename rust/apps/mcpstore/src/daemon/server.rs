@@ -547,19 +547,11 @@ mod tests {
     }
 
     #[test]
-    fn plan_gateway_on_and_off() {
+    fn plan_gateway_port_writes_config_without_rebinding() {
         let mut config = config();
-        let planned = plan_config_change(&mut config, "gateway", &json!("on")).unwrap();
-        assert_eq!(
-            planned,
-            vec![(crate::daemon::listeners::ListenerKey::Gateway, Some(1830))]
-        );
-
-        let planned = plan_config_change(&mut config, "gateway", &json!("off")).unwrap();
-        assert_eq!(
-            planned,
-            vec![(crate::daemon::listeners::ListenerKey::Gateway, None)]
-        );
+        let planned = plan_config_change(&mut config, "gateway-port", &json!(1840)).unwrap();
+        assert_eq!(planned, Vec::new()); // gateway is a standalone child process
+        assert_eq!(config.gateway.port, 1840);
     }
 
     #[test]

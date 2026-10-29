@@ -255,19 +255,6 @@ fn emit_gateway_frames(
     }
 }
 
-pub(crate) async fn run_streamable_http(
-    server: GatewayServer,
-    args: &GatewayOptions,
-) -> Result<(), BoxErr> {
-    let path = normalize_http_path(&args.path);
-    let router = streamable_http_router(server, &path);
-    let addr = format!("{}:{}", args.host, args.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    eprintln!("[GATEWAY] Starting streamable-http at http://{addr}{path}");
-    axum::serve(listener, router).await?;
-    Ok(())
-}
-
 pub(super) fn normalize_http_path(path: &str) -> String {
     if path.is_empty() || path == "/" {
         return "/mcp".to_string();

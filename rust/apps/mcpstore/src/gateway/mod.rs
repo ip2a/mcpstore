@@ -306,4 +306,4 @@ mod tests;
 mod tools;
 mod transport;
 
-pub(crate) use transport::{run_streamable_http, streamable_http_router};
+pub(crate) use transport::streamable_http_router;
