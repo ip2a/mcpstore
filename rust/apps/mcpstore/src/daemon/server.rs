@@ -542,7 +542,7 @@ mod tests {
     fn plan_host_rebinds_all_enabled_faces() {
         let mut config = config();
         let planned = plan_config_change(&mut config, "host", &json!("192.168.1.10")).unwrap();
-        assert_eq!(planned.len(), 3); // gateway off by default
+        assert_eq!(planned.len(), 2); // gateway off by default
         assert_eq!(config.server.host, "192.168.1.10");
     }
 

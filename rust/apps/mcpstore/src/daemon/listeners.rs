@@ -9,27 +9,21 @@ use serde::Serialize;
 
 use crate::commands::api::{self, ApiState};
 
-/// daemon 托管的四个 HTTP 面。Kernel RPC（unix socket）不在此列，由 server.rs 持有。
+/// daemon 托管的 HTTP 面。Kernel RPC（unix socket）不在此列，由 server.rs 持有。
+/// App 面已并入 Web 面（同源 /api）；Gateway 是独立子进程，不经这里。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListenerKey {
     Core,
-    App,
     Web,
     Gateway,
 }
 
-const ALL_KEYS: [ListenerKey; 4] = [
-    ListenerKey::Core,
-    ListenerKey::App,
-    ListenerKey::Web,
-    ListenerKey::Gateway,
-];
+const ALL_KEYS: [ListenerKey; 3] = [ListenerKey::Core, ListenerKey::Web, ListenerKey::Gateway];
 
 impl ListenerKey {
     fn name(self) -> &'static str {
         match self {
             Self::Core => "core",
-            Self::App => "app",
             Self::Web => "web",
             Self::Gateway => "gateway",
         }
@@ -38,9 +32,8 @@ impl ListenerKey {
     fn index(self) -> usize {
         match self {
             Self::Core => 0,
-            Self::App => 1,
-            Self::Web => 2,
-            Self::Gateway => 3,
+            Self::Web => 1,
+            Self::Gateway => 2,
         }
     }
 }
@@ -61,13 +54,13 @@ struct ListenerSlot {
 /// 热重绑语义：先 bind 新地址成功 → abort 旧任务；bind 失败时旧 listener 原样运行。
 pub struct ListenerManager {
     // ponytail: 全局一把锁；daemon 管理操作串行到达，无争用场景
-    slots: Mutex<[Option<ListenerSlot>; 4]>,
+    slots: Mutex<[Option<ListenerSlot>; 3]>,
 }
 
 impl ListenerManager {
     pub fn new() -> Self {
         Self {
-            slots: Mutex::new([None, None, None, None]),
+            slots: Mutex::new([None, None, None]),
         }
     }
 
@@ -81,10 +74,6 @@ impl ListenerManager {
             (
                 ListenerKey::Core,
                 server.core_enabled.then_some(server.port),
-            ),
-            (
-                ListenerKey::App,
-                server.app_enabled.then_some(server.app_port),
             ),
             (
                 ListenerKey::Web,
@@ -168,7 +157,7 @@ impl ListenerManager {
         for slot in slots.iter_mut().flatten() {
             slot.task.abort();
         }
-        *slots = [None, None, None, None];
+        *slots = [None, None, None];
     }
 
     pub fn snapshot(&self) -> Vec<ListenerStatus> {
@@ -232,7 +221,6 @@ async fn api_not_found() -> StatusCode {
 async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router, Error> {
     match key {
         ListenerKey::Core => Ok(api::core_router(Arc::clone(state))),
-        ListenerKey::App => Ok(api::app_router(Arc::clone(state))),
         ListenerKey::Web => Ok(web_router(Arc::clone(state))),
         ListenerKey::Gateway => {
             // One mount per wired client (/mcp/<id>, caller identified by path) plus
@@ -355,8 +343,8 @@ mod tests {
     #[test]
     fn key_names_and_indices_are_stable() {
         assert_eq!(ListenerKey::Core.name(), "core");
-        assert_eq!(ListenerKey::App.index(), 1);
-        assert_eq!(ALL_KEYS.len(), 4);
+        assert_eq!(ListenerKey::Web.index(), 1);
+        assert_eq!(ALL_KEYS.len(), 3);
     }
 
     #[test]

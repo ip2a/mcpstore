@@ -35,10 +35,6 @@ pub(in crate::config) fn default_web_port() -> u16 {
     1828
 }
 
-pub(in crate::config) fn default_app_port() -> u16 {
-    1821
-}
-
 pub(in crate::config) fn default_gateway_port() -> u16 {
     1830
 }

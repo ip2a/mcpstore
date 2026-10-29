@@ -574,9 +574,6 @@ pub(crate) fn plan_config_change(
             if server.core_enabled {
                 planned.push((ListenerKey::Core, Some(server.port)));
             }
-            if server.app_enabled {
-                planned.push((ListenerKey::App, Some(server.app_port)));
-            }
             if server.web_enabled {
                 planned.push((ListenerKey::Web, Some(server.web_port)));
             }
@@ -598,19 +595,6 @@ pub(crate) fn plan_config_change(
             Ok(server
                 .core_enabled
                 .then_some(vec![(ListenerKey::Core, Some(port))])
-                .unwrap_or_default())
-        }
-        "app" => {
-            let on = parse_switch(value, "app")?;
-            server.app_enabled = on;
-            Ok(vec![(ListenerKey::App, on.then_some(server.app_port))])
-        }
-        "app-port" => {
-            let port = parse_port(value, "app-port")?;
-            server.app_port = port;
-            Ok(server
-                .app_enabled
-                .then_some(vec![(ListenerKey::App, Some(port))])
                 .unwrap_or_default())
         }
         "web" => {
@@ -641,7 +625,7 @@ pub(crate) fn plan_config_change(
         other => Err(Error::new(
             FailureCode::InvalidInput,
             format!(
-                "unknown config key {other:?}; available: host, core, core-port, app, app-port, web, web-port, gateway, gateway-port"
+                "unknown config key {other:?}; available: host, core, core-port, web, web-port, gateway, gateway-port"
             ),
         )),
     }

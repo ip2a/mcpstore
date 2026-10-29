@@ -734,10 +734,8 @@ fn test_server_settings_daemon_surfaces_default() {
     let server = ServerSettings::default();
     assert_eq!(server.host, "127.0.0.1");
     assert_eq!(server.port, 1820);
-    assert_eq!(server.app_port, 1821);
     assert_eq!(server.web_port, 1828);
     assert!(server.core_enabled);
-    assert!(server.app_enabled);
     assert!(server.web_enabled);
     assert!(!server.auto_open_browser);
     assert!(!GatewayConfig::default().enabled);
@@ -757,7 +755,6 @@ fn test_save_app_config_round_trips_without_tmp_residue() {
     let loaded = mgr.load_app_config().unwrap();
     assert_eq!(loaded.server.web_port, 1829);
     assert!(loaded.gateway.enabled);
-    assert_eq!(loaded.server.app_port, 1821);
     assert!(!mgr.app_config_path().with_extension("toml.tmp").exists());
 
     std::fs::remove_dir_all(&dir).ok();

@@ -21,13 +21,12 @@ export default defineConfig({
     },
   },
   server: {
-    port: 1828,
-    // App API 代理保留（本地控制面）
+    // dev 端口避开 daemon web 面（1828）：vite 占 1829，/api 原样代理到 daemon
+    port: 1829,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:1821",
+        target: "http://127.0.0.1:1828",
         changeOrigin: true,
-        rewrite: (route) => route.replace(/^\/api/, ""),
       },
     },
   },

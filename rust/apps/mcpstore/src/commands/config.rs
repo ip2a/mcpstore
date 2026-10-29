@@ -54,10 +54,6 @@ pub struct ConfigEdits {
     pub core: Option<String>,
     #[arg(long = "core-port")]
     pub core_port: Option<u16>,
-    #[arg(long = "app")]
-    pub app: Option<String>,
-    #[arg(long = "app-port")]
-    pub app_port: Option<u16>,
     #[arg(long = "web")]
     pub web: Option<String>,
     #[arg(long = "web-port")]
@@ -79,12 +75,6 @@ impl ConfigEdits {
         }
         if let Some(value) = self.core_port {
             pairs.push(("core-port", json!(value)));
-        }
-        if let Some(value) = &self.app {
-            pairs.push(("app", json!(value)));
-        }
-        if let Some(value) = self.app_port {
-            pairs.push(("app-port", json!(value)));
         }
         if let Some(value) = &self.web {
             pairs.push(("web", json!(value)));
@@ -187,11 +177,6 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         "  core: {} port={}",
         on_off(config.server.core_enabled),
         config.server.port
-    );
-    println!(
-        "  app:  {} port={}",
-        on_off(config.server.app_enabled),
-        config.server.app_port
     );
     println!(
         "  web:  {} port={}",
