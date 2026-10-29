@@ -38,22 +38,22 @@ pub struct GatewayArgs {
     pub session_key: Option<String>,
     #[arg(long)]
     pub instance_id: Option<InstanceId>,
-    #[arg(default_value_t = false)]
-    pub expose_session_state: bool,
-    #[arg(default_value_t = false)]
-    pub expose_tool: bool,
-    #[arg(default_value_t = false)]
-    pub expose_prompt: bool,
-    #[arg(default_value_t = false)]
-    pub expose_resource: bool,
-    #[arg(default_value_t = false)]
-    pub expose_openapi: bool,
-    #[arg(default_value_t = false)]
-    pub expose_service: bool,
-    #[arg(default_value_t = false)]
-    pub expose_cache: bool,
-    #[arg(default_value_t = false)]
-    pub expose_search: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_session_state_tools: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_tool_override_tools: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_prompt_override_tools: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_resource_override_tools: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_openapi_tools: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_service_tools: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_cache_tools: bool,
+    #[arg(long, default_value_t = false)]
+    pub expose_search_tools: bool,
 }
 
 pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
@@ -83,14 +83,14 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
         host: args.host.clone(),
         port,
         path: args.path.clone().unwrap_or_else(|| "/mcp".into()),
-        expose_session_state_tools: args.expose_session_state,
-        expose_tool_override_tools: args.expose_tool,
-        expose_prompt_override_tools: args.expose_prompt,
-        expose_resource_override_tools: args.expose_resource,
-        expose_openapi_tools: args.expose_openapi,
-        expose_service_tools: args.expose_service,
-        expose_cache_tools: args.expose_cache,
-        expose_search_tools: args.expose_search,
+        expose_session_state_tools: args.expose_session_state_tools,
+        expose_tool_override_tools: args.expose_tool_override_tools,
+        expose_prompt_override_tools: args.expose_prompt_override_tools,
+        expose_resource_override_tools: args.expose_resource_override_tools,
+        expose_openapi_tools: args.expose_openapi_tools,
+        expose_service_tools: args.expose_service_tools,
+        expose_cache_tools: args.expose_cache_tools,
+        expose_search_tools: args.expose_search_tools,
     };
 
     let call_log = GatewayCallLog::new();

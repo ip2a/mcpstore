@@ -112,10 +112,22 @@ pub(super) async fn gateway_start(
         command.args(["--instance-id", &id.to_string()]);
     }
     for (flag, on) in [
-        ("--expose-session-state-tools", options.expose_session_state_tools),
-        ("--expose-tool-override-tools", options.expose_tool_override_tools),
-        ("--expose-prompt-override-tools", options.expose_prompt_override_tools),
-        ("--expose-resource-override-tools", options.expose_resource_override_tools),
+        (
+            "--expose-session-state-tools",
+            options.expose_session_state_tools,
+        ),
+        (
+            "--expose-tool-override-tools",
+            options.expose_tool_override_tools,
+        ),
+        (
+            "--expose-prompt-override-tools",
+            options.expose_prompt_override_tools,
+        ),
+        (
+            "--expose-resource-override-tools",
+            options.expose_resource_override_tools,
+        ),
         ("--expose-openapi-tools", options.expose_openapi_tools),
         ("--expose-service-tools", options.expose_service_tools),
         ("--expose-cache-tools", options.expose_cache_tools),

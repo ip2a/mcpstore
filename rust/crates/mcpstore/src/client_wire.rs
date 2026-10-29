@@ -684,7 +684,7 @@ mod tests {
         // Ledger lost, entry still present and identical → adopted, file untouched.
         let path = temp_file(
             "adopt",
-            "{\"mcpServers\":{\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp/claude\"}}}",
+            "{\"mcpServers\":{\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp/claude\",\"type\":\"http\"}}}",
         );
         let identical = fs::read_to_string(&path).unwrap();
         wired(wire_gateway(
@@ -866,7 +866,7 @@ mod tests {
         setup();
         let claude_path = temp_file(
             "refresh-claude",
-            "{\"mcpServers\":{\"demo\":{\"command\":\"node\"},\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp\"}}}",
+            "{\"mcpServers\":{\"demo\":{\"command\":\"node\"},\"mcpstore\":{\"url\":\"http://127.0.0.1:1830/mcp\",\"type\":\"http\"}}}",
         );
         let state = std::env::temp_dir().join(format!("mcpstore-refresh-{}", std::process::id()));
         let legacy = format!(

@@ -793,7 +793,7 @@ async fn gateway_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
 
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
-    assert!(resources[0].uri.starts_with("mcpstore://aggregate/"));
+    assert!(resources[0].uri.starts_with("mcpstore://gateway/"));
     assert!(resources[0].uri.ends_with("fixture:%2F%2Fdocs%2Freadme"));
 
     let prompts = client.list_all_prompts().await?;
@@ -904,7 +904,7 @@ async fn gateway_command_exposes_store_tools_over_streamable_http_inner() -> Tes
     let resources = client.list_all_resources().await?;
     assert_eq!(resources.len(), 1);
     let resource_uri = resources[0].uri.clone();
-    assert!(resource_uri.starts_with("mcpstore://aggregate/"));
+    assert!(resource_uri.starts_with("mcpstore://gateway/"));
     assert!(
         resource_uri.ends_with("fixture:%2F%2Fdocs%2Freadme"),
         "unexpected aggregate URI: {resource_uri}"
