@@ -322,7 +322,12 @@ mod tests {
         };
         let failure: Result<rmcp::model::CallToolResponse, rmcp::ErrorData> =
             Err(rmcp::ErrorData::internal_error("downstream gone", None));
-        server.record_call("demo__echo", &binding, std::time::Duration::from_millis(3), &failure);
+        server.record_call(
+            "demo__echo",
+            &binding,
+            std::time::Duration::from_millis(3),
+            &failure,
+        );
 
         let records = log.snapshot_after(0);
         assert_eq!(records.len(), 1);

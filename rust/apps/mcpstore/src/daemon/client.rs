@@ -250,21 +250,33 @@ impl KernelClient {
     }
 
     pub async fn plugin_list(&mut self) -> Result<Value, Error> {
-        self.request(KernelOperation::PluginList, Value::Null, Duration::from_secs(30))
-            .await
-            .map(|(result, _)| result)
+        self.request(
+            KernelOperation::PluginList,
+            Value::Null,
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
     }
 
     pub async fn plugin_market(&mut self) -> Result<Value, Error> {
-        self.request(KernelOperation::PluginMarket, Value::Null, Duration::from_secs(120))
-            .await
-            .map(|(result, _)| result)
+        self.request(
+            KernelOperation::PluginMarket,
+            Value::Null,
+            Duration::from_secs(120),
+        )
+        .await
+        .map(|(result, _)| result)
     }
 
     pub async fn plugin_detect(&mut self) -> Result<Value, Error> {
-        self.request(KernelOperation::PluginDetect, Value::Null, Duration::from_secs(120))
-            .await
-            .map(|(result, _)| result)
+        self.request(
+            KernelOperation::PluginDetect,
+            Value::Null,
+            Duration::from_secs(120),
+        )
+        .await
+        .map(|(result, _)| result)
     }
 
     pub async fn plugin_install(&mut self, id: &str) -> Result<Value, Error> {

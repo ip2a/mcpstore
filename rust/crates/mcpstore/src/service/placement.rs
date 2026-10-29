@@ -30,7 +30,13 @@ impl MCPStore {
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let key = placement_key(&instance.service_name, &instance.scope);
-        Ok(self.kernel.runtime.panel_placement.get(&key).map(String::as_str) != Some(DELEGATE))
+        Ok(self
+            .kernel
+            .runtime
+            .panel_placement
+            .get(&key)
+            .map(String::as_str)
+            != Some(DELEGATE))
     }
 
     /// The data panel's single connection entry for local execution (ensure_instance_connected
@@ -66,7 +72,8 @@ impl MCPStore {
         args: Value,
     ) -> Result<crate::transport::ToolCallResult> {
         if self.panel_executes_locally(instance_id).await? {
-            self.ensure_data_panel_instance_connected(instance_id).await?;
+            self.ensure_data_panel_instance_connected(instance_id)
+                .await?;
             return self
                 .kernel
                 .execution

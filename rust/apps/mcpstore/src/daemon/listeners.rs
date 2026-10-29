@@ -211,13 +211,15 @@ pub fn web_router(state: Arc<ApiState>) -> Router {
 
     // Inject config into all requests via layer
     if let Some(cfg) = config {
-        router = router.layer(axum::middleware::from_fn(move |mut req: axum::extract::Request, next: axum::middleware::Next| {
-            let cfg = Arc::clone(&cfg);
-            async move {
-                req.extensions_mut().insert(cfg);
-                next.run(req).await
-            }
-        }));
+        router = router.layer(axum::middleware::from_fn(
+            move |mut req: axum::extract::Request, next: axum::middleware::Next| {
+                let cfg = Arc::clone(&cfg);
+                async move {
+                    req.extensions_mut().insert(cfg);
+                    next.run(req).await
+                }
+            },
+        ));
     }
 
     router
@@ -315,7 +317,10 @@ async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router,
                     format!("failed to build generic gateway server: {error}"),
                 )
             })?;
-            router = router.merge(crate::gateway::streamable_http_router(generic_server, "/mcp"));
+            router = router.merge(crate::gateway::streamable_http_router(
+                generic_server,
+                "/mcp",
+            ));
 
             Ok(router)
         }

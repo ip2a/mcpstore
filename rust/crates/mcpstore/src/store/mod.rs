@@ -248,9 +248,7 @@ impl MCPStore {
     }
 
     /// The attached telemetry sink, if any.
-    pub fn telemetry(
-        &self,
-    ) -> Option<std::sync::Arc<dyn crate::telemetry::RequestTelemetry>> {
+    pub fn telemetry(&self) -> Option<std::sync::Arc<dyn crate::telemetry::RequestTelemetry>> {
         self.kernel
             .execution
             .telemetry
@@ -265,16 +263,11 @@ impl MCPStore {
         &self,
         sink: Option<std::sync::Arc<dyn crate::telemetry::FrameTelemetry>>,
     ) {
-        self.kernel
-            .execution
-            .pool
-            .attach_frame_telemetry(sink);
+        self.kernel.execution.pool.attach_frame_telemetry(sink);
     }
 
     /// The attached frame-telemetry sink, if any.
-    pub fn frame_telemetry(
-        &self,
-    ) -> Option<std::sync::Arc<dyn crate::telemetry::FrameTelemetry>> {
+    pub fn frame_telemetry(&self) -> Option<std::sync::Arc<dyn crate::telemetry::FrameTelemetry>> {
         self.kernel.execution.pool.frame_telemetry()
     }
 

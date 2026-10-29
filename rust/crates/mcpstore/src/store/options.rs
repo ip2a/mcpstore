@@ -25,7 +25,12 @@ impl PanelRole {
     /// the operator should set an explicit panel_id.
     pub fn default_panel_id() -> String {
         hostname::get()
-            .map(|name| name.to_string_lossy().trim().trim_end_matches('.').to_string())
+            .map(|name| {
+                name.to_string_lossy()
+                    .trim()
+                    .trim_end_matches('.')
+                    .to_string()
+            })
             .ok()
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| "data-panel".to_string())

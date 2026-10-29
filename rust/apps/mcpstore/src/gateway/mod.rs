@@ -29,8 +29,8 @@ use rmcp::{
     },
     service::{SubscriptionContext, SubscriptionSink},
     transport::{
-        streamable_http_server::session::local::LocalSessionManager,
-        StreamableHttpServerConfig, StreamableHttpService,
+        streamable_http_server::session::local::LocalSessionManager, StreamableHttpServerConfig,
+        StreamableHttpService,
     },
     ErrorData, ServerHandler,
 };

@@ -174,18 +174,16 @@ async fn record_gateway_frames(
         .and_then(|value| value.to_str().ok())
         .map(|value| format!("gw:{value}"))
         .unwrap_or_else(|| {
-            format!("gw:stateless:{}", caller.clone().unwrap_or_else(|| "direct".to_string()))
+            format!(
+                "gw:stateless:{}",
+                caller.clone().unwrap_or_else(|| "direct".to_string())
+            )
         });
     let (parts, body) = request.into_parts();
-    let request_bytes =
-        axum::body::to_bytes(body, MAX_FRAME_BODY_BYTES).await.unwrap_or_default();
-    emit_gateway_frames(
-        &sink,
-        &session_id,
-        "up",
-        &caller,
-        &request_bytes,
-    );
+    let request_bytes = axum::body::to_bytes(body, MAX_FRAME_BODY_BYTES)
+        .await
+        .unwrap_or_default();
+    emit_gateway_frames(&sink, &session_id, "up", &caller, &request_bytes);
     let response = next
         .run(axum::extract::Request::from_parts(
             parts,
@@ -209,8 +207,9 @@ async fn record_gateway_frames(
         });
         return axum::response::Response::from_parts(parts, axum::body::Body::from_stream(stream));
     }
-    let response_bytes =
-        axum::body::to_bytes(body, MAX_FRAME_BODY_BYTES).await.unwrap_or_default();
+    let response_bytes = axum::body::to_bytes(body, MAX_FRAME_BODY_BYTES)
+        .await
+        .unwrap_or_default();
     emit_gateway_frames(&sink, &session_id, "down", &caller, &response_bytes);
     axum::response::Response::from_parts(parts, axum::body::Body::from(response_bytes))
 }
@@ -297,9 +296,7 @@ mod frame_tests {
         )
     }
 
-    fn frame_router(
-        sink: std::sync::Arc<crate::telemetry::TelemetryLog>,
-    ) -> axum::Router {
+    fn frame_router(sink: std::sync::Arc<crate::telemetry::TelemetryLog>) -> axum::Router {
         let dyn_sink: std::sync::Arc<dyn FrameTelemetry> = sink;
         axum::Router::new()
             .route("/mcp", axum::routing::post(json_reply))
@@ -388,7 +385,11 @@ mod frame_tests {
         let body = response.text().await.unwrap();
         assert!(body.contains("\"done\":true"));
         // GET never records.
-        client.get(format!("http://{addr}/mcp/sse")).send().await.unwrap();
+        client
+            .get(format!("http://{addr}/mcp/sse"))
+            .send()
+            .await
+            .unwrap();
         std::thread::sleep(Duration::from_millis(300));
 
         // No request body was sent; only the response data line became a frame.

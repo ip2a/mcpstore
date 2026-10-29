@@ -122,15 +122,14 @@ pub fn enable(id: &str) -> Result<()> {
 /// back would corrupt them. A corrupt ledger is a hard stop, never a pass.
 /// Shared by disable and market uninstall.
 pub(crate) fn refuse_while_wired(id: &str, action: &str) -> Result<()> {
-    let wired = crate::client_wire::load_wired_state(
-        &crate::client_wire::wired_state_default_path(),
-    )
-    .map_err(|error| {
-        Error::new(
-            FailureCode::Internal,
-            format!("cannot verify wiring for plugin {id}: {error}"),
-        )
-    })?;
+    let wired =
+        crate::client_wire::load_wired_state(&crate::client_wire::wired_state_default_path())
+            .map_err(|error| {
+                Error::new(
+                    FailureCode::Internal,
+                    format!("cannot verify wiring for plugin {id}: {error}"),
+                )
+            })?;
     if wired.entries.iter().any(|entry| entry.client_id == id) {
         return Err(Error::new(
             FailureCode::InvalidInput,
@@ -169,13 +168,19 @@ pub(crate) fn current_enabled() -> Vec<String> {
 /// daemon serves, so there is no competing writer to race.
 pub(crate) fn set_enabled(enabled: &[String]) -> Result<()> {
     let manager = crate::config::ConfigManager::new();
-    let mut config = manager
-        .load_app_config_or_default()
-        .map_err(|error| Error::new(FailureCode::Internal, format!("failed to read config: {error}")))?;
+    let mut config = manager.load_app_config_or_default().map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("failed to read config: {error}"),
+        )
+    })?;
     config.plugins.enabled = enabled.to_vec();
-    manager
-        .save_app_config(&config)
-        .map_err(|error| Error::new(FailureCode::Internal, format!("failed to write config: {error}")))
+    manager.save_app_config(&config).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("failed to write config: {error}"),
+        )
+    })
 }
 
 /// Desktop first launch: copy detected agents' plugin folders from the bundled
@@ -225,16 +230,22 @@ fn materialize_into(
             copy_dir(&path, &target).map_err(|error| {
                 Error::new(
                     FailureCode::Internal,
-                    format!("failed to copy plugin {id} into {}: {error}", target.display()),
+                    format!(
+                        "failed to copy plugin {id} into {}: {error}",
+                        target.display()
+                    ),
                 )
             })?;
             materialized += 1;
         }
-        trace.clients.entry(id.clone()).or_insert_with(|| DetectedClient {
-            first_detected: now_rfc3339(),
-            config_path: Some(detection.path.display().to_string()),
-            installed_version: Some(setup.plugin_version().to_string()),
-        });
+        trace
+            .clients
+            .entry(id.clone())
+            .or_insert_with(|| DetectedClient {
+                first_detected: now_rfc3339(),
+                config_path: Some(detection.path.display().to_string()),
+                installed_version: Some(setup.plugin_version().to_string()),
+            });
         if !enabled.iter().any(|enabled_id| *enabled_id == id) {
             enabled.push(id);
         }
@@ -379,8 +390,12 @@ fn save_trace_at(path: &Path, trace: &DetectionTrace) -> Result<()> {
             )
         })?;
     }
-    let body = serde_json::to_string_pretty(trace)
-        .map_err(|error| Error::new(FailureCode::Internal, format!("failed to encode trace: {error}")))?;
+    let body = serde_json::to_string_pretty(trace).map_err(|error| {
+        Error::new(
+            FailureCode::Internal,
+            format!("failed to encode trace: {error}"),
+        )
+    })?;
     std::fs::write(path, body).map_err(|error| {
         Error::new(
             FailureCode::Internal,
@@ -395,12 +410,27 @@ fn save_trace_at(path: &Path, trace: &DetectionTrace) -> Result<()> {
 #[cfg(test)]
 pub(crate) fn install_for_tests() {
     let builtins: &[(&str, &str)] = &[
-        ("claude", include_str!("../../../../../plugins/claude/plugin.toml")),
-        ("codex", include_str!("../../../../../plugins/codex/plugin.toml")),
-        ("opencode", include_str!("../../../../../plugins/opencode/plugin.toml")),
-        ("cursor", include_str!("../../../../../plugins/cursor/plugin.toml")),
+        (
+            "claude",
+            include_str!("../../../../../plugins/claude/plugin.toml"),
+        ),
+        (
+            "codex",
+            include_str!("../../../../../plugins/codex/plugin.toml"),
+        ),
+        (
+            "opencode",
+            include_str!("../../../../../plugins/opencode/plugin.toml"),
+        ),
+        (
+            "cursor",
+            include_str!("../../../../../plugins/cursor/plugin.toml"),
+        ),
         ("pi", include_str!("../../../../../plugins/pi/plugin.toml")),
-        ("omp", include_str!("../../../../../plugins/omp/plugin.toml")),
+        (
+            "omp",
+            include_str!("../../../../../plugins/omp/plugin.toml"),
+        ),
     ];
     let setups: Vec<Arc<dyn ClientSetup>> = builtins
         .iter()
@@ -439,7 +469,8 @@ config_paths = ["~/.{id}.json"]
     }
 
     fn setup_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mcpstore-registry-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("mcpstore-registry-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -537,13 +568,15 @@ config_paths = ["{}"]
 
         let mut enabled = Vec::new();
         let mut trace = DetectionTrace::default();
-        let count =
-            materialize_into(&bundle, &plugins, &mut enabled, &mut trace).unwrap();
+        let count = materialize_into(&bundle, &plugins, &mut enabled, &mut trace).unwrap();
         assert_eq!(count, 1);
         assert!(plugins.join("fake-agent").join("plugin.toml").is_file());
         assert!(!plugins.join("absent-agent").exists());
         assert_eq!(enabled, ["fake-agent"]);
-        assert_eq!(trace.clients["fake-agent"].installed_version.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            trace.clients["fake-agent"].installed_version.as_deref(),
+            Some("1.0.0")
+        );
 
         // Existing install wins over a re-copy; detection is recorded once.
         let count = materialize_into(&bundle, &plugins, &mut enabled, &mut trace).unwrap();

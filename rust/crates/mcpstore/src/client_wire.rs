@@ -135,9 +135,8 @@ pub fn load_wired_state(path: &Path) -> Result<WiredState> {
 }
 
 fn save_wired_state(path: &Path, state: &WiredState) -> Result<()> {
-    let body = serde_json::to_vec_pretty(state).map_err(|error| {
-        Error::new(FailureCode::Internal, error.to_string())
-    })?;
+    let body = serde_json::to_vec_pretty(state)
+        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
     atomic_write(path, &body)
 }
 
@@ -288,9 +287,7 @@ pub(crate) fn wire_json_entry<T: ClientSetup + ?Sized>(
             format!("{} must contain a JSON object", path.display()),
         )
     })?;
-    let servers = root
-        .entry(key)
-        .or_insert_with(|| Value::Object(Map::new()));
+    let servers = root.entry(key).or_insert_with(|| Value::Object(Map::new()));
     let map = servers.as_object_mut().ok_or_else(|| {
         Error::new(
             FailureCode::Internal,
@@ -450,7 +447,10 @@ pub(crate) fn unwire_json_entry<T: ClientSetup + ?Sized>(
     atomic_write(&entry.path, &body)
 }
 
-pub(crate) fn unwire_toml_entry<T: ClientSetup + ?Sized>(setup: &T, entry: &WiredEntry) -> Result<()> {
+pub(crate) fn unwire_toml_entry<T: ClientSetup + ?Sized>(
+    setup: &T,
+    entry: &WiredEntry,
+) -> Result<()> {
     let text = fs::read_to_string(&entry.path).map_err(|error| {
         Error::new(
             FailureCode::Internal,
@@ -635,10 +635,8 @@ mod tests {
     }
 
     fn temp_file(suffix: &str, body: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "mcpstore-wire-{suffix}-{}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("mcpstore-wire-{suffix}-{}", std::process::id()));
         fs::write(&path, body).unwrap();
         path
     }
@@ -672,8 +670,7 @@ mod tests {
         assert!(path.with_extension("mcpstore-bak").exists());
         let removed = unwire_gateway("claude", &state).unwrap();
         assert_eq!(removed.url, entry.url);
-        let document: Value =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let document: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert!(document["mcpServers"].get("mcpstore").is_none());
         assert_eq!(document["mcpServers"]["demo"]["command"], "node");
         let _ = fs::remove_file(path);
@@ -704,7 +701,9 @@ mod tests {
         // Hand-edited entry with no ledger record → conflict, document untouched.
         let diverged = "{\"mcpServers\":{\"mcpstore\":{\"url\":\"http://127.0.0.1:9999/mcp\"}}}";
         fs::write(&path, diverged).unwrap();
-        let WireOutcome::Conflict { current, expected, .. } = wire_gateway(
+        let WireOutcome::Conflict {
+            current, expected, ..
+        } = wire_gateway(
             "claude",
             &path,
             "http://127.0.0.1:1830/mcp/claude",
@@ -730,8 +729,7 @@ mod tests {
             None,
             true,
         ));
-        let document: Value =
-            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let document: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
             document["mcpServers"]["mcpstore"]["url"],
             "http://127.0.0.1:1830/mcp/claude"
@@ -747,10 +745,20 @@ mod tests {
         setup();
         let path = temp_file("ghost", "{}");
         let state = std::env::temp_dir().join(format!("mcpstore-wired-gh-{}", std::process::id()));
-        let error =
-            wire_gateway("not-a-plugin", &path, "http://x/mcp", &state, None, None, false)
-                .unwrap_err();
-        assert!(error.to_string().contains("Unknown client plugin"), "{error}");
+        let error = wire_gateway(
+            "not-a-plugin",
+            &path,
+            "http://x/mcp",
+            &state,
+            None,
+            None,
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("Unknown client plugin"),
+            "{error}"
+        );
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(state);
     }
@@ -762,7 +770,8 @@ mod tests {
             "codex",
             "# my codex config\nmodel = \"o3\"\n\n[mcp_servers.demo]\ncommand = \"node\"\n",
         );
-        let state = std::env::temp_dir().join(format!("mcpstore-wired-codex-{}", std::process::id()));
+        let state =
+            std::env::temp_dir().join(format!("mcpstore-wired-codex-{}", std::process::id()));
         wired(wire_gateway(
             "codex",
             &path,
@@ -801,8 +810,7 @@ mod tests {
             None,
             false,
         )
-        .unwrap()
-        else {
+        .unwrap() else {
             panic!("expected conflict");
         };
         wired(wire_gateway(
@@ -825,7 +833,9 @@ mod tests {
         );
         assert_eq!(parsed["mcp_servers"]["demo"]["command"], "node".into());
         unwire_gateway("codex", &state).unwrap();
-        assert!(!fs::read_to_string(&path).unwrap().contains("mcp_servers.mcpstore"));
+        assert!(!fs::read_to_string(&path)
+            .unwrap()
+            .contains("mcp_servers.mcpstore"));
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(state);
     }
@@ -874,8 +884,7 @@ mod tests {
             document["mcpServers"]["mcpstore"]["url"],
             "http://127.0.0.1:1830/mcp/claude"
         );
-        let wired: WiredState =
-            serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
+        let wired: WiredState = serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
         assert_eq!(wired.entries[0].url, "http://127.0.0.1:1830/mcp/claude");
 
         // A hand-edited entry keeps its file and its record url.
@@ -895,8 +904,7 @@ mod tests {
             document["mcpServers"]["mcpstore"]["url"],
             "http://127.0.0.1:1830/mcp"
         );
-        let wired: WiredState =
-            serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
+        let wired: WiredState = serde_json::from_str(&fs::read_to_string(&state).unwrap()).unwrap();
         assert_eq!(wired.entries[0].url, "http://127.0.0.1:9999/mcp");
         let _ = fs::remove_file(claude_path);
         let _ = fs::remove_file(cursor_path);
@@ -911,8 +919,7 @@ mod tests {
                 "{{\"client_id\":\"codex\",\"path\":\"/tmp/x\",\"name\":\"mcpstore\",\"url\":\"http://127.0.0.1:1830/mcp/codex\",\"applied_at_unix_ms\":0{scope}}}"
             )
         };
-        let entry: WiredEntry =
-            serde_json::from_str(&document("")).unwrap();
+        let entry: WiredEntry = serde_json::from_str(&document("")).unwrap();
         assert_eq!(
             entry.effective_scope().unwrap(),
             ScopeRef::Agent {

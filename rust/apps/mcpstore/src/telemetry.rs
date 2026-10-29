@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mcpstore::telemetry::{FrameRecord, RequestRecord};
-use rusqlite::{Connection, types::Value};
+use rusqlite::{types::Value, Connection};
 
 /// Records older than this are purged at open and once per hour by the writer.
 // ponytail: constant retention; wire to `[diagnostics]` config when a real need shows up.
@@ -446,7 +446,11 @@ impl TelemetryLog {
             push(&mut sql, "AND caller = ", Value::Text(value.to_string()));
         }
         if let Some(value) = filter.service.as_deref() {
-            push(&mut sql, "AND service_name = ", Value::Text(value.to_string()));
+            push(
+                &mut sql,
+                "AND service_name = ",
+                Value::Text(value.to_string()),
+            );
         }
         if let Some(value) = filter.tool.as_deref() {
             push(&mut sql, "AND tool = ", Value::Text(value.to_string()));
@@ -477,8 +481,9 @@ impl TelemetryLog {
 
     pub fn get(&self, id: i64) -> rusqlite::Result<Option<RequestRecord>> {
         let conn = self.read_conn()?;
-        let mut stmt =
-            conn.prepare(&format!("SELECT {SELECT_COLUMNS} FROM requests WHERE id = ?1"))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SELECT_COLUMNS} FROM requests WHERE id = ?1"
+        ))?;
         let mut rows = stmt.query_map([id], row_to_record)?;
         match rows.next() {
             Some(row) => row.map(Some),
@@ -524,7 +529,11 @@ impl TelemetryLog {
     }
 
     /// One session's frame timeline, oldest first.
-    pub fn frame_history(&self, session_id: &str, limit: u32) -> rusqlite::Result<Vec<FrameRecord>> {
+    pub fn frame_history(
+        &self,
+        session_id: &str,
+        limit: u32,
+    ) -> rusqlite::Result<Vec<FrameRecord>> {
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {FRAME_COLUMNS} FROM frames WHERE session_id = ?1 ORDER BY id LIMIT ?2"
@@ -740,7 +749,10 @@ mod tests {
             .unwrap();
         assert_eq!(by_caller.len(), 1);
         let id = by_caller[0].id.unwrap();
-        assert_eq!(log.get(id).unwrap().unwrap().caller.as_deref(), Some("claude"));
+        assert_eq!(
+            log.get(id).unwrap().unwrap().caller.as_deref(),
+            Some("claude")
+        );
 
         std::fs::remove_file(&path).ok();
     }
@@ -769,7 +781,9 @@ mod tests {
         log.record_frame(read);
 
         let mut error = FrameRecord::new("gw:s", "gateway", "down");
-        error.from_envelope(&serde_json::json!({"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}));
+        error.from_envelope(
+            &serde_json::json!({"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}),
+        );
         log.record_frame(error);
 
         // Upstream face frames must not count (gateway face only).
@@ -782,7 +796,9 @@ mod tests {
         log.record_frame(init);
 
         let mut notification = FrameRecord::new("gw:s", "gateway", "up");
-        notification.from_envelope(&serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+        notification.from_envelope(
+            &serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+        );
         log.record_frame(notification);
         std::thread::sleep(Duration::from_millis(300));
 
@@ -791,7 +807,10 @@ mod tests {
         assert_eq!(days[0].tool_calls, 1);
         assert_eq!(days[0].resource_calls, 1);
         assert_eq!(days[0].prompt_calls, 0);
-        assert_eq!(days[0].other_calls, 1, "initialize is an other-request; notifications are not calls");
+        assert_eq!(
+            days[0].other_calls, 1,
+            "initialize is an other-request; notifications are not calls"
+        );
         assert_eq!(days[0].errors, 1);
         assert_eq!(days[0].bucket_unix_ms % 86_400_000, 0);
         let _ = std::fs::remove_file(path);
@@ -839,7 +858,10 @@ mod tests {
         assert_eq!(claude.len(), 1);
         assert_eq!(claude[0].calls, 2);
         // Management records never enter tool stats.
-        assert!(stats.by_tool.iter().all(|p| p.label != "mcpstore_service_add"));
+        assert!(stats
+            .by_tool
+            .iter()
+            .all(|p| p.label != "mcpstore_service_add"));
 
         std::fs::remove_file(&path).ok();
     }
@@ -855,7 +877,8 @@ mod tests {
         // Backdate the row directly, then reopen: open() purges expired rows.
         let conn = open_connection(&path).unwrap();
         let old = now_ms() - (RETENTION_DAYS + 1) * 24 * 3600 * 1000;
-        conn.execute("UPDATE requests SET started_at_unix_ms = ?1", [old]).unwrap();
+        conn.execute("UPDATE requests SET started_at_unix_ms = ?1", [old])
+            .unwrap();
         drop(conn);
         let log = TelemetryLog::open(&path).unwrap();
         std::thread::sleep(Duration::from_millis(200));
@@ -923,7 +946,8 @@ mod tests {
             // frames go, requests stay (their retention is longer).
             let conn = open_connection(&path).unwrap();
             let old = now_ms() - (FRAME_RETENTION_DAYS + 1) * 24 * 3600 * 1000;
-            conn.execute("UPDATE frames SET ts_unix_ms = ?1", [old]).unwrap();
+            conn.execute("UPDATE frames SET ts_unix_ms = ?1", [old])
+                .unwrap();
             drop(conn);
         }
         let log = TelemetryLog::open(&path).unwrap();

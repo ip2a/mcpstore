@@ -80,8 +80,13 @@ pub(super) async fn connect(
 
     if server_config.auth.is_none() {
         let transport = StreamableHttpClientTransport::from_config(transport_config);
-        let transport =
-            TelemetryTransport::wrap(transport, frame_telemetry, instance_id, name.to_string(), "streamable-http");
+        let transport = TelemetryTransport::wrap(
+            transport,
+            frame_telemetry,
+            instance_id,
+            name.to_string(),
+            "streamable-http",
+        );
         return rmcp::service::serve_client_with_lifecycle(
             handler,
             transport,
@@ -134,8 +139,13 @@ pub(super) async fn connect(
         server_config.auth.clone(),
     );
     let transport = StreamableHttpClientTransport::with_client(oauth_client, transport_config);
-    let transport =
-        TelemetryTransport::wrap(transport, frame_telemetry, instance_id, name.to_string(), "streamable-http");
+    let transport = TelemetryTransport::wrap(
+        transport,
+        frame_telemetry,
+        instance_id,
+        name.to_string(),
+        "streamable-http",
+    );
 
     match rmcp::service::serve_client_with_lifecycle(
         handler,

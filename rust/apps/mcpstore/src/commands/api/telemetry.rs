@@ -57,7 +57,10 @@ pub(super) async fn request_detail(
                 None,
             )
         })?;
-    Ok(success("请求详情获取成功", serde_json::to_value(record).unwrap_or(Value::Null)))
+    Ok(success(
+        "请求详情获取成功",
+        serde_json::to_value(record).unwrap_or(Value::Null),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -74,7 +77,10 @@ pub(super) async fn usage_stats(
     let stats = telemetry
         .usage_stats(query.hours.unwrap_or(24))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
-    Ok(success("用量统计获取成功", serde_json::to_value(stats).unwrap_or(Value::Null)))
+    Ok(success(
+        "用量统计获取成功",
+        serde_json::to_value(stats).unwrap_or(Value::Null),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -128,7 +134,10 @@ pub(super) async fn frame_sessions(
     let sessions = telemetry
         .frame_sessions(query.face.as_deref(), query.hours.unwrap_or(24))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
-    Ok(success("帧会话获取成功", serde_json::to_value(sessions).unwrap_or(Value::Null)))
+    Ok(success(
+        "帧会话获取成功",
+        serde_json::to_value(sessions).unwrap_or(Value::Null),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -146,7 +155,10 @@ pub(super) async fn frame_history(
     let frames = telemetry
         .frame_history(&query.session_id, query.limit.unwrap_or(200))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
-    Ok(success("帧时间线获取成功", serde_json::to_value(frames).unwrap_or(Value::Null)))
+    Ok(success(
+        "帧时间线获取成功",
+        serde_json::to_value(frames).unwrap_or(Value::Null),
+    ))
 }
 
 /// GET /gateway/frames/detail/:id — one frame including the full envelope.
@@ -166,7 +178,10 @@ pub(super) async fn frame_detail(
                 None,
             )
         })?;
-    Ok(success("帧详情获取成功", serde_json::to_value(record).unwrap_or(Value::Null)))
+    Ok(success(
+        "帧详情获取成功",
+        serde_json::to_value(record).unwrap_or(Value::Null),
+    ))
 }
 
 fn require_telemetry(

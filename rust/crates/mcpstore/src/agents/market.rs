@@ -113,7 +113,9 @@ pub(crate) fn version_gt(candidate: &str, installed: &str) -> bool {
 
 fn installed_version(id: &str) -> Option<String> {
     let source = std::fs::read_to_string(plugins_dir().join(id).join("plugin.toml")).ok()?;
-    ManifestSetup::from_toml(&source).ok().map(|setup| setup.plugin_version().to_string())
+    ManifestSetup::from_toml(&source)
+        .ok()
+        .map(|setup| setup.plugin_version().to_string())
 }
 
 /// Pull the market index, refresh the version cache in the trace, and list
@@ -150,8 +152,10 @@ pub async fn list_market(urls: &[String]) -> Result<Vec<MarketListing>> {
 /// matched client whose plugin is not installed. Never installs anything.
 pub async fn detect_from_market(urls: &[String]) -> Result<Vec<DetectHit>> {
     let (index, _) = fetch_index(urls).await?;
-    let installed: HashSet<String> =
-        super::registry::registry_report().into_iter().map(|report| report.id).collect();
+    let installed: HashSet<String> = super::registry::registry_report()
+        .into_iter()
+        .map(|report| report.id)
+        .collect();
     let mut trace = load_trace();
     trace.last_detect = Some(now_rfc3339());
     let mut hits = Vec::new();
@@ -197,9 +201,7 @@ pub async fn install(id: &str, urls: &[String]) -> Result<()> {
         .plugins
         .iter()
         .find(|entry| entry.id == id)
-        .ok_or_else(|| {
-            Error::new(FailureCode::Internal, format!("market has no plugin {id}"))
-        })?;
+        .ok_or_else(|| Error::new(FailureCode::Internal, format!("market has no plugin {id}")))?;
     let target = plugins_dir().join(id);
     if target.exists() {
         return Err(Error::new(
@@ -223,7 +225,10 @@ pub async fn install(id: &str, urls: &[String]) -> Result<()> {
     if digest.as_str() != entry.digest {
         return Err(Error::new(
             FailureCode::Internal,
-            format!("plugin {id}: download digest {digest} does not match index {}", entry.digest),
+            format!(
+                "plugin {id}: download digest {digest} does not match index {}",
+                entry.digest
+            ),
         ));
     }
 
@@ -231,8 +236,8 @@ pub async fn install(id: &str, urls: &[String]) -> Result<()> {
     let staging = staging_path(id);
     let _ = std::fs::remove_dir_all(&staging);
     unpack_zip(&bytes, &staging)?;
-    let manifest_source = std::fs::read_to_string(staging.join("plugin.toml"))
-        .map_err(|error| {
+    let manifest_source =
+        std::fs::read_to_string(staging.join("plugin.toml")).map_err(|error| {
             let _ = std::fs::remove_dir_all(&staging);
             Error::new(
                 FailureCode::Internal,
@@ -262,7 +267,10 @@ pub async fn install(id: &str, urls: &[String]) -> Result<()> {
         let _ = std::fs::remove_dir_all(&staging);
         Error::new(
             FailureCode::Internal,
-            format!("plugin {id}: failed to move into {}: {error}", target.display()),
+            format!(
+                "plugin {id}: failed to move into {}: {error}",
+                target.display()
+            ),
         )
     })?;
 
@@ -290,7 +298,10 @@ pub async fn uninstall(id: &str) -> Result<()> {
     std::fs::remove_dir_all(&target).map_err(|error| {
         Error::new(
             FailureCode::Internal,
-            format!("plugin {id}: failed to remove {}: {error}", target.display()),
+            format!(
+                "plugin {id}: failed to remove {}: {error}",
+                target.display()
+            ),
         )
     })?;
 
@@ -312,7 +323,10 @@ fn staging_path(id: &str) -> PathBuf {
 
 fn unpack_zip(bytes: &[u8], target: &Path) -> Result<()> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| {
-        Error::new(FailureCode::Internal, format!("invalid zip archive: {error}"))
+        Error::new(
+            FailureCode::Internal,
+            format!("invalid zip archive: {error}"),
+        )
     })?;
     for index in 0..archive.len() {
         let mut file = archive.by_index(index).map_err(|error| {
@@ -325,7 +339,10 @@ fn unpack_zip(bytes: &[u8], target: &Path) -> Result<()> {
         let out = target.join(relative);
         if file.is_dir() {
             std::fs::create_dir_all(&out).map_err(|error| {
-                Error::new(FailureCode::Internal, format!("failed to create {}: {error}", out.display()))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("failed to create {}: {error}", out.display()),
+                )
             })?;
         } else {
             if let Some(parent) = out.parent() {
@@ -337,7 +354,10 @@ fn unpack_zip(bytes: &[u8], target: &Path) -> Result<()> {
                 })?;
             }
             let mut out_file = std::fs::File::create(&out).map_err(|error| {
-                Error::new(FailureCode::Internal, format!("failed to create {}: {error}", out.display()))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("failed to create {}: {error}", out.display()),
+                )
             })?;
             std::io::copy(&mut file, &mut out_file).map_err(|error| {
                 Error::new(

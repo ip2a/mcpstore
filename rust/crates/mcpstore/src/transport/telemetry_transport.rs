@@ -148,14 +148,14 @@ mod tests {
         ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
             let sent = Arc::clone(&self.sent);
             async move {
-                sent.lock().unwrap().push(serde_json::to_string(&item).unwrap());
+                sent.lock()
+                    .unwrap()
+                    .push(serde_json::to_string(&item).unwrap());
                 Ok(())
             }
         }
 
-        fn receive(
-            &mut self,
-        ) -> impl Future<Output = Option<RxJsonRpcMessage<RoleClient>>> + Send {
+        fn receive(&mut self) -> impl Future<Output = Option<RxJsonRpcMessage<RoleClient>>> + Send {
             let incoming = Arc::clone(&self.incoming);
             async move { incoming.lock().unwrap().pop_front() }
         }
@@ -166,11 +166,8 @@ mod tests {
     }
 
     fn instance() -> InstanceId {
-        crate::identity::ServiceInstanceKey::new(
-            "test-service",
-            crate::ScopeRef::Store,
-        )
-        .instance_id()
+        crate::identity::ServiceInstanceKey::new("test-service", crate::ScopeRef::Store)
+            .instance_id()
     }
 
     #[tokio::test]
@@ -224,7 +221,10 @@ mod tests {
         assert!(frames[0].payload.contains("\"method\":\"ping\""));
 
         assert_eq!(frames[1].direction, "up");
-        assert_eq!(frames[1].method.as_deref(), Some("notifications/initialized"));
+        assert_eq!(
+            frames[1].method.as_deref(),
+            Some("notifications/initialized")
+        );
         assert_eq!(frames[1].jsonrpc_id, None);
         assert_eq!(frames[1].kind, "notification");
 

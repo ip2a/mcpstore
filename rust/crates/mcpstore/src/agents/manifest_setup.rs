@@ -176,8 +176,12 @@ pub(crate) fn valid_plugin_version(version: &str) -> bool {
 impl ManifestSetup {
     /// Parse and validate one manifest from TOML source.
     pub fn from_toml(source: &str) -> Result<Self> {
-        let manifest: PluginManifest = toml::from_str(source)
-            .map_err(|e| Error::new(FailureCode::Internal, format!("invalid plugin manifest: {e}")))?;
+        let manifest: PluginManifest = toml::from_str(source).map_err(|e| {
+            Error::new(
+                FailureCode::Internal,
+                format!("invalid plugin manifest: {e}"),
+            )
+        })?;
 
         let id = &manifest.plugin.id;
         if manifest.plugin.spec_version != 1 {
@@ -212,7 +216,9 @@ impl ManifestSetup {
                 if field != "command" && field != "url" {
                     return Err(Error::new(
                         FailureCode::Internal,
-                        format!("plugin {id}: type_map {value:?} must map to \"command\" or \"url\""),
+                        format!(
+                            "plugin {id}: type_map {value:?} must map to \"command\" or \"url\""
+                        ),
                     ));
                 }
             }
@@ -230,7 +236,9 @@ impl ManifestSetup {
         {
             return Err(Error::new(
                 FailureCode::Internal,
-                format!("plugin {id}: [discover] must list config_paths, config_dirs, or cli_commands"),
+                format!(
+                    "plugin {id}: [discover] must list config_paths, config_dirs, or cli_commands"
+                ),
             ));
         }
 
@@ -277,12 +285,7 @@ impl ManifestSetup {
         paths.iter().map(PathBuf::from).collect()
     }
 
-    fn string_parts(
-        &self,
-        value: Option<&Value>,
-        name: &str,
-        field: &str,
-    ) -> Result<Vec<String>> {
+    fn string_parts(&self, value: Option<&Value>, name: &str, field: &str) -> Result<Vec<String>> {
         let Some(value) = value else {
             return Ok(Vec::new());
         };
@@ -389,7 +392,8 @@ impl ClientSetup for ManifestSetup {
         let object = as_object(name, value)?;
         reject_unsupported(self.supported_fields, name, object)?;
 
-        if self.manifest.config.reject_disabled && object.get("enabled") == Some(&Value::Bool(false))
+        if self.manifest.config.reject_disabled
+            && object.get("enabled") == Some(&Value::Bool(false))
         {
             return Err(Error::new(
                 FailureCode::Internal,
@@ -451,12 +455,27 @@ mod tests {
     #[test]
     fn parses_every_builtin_manifest() {
         for (id, source) in [
-            ("claude", include_str!("../../../../../plugins/claude/plugin.toml")),
-            ("codex", include_str!("../../../../../plugins/codex/plugin.toml")),
-            ("opencode", include_str!("../../../../../plugins/opencode/plugin.toml")),
-            ("cursor", include_str!("../../../../../plugins/cursor/plugin.toml")),
+            (
+                "claude",
+                include_str!("../../../../../plugins/claude/plugin.toml"),
+            ),
+            (
+                "codex",
+                include_str!("../../../../../plugins/codex/plugin.toml"),
+            ),
+            (
+                "opencode",
+                include_str!("../../../../../plugins/opencode/plugin.toml"),
+            ),
+            (
+                "cursor",
+                include_str!("../../../../../plugins/cursor/plugin.toml"),
+            ),
             ("pi", include_str!("../../../../../plugins/pi/plugin.toml")),
-            ("omp", include_str!("../../../../../plugins/omp/plugin.toml")),
+            (
+                "omp",
+                include_str!("../../../../../plugins/omp/plugin.toml"),
+            ),
         ] {
             let setup = ManifestSetup::from_toml(source)
                 .unwrap_or_else(|e| panic!("builtin {id} failed to parse: {e}"));
@@ -592,14 +611,23 @@ config_paths = ["~/x.json"]
         let setup = ManifestSetup::from_toml(source).unwrap();
 
         let good = setup
-            .import_service("a", &serde_json::json!({"type": "stdio", "command": "node"}))
+            .import_service(
+                "a",
+                &serde_json::json!({"type": "stdio", "command": "node"}),
+            )
             .unwrap();
         assert_eq!(good.command.as_deref(), Some("node"));
 
         let unknown = setup
-            .import_service("b", &serde_json::json!({"type": "sse", "url": "http://x/mcp"}))
+            .import_service(
+                "b",
+                &serde_json::json!({"type": "sse", "url": "http://x/mcp"}),
+            )
             .unwrap_err();
-        assert!(unknown.to_string().contains("unsupported type"), "{unknown}");
+        assert!(
+            unknown.to_string().contains("unsupported type"),
+            "{unknown}"
+        );
 
         let missing = setup
             .import_service("c", &serde_json::json!({"type": "http"}))
@@ -632,7 +660,10 @@ config_paths = ["~/x.json"]
 "#;
         let setup = ManifestSetup::from_toml(source).unwrap();
         let service = setup
-            .import_service("a", &serde_json::json!({"command": "node", "environment": {"T": "1"}}))
+            .import_service(
+                "a",
+                &serde_json::json!({"command": "node", "environment": {"T": "1"}}),
+            )
             .unwrap();
         assert_eq!(service.env["T"], "1");
     }
@@ -760,7 +791,10 @@ config_paths = ["~/x.json"]
 "#;
         let setup = ManifestSetup::from_toml(source).unwrap();
         let err = setup
-            .import_service("a", &serde_json::json!({"command": "node", "enabled": false}))
+            .import_service(
+                "a",
+                &serde_json::json!({"command": "node", "enabled": false}),
+            )
             .unwrap_err();
         assert!(err.to_string().contains("disabled"), "{err}");
     }

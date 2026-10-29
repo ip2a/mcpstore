@@ -18,8 +18,8 @@ use serde_json::{Map, Value};
 use crate::{Error, FailureCode, Result, ServerConfig};
 
 pub use registry::{
-    all, by_id, load_trace, plugins_dir, registry_report, reload, save_trace, DetectionTrace,
-    DetectedClient, PluginReport,
+    all, by_id, load_trace, plugins_dir, registry_report, reload, save_trace, DetectedClient,
+    DetectionTrace, PluginReport,
 };
 
 /// Everything the store needs to set up one coding client.
@@ -66,11 +66,7 @@ pub trait ClientSetup: Send + Sync {
         }
     }
     /// Point the recorded gateway entry at a new URL; refuse a hand-edited one.
-    fn refresh_entry_url(
-        &self,
-        entry: &crate::client_wire::WiredEntry,
-        url: &str,
-    ) -> Result<()> {
+    fn refresh_entry_url(&self, entry: &crate::client_wire::WiredEntry, url: &str) -> Result<()> {
         match self.format() {
             ConfigFormat::Json => crate::client_wire::refresh_json_entry(self, entry, url),
             ConfigFormat::Toml => crate::client_wire::refresh_toml_entry(self, entry, url),
@@ -113,7 +109,11 @@ pub fn detect(setup: &dyn ClientSetup) -> Option<Detection> {
     detect_by_discovery(
         setup.default_config_paths(),
         setup.config_dirs(),
-        setup.cli_commands().iter().map(|command| command.to_string()).collect(),
+        setup
+            .cli_commands()
+            .iter()
+            .map(|command| command.to_string())
+            .collect(),
     )
 }
 
@@ -289,7 +289,10 @@ pub(crate) fn build_service(
         .get("url")
         .map(|value| {
             value.as_str().map(str::to_owned).ok_or_else(|| {
-                Error::new(FailureCode::Internal, format!("Service {name} url must be a string"))
+                Error::new(
+                    FailureCode::Internal,
+                    format!("Service {name} url must be a string"),
+                )
             })
         })
         .transpose()?;

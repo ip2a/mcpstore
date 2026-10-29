@@ -169,8 +169,13 @@ pub(super) async fn connect(
     });
 
     let transport = StdioTransport::new_client(stdout, stdin);
-    let transport =
-        TelemetryTransport::wrap(transport, frame_telemetry, instance_id, name.to_string(), "stdio");
+    let transport = TelemetryTransport::wrap(
+        transport,
+        frame_telemetry,
+        instance_id,
+        name.to_string(),
+        "stdio",
+    );
     let client = match rmcp::service::serve_client_with_lifecycle(
         handler,
         transport,

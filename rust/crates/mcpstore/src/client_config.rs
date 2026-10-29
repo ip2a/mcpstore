@@ -81,7 +81,11 @@ pub fn import_selected_services(
         .collect()
 }
 
-pub(crate) fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<String, String>> {
+pub(crate) fn string_map(
+    value: Option<&Value>,
+    name: &str,
+    field: &str,
+) -> Result<HashMap<String, String>> {
     let Some(value) = value else {
         return Ok(HashMap::new());
     };
@@ -194,7 +198,10 @@ fn unsupported_fields(key: &str, supported: &[&str], document: &Value) -> Vec<St
             result.push(format!("{name}: entry must be an object"));
             continue;
         };
-        for key in object.keys().filter(|key| !supported.contains(&key.as_str())) {
+        for key in object
+            .keys()
+            .filter(|key| !supported.contains(&key.as_str()))
+        {
             result.push(format!("{name}.{key}"));
         }
     }

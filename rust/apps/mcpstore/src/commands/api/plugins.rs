@@ -71,10 +71,7 @@ pub(super) async fn plugins_detect(State(state): State<Arc<ApiState>>) -> ApiRes
     let hits = mcpstore::agents::market::detect_from_market(&urls)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success(
-        "客户端探测完成",
-        json!({ "detected": hits }),
-    ))
+    Ok(success("客户端探测完成", json!({ "detected": hits })))
 }
 
 pub(super) async fn plugin_install(

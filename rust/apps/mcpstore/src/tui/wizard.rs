@@ -25,12 +25,7 @@ fn main_loop(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<(
     loop {
         let action = Select::new(
             "mcpstore",
-            vec![
-                "服务管理",
-                "工具测试",
-                "Agent 授权",
-                "退出",
-            ],
+            vec!["服务管理", "工具测试", "Agent 授权", "退出"],
         )
         .prompt();
 
@@ -126,7 +121,10 @@ fn service_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Resul
             .prompt();
 
         let Ok(choice) = choice else { return Ok(()) };
-        let idx = items.iter().position(|item| item == &choice).unwrap_or(items.len() - 1);
+        let idx = items
+            .iter()
+            .position(|item| item == &choice)
+            .unwrap_or(items.len() - 1);
 
         if idx == items.len() - 1 {
             return Ok(());
@@ -193,7 +191,10 @@ fn service_action_menu(
 }
 
 /// 返回 false 表示用户取消（外层不再重复弹出）。
-fn add_service_flow(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<bool, BoxErr> {
+fn add_service_flow(
+    rt: &tokio::runtime::Runtime,
+    access: &mut StoreAccess,
+) -> Result<bool, BoxErr> {
     let mode = Select::new("服务类型:", vec!["http", "stdio", "< 取消"]).prompt();
     let mode = match mode {
         Ok(m) if m != "< 取消" => m,
@@ -208,7 +209,11 @@ fn add_service_flow(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> R
 
     let mut config = mcpstore::config::ServerConfig::default();
     if mode == "http" {
-        config.url = Some(Text::new("URL:").with_default("http://127.0.0.1:8000/mcp").prompt()?);
+        config.url = Some(
+            Text::new("URL:")
+                .with_default("http://127.0.0.1:8000/mcp")
+                .prompt()?,
+        );
         config.transport = Some("streamable-http".to_string());
     } else {
         let command_line = Text::new("命令 (含参数):")
@@ -239,7 +244,11 @@ fn add_service_flow(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> R
             if let Ok(instance_id) =
                 serde_json::from_value::<InstanceId>(value["instance_id"].clone())
             {
-                if Confirm::new("立即连接?").with_default(true).prompt().unwrap_or(false) {
+                if Confirm::new("立即连接?")
+                    .with_default(true)
+                    .prompt()
+                    .unwrap_or(false)
+                {
                     let connect_result = rt.block_on(access.request(
                         crate::daemon::protocol::KernelOperation::ConnectService,
                         serde_json::json!({"instance_id": instance_id.to_string()}),
@@ -303,7 +312,9 @@ fn tool_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<(
     let idx = items.iter().position(|item| item == &choice).unwrap_or(0);
     let (instance_id, tool) = &tools[idx];
 
-    let args_input = Text::new("参数 (JSON, 留空为 {}):").prompt().unwrap_or_default();
+    let args_input = Text::new("参数 (JSON, 留空为 {}):")
+        .prompt()
+        .unwrap_or_default();
     let args: serde_json::Value = if args_input.trim().is_empty() {
         serde_json::json!({})
     } else {
@@ -382,7 +393,9 @@ fn agent_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<
     let mut svc_items = agent_services.clone();
     svc_items.push("< 返回".to_string());
     let service_choice = Select::new(&format!("{agent_id} 的服务:"), svc_items).prompt();
-    let Ok(service_name) = service_choice else { return Ok(()) };
+    let Ok(service_name) = service_choice else {
+        return Ok(());
+    };
     if service_name == "< 返回" {
         return Ok(());
     }

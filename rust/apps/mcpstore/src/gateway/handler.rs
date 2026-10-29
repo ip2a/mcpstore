@@ -621,23 +621,22 @@ impl ServerHandler for GatewayServer {
                             content.push(ContentBlock::audio(data, mime_type));
                         }
                         ContentItem::Resource { resource, .. } => {
-                            content.push(match serde_json::from_value::<ResourceContents>(resource)
-                            {
-                                Ok(resource) => ContentBlock::resource(resource),
-                                Err(error) => ContentBlock::text(format!(
-                                    "Failed to decode resource content: {error}"
-                                )),
-                            });
-                        }
-                        ContentItem::ResourceLink { resource, .. } => {
                             content.push(
-                                match serde_json::from_value::<Resource>(resource) {
-                                    Ok(resource) => ContentBlock::resource_link(resource),
+                                match serde_json::from_value::<ResourceContents>(resource) {
+                                    Ok(resource) => ContentBlock::resource(resource),
                                     Err(error) => ContentBlock::text(format!(
-                                        "Failed to decode resource link: {error}"
+                                        "Failed to decode resource content: {error}"
                                     )),
                                 },
                             );
+                        }
+                        ContentItem::ResourceLink { resource, .. } => {
+                            content.push(match serde_json::from_value::<Resource>(resource) {
+                                Ok(resource) => ContentBlock::resource_link(resource),
+                                Err(error) => ContentBlock::text(format!(
+                                    "Failed to decode resource link: {error}"
+                                )),
+                            });
                         }
                     }
                 }
