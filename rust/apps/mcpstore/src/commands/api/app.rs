@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use super::{
     envelope::{success, ApiError, ApiResult},
+    panel_settings::{self, PanelSettings},
     ApiState,
 };
 
@@ -91,9 +92,14 @@ pub(super) async fn update_settings(
         .load_app_config_or_default()
         .map_err(config_api_error)?;
 
-    if let Some(language) = payload.language {
-        config.ui.language = normalize_ui_language(&language)?;
-    }
+    // Validate every input before any file write lands.
+    let language = match payload.language {
+        Some(language) => Some(
+            panel_settings::normalize_language(&language)
+                .map_err(|message| ApiError::invalid_parameter(message, Some("language")))?,
+        ),
+        None => None,
+    };
 
     if let Some(api) = payload.api {
         if let Some(port) = api.port {
@@ -158,11 +164,25 @@ pub(super) async fn update_settings(
         }
     }
 
+    // One in-process lock covers panel-settings read, mutate and persist; the
+    // two file writes are atomic individually but are not one transaction.
+    let _persistence = panel_settings::persistence_lock();
+    let mut panel_settings =
+        panel_settings::load_or_migrate(config_manager).map_err(ApiError::invalid_request)?;
+    if let Some(language) = language {
+        panel_settings.language = language;
+    }
+
     config_manager
         .save_app_config(&config)
         .map_err(config_api_error)?;
+    panel_settings::save_for_manager(config_manager, &panel_settings)
+        .map_err(ApiError::invalid_request)?;
 
-    Ok(success("设置保存成功", settings_payload(&config)))
+    Ok(success(
+        "设置保存成功",
+        settings_payload(&config, &panel_settings),
+    ))
 }
 
 fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
@@ -179,6 +199,10 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
             .map_err(config_api_error)?
     };
 
+    let _persistence = panel_settings::persistence_lock();
+    let panel_settings =
+        panel_settings::load_or_migrate(config_manager).map_err(ApiError::invalid_request)?;
+
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "node": {
@@ -188,7 +212,7 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
                 mcpstore::PanelRole::DataPanel { .. } => "data",
             },
         },
-        "settings": settings_payload(&config),
+        "settings": settings_payload(&config, &panel_settings),
         "settings_paths": settings_paths_payload(config_manager.mcp_path()),
         "config_file": {
             "path": config_path.display().to_string(),
@@ -198,9 +222,9 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
     }))
 }
 
-fn settings_payload(config: &AppConfig) -> Value {
+fn settings_payload(config: &AppConfig, panel_settings: &PanelSettings) -> Value {
     json!({
-        "language": api_ui_language(&config.ui.language),
+        "language": panel_settings.language,
         "api": {
             "host": config.api.host,
             "port": config.api.port,
@@ -244,25 +268,6 @@ fn settings_paths_payload(mcp_path: &FsPath) -> Value {
         "log_file_name": log_file_name,
         "log_file_path": log_dir.join(log_file_name).display().to_string(),
     })
-}
-
-fn normalize_ui_language(language: &str) -> Result<String, ApiError> {
-    match language.trim() {
-        "auto" => Ok("auto".to_string()),
-        "zh" | "zh-cn" => Ok("zh".to_string()),
-        "en" => Ok("en".to_string()),
-        _ => Err(ApiError::invalid_parameter(
-            "语言必须是 auto、zh 或 en",
-            Some("language"),
-        )),
-    }
-}
-
-fn api_ui_language(language: &str) -> &str {
-    match language {
-        "zh-cn" => "zh",
-        value => value,
-    }
 }
 
 fn config_api_error(error: ConfigError) -> ApiError {

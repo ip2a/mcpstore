@@ -1760,3 +1760,124 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
     handle.abort();
     std::fs::remove_dir_all(&fixture_dir).ok();
 }
+
+#[tokio::test]
+async fn panel_language_persists_outside_daemon_config() {
+    let fixture_dir = unique_temp_dir_path("panel-language");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    std::fs::write(
+        fixture_dir.join("config.toml"),
+        "[ui]\nlanguage = \"zh-cn\"\n",
+    )
+    .unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "zh"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["data"]["language"],
+        json!("zh")
+    );
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    let payload = meta.json::<Value>().await.unwrap();
+    assert_eq!(payload["data"]["settings"]["language"], json!("zh"));
+
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let raw = manager.load_raw_app_config_value().unwrap();
+    assert!(raw.get("ui").is_none());
+    let panel: Value =
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel-settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(panel["language"], json!("zh"));
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_settings_corruption_fails_requests_explicitly() {
+    let fixture_dir = unique_temp_dir_path("panel-corrupt");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    std::fs::write(fixture_dir.join("panel-settings.json"), "{ broken").unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(meta.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    let update = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "en"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(update.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_settings_write_failure_keeps_config_update_reported() {
+    let fixture_dir = unique_temp_dir_path("panel-write-fail");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    std::fs::write(
+        fixture_dir.join("panel-settings.json"),
+        r#"{ "language": "en" }"#,
+    )
+    .unwrap();
+    // A directory at the temp path makes the second (panel) write fail while
+    // the first (daemon config) write already landed.
+    std::fs::create_dir_all(fixture_dir.join("panel-settings.json.tmp")).unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "zh", "api": {"port": 19999}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    let payload = response.json::<Value>().await.unwrap();
+    assert_eq!(payload["success"], json!(false));
+
+    // No cross-file transaction: the config write stands, the panel write did not.
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let raw = manager.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["api"]["port"], json!(19999));
+    let panel: Value =
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel-settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(panel["language"], json!("en"));
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}

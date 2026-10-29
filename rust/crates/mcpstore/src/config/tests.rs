@@ -295,7 +295,6 @@ fn test_app_config_roundtrip() {
     config.api.url_prefix = "/demo".to_string();
     config.diagnostics.runtime_log.level = "debug".to_string();
     config.gateway.port = 19400;
-    config.ui.language = "en".to_string();
     config.diagnostics.runtime_log.max_size_bytes = 8 * 1024 * 1024;
     config.diagnostics.runtime_log.retention_days = Some(14);
 
@@ -306,7 +305,6 @@ fn test_app_config_roundtrip() {
     assert_eq!(loaded.api.url_prefix, "/demo");
     assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
     assert_eq!(loaded.gateway.port, 19400);
-    assert_eq!(loaded.ui.language, "en");
     assert_eq!(
         loaded.diagnostics.runtime_log.max_size_bytes,
         8 * 1024 * 1024
@@ -331,8 +329,6 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[service_defaults.lifecycle]"));
     assert!(template.contains("startup_policy = \"lazy\""));
     assert!(template.contains("restart_policy = \"no\""));
-    assert!(template.contains("[ui]"));
-    assert!(template.contains("language = \"en\""));
     assert!(template.contains("[diagnostics.runtime_log]"));
     assert!(template.contains("max_size_bytes = 5242880"));
     assert!(template.contains("level = \"info\""));

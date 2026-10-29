@@ -9,7 +9,6 @@ use super::{
 pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
     let mut errors = Vec::new();
 
-    validate_ui_config(config, &mut errors);
     validate_api_settings(&config.api, &mut errors);
     validate_web_settings(&config.web, &mut errors);
     validate_server_settings(&config.server, &mut errors);
@@ -70,11 +69,5 @@ fn validate_hosts_config(config: &AppConfig, errors: &mut Vec<String>) {
             "hosts.active \"{}\" does not match any configured host",
             hosts.active
         ));
-    }
-}
-
-fn validate_ui_config(config: &AppConfig, errors: &mut Vec<String>) {
-    if !matches!(config.ui.language.as_str(), "auto" | "zh" | "zh-cn" | "en") {
-        errors.push("ui.language must be one of auto, zh, zh-cn, en".to_string());
     }
 }

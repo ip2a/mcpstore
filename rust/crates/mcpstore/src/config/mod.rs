@@ -27,8 +27,8 @@ pub use crate::auth::{
     OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
 pub use app_schema::{
-    ApiSettings, AppConfig, DiagnosticsConfig, HostEntry, HostsConfig, GatewayConfig, PluginsConfig,
-    RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, UiConfig, WebSettings,
+    ApiSettings, AppConfig, DiagnosticsConfig, GatewayConfig, HostEntry, HostsConfig,
+    PluginsConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, WebSettings,
 };
 pub use cache_schema::CacheConfig;
 pub use health_schema::HealthCheckConfig;

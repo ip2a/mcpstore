@@ -31,6 +31,7 @@ pub(crate) mod client;
 mod envelope;
 mod hosts;
 mod openapi;
+mod panel_settings;
 mod parse;
 mod plugins;
 mod service;

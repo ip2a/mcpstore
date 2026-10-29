@@ -24,8 +24,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub service_defaults: ServiceDefaultsConfig,
     #[serde(default)]
-    pub ui: UiConfig,
-    #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
     #[serde(default)]
     pub hosts: HostsConfig,
@@ -52,7 +50,6 @@ impl Default for AppConfig {
             gateway: GatewayConfig::default(),
             health_check: HealthCheckConfig::default(),
             service_defaults: ServiceDefaultsConfig::default(),
-            ui: UiConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             hosts: HostsConfig::default(),
             placement: HashMap::new(),
@@ -240,20 +237,6 @@ impl Default for ServiceDefaultsConfig {
     fn default() -> Self {
         Self {
             lifecycle: ServiceLifecycleDefaults::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UiConfig {
-    #[serde(default = "default_ui_language")]
-    pub language: String,
-}
-
-impl Default for UiConfig {
-    fn default() -> Self {
-        Self {
-            language: default_ui_language(),
         }
     }
 }
