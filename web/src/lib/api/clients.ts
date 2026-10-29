@@ -1,6 +1,5 @@
-// 本模块全部为 app 自有接口（本机编码客户端的发现/接线 + daemon 面网关运行时），
-// 固定走 appApi，不随 core 后端切换。
-import { appApi, buildQuery } from "./client";
+// Panel-local client discovery and wiring stays on the App face.
+import { api, appApi, buildQuery } from "./client";
 export type DetectedBy = "config_file" | "config_dir" | "command";
 
 export type ClientInventory = {
@@ -123,7 +122,7 @@ export function unwireClient(client: string): Promise<WiredEntry> {
 }
 
 export function getGatewayStatus(): Promise<GatewayStatus> {
-  return appApi("/gateway/status");
+  return api("/gateway/status");
 }
 
 /** wait_ms 走长轮询（后端上限 25s）。 */
@@ -131,7 +130,7 @@ export function getGatewayRequests(
   after: number,
   waitMs?: number,
 ): Promise<GatewayRequestsPage> {
-  return appApi(`/gateway/requests${buildQuery({ after, wait_ms: waitMs })}`);
+  return api(`/gateway/requests${buildQuery({ after, wait_ms: waitMs })}`);
 }
 
 export function getWiredClients(): Promise<WiredEntry[]> {

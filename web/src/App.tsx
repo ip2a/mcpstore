@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react"
 import { useAppActions } from "@/app/use-app-actions"
 import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
@@ -24,6 +25,7 @@ import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { getSelectedHost, onSelectedHostChanged } from "@/lib/api/backend"
 import { useAppQueryRefreshers } from "@/hooks/use-app-query-refreshers"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
@@ -31,6 +33,9 @@ import { cn } from "@/lib/utils"
 
 export function App() {
   const { services, agents, backend, loading, error: dashboardError, refresh } = useDashboard()
+  // Remount resource views when the selected daemon changes: queries rebuild
+  // host-scoped keys and view-local state (telemetry cursor, dialogs) resets.
+  const selectedHost = useSyncExternalStore(onSelectedHostChanged, getSelectedHost)
   const {
     cacheRevision,
     refreshAgentQueries,
@@ -91,6 +96,7 @@ export function App() {
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
             <div
+              key={selectedHost}
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
                 view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "plugins" || view.name === "gateway" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "resource" || view.name === "prompts" || view.name === "prompt" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",

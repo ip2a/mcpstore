@@ -1,4 +1,5 @@
-import { api, appRequest, buildQuery } from "./client";
+// Cache state belongs to the selected daemon resource.
+import { api, buildQuery } from "./client";
 import type {
   AddServiceInput,
   AgentItem,
@@ -47,18 +48,18 @@ import type {
   UpdateSettingsPayload,
 } from "../api";
 
-// /cache/* 是 app 面接口（core 面无此路由），固定走本地 /api，不随 core base 切换。
+// Cache state belongs to the selected daemon resource.
 export async function cacheHealth(): Promise<CacheReport> {
-  return appRequest("/cache/health");
+  return api("/cache/health");
 }
 
 export async function cacheInspect(): Promise<CacheReport> {
-  return appRequest("/cache/inspect");
+  return api("/cache/inspect");
 }
 
 export async function switchCache(backend: CacheBackend) {
   // 后端 CacheSwitchRequest = { store, config }；前端无配置编辑 UI，config 传空对象走后端默认。
-  return appRequest("/cache/switch", {
+  return api("/cache/switch", {
     method: "POST",
     body: JSON.stringify({ store: backend, config: {} }),
   });

@@ -2,27 +2,28 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-import { getMeta } from "@/lib/api"
-import { getCoreUrlStatus, onCoreUrlChanged, type CoreUrlStatus } from "@/lib/api/backend"
+import { getHostStatus, getMeta } from "@/lib/api"
+import { getSelectedHost, onSelectedHostChanged } from "@/lib/api/backend"
 import { parseHostsPayload } from "@/lib/api/hosts"
 import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
-/**
- * Persistent indicator of which core daemon requests target and how the
- * active host's URL list is holding up: emerald = preferred URL, amber =
- * serving from a failover URL, red = all candidates unreachable.
- */
 export function CoreBadge() {
   const navigate = useNavigate()
   const meta = useQuery({ queryKey: queryKeys.meta, queryFn: getMeta })
-  const [status, setStatus] = useState<CoreUrlStatus>(getCoreUrlStatus)
+  const [selectedHost, setSelectedHost] = useState(getSelectedHost)
+  const hostStatus = useQuery({
+    queryKey: ["host-status", selectedHost],
+    queryFn: () => getHostStatus(selectedHost),
+    enabled: selectedHost !== "",
+    refetchInterval: 5000,
+  })
 
-  useEffect(() => onCoreUrlChanged(() => setStatus(getCoreUrlStatus())), [])
+  useEffect(() => onSelectedHostChanged(() => setSelectedHost(getSelectedHost())), [])
 
-  let label = ""
+  let label = selectedHost
   const hosts = meta.data?.settings?.hosts
-  if (hosts) {
+  if (!label && hosts) {
     try {
       label = parseHostsPayload(hosts).active
     } catch {
@@ -30,17 +31,17 @@ export function CoreBadge() {
     }
   }
 
-  const dot = status.unreachable
-    ? "bg-destructive"
-    : status.primary
+  const dot = hostStatus.isPending
+    ? "bg-muted-foreground/40"
+    : hostStatus.data?.online
       ? "bg-emerald-500"
-      : "bg-amber-500"
+      : "bg-destructive"
 
   return (
     <button
       type="button"
       aria-label={label}
-      title={`${label ? `${label} · ` : ""}${status.url}`}
+      title={label}
       onClick={() => navigate("/settings")}
       className={cn(
         "flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground",

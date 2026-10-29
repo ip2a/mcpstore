@@ -28,9 +28,9 @@ import { Switch } from "@/components/ui/switch"
 import { hostsToList, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
 import { formatReleaseVersion, isDesktopShell, UpdateButton, useAppUpdater, useAppVersionLabel } from "@/features/settings/updater"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
-import { type UiLanguage } from "@/lib/api"
-import { getApiBase, syncApiBaseFromHosts } from "@/lib/api/backend"
-import { resolveActiveHostUrls, validateHostsConfig } from "@/lib/api/hosts"
+import { getHostStatus, type HostStatus as ApiHostStatus, type UiLanguage } from "@/lib/api"
+import { syncApiBaseFromHosts } from "@/lib/api/backend"
+import { validateHostsConfig } from "@/lib/api/hosts"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/query-keys"
@@ -90,17 +90,10 @@ export function SettingsView() {
       toast.error(validationError)
       return
     }
-    const activeUrl = resolveActiveHostUrls(draft.hosts)[0] ?? ""
-    const apiBaseChanged = activeUrl.trim() !== getApiBase()
     try {
       await settingsMutation.mutateAsync(payloadFromDraft(draft))
       setLanguageOverride(draft.language)
       syncApiBaseFromHosts(draft.hosts)
-      if (apiBaseChanged) {
-        toast.success(t("coreBackendApplied"))
-        window.location.reload()
-        return
-      }
       toast.success(t("saved"))
       await queryClient.invalidateQueries({ queryKey: queryKeys.meta })
     } catch (err) {
@@ -358,7 +351,7 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
     async function probeAll() {
       await Promise.all(
         hosts.map(async (host) => {
-          const status = await probeHost(host.urls[0] ?? "")
+          const status = await probeHost(host.name)
           if (!cancelled) setStatuses((current) => ({ ...current, [host.name]: status }))
         }),
       )
@@ -451,16 +444,6 @@ function formatLatency(ms: number): string {
   return `${Math.round(ms)}ms`
 }
 
-async function measureConnectionLatency(url: string): Promise<number | null> {
-  const start = performance.now()
-  try {
-    const response = await fetch(`${url.replace(/\/$/, "")}/health`)
-    return response.ok ? performance.now() - start : null
-  } catch {
-    return null
-  }
-}
-
 type HostStatus = {
   online: boolean
   latencyMs: number | null
@@ -468,38 +451,20 @@ type HostStatus = {
   store: string | null
 }
 
-async function probeHost(url: string): Promise<HostStatus> {
-  const base = url.replace(/\/$/, "")
-  const start = performance.now()
-  try {
-    const [healthResponse, version] = await Promise.all([
-      fetch(`${base}/health`),
-      fetchHostVersion(base),
-    ])
-    const latencyMs = performance.now() - start
-    if (!healthResponse.ok) return { online: false, latencyMs: null, version, store: null }
-    const body = (await healthResponse.json().catch(() => null)) as { store?: unknown } | null
-    return {
-      online: true,
-      latencyMs,
-      version,
-      store: typeof body?.store === "string" ? body.store : null,
-    }
-  } catch {
-    return { online: false, latencyMs: null, version: null, store: null }
+function toHostStatus(status: ApiHostStatus): HostStatus {
+  return {
+    online: status.online,
+    latencyMs: status.latency_ms,
+    version: status.version,
+    store: status.store,
   }
 }
 
-async function fetchHostVersion(base: string): Promise<string | null> {
+async function probeHost(name: string): Promise<HostStatus> {
   try {
-    const response = await fetch(`${base}/v1/meta`)
-    if (!response.ok) return null
-    const body = await response.json()
-    const data = body && typeof body === "object" && "data" in body ? body.data : body
-    const version = (data as { version?: unknown } | null)?.version
-    return typeof version === "string" ? version : null
+    return toHostStatus(await getHostStatus(name))
   } catch {
-    return null
+    return { online: false, latencyMs: null, version: null, store: null }
   }
 }
 
@@ -584,9 +549,10 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     patchDraft({ hosts: { active, entries: nextEntries } })
   }
 
-  async function refreshLatency(name: string, url: string, options?: { notify?: boolean }) {
+  async function refreshLatency(name: string, options?: { notify?: boolean }) {
     setChecking((current) => ({ ...current, [name]: true }))
-    const latency = await measureConnectionLatency(url)
+    const status = await probeHost(name)
+    const latency = status.online ? status.latencyMs : null
     setLatencies((current) => ({ ...current, [name]: latency }))
     setChecking((current) => ({ ...current, [name]: false }))
     if (options?.notify) {
@@ -602,7 +568,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
       await Promise.all(
         hosts.map(async (host) => {
           if (cancelled) return
-          await refreshLatency(host.name, host.urls[0] ?? "")
+          await refreshLatency(host.name)
         }),
       )
     }
@@ -790,7 +756,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                       size="icon-sm"
                       aria-label={t("refresh")}
                       disabled={isChecking}
-                      onClick={() => void refreshLatency(host.name, host.urls[0] ?? "", { notify: true })}
+                      onClick={() => void refreshLatency(host.name, { notify: true })}
                     >
                       <RefreshCwIcon className={cn("size-3.5", isChecking && "animate-spin")} />
                     </Button>

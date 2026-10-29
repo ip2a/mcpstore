@@ -1,6 +1,5 @@
-// 本模块全部为 app 自有接口（daemon 请求遥测持久层：历史/详情/统计），
-// 固定走 appApi，不随 core 后端切换。
-import { appApi, buildQuery } from "./client";
+// Resource telemetry follows the selected daemon through the App face.
+import { api, buildQuery } from "./client";
 
 export type RequestRecord = {
   id: number;
@@ -49,12 +48,12 @@ export type UsageStats = {
 };
 
 export function getUsageStats(hours = 24): Promise<UsageStats> {
-  return appApi(`/gateway/stats${buildQuery({ hours })}`);
+  return api(`/gateway/stats${buildQuery({ hours })}`);
 }
 
 /** 每日工具调用总量（UTC 天桶），热力图数据源。 */
 export function getDailyUsageStats(days = 35): Promise<UsageTotals[]> {
-  return appApi(`/gateway/stats/daily${buildQuery({ days })}`);
+  return api(`/gateway/stats/daily${buildQuery({ days })}`);
 }
 
 /** 帧捕获维度的每日原语调用情况（gateway 面），首页热力图数据源。 */
@@ -68,7 +67,7 @@ export type HeatmapDay = {
 };
 
 export function getHeatmapStats(days = 371): Promise<HeatmapDay[]> {
-  return appApi(`/gateway/stats/heatmap${buildQuery({ days })}`);
+  return api(`/gateway/stats/heatmap${buildQuery({ days })}`);
 }
 
 export function getRequestHistory(
@@ -81,11 +80,11 @@ export function getRequestHistory(
     before_id?: number;
   } = {},
 ): Promise<HistoryPage> {
-  return appApi(`/gateway/requests/history${buildQuery(params)}`);
+  return api(`/gateway/requests/history${buildQuery(params)}`);
 }
 
 export function getRequestDetail(id: number): Promise<RequestRecord> {
-  return appApi(`/gateway/requests/detail/${id}`);
+  return api(`/gateway/requests/detail/${id}`);
 }
 
 /** 一次连接（握手→断开/挂载级聚合）的帧会话摘要。 */
@@ -122,18 +121,18 @@ export type FrameRecord = {
 export function getFrameSessions(
   params: { face?: string; hours?: number } = {},
 ): Promise<FrameSessionSummary[]> {
-  return appApi(`/gateway/frames/sessions${buildQuery(params)}`);
+  return api(`/gateway/frames/sessions${buildQuery(params)}`);
 }
 
 export function getFrameHistory(
   sessionId: string,
   limit = 200,
 ): Promise<FrameRecord[]> {
-  return appApi(
+  return api(
     `/gateway/frames/history${buildQuery({ session_id: sessionId, limit })}`,
   );
 }
 
 export function getFrameDetail(id: number): Promise<FrameRecord> {
-  return appApi(`/gateway/frames/detail/${id}`);
+  return api(`/gateway/frames/detail/${id}`);
 }

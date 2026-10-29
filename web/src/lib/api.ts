@@ -427,6 +427,8 @@ export {
   showConfig,
   showAgentConfig,
   getMeta,
+  getHostStatus,
+  type HostStatus,
   updateSettings,
   resetConfig,
   resetAgentConfig,
