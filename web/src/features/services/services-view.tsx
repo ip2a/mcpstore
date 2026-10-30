@@ -21,6 +21,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useScopesQuery } from "@/features/agents/queries"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { AddServiceDialog } from "@/features/services/add-service-dialog"
+import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dialog"
+import { EditServiceDialog } from "@/features/services/edit-service-dialog"
+import { ServiceCardDialog } from "@/features/services/service-card-dialog"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { type ServiceSortBy } from "@/features/services/use-services-list"
@@ -335,7 +338,14 @@ function ServicesScopeContent({
   viewMode: ServicesViewMode
 }) {
   const { t } = useI18n()
-
+  const [cardServiceId, setCardServiceId] = useState<string | null>(null)
+  const [editService, setEditService] = useState<ServiceInstance | null>(null)
+  const [scopeService, setScopeService] = useState<ServiceInstance | null>(null)
+  const cardService =
+    (cardServiceId
+      ? filteredServices.find((service) => service.instance_id === cardServiceId) ||
+        services.find((service) => service.instance_id === cardServiceId)
+      : null) ?? null
   if (scopeError) {
     return (
       <div className="px-4 py-2">
@@ -398,26 +408,63 @@ function ServicesScopeContent({
   }
 
   return (
-    <ScrollPane
-      className="min-h-0 flex-1"
-      innerClassName={cn(
-        "px-4 py-2",
-        "grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3",
-      )}
-    >
-      {filteredServices.map((service) => {
-        const toolCount =
-          scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
+    <>
+      <ScrollPane
+        className="min-h-0 flex-1"
+        innerClassName={cn(
+          "px-4 py-2",
+          "grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3",
+        )}
+      >
+        {filteredServices.map((service) => {
+          const toolCount =
+            scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
 
-        return (
-          <ServiceListCard
-            key={service.instance_id}
-            service={service}
-            toolCount={toolCount}
-            onSelect={() => onOpen(service)}
-          />
-        )
-      })}
-    </ScrollPane>
+          return (
+            <ServiceListCard
+              key={service.instance_id}
+              service={service}
+              toolCount={toolCount}
+              onSelect={() => setCardServiceId(service.instance_id)}
+            />
+          )
+        })}
+      </ScrollPane>
+      <ServiceCardDialog
+        busy={busy}
+        open={Boolean(cardService)}
+        service={cardService}
+        onOpenChange={(open) => {
+          if (!open) setCardServiceId(null)
+        }}
+        onAddScope={setScopeService}
+        onConnect={onConnect}
+        onDelete={onDelete}
+        onDisconnect={onDisconnect}
+        onEdit={setEditService}
+        onOpen={onOpen}
+        onRestart={onRestart}
+      />
+      <EditServiceDialog
+        open={Boolean(editService)}
+        service={editService}
+        onOpenChange={(open) => {
+          if (!open) setEditService(null)
+        }}
+        onUpdated={async () => {
+          await onRefresh()
+        }}
+      />
+      <AddServiceScopeDialog
+        agents={agents}
+        allServices={services}
+        busy={busy}
+        service={scopeService}
+        onOpenChange={(open) => {
+          if (!open) setScopeService(null)
+        }}
+        onDeclareScope={onDeclareScope}
+      />
+    </>
   )
 }

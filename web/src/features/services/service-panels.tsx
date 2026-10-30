@@ -207,7 +207,7 @@ export function ServicePreviewActions({
   );
 }
 
-function ServiceDetailField({
+export function ServiceDetailField({
   label,
   value,
   mono = true,
