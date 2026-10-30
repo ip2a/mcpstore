@@ -8,6 +8,10 @@ import { defineConfig } from "vite"
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const webPackageVersion = JSON.parse(readFileSync(path.join(dirname, "package.json"), "utf8")).version as string
 
+// The /api owner is the standalone panel process (`mcpstore web`); override for
+// isolated dev runs (run_debug.sh sets this when MCPSTORE_PANEL_PORT moves).
+const panelTarget = process.env.MCPSTORE_PANEL_TARGET ?? "http://127.0.0.1:1828"
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
@@ -21,11 +25,11 @@ export default defineConfig({
     },
   },
   server: {
-    // dev 端口避开 daemon web 面（1828）：vite 占 1829，/api 原样代理到 daemon
+    // dev 端口避开面板 1828：vite 占 1829，/api 原样代理到面板进程
     port: 1829,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:1828",
+        target: panelTarget,
         changeOrigin: true,
       },
     },
