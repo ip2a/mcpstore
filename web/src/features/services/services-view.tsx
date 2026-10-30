@@ -22,7 +22,6 @@ import { useScopesQuery } from "@/features/agents/queries"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { AddServiceDialog } from "@/features/services/add-service-dialog"
 import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dialog"
-import { EditServiceDialog } from "@/features/services/edit-service-dialog"
 import { ServiceCardDialog } from "@/features/services/service-card-dialog"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
@@ -339,7 +338,6 @@ function ServicesScopeContent({
 }) {
   const { t } = useI18n()
   const [cardServiceId, setCardServiceId] = useState<string | null>(null)
-  const [editService, setEditService] = useState<ServiceInstance | null>(null)
   const [scopeService, setScopeService] = useState<ServiceInstance | null>(null)
   const cardService =
     (cardServiceId
@@ -441,16 +439,8 @@ function ServicesScopeContent({
         onConnect={onConnect}
         onDelete={onDelete}
         onDisconnect={onDisconnect}
-        onEdit={setEditService}
         onOpen={onOpen}
         onRestart={onRestart}
-      />
-      <EditServiceDialog
-        open={Boolean(editService)}
-        service={editService}
-        onOpenChange={(open) => {
-          if (!open) setEditService(null)
-        }}
         onUpdated={async () => {
           await onRefresh()
         }}
