@@ -2,10 +2,12 @@ import {
   CableIcon,
   DatabaseIcon,
   FileStackIcon,
+  HistoryIcon,
   HouseIcon,
   PuzzleIcon,
   ScrollTextIcon,
   ServerIcon,
+  SettingsIcon,
   WaypointsIcon,
   WrenchIcon,
   type LucideIcon,
@@ -25,6 +27,7 @@ export type AppView =
   | { name: "prompts" }
   | { name: "prompt"; instanceId: string; promptName: string }
   | { name: "gateway" }
+  | { name: "traces" }
   | { name: "cache" }
   | { name: "settings" }
   | { name: "instance"; addr: ServiceAddress }
@@ -41,12 +44,14 @@ export function useNavItems(): NavItem[] {
     { view: { name: "home" }, label: t("navHome"), icon: HouseIcon },
     { view: { name: "services" }, label: t("navServices"), icon: ServerIcon },
     { view: { name: "clients" }, label: t("navClients"), icon: CableIcon },
+    { view: { name: "gateway" }, label: t("gateway"), icon: WaypointsIcon },
     { view: { name: "plugins" }, label: t("navPlugins"), icon: PuzzleIcon },
     { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
     { view: { name: "resources" }, label: t("navResources"), icon: FileStackIcon },
     { view: { name: "prompts" }, label: t("navPrompts"), icon: ScrollTextIcon },
-    { view: { name: "gateway" }, label: t("gateway"), icon: WaypointsIcon },
+    { view: { name: "traces" }, label: t("navTraces"), icon: HistoryIcon },
     { view: { name: "cache" }, label: t("navCache"), icon: DatabaseIcon },
+    { view: { name: "settings" }, label: t("settings"), icon: SettingsIcon },
   ]
 }
 
@@ -57,6 +62,5 @@ export function useViewTitle(view: AppView): string {
   if (view.name === "tool") return view.toolName
   if (view.name === "resource") return view.resourceUri
   if (view.name === "prompt") return view.promptName
-  if (view.name === "settings") return t("settings")
   return items.find((item) => item.view.name === view.name)?.label || t("navServices")
 }

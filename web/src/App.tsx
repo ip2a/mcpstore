@@ -11,6 +11,7 @@ import { CacheView } from "@/features/cache/cache-view"
 import { ClientsView } from "@/features/clients/clients-view"
 import { GatewayView } from "@/features/gateway/gateway-view"
 import { OverviewView } from "@/features/overview/overview-view"
+import { TracesView } from "@/features/traces/traces-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
@@ -99,7 +100,7 @@ export function App() {
               key={selectedHost}
               className={cn(
                 "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "plugins" || view.name === "gateway" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "resource" || view.name === "prompts" || view.name === "prompt" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
+                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "plugins" || view.name === "gateway" || view.name === "traces" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "resource" || view.name === "prompts" || view.name === "prompt" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
               )}
             >
             {view.name === "home" ? (
@@ -175,6 +176,8 @@ export function App() {
             <PluginsView />
           ) : view.name === "gateway" ? (
             <GatewayView />
+          ) : view.name === "traces" ? (
+            <TracesView />
           ) : view.name === "cache" ? (
             <CacheView backend={backend} revision={cacheRevision} onRefreshDashboard={refresh} onSwitch={() => setCacheDialogOpen(true)} />
           ) : view.name === "settings" ? (

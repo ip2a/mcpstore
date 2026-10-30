@@ -1,14 +1,18 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import {
   ChevronRightIcon,
   CircleDashed,
   FileJsonIcon,
   FolderIcon,
+  PencilIcon,
+  RefreshCwIcon,
   TerminalIcon,
 } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 
 import { clientIconUrls } from "@/assets/icons/clients"
-import { PageError, PageSkeleton } from "@/components/shared/page-states"
+import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
@@ -22,6 +26,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   ClientPluginMarketCard,
   ClientPluginRowActions,
@@ -30,11 +35,25 @@ import {
   usePluginAction,
   usePluginUpdate,
 } from "@/features/clients/client-plugins-panel"
-import { useClientsQuery, useClientToggle, useClientVersionQuery } from "@/features/clients/queries"
+import {
+  useClientsQuery,
+  useClientToggle,
+  useClientVersionQuery,
+  useWiredClientsQuery,
+} from "@/features/clients/queries"
 import { useI18n } from "@/lib/i18n-context"
-import type { ClientInventory, ExposeConfig, WireOptions, WireResult } from "@/lib/api"
+import type {
+  ClientInventory,
+  ExposeConfig,
+  WiredEntry,
+  WireOptions,
+  WireResult,
+} from "@/lib/api"
 import type { ClientPlugin, MarketPlugin } from "@/lib/api/plugins"
+import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
+
+type ClientTab = "all" | "wired" | "detected" | "not-detected"
 
 export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "tool",
@@ -46,6 +65,17 @@ export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "search",
   "session_state",
 ]
+
+const DEFAULT_EXPOSE: ExposeConfig = {
+  session_state: false,
+  tool: false,
+  prompt: false,
+  resource: false,
+  openapi: false,
+  service: false,
+  cache: false,
+  search: false,
+}
 
 /** 作用域 + 8 个暴露开关的表单体，供接线弹窗与网关页编辑弹窗共用。 */
 export function WireOptionsFields({
@@ -93,75 +123,167 @@ export function WireOptionsFields({
 
 export function ClientsView() {
   const { t } = useI18n()
-  const { data, isPending, isError, error, refetch } = useClientsQuery()
+  const queryClient = useQueryClient()
+  const { data, isPending, isError, error, isFetching } = useClientsQuery()
+  const wiredQuery = useWiredClientsQuery()
   const { toggle, busy } = useClientToggle()
   const pluginAction = usePluginAction()
   const pluginUpdate = usePluginUpdate()
   const pluginsQuery = useClientPluginsQuery()
   const marketQuery = useClientPluginMarketQuery()
-  const [wireTarget, setWireTarget] = useState<ClientInventory | null>(null)
+  const [tab, setTab] = useState<ClientTab>("all")
+  const [query, setQuery] = useState("")
+  const [wireDialog, setWireDialog] = useState<WireDialogState | null>(null)
   const [wireConflict, setWireConflict] = useState<WireConflictState | null>(null)
 
   const clients = data ?? []
   const pluginBusy = busy || pluginAction.isPending || pluginUpdate.isPending
+  const refreshing = isFetching || wiredQuery.isFetching || pluginsQuery.isFetching || marketQuery.isFetching
   const installedById = Object.fromEntries(
     (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
   ) as Record<string, ClientPlugin>
   const marketById = Object.fromEntries(
     (marketQuery.data?.plugins ?? []).map((entry) => [entry.id, entry]),
   ) as Record<string, MarketPlugin>
+  const wiredById = Object.fromEntries(
+    (wiredQuery.data ?? []).map((entry) => [entry.client_id, entry]),
+  ) as Record<string, WiredEntry>
+
+  const tabs = useMemo(
+    () => [
+      { id: "all" as const, label: t("filterAll") },
+      { id: "wired" as const, label: t("clientsWired") },
+      { id: "detected" as const, label: t("clientsDetected") },
+      { id: "not-detected" as const, label: t("clientsNotDetected") },
+    ],
+    [t],
+  )
+
+  const visibleClients = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    return clients.filter((client) => {
+      const detected = client.detected_by != null
+      if (tab === "wired" && !client.wired) return false
+      if (tab === "detected" && (!detected || client.wired)) return false
+      if (tab === "not-detected" && detected) return false
+      if (!normalized) return true
+      return (
+        client.id.toLowerCase().includes(normalized) ||
+        client.label.toLowerCase().includes(normalized)
+      )
+    })
+  }, [clients, query, tab])
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.clients })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.wiredClients })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.clientPlugins })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.clientPluginMarket })
+  }
+
+  const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
 
   return (
     <>
-      <div className="flex shrink-0 items-center gap-2 pl-4">
-        <WorkspacePageHeader
-          title={<h1 className="text-lg font-semibold">{t("clientsWorkspaceTitle")}</h1>}
-          subtitle={t("clientsWorkspaceDescription", { count: clients.length })}
-        />
-      </div>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("clientsWorkspaceTitle")}</h1>}
+        subtitle={t("clientsWorkspaceDescription", { count: visibleClients.length })}
+      />
 
-      {isError ? (
-        <PageError
-          title={t("clientsLoadFailed")}
-          message={error instanceof Error ? error.message : String(error)}
-          onRefresh={() => void refetch()}
-        />
-      ) : isPending ? (
-        <PageSkeleton />
-      ) : (
-        <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2 pb-2">
-          <PanelCard variant="plain" className="divide-y divide-border/50 p-0">
-            {clients.map((client) => (
-              <ClientRow
-                key={client.id}
-                client={client}
-                busy={pluginBusy}
-                installed={installedById[client.id]}
-                marketEntry={marketById[client.id]}
-                onWire={() => setWireTarget(client)}
-                onUnwire={() => void toggle(client, true)}
-                onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-                onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
-                onUpdate={(id) => pluginUpdate.mutate(id)}
+      <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as ClientTab)} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
+            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+              {tabs.map((item) => (
+                <TabsTrigger key={item.id} value={item.id} title={item.label} className="flex-none">
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              <CollapsibleSearchBox
+                inline
+                id="client-list-search"
+                placeholder={t("searchClients")}
+                value={query}
+                onChange={setQuery}
               />
-            ))}
-          </PanelCard>
-          <ClientPluginMarketCard
-            busy={pluginBusy}
-            onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-            onUpdate={(id) => pluginUpdate.mutate(id)}
-          />
-        </ScrollPane>
-      )}
+              <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
+                <RefreshCwIcon data-icon="inline-start" />
+                {t("refresh")}
+              </Button>
+            </div>
+          </div>
+
+          {tabs.map((item) => (
+            <TabsContent key={item.id} value={item.id} className={tabContentClassName}>
+              {tab === item.id ? (
+                isError ? (
+                  <div className="px-4 py-2">
+                    <PageError
+                      title={t("clientsLoadFailed")}
+                      message={error instanceof Error ? error.message : String(error)}
+                      onRefresh={refresh}
+                    />
+                  </div>
+                ) : isPending ? (
+                  <div className="px-4 py-2">
+                    <PageSkeleton />
+                  </div>
+                ) : (
+                  <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-2 px-0 pb-2">
+                    {visibleClients.length ? (
+                      <div className="divide-y divide-border/50">
+                        {visibleClients.map((client) => (
+                          <ClientRow
+                            key={client.id}
+                            client={client}
+                            busy={pluginBusy}
+                            installed={installedById[client.id]}
+                            marketEntry={marketById[client.id]}
+                            onWire={() => setWireDialog({ mode: "wire", client })}
+                            onEditWire={() => {
+                              const entry = wiredById[client.id]
+                              if (entry) setWireDialog({ mode: "edit", client, entry })
+                            }}
+                            onUnwire={() => void toggle(client, true)}
+                            onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                            onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
+                            onUpdate={(id) => pluginUpdate.mutate(id)}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="px-4 py-2">
+                        <PageEmpty title={t("noClients")} description={t("noClientsDescription")} onRefresh={refresh} />
+                      </div>
+                    )}
+                    <div className="px-4">
+                      <ClientPluginMarketCard
+                        busy={pluginBusy}
+                        onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                        onUpdate={(id) => pluginUpdate.mutate(id)}
+                      />
+                    </div>
+                  </ScrollPane>
+                )
+              ) : null}
+            </TabsContent>
+          ))}
+        </Tabs>
+      </PanelCard>
 
       <WireDialog
-        client={wireTarget}
+        state={wireDialog}
         busy={busy}
-        onClose={() => setWireTarget(null)}
+        onClose={() => setWireDialog(null)}
         onConfirm={async (client, options) => {
-          setWireTarget(null)
+          const editing = wireDialog?.mode === "edit"
+          setWireDialog(null)
           const result = await toggle(client, false, options)
-          if (result?.outcome === "conflict") setWireConflict({ client, options, result })
+          if (!editing && result?.outcome === "conflict") {
+            setWireConflict({ client, options, result })
+          }
         }}
       />
 
@@ -178,6 +300,10 @@ export function ClientsView() {
   )
 }
 
+type WireDialogState =
+  | { mode: "wire"; client: ClientInventory }
+  | { mode: "edit"; client: ClientInventory; entry: WiredEntry }
+
 /** 接线冲突：目标文件里已有一条内容不一致的 mcpstore 条目，等用户确认替换。 */
 type WireConflictState = {
   client: ClientInventory
@@ -185,41 +311,54 @@ type WireConflictState = {
   result: Extract<WireResult, { outcome: "conflict" }>
 }
 
-/** 接线配置：默认专属作用域（Agent:<id>）+ 不暴露管理工具；可切 Store / 打开开关。 */
+/** 接线 / 编辑已接入配置：作用域 + 暴露开关；编辑时预填 /gateway/wired 生效值。 */
 function WireDialog({
-  client,
+  state,
   busy,
   onClose,
   onConfirm,
 }: {
-  client: ClientInventory | null
+  state: WireDialogState | null
   busy: boolean
   onClose: () => void
   onConfirm: (client: ClientInventory, options: WireOptions) => void
 }) {
   const { t } = useI18n()
   const [dedicatedScope, setDedicatedScope] = useState(true)
-  const [expose, setExpose] = useState<ExposeConfig>({
-    session_state: false,
-    tool: false,
-    prompt: false,
-    resource: false,
-    openapi: false,
-    service: false,
-    cache: false,
-    search: false,
-  })
-  if (!client) return null
+  const [expose, setExpose] = useState<ExposeConfig>(DEFAULT_EXPOSE)
+  const client = state?.client ?? null
+  const editing = state?.mode === "edit"
+
+  useEffect(() => {
+    if (!state) return
+    if (state.mode === "edit") {
+      setDedicatedScope(state.entry.scope.type === "agent")
+      setExpose(state.entry.expose)
+      return
+    }
+    setDedicatedScope(true)
+    setExpose(DEFAULT_EXPOSE)
+  }, [state])
+
+  if (!client || !state) return null
+  const agentId =
+    state.mode === "edit" && state.entry.scope.type === "agent"
+      ? state.entry.scope.agent_id
+      : client.id
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("clientsWireDialogTitle", { client: client.label })}</DialogTitle>
+          <DialogTitle>
+            {editing
+              ? t("gatewayEditWireTitle", { client: client.label })
+              : t("clientsWireDialogTitle", { client: client.label })}
+          </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <WireOptionsFields
             dedicatedScope={dedicatedScope}
-            dedicatedScopeLabel={`Agent:${client.id}`}
+            dedicatedScopeLabel={`Agent:${agentId}`}
             expose={expose}
             onDedicatedScopeChange={setDedicatedScope}
             onExposeChange={setExpose}
@@ -232,11 +371,12 @@ function WireDialog({
             onClick={() =>
               onConfirm(client, {
                 scope: dedicatedScope ? "agent" : "store",
+                agentId: dedicatedScope ? agentId : undefined,
                 expose,
               })
             }
           >
-            {t("clientsWire")}
+            {editing ? t("save") : t("clientsWire")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -298,6 +438,7 @@ function ClientRow({
   installed,
   marketEntry,
   onWire,
+  onEditWire,
   onUnwire,
   onInstall,
   onUninstall,
@@ -308,6 +449,7 @@ function ClientRow({
   installed: ClientPlugin | undefined
   marketEntry: MarketPlugin | undefined
   onWire: () => void
+  onEditWire: () => void
   onUnwire: () => void
   onInstall: (id: string) => void
   onUninstall: (id: string) => void
@@ -389,6 +531,18 @@ function ClientRow({
           onUninstall={onUninstall}
           onUpdate={onUpdate}
         />
+
+        {client.wired ? (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            disabled={busy}
+            aria-label={t("gatewayEditWire")}
+            onClick={onEditWire}
+          >
+            <PencilIcon className="size-3.5" />
+          </Button>
+        ) : null}
 
         <Switch
           checked={client.wired}

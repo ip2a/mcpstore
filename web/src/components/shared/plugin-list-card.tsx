@@ -3,6 +3,8 @@ import { BadgeCheckIcon, DownloadIcon, PuzzleIcon } from "lucide-react"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
+export type PluginKind = "service" | "agent"
+
 export type PluginItem = {
   id: string
   name: string
@@ -11,6 +13,7 @@ export type PluginItem = {
   version: string
   author: string
   installed: boolean
+  kind: PluginKind
 }
 
 export function PluginListCard({

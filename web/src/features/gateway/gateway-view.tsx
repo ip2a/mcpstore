@@ -1,18 +1,12 @@
-import { useEffect, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  CableIcon,
-  PencilIcon,
-  RefreshCwIcon,
-  SettingsIcon,
-  WaypointsIcon,
-} from "lucide-react"
+import { useEffect, useState, type ReactNode } from "react"
+import { SettingsIcon, WaypointsIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { clientIconUrls } from "@/assets/icons/clients"
+import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,28 +30,20 @@ import { EXPOSE_KEYS } from "@/features/clients/clients-view"
 import {
   useClientsQuery,
   useGatewayStatusQuery,
-  useWireClientMutation,
   useWiredClientsQuery,
 } from "@/features/clients/queries"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { useI18n } from "@/lib/i18n-context"
-import { queryKeys } from "@/lib/query-keys"
 import {
-  getFrameSessions,
-  getFrameHistory,
   getGatewayRequests,
-  getRequestHistory,
   startMcpHub,
   stopMcpHub,
-  type ExposeConfig,
-  type FrameRecord,
-  type FrameSessionSummary,
   type GatewayRequestRecord,
+  type GatewayStatus,
   type McpHubOptions,
-  type RequestRecord,
-  type ScopeRef,
   type WiredEntry,
 } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 const DEFAULT_LAUNCH_OPTIONS: McpHubOptions = {
   transport: "streamable-http",
@@ -122,76 +108,84 @@ export function GatewayView() {
   }
 
   return (
-    <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
-      <LaunchSettingsDialog
-        busy={busy}
-        onOpenChange={setSettingsOpen}
-        onStart={handleStart}
-        open={settingsOpen}
-        options={launchOptions}
-        setOptions={setLaunchOptions}
+    <>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("gatewayWorkspaceTitle")}</h1>}
+        subtitle={t("gatewayWorkspaceDescription", { count: wiredLabels.length })}
       />
 
-      <PanelCard variant="plain" className="gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-          <div className="flex items-center gap-2">
-            <strong className="font-mono text-sm font-medium">{t("gateway")}</strong>
-            {status.data?.running ? (
-              <Badge variant="default">{t("homeRunning")}</Badge>
-            ) : (
-              <Badge variant="destructive">{t("gatewayStopped")}</Badge>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              disabled={busy}
-              size="sm"
-              variant="outline"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <SettingsIcon data-icon="inline-start" />
-              {t("gatewaySettings")}
-            </Button>
-            {status.data?.running ? (
-              <Button disabled={busy} size="sm" variant="outline" onClick={handleStop}>
-                {t("gatewayStop")}
-              </Button>
-            ) : (
+      <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
+        <LaunchSettingsDialog
+          busy={busy}
+          onOpenChange={setSettingsOpen}
+          onStart={handleStart}
+          open={settingsOpen}
+          options={launchOptions}
+          setOptions={setLaunchOptions}
+        />
+
+        <PanelCard variant="plain" className="gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+            <div className="flex items-center gap-2">
+              <strong className="font-mono text-sm font-medium">{t("gateway")}</strong>
+              {status.data?.running ? (
+                <Badge variant="default">{t("homeRunning")}</Badge>
+              ) : (
+                <Badge variant="destructive">{t("gatewayStopped")}</Badge>
+              )}
+            </div>
+            <div className="flex gap-2">
               <Button
                 disabled={busy}
                 size="sm"
-                onClick={() => handleStart(launchOptions, false)}
+                variant="outline"
+                onClick={() => setSettingsOpen(true)}
               >
-                {t("gatewayStart")}
+                <SettingsIcon data-icon="inline-start" />
+                {t("gatewaySettings")}
               </Button>
-            )}
+              {status.data?.running ? (
+                <Button disabled={busy} size="sm" variant="outline" onClick={handleStop}>
+                  {t("gatewayStop")}
+                </Button>
+              ) : (
+                <Button
+                  disabled={busy}
+                  size="sm"
+                  onClick={() => handleStart(launchOptions, false)}
+                >
+                  {t("gatewayStart")}
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col gap-1 font-mono text-xs text-muted-foreground">
-          <span className="truncate">
-            {t("gatewayUrl")}: {status.data?.url ?? "—"}
-          </span>
-          <span className="truncate">
-            {t("clientsWired")}: {wiredLabels.length > 0 ? wiredLabels.join(", ") : "—"}
-          </span>
-        </div>
-      </PanelCard>
+          <div className="flex flex-col gap-1 font-mono text-xs text-muted-foreground">
+            <span className="truncate">
+              {t("gatewayUrl")}: {status.data?.url ?? "—"}
+            </span>
+            <span className="truncate">
+              {t("clientsWired")}: {wiredLabels.length > 0 ? wiredLabels.join(", ") : "—"}
+            </span>
+          </div>
+        </PanelCard>
 
-      <WiredClientsCard labelById={labelById} wired={wired.data ?? []} />
+        <CallFlowDiagram
+          labelById={labelById}
+          latest={records.length > 0 ? records[records.length - 1]! : null}
+          status={status.data ?? null}
+          wired={wired.data ?? []}
+        />
 
-      <PanelCard variant="plain" className="gap-2">
-        <div className="border-b pb-2 text-sm font-medium">{t("gatewayRequestsTitle")}</div>
-        {records.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("gatewayRequestsEmpty")}</p>
-        ) : (
-          [...records].reverse().map((record) => <FlowRow key={record.seq} record={record} />)
-        )}
-      </PanelCard>
-
-      <RequestHistoryCard />
-
-      <FrameStreamCard />
-    </ScrollPane>
+        <PanelCard variant="plain" className="gap-2">
+          <div className="border-b pb-2 text-sm font-medium">{t("gatewayRequestsTitle")}</div>
+          {records.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("gatewayRequestsEmpty")}</p>
+          ) : (
+            [...records].reverse().map((record) => <FlowRow key={record.seq} record={record} />)
+          )}
+        </PanelCard>
+      </ScrollPane>
+    </>
   )
 }
 
@@ -382,193 +376,6 @@ function LaunchSettingsDialog({
   )
 }
 
-/** MCP 消息流：网关与对外连接的 JSON-RPC 帧会话（~/.mcpstore/telemetry.db frames 表）。 */
-function FrameStreamCard() {
-  const { t } = useI18n()
-  const queryClient = useQueryClient()
-  const [active, setActive] = useState<string | null>(null)
-  const [openFrame, setOpenFrame] = useState<number | null>(null)
-  const sessions = useQuery({
-    queryKey: queryKeys.gatewayFrameSessions,
-    queryFn: () => getFrameSessions({ hours: 24 }),
-  })
-  const timeline = useQuery({
-    queryKey: queryKeys.gatewayFrameHistory(active ?? ""),
-    enabled: active !== null,
-    queryFn: () => getFrameHistory(active as string),
-  })
-
-  const groups: { face: FrameSessionSummary["face"]; key: string }[] = [
-    { face: "gateway", key: "gatewayFramesFaceGateway" },
-    { face: "upstream", key: "gatewayFramesFaceUpstream" },
-  ]
-  const all = sessions.data ?? []
-
-  function refresh() {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.gatewayFrameSessions })
-    if (active) {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.gatewayFrameHistory(active),
-      })
-    }
-  }
-
-  return (
-    <PanelCard variant="plain" className="gap-2">
-      <div className="flex items-center justify-between border-b pb-2">
-        <div className="text-sm font-medium">{t("gatewayFramesTitle")}</div>
-        <Button
-          disabled={sessions.isFetching}
-          size="sm"
-          variant="ghost"
-          onClick={refresh}
-        >
-          <RefreshCwIcon className="size-3.5" />
-        </Button>
-      </div>
-      {all.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("gatewayFramesEmpty")}</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {groups.map(({ face, key }) => {
-            const items = all.filter((session) => session.face === face)
-            if (items.length === 0) return null
-            return (
-              <div key={face} className="flex flex-col gap-1">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {t(key)}
-                </div>
-                {items.map((session) => (
-                  <SessionRow
-                    active={session.session_id === active}
-                    key={session.session_id}
-                    onSelect={() => {
-                      setActive(session.session_id)
-                      setOpenFrame(null)
-                    }}
-                    session={session}
-                  />
-                ))}
-              </div>
-            )
-          })}
-          {active && timeline.data ? (
-            <div className="flex flex-col gap-1 border-t pt-2">
-              {timeline.data.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  {t("gatewayFramesNoFrames")}
-                </p>
-              ) : (
-                timeline.data.map((frame) => (
-                  <FrameRow
-                    frame={frame}
-                    key={frame.id}
-                    open={openFrame === frame.id}
-                    onToggle={() =>
-                      setOpenFrame((prev) => (prev === frame.id ? null : frame.id))
-                    }
-                  />
-                ))
-              )}
-            </div>
-          ) : null}
-        </div>
-      )}
-    </PanelCard>
-  )
-}
-
-function SessionRow({
-  session,
-  active,
-  onSelect,
-}: {
-  session: FrameSessionSummary
-  active: boolean
-  onSelect: () => void
-}) {
-  return (
-    <button
-      type="button"
-      className={`flex w-full flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-left ${
-        active ? "border-solid bg-muted/50" : "border-dashed"
-      }`}
-      onClick={onSelect}
-    >
-      <Badge variant="outline" className="shrink-0 font-mono">
-        {session.peer ?? session.caller ?? session.session_id.slice(0, 12)}
-      </Badge>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-        {session.instance_id ?? session.caller ?? "—"}
-      </span>
-      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-        {new Date(session.last_ts_unix_ms).toLocaleTimeString()}
-      </span>
-      <Badge variant="secondary" className="shrink-0">
-        {session.frame_count}
-      </Badge>
-    </button>
-  )
-}
-
-function FrameRow({
-  frame,
-  open,
-  onToggle,
-}: {
-  frame: FrameRecord
-  open: boolean
-  onToggle: () => void
-}) {
-  const { t } = useI18n()
-  const Arrow = frame.direction === "up" ? ArrowUpIcon : ArrowDownIcon
-  return (
-    <div className="rounded-md border border-dashed">
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
-        onClick={onToggle}
-      >
-        <Arrow
-          className={`size-3.5 shrink-0 ${
-            frame.direction === "up" ? "text-blue-500" : "text-emerald-500"
-          }`}
-        />
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {new Date(frame.ts_unix_ms).toLocaleTimeString()}
-        </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-sm">
-          {frame.method ?? `#${frame.jsonrpc_id ?? "—"}`}
-        </span>
-        <Badge
-          variant={
-            frame.kind === "error"
-              ? "destructive"
-              : frame.kind === "notification"
-                ? "outline"
-                : "secondary"
-          }
-          className="shrink-0"
-        >
-          {frame.kind}
-        </Badge>
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {frame.size_bytes}B
-        </span>
-      </button>
-      {open ? (
-        <div className="border-t px-3 py-2 text-xs">
-          <PayloadBlock
-            payload={frame.payload}
-            title={`${frame.face} / ${frame.kind}`}
-            truncated={frame.truncated}
-          />
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 /** 长轮询循环：等新记录或 25s 超时后继续；后端重启（seq 回退）时清空重追。 */
 function useGatewayRequestFlow() {
   const [records, setRecords] = useState<GatewayRequestRecord[]>([])
@@ -624,311 +431,244 @@ function FlowRow({ record }: { record: GatewayRequestRecord }) {
   )
 }
 
-/** 已接入客户端：每个挂载点的作用域 + 暴露配置（/gateway/wired 返回生效值）。 */
-function WiredClientsCard({
+/** Agent → mcpstore → MCP 三列调用拓扑。 */
+function CallFlowDiagram({
   labelById,
+  latest,
+  status,
   wired,
 }: {
   labelById: Map<string, string>
+  latest: GatewayRequestRecord | null
+  status: GatewayStatus | null
   wired: WiredEntry[]
 }) {
   const { t } = useI18n()
-  const [editing, setEditing] = useState<WiredEntry | null>(null)
-  return (
-    <PanelCard variant="plain" className="gap-2">
-      <div className="border-b pb-2 text-sm font-medium">{t("gatewayWiredTitle")}</div>
-      {wired.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("gatewayWiredEmpty")}</p>
-      ) : (
-        wired.map((entry) => (
-          <WiredClientRow
-            key={entry.client_id}
-            entry={entry}
-            labelById={labelById}
-            onEdit={() => setEditing(entry)}
-          />
-        ))
-      )}
-      <WireEditDialog
-        entry={editing}
-        labelById={labelById}
-        onOpenChange={(open) => !open && setEditing(null)}
-      />
-    </PanelCard>
-  )
-}
-
-function WiredClientRow({
-  entry,
-  labelById,
-  onEdit,
-}: {
-  entry: WiredEntry
-  labelById: Map<string, string>
-  onEdit: () => void
-}) {
-  const { t } = useI18n()
-  const exposeOn = Object.entries(entry.expose)
-    .filter(([, on]) => on)
-    .map(([key]) => key)
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
-      <CableIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 truncate text-sm font-medium">
-        {labelById.get(entry.client_id) ?? entry.client_id}
-      </span>
-      <Badge variant="secondary" className="shrink-0 font-mono text-xs">
-        {entry.scope.type === "agent" ? `Agent:${entry.scope.agent_id}` : t("gatewayScopeStore")}
-      </Badge>
-      {exposeOn.length > 0 ? (
-        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-          {exposeOn.join(", ")}
-        </span>
-      ) : (
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
-          {t("gatewayExposeNone")}
-        </span>
-      )}
-      <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-        {entry.url}
-      </span>
-      <Button
-        className="ml-auto shrink-0"
-        size="icon-sm"
-        variant="ghost"
-        onClick={onEdit}
-        aria-label={t("gatewayEditWire")}
-      >
-        <PencilIcon className="size-3.5" />
-      </Button>
-    </div>
-  )
-}
-
-/** 编辑已接入客户端：重新调用 /gateway/wire（幂等）覆盖 scope + 8 个暴露开关。 */
-function WireEditDialog({
-  entry,
-  labelById,
-  onOpenChange,
-}: {
-  entry: WiredEntry | null
-  labelById: Map<string, string>
-  onOpenChange: (open: boolean) => void
-}) {
-  const { t } = useI18n()
-  const wire = useWireClientMutation()
-  const [scope, setScope] = useState<ScopeRef>({ type: "store" })
-  const [expose, setExpose] = useState<ExposeConfig | null>(null)
-
-  useEffect(() => {
-    if (entry) {
-      setScope(entry.scope)
-      setExpose(entry.expose)
-    }
-  }, [entry])
-
-  if (!entry || !expose) {
-    return <Dialog open={false} onOpenChange={onOpenChange} />
-  }
-
-  async function handleSave() {
-    try {
-      await wire.mutateAsync({
-        client: entry!.client_id,
-        options: {
-          scope: scope.type,
-          agentId: scope.type === "agent" ? scope.agent_id : undefined,
-          expose: expose!,
-        },
-      })
-      toast.success(t("clientsWireOk", { client: labelById.get(entry!.client_id) ?? entry!.client_id }))
-      onOpenChange(false)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
-    }
-  }
+  const activeCaller = latest?.caller ?? null
+  const hubEndpoint =
+    status?.host && status.port ? `${status.host}:${status.port}` : (status?.url ?? "—")
+  const fresh = latest != null && Date.now() - latest.at_unix_ms < 4_000
 
   return (
-    <Dialog open={Boolean(entry)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {t("gatewayEditWireTitle", {
-              client: labelById.get(entry.client_id) ?? entry.client_id,
-            })}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label>{t("gatewayScope")}</Label>
-            <Select
-              value={scope.type}
-              onValueChange={(value) =>
-                setScope(
-                  value === "agent"
-                    ? { type: "agent", agent_id: scope.type === "agent" ? scope.agent_id : entry.client_id }
-                    : { type: "store" },
-                )
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="store">{t("gatewayScopeStore")}</SelectItem>
-                <SelectItem value="agent">{t("gatewayScopeAgent")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {scope.type === "agent" ? (
-            <div className="flex flex-col gap-1.5">
-              <Label>{t("gatewayAgentId")}</Label>
-              <Input
-                value={scope.agent_id}
-                onChange={(event) => setScope({ type: "agent", agent_id: event.target.value })}
-                placeholder="agent-id"
+    <PanelCard variant="plain" className="gap-3 overflow-x-auto">
+      <div className="flex min-w-[640px] items-stretch gap-0">
+        <div className="flex w-[148px] shrink-0 flex-col justify-center gap-2">
+          {wired.length === 0 ? (
+            <FlowNodeCard className="border-dashed">
+              <p className="text-xs text-muted-foreground">{t("gatewayFlowEmptyAgent")}</p>
+            </FlowNodeCard>
+          ) : (
+            wired.map((entry) => (
+              <AgentFlowCard
+                key={entry.client_id}
+                active={activeCaller === entry.client_id}
+                entry={entry}
+                label={labelById.get(entry.client_id) ?? entry.client_id}
               />
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-2">
-            <Label>{t("clientsExpose")}</Label>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              {EXPOSE_KEYS.map((key) => (
-                <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
-                  <Switch
-                    checked={expose[key]}
-                    onCheckedChange={(checked) =>
-                      setExpose((prev) => (prev ? { ...prev, [key]: checked } : prev))
-                    }
-                  />
-                  <span className="font-mono text-xs">{key}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+            ))
+          )}
         </div>
-        <DialogFooter>
-          <Button disabled={wire.isPending} onClick={handleSave}>
-            {t("save")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
-/** 历史请求：daemon 遥测持久层最近 50 条（工具调用 + 管理操作），点击行展开完整参数/返回。 */
-function RequestHistoryCard() {
-  const { t } = useI18n()
-  const history = useQuery({
-    queryKey: queryKeys.gatewayHistory,
-    queryFn: () => getRequestHistory({ limit: 50 }),
-    refetchInterval: 15_000,
-  })
-  const records = history.data?.requests ?? []
-  return (
-    <PanelCard variant="plain" className="gap-2">
-      <div className="border-b pb-2 text-sm font-medium">{t("gatewayHistoryTitle")}</div>
-      {records.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("gatewayHistoryEmpty")}</p>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {records.map((record) => (
-            <HistoryRow key={record.id} record={record} />
-          ))}
+        <FlowConnector
+          accent={wired.length > 0 && Boolean(status?.running)}
+          from={Math.max(wired.length, 1)}
+        />
+
+        <div className="flex w-[148px] shrink-0 flex-col justify-center">
+          <HubFlowCard
+            endpoint={hubEndpoint}
+            running={Boolean(status?.running)}
+          />
         </div>
-      )}
+
+        <FlowConnector accent={Boolean(latest)} endDot from={1} />
+
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <ServiceFlowCard fresh={fresh} record={latest} />
+        </div>
+      </div>
     </PanelCard>
   )
 }
 
-function HistoryRow({ record }: { record: RequestRecord }) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+/** Fan-in dashed connectors: `from` left stubs → single right join. */
+function FlowConnector({
+  accent,
+  endDot,
+  from = 1,
+}: {
+  accent?: boolean
+  endDot?: boolean
+  from?: number
+}) {
+  const n = Math.max(from, 1)
+  const vbH = 100
+  const rightY = vbH / 2
+  const leftYs = Array.from({ length: n }, (_, i) => ((i + 0.5) / n) * vbH)
+
   return (
-    <div className="rounded-md border border-dashed">
-      <button
-        type="button"
-        className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left"
-        onClick={() => setOpen((prev) => !prev)}
+    <div className="relative flex w-10 shrink-0 self-stretch px-1" aria-hidden>
+      <svg
+        className={cn(
+          "h-full w-full overflow-visible",
+          accent ? "text-orange-400" : "text-border",
+        )}
+        viewBox={`0 0 40 ${vbH}`}
+        preserveAspectRatio="none"
       >
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {new Date(record.started_at_unix_ms).toLocaleTimeString()}
-        </span>
-        <Badge variant="outline" className="shrink-0 font-mono">
-          {record.caller ?? t("gatewayCallDirect")}
-        </Badge>
-        <span className="min-w-0 flex-1 truncate font-mono text-sm">
-          {record.kind === "tool"
-            ? `${record.service_name ?? "—"}.${record.tool ?? "—"}`
-            : record.tool ?? "—"}
-        </span>
-        <Badge variant="secondary" className="shrink-0">
-          {record.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")}
-        </Badge>
-        <Badge variant={record.success ? "secondary" : "destructive"} className="shrink-0">
-          {record.success ? "OK" : "ERR"}
-        </Badge>
-        <span className="shrink-0 text-xs text-muted-foreground">{record.duration_ms}ms</span>
-      </button>
-      {open ? (
-        <div className="flex flex-col gap-2 border-t px-3 py-2 text-xs">
-          {record.error_summary ? (
-            <div>
-              <span className="font-medium text-destructive">
-                {record.error_code ?? "ERR"}
-              </span>
-              <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2">
-                {record.error_summary}
-              </pre>
-            </div>
-          ) : null}
-          <PayloadBlock
-            title={t("gatewayDetailArgs")}
-            payload={record.args_json}
-            truncated={record.args_truncated}
+        {leftYs.map((y, i) => (
+          <path
+            key={i}
+            d={`M 0 ${y} C 18 ${y}, 22 ${rightY}, 36 ${rightY}`}
+            fill="none"
+            stroke="currentColor"
+            strokeDasharray="3 2.5"
+            strokeWidth={1.25}
+            vectorEffect="non-scaling-stroke"
           />
-          <PayloadBlock
-            title={t("gatewayDetailResult")}
-            payload={record.result_json}
-            truncated={record.result_truncated}
-          />
-        </div>
+        ))}
+      </svg>
+      {endDot ? (
+        <span
+          className={cn(
+            "absolute top-1/2 right-0 size-2 -translate-y-1/2 rounded-full",
+            accent ? "bg-orange-500" : "bg-border",
+          )}
+        />
       ) : null}
     </div>
   )
 }
 
-function PayloadBlock({
-  title,
-  payload,
-  truncated,
+function FlowNodeCard({
+  children,
+  className,
+  emphasized,
 }: {
-  title: string
-  payload: string | null
-  truncated: boolean
+  children: ReactNode
+  className?: string
+  emphasized?: boolean
 }) {
-  const { t } = useI18n()
-  if (!payload) return null
-  let pretty = payload
-  try {
-    pretty = JSON.stringify(JSON.parse(payload), null, 2)
-  } catch {
-    // 非 JSON（截断残留）原样展示
-  }
   return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-2">
-        <span className="font-medium">{title}</span>
-        {truncated ? (
-          <Badge variant="outline" className="text-[10px]">
-            {t("gatewayTruncated")}
-          </Badge>
-        ) : null}
-      </div>
-      <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2">
-        {pretty}
-      </pre>
+    <div
+      className={cn(
+        "relative flex flex-col gap-1.5 rounded-xl border bg-card p-3 shadow-xs",
+        emphasized ? "border-foreground/80" : "border-border/70",
+        className,
+      )}
+    >
+      {children}
     </div>
   )
 }
+
+function AgentFlowCard({
+  active,
+  entry,
+  label,
+}: {
+  active: boolean
+  entry: WiredEntry
+  label: string
+}) {
+  const iconUrl = clientIconUrls[entry.client_id]
+
+  return (
+    <FlowNodeCard className={cn("items-center", active && "ring-1 ring-orange-400/70")}>
+      {iconUrl ? (
+        <img src={iconUrl} alt="" className="size-7 object-contain" aria-hidden />
+      ) : (
+        <span
+          aria-hidden
+          className="flex size-7 items-center justify-center rounded-md bg-muted text-[10px] font-medium uppercase"
+        >
+          {entry.client_id.slice(0, 2)}
+        </span>
+      )}
+      <div className="flex min-w-0 max-w-full items-center gap-1.5">
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            active ? "bg-orange-500" : "bg-emerald-500",
+          )}
+        />
+        <span className="truncate text-sm font-semibold leading-tight">{label}</span>
+      </div>
+    </FlowNodeCard>
+  )
+}
+
+function HubFlowCard({ endpoint, running }: { endpoint: string; running: boolean }) {
+  const { t } = useI18n()
+  return (
+    <FlowNodeCard emphasized>
+      <img src="/logo.png" alt="" aria-hidden className="size-8 object-contain" />
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            running ? "bg-emerald-500" : "bg-muted-foreground/40",
+          )}
+        />
+        <strong className="truncate font-mono text-sm font-semibold">mcpstore</strong>
+      </div>
+      <span className="truncate font-mono text-[11px] text-muted-foreground">
+        {running ? endpoint : t("gatewayStopped")}
+      </span>
+    </FlowNodeCard>
+  )
+}
+
+function ServiceFlowCard({
+  fresh,
+  record,
+}: {
+  fresh: boolean
+  record: GatewayRequestRecord | null
+}) {
+  const { t } = useI18n()
+
+  if (!record) {
+    return (
+      <FlowNodeCard className="min-h-[88px] justify-center border-dashed">
+        <p className="text-xs text-muted-foreground">{t("gatewayFlowEmptyService")}</p>
+      </FlowNodeCard>
+    )
+  }
+
+  return (
+    <FlowNodeCard className={cn("min-h-[88px]", fresh && "ring-1 ring-orange-400/70")}>
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            fresh ? "animate-pulse bg-orange-500" : record.success ? "bg-emerald-500" : "bg-destructive",
+          )}
+        />
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/50">
+          <DefaultServiceIcon className="size-4" />
+        </span>
+        <span className="min-w-0 truncate text-sm font-semibold">{record.service_name}</span>
+        <Badge variant="secondary" className="max-w-[40%] shrink-0 truncate font-mono text-[11px]">
+          {record.tool}
+        </Badge>
+      </div>
+      <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        <span className="truncate">
+          {fresh
+            ? t("gatewayFlowCalling")
+            : record.success
+              ? `${t("gatewayFlowLastCall")} · OK · ${record.duration_ms}ms`
+              : `${t("gatewayFlowLastCall")} · ERR · ${record.duration_ms}ms`}
+        </span>
+        {record.caller ? (
+          <span className="ml-auto shrink-0 truncate font-mono text-[11px]">{record.caller}</span>
+        ) : (
+          <span className="ml-auto shrink-0 font-mono text-[11px]">{t("gatewayCallDirect")}</span>
+        )}
+      </div>
+    </FlowNodeCard>
+  )
+}
+
+

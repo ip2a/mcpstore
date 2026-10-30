@@ -91,6 +91,7 @@ function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/clients") return { name: "clients" }
   if (pathname === "/plugins") return { name: "plugins" }
   if (pathname === "/gateway") return { name: "gateway" }
+  if (pathname === "/traces") return { name: "traces" }
   if (pathname === "/cache") return { name: "cache" }
   if (pathname === "/settings") return { name: "settings" }
   if (pathname === "/add") return { name: "services" }

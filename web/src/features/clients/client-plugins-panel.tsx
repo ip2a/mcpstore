@@ -279,13 +279,14 @@ function MarketRow({
         <Button
           size="sm"
           variant="outline"
+          className="w-20"
           disabled={busy || !entry.update_available}
           onClick={onUpdate}
         >
           {entry.update_available ? t("clientPluginUpdate") : t("clientPluginInstalled")}
         </Button>
       ) : (
-        <Button size="sm" disabled={busy} onClick={onInstall}>
+        <Button size="sm" className="w-20" disabled={busy} onClick={onInstall}>
           {t("clientPluginInstall")}
         </Button>
       )}
