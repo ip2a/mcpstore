@@ -4,6 +4,8 @@ import {
   CircleDashed,
   FileJsonIcon,
   FolderIcon,
+  LayoutGridIcon,
+  ListIcon,
   PencilIcon,
   RefreshCwIcon,
   TerminalIcon,
@@ -28,7 +30,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  ClientPluginMarketCard,
+  ClientPluginMarketPanel,
   ClientPluginRowActions,
   useClientPluginMarketQuery,
   useClientPluginsQuery,
@@ -53,7 +55,27 @@ import type { ClientPlugin, MarketPlugin } from "@/lib/api/plugins"
 import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
-type ClientTab = "all" | "wired" | "detected" | "not-detected"
+type ClientTab = "all" | "wired" | "detected" | "not-detected" | "market"
+type ClientsViewMode = "cards" | "list"
+
+const VIEW_MODE_STORAGE_KEY = "mcpstore.clients-view-mode"
+
+function readViewMode(): ClientsViewMode {
+  try {
+    const value = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
+    return value === "list" ? "list" : "cards"
+  } catch {
+    return "cards"
+  }
+}
+
+function writeViewMode(mode: ClientsViewMode) {
+  try {
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
+  } catch {
+    // Ignore storage failures.
+  }
+}
 
 export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "tool",
@@ -133,6 +155,8 @@ export function ClientsView() {
   const marketQuery = useClientPluginMarketQuery()
   const [tab, setTab] = useState<ClientTab>("all")
   const [query, setQuery] = useState("")
+  const [viewMode, setViewMode] = useState<ClientsViewMode>(readViewMode)
+  const [cardClientId, setCardClientId] = useState<string | null>(null)
   const [wireDialog, setWireDialog] = useState<WireDialogState | null>(null)
   const [wireConflict, setWireConflict] = useState<WireConflictState | null>(null)
 
@@ -148,6 +172,15 @@ export function ClientsView() {
   const wiredById = Object.fromEntries(
     (wiredQuery.data ?? []).map((entry) => [entry.client_id, entry]),
   ) as Record<string, WiredEntry>
+  const cardClient = cardClientId
+    ? (clients.find((client) => client.id === cardClientId) ?? null)
+    : null
+
+  function handleViewModeChange(mode: ClientsViewMode) {
+    setViewMode(mode)
+    writeViewMode(mode)
+    if (mode === "list") setCardClientId(null)
+  }
 
   const tabs = useMemo(
     () => [
@@ -155,11 +188,14 @@ export function ClientsView() {
       { id: "wired" as const, label: t("clientsWired") },
       { id: "detected" as const, label: t("clientsDetected") },
       { id: "not-detected" as const, label: t("clientsNotDetected") },
+      { id: "market" as const, label: t("clientPluginMarketTitle") },
     ],
     [t],
   )
+  const isMarketTab = tab === "market"
 
   const visibleClients = useMemo(() => {
+    if (isMarketTab) return []
     const normalized = query.trim().toLowerCase()
     return clients.filter((client) => {
       const detected = client.detected_by != null
@@ -172,7 +208,7 @@ export function ClientsView() {
         client.label.toLowerCase().includes(normalized)
       )
     })
-  }, [clients, query, tab])
+  }, [clients, isMarketTab, query, tab])
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.clients })
@@ -187,7 +223,11 @@ export function ClientsView() {
     <>
       <WorkspacePageHeader
         title={<h1 className="text-lg font-semibold">{t("clientsWorkspaceTitle")}</h1>}
-        subtitle={t("clientsWorkspaceDescription", { count: visibleClients.length })}
+        subtitle={
+          isMarketTab
+            ? t("clientPluginsDescription")
+            : t("clientsWorkspaceDescription", { count: visibleClients.length })
+        }
       />
 
       <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
@@ -200,74 +240,149 @@ export function ClientsView() {
                 </TabsTrigger>
               ))}
             </TabsList>
-            <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <CollapsibleSearchBox
-                inline
-                id="client-list-search"
-                placeholder={t("searchClients")}
-                value={query}
-                onChange={setQuery}
-              />
-              <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
-                <RefreshCwIcon data-icon="inline-start" />
-                {t("refresh")}
-              </Button>
-            </div>
+            {!isMarketTab ? (
+              <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+                <CollapsibleSearchBox
+                  inline
+                  id="client-list-search"
+                  placeholder={t("searchClients")}
+                  value={query}
+                  onChange={setQuery}
+                />
+                <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
+                  <RefreshCwIcon data-icon="inline-start" />
+                  {t("refresh")}
+                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    aria-label={t("servicesViewCards")}
+                    aria-pressed={viewMode === "cards"}
+                    size="icon-sm"
+                    title={t("servicesViewCards")}
+                    variant={viewMode === "cards" ? "secondary" : "outline"}
+                    onClick={() => handleViewModeChange("cards")}
+                  >
+                    <LayoutGridIcon aria-hidden="true" />
+                  </Button>
+                  <Button
+                    aria-label={t("servicesViewList")}
+                    aria-pressed={viewMode === "list"}
+                    size="icon-sm"
+                    title={t("servicesViewList")}
+                    variant={viewMode === "list" ? "secondary" : "outline"}
+                    onClick={() => handleViewModeChange("list")}
+                  >
+                    <ListIcon aria-hidden="true" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {tabs.map((item) => (
             <TabsContent key={item.id} value={item.id} className={tabContentClassName}>
-              {tab === item.id ? (
-                isError ? (
-                  <div className="px-4 py-2">
-                    <PageError
-                      title={t("clientsLoadFailed")}
-                      message={error instanceof Error ? error.message : String(error)}
-                      onRefresh={refresh}
-                    />
-                  </div>
-                ) : isPending ? (
-                  <div className="px-4 py-2">
-                    <PageSkeleton />
-                  </div>
-                ) : (
-                  <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-2 px-0 pb-2">
-                    {visibleClients.length ? (
-                      <div className="divide-y divide-border/50">
-                        {visibleClients.map((client) => (
-                          <ClientRow
-                            key={client.id}
-                            client={client}
-                            busy={pluginBusy}
-                            installed={installedById[client.id]}
-                            marketEntry={marketById[client.id]}
-                            onWire={() => setWireDialog({ mode: "wire", client })}
-                            onEditWire={() => {
-                              const entry = wiredById[client.id]
-                              if (entry) setWireDialog({ mode: "edit", client, entry })
-                            }}
-                            onUnwire={() => void toggle(client, true)}
-                            onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-                            onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
-                            onUpdate={(id) => pluginUpdate.mutate(id)}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="px-4 py-2">
-                        <PageEmpty title={t("noClients")} description={t("noClientsDescription")} onRefresh={refresh} />
-                      </div>
-                    )}
-                    <div className="px-4">
-                      <ClientPluginMarketCard
-                        busy={pluginBusy}
-                        onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-                        onUpdate={(id) => pluginUpdate.mutate(id)}
-                      />
+              {tab !== item.id ? null : item.id === "market" ? (
+                <ClientPluginMarketPanel
+                  busy={pluginBusy}
+                  onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                  onUpdate={(id) => pluginUpdate.mutate(id)}
+                />
+              ) : isError ? (
+                <div className="px-4 py-2">
+                  <PageError
+                    title={t("clientsLoadFailed")}
+                    message={error instanceof Error ? error.message : String(error)}
+                    onRefresh={refresh}
+                  />
+                </div>
+              ) : isPending ? (
+                <div className="px-4 py-2">
+                  <PageSkeleton />
+                </div>
+              ) : viewMode === "list" ? (
+                <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-2 px-0 pb-2">
+                  {visibleClients.length ? (
+                    <div className="divide-y divide-border/50">
+                      {visibleClients.map((client) => (
+                        <ClientRow
+                          key={client.id}
+                          client={client}
+                          busy={pluginBusy}
+                          installed={installedById[client.id]}
+                          marketEntry={marketById[client.id]}
+                          onWire={() => setWireDialog({ mode: "wire", client })}
+                          onEditWire={() => {
+                            const entry = wiredById[client.id]
+                            if (entry) setWireDialog({ mode: "edit", client, entry })
+                          }}
+                          onUnwire={() => void toggle(client, true)}
+                          onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                          onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
+                          onUpdate={(id) => pluginUpdate.mutate(id)}
+                        />
+                      ))}
                     </div>
+                  ) : (
+                    <div className="px-4 py-2">
+                      <PageEmpty title={t("noClients")} description={t("noClientsDescription")} onRefresh={refresh} />
+                    </div>
+                  )}
+                </ScrollPane>
+              ) : (
+                <>
+                  <ScrollPane
+                    className="min-h-0 flex-1"
+                    innerClassName={
+                      visibleClients.length
+                        ? "px-4 py-2 grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
+                        : "flex flex-col gap-3 px-4 py-2"
+                    }
+                  >
+                    {visibleClients.length ? (
+                      visibleClients.map((client) => (
+                        <ClientListCard
+                          key={client.id}
+                          client={client}
+                          onSelect={() => setCardClientId(client.id)}
+                        />
+                      ))
+                    ) : (
+                      <PageEmpty title={t("noClients")} description={t("noClientsDescription")} onRefresh={refresh} />
+                    )}
                   </ScrollPane>
-                )
-              ) : null}
+                  {cardClient ? (
+                    <ClientDetailDialog
+                      client={cardClient}
+                      open
+                      onOpenChange={(open) => {
+                        if (!open) setCardClientId(null)
+                      }}
+                      actions={
+                        <ClientCardActions
+                          busy={pluginBusy}
+                          client={cardClient}
+                          installed={installedById[cardClient.id]}
+                          marketEntry={marketById[cardClient.id]}
+                          onWire={() => {
+                            setCardClientId(null)
+                            setWireDialog({ mode: "wire", client: cardClient })
+                          }}
+                          onEditWire={() => {
+                            const entry = wiredById[cardClient.id]
+                            if (!entry) return
+                            setCardClientId(null)
+                            setWireDialog({ mode: "edit", client: cardClient, entry })
+                          }}
+                          onUnwire={() => void toggle(cardClient, true)}
+                          onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                          onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
+                          onUpdate={(id) => pluginUpdate.mutate(id)}
+                        />
+                      }
+                    />
+                  ) : null}
+                </>
+              )}
             </TabsContent>
           ))}
         </Tabs>
@@ -432,6 +547,24 @@ function WireConflictDialog({
   )
 }
 
+function clientStatusText(
+  client: ClientInventory,
+  t: (key: string, vars?: Record<string, string | number | null | undefined>) => string,
+) {
+  const detected = client.detected_by != null
+  const mcpCount = client.mcp_servers?.length ?? 0
+  const showMcp = client.mcp_servers != null
+  if (!detected) return t("clientsStatusNotDetected")
+  if (client.wired) {
+    return showMcp
+      ? t("clientsStatusWired", { client: client.id, count: mcpCount })
+      : t("clientsWired")
+  }
+  return showMcp
+    ? t("clientsStatusDetected", { client: client.id, count: mcpCount })
+    : t("clientsDetected")
+}
+
 function ClientRow({
   busy,
   client,
@@ -462,16 +595,7 @@ function ClientRow({
   const showMcp = client.mcp_servers != null
   const versionQuery = useClientVersionQuery(client.id, detected)
   const version = versionQuery.data ?? client.version ?? null
-
-  const statusText = !detected
-    ? t("clientsStatusNotDetected")
-    : client.wired
-      ? showMcp
-        ? t("clientsStatusWired", { client: client.id, count: mcpCount })
-        : t("clientsWired")
-      : showMcp
-        ? t("clientsStatusDetected", { client: client.id, count: mcpCount })
-        : t("clientsDetected")
+  const statusText = clientStatusText(client, t)
 
   return (
     <>
@@ -560,16 +684,166 @@ function ClientRow({
   )
 }
 
-function ClientLogo({ clientId, label }: { clientId: string; label: string }) {
+function ClientListCard({
+  client,
+  onSelect,
+}: {
+  client: ClientInventory
+  onSelect: () => void
+}) {
+  const { t } = useI18n()
+  const detected = client.detected_by != null
+  const versionQuery = useClientVersionQuery(client.id, detected)
+  const version = versionQuery.data ?? client.version ?? null
+  const statusText = !detected
+    ? t("clientsNotDetected")
+    : client.wired
+      ? t("clientsWired")
+      : t("clientsDetected")
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="group flex h-full min-h-36 cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left shadow-xs transition-colors hover:border-border hover:bg-muted/40"
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <ClientLogo
+          clientId={client.id}
+          label={client.label}
+          className="size-10 rounded-lg border border-border/50 bg-muted/60"
+          imageClassName="size-7"
+        />
+        <span className="min-w-0 flex-1 pt-0.5">
+          <span className="line-clamp-1 text-sm font-semibold leading-snug">{client.id}</span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                client.wired
+                  ? "bg-emerald-500"
+                  : detected
+                    ? "bg-emerald-500/70"
+                    : "bg-muted-foreground/40",
+              )}
+            />
+            <span className="truncate">{statusText}</span>
+          </span>
+        </span>
+      </div>
+
+      <p className="mt-3 line-clamp-2 flex-1 text-xs leading-relaxed text-muted-foreground">
+        {client.config_path || client.label}
+      </p>
+
+      {version ? (
+        <div className="mt-3 text-[11px] font-mono tabular-nums text-muted-foreground">
+          {version}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ClientCardActions({
+  busy,
+  client,
+  installed,
+  marketEntry,
+  onWire,
+  onEditWire,
+  onUnwire,
+  onInstall,
+  onUninstall,
+  onUpdate,
+}: {
+  busy: boolean
+  client: ClientInventory
+  installed: ClientPlugin | undefined
+  marketEntry: MarketPlugin | undefined
+  onWire: () => void
+  onEditWire: () => void
+  onUnwire: () => void
+  onInstall: (id: string) => void
+  onUninstall: (id: string) => void
+  onUpdate: (id: string) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="flex w-full flex-wrap items-center justify-end gap-2">
+      <ClientPluginRowActions
+        clientId={client.id}
+        busy={busy}
+        installed={installed}
+        marketEntry={marketEntry}
+        onInstall={onInstall}
+        onUninstall={onUninstall}
+        onUpdate={onUpdate}
+      />
+      {client.wired ? (
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={busy}
+          aria-label={t("gatewayEditWire")}
+          onClick={onEditWire}
+        >
+          <PencilIcon className="size-3.5" />
+        </Button>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">
+          {client.wired ? t("clientsUnwire") : t("clientsWire")}
+        </span>
+        <Switch
+          checked={client.wired}
+          disabled={busy}
+          aria-label={client.wired ? t("clientsUnwire") : t("clientsWire")}
+          onCheckedChange={(checked) => {
+            if (checked) onWire()
+            else onUnwire()
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function ClientLogo({
+  clientId,
+  label,
+  className,
+  imageClassName,
+}: {
+  clientId: string
+  label: string
+  className?: string
+  imageClassName?: string
+}) {
   const iconUrl = clientIconUrls[clientId]
   return (
-    <span className="flex size-8 shrink-0 items-center justify-center">
+    <span className={cn("flex size-8 shrink-0 items-center justify-center", className)}>
       {iconUrl ? (
-        <img src={iconUrl} alt="" className="size-7 object-contain" aria-hidden />
+        <img
+          src={iconUrl}
+          alt=""
+          className={cn("size-7 object-contain", imageClassName)}
+          aria-hidden
+        />
       ) : (
         <span
           aria-hidden
-          className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-medium uppercase"
+          className={cn(
+            "flex size-7 items-center justify-center rounded-md bg-muted text-xs font-medium uppercase",
+            imageClassName,
+          )}
         >
           {clientId.slice(0, 2)}
         </span>
@@ -580,17 +854,22 @@ function ClientLogo({ clientId, label }: { clientId: string; label: string }) {
 }
 
 function ClientDetailDialog({
+  actions,
   client,
-  version,
+  version: versionProp,
   open,
   onOpenChange,
 }: {
+  actions?: ReactNode
   client: ClientInventory
-  version: string | null
+  version?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
+  const detected = client.detected_by != null
+  const versionQuery = useClientVersionQuery(client.id, open && detected && versionProp == null)
+  const version = versionProp ?? versionQuery.data ?? client.version ?? null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -641,6 +920,7 @@ function ClientDetailDialog({
             </DetailRow>
           ) : null}
         </dl>
+        {actions ? <DialogFooter>{actions}</DialogFooter> : null}
       </DialogContent>
     </Dialog>
   )

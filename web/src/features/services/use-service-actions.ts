@@ -6,7 +6,6 @@ import {
   disconnectInstance,
   removeServiceScope,
   restartInstance,
-  ApiError,
   type ServiceAddress,
   type ServiceInstance,
 } from "@/lib/api"
@@ -37,13 +36,12 @@ export function useServiceActions({
     return runAction(
       `connect:${service.instance_id}`,
       async () => {
-        try {
-          await connectInstance(service)
-        } catch (error) {
-          if (error instanceof ApiError && error.code === "connection_auth_required") {
-            toast.info(t("oauthConnectLoginRequired"))
-          }
-          throw error
+        // Connect intent recorded; response data is the state snapshot.
+        // Connection failures surface as state (phase/health/recovery), not errors —
+        // the supervisor retries in the background.
+        const state = await connectInstance(service)
+        if (state?.auth?.status === "unauthenticated") {
+          toast.info(t("oauthConnectLoginRequired"))
         }
       },
       () => refreshInstanceQueries(service),

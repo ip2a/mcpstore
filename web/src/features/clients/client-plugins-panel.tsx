@@ -1,6 +1,4 @@
-import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronRightIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -17,9 +15,6 @@ import {
 import { queryKeys } from "@/lib/query-keys"
 import { useI18n } from "@/lib/i18n-context"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { PanelCard } from "@/components/shared/panel-card"
-import { cn } from "@/lib/utils"
 
 function usePluginRefresh() {
   const queryClient = useQueryClient()
@@ -157,8 +152,8 @@ export function ClientPluginRowActions({
   return null
 }
 
-/** Collapsible market card placed below the clients list. */
-export function ClientPluginMarketCard({
+/** Plugin market panel for the Clients → Market tab. */
+export function ClientPluginMarketPanel({
   busy,
   onInstall,
   onUpdate,
@@ -168,7 +163,6 @@ export function ClientPluginMarketCard({
   onUpdate: (id: string) => void
 }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
   const market = useClientPluginMarketQuery()
   const queryClient = useQueryClient()
 
@@ -187,61 +181,47 @@ export function ClientPluginMarketCard({
   const marketPlugins = market.data?.plugins ?? []
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <PanelCard variant="plain" className="p-0">
-        <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-muted/50">
-          <ChevronRightIcon
-            className={cn(
-              "size-4 shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-90",
-            )}
-          />
-          <span className="flex-1">{t("clientPluginMarketTitle")}</span>
-          <span className="text-xs font-normal text-muted-foreground tabular-nums">
-            {marketPlugins.length}
-          </span>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="flex flex-col gap-2 border-t border-border/50 px-4 py-3">
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={detect.isPending}
-                onClick={() => detect.mutate()}
-              >
-                {detect.isPending ? t("clientPluginDetecting") : t("clientPluginDetect")}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={market.isFetching}
-                onClick={() => void market.refetch()}
-              >
-                {t("clientPluginMarketRefresh")}
-              </Button>
-            </div>
-            {market.isError ? (
-              <p className="text-sm text-destructive">
-                {market.error instanceof Error ? market.error.message : String(market.error)}
-              </p>
-            ) : marketPlugins.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("clientPluginMarketEmpty")}</p>
-            ) : (
-              marketPlugins.map((entry) => (
-                <MarketRow
-                  key={entry.id}
-                  entry={entry}
-                  busy={busy}
-                  onInstall={() => onInstall(entry.id)}
-                  onUpdate={() => onUpdate(entry.id)}
-                />
-              ))
-            )}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={detect.isPending}
+          onClick={() => detect.mutate()}
+        >
+          {detect.isPending ? t("clientPluginDetecting") : t("clientPluginDetect")}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={market.isFetching}
+          onClick={() => void market.refetch()}
+        >
+          {t("clientPluginMarketRefresh")}
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
+        {market.isError ? (
+          <p className="px-1 py-2 text-sm text-destructive">
+            {market.error instanceof Error ? market.error.message : String(market.error)}
+          </p>
+        ) : marketPlugins.length === 0 ? (
+          <p className="px-1 py-2 text-sm text-muted-foreground">{t("clientPluginMarketEmpty")}</p>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {marketPlugins.map((entry) => (
+              <MarketRow
+                key={entry.id}
+                entry={entry}
+                busy={busy}
+                onInstall={() => onInstall(entry.id)}
+                onUpdate={() => onUpdate(entry.id)}
+              />
+            ))}
           </div>
-        </CollapsibleContent>
-      </PanelCard>
-    </Collapsible>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -258,7 +238,7 @@ function MarketRow({
 }) {
   const { t } = useI18n()
   return (
-    <div className="flex items-center gap-3 rounded-md px-1 py-1.5">
+    <div className="flex items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
           {entry.label}

@@ -249,12 +249,22 @@ pub(super) async fn service_connect(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    state
+
+    // Trigger connection intent (fire-and-forget), supervisor will handle retries
+    let _ = tokio::spawn({
+        let store = state.store.clone();
+        async move {
+            let _ = store.connect_service(instance_id).await;
+        }
+    });
+
+    // Return current state snapshot immediately
+    let service_state = state
         .store
-        .connect_service(instance_id)
+        .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务连接成功", json!({ "status": "ok" })))
+    Ok(success("连接意图已记录", service_state))
 }
 
 pub(super) async fn service_disconnect(
@@ -264,12 +274,22 @@ pub(super) async fn service_disconnect(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    state
+
+    // Trigger disconnect intent (fire-and-forget)
+    let _ = tokio::spawn({
+        let store = state.store.clone();
+        async move {
+            let _ = store.disconnect_service(instance_id).await;
+        }
+    });
+
+    // Return current state snapshot immediately
+    let service_state = state
         .store
-        .disconnect_service(instance_id)
+        .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务断开成功", json!({ "status": "ok" })))
+    Ok(success("断开意图已记录", service_state))
 }
 
 pub(super) async fn service_restart(
