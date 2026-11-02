@@ -470,6 +470,7 @@ export {
   getUsageStats,
   getDailyUsageStats,
   getHeatmapStats,
+  getFrameActivityStats,
   getRequestHistory,
   getRequestDetail,
   getFrameSessions,

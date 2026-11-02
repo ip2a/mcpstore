@@ -120,6 +120,39 @@ pub(super) async fn usage_stats_heatmap(
 }
 
 #[derive(Deserialize)]
+pub(super) struct FrameActivityQuery {
+    hours: Option<u32>,
+}
+
+/// GET /gateway/stats/frame-activity — frame-based activity over a time range.
+pub(super) async fn frame_activity_stats(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<FrameActivityQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let hours = query.hours.unwrap_or(24).min(24 * 7);
+    
+    // Choose bucket size based on time range
+    let bucket_ms = if hours <= 1 {
+        60_000 // 1 minute buckets for 1 hour
+    } else if hours <= 24 {
+        3_600_000 // 1 hour buckets for 24 hours
+    } else if hours <= 72 {
+        3_600_000 // 1 hour buckets for 3 days
+    } else {
+        86_400_000 // 1 day buckets for 7 days
+    };
+    
+    let stats = telemetry
+        .frame_activity_stats(hours, bucket_ms)
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success(
+        "帧活动统计获取成功",
+        serde_json::to_value(stats).unwrap_or(Value::Null),
+    ))
+}
+
+#[derive(Deserialize)]
 pub(super) struct FrameSessionsQuery {
     face: Option<String>,
     hours: Option<i64>,

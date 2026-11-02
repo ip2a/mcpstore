@@ -748,6 +748,41 @@ impl TelemetryLog {
         })?;
         rows.collect()
     }
+
+    /// Frame-based activity stats with flexible time range and bucketing.
+    /// Returns buckets with counts per MCP primitive category.
+    pub fn frame_activity_stats(
+        &self,
+        hours: u32,
+        bucket_ms: i64,
+    ) -> rusqlite::Result<Vec<HeatmapDay>> {
+        let conn = self.read_conn()?;
+        let to = now_ms();
+        let from = to - i64::from(hours.max(1)) * 3600 * 1000;
+        let mut stmt = conn.prepare(
+            "SELECT (ts_unix_ms / ?1) * ?1 AS bucket, \
+             SUM(CASE WHEN kind = 'request' AND method LIKE 'tools/%' THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'request' AND method LIKE 'resources/%' THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'request' AND method LIKE 'prompts/%' THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'request' AND (method IS NULL OR \
+                  (method NOT LIKE 'tools/%' AND method NOT LIKE 'resources/%' \
+                   AND method NOT LIKE 'prompts/%')) THEN 1 ELSE 0 END), \
+             SUM(CASE WHEN kind = 'error' THEN 1 ELSE 0 END) \
+             FROM frames WHERE ts_unix_ms >= ?2 \
+             GROUP BY bucket ORDER BY bucket",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![bucket_ms, from], |row| {
+            Ok(HeatmapDay {
+                bucket_unix_ms: row.get(0)?,
+                tool_calls: row.get(1)?,
+                resource_calls: row.get(2)?,
+                prompt_calls: row.get(3)?,
+                other_calls: row.get(4)?,
+                errors: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
 }
 
 impl mcpstore::telemetry::RequestTelemetry for TelemetryLog {

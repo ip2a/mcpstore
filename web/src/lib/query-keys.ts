@@ -76,6 +76,8 @@ export const queryKeys = {
   get heatmapStats() {
     return ["gateway", ...hostSeg(), "heatmap-stats"] as const
   },
+  frameActivityStats: (hours: number) =>
+    ["gateway", ...hostSeg(), "frame-activity-stats", hours] as const,
   get gatewayHistory() {
     return ["gateway", ...hostSeg(), "requests-history"] as const
   },

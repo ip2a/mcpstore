@@ -70,6 +70,11 @@ export function getHeatmapStats(days = 371): Promise<HeatmapDay[]> {
   return api(`/gateway/stats/heatmap${buildQuery({ days })}`);
 }
 
+/** Frame-based activity stats over a flexible time range. */
+export function getFrameActivityStats(hours = 24): Promise<HeatmapDay[]> {
+  return api(`/gateway/stats/frame-activity${buildQuery({ hours })}`);
+}
+
 export function getRequestHistory(
   params: {
     limit?: number;

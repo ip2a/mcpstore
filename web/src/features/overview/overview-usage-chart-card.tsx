@@ -21,18 +21,19 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
-import { getUsageStats, type UsageStats, type UsageSeriesPoint } from "@/lib/api"
+import { getFrameActivityStats, type HeatmapDay } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
-type MetricTab = "calls" | "errors" | "avg" | "max"
-type SplitDim = "caller" | "service" | "tool" | "instance"
+type TimeRange = "7d" | "3d" | "24h" | "1h"
+type SplitDim = "service" | "tool" | "resource" | "frame"
 
 const SERIES_COLORS = ["#5b5bd5", "#38bdf8", "#34d399", "#f59e0b"]
-const DIM_SERIES_KEY: Record<SplitDim, keyof UsageStats> = {
-  caller: "by_caller",
-  service: "by_service",
-  tool: "by_tool",
-  instance: "by_instance",
+
+const TIME_RANGE_HOURS: Record<TimeRange, number> = {
+  "7d": 24 * 7,
+  "3d": 24 * 3,
+  "24h": 24,
+  "1h": 1,
 }
 
 function formatCompact(n: number): string {
@@ -41,85 +42,107 @@ function formatCompact(n: number): string {
   return String(n)
 }
 
-function formatMs(ms: number): string {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.round(ms)}ms`
-}
-
-function bucketLabel(bucketUnixMs: number): string {
-  const hour = new Date(bucketUnixMs).getHours().toString().padStart(2, "0")
-  return `${hour}:00`
+function bucketLabel(bucketUnixMs: number, range: TimeRange): string {
+  const date = new Date(bucketUnixMs)
+  if (range === "1h") {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  }
+  if (range === "24h") {
+    return `${date.getHours().toString().padStart(2, "0")}:00`
+  }
+  if (range === "3d") {
+    return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, "0")}:00`
+  }
+  return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
 export function OverviewUsageChartCard({ className }: { className?: string }) {
   const { t } = useI18n()
-  const [metric, setMetric] = useState<MetricTab>("calls")
-  const [split, setSplit] = useState<SplitDim>("caller")
+  const [range, setRange] = useState<TimeRange>("24h")
+  const [split, setSplit] = useState<SplitDim>("tool")
+  
   const { data: stats } = useQuery({
-    queryKey: queryKeys.usageStats,
-    queryFn: () => getUsageStats(24),
+    queryKey: queryKeys.frameActivityStats(TIME_RANGE_HOURS[range]),
+    queryFn: () => getFrameActivityStats(TIME_RANGE_HOURS[range]),
     refetchInterval: 60_000,
   })
 
-  // Top-4 series of the selected dimension, ranked by total calls in the window.
-  const series = useMemo(() => {
-    const rows = (stats?.[DIM_SERIES_KEY[split]] ?? []) as UsageSeriesPoint[]
-    const totals = new Map<string, { calls: number; errors: number; weightedMs: number }>()
-    for (const row of rows) {
-      const agg = totals.get(row.label) ?? { calls: 0, errors: 0, weightedMs: 0 }
-      agg.calls += row.calls
-      agg.errors += row.errors
-      agg.weightedMs += row.avg_ms * row.calls
-      totals.set(row.label, agg)
+  // Build series data based on split dimension
+  const { series, chartConfig } = useMemo(() => {
+    if (!stats || stats.length === 0) {
+      return { series: [], chartConfig: {} }
     }
-    return [...totals.entries()]
-      .sort((left, right) => right[1].calls - left[1].calls)
-      .slice(0, 4)
-      .map(([label, agg], index) => ({
-        key: label === "" ? "—" : label,
-        color: SERIES_COLORS[index % SERIES_COLORS.length],
-        calls: agg.calls,
-        errors: agg.errors,
-        avgMs: agg.calls > 0 ? agg.weightedMs / agg.calls : 0,
-      }))
+
+    let seriesData: Array<{ key: string; color: string; total: number }>
+    
+    switch (split) {
+      case "tool":
+        seriesData = [
+          { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
+        ]
+        break
+      case "resource":
+        seriesData = [
+          { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
+        ]
+        break
+      case "service":
+        seriesData = [
+          { key: "Prompts", color: SERIES_COLORS[2], total: stats.reduce((sum, s) => sum + s.prompt_calls, 0) },
+          { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
+          { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
+          { key: "Other", color: SERIES_COLORS[3], total: stats.reduce((sum, s) => sum + s.other_calls, 0) },
+        ].filter(s => s.total > 0)
+        break
+      case "frame":
+      default:
+        seriesData = [
+          { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
+          { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
+          { key: "Prompts", color: SERIES_COLORS[2], total: stats.reduce((sum, s) => sum + s.prompt_calls, 0) },
+          { key: "Other", color: SERIES_COLORS[3], total: stats.reduce((sum, s) => sum + s.other_calls, 0) },
+        ].filter(s => s.total > 0)
+    }
+
+    const config = Object.fromEntries(
+      seriesData.map((s) => [s.key, { label: s.key, color: s.color }]),
+    ) satisfies ChartConfig
+
+    return { series: seriesData, chartConfig: config }
   }, [stats, split])
 
-  const chartConfig = useMemo(
-    () =>
-      Object.fromEntries(
-        series.map((s) => [s.key, { label: s.key, color: s.color }]),
-      ) satisfies ChartConfig,
-    [series],
-  )
-
   const chartData = useMemo(() => {
-    const rows = (stats?.[DIM_SERIES_KEY[split]] ?? []) as UsageSeriesPoint[]
-    const active = new Set(series.map((s) => s.key))
-    const buckets = new Set<number>()
-    for (const point of stats?.by_hour ?? []) buckets.add(point.bucket_unix_ms)
-    for (const point of rows) buckets.add(point.bucket_unix_ms)
-    const byBucket = new Map<number, Record<string, number>>(
-      [...buckets].sort((a, b) => a - b).map((bucket) => [bucket, {}]),
-    )
-    for (const point of rows) {
-      const key = point.label === "" ? "—" : point.label
-      if (!active.has(key)) continue
-      const row = byBucket.get(point.bucket_unix_ms)
-      if (!row) continue
-      row[key] =
-        metric === "calls"
-          ? point.calls
-          : metric === "errors"
-            ? point.errors
-            : metric === "avg"
-              ? point.avg_ms
-              : point.max_ms
-    }
-    return [...byBucket.entries()].map(([bucket, row]) => ({
-      label: bucketLabel(bucket),
-      ...row,
-    }))
-  }, [stats, split, metric, series])
+    if (!stats) return []
+    
+    return stats.map((bucket) => {
+      const row: Record<string, number | string> = {
+        label: bucketLabel(bucket.bucket_unix_ms, range),
+      }
+      
+      switch (split) {
+        case "tool":
+          row["Tools"] = bucket.tool_calls
+          break
+        case "resource":
+          row["Resources"] = bucket.resource_calls
+          break
+        case "service":
+          row["Tools"] = bucket.tool_calls
+          row["Resources"] = bucket.resource_calls
+          row["Prompts"] = bucket.prompt_calls
+          row["Other"] = bucket.other_calls
+          break
+        case "frame":
+        default:
+          row["Tools"] = bucket.tool_calls
+          row["Resources"] = bucket.resource_calls
+          row["Prompts"] = bucket.prompt_calls
+          row["Other"] = bucket.other_calls
+      }
+      
+      return row
+    })
+  }, [stats, range, split])
 
   const yMax = Math.max(
     ...chartData.map((row) =>
@@ -127,8 +150,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
     ),
     1,
   )
-  const totalCalls = series.reduce((sum, s) => sum + s.calls, 0)
-  const valueFormatter = metric === "avg" || metric === "max" ? formatMs : formatCompact
+  const totalCalls = series.reduce((sum, s) => sum + s.total, 0)
 
   return (
     <Card className={cn("gap-0 py-0", className)}>
@@ -137,25 +159,25 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
           type="single"
           variant="outline"
           size="sm"
-          value={metric}
-          onValueChange={(v) => v && setMetric(v as MetricTab)}
+          value={range}
+          onValueChange={(v) => v && setRange(v as TimeRange)}
         >
-          <ToggleGroupItem value="calls" className="px-3">
-            {t("homeMetricCalls")}
+          <ToggleGroupItem value="7d" className="px-3">
+            7 Days
           </ToggleGroupItem>
-          <ToggleGroupItem value="errors" className="px-3">
-            {t("homeMetricErrors")}
+          <ToggleGroupItem value="3d" className="px-3">
+            3 Days
           </ToggleGroupItem>
-          <ToggleGroupItem value="avg" className="px-3">
-            {t("homeMetricAvgMs")}
+          <ToggleGroupItem value="24h" className="px-3">
+            24 Hours
           </ToggleGroupItem>
-          <ToggleGroupItem value="max" className="px-3">
-            {t("homeMetricMaxMs")}
+          <ToggleGroupItem value="1h" className="px-3">
+            1 Hour
           </ToggleGroupItem>
         </ToggleGroup>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">{t("homeSplitDimension")}</span>
+          <span className="text-xs text-muted-foreground">Split by</span>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -163,10 +185,10 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
             value={split}
             onValueChange={(v) => v && setSplit(v as SplitDim)}
           >
-            <ToggleGroupItem value="caller">{t("homeDimCaller")}</ToggleGroupItem>
-            <ToggleGroupItem value="service">{t("homeDimService")}</ToggleGroupItem>
-            <ToggleGroupItem value="tool">{t("homeDimTool")}</ToggleGroupItem>
-            <ToggleGroupItem value="instance">{t("homeDimInstance")}</ToggleGroupItem>
+            <ToggleGroupItem value="service">Service</ToggleGroupItem>
+            <ToggleGroupItem value="tool">Tool</ToggleGroupItem>
+            <ToggleGroupItem value="resource">Resource</ToggleGroupItem>
+            <ToggleGroupItem value="frame">Frame</ToggleGroupItem>
           </ToggleGroup>
         </div>
       </div>
@@ -183,25 +205,25 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              interval={3}
+              interval={Math.max(Math.floor(chartData.length / 12), 0)}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             />
             <YAxis
               tickLine={false}
               axisLine={false}
               width={44}
-              tickFormatter={(v) => valueFormatter(Number(v))}
+              tickFormatter={(v) => formatCompact(Number(v))}
               domain={[0, Math.ceil(yMax * 1.05)]}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             />
             <ChartTooltip cursor={{ fill: "var(--muted)" }} content={<ChartTooltipContent />} />
-            {series.map((s) => (
+            {series.map((s, idx) => (
               <Bar
                 key={s.key}
                 dataKey={s.key}
                 stackId="usage"
                 fill={s.color}
-                radius={s.key === series[series.length - 1]?.key ? [4, 4, 0, 0] : 0}
+                radius={idx === series.length - 1 ? [4, 4, 0, 0] : 0}
               />
             ))}
           </BarChart>
@@ -209,7 +231,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
 
         <aside className="flex min-w-0 flex-col gap-4 border-t pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4">
           {totalCalls === 0 ? (
-            <p className="text-sm leading-relaxed text-muted-foreground">{t("homeNoCalls")}</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">No activity in this period</p>
           ) : (
             series.map((s) => (
               <div key={s.key} className="min-w-0 space-y-1">
@@ -218,16 +240,10 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
                   <span className="truncate font-mono text-sm font-medium">{s.key}</span>
                 </div>
                 <div className="text-lg font-semibold tabular-nums tracking-tight">
-                  {formatCompact(s.calls)}
+                  {formatCompact(s.total)}
                 </div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  {t("homeCallsUnit")} {formatCompact(s.calls)}
-                  {" · "}
-                  <span className={s.errors > 0 ? "text-destructive" : undefined}>
-                    {t("homeFailures", { count: s.errors })}
-                  </span>
-                  {" · "}
-                  {t("homeMetricAvgMs")} {formatMs(s.avgMs)}
+                  {s.total} {s.total === 1 ? "call" : "calls"}
                 </p>
               </div>
             ))
