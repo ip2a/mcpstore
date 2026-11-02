@@ -636,11 +636,14 @@ impl ServerHandler for GatewayServer {
                     }
                 }
 
-                Ok(CallToolResponse::Complete(if result.is_error {
+                let mut call_result = if result.is_error {
                     CallToolResult::error(content)
                 } else {
                     CallToolResult::success(content)
-                }))
+                };
+                call_result.structured_content = result.structured_content;
+
+                Ok(CallToolResponse::Complete(call_result))
             }
             .await;
             self.record_call(&tool_name, &record_binding, call_start.elapsed(), &response);

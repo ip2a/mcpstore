@@ -1083,6 +1083,7 @@ async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
         input_schema: serde_json::json!({"type": "object"}),
         output_schema: None,
         annotations: None,
+        icons: None,
         meta: None,
     }];
     source
@@ -4482,6 +4483,7 @@ fn registry_tool(name: &str) -> crate::registry::ToolInfo {
         }),
         output_schema: None,
         annotations: None,
+        icons: None,
         meta: None,
     }
 }
@@ -5619,6 +5621,7 @@ async fn tool_change_diff_reports_added_removed_and_updated_tools() {
             input_schema: serde_json::json!({"type": "object"}),
             output_schema: None,
             annotations: None,
+            icons: None,
             meta: None,
         },
         crate::registry::ToolInfo {
@@ -5628,6 +5631,7 @@ async fn tool_change_diff_reports_added_removed_and_updated_tools() {
             input_schema: serde_json::json!({"type": "object"}),
             output_schema: None,
             annotations: None,
+            icons: None,
             meta: None,
         },
     ];
@@ -5639,6 +5643,7 @@ async fn tool_change_diff_reports_added_removed_and_updated_tools() {
             input_schema: serde_json::json!({"type": "object"}),
             output_schema: None,
             annotations: None,
+            icons: None,
             meta: None,
         },
         crate::registry::ToolInfo {
@@ -5648,6 +5653,7 @@ async fn tool_change_diff_reports_added_removed_and_updated_tools() {
             input_schema: serde_json::json!({"type": "object"}),
             output_schema: None,
             annotations: None,
+            icons: None,
             meta: None,
         },
     ];
@@ -5765,6 +5771,7 @@ mod scoped_contract {
             }),
             output_schema: None,
             annotations: None,
+            icons: None,
             meta: None,
         }
     }

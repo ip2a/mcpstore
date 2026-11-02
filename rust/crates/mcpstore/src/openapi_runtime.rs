@@ -112,7 +112,11 @@ pub async fn call_openapi_tool(
             response.body,
         )]
     };
-    Ok(ToolCallResult { content, is_error })
+    Ok(ToolCallResult {
+        content,
+        structured_content: None,
+        is_error,
+    })
 }
 
 pub async fn read_openapi_resource(

@@ -538,6 +538,7 @@ fn execution_from_response(
             Ok(McpToolExecution::Immediate {
                 result: ToolCallResult {
                     content,
+                    structured_content: result.structured_content,
                     is_error: result.is_error.unwrap_or(false),
                 },
             })
