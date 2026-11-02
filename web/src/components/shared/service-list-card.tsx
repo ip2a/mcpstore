@@ -2,6 +2,7 @@ import { BadgeCheckIcon, PlugIcon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
+import { McpIcon } from "@/components/shared/mcp-icon"
 import { deriveServiceDisplayStatus } from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance } from "@/lib/api"
@@ -48,7 +49,11 @@ export function ServiceListCard({
           aria-hidden
           className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/60 text-muted-foreground"
         >
-          <DefaultServiceIcon />
+          <McpIcon
+            icons={service.mcp?.serverInfo?.icons}
+            fallback={<DefaultServiceIcon />}
+            className="size-5"
+          />
         </span>
         <span className="min-w-0 flex-1 pt-0.5">
           <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{service.service_name}</span>

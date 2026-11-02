@@ -194,6 +194,7 @@ impl MCPStore {
                             input_schema: tool.input_schema.clone(),
                             output_schema: tool.output_schema.clone(),
                             annotations: tool.annotations.clone(),
+                            icons: tool.icons.clone(),
                             meta: tool.meta.clone(),
                         });
                     }
@@ -471,6 +472,7 @@ impl MCPStore {
                 input_schema: tool.input_schema,
                 output_schema: tool.output_schema,
                 annotations: tool.annotations,
+                icons: tool.icons,
                 meta: tool.meta,
             });
         }

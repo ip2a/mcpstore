@@ -1,6 +1,6 @@
 use futures_util::StreamExt;
 
-use super::catalog::{catalog_name_counts, service_namespace};
+use super::catalog::{catalog_name_counts, exposed_tool_name};
 use super::tools::{read_required_instance_id, read_required_object, read_required_string};
 use super::*;
 use mcpstore::telemetry::FrameTelemetry;
@@ -59,17 +59,22 @@ pub(super) async fn build_tool_bindings(
     let namespace_tools = target_instance_id.is_none() && session_key.is_none();
 
     let mut bindings = HashMap::with_capacity(tool_payloads.len());
+    let mut taken: HashMap<String, usize> = HashMap::new();
     for payload in tool_payloads {
         let original_name = read_required_string(&payload, "name")?;
         let canonical_tool_name = read_required_string(&payload, "tool_name")?;
         let instance_id = read_required_instance_id(&payload, "instance_id")?;
         let service_name = read_required_string(&payload, "service_name")?;
-        let exposed_name =
-            if namespace_tools || names.get(&original_name).copied().unwrap_or_default() > 1 {
-                format!("{}__{}", service_namespace(&service_name), original_name)
-            } else {
-                original_name
-            };
+
+        let exposed_name = if namespace_tools
+            || names.get(&original_name).copied().unwrap_or_default() > 1
+        {
+            // ponytail: magpie-style tool naming — <server>__<tool>, unsafe chars → '-',
+            // 64-byte rune-safe truncation, collision suffix (_2, _3, …) budget within 64.
+            exposed_tool_name(&service_name, &original_name, &mut taken)
+        } else {
+            original_name
+        };
         let description = payload
             .get("description")
             .and_then(Value::as_str)
@@ -81,23 +86,15 @@ pub(super) async fn build_tool_bindings(
             description.clone().map(Into::into),
             Arc::new(schema),
         );
-        if bindings
-            .insert(
-                exposed_name.clone(),
-                ToolBinding {
-                    tool,
-                    instance_id,
-                    tool_name: canonical_tool_name,
-                    service_name,
-                },
-            )
-            .is_some()
-        {
-            return Err(format!(
-                "tool name projection conflict, cannot build the gateway MCP surface: scope={scope:?} tool={exposed_name}"
-            )
-            .into());
-        }
+        bindings.insert(
+            exposed_name.clone(),
+            ToolBinding {
+                tool,
+                instance_id,
+                tool_name: canonical_tool_name,
+                service_name,
+            },
+        );
     }
 
     Ok(bindings)

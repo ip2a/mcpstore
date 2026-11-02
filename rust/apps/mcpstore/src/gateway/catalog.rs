@@ -144,12 +144,50 @@ pub(super) fn service_namespace(service_name: &str) -> String {
             if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
                 character
             } else {
-                '_'
+                '-'
             }
         })
         .collect()
 }
 
+/// Truncate a tool name to at most `max_len` bytes without splitting a UTF-8
+/// character, so multi-byte names never come out mangled.
+pub(super) fn truncate_tool_name(name: &str, max_len: usize) -> String {
+    if name.len() <= max_len {
+        return name.to_string();
+    }
+    let mut end = max_len;
+    while end > 0 && !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    name[..end].to_string()
+}
+
 pub(super) fn stable_namespace(service_name: &str, instance_id: InstanceId) -> String {
     format!("{}__{instance_id}", service_namespace(service_name))
+}
+
+/// Cap tool names at this many bytes, matching magpie's hub projection.
+pub(super) const MAX_TOOL_NAME: usize = 64;
+
+/// Resolve the exposed tool name: `<service>__<tool>`, 64-byte rune-safe
+/// truncated, with `_2`/`_3`, … appended on collision (budget recomputed so
+/// the suffixed name still fits in 64 bytes) instead of hard-failing the
+/// gateway build.
+pub(super) fn exposed_tool_name(
+    service_name: &str,
+    original_name: &str,
+    taken: &mut HashMap<String, usize>,
+) -> String {
+    let base = format!("{}__{original_name}", service_namespace(service_name));
+    let base_truncated = truncate_tool_name(&base, MAX_TOOL_NAME);
+    let count = taken.entry(base_truncated.clone()).or_insert(0);
+    *count += 1;
+    if *count == 1 {
+        base_truncated
+    } else {
+        let suffix = format!("_{count}");
+        let budget = MAX_TOOL_NAME.saturating_sub(suffix.len());
+        format!("{}{suffix}", truncate_tool_name(&base, budget))
+    }
 }

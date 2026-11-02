@@ -147,7 +147,7 @@ mod tests {
 
         let projected = project_prompt_names(prompts.clone()).unwrap();
         let first_name = projected[0]["name"].as_str().unwrap();
-        assert_eq!(first_name, format!("first_service__{first}__review"));
+        assert_eq!(first_name, format!("first-service__{first}__review"));
         assert_eq!(
             resolve_projected_prompt(&prompts, first_name).unwrap(),
             (first, "review".to_string())
@@ -280,6 +280,32 @@ mod tests {
         assert_eq!(normalize_http_path(""), "/mcp");
         assert_eq!(normalize_http_path("custom/"), "/custom");
         assert_eq!(normalize_http_path("/custom/"), "/custom");
+    }
+
+    #[test]
+    fn exposed_tool_name_collision_suffix() {
+        let mut taken = HashMap::new();
+        assert_eq!(exposed_tool_name("srv", "echo", &mut taken), "srv__echo");
+        assert_eq!(exposed_tool_name("srv", "echo", &mut taken), "srv__echo_2");
+        assert_eq!(exposed_tool_name("srv", "echo", &mut taken), "srv__echo_3");
+        assert_eq!(exposed_tool_name("other", "echo", &mut taken), "other__echo");
+    }
+
+    #[test]
+    fn truncate_tool_name_respects_utf8_boundaries() {
+        assert_eq!(truncate_tool_name("abc", 10), "abc");
+        assert_eq!(truncate_tool_name("abcdef", 3), "abc");
+        // 4-byte emoji just past the cut: must back off to the previous boundary, not panic/mangle.
+        let name = "ab🙂cd";
+        let truncated = truncate_tool_name(name, 3);
+        assert!(name.is_char_boundary(truncated.len()));
+        assert_eq!(truncated, "ab");
+    }
+
+    #[test]
+    fn service_namespace_replaces_unsafe_chars_with_hyphen() {
+        assert_eq!(service_namespace("first service"), "first-service");
+        assert_eq!(service_namespace("a_b-c9"), "a_b-c9");
     }
 
     #[test]

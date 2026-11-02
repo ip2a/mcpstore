@@ -1,5 +1,6 @@
 import { BadgeCheckIcon, FileStackIcon, PlugIcon } from "lucide-react"
 
+import { McpIcon } from "@/components/shared/mcp-icon"
 import { resourceMimeType } from "@/features/services/service-panels"
 import { useI18n } from "@/lib/i18n-context"
 import type { ResourceInfo, ServiceInstance } from "@/lib/api"
@@ -44,7 +45,7 @@ export function ResourceListCard({
           aria-hidden
           className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/60 text-muted-foreground"
         >
-          <FileStackIcon className="size-5" />
+          <McpIcon icons={resource.icons} fallback={<FileStackIcon className="size-5" />} className="size-5" />
         </span>
         <span className="min-w-0 flex-1 pt-0.5">
           <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{displayName}</span>

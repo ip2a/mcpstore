@@ -171,6 +171,7 @@ export type ToolInfo = {
   input_schema: unknown;
   output_schema?: unknown;
   annotations?: unknown;
+  icons?: unknown;
   meta?: unknown;
 };
 
@@ -181,6 +182,7 @@ export type ResourceInfo = {
   description?: string;
   mimeType?: string;
   size?: number;
+  icons?: unknown;
   annotations?: unknown;
   _meta?: unknown;
 };
@@ -190,6 +192,7 @@ export type PromptInfo = {
   title?: string;
   description?: string;
   arguments?: unknown;
+  icons?: unknown;
   _meta?: unknown;
 };
 
@@ -199,6 +202,7 @@ export type ResourceTemplateInfo = {
   title?: string;
   description?: string;
   mimeType?: string;
+  icons?: unknown;
   annotations?: unknown;
   _meta?: unknown;
 };
@@ -228,6 +232,7 @@ export type McpServerMetadata = {
     version: string;
     description?: string;
     websiteUrl?: string;
+    icons?: unknown;
   };
   instructions?: string;
   capabilities: McpServerCapabilities;

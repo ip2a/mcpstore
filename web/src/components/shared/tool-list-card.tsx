@@ -1,6 +1,7 @@
 import { BadgeCheckIcon, PlugIcon } from "lucide-react"
 
 import { DefaultToolIcon } from "@/components/shared/default-tool-icon"
+import { McpIcon } from "@/components/shared/mcp-icon"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance, ToolInfo } from "@/lib/api"
 import { getServiceTransport } from "@/lib/service-info"
@@ -46,7 +47,7 @@ export function ToolListCard({
           aria-hidden
           className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/60 text-muted-foreground"
         >
-          <DefaultToolIcon />
+          <McpIcon icons={tool.icons} fallback={<DefaultToolIcon />} className="size-5" />
         </span>
         <span className="min-w-0 flex-1 pt-0.5">
           <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{displayName}</span>

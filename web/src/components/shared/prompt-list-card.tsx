@@ -1,5 +1,6 @@
 import { BadgeCheckIcon, PlugIcon, ScrollTextIcon } from "lucide-react"
 
+import { McpIcon } from "@/components/shared/mcp-icon"
 import { promptArgCount } from "@/features/services/service-panels"
 import { useI18n } from "@/lib/i18n-context"
 import type { PromptInfo, ServiceInstance } from "@/lib/api"
@@ -44,7 +45,7 @@ export function PromptListCard({
           aria-hidden
           className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/60 text-muted-foreground"
         >
-          <ScrollTextIcon className="size-5" />
+          <McpIcon icons={prompt.icons} fallback={<ScrollTextIcon className="size-5" />} className="size-5" />
         </span>
         <span className="min-w-0 flex-1 pt-0.5">
           <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{displayName}</span>

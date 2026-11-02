@@ -19,6 +19,8 @@ pub struct ToolInfo {
     pub output_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Value>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }
@@ -118,6 +120,7 @@ impl From<crate::transport::DiscoveredTool> for ToolInfo {
             input_schema: tool.input_schema,
             output_schema: tool.output_schema,
             annotations: tool.annotations,
+            icons: tool.icons,
             meta: tool.meta,
         }
     }

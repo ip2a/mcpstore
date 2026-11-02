@@ -147,6 +147,7 @@ async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
                 }),
                 output_schema: None,
                 annotations: None,
+                icons: None,
                 meta: None,
                 created_time: 111,
                 tool_hash: "fixture".to_string(),

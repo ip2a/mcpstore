@@ -8,6 +8,7 @@ import {
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { DialogFormFooter } from "@/components/shared/dialog-form"
+import { McpIcon } from "@/components/shared/mcp-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -185,7 +186,11 @@ function ServiceCardDialogBody({
                     aria-hidden
                     className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-muted/60 text-muted-foreground"
                   >
-                    <DefaultServiceIcon className="size-8" />
+                    <McpIcon
+                      icons={service.mcp?.serverInfo?.icons}
+                      fallback={<DefaultServiceIcon className="size-8" />}
+                      className="size-8"
+                    />
                   </span>
                   <div className="min-w-0 w-full">
                     <p className="truncate font-mono text-base font-semibold">{service.service_name}</p>

@@ -22,6 +22,7 @@ pub fn openapi_tool_infos(import: &OpenApiImportResult) -> Vec<crate::registry::
             input_schema: component.input_schema.clone(),
             output_schema: tool_output_schema(component),
             annotations: None,
+            icons: None,
             meta: None,
         })
         .collect()
