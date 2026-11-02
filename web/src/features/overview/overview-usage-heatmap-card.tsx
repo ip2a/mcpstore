@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -151,8 +151,16 @@ function formatSecLabel(sec: number): string {
   return new Date(sec * 1000).toLocaleTimeString()
 }
 
-/** Row-major second grid: [0]=oldest second … [last]=newest second. */
-function buildGrid(frames: FrameRecord[], nowMs: number): {
+const EMPTY_GRID = {
+  cells: [] as GridCell[],
+  legend: [] as LegendItem[],
+  requestCount: 0,
+  noResponseCount: 0,
+  frameCount: 0,
+}
+
+/** Row-major second grid anchored to the latest request second (not wall clock). */
+function buildGrid(frames: FrameRecord[]): {
   cells: GridCell[]
   legend: LegendItem[]
   requestCount: number
@@ -161,16 +169,24 @@ function buildGrid(frames: FrameRecord[], nowMs: number): {
 } {
   const answered = buildAnsweredIds(frames)
   const visible = frames.filter((frame) => frame.kind !== "response")
-  const endSec = Math.floor(nowMs / 1000)
+  if (visible.length === 0) return EMPTY_GRID
+
+  let endSec = Number.NEGATIVE_INFINITY
+  for (const frame of visible) {
+    const sec = Math.floor(frame.ts_unix_ms / 1000)
+    if (sec > endSec) endSec = sec
+  }
   const startSec = endSec - (TOTAL_CELLS - 1)
 
   const bySec = new Map<number, CellEvent[]>()
   let requestCount = 0
   let noResponseCount = 0
+  let frameCount = 0
 
   for (const frame of visible) {
     const sec = Math.floor(frame.ts_unix_ms / 1000)
     if (sec < startSec || sec > endSec) continue
+    frameCount++
 
     const method = methodLabel(frame)
     const unanswered = isNoResponse(frame, answered)
@@ -211,16 +227,7 @@ function buildGrid(frames: FrameRecord[], nowMs: number): {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([label, color]) => ({ label, color }))
 
-  return {
-    cells,
-    legend,
-    requestCount,
-    noResponseCount,
-    frameCount: visible.filter((frame) => {
-      const sec = Math.floor(frame.ts_unix_ms / 1000)
-      return sec >= startSec && sec <= endSec
-    }).length,
-  }
+  return { cells, legend, requestCount, noResponseCount, frameCount }
 }
 
 function legendDisplayLabel(label: string, noResponseLabel: string): string {
@@ -268,16 +275,23 @@ function HeatmapCell({
 
 export function OverviewUsageHeatmapCard({ className }: { className?: string }) {
   const { t } = useI18n()
-  const { data: frames, dataUpdatedAt } = useQuery({
+  const pinnedFrames = useRef<FrameRecord[]>([])
+  const { data: frames } = useQuery({
     queryKey: queryKeys.gatewayFramesRecent("all", FETCH_LIMIT),
     queryFn: () => getRecentFrames({ limit: FETCH_LIMIT }),
     refetchInterval: REFRESH_MS,
   })
 
-  const grid = useMemo(
-    () => buildGrid(frames ?? [], dataUpdatedAt || Date.now()),
-    [frames, dataUpdatedAt],
-  )
+  // Anchor to last non-empty traffic; skip updates while the stream stays empty.
+  const sourceFrames = useMemo(() => {
+    const next = frames ?? []
+    if (next.some((frame) => frame.kind !== "response")) {
+      pinnedFrames.current = next
+    }
+    return pinnedFrames.current
+  }, [frames])
+
+  const grid = useMemo(() => buildGrid(sourceFrames), [sourceFrames])
   const noResponseLabel = t("homeFrameLegNoResponse")
 
   return (
