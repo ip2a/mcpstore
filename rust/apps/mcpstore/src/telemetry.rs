@@ -63,6 +63,14 @@ pub struct HeatmapDay {
     pub errors: i64,
 }
 
+/// Frame activity grouped by service (peer) for a time bucket.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ServiceActivityPoint {
+    pub bucket_unix_ms: i64,
+    pub service: String,
+    pub frame_count: i64,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct UsageSeriesPoint {
     pub bucket_unix_ms: i64,
@@ -779,6 +787,30 @@ impl TelemetryLog {
                 prompt_calls: row.get(3)?,
                 other_calls: row.get(4)?,
                 errors: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Frame activity grouped by service (peer) over a time range.
+    pub fn frame_activity_by_service(
+        &self,
+        hours: u32,
+        bucket_ms: i64,
+    ) -> rusqlite::Result<Vec<ServiceActivityPoint>> {
+        let conn = self.read_conn()?;
+        let to = now_ms();
+        let from = to - i64::from(hours.max(1)) * 3600 * 1000;
+        let mut stmt = conn.prepare(
+            "SELECT (ts_unix_ms / ?1) * ?1 AS bucket, COALESCE(peer, '—') AS service, COUNT(*) \
+             FROM frames WHERE ts_unix_ms >= ?2 \
+             GROUP BY bucket, service ORDER BY bucket, service",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![bucket_ms, from], |row| {
+            Ok(ServiceActivityPoint {
+                bucket_unix_ms: row.get(0)?,
+                service: row.get(1)?,
+                frame_count: row.get(2)?,
             })
         })?;
         rows.collect()

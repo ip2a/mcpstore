@@ -315,6 +315,10 @@ fn resource_routes(state: Arc<ApiState>) -> Router {
             "/gateway/stats/frame-activity",
             get(telemetry::frame_activity_stats),
         )
+        .route(
+            "/gateway/stats/frame-activity-by-service",
+            get(telemetry::frame_activity_by_service),
+        )
         .route("/gateway/frames/sessions", get(telemetry::frame_sessions))
         .route("/gateway/frames/history", get(telemetry::frame_history))
         .route("/gateway/frames/recent", get(telemetry::frame_recent))

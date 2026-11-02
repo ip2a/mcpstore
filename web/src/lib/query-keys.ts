@@ -78,6 +78,8 @@ export const queryKeys = {
   },
   frameActivityStats: (hours: number) =>
     ["gateway", ...hostSeg(), "frame-activity-stats", hours] as const,
+  frameActivityByService: (hours: number) =>
+    ["gateway", ...hostSeg(), "frame-activity-by-service", hours] as const,
   get gatewayHistory() {
     return ["gateway", ...hostSeg(), "requests-history"] as const
   },

@@ -152,6 +152,33 @@ pub(super) async fn frame_activity_stats(
     ))
 }
 
+/// GET /gateway/stats/frame-activity-by-service — frame activity grouped by service.
+pub(super) async fn frame_activity_by_service(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<FrameActivityQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let hours = query.hours.unwrap_or(24).min(24 * 7);
+    
+    let bucket_ms = if hours <= 1 {
+        60_000
+    } else if hours <= 24 {
+        3_600_000
+    } else if hours <= 72 {
+        3_600_000
+    } else {
+        86_400_000
+    };
+    
+    let stats = telemetry
+        .frame_activity_by_service(hours, bucket_ms)
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success(
+        "按服务分组的帧活动统计获取成功",
+        serde_json::to_value(stats).unwrap_or(Value::Null),
+    ))
+}
+
 #[derive(Deserialize)]
 pub(super) struct FrameSessionsQuery {
     face: Option<String>,

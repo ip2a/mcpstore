@@ -75,6 +75,17 @@ export function getFrameActivityStats(hours = 24): Promise<HeatmapDay[]> {
   return api(`/gateway/stats/frame-activity${buildQuery({ hours })}`);
 }
 
+export type ServiceActivityPoint = {
+  bucket_unix_ms: number;
+  service: string;
+  frame_count: number;
+};
+
+/** Frame activity grouped by service over a time range. */
+export function getFrameActivityByService(hours = 24): Promise<ServiceActivityPoint[]> {
+  return api(`/gateway/stats/frame-activity-by-service${buildQuery({ hours })}`);
+}
+
 export function getRequestHistory(
   params: {
     limit?: number;

@@ -21,11 +21,11 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
-import { getFrameActivityStats, type HeatmapDay } from "@/lib/api"
+import { getFrameActivityStats, getFrameActivityByService } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 type TimeRange = "7d" | "3d" | "24h" | "1h"
-type SplitDim = "service" | "tool" | "resource" | "frame"
+type SplitDim = "service" | "primitive" | "traces"
 
 const SERIES_COLORS = ["#5b5bd5", "#38bdf8", "#34d399", "#f59e0b"]
 
@@ -45,21 +45,29 @@ function formatCompact(n: number): string {
 function bucketLabel(bucketUnixMs: number, range: TimeRange): string {
   const date = new Date(bucketUnixMs)
   if (range === "1h") {
+    // 1 hour: show HH:MM
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
   if (range === "24h") {
+    // 24 hours: show HH:00
     return `${date.getHours().toString().padStart(2, "0")}:00`
   }
   if (range === "3d") {
-    return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, "0")}:00`
+    // 3 days: show MM/DD HH:00, but only show date change points prominently
+    const hours = date.getHours()
+    if (hours === 0 || hours === 12) {
+      return `${date.getMonth() + 1}/${date.getDate()} ${hours.toString().padStart(2, "0")}:00`
+    }
+    return `${hours.toString().padStart(2, "0")}:00`
   }
+  // 7 days: show MM/DD
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
 export function OverviewUsageChartCard({ className }: { className?: string }) {
   const { t } = useI18n()
   const [range, setRange] = useState<TimeRange>("24h")
-  const [split, setSplit] = useState<SplitDim>("tool")
+  const [split, setSplit] = useState<SplitDim>("primitive")
   
   const { data: stats } = useQuery({
     queryKey: queryKeys.frameActivityStats(TIME_RANGE_HOURS[range]),
@@ -67,8 +75,44 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
     refetchInterval: 60_000,
   })
 
+  const { data: serviceStats } = useQuery({
+    queryKey: queryKeys.frameActivityByService(TIME_RANGE_HOURS[range]),
+    queryFn: () => getFrameActivityByService(TIME_RANGE_HOURS[range]),
+    refetchInterval: 60_000,
+    enabled: split === "service",
+  })
+
   // Build series data based on split dimension
   const { series, chartConfig } = useMemo(() => {
+    if (split === "service") {
+      if (!serviceStats || serviceStats.length === 0) {
+        return { series: [], chartConfig: {} }
+      }
+      
+      // Group by service and sum totals
+      const serviceTotals = new Map<string, number>()
+      for (const point of serviceStats) {
+        const current = serviceTotals.get(point.service) ?? 0
+        serviceTotals.set(point.service, current + point.frame_count)
+      }
+      
+      // Top 4 services by total frame count
+      const topServices = [...serviceTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([service, total], idx) => ({
+          key: service,
+          color: SERIES_COLORS[idx % SERIES_COLORS.length],
+          total,
+        }))
+      
+      const config = Object.fromEntries(
+        topServices.map((s) => [s.key, { label: s.key, color: s.color }]),
+      ) satisfies ChartConfig
+      
+      return { series: topServices, chartConfig: config }
+    }
+    
     if (!stats || stats.length === 0) {
       return { series: [], chartConfig: {} }
     }
@@ -76,32 +120,25 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
     let seriesData: Array<{ key: string; color: string; total: number }>
     
     switch (split) {
-      case "tool":
+      case "primitive":
+        // MCP 三大原语
         seriesData = [
           { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
-        ]
-        break
-      case "resource":
-        seriesData = [
           { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
-        ]
-        break
-      case "service":
-        seriesData = [
           { key: "Prompts", color: SERIES_COLORS[2], total: stats.reduce((sum, s) => sum + s.prompt_calls, 0) },
+        ].filter(s => s.total > 0)
+        break
+      case "traces":
+        // 所有帧类型（包括 Other: ping, initialize 等）
+        seriesData = [
           { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
           { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
+          { key: "Prompts", color: SERIES_COLORS[2], total: stats.reduce((sum, s) => sum + s.prompt_calls, 0) },
           { key: "Other", color: SERIES_COLORS[3], total: stats.reduce((sum, s) => sum + s.other_calls, 0) },
         ].filter(s => s.total > 0)
         break
-      case "frame":
       default:
-        seriesData = [
-          { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
-          { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
-          { key: "Prompts", color: SERIES_COLORS[2], total: stats.reduce((sum, s) => sum + s.prompt_calls, 0) },
-          { key: "Other", color: SERIES_COLORS[3], total: stats.reduce((sum, s) => sum + s.other_calls, 0) },
-        ].filter(s => s.total > 0)
+        seriesData = []
     }
 
     const config = Object.fromEntries(
@@ -109,9 +146,32 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
     ) satisfies ChartConfig
 
     return { series: seriesData, chartConfig: config }
-  }, [stats, split])
+  }, [stats, serviceStats, split])
 
   const chartData = useMemo(() => {
+    if (split === "service") {
+      if (!serviceStats) return []
+      
+      // Build chart data with service columns
+      const buckets = new Map<number, Record<string, number>>()
+      const activeServices = new Set(series.map((s) => s.key))
+      
+      for (const point of serviceStats) {
+        if (!activeServices.has(point.service)) continue
+        
+        const bucket = buckets.get(point.bucket_unix_ms) ?? {}
+        bucket[point.service] = (bucket[point.service] ?? 0) + point.frame_count
+        buckets.set(point.bucket_unix_ms, bucket)
+      }
+      
+      return [...buckets.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([bucketMs, data]) => ({
+          label: bucketLabel(bucketMs, range),
+          ...data,
+        }))
+    }
+    
     if (!stats) return []
     
     return stats.map((bucket) => {
@@ -120,29 +180,24 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
       }
       
       switch (split) {
-        case "tool":
+        case "primitive":
+          // 三大原语
           row["Tools"] = bucket.tool_calls
-          break
-        case "resource":
           row["Resources"] = bucket.resource_calls
+          row["Prompts"] = bucket.prompt_calls
           break
-        case "service":
+        case "traces":
+          // 所有帧类型
           row["Tools"] = bucket.tool_calls
           row["Resources"] = bucket.resource_calls
           row["Prompts"] = bucket.prompt_calls
           row["Other"] = bucket.other_calls
           break
-        case "frame":
-        default:
-          row["Tools"] = bucket.tool_calls
-          row["Resources"] = bucket.resource_calls
-          row["Prompts"] = bucket.prompt_calls
-          row["Other"] = bucket.other_calls
       }
       
       return row
     })
-  }, [stats, range, split])
+  }, [stats, serviceStats, range, split, series])
 
   const yMax = Math.max(
     ...chartData.map((row) =>
@@ -186,9 +241,8 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
             onValueChange={(v) => v && setSplit(v as SplitDim)}
           >
             <ToggleGroupItem value="service">Service</ToggleGroupItem>
-            <ToggleGroupItem value="tool">Tool</ToggleGroupItem>
-            <ToggleGroupItem value="resource">Resource</ToggleGroupItem>
-            <ToggleGroupItem value="frame">Frame</ToggleGroupItem>
+            <ToggleGroupItem value="primitive">Primitive</ToggleGroupItem>
+            <ToggleGroupItem value="traces">Traces</ToggleGroupItem>
           </ToggleGroup>
         </div>
       </div>
@@ -196,16 +250,46 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
       <CardContent className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <ChartContainer
           config={chartConfig}
-          className="aspect-auto min-h-[140px] h-full w-full min-w-0 flex-1"
+          className="aspect-auto min-h-[240px] h-full w-full min-w-0 flex-1"
         >
-          <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <BarChart 
+            data={chartData} 
+            margin={{ top: 8, right: 8, left: 0, bottom: range === "3d" ? 36 : 24 }}
+            barCategoryGap="10%"
+            barGap={0}
+          >
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
               dataKey="label"
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              interval={Math.max(Math.floor(chartData.length / 12), 0)}
+              height={32}
+              angle={range === "3d" ? -15 : 0}
+              textAnchor={range === "3d" ? "end" : "middle"}
+              interval={(() => {
+                // Adaptive tick interval based on data density and time range
+                const len = chartData.length
+                if (range === "1h") {
+                  // 60 data points: show every 5th (12 ticks)
+                  return 4
+                }
+                if (range === "24h") {
+                  // 24 data points: show every 2nd (12 ticks)
+                  return 1
+                }
+                if (range === "3d") {
+                  // 72 data points: show every 6th (12 ticks)
+                  return 5
+                }
+                if (range === "7d") {
+                  // 7 data points: show all
+                  return 0
+                }
+                // Fallback: aim for ~12 ticks
+                if (len <= 12) return 0
+                return Math.floor(len / 12)
+              })()}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             />
             <YAxis
