@@ -596,6 +596,37 @@ impl TelemetryLog {
         rows.collect()
     }
 
+    /// Recent frames across sessions, oldest→newest within the returned window
+    /// (fetched newest-first then reversed) so LTR timelines read chronologically.
+    pub fn frame_recent(
+        &self,
+        face: Option<&str>,
+        limit: u32,
+    ) -> rusqlite::Result<Vec<FrameRecord>> {
+        let conn = self.read_conn()?;
+        let limit = limit.clamp(1, 2000) as i64;
+        let mut frames = match face {
+            Some(face) => {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {FRAME_COLUMNS} FROM frames WHERE face = ?1 \
+                     ORDER BY ts_unix_ms DESC, id DESC LIMIT ?2"
+                ))?;
+                let rows = stmt.query_map(rusqlite::params![face, limit], row_to_frame)?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()?
+            }
+            None => {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {FRAME_COLUMNS} FROM frames \
+                     ORDER BY ts_unix_ms DESC, id DESC LIMIT ?1"
+                ))?;
+                let rows = stmt.query_map([limit], row_to_frame)?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()?
+            }
+        };
+        frames.reverse();
+        Ok(frames)
+    }
+
     pub fn frame_detail(&self, id: i64) -> rusqlite::Result<Option<FrameRecord>> {
         let conn = self.read_conn()?;
         let mut stmt =
@@ -993,6 +1024,13 @@ mod tests {
             let page = log.frame_sessions(None, 24, 1, 0).unwrap();
             assert_eq!(page.total, 2);
             assert_eq!(page.sessions.len(), 1);
+
+            let recent = log.frame_recent(None, 10).unwrap();
+            assert_eq!(recent.len(), 4);
+            assert_eq!(recent[0].session_id, "s-gw");
+            assert_eq!(recent[3].session_id, "s-up");
+            let recent_up = log.frame_recent(Some("upstream"), 10).unwrap();
+            assert_eq!(recent_up.len(), 2);
 
             let history = log.frame_history("s-up", 50).unwrap();
             assert_eq!(history.len(), 2);

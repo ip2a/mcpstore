@@ -2,39 +2,143 @@ import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n-context"
-import { getHeatmapStats, type HeatmapDay } from "@/lib/api"
+import { getRecentFrames, type FrameRecord } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
-const WEEKS = 53
-const DAY_ROWS = 7 // Mon..Sun
-const DAY_MS = 86_400_000
-const DAY_LABELS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const
-const DAY_LABEL_COL = "1.75rem"
-const TOTAL_CELLS = WEEKS * DAY_ROWS
+const COLS = 53
+const ROWS = 7
+/** One cell = one second; left-top oldest → right-bottom newest. */
+const TOTAL_CELLS = COLS * ROWS
+const FETCH_LIMIT = 2000
+const REFRESH_MS = 60_000
+const NO_RESPONSE_KEY = "no-response"
+const NO_RESPONSE_COLOR = "#dc2626"
 
-// 正常：靛蓝色系按当日调用总量分档；异常：红色系按当日错误数分档。
-const OK_CLASS = ["bg-muted", "bg-[#e8e7f8]", "bg-[#c4c2ef]", "bg-[#8b89dc]", "bg-[#5b5bd5]"]
-const ERROR_CLASS = ["bg-[#f5b8b8]", "bg-[#dc2626]"]
-const LEVEL_LABEL_KEY = [
-  "homeHeatLevelIdle",
-  "homeHeatLevelLow",
-  "homeHeatLevelMid",
-  "homeHeatLevelHigh",
-  "homeHeatLevelError",
-] as const
+/** Known MCP methods → distinct hex; unknown methods hash into FALLBACK_PALETTE. */
+const METHOD_COLOR: Record<string, string> = {
+  initialize: "#6366f1",
+  ping: "#94a3b8",
+  "tools/list": "#5b5bd5",
+  "tools/call": "#818cf8",
+  "notifications/tools/list_changed": "#a5b4fc",
+  "resources/list": "#0ea5e9",
+  "resources/read": "#38bdf8",
+  "resources/templates/list": "#7dd3fc",
+  "resources/subscribe": "#0284c7",
+  "resources/unsubscribe": "#0369a1",
+  "notifications/resources/list_changed": "#bae6fd",
+  "notifications/resources/updated": "#e0f2fe",
+  "prompts/list": "#f59e0b",
+  "prompts/get": "#d97706",
+  "notifications/prompts/list_changed": "#fcd34d",
+  "logging/setLevel": "#a78bfa",
+  "completion/complete": "#c084fc",
+  "roots/list": "#14b8a6",
+  "notifications/roots/list_changed": "#5eead4",
+}
 
-const HEATMAP_GRID_TEMPLATE = `${DAY_LABEL_COL} repeat(${WEEKS}, minmax(0, 1fr))`
+const FALLBACK_PALETTE = [
+  "#e879f9",
+  "#f472b6",
+  "#fb7185",
+  "#fb923c",
+  "#a3e635",
+  "#34d399",
+  "#2dd4bf",
+  "#22d3ee",
+  "#60a5fa",
+  "#c4b5fd",
+]
 
-/** UTC-day bucket → grid cell: per-primitive call counts + error count. */
-type DayCell = {
-  bucketUnixMs: number
-  date: string // "M/D"
-  month: number
-  calls: number
-  day: HeatmapDay
-  future: boolean
+type CellEvent = {
+  method: string
+  when: string
+  face: string
+  direction: string
+  noResponse: boolean
+  /** Color bucket key: method name, or no-response when unanswered. */
+  colorKey: string
+}
+
+type GridCell = {
+  sec: number
+  color: string | null
+  /** Legend / single-tone label; mixed keys joined with " + ". */
+  label: string | null
+  events: CellEvent[]
+}
+
+type LegendItem = {
+  color: string
+  label: string
+}
+
+function hashMethod(method: string): number {
+  let h = 0
+  for (let i = 0; i < method.length; i++) h = (h * 31 + method.charCodeAt(i)) >>> 0
+  return h
+}
+
+function colorForKey(key: string): string {
+  if (key === NO_RESPONSE_KEY) return NO_RESPONSE_COLOR
+  const known = METHOD_COLOR[key]
+  if (known) return known
+  return FALLBACK_PALETTE[hashMethod(key) % FALLBACK_PALETTE.length]
+}
+
+function parseHex(hex: string): [number, number, number] {
+  const h = hex.replace("#", "")
+  return [
+    Number.parseInt(h.slice(0, 2), 16),
+    Number.parseInt(h.slice(2, 4), 16),
+    Number.parseInt(h.slice(4, 6), 16),
+  ]
+}
+
+function mixColors(keys: string[]): string {
+  if (keys.length === 1) return colorForKey(keys[0])
+  let r = 0
+  let g = 0
+  let b = 0
+  for (const key of keys) {
+    const [cr, cg, cb] = parseHex(colorForKey(key))
+    r += cr
+    g += cg
+    b += cb
+  }
+  const n = keys.length
+  const toHex = (v: number) => Math.round(v / n).toString(16).padStart(2, "0")
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+function methodLabel(frame: FrameRecord): string {
+  return frame.method ?? frame.kind
+}
+
+function buildAnsweredIds(frames: FrameRecord[]): Set<string> {
+  const answered = new Set<string>()
+  for (const frame of frames) {
+    if ((frame.kind === "response" || frame.kind === "error") && frame.jsonrpc_id) {
+      answered.add(frame.jsonrpc_id)
+    }
+  }
+  return answered
+}
+
+function isNoResponse(frame: FrameRecord, answered: Set<string>): boolean {
+  if (frame.kind === "error") return true
+  if (frame.kind === "notification") return false
+  if (frame.kind === "request") {
+    return frame.jsonrpc_id == null || !answered.has(frame.jsonrpc_id)
+  }
+  return true
 }
 
 function formatCompact(n: number): string {
@@ -43,243 +147,213 @@ function formatCompact(n: number): string {
   return String(Math.round(n))
 }
 
-/** Columns of Mon..Sun weeks ending with the current (partial) week; UTC-day aligned. */
-function buildWeeks(days: HeatmapDay[]): DayCell[][] {
-  const byBucket = new Map(days.map((day) => [day.bucket_unix_ms, day]))
-  const nowBucket = Math.floor(Date.now() / DAY_MS) * DAY_MS
-  const weekday = (new Date(nowBucket).getUTCDay() + 6) % 7 // 0=Mon
-  const thisMonday = nowBucket - weekday * DAY_MS
-  const cell = (bucketUnixMs: number): DayCell => {
-    const found = byBucket.get(bucketUnixMs)
-    const utc = new Date(bucketUnixMs)
-    return {
-      bucketUnixMs,
-      date: `${utc.getUTCMonth() + 1}/${utc.getUTCDate()}`,
-      month: utc.getUTCMonth(),
-      calls:
-        found === undefined
-          ? 0
-          : found.tool_calls + found.resource_calls + found.prompt_calls + found.other_calls,
-      day: found ?? {
-        bucket_unix_ms: bucketUnixMs,
-        tool_calls: 0,
-        resource_calls: 0,
-        prompt_calls: 0,
-        other_calls: 0,
-        errors: 0,
-      },
-      future: bucketUnixMs > nowBucket,
+function formatSecLabel(sec: number): string {
+  return new Date(sec * 1000).toLocaleTimeString()
+}
+
+/** Row-major second grid: [0]=oldest second … [last]=newest second. */
+function buildGrid(frames: FrameRecord[], nowMs: number): {
+  cells: GridCell[]
+  legend: LegendItem[]
+  requestCount: number
+  noResponseCount: number
+  frameCount: number
+} {
+  const answered = buildAnsweredIds(frames)
+  const visible = frames.filter((frame) => frame.kind !== "response")
+  const endSec = Math.floor(nowMs / 1000)
+  const startSec = endSec - (TOTAL_CELLS - 1)
+
+  const bySec = new Map<number, CellEvent[]>()
+  let requestCount = 0
+  let noResponseCount = 0
+
+  for (const frame of visible) {
+    const sec = Math.floor(frame.ts_unix_ms / 1000)
+    if (sec < startSec || sec > endSec) continue
+
+    const method = methodLabel(frame)
+    const unanswered = isNoResponse(frame, answered)
+    if (frame.kind === "request" || frame.kind === "notification") requestCount++
+    if (unanswered) noResponseCount++
+
+    const event: CellEvent = {
+      method,
+      when: new Date(frame.ts_unix_ms).toLocaleTimeString(),
+      face: frame.face,
+      direction: frame.direction,
+      noResponse: unanswered,
+      colorKey: unanswered ? NO_RESPONSE_KEY : method,
     }
+    const bucket = bySec.get(sec)
+    if (bucket) bucket.push(event)
+    else bySec.set(sec, [event])
   }
-  return Array.from({ length: DAY_ROWS }, (_, day) =>
-    Array.from({ length: WEEKS }, (_, week) => {
-      const monday = thisMonday - (WEEKS - 1 - week) * 7 * DAY_MS
-      return cell(monday + day * DAY_MS)
-    }),
+
+  const legendMap = new Map<string, string>()
+  const cells: GridCell[] = Array.from({ length: TOTAL_CELLS }, (_, index) => {
+    const sec = startSec + index
+    const events = bySec.get(sec) ?? []
+    if (events.length === 0) {
+      return { sec, color: null, label: null, events: [] }
+    }
+
+    const keys = [...new Set(events.map((event) => event.colorKey))].sort((a, b) =>
+      a.localeCompare(b),
+    )
+    const color = mixColors(keys)
+    const label = keys.join(" + ")
+    legendMap.set(label, color)
+    return { sec, color, label, events }
+  })
+
+  const legend: LegendItem[] = [...legendMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, color]) => ({ label, color }))
+
+  return {
+    cells,
+    legend,
+    requestCount,
+    noResponseCount,
+    frameCount: visible.filter((frame) => {
+      const sec = Math.floor(frame.ts_unix_ms / 1000)
+      return sec >= startSec && sec <= endSec
+    }).length,
+  }
+}
+
+function legendDisplayLabel(label: string, noResponseLabel: string): string {
+  return label
+    .split(" + ")
+    .map((part) => (part === NO_RESPONSE_KEY ? noResponseLabel : part))
+    .join(" + ")
+}
+
+function HeatmapCell({
+  cell,
+  noResponseLabel,
+}: {
+  cell: GridCell
+  noResponseLabel: string
+}) {
+  if (cell.color == null || cell.events.length === 0) {
+    return <div className="min-h-0 min-w-0 rounded-[4px] bg-muted" />
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="min-h-0 min-w-0 rounded-[4px]"
+          style={{ backgroundColor: cell.color }}
+        />
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6} className="max-w-xs">
+        <p className="font-medium">{formatSecLabel(cell.sec)}</p>
+        <ul className="mt-1 flex flex-col gap-1">
+          {cell.events.map((event, index) => (
+            <li key={`${event.when}-${event.method}-${index}`} className="text-background/75">
+              <span className="font-medium text-background">{event.method}</span>
+              {" · "}
+              {event.face} · {event.direction}
+              {event.noResponse ? ` · ${noResponseLabel}` : ""}
+            </li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
   )
-}
-
-function shadeClass(cell: DayCell, maxCalls: number, maxErrors: number): string {
-  if (cell.future) return "bg-muted/40"
-  if (cell.day.errors > 0) {
-    return ERROR_CLASS[cell.day.errors * 2 > maxErrors ? 1 : 0]
-  }
-  if (cell.calls <= 0 || maxCalls <= 0) return OK_CLASS[0]
-  return OK_CLASS[Math.min(3, Math.max(1, Math.ceil((cell.calls / maxCalls) * 3)))]
-}
-
-function cellTitle(cell: DayCell): string {
-  const parts: string[] = [cell.date]
-  if (cell.day.tool_calls > 0) parts.push(`tools ${cell.day.tool_calls}`)
-  if (cell.day.resource_calls > 0) parts.push(`resources ${cell.day.resource_calls}`)
-  if (cell.day.prompt_calls > 0) parts.push(`prompts ${cell.day.prompt_calls}`)
-  if (cell.day.other_calls > 0) parts.push(`other ${cell.day.other_calls}`)
-  if (cell.day.errors > 0) parts.push(`⚠ ${cell.day.errors}`)
-  return parts.join(" · ")
 }
 
 export function OverviewUsageHeatmapCard({ className }: { className?: string }) {
   const { t } = useI18n()
-  const { data: daily } = useQuery({
-    queryKey: queryKeys.heatmapStats,
-    queryFn: () => getHeatmapStats(371),
-    refetchInterval: 60_000,
+  const { data: frames, dataUpdatedAt } = useQuery({
+    queryKey: queryKeys.gatewayFramesRecent("all", FETCH_LIMIT),
+    queryFn: () => getRecentFrames({ limit: FETCH_LIMIT }),
+    refetchInterval: REFRESH_MS,
   })
 
-  const weeks = useMemo(() => buildWeeks(daily ?? []), [daily])
-
-  const { totalCalls, totalErrors, activeDays, errorDays, pastCells, levelCounts, maxCalls, maxErrors, monthMarkers } =
-    useMemo(() => {
-      let calls = 0
-      let errors = 0
-      let active = 0
-      let bad = 0
-      let past = 0
-      let maxC = 0
-      let maxE = 0
-      const counts = [0, 0, 0, 0, 0]
-      for (let day = 0; day < weeks.length; day++) {
-        for (let week = 0; week < weeks[day].length; week++) {
-          const cell = weeks[day][week]
-          if (cell.future) continue
-          past++
-          calls += cell.calls
-          errors += cell.day.errors
-          if (cell.calls > 0) active++
-          if (cell.day.errors > 0) bad++
-          maxC = Math.max(maxC, cell.calls)
-          maxE = Math.max(maxE, cell.day.errors)
-        }
-      }
-      for (let day = 0; day < weeks.length; day++) {
-        for (let week = 0; week < weeks[day].length; week++) {
-          const cell = weeks[day][week]
-          const level =
-            !cell.future && cell.day.errors > 0 ? 4 : cell.calls > 0 ? Math.min(3, Math.max(1, Math.ceil((cell.calls / (maxC || 1)) * 3))) : 0
-          counts[level]++
-        }
-      }
-      // Month marker per column: label on the first column whose Monday starts a new month.
-      const markers: { week: number; month: number }[] = []
-      let seenMonth = -1
-      for (let week = 0; week < WEEKS; week++) {
-        const mondayMonth = weeks[0][week].month
-        if (mondayMonth !== seenMonth) {
-          markers.push({ week, month: mondayMonth })
-          seenMonth = mondayMonth
-        }
-      }
-      return {
-        totalCalls: calls,
-        totalErrors: errors,
-        activeDays: active,
-        errorDays: bad,
-        pastCells: past,
-        levelCounts: counts,
-        maxCalls: maxC,
-        maxErrors: maxE,
-        monthMarkers: markers,
-      }
-    }, [weeks])
-
-  const activeRate = pastCells > 0 ? Math.round((activeDays / pastCells) * 100) : 0
-
-  const dayLabel = (day: number) => {
-    if (day === 0) return t("homeWeekMon")
-    if (day === 2) return t("homeWeekWed")
-    if (day === 4) return t("homeWeekFri")
-    if (day === 6) return t("homeWeekSun")
-    return ""
-  }
+  const grid = useMemo(
+    () => buildGrid(frames ?? [], dataUpdatedAt || Date.now()),
+    [frames, dataUpdatedAt],
+  )
+  const noResponseLabel = t("homeFrameLegNoResponse")
 
   return (
     <Card className={cn("gap-0", className)}>
       <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-4">
-        <div className="grid shrink-0 grid-cols-2 gap-8 pb-4">
+        <div className="grid shrink-0 grid-cols-3 gap-6 pb-4">
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{t("homeHeatmapCalls")}</p>
-            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+            <p className="text-xs text-muted-foreground">{t("homeFrameStatTotal")}</p>
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
               <span className="text-3xl font-semibold tabular-nums tracking-tight">
-                {formatCompact(totalCalls)}
+                {formatCompact(grid.frameCount)}
               </span>
-              <span className="text-sm text-muted-foreground">calls</span>
+              <span className="text-sm text-muted-foreground">{t("homeFrameStatFrames")}</span>
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {t("homeUsageHeatmapWeeks", { weeks: WEEKS })}
+              {t("homeFrameStatWindow", { count: TOTAL_CELLS })}
             </p>
           </div>
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{t("homeHeatmapErrors")}</p>
-            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+            <p className="text-xs text-muted-foreground">{t("homeFrameStatRequests")}</p>
+            <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight">
+              {formatCompact(grid.requestCount)}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">{t("homeFrameStatNoResponse")}</p>
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
               <span
                 className={cn(
                   "text-3xl font-semibold tabular-nums tracking-tight",
-                  totalErrors > 0 && "text-[#dc2626]",
+                  grid.noResponseCount > 0 && "text-[#dc2626]",
                 )}
               >
-                {formatCompact(totalErrors)}
+                {formatCompact(grid.noResponseCount)}
               </span>
-              <span className="text-sm text-muted-foreground">{t("homeHeatmapErrorsUnit")}</span>
-            </p>
-            <div
-              className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted"
-              role="progressbar"
-              aria-valuenow={activeRate}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <div
-                className="h-full rounded-full bg-[#5b5bd5] transition-[width]"
-                style={{ width: `${activeRate}%` }}
-              />
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("homeHeatmapDaysOf", { active: activeDays, total: pastCells || TOTAL_CELLS })}
-              {errorDays > 0 ? ` · ${t("homeHeatmapErrorDays", { count: errorDays })}` : ""}
             </p>
           </div>
         </div>
 
-        <div
-          className="grid min-h-0 w-full min-w-0 flex-1 gap-[3px]"
-          style={{
-            gridTemplateColumns: HEATMAP_GRID_TEMPLATE,
-            gridTemplateRows: `auto repeat(${DAY_ROWS}, auto)`,
-          }}
-        >
-          <div aria-hidden className="h-4" />
+        {grid.frameCount === 0 ? (
+          <p className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+            {t("homeFrameEmpty")}
+          </p>
+        ) : (
           <div
-            className="relative col-start-2 h-4"
-            style={{ gridColumn: `2 / span ${WEEKS}` }}
+            className="grid min-h-0 w-full min-w-0 flex-1 gap-[3px]"
+            style={{
+              gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`,
+              gridTemplateRows: `repeat(${ROWS}, minmax(0, 1fr))`,
+            }}
           >
-            {monthMarkers.map((m) => (
-              <span
-                key={`${m.week}-${m.month}`}
-                className="absolute text-[10px] leading-none text-muted-foreground"
-                style={{ left: `${(m.week / WEEKS) * 100}%` }}
-              >
-                {t("homeHeatmapMonthLabel", { month: m.month + 1 })}
-              </span>
+            {grid.cells.map((cell) => (
+              <HeatmapCell
+                key={cell.sec}
+                cell={cell}
+                noResponseLabel={noResponseLabel}
+              />
             ))}
           </div>
+        )}
 
-          {DAY_LABELS.map((_, day) => (
-            <div key={day} className="contents">
-              <div className="flex items-center text-[10px] leading-none text-muted-foreground">
-                {dayLabel(day)}
-              </div>
-              {Array.from({ length: WEEKS }, (_, week) => {
-                const cell = weeks[day][week]
-                return (
-                  <div
-                    key={week}
-                    title={cellTitle(cell)}
-                    className={cn(
-                      "aspect-square w-full rounded-[4px]",
-                      shadeClass(cell, maxCalls, maxErrors),
-                    )}
-                  />
-                )
-              })}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-3 flex shrink-0 flex-wrap items-center justify-start gap-x-4 gap-y-2">
-          {LEVEL_LABEL_KEY.map((key, level) => {
-            const cls =
-              level === LEVEL_LABEL_KEY.length - 1 ? ERROR_CLASS[1] : OK_CLASS[level]
-            return (
-              <div key={level} className="flex items-center gap-1.5">
-                <div className={cn("size-3 shrink-0 rounded-[4px]", cls)} />
-                <span className="text-xs text-muted-foreground">{t(key)}</span>
-                <span className="text-xs tabular-nums text-foreground/80">
-                  {t("homeHeatLegendDays", { count: levelCounts[level] })}
+        {grid.legend.length > 0 ? (
+          <div className="mt-3 flex shrink-0 flex-wrap items-center justify-start gap-x-4 gap-y-2">
+            {grid.legend.map((item) => (
+              <div key={item.label} className="flex items-center gap-1.5">
+                <div
+                  className="size-3 shrink-0 rounded-[4px]"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {legendDisplayLabel(item.label, noResponseLabel)}
                 </span>
               </div>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )

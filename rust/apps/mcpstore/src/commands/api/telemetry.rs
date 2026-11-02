@@ -169,6 +169,27 @@ pub(super) async fn frame_history(
     ))
 }
 
+#[derive(Deserialize)]
+pub(super) struct FrameRecentQuery {
+    face: Option<String>,
+    limit: Option<u32>,
+}
+
+/// GET /gateway/frames/recent — recent frames (any session), chronological LTR window.
+pub(super) async fn frame_recent(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<FrameRecentQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let frames = telemetry
+        .frame_recent(query.face.as_deref(), query.limit.unwrap_or(400))
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success(
+        "最近帧获取成功",
+        serde_json::to_value(frames).unwrap_or(Value::Null),
+    ))
+}
+
 /// GET /gateway/frames/detail/:id — one frame including the full envelope.
 pub(super) async fn frame_detail(
     State(state): State<Arc<ApiState>>,

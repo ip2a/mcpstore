@@ -267,11 +267,6 @@ export function ClientsView() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.clientPluginMarket })
   }
 
-  function handleViewModeChange(mode: ClientsViewMode) {
-    setViewMode(mode)
-    writeViewMode(mode)
-  }
-
   const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
 
   return (
@@ -377,21 +372,19 @@ export function ClientsView() {
                     className="min-h-0 flex-1"
                     innerClassName="px-4 py-2 grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
                   >
-                    {visibleClients.map((client) => (
-                      <ClientListCard
-                        key={client.id}
-                        busy={pluginBusy}
-                        client={client}
-                        installed={installedById[client.id]}
-                        marketEntry={marketById[client.id]}
-                        onSelect={() => setCardClientId(client.id)}
-                        onWire={() => setWireDialog({ mode: "wire", client })}
-                        onUnwire={() => void toggle(client, true)}
-                        onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-                        onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
-                        onUpdate={(id) => pluginUpdate.mutate(id)}
-                      />
-                    ))}
+                    {visibleClients.length ? (
+                      visibleClients.map((client) => (
+                        <ClientListCard
+                          key={client.id}
+                          client={client}
+                          onSelect={() => setCardClientId(client.id)}
+                        />
+                      ))
+                    ) : (
+                      <div className="col-span-full">
+                        <PageEmpty title={t("noClients")} description={t("noClientsDescription")} onRefresh={refresh} />
+                      </div>
+                    )}
                     <AddAgentCard onSelect={() => setAddOpen(true)} />
                   </ScrollPane>
                   {cardClient ? (
@@ -723,30 +716,15 @@ function ClientRow({
 }
 
 function ClientListCard({
-  busy,
   client,
-  installed,
-  marketEntry,
   onSelect,
-  onWire,
-  onUnwire,
-  onInstall,
-  onUninstall,
-  onUpdate,
 }: {
-  busy: boolean
   client: ClientInventory
-  installed: ClientPlugin | undefined
-  marketEntry: MarketPlugin | undefined
   onSelect: () => void
-  onWire: () => void
-  onUnwire: () => void
-  onInstall: (id: string) => void
-  onUninstall: (id: string) => void
-  onUpdate: (id: string) => void
 }) {
   const { t } = useI18n()
   const detected = client.detected_by != null
+  const mcpCount = client.mcp_servers?.length ?? 0
   const versionQuery = useClientVersionQuery(client.id, detected)
   const version = versionQuery.data ?? client.version ?? null
   const statusText = clientStatusText(client, t)
@@ -764,14 +742,14 @@ function ClientListCard({
         }
       }}
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <ClientLogo
           clientId={client.id}
           label={client.label}
           className="size-10 rounded-lg border border-border/50 bg-muted/60"
           imageClassName="size-7"
         />
-        <span className="min-w-0 flex-1">
+        <span className="min-w-0 flex-1 pt-0.5">
           <span className="line-clamp-1 text-sm font-semibold leading-snug">{client.label || client.id}</span>
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span
@@ -783,46 +761,19 @@ function ClientListCard({
             <span className="truncate">{statusText}</span>
           </span>
         </span>
-        <div
-          className="shrink-0"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <Switch
-            checked={client.wired}
-            disabled={busy}
-            aria-label={client.wired ? t("clientsUnwire") : t("clientsWire")}
-            onCheckedChange={(checked) => {
-              if (checked) onWire()
-              else onUnwire()
-            }}
-          />
-        </div>
       </div>
 
-      <p className="mt-3 line-clamp-2 flex-1 text-xs leading-relaxed text-muted-foreground">
+      <p className="mt-3 line-clamp-2 flex-1 font-mono text-xs leading-relaxed text-muted-foreground">
         {client.config_path || client.id}
       </p>
 
-      <div className="mt-3 flex min-w-0 items-center justify-between gap-2">
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-          {version || "—"}
-        </span>
-        <div
-          className="shrink-0"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <ClientPluginRowActions
-            clientId={client.id}
-            busy={busy}
-            installed={installed}
-            marketEntry={marketEntry}
-            onInstall={onInstall}
-            onUninstall={onUninstall}
-            onUpdate={onUpdate}
-          />
-        </div>
+      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {version ? <span className="shrink-0 font-mono tabular-nums">{version}</span> : null}
+        {client.mcp_servers != null ? (
+          <span className="shrink-0">
+            {t("clientsMcpShort")} {mcpCount}
+          </span>
+        ) : null}
       </div>
     </div>
   )

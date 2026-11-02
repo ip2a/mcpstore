@@ -474,6 +474,7 @@ export {
   getRequestDetail,
   getFrameSessions,
   getFrameHistory,
+  getRecentFrames,
   getFrameDetail,
   type RequestRecord,
   type HistoryPage,

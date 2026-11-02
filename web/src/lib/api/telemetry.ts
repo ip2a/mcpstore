@@ -146,6 +146,13 @@ export function getFrameHistory(
   );
 }
 
+/** Recent frames across sessions, oldest→newest in the returned window. */
+export function getRecentFrames(
+  params: { face?: string; limit?: number } = {},
+): Promise<FrameRecord[]> {
+  return api(`/gateway/frames/recent${buildQuery(params)}`);
+}
+
 export function getFrameDetail(id: number): Promise<FrameRecord> {
   return api(`/gateway/frames/detail/${id}`);
 }
