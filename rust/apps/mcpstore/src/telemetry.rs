@@ -97,6 +97,15 @@ pub struct FrameSessionSummary {
     pub frame_count: i64,
 }
 
+/// Paginated frame-session listing (server-side filter + LIMIT/OFFSET).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FrameSessionsPage {
+    pub sessions: Vec<FrameSessionSummary>,
+    pub total: i64,
+    pub limit: u32,
+    pub offset: u32,
+}
+
 /// What crosses the writer queue: completed requests or raw frames.
 enum TelemetryItem {
     Request(RequestRecord),
@@ -493,22 +502,19 @@ impl TelemetryLog {
 
     /// Sessions with frames inside the trailing `hours` window, newest first.
     /// Every frame in a session carries the same caller/peer/instance values,
-    /// so the aggregate picks any non-null one.
+    /// so the aggregate picks any non-null one. Filtering and pagination happen
+    /// in SQL — callers must not pull the full set and slice client-side.
     pub fn frame_sessions(
         &self,
         face: Option<&str>,
         hours: i64,
-    ) -> rusqlite::Result<Vec<FrameSessionSummary>> {
+        limit: u32,
+        offset: u32,
+    ) -> rusqlite::Result<FrameSessionsPage> {
         let conn = self.read_conn()?;
         let from = now_ms() - hours.max(1) * 3600 * 1000;
-        let mut sql = "SELECT session_id, MAX(face), MAX(caller), MAX(peer), MAX(instance_id), \
-             MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*) FROM frames WHERE ts_unix_ms >= ?1"
-            .to_string();
-        if face.is_some() {
-            sql.push_str(" AND face = ?2");
-        }
-        sql.push_str(" GROUP BY session_id ORDER BY MAX(ts_unix_ms) DESC LIMIT 100");
-        let mut stmt = conn.prepare(&sql)?;
+        let limit = limit.clamp(1, 100);
+        let offset = offset.min(10_000);
         let map_row = |row: &rusqlite::Row<'_>| {
             Ok(FrameSessionSummary {
                 session_id: row.get(0)?,
@@ -521,11 +527,58 @@ impl TelemetryLog {
                 frame_count: row.get(7)?,
             })
         };
-        let rows = match face {
-            Some(face) => stmt.query_map(rusqlite::params![from, face], map_row)?,
-            None => stmt.query_map([from], map_row)?,
+        let (total, sessions) = match face {
+            Some(face) => {
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM (
+                        SELECT session_id FROM frames
+                        WHERE ts_unix_ms >= ?1 AND face = ?2
+                        GROUP BY session_id
+                    )",
+                    rusqlite::params![from, face],
+                    |row| row.get(0),
+                )?;
+                let mut stmt = conn.prepare(
+                    "SELECT session_id, MAX(face), MAX(caller), MAX(peer), MAX(instance_id), \
+                     MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*) FROM frames \
+                     WHERE ts_unix_ms >= ?1 AND face = ?2 \
+                     GROUP BY session_id ORDER BY MAX(ts_unix_ms) DESC LIMIT ?3 OFFSET ?4",
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![from, face, limit as i64, offset as i64],
+                    map_row,
+                )?;
+                (total, rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            }
+            None => {
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM (
+                        SELECT session_id FROM frames
+                        WHERE ts_unix_ms >= ?1
+                        GROUP BY session_id
+                    )",
+                    [from],
+                    |row| row.get(0),
+                )?;
+                let mut stmt = conn.prepare(
+                    "SELECT session_id, MAX(face), MAX(caller), MAX(peer), MAX(instance_id), \
+                     MIN(ts_unix_ms), MAX(ts_unix_ms), COUNT(*) FROM frames \
+                     WHERE ts_unix_ms >= ?1 \
+                     GROUP BY session_id ORDER BY MAX(ts_unix_ms) DESC LIMIT ?2 OFFSET ?3",
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![from, limit as i64, offset as i64],
+                    map_row,
+                )?;
+                (total, rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            }
         };
-        rows.collect()
+        Ok(FrameSessionsPage {
+            sessions,
+            total,
+            limit,
+            offset,
+        })
     }
 
     /// One session's frame timeline, oldest first.
@@ -922,15 +975,24 @@ mod tests {
             log.record_frame(frame("s-up", "upstream", "down", None));
             std::thread::sleep(Duration::from_millis(300));
 
-            let sessions = log.frame_sessions(None, 24).unwrap();
-            assert_eq!(sessions.len(), 2);
-            let gw = sessions.iter().find(|s| s.face == "gateway").unwrap();
+            let sessions = log.frame_sessions(None, 24, 50, 0).unwrap();
+            assert_eq!(sessions.total, 2);
+            assert_eq!(sessions.sessions.len(), 2);
+            let gw = sessions
+                .sessions
+                .iter()
+                .find(|s| s.face == "gateway")
+                .unwrap();
             assert_eq!(gw.session_id, "s-gw");
             assert_eq!(gw.frame_count, 2);
             assert_eq!(gw.caller.as_deref(), Some("claude"));
-            let up = log.frame_sessions(Some("upstream"), 24).unwrap();
-            assert_eq!(up.len(), 1);
-            assert_eq!(up[0].instance_id.as_deref(), Some("inst-1"));
+            let up = log.frame_sessions(Some("upstream"), 24, 50, 0).unwrap();
+            assert_eq!(up.total, 1);
+            assert_eq!(up.sessions.len(), 1);
+            assert_eq!(up.sessions[0].instance_id.as_deref(), Some("inst-1"));
+            let page = log.frame_sessions(None, 24, 1, 0).unwrap();
+            assert_eq!(page.total, 2);
+            assert_eq!(page.sessions.len(), 1);
 
             let history = log.frame_history("s-up", 50).unwrap();
             assert_eq!(history.len(), 2);
@@ -952,7 +1014,7 @@ mod tests {
         }
         let log = TelemetryLog::open(&path).unwrap();
         std::thread::sleep(Duration::from_millis(200));
-        assert!(log.frame_sessions(None, 24).unwrap().is_empty());
+        assert_eq!(log.frame_sessions(None, 24, 50, 0).unwrap().total, 0);
         std::fs::remove_file(&path).ok();
     }
 }

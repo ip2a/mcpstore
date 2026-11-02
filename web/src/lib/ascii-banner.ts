@@ -13,29 +13,13 @@ export function randomAsciiBannerColor() {
   return ASCII_BANNER_COLORS[Math.floor(Math.random() * ASCII_BANNER_COLORS.length)]
 }
 
-function joinLetters(letters: string[], spacing = 2): string {
-  const letterLines = letters.map(letter => letter.trim().split('\n'))
-  const height = Math.max(...letterLines.map(lines => lines.length))
-  const result: string[] = []
-
-  for (let row = 0; row < height; row++) {
-    const rowParts: string[] = []
-    for (const lines of letterLines) {
-      rowParts.push(lines[row] || '')
-    }
-    result.push(rowParts.join(' '.repeat(spacing)))
-  }
-
-  return result.join('\n')
+export const ASCII_LETTERS: Record<string, string> = {
+  M: letterM.trim(),
+  C: letterC.trim(),
+  P: letterP.trim(),
+  S: letterS.trim(),
+  T: letterT.trim(),
+  O: letterO.trim(),
+  R: letterR.trim(),
+  E: letterE.trim(),
 }
-
-export const MCPSTORE_ASCII = joinLetters([
-  letterM,
-  letterC,
-  letterP,
-  letterS,
-  letterT,
-  letterO,
-  letterR,
-  letterE
-])

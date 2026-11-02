@@ -99,6 +99,14 @@ export type FrameSessionSummary = {
   frame_count: number;
 };
 
+/** 服务端分页的帧会话列表。 */
+export type FrameSessionsPage = {
+  sessions: FrameSessionSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 /** 一条原始 JSON-RPC 帧。up=client→server 方向，down=server→client。 */
 export type FrameRecord = {
   id: number;
@@ -119,8 +127,13 @@ export type FrameRecord = {
 };
 
 export function getFrameSessions(
-  params: { face?: string; hours?: number } = {},
-): Promise<FrameSessionSummary[]> {
+  params: {
+    face?: string;
+    hours?: number;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<FrameSessionsPage> {
   return api(`/gateway/frames/sessions${buildQuery(params)}`);
 }
 

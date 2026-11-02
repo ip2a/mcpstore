@@ -33,6 +33,7 @@ import {
   useWiredClientsQuery,
 } from "@/features/clients/queries"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
+import { FrameStreamCard } from "@/features/traces/frame-stream-card"
 import { useI18n } from "@/lib/i18n-context"
 import {
   getGatewayRequests,
@@ -184,6 +185,8 @@ export function GatewayView() {
             [...records].reverse().map((record) => <FlowRow key={record.seq} record={record} />)
           )}
         </PanelCard>
+
+        <FrameStreamCard face="gateway" />
       </ScrollPane>
     </>
   )

@@ -82,6 +82,8 @@ export const queryKeys = {
   get gatewayFrameSessions() {
     return ["gateway", ...hostSeg(), "frames-sessions"] as const
   },
+  gatewayFrameSessionsPage: (face: string, limit: number, offset: number) =>
+    ["gateway", ...hostSeg(), "frames-sessions", face, limit, offset] as const,
   gatewayFrameHistory: (sessionId: string) =>
     ["gateway", ...hostSeg(), "frames-history", sessionId] as const,
 }

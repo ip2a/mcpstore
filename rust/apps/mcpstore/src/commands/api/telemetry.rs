@@ -123,20 +123,28 @@ pub(super) async fn usage_stats_heatmap(
 pub(super) struct FrameSessionsQuery {
     face: Option<String>,
     hours: Option<i64>,
+    limit: Option<u32>,
+    offset: Option<u32>,
 }
 
 /// GET /gateway/frames/sessions — sessions with recorded frames, newest first.
+/// Supports `face` / `hours` filters and `limit` / `offset` pagination in SQL.
 pub(super) async fn frame_sessions(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<FrameSessionsQuery>,
 ) -> ApiResult {
     let telemetry = require_telemetry(&state)?;
-    let sessions = telemetry
-        .frame_sessions(query.face.as_deref(), query.hours.unwrap_or(24))
+    let page = telemetry
+        .frame_sessions(
+            query.face.as_deref(),
+            query.hours.unwrap_or(24),
+            query.limit.unwrap_or(20),
+            query.offset.unwrap_or(0),
+        )
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
         "帧会话获取成功",
-        serde_json::to_value(sessions).unwrap_or(Value::Null),
+        serde_json::to_value(page).unwrap_or(Value::Null),
     ))
 }
 

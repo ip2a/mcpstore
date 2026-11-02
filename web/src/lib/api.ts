@@ -482,5 +482,6 @@ export {
   type UsageTotals,
   type HeatmapDay,
   type FrameSessionSummary,
+  type FrameSessionsPage,
   type FrameRecord,
 } from "./api/telemetry";
