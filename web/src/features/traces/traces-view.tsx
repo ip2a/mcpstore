@@ -4,6 +4,7 @@ import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react"
 
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { I18nKey } from "@/lib/i18n-core"
@@ -12,101 +13,30 @@ import { queryKeys } from "@/lib/query-keys"
 import {
   getFrameHistory,
   getFrameSessions,
-  getRequestHistory,
   type FrameRecord,
   type FrameSessionSummary,
-  type RequestRecord,
 } from "@/lib/api"
 
-/** Insights → Traces: Request history + MCP message stream (moved from Gateway). */
+/** Insights → Traces: MCP message stream (JSON-RPC frames). */
 export function TracesView() {
-  return (
-    <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
-      <RequestHistoryCard />
-      <FrameStreamCard />
-    </ScrollPane>
-  )
-}
-
-/** 历史请求：daemon 遥测持久层最近 50 条（工具调用 + 管理操作），点击行展开完整参数/返回。 */
-function RequestHistoryCard() {
   const { t } = useI18n()
-  const history = useQuery({
-    queryKey: queryKeys.gatewayHistory,
-    queryFn: () => getRequestHistory({ limit: 50 }),
-    refetchInterval: 15_000,
+  const sessions = useQuery({
+    queryKey: queryKeys.gatewayFrameSessions,
+    queryFn: () => getFrameSessions({ hours: 24 }),
   })
-  const records = history.data?.requests ?? []
-  return (
-    <PanelCard variant="plain" className="gap-2">
-      <div className="border-b pb-2 text-sm font-medium">{t("gatewayHistoryTitle")}</div>
-      {records.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("gatewayHistoryEmpty")}</p>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {records.map((record) => (
-            <HistoryRow key={record.id} record={record} />
-          ))}
-        </div>
-      )}
-    </PanelCard>
-  )
-}
 
-function HistoryRow({ record }: { record: RequestRecord }) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
   return (
-    <div className="rounded-md border border-dashed">
-      <button
-        type="button"
-        className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left"
-        onClick={() => setOpen((prev) => !prev)}
-      >
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {new Date(record.started_at_unix_ms).toLocaleTimeString()}
-        </span>
-        <Badge variant="outline" className="shrink-0 font-mono">
-          {record.caller ?? t("gatewayCallDirect")}
-        </Badge>
-        <span className="min-w-0 flex-1 truncate font-mono text-sm">
-          {record.kind === "tool"
-            ? `${record.service_name ?? "—"}.${record.tool ?? "—"}`
-            : record.tool ?? "—"}
-        </span>
-        <Badge variant="secondary" className="shrink-0">
-          {record.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")}
-        </Badge>
-        <Badge variant={record.success ? "secondary" : "destructive"} className="shrink-0">
-          {record.success ? "OK" : "ERR"}
-        </Badge>
-        <span className="shrink-0 text-xs text-muted-foreground">{record.duration_ms}ms</span>
-      </button>
-      {open ? (
-        <div className="flex flex-col gap-2 border-t px-3 py-2 text-xs">
-          {record.error_summary ? (
-            <div>
-              <span className="font-medium text-destructive">
-                {record.error_code ?? "ERR"}
-              </span>
-              <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2">
-                {record.error_summary}
-              </pre>
-            </div>
-          ) : null}
-          <PayloadBlock
-            title={t("gatewayDetailArgs")}
-            payload={record.args_json}
-            truncated={record.args_truncated}
-          />
-          <PayloadBlock
-            title={t("gatewayDetailResult")}
-            payload={record.result_json}
-            truncated={record.result_truncated}
-          />
-        </div>
-      ) : null}
-    </div>
+    <>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("tracesWorkspaceTitle")}</h1>}
+        subtitle={t("tracesWorkspaceDescription", {
+          count: sessions.data?.length ?? 0,
+        })}
+      />
+      <ScrollPane className="flex-1" innerClassName="flex flex-col gap-3 pb-2">
+        <FrameStreamCard />
+      </ScrollPane>
+    </>
   )
 }
 

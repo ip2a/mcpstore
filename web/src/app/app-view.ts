@@ -1,4 +1,5 @@
 import {
+  ActivityIcon,
   CableIcon,
   DatabaseIcon,
   FileStackIcon,
@@ -27,6 +28,7 @@ export type AppView =
   | { name: "prompts" }
   | { name: "prompt"; instanceId: string; promptName: string }
   | { name: "gateway" }
+  | { name: "history" }
   | { name: "traces" }
   | { name: "cache" }
   | { name: "settings" }
@@ -48,7 +50,8 @@ export function useNavItems(): NavItem[] {
     { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
     { view: { name: "resources" }, label: t("navResources"), icon: FileStackIcon },
     { view: { name: "prompts" }, label: t("navPrompts"), icon: ScrollTextIcon },
-    { view: { name: "traces" }, label: t("navTraces"), icon: HistoryIcon },
+    { view: { name: "history" }, label: t("navHistory"), icon: HistoryIcon },
+    { view: { name: "traces" }, label: t("navTraces"), icon: ActivityIcon },
     { view: { name: "cache" }, label: t("navCache"), icon: DatabaseIcon },
     { view: { name: "plugins" }, label: t("navPlugins"), icon: PuzzleIcon },
     { view: { name: "settings" }, label: t("settings"), icon: SettingsIcon },

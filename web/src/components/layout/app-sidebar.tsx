@@ -16,6 +16,7 @@ const VIEW_GROUP: Partial<Record<string, NavGroupKey>> = {
   tools: "primitives",
   resources: "primitives",
   prompts: "primitives",
+  history: "observability",
   traces: "observability",
   cache: "observability",
   settings: "config",
