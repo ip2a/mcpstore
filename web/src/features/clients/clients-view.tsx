@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ChevronRightIcon,
   CircleDashed,
@@ -208,18 +208,57 @@ export function ClientsView() {
     [clients, installedById],
   )
 
+  // Sticky membership for active/inactive: wire/unwire updates status in place,
+  // but cards stay until the user re-enters the tab (or remounts the page).
+  const membershipRef = useRef<{ tab: ClientTab; ids: Set<string> } | null>(null)
+  const membershipTabRef = useRef<ClientTab>(tab)
+  const [membershipVersion, setMembershipVersion] = useState(0)
+
+  useEffect(() => {
+    const tabChanged = membershipTabRef.current !== tab
+    membershipTabRef.current = tab
+
+    if (tab === "all") {
+      membershipRef.current = null
+      if (tabChanged) setMembershipVersion((value) => value + 1)
+      return
+    }
+
+    const existing = membershipRef.current
+    const sameTab = existing?.tab === tab
+    // Keep sticky ids while staying on the same tab (ignore wired flips).
+    // Re-seed only when entering the tab, or when data first arrives into an empty snapshot.
+    if (sameTab && !tabChanged && existing.ids.size > 0) return
+
+    membershipRef.current = {
+      tab,
+      ids: new Set(
+        installedClients
+          .filter((client) => (tab === "active" ? client.wired : !client.wired))
+          .map((client) => client.id),
+      ),
+    }
+    setMembershipVersion((value) => value + 1)
+  }, [tab, installedClients])
+
   const visibleClients = useMemo(() => {
     const normalized = query.trim().toLowerCase()
+    const membership = membershipRef.current
     return installedClients.filter((client) => {
-      if (tab === "active" && !client.wired) return false
-      if (tab === "inactive" && client.wired) return false
+      if (tab === "active" || tab === "inactive") {
+        if (membership?.tab === tab) {
+          if (!membership.ids.has(client.id)) return false
+        } else if (tab === "active" ? !client.wired : client.wired) {
+          return false
+        }
+      }
       if (!normalized) return true
       return (
         client.id.toLowerCase().includes(normalized) ||
         client.label.toLowerCase().includes(normalized)
       )
     })
-  }, [installedClients, query, tab])
+  }, [installedClients, query, tab, membershipVersion])
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.clients })
