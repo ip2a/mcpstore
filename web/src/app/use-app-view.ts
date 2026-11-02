@@ -89,7 +89,13 @@ function viewFromPath(pathname: string, search: string): AppView {
     if (parsed) return { name: "prompt", instanceId: parsed.instanceId, promptName: parsed.key }
   }
   if (pathname === "/clients") return { name: "clients" }
-  if (pathname === "/plugins") return { name: "plugins" }
+  if (pathname === "/plugins") {
+    const tab = new URLSearchParams(search).get("tab")
+    if (tab === "installed" || tab === "services" || tab === "agents") {
+      return { name: "plugins", tab }
+    }
+    return { name: "plugins", tab: "installed" }
+  }
   if (pathname === "/gateway") return { name: "gateway" }
   if (pathname === "/traces") return { name: "traces" }
   if (pathname === "/cache") return { name: "cache" }
@@ -143,5 +149,6 @@ function pathForView(view: AppView): string {
         : "?scope=store"
     return `${base}${query}`
   }
+  if (view.name === "plugins" && view.tab) return `/plugins?tab=${encodeURIComponent(view.tab)}`
   return `/${view.name}`
 }

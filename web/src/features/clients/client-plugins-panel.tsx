@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { PluginListCard } from "@/components/shared/plugin-list-card"
+import { Button } from "@/components/ui/button"
 import {
   detectMarketClients,
   disableClientPlugin,
@@ -12,9 +15,8 @@ import {
   type ClientPlugin,
   type MarketPlugin,
 } from "@/lib/api/plugins"
-import { queryKeys } from "@/lib/query-keys"
 import { useI18n } from "@/lib/i18n-context"
-import { Button } from "@/components/ui/button"
+import { queryKeys } from "@/lib/query-keys"
 
 function usePluginRefresh() {
   const queryClient = useQueryClient()
@@ -152,7 +154,23 @@ export function ClientPluginRowActions({
   return null
 }
 
-/** Plugin market panel for the Clients → Market tab. */
+export function useDetectMarketClients() {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: detectMarketClients,
+    onSuccess: ({ detected }) => {
+      toast.success(t("clientPluginDetectDone", { count: detected.length }))
+      void queryClient.invalidateQueries({ queryKey: queryKeys.clientPlugins })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.clientPluginMarket })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : String(error))
+    },
+  })
+}
+
+/** Plugin market panel for the Clients → Market tab (card grid). */
 export function ClientPluginMarketPanel({
   busy,
   onInstall,
@@ -164,112 +182,50 @@ export function ClientPluginMarketPanel({
 }) {
   const { t } = useI18n()
   const market = useClientPluginMarketQuery()
-  const queryClient = useQueryClient()
-
-  const detect = useMutation({
-    mutationFn: detectMarketClients,
-    onSuccess: ({ detected }) => {
-      toast.success(t("clientPluginDetectDone", { count: detected.length }))
-      void queryClient.invalidateQueries({ queryKey: queryKeys.clientPlugins })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.clientPluginMarket })
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : String(error))
-    },
-  })
-
   const marketPlugins = market.data?.plugins ?? []
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={detect.isPending}
-          onClick={() => detect.mutate()}
-        >
-          {detect.isPending ? t("clientPluginDetecting") : t("clientPluginDetect")}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={market.isFetching}
-          onClick={() => void market.refetch()}
-        >
-          {t("clientPluginMarketRefresh")}
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
-        {market.isError ? (
-          <p className="px-1 py-2 text-sm text-destructive">
-            {market.error instanceof Error ? market.error.message : String(market.error)}
-          </p>
-        ) : marketPlugins.length === 0 ? (
-          <p className="px-1 py-2 text-sm text-muted-foreground">{t("clientPluginMarketEmpty")}</p>
-        ) : (
-          <div className="divide-y divide-border/50">
-            {marketPlugins.map((entry) => (
-              <MarketRow
-                key={entry.id}
-                entry={entry}
-                busy={busy}
-                onInstall={() => onInstall(entry.id)}
-                onUpdate={() => onUpdate(entry.id)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function MarketRow({
-  entry,
-  busy,
-  onInstall,
-  onUpdate,
-}: {
-  entry: MarketPlugin
-  busy: boolean
-  onInstall: () => void
-  onUpdate: () => void
-}) {
-  const { t } = useI18n()
-  return (
-    <div className="flex items-center gap-3 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
-          {entry.label}
-          <span className="ml-2 text-xs font-normal text-muted-foreground">
-            {entry.plugin_version}
-          </span>
-          {entry.update_available ? (
-            <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-600">
-              {t("clientPluginUpdateAvailable", { version: entry.plugin_version })}
-            </span>
-          ) : null}
+  if (market.isError) {
+    return (
+      <div className="px-4 py-2">
+        <p className="text-sm text-destructive">
+          {market.error instanceof Error ? market.error.message : String(market.error)}
         </p>
-        {entry.description ? (
-          <p className="truncate text-xs text-muted-foreground">{entry.description}</p>
-        ) : null}
       </div>
-      {entry.installed ? (
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-20"
-          disabled={busy || !entry.update_available}
-          onClick={onUpdate}
-        >
-          {entry.update_available ? t("clientPluginUpdate") : t("clientPluginInstalled")}
-        </Button>
-      ) : (
-        <Button size="sm" className="w-20" disabled={busy} onClick={onInstall}>
-          {t("clientPluginInstall")}
-        </Button>
-      )}
-    </div>
+    )
+  }
+
+  if (marketPlugins.length === 0) {
+    return (
+      <div className="px-4 py-2">
+        <p className="text-sm text-muted-foreground">{t("clientPluginMarketEmpty")}</p>
+      </div>
+    )
+  }
+
+  return (
+    <ScrollPane
+      className="min-h-0 flex-1"
+      innerClassName="px-4 py-2 grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
+    >
+      {marketPlugins.map((entry) => (
+        <PluginListCard
+          key={entry.id}
+          busy={busy}
+          plugin={{
+            id: entry.id,
+            name: entry.id,
+            title: entry.label,
+            description: entry.description?.trim() || "",
+            version: entry.plugin_version,
+            author: "mcpstore",
+            installed: Boolean(entry.installed),
+            kind: "agent",
+            updateAvailable: entry.update_available,
+          }}
+          onInstall={onInstall}
+          onUpdate={onUpdate}
+        />
+      ))}
+    </ScrollPane>
   )
 }

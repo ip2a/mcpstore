@@ -173,7 +173,7 @@ export function App() {
           ) : view.name === "clients" ? (
             <ClientsView />
           ) : view.name === "plugins" ? (
-            <PluginsView />
+            <PluginsView initialTab={view.tab} />
           ) : view.name === "gateway" ? (
             <GatewayView />
           ) : view.name === "traces" ? (
