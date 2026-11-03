@@ -35,7 +35,7 @@ pub(super) async fn requests_history(
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     let count = records.len();
     Ok(success(
-        "请求历史获取成功",
+        "Request history retrieved successfully",
         json!({ "requests": records, "has_more": count == query.limit.unwrap_or(50) as usize }),
     ))
 }
@@ -58,7 +58,7 @@ pub(super) async fn request_detail(
             )
         })?;
     Ok(success(
-        "请求详情获取成功",
+        "Request details retrieved successfully",
         serde_json::to_value(record).unwrap_or(Value::Null),
     ))
 }
@@ -78,7 +78,7 @@ pub(super) async fn usage_stats(
         .usage_stats(query.hours.unwrap_or(24))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
-        "用量统计获取成功",
+        "Usage stats retrieved successfully",
         serde_json::to_value(stats).unwrap_or(Value::Null),
     ))
 }
@@ -98,7 +98,7 @@ pub(super) async fn usage_stats_daily(
         .daily_stats(query.days.unwrap_or(35).min(400))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
-        "每日用量统计获取成功",
+        "Daily usage stats retrieved successfully",
         serde_json::to_value(days).unwrap_or(Value::Null),
     ))
 }
@@ -114,7 +114,7 @@ pub(super) async fn usage_stats_heatmap(
         .heatmap_stats(query.days.unwrap_or(371).min(400))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
-        "热力图统计获取成功",
+        "Heatmap stats retrieved successfully",
         serde_json::to_value(days).unwrap_or(Value::Null),
     ))
 }
@@ -122,6 +122,8 @@ pub(super) async fn usage_stats_heatmap(
 #[derive(Deserialize)]
 pub(super) struct FrameActivityQuery {
     hours: Option<u32>,
+    /// Overrides the range-based default bucket size (clamped to 1 min–1 day).
+    bucket_ms: Option<i64>,
 }
 
 /// GET /gateway/stats/frame-activity — frame-based activity over a time range.
@@ -131,50 +133,118 @@ pub(super) async fn frame_activity_stats(
 ) -> ApiResult {
     let telemetry = require_telemetry(&state)?;
     let hours = query.hours.unwrap_or(24).min(24 * 7);
-    
+
     // Choose bucket size based on time range
-    let bucket_ms = if hours <= 1 {
-        60_000 // 1 minute buckets for 1 hour
-    } else if hours <= 24 {
-        3_600_000 // 1 hour buckets for 24 hours
-    } else if hours <= 72 {
-        3_600_000 // 1 hour buckets for 3 days
-    } else {
-        86_400_000 // 1 day buckets for 7 days
-    };
-    
+    let bucket_ms = query
+        .bucket_ms
+        .unwrap_or_else(|| {
+            if hours <= 1 {
+                60_000 // 1 minute buckets for 1 hour
+            } else if hours <= 24 {
+                3_600_000 // 1 hour buckets for 24 hours
+            } else if hours <= 72 {
+                3_600_000 // 1 hour buckets for 3 days
+            } else {
+                86_400_000 // 1 day buckets for 7 days
+            }
+        })
+        .clamp(60_000, 86_400_000);
+
     let stats = telemetry
         .frame_activity_stats(hours, bucket_ms)
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
-        "帧活动统计获取成功",
+        "Frame activity stats retrieved successfully",
         serde_json::to_value(stats).unwrap_or(Value::Null),
     ))
 }
 
-/// GET /gateway/stats/frame-activity-by-service — frame activity grouped by service.
+/// GET /gateway/stats/frame-activity-by-service — frame activity grouped by
+/// service instance, labeled scope-qualified (`store/demo1`, `<agent>/demo1`)
+/// against the live registry. Instances no longer registered fall back to the
+/// recorded peer label.
 pub(super) async fn frame_activity_by_service(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<FrameActivityQuery>,
 ) -> ApiResult {
     let telemetry = require_telemetry(&state)?;
     let hours = query.hours.unwrap_or(24).min(24 * 7);
-    
+
     let bucket_ms = if hours <= 1 {
         60_000
-    } else if hours <= 24 {
-        3_600_000
     } else if hours <= 72 {
         3_600_000
     } else {
         86_400_000
     };
-    
-    let stats = telemetry
+
+    let mut stats = telemetry
         .frame_activity_by_service(hours, bucket_ms)
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+
+    let instances = state
+        .store
+        .list_services_viewed(&mcpstore::identity::ScopeView::Root)
+        .await
+        .map_err(ApiError::from_store)?;
+    let mut labels = std::collections::HashMap::new();
+    for value in instances {
+        let Some(id) = value.get("instance_id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let name = value
+            .get("service_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let scope = value.get("scope");
+        let label = match scope.and_then(|s| s.get("type")).and_then(|t| t.as_str()) {
+            Some("agent") => format!(
+                "{}/{name}",
+                scope
+                    .and_then(|s| s.get("agent_id"))
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("agent")
+            ),
+            _ => format!("store/{name}"),
+        };
+        labels.insert(id.to_string(), label);
+    }
+    for point in &mut stats {
+        if let Some(id) = &point.instance_id {
+            if let Some(label) = labels.get(id) {
+                point.service = label.clone();
+            }
+        }
+    }
+
     Ok(success(
-        "按服务分组的帧活动统计获取成功",
+        "Frame activity stats by service retrieved successfully",
+        serde_json::to_value(stats).unwrap_or(Value::Null),
+    ))
+}
+
+/// GET /gateway/stats/frame-activity-by-method — frame activity grouped by
+/// wire method; every series is a real method name (ping, tools/call, …).
+pub(super) async fn frame_activity_by_method(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<FrameActivityQuery>,
+) -> ApiResult {
+    let telemetry = require_telemetry(&state)?;
+    let hours = query.hours.unwrap_or(24).min(24 * 7);
+
+    let bucket_ms = if hours <= 1 {
+        60_000
+    } else if hours <= 72 {
+        3_600_000
+    } else {
+        86_400_000
+    };
+
+    let stats = telemetry
+        .frame_activity_by_method(hours, bucket_ms)
+        .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
+    Ok(success(
+        "Frame activity stats by method retrieved successfully",
         serde_json::to_value(stats).unwrap_or(Value::Null),
     ))
 }
@@ -203,7 +273,7 @@ pub(super) async fn frame_sessions(
         )
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
-        "帧会话获取成功",
+        "Frame sessions retrieved successfully",
         serde_json::to_value(page).unwrap_or(Value::Null),
     ))
 }
@@ -224,7 +294,7 @@ pub(super) async fn frame_history(
         .frame_history(&query.session_id, query.limit.unwrap_or(200))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
-        "帧时间线获取成功",
+        "Frame timeline retrieved successfully",
         serde_json::to_value(frames).unwrap_or(Value::Null),
     ))
 }
@@ -245,7 +315,7 @@ pub(super) async fn frame_recent(
         .frame_recent(query.face.as_deref(), query.limit.unwrap_or(400))
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
     Ok(success(
-        "最近帧获取成功",
+        "Recent frames retrieved successfully",
         serde_json::to_value(frames).unwrap_or(Value::Null),
     ))
 }
@@ -268,7 +338,7 @@ pub(super) async fn frame_detail(
             )
         })?;
     Ok(success(
-        "帧详情获取成功",
+        "Frame details retrieved successfully",
         serde_json::to_value(record).unwrap_or(Value::Null),
     ))
 }

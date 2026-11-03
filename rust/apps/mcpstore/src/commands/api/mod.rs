@@ -14,7 +14,8 @@ use mcpstore::{
     config::{ConfigManager, ScopeDescriptor},
     AuthFlow, InstanceId, MCPStore, McpCompletionRequest, OpenApiBundleOptions,
     OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch, ResourceOverridePatch,
-    ResourceTemplateOverridePatch, ScopeRef, ScopeView, ServerConfig, ToolOverridePatch,
+    ResourceTemplateOverridePatch, ScopeRef, ScopeView, ServerConfig, ServiceOverridePatch,
+    ToolOverridePatch,
 };
 use serde_json::json;
 #[cfg(test)]
@@ -319,6 +320,10 @@ fn resource_routes(state: Arc<ApiState>) -> Router {
             "/gateway/stats/frame-activity-by-service",
             get(telemetry::frame_activity_by_service),
         )
+        .route(
+            "/gateway/stats/frame-activity-by-method",
+            get(telemetry::frame_activity_by_method),
+        )
         .route("/gateway/frames/sessions", get(telemetry::frame_sessions))
         .route("/gateway/frames/history", get(telemetry::frame_history))
         .route("/gateway/frames/recent", get(telemetry::frame_recent))
@@ -499,6 +504,12 @@ fn core_routes(state: Arc<ApiState>) -> Router {
             get(service::service_get_resource_template_override)
                 .put(service::service_set_resource_template_override)
                 .delete(service::service_delete_resource_template_override),
+        )
+        .route(
+            "/services/:service_name/service_override",
+            get(service::service_get_service_override)
+                .put(service::service_set_service_override)
+                .delete(service::service_delete_service_override),
         )
         .route(
             "/services/:service_name/completions",

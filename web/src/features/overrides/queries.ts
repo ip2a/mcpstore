@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 
 import { api, buildQuery, scopeParams } from "@/lib/api/client"
-import type { ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule, ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch, ResourceTemplateOverrideRule, ScopeRef, ToolOverridePatch, ToolOverrideRule } from "@/lib/api"
+import type { ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule, ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch, ResourceTemplateOverrideRule, ScopeRef, ServiceOverridePatch, ServiceOverrideRule, ToolOverridePatch, ToolOverrideRule } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 type ListResult<T> = { overrides: T[]; total: number }
@@ -14,8 +14,8 @@ const paths: Record<Kind, string> = {
 }
 
 function itemPath(kind: Kind, serviceName: string, key: string, scope?: ScopeRef) {
-  // tool/prompt 的组件名在路径上（/services/:name/tool_overrides/:tool_name），
-  // resource/resource_template 的 key 走 query（?uri= / ?uri_template=）。
+  // tool/prompt put the component name in the path (/services/:name/tool_overrides/:tool_name),
+  // resource/resource_template keys go in the query (?uri= / ?uri_template=).
   const scopeQ = scope ? buildQuery(scopeParams(scope)) : ""
   if (kind === "tool" || kind === "prompt") {
     return `/services/${encodeURIComponent(serviceName)}/${paths[kind]}/${encodeURIComponent(key)}${scopeQ}`
@@ -56,3 +56,19 @@ export const useSetResourceOverride = (serviceName: string, uri: string, scope?:
 export const useDeleteResourceOverride = (serviceName: string, uri: string, scope?: ScopeRef) => useDelete("resource", serviceName, uri, scope)
 export const useSetResourceTemplateOverride = (serviceName: string, uri: string, scope?: ScopeRef) => useSet<ResourceTemplateOverridePatch>("resource_template", serviceName, uri, scope)
 export const useDeleteResourceTemplateOverride = (serviceName: string, uri: string, scope?: ScopeRef) => useDelete("resource_template", serviceName, uri, scope)
+
+// Service-level override: the gateway projects the service externally as display_name / a custom description, or disables it entirely (it disappears from the catalog).
+export const useServiceOverrideQuery = (serviceName: string, scope?: ScopeRef) =>
+  useQuery({
+    queryKey: queryKeys.serviceOverride(serviceName, scope),
+    queryFn: () => api<{ override: ServiceOverrideRule | null }>(`/services/${encodeURIComponent(serviceName)}/service_override${scope ? buildQuery(scopeParams(scope)) : ""}`),
+    enabled: Boolean(serviceName),
+  })
+export const useSetServiceOverride = (serviceName: string, scope?: ScopeRef) =>
+  useMutation({
+    mutationFn: (body: ServiceOverridePatch) => api(`/services/${encodeURIComponent(serviceName)}/service_override${scope ? buildQuery(scopeParams(scope)) : ""}`, { method: "PUT", body: JSON.stringify(body) }),
+  })
+export const useDeleteServiceOverride = (serviceName: string, scope?: ScopeRef) =>
+  useMutation({
+    mutationFn: () => api(`/services/${encodeURIComponent(serviceName)}/service_override${scope ? buildQuery(scopeParams(scope)) : ""}`, { method: "DELETE" }),
+  })

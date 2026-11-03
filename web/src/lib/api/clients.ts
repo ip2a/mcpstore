@@ -61,12 +61,12 @@ export type WiredEntry = {
   name: string;
   url: string;
   applied_at_unix_ms: number;
-  // 后端注入的生效值（缺省配置已推导为 Agent{agent_id:client_id} + 全 false）。
+  // Effective values injected by the backend (default config derives to Agent{agent_id:client_id} + all false).
   scope: ScopeRef;
   expose: ExposeConfig;
 };
 
-/** wire 时可覆盖的作用域/暴露配置；省略即后端默认（专属 scope + 全 false）。 */
+/** Scope/expose config that can be overridden on wire; omit for backend defaults (dedicated scope + all false). */
 export type WireOptions = {
   scope?: "store" | "agent";
   agentId?: string;
@@ -74,8 +74,9 @@ export type WireOptions = {
 };
 
 /**
- * wire 返回：正常接入（条目已写入或原样收编），或发现一条内容不一致的既有
- * mcpstore 条目——带路径与当前值/期望值，前端确认后带 force 重发即可替换。
+ * Wire result: either wired normally (entry written or adopted as-is), or an
+ * existing mcpstore entry with different content was found — includes the path
+ * and current/expected values; the frontend confirms and re-sends with force to replace.
  */
 export type WireResult =
   | ({ outcome: "wired" } & WiredEntry)
@@ -93,7 +94,7 @@ export function getClientVersion(clientId: string): Promise<string | null> {
   );
 }
 
-/** path/url 省略时由后端发现配置文件并生成 caller URL。 */
+/** When path/url are omitted, the backend discovers the config file and generates the caller URL. */
 export function wireClient(
   client: string,
   options?: WireOptions,
@@ -125,7 +126,7 @@ export function getGatewayStatus(): Promise<GatewayStatus> {
   return api("/gateway/status");
 }
 
-/** wait_ms 走长轮询（后端上限 25s）。 */
+/** wait_ms enables long polling (backend cap 25s). */
 export function getGatewayRequests(
   after: number,
   waitMs?: number,

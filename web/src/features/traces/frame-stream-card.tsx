@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowDownIcon,
@@ -7,6 +7,13 @@ import {
   ChevronRightIcon,
   RefreshCwIcon,
 } from "lucide-react"
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import { PanelCard } from "@/components/shared/panel-card"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +41,12 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
@@ -249,14 +262,12 @@ export function FrameStreamCard(props: {
             {tableBody}
           </TabsContent>
           <TabsContent value="graph" className={tabContentClassName}>
-            <div
-              className={cn(
-                "flex flex-1 items-center justify-center text-sm text-muted-foreground",
-                fill ? "min-h-0 px-4 py-6" : "py-6",
-              )}
-            >
-              {t("gatewayFramesGraphPlaceholder")}
-            </div>
+            <FrameGraphView
+              face={props.face}
+              fill={fill}
+              isLoading={sessions.isLoading}
+              sessions={items}
+            />
           </TabsContent>
         </Tabs>
       </PanelCard>
@@ -268,6 +279,117 @@ export function FrameStreamCard(props: {
         session={active}
       />
     </>
+  )
+}
+
+/** Bucket window for the graph: visible sessions span at most 24h (see
+ * `getFrameSessions({ hours: 24 })` above), so 30-minute buckets keep the
+ * x axis readable without flattening short bursts. */
+const GRAPH_BUCKET_MS = 30 * 60_000
+
+type GraphPoint = { bucketMs: number; label: string; frames: number }
+
+function buildGraphPoints(sessions: FrameSessionSummary[]): GraphPoint[] {
+  if (sessions.length === 0) return []
+  const byBucket = new Map<number, number>()
+  for (const session of sessions) {
+    const bucket = Math.floor(session.last_ts_unix_ms / GRAPH_BUCKET_MS) * GRAPH_BUCKET_MS
+    byBucket.set(bucket, (byBucket.get(bucket) ?? 0) + session.frame_count)
+  }
+  const buckets = [...byBucket.keys()]
+  const first = Math.min(...buckets)
+  const last = Math.max(...buckets)
+  const points: GraphPoint[] = []
+  for (let bucket = first; bucket <= last; bucket += GRAPH_BUCKET_MS) {
+    const date = new Date(bucket)
+    points.push({
+      bucketMs: bucket,
+      label: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      frames: byBucket.get(bucket) ?? 0,
+    })
+  }
+  return points
+}
+
+/** Frame volume over time — line chart of frame counts bucketed from the
+ * currently loaded session page (same data as the table tab). */
+function FrameGraphView({
+  face,
+  fill,
+  isLoading,
+  sessions,
+}: {
+  face: FrameFace
+  fill: boolean
+  isLoading: boolean
+  sessions: FrameSessionSummary[]
+}) {
+  const { t } = useI18n()
+  const points = useMemo(() => buildGraphPoints(sessions), [sessions])
+  const totalFrames = points.reduce((sum, p) => sum + p.frames, 0)
+
+  const chartConfig = {
+    frames: {
+      label: t("gatewayFramesColCount"),
+      color: face === "gateway" ? "#5b5bd5" : "#38bdf8",
+    },
+  } satisfies ChartConfig
+
+  if (isLoading) return null
+
+  if (points.length === 0) {
+    return (
+      <div
+        className={cn(
+          "flex flex-1 items-center justify-center text-sm text-muted-foreground",
+          fill ? "min-h-0 px-4 py-6" : "py-6",
+        )}
+      >
+        {t(face === "gateway" ? "gatewayFramesEmptyGateway" : "gatewayFramesEmptyUpstream")}
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn("flex min-h-0 flex-1 flex-col gap-2", fill ? "px-4 py-3" : "py-2")}>
+      <ChartContainer config={chartConfig} className="aspect-auto h-[240px] w-full min-w-0">
+        <LineChart
+          data={points}
+          margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
+        >
+          <CartesianGrid vertical={false} strokeDasharray="3 3" />
+          <XAxis
+            dataKey="label"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            height={32}
+            minTickGap={30}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+          />
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            width={36}
+            allowDecimals={false}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+          />
+          <ChartTooltip cursor={{ stroke: "var(--border)" }} content={<ChartTooltipContent />} />
+          <Line
+            dataKey="frames"
+            type="monotone"
+            stroke={chartConfig.frames.color}
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4 }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ChartContainer>
+      <p className="shrink-0 text-xs text-muted-foreground">
+        {t("gatewayFramesShowing", { from: 1, to: sessions.length, total: totalFrames })}
+      </p>
+    </div>
   )
 }
 
@@ -394,7 +516,7 @@ function PayloadBlock({
   try {
     pretty = JSON.stringify(JSON.parse(payload), null, 2)
   } catch {
-    // 非 JSON（截断残留）原样展示
+    // Not JSON (truncated leftover) — show as-is
   }
   return (
     <div className="min-w-0">

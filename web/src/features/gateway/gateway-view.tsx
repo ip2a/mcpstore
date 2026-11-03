@@ -192,7 +192,7 @@ export function GatewayView() {
   )
 }
 
-/** 启动参数表单：transport/host/port/path/scope，可选把 port 存为下次默认值。 */
+/** Launch settings form: transport/host/port/path/scope, with optional port saved as the next default. */
 function LaunchSettingsDialog({
   busy,
   onOpenChange,
@@ -379,7 +379,7 @@ function LaunchSettingsDialog({
   )
 }
 
-/** 长轮询循环：等新记录或 25s 超时后继续；后端重启（seq 回退）时清空重追。 */
+/** Long-polling loop: waits for new records or the 25s timeout, then continues; resets and re-fetches on backend restart (seq goes backwards). */
 function useGatewayRequestFlow() {
   const [records, setRecords] = useState<GatewayRequestRecord[]>([])
   useEffect(() => {
@@ -398,7 +398,7 @@ function useGatewayRequestFlow() {
             after = page.latest_seq
             setRecords((prev) => [...prev, ...page.requests].slice(-200))
           } else if (!page.running) {
-            // 网关未运行时后端立即返回（不走 25s 长等），必须节流否则全速空转
+            // When the gateway is not running the backend returns immediately (no 25s long wait); throttle here or it spins at full speed
             await new Promise((resolve) => setTimeout(resolve, 3_000))
           }
         } catch {
@@ -434,7 +434,7 @@ function FlowRow({ record }: { record: GatewayRequestRecord }) {
   )
 }
 
-/** Agent → mcpstore → MCP 三列调用拓扑。 */
+/** Agent → mcpstore → MCP three-column call topology. */
 function CallFlowDiagram({
   labelById,
   latest,
@@ -454,7 +454,7 @@ function CallFlowDiagram({
 
   return (
     <PanelCard variant="plain" className="gap-3 overflow-x-auto">
-      <div className="flex min-w-[640px] items-stretch gap-0">
+      <div className="flex min-w-[720px] items-stretch gap-0">
         <div className="flex w-[148px] shrink-0 flex-col justify-center gap-2">
           {wired.length === 0 ? (
             <FlowNodeCard className="border-dashed">
@@ -486,7 +486,7 @@ function CallFlowDiagram({
 
         <FlowConnector accent={Boolean(latest)} endDot from={1} />
 
-        <div className="flex min-w-0 flex-1 flex-col justify-center">
+        <div className="flex min-w-[180px] flex-1 flex-col justify-center">
           <ServiceFlowCard fresh={fresh} record={latest} />
         </div>
       </div>

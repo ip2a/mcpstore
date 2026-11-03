@@ -53,7 +53,7 @@ pub(super) struct SessionExtendRequest {
     lease_seconds: i64,
 }
 
-/// 绑定/解绑服务：以 `service_name + scope` 寻址（不再要求调用方传 instance_id）。
+/// Bind/unbind services: addressed by `service_name + scope` (callers no longer pass instance_id).
 #[derive(Deserialize)]
 pub(super) struct SessionBindServiceRequest {
     session_key: Option<String>,
@@ -129,7 +129,7 @@ pub(super) async fn session_create(
         })
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session 创建成功", json!({ "session": session })))
+    Ok(success("Session created successfully", json!({ "session": session })))
 }
 
 /// `GET /sessions/get?session_key=`
@@ -143,7 +143,7 @@ pub(super) async fn session_get(
         .await
         .map_err(ApiError::from_store)?;
     let session = require_present_session(session, &query.session_key, "session")?;
-    Ok(success("Session 获取成功", json!({ "session": session })))
+    Ok(success("Session retrieved successfully", json!({ "session": session })))
 }
 
 pub(super) async fn session_find(
@@ -156,7 +156,7 @@ pub(super) async fn session_find(
         .find_session(scope, query.agent_id.as_deref(), &query.session_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session 查找成功", json!({ "session": session })))
+    Ok(success("Session found", json!({ "session": session })))
 }
 
 pub(super) async fn session_list(
@@ -170,7 +170,7 @@ pub(super) async fn session_list(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session 列表获取成功",
+        "Session list retrieved successfully",
         json!({ "sessions": sessions, "total": sessions.len() }),
     ))
 }
@@ -182,7 +182,7 @@ pub(super) async fn session_export_snapshot(State(state): State<Arc<ApiState>>) 
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session snapshot 导出成功",
+        "Session snapshot exported successfully",
         json!({ "snapshot": snapshot }),
     ))
 }
@@ -197,7 +197,7 @@ pub(super) async fn session_import_snapshot(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session snapshot 导入成功",
+        "Session snapshot imported successfully",
         json!({ "report": report }),
     ))
 }
@@ -214,7 +214,7 @@ pub(super) async fn session_status(
         .map_err(ApiError::from_store)?;
     let status = require_present_session(status, &query.session_key, "session_status")?;
     Ok(success(
-        "Session Status获取成功",
+        "Session status retrieved successfully",
         json!({ "status": status }),
     ))
 }
@@ -232,7 +232,7 @@ pub(super) async fn session_close(
         .close_session(&session_key, payload.reason)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session 已关闭", json!({ "status": status })))
+    Ok(success("Session closed", json!({ "status": status })))
 }
 
 /// `POST /sessions/extend` —— body: `{ session_key, lease_seconds }`
@@ -248,7 +248,7 @@ pub(super) async fn session_extend(
         .extend_session(&session_key, payload.lease_seconds)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Session 已续期", json!({ "session": session })))
+    Ok(success("Session extended", json!({ "session": session })))
 }
 
 /// `POST /sessions/bind_service` —— body: `{ session_key, service_name, scope?, agent_id? }`
@@ -267,7 +267,7 @@ pub(super) async fn session_bind_service(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session 服务绑定成功",
+        "Service bound to session successfully",
         json!({ "relation": relation }),
     ))
 }
@@ -288,7 +288,7 @@ pub(super) async fn session_unbind_service(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session 服务解绑成功",
+        "Service unbound from session successfully",
         json!({ "relation": relation }),
     ))
 }
@@ -304,7 +304,7 @@ pub(super) async fn session_list_services(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session Service list获取成功",
+        "Session service list retrieved successfully",
         json!({ "services": services, "total": services.len() }),
     ))
 }
@@ -320,7 +320,7 @@ pub(super) async fn session_list_tools(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session Tool list获取成功",
+        "Session tool list retrieved successfully",
         json!({ "tools": tools, "total": tools.len() }),
     ))
 }
@@ -356,7 +356,7 @@ pub(super) async fn session_call_tool(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session 工具调用完成",
+        "Session tool call completed",
         serde_json::to_value(result).unwrap_or(Value::Null),
     ))
 }
@@ -373,7 +373,7 @@ pub(super) async fn session_list_state(
         .map_err(ApiError::from_store)?;
     let values = session_state.values.clone();
     Ok(success(
-        "Session state 获取成功",
+        "Session state retrieved successfully",
         json!({
             "state": session_state,
             "values": values,
@@ -392,7 +392,7 @@ pub(super) async fn session_get_state_value(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session state value 获取成功",
+        "Session state value retrieved successfully",
         json!({ "key": query.key, "value": value }),
     ))
 }
@@ -411,7 +411,7 @@ pub(super) async fn session_set_state(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session state 设置成功",
+        "Session state set successfully",
         json!({ "state": session_state }),
     ))
 }
@@ -430,7 +430,7 @@ pub(super) async fn session_delete_state(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session state 删除成功",
+        "Session state deleted successfully",
         json!({ "state": session_state }),
     ))
 }
@@ -449,7 +449,7 @@ pub(super) async fn session_clear_state(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Session state 清理成功",
+        "Session state cleared",
         json!({ "state": session_state }),
     ))
 }

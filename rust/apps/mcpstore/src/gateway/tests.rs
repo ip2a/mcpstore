@@ -283,6 +283,60 @@ mod tests {
     }
 
     #[test]
+    fn service_overrides_filter_and_rename_catalog_payloads() {
+        use mcpstore::{ComponentOverrideCommon, ServiceOverrideRule};
+        let first = ServiceInstanceKey::new("github", ScopeRef::Store).instance_id();
+        let second = ServiceInstanceKey::new("docs", ScopeRef::Store).instance_id();
+        let disabled = ServiceInstanceKey::new("secret", ScopeRef::Store).instance_id();
+
+        let rule = |instance_id, name: &str, display: Option<&str>, enabled: Option<bool>| {
+            ServiceOverrideRule {
+                instance_id,
+                service_name: name.to_string(),
+                scope: ScopeRef::Store,
+                common: ComponentOverrideCommon {
+                    display_name: display.map(str::to_string),
+                    enabled,
+                    ..Default::default()
+                },
+                updated_at: 0,
+                version: 1,
+            }
+        };
+        let overrides = HashMap::from([
+            (first, rule(first, "github", Some("Git 工具"), None)),
+            (disabled, rule(disabled, "secret", None, Some(false))),
+        ]);
+
+        let payloads = vec![
+            serde_json::json!({"name": "create_issue", "instance_id": first, "service_name": "github"}),
+            serde_json::json!({"name": "read", "instance_id": second, "service_name": "docs"}),
+            serde_json::json!({"name": "leak", "instance_id": disabled, "service_name": "secret"}),
+        ];
+        let projected = apply_service_overrides(payloads, &overrides).unwrap();
+        assert_eq!(projected.len(), 2);
+        assert_eq!(
+            projected[0]["service_name"].as_str(),
+            Some("Git 工具"),
+            "overridden service exposes its display name"
+        );
+        assert_eq!(
+            projected[0]["real_service_name"].as_str(),
+            Some("github"),
+            "real name kept aside for observability joins"
+        );
+        assert_eq!(
+            projected[1]["service_name"].as_str(),
+            Some("docs"),
+            "unoverridden service passes through unchanged"
+        );
+        assert!(
+            !projected.iter().any(|payload| payload["name"] == "leak"),
+            "disabled service must vanish from the catalog"
+        );
+    }
+
+    #[test]
     fn exposed_tool_name_collision_suffix() {
         let mut taken = HashMap::new();
         assert_eq!(exposed_tool_name("srv", "echo", &mut taken), "srv__echo");

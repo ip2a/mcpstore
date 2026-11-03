@@ -23,6 +23,7 @@ impl MCPStore {
                     tool.name,
                     tool.description,
                     tool.input_schema,
+                    tool.icons.clone(),
                 )
                 .await?;
             payload.push(serde_json::json!({
@@ -33,6 +34,7 @@ impl MCPStore {
                 "input_schema": transformed.input_schema,
                 "output_schema": tool.output_schema,
                 "annotations": tool.annotations,
+                "icons": transformed.icons,
                 "_meta": tool.meta,
                 "instance_id": instance_id,
                 "service_name": instance.service_name,
@@ -99,6 +101,7 @@ impl MCPStore {
                     tool.name,
                     tool.description,
                     tool.input_schema,
+                    tool.icons.clone(),
                 )
                 .await?;
             entries.push(ScopedToolEntry {
@@ -109,6 +112,7 @@ impl MCPStore {
                 input_schema: transformed.input_schema,
                 output_schema: tool.output_schema,
                 annotations: tool.annotations,
+                icons: transformed.icons,
                 meta: tool.meta,
                 instance_id,
                 service_name: instance.service_name.clone(),

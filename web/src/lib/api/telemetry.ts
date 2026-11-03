@@ -51,12 +51,12 @@ export function getUsageStats(hours = 24): Promise<UsageStats> {
   return api(`/gateway/stats${buildQuery({ hours })}`);
 }
 
-/** 每日工具调用总量（UTC 天桶），热力图数据源。 */
+/** Daily tool call totals (UTC day buckets); heatmap data source. */
 export function getDailyUsageStats(days = 35): Promise<UsageTotals[]> {
   return api(`/gateway/stats/daily${buildQuery({ days })}`);
 }
 
-/** 帧捕获维度的每日原语调用情况（gateway 面），首页热力图数据源。 */
+/** Daily primitive call counts from frame capture (gateway face); home heatmap data source. */
 export type HeatmapDay = {
   bucket_unix_ms: number;
   tool_calls: number;
@@ -70,20 +70,48 @@ export function getHeatmapStats(days = 371): Promise<HeatmapDay[]> {
   return api(`/gateway/stats/heatmap${buildQuery({ days })}`);
 }
 
-/** Frame-based activity stats over a flexible time range. */
-export function getFrameActivityStats(hours = 24): Promise<HeatmapDay[]> {
-  return api(`/gateway/stats/frame-activity${buildQuery({ hours })}`);
+/** Frame-based activity stats over a flexible time range; bucketMs overrides the range-based default. */
+export function getFrameActivityStats(
+  hours = 24,
+  bucketMs?: number,
+): Promise<HeatmapDay[]> {
+  return api(
+    `/gateway/stats/frame-activity${buildQuery({ hours, bucket_ms: bucketMs })}`,
+  );
 }
 
 export type ServiceActivityPoint = {
   bucket_unix_ms: number;
+  /** Scope-qualified display label resolved by the API (`store/demo1`, `<agent>/demo1`). */
   service: string;
+  instance_id: string | null;
   frame_count: number;
 };
 
-/** Frame activity grouped by service over a time range. */
-export function getFrameActivityByService(hours = 24): Promise<ServiceActivityPoint[]> {
-  return api(`/gateway/stats/frame-activity-by-service${buildQuery({ hours })}`);
+/** Frame activity grouped by service instance over a time range. */
+export function getFrameActivityByService(
+  hours = 24,
+  bucketMs?: number,
+): Promise<ServiceActivityPoint[]> {
+  return api(
+    `/gateway/stats/frame-activity-by-service${buildQuery({ hours, bucket_ms: bucketMs })}`,
+  );
+}
+
+export type MethodActivityPoint = {
+  bucket_unix_ms: number;
+  method: string;
+  frame_count: number;
+};
+
+/** Frame activity grouped by wire method — every series is a real method name. */
+export function getFrameActivityByMethod(
+  hours = 24,
+  bucketMs?: number,
+): Promise<MethodActivityPoint[]> {
+  return api(
+    `/gateway/stats/frame-activity-by-method${buildQuery({ hours, bucket_ms: bucketMs })}`,
+  );
 }
 
 export function getRequestHistory(
@@ -103,7 +131,7 @@ export function getRequestDetail(id: number): Promise<RequestRecord> {
   return api(`/gateway/requests/detail/${id}`);
 }
 
-/** 一次连接（握手→断开/挂载级聚合）的帧会话摘要。 */
+/** Frame session summary for one connection (handshake → disconnect, mount-level aggregation). */
 export type FrameSessionSummary = {
   session_id: string;
   face: "gateway" | "upstream";
@@ -115,7 +143,7 @@ export type FrameSessionSummary = {
   frame_count: number;
 };
 
-/** 服务端分页的帧会话列表。 */
+/** Server-paginated frame session list. */
 export type FrameSessionsPage = {
   sessions: FrameSessionSummary[];
   total: number;
@@ -123,7 +151,7 @@ export type FrameSessionsPage = {
   offset: number;
 };
 
-/** 一条原始 JSON-RPC 帧。up=client→server 方向，down=server→client。 */
+/** A raw JSON-RPC frame. up = client→server direction, down = server→client. */
 export type FrameRecord = {
   id: number;
   session_id: string;

@@ -43,7 +43,7 @@ pub(super) async fn gateway_descriptor(
 ) -> ApiResult {
     let options = gateway_options(&state, &query)?;
     Ok(success(
-        "网关服务启动信息生成成功",
+        "Gateway launch descriptor generated successfully",
         serde_json::to_value(options.launch_descriptor())
             .map_err(|error| ApiError::invalid_request(error.to_string()))?,
     ))
@@ -57,7 +57,7 @@ pub(super) async fn gateway_status(
     let descriptor = options.launch_descriptor();
     let (running, pid, summary) = gateway_status_inner(&state)?;
     Ok(success(
-        "网关服务Status获取成功",
+        "Gateway status fetched successfully",
         json!({
             "running": running,
             "pid": pid,
@@ -81,11 +81,11 @@ pub(super) async fn gateway_start(
         let mut process = state
             .gateway
             .lock()
-            .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
         if let Some(existing) = process.as_mut() {
             if existing.child.try_wait().ok().flatten().is_none() {
                 return Ok(success(
-                    "网关服务已经在运行",
+                    "Gateway is already running",
                     gateway_payload(existing, true),
                 ));
             }
@@ -95,7 +95,7 @@ pub(super) async fn gateway_start(
     // The gateway runs as its own `mcpstore gateway` child process; this daemon
     // supervises it (pid, stop) and forwards the call stream to its /calls route.
     let exe = std::env::current_exe()
-        .map_err(|error| ApiError::internal(format!("无法定位 mcpstore 可执行文件: {error}")))?;
+        .map_err(|error| ApiError::internal(format!("Failed to locate the mcpstore executable: {error}")))?;
     let mut command = tokio::process::Command::new(exe);
     command
         .arg("gateway")
@@ -140,7 +140,7 @@ pub(super) async fn gateway_start(
     let mut child = command
         .kill_on_drop(true)
         .spawn()
-        .map_err(|error| ApiError::invalid_request(format!("网关子进程启动失败: {error}")))?;
+        .map_err(|error| ApiError::invalid_request(format!("Failed to start gateway child process: {error}")))?;
     let pid = child.id().unwrap_or_default();
     if let Err(error) = wait_for_gateway_ready(&options.host, options.port).await {
         let _ = child.kill().await;
@@ -156,7 +156,7 @@ pub(super) async fn gateway_start(
     state
         .gateway
         .lock()
-        .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?
+        .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?
         .replace(GatewayProcess {
             pid,
             calls_url,
@@ -166,7 +166,7 @@ pub(super) async fn gateway_start(
         });
 
     Ok(success(
-        "网关服务启动成功",
+        "Gateway started successfully",
         json!({
             "running": true,
             "pid": pid,
@@ -180,21 +180,21 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
         let mut gateway = state
             .gateway
             .lock()
-            .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
         gateway.take()
     };
     let Some(mut process) = process else {
-        return Ok(success("网关服务当前未运行", json!({ "running": false })));
+        return Ok(success("Gateway is not running", json!({ "running": false })));
     };
     let pid = process.pid;
     if let Err(error) = process.child.kill().await {
         return Err(ApiError::invalid_request(format!(
-            "停止网关服务失败: {error}"
+            "Failed to stop gateway: {error}"
         )));
     }
     let _ = process.child.wait().await;
     Ok(success(
-        "网关服务已停止",
+        "Gateway stopped",
         json!({ "running": false, "pid": pid }),
     ))
 }
@@ -293,7 +293,7 @@ async fn wait_for_gateway_ready(host: &str, port: u16) -> Result<(), ApiError> {
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(ApiError::invalid_request(format!(
-                "等待网关服务监听 {probe_host}:{port} 超时"
+                "Timed out waiting for gateway to listen on {probe_host}:{port}"
             )));
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -304,7 +304,7 @@ fn gateway_status_inner(state: &ApiState) -> Result<(bool, Option<u32>, Option<V
     let mut gateway = state
         .gateway
         .lock()
-        .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+        .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
     if let Some(process) = gateway.as_mut() {
         if process.child.try_wait().ok().flatten().is_some() {
             *gateway = None; // child exited on its own
@@ -339,7 +339,7 @@ pub(super) async fn gateway_requests(
         let mut gateway = state
             .gateway
             .lock()
-            .map_err(|_| ApiError::invalid_request("网关服务Status不可用"))?;
+            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
         if let Some(process) = gateway.as_mut() {
             if process.child.try_wait().ok().flatten().is_some() {
                 *gateway = None; // child exited on its own
@@ -352,14 +352,14 @@ pub(super) async fn gateway_requests(
     };
     let Some(calls_url) = calls_url else {
         return Ok(success(
-            "网关服务当前未运行",
+            "Gateway is not running",
             json!({ "running": false, "requests": [], "latest_seq": 0 }),
         ));
     };
     // Forward to the child's /calls route; it owns the call log and the same
     // `after` + `wait_ms` long-poll semantics.
     let mut url = reqwest::Url::parse(&calls_url)
-        .map_err(|error| ApiError::internal(format!("网关管理地址无效: {error}")))?;
+        .map_err(|error| ApiError::internal(format!("Invalid gateway management URL: {error}")))?;
     url.query_pairs_mut()
         .append_pair("after", &query.after.unwrap_or(0).to_string());
     if let Some(wait_ms) = query.wait_ms {
@@ -371,12 +371,12 @@ pub(super) async fn gateway_requests(
         .get(url)
         .send()
         .await
-        .map_err(|_| ApiError::invalid_request("网关服务已退出"))?;
+        .map_err(|_| ApiError::invalid_request("Gateway process has exited"))?;
     let payload: Value = response
         .json()
         .await
-        .map_err(|_| ApiError::invalid_request("网关服务响应无法解析"))?;
-    Ok(success("网关服务请求记录获取成功", payload["data"].clone()))
+        .map_err(|_| ApiError::invalid_request("Failed to parse gateway response"))?;
+    Ok(success("Gateway request records fetched successfully", payload["data"].clone()))
 }
 
 pub(super) fn wired_state_path<T: PanelCtx>(state: &T) -> std::path::PathBuf {
@@ -449,7 +449,7 @@ pub(super) async fn gateway_wired<T: PanelCtx>(State(state): State<Arc<T>>) -> A
         entries.push(value);
     }
     Ok(success(
-        "网关接入状态获取成功",
+        "Gateway wiring state fetched successfully",
         serde_json::to_value(entries)
             .map_err(|error| ApiError::invalid_request(error.to_string()))?,
     ))
@@ -483,7 +483,7 @@ pub(super) async fn gateway_wire<T: PanelCtx>(
                 }
                 _ => {
                     return Err(ApiError::invalid_request(format!(
-                        "{} 配置文件未找到",
+                        "{} config file not found",
                         setup.label()
                     )))
                 }
@@ -562,9 +562,9 @@ pub(super) async fn gateway_wire<T: PanelCtx>(
     let payload = serde_json::to_value(outcome)
         .map_err(|error| ApiError::invalid_request(error.to_string()))?;
     let message = if payload["outcome"] == "conflict" {
-        "检测到内容不一致的既有 mcpstore 条目"
+        "Existing mcpstore entry with different content detected"
     } else {
-        "客户端已接入网关"
+        "Client wired to gateway"
     };
     Ok(success(message, payload))
 }
@@ -577,7 +577,7 @@ pub(super) async fn gateway_unwire<T: PanelCtx>(
         mcpstore::client_wire::unwire_gateway(&query.client, &wired_state_path(state.as_ref()))
             .map_err(ApiError::from_store)?;
     Ok(success(
-        "客户端已断开网关",
+        "Client unwired from gateway",
         serde_json::to_value(entry)
             .map_err(|error| ApiError::invalid_request(error.to_string()))?,
     ))
@@ -642,7 +642,7 @@ async fn import_into_local<T: PanelCtx>(
             .is_some()
         {
             return Err(ApiError::invalid_request(format!(
-                "MCPStore 中已存在服务 {name}，拒绝覆盖"
+                "Service {name} already exists in MCPStore, refusing to overwrite"
             )));
         }
     }
@@ -758,7 +758,7 @@ async fn import_into_selected<T: PanelCtx>(
                 selected_base = Some(base.clone());
                 if response.status().is_success() {
                     return Err(ApiError::invalid_request(format!(
-                        "host {host_name} 已存在服务 {}，拒绝覆盖",
+                        "host {host_name} already has service {}, refusing to overwrite",
                         services[0].0
                     )));
                 }
@@ -769,7 +769,7 @@ async fn import_into_selected<T: PanelCtx>(
     }
     let Some(base) = selected_base else {
         return Err(ApiError::invalid_request(format!(
-            "host {host_name} 不可达（{last_error}），未执行任何写入"
+            "host {host_name} unreachable ({last_error}), nothing written"
         )));
     };
 
@@ -779,18 +779,18 @@ async fn import_into_selected<T: PanelCtx>(
         let url = super::hosts::join_url(&base, &format!("/services/{name}"))
             .map_err(|(_, message)| ApiError::invalid_request(message))?;
         let response = client.get(url).send().await.map_err(|error| {
-            ApiError::invalid_request(format!("host {host_name} 预检 {name} 失败：{error}"))
+            ApiError::invalid_request(format!("host {host_name} preflight for {name} failed: {error}"))
         })?;
         match response.status() {
             status if status.as_u16() == 404 => {}
             status if status.is_success() => {
                 return Err(ApiError::invalid_request(format!(
-                    "host {host_name} 已存在服务 {name}，拒绝覆盖"
+                    "host {host_name} already has service {name}, refusing to overwrite"
                 )))
             }
             status => {
                 return Err(ApiError::invalid_request(format!(
-                    "host {host_name} 预检 {name} 返回 {status}，未执行任何写入"
+                    "host {host_name} preflight for {name} returned {status}, nothing written"
                 )))
             }
         }
@@ -830,11 +830,11 @@ async fn import_into_selected<T: PanelCtx>(
             .collect::<Vec<_>>()
             .join(", ");
         return Err(ApiError::invalid_request(format!(
-            "跨资源导入 {host_name} 全部失败：{names}"
+            "Cross-resource import to {host_name} failed entirely: {names}"
         )));
     }
     Ok(success(
-        format!("跨资源导入完成：定义将在 {host_name} 上执行"),
+        format!("Cross-resource import completed: definitions will execute on {host_name}"),
         json!({"imported": imported, "failed": failed, "scope": "store", "target": host_name}),
     ))
 }
@@ -860,7 +860,7 @@ pub(super) async fn client_version(Path(client_id): Path<String>) -> ApiResult {
     .and_then(|result| result.ok())
     .flatten();
     Ok(success(
-        "客户端版本获取成功",
+        "Client version fetched successfully",
         json!({ "client_id": client_id, "version": version }),
     ))
 }
@@ -920,5 +920,5 @@ pub(super) async fn clients_list<T: PanelCtx>(State(state): State<Arc<T>>) -> Ap
             })
         })
         .collect::<Vec<_>>();
-    Ok(success("客户端清单获取成功", json!({ "clients": clients })))
+    Ok(success("Client inventory fetched successfully", json!({ "clients": clients })))
 }

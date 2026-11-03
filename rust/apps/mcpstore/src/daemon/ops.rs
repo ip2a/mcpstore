@@ -564,7 +564,7 @@ pub(crate) fn plan_config_change(
         "host" => {
             let host = required_str_value(value, "host")?;
             if host.trim().is_empty() {
-                return Err(Error::new(FailureCode::InvalidInput, "host 不能为空"));
+                return Err(Error::new(FailureCode::InvalidInput, "host cannot be empty"));
             }
             let mut planned = Vec::new();
             if server.core_enabled {

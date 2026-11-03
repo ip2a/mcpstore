@@ -1,6 +1,8 @@
 use futures_util::StreamExt;
 
-use super::catalog::{catalog_name_counts, exposed_tool_name};
+use super::catalog::{
+    apply_service_overrides, catalog_name_counts, exposed_tool_name, service_override_map,
+};
 use super::tools::{read_required_instance_id, read_required_object, read_required_string};
 use super::*;
 use mcpstore::telemetry::FrameTelemetry;
@@ -54,6 +56,8 @@ pub(super) async fn build_tool_bindings(
     } else {
         store.list_tools_scoped(scope).await?
     };
+    let overrides_by_instance = service_override_map(store).await?;
+    let tool_payloads = apply_service_overrides(tool_payloads, &overrides_by_instance)?;
 
     let names = catalog_name_counts(&tool_payloads, "name")?;
     let namespace_tools = target_instance_id.is_none() && session_key.is_none();
@@ -81,18 +85,37 @@ pub(super) async fn build_tool_bindings(
             .map(str::to_string);
         let schema = read_required_object(&payload, "input_schema")?;
 
-        let tool = Tool::new_with_raw(
+        let mut tool = Tool::new_with_raw(
             exposed_name.clone(),
             description.clone().map(Into::into),
             Arc::new(schema),
         );
+        tool.title = payload.get("title").and_then(Value::as_str).map(str::to_string);
+        tool.icons = payload
+            .get("icons")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok());
+        tool.annotations = payload
+            .get("annotations")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok());
+        tool.meta = payload
+            .get("_meta")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok());
+        // The call log joins with the services page, which shows real names.
+        let record_service_name = payload
+            .get("real_service_name")
+            .and_then(Value::as_str)
+            .unwrap_or(&service_name)
+            .to_string();
         bindings.insert(
             exposed_name.clone(),
             ToolBinding {
                 tool,
                 instance_id,
                 tool_name: canonical_tool_name,
-                service_name,
+                service_name: record_service_name,
             },
         );
     }

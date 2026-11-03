@@ -9,7 +9,7 @@ function apiUrl(path: string) {
   return `${getApiBase()}${path}`;
 }
 
-/** App 自有接口 base（固定指向本 app 进程，不随资源后端切换）。 */
+/** App-owned API base (always points at this app process; never switches with the resource backend). */
 export function appApiUrl(path: string) {
   return `${getAppApiBase()}${path}`;
 }
@@ -26,7 +26,7 @@ export function buildQuery(
   return query ? `?${query}` : "";
 }
 
-/** 作用域 query 参数对象。 */
+/** Scope query parameter object. */
 export function scopeParams(scope: ScopeRef): Record<string, string | undefined> {
   return scope.type === "agent"
     ? { scope: "agent", agent_id: scope.agent_id }

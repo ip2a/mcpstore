@@ -58,7 +58,7 @@ export async function cacheInspect(): Promise<CacheReport> {
 }
 
 export async function switchCache(backend: CacheBackend) {
-  // 后端 CacheSwitchRequest = { store, config }；前端无配置编辑 UI，config 传空对象走后端默认。
+  // Backend CacheSwitchRequest = { store, config }; the frontend has no config editing UI, so config is an empty object that takes backend defaults.
   return api("/cache/switch", {
     method: "POST",
     body: JSON.stringify({ store: backend, config: {} }),

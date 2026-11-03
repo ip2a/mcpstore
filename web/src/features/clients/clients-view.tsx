@@ -104,7 +104,7 @@ const DEFAULT_EXPOSE: ExposeConfig = {
   search: false,
 }
 
-/** 作用域 + 8 个暴露开关的表单体，供接线弹窗与网关页编辑弹窗共用。 */
+/** Form fields for scope + the 8 expose toggles, shared by the wire dialog and the gateway page edit dialog. */
 export function WireOptionsFields({
   dedicatedScope,
   dedicatedScopeLabel,
@@ -298,6 +298,10 @@ export function ClientsView() {
                 <RefreshCwIcon data-icon="inline-start" />
                 {t("refresh")}
               </Button>
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                <PlusIcon data-icon="inline-start" />
+                {t("clientsAddCardLabel")}
+              </Button>
               <div className="flex shrink-0 items-center gap-1">
                 <Button
                   aria-label={t("servicesViewCards")}
@@ -372,19 +376,13 @@ export function ClientsView() {
                     className="min-h-0 flex-1"
                     innerClassName="px-4 py-2 grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
                   >
-                    {visibleClients.length ? (
-                      visibleClients.map((client) => (
-                        <ClientListCard
-                          key={client.id}
-                          client={client}
-                          onSelect={() => setCardClientId(client.id)}
-                        />
-                      ))
-                    ) : (
-                      <div className="col-span-full">
-                        <PageEmpty title={t("noClients")} description={t("noClientsDescription")} onRefresh={refresh} />
-                      </div>
-                    )}
+                    {visibleClients.map((client) => (
+                      <ClientListCard
+                        key={client.id}
+                        client={client}
+                        onSelect={() => setCardClientId(client.id)}
+                      />
+                    ))}
                     <AddAgentCard onSelect={() => setAddOpen(true)} />
                   </ScrollPane>
                   {cardClient ? (
@@ -465,14 +463,14 @@ type WireDialogState =
   | { mode: "wire"; client: ClientInventory }
   | { mode: "edit"; client: ClientInventory; entry: WiredEntry }
 
-/** 接线冲突：目标文件里已有一条内容不一致的 mcpstore 条目，等用户确认替换。 */
+/** Wire conflict: the target file already contains an mcpstore entry with different content; waiting for the user to confirm replacement. */
 type WireConflictState = {
   client: ClientInventory
   options: WireOptions
   result: Extract<WireResult, { outcome: "conflict" }>
 }
 
-/** 接线 / 编辑已接入配置：作用域 + 暴露开关；编辑时预填 /gateway/wired 生效值。 */
+/** Wire / edit an existing wiring: scope + expose toggles; edit mode prefills effective values from /gateway/wired. */
 function WireDialog({
   state,
   busy,
@@ -545,7 +543,7 @@ function WireDialog({
   )
 }
 
-/** 冲突确认：并排展示现有条目与将写入的值，用户确认后带 force 重发替换。 */
+/** Conflict confirmation: shows the existing entry and the values to be written side by side; on confirm re-sends with force to replace. */
 function WireConflictDialog({
   state,
   busy,
@@ -957,19 +955,40 @@ function ClientDetailDialog({
   const detected = client.detected_by != null
   const versionQuery = useClientVersionQuery(client.id, open && detected && versionProp == null)
   const version = versionProp ?? versionQuery.data ?? client.version ?? null
+  const statusText = clientStatusText(client, t)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t("clientsDetailTitle", { client: client.label })}</DialogTitle>
+          <DialogTitle className="sr-only">
+            {t("clientsDetailTitle", { client: client.label })}
+          </DialogTitle>
+          <div className="flex items-center gap-3 pr-6">
+            <ClientLogo
+              clientId={client.id}
+              label={client.label}
+              className="size-12 rounded-xl border border-border/50 bg-muted/60"
+              imageClassName="size-8"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold">{client.label || client.id}</p>
+              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    client.wired ? "bg-emerald-500" : "bg-muted-foreground/40",
+                  )}
+                />
+                <span className="truncate">{statusText}</span>
+                {version ? (
+                  <span className="shrink-0 font-mono tabular-nums text-muted-foreground">· {version}</span>
+                ) : null}
+              </p>
+            </div>
+          </div>
         </DialogHeader>
         <dl className="flex flex-col gap-3 text-sm">
-          {version ? (
-            <DetailRow label={t("version")}>
-              <span className="font-mono text-xs tabular-nums">{version}</span>
-            </DetailRow>
-          ) : null}
           <DetailRow label={t("clientsConfigPath")}>
             <span className="font-mono text-xs break-all">
               {client.config_path}

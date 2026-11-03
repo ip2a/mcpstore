@@ -31,7 +31,7 @@ export function useDashboard() {
   const services = servicesQuery.data || []
   const agents = agentsQuery.data || []
   
-  // /health 返回 {status, store}，无 backend 字段；缓存状态走 /cache/health（cache 页自有查询）
+  // /health returns {status, store} with no backend field; cache status comes from /cache/health (the cache page's own query)
   const backend: CacheBackend | undefined = undefined
   const loading =
     healthQuery.isLoading ||

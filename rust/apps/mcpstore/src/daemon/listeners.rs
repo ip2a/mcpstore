@@ -8,8 +8,8 @@ use serde::Serialize;
 
 use crate::commands::api::{self, ApiState};
 
-/// daemon 托管的 HTTP 面。Kernel RPC（unix socket）不在此列，由 server.rs 持有。
-/// daemon 只有 core：web 面板是独立主进程（mcpstore web），gateway 是子进程。
+/// HTTP faces hosted by the daemon. Kernel RPC (unix socket) is not listed here; server.rs owns it.
+/// The daemon is core-only: the web panel is a separate main process (mcpstore web), gateway is a child process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListenerKey {
     Core,
@@ -43,10 +43,10 @@ struct ListenerSlot {
     bind: SocketAddr,
 }
 
-/// listener 生命周期唯一主人：启停、热重绑、快照。
-/// 热重绑语义：先 bind 新地址成功 → abort 旧任务；bind 失败时旧 listener 原样运行。
+/// Sole owner of listener lifecycles: start/stop, hot rebind, snapshots.
+/// Hot rebind semantics: bind the new address first, then abort the old task; if bind fails the old listener keeps running.
 pub struct ListenerManager {
-    // ponytail: 全局一把锁；daemon 管理操作串行到达，无争用场景
+    // ponytail: one global lock; daemon management ops arrive serially, no contention scenario
     slots: Mutex<[Option<ListenerSlot>; 1]>,
 }
 
@@ -57,9 +57,9 @@ impl ListenerManager {
         }
     }
 
-    /// daemon 启动：按 config.toml 拉起所有启用的面。
-    /// 单面 bind 失败不致命：kernel socket 才是命脉，面失败降级为「未运行」并大声告警
-    /// （与热切换「失败保留旧 listener」同一哲学）。
+    /// Daemon startup: bring up every enabled face per config.toml.
+    /// A single face failing to bind is not fatal: the kernel socket is the lifeline, so the face
+    /// degrades to "not running" with a loud warning (same philosophy as hot switch keeping the old listener on failure).
     pub async fn start_all(&self, config: &AppConfig, state: &Arc<ApiState>) {
         let server = &config.server;
         for (key, port) in [(
@@ -77,7 +77,7 @@ impl ListenerManager {
                     };
                     if let Err(error) = self.apply(key, bind, state).await {
                         eprintln!(
-                            "[DAEMON] {} face start failed on http://{bind}: {error}（该面未启动，其余不受影响）",
+                            "[DAEMON] {} face start failed on http://{bind}: {error} (this face did not start, the rest are unaffected)",
                             key.name()
                         );
                     }
@@ -87,7 +87,8 @@ impl ListenerManager {
         }
     }
 
-    /// 启用/重绑一个面。目标与现状相同则跳过（幂等）；bind 失败保留旧 listener，不会出现空窗。
+    /// Enable/rebind a face. Skips when the target matches the current state (idempotent); on bind
+    /// failure the old listener is kept, so there is no gap.
     pub async fn apply(
         &self,
         key: ListenerKey,
@@ -125,7 +126,7 @@ impl ListenerManager {
         Ok(())
     }
 
-    /// 停用一个面。显式关闭是意图本身，直接停，无空窗问题。
+    /// Stop a face. An explicit close is intent in itself, so stop directly; no gap concern.
     pub fn stop(&self, key: ListenerKey) {
         let mut slots = self.slots.lock().expect("listener slots poisoned");
         if let Some(old) = slots[key.index()].take() {

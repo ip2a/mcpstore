@@ -1,5 +1,5 @@
-//! 轻量交互模式（zi 风格）：内联 prompt 驱动，非全屏。
-//! 复用 StoreAccess/KernelOperation 数据层；不复用 ratatui app 状态机。
+//! Lightweight interactive mode (zi style): inline prompt driven, not full screen.
+//! Reuses the StoreAccess/KernelOperation data layer; does not reuse the ratatui app state machine.
 use std::collections::HashMap;
 
 use inquire::{Confirm, Select, Text};
@@ -25,14 +25,14 @@ fn main_loop(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<(
     loop {
         let action = Select::new(
             "mcpstore",
-            vec!["服务管理", "工具测试", "Agent 授权", "退出"],
+            vec!["Services", "Tool Test", "Agent Auth", "Quit"],
         )
         .prompt();
 
         match action {
-            Ok("服务管理") => service_menu(rt, access)?,
-            Ok("工具测试") => tool_menu(rt, access)?,
-            Ok("Agent 授权") => agent_menu(rt, access)?,
+            Ok("Services") => service_menu(rt, access)?,
+            Ok("Tool Test") => tool_menu(rt, access)?,
+            Ok("Agent Auth") => agent_menu(rt, access)?,
             _ => break,
         }
     }
@@ -105,7 +105,7 @@ fn service_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Resul
     loop {
         let mut services = list_services(rt, access)?;
         if services.is_empty() {
-            println!("[Info] 暂无服务，先添加一个");
+            println!("[Info] No services yet, add one first");
             if !add_service_flow(rt, access)? {
                 return Ok(());
             }
@@ -113,10 +113,10 @@ fn service_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Resul
         }
 
         let mut items: Vec<String> = services.iter().map(ToString::to_string).collect();
-        items.push("+ 添加服务".to_string());
-        items.push("< 返回".to_string());
+        items.push("+ Add service".to_string());
+        items.push("< Back".to_string());
 
-        let choice = Select::new("选择服务:", items.clone())
+        let choice = Select::new("Select service:", items.clone())
             .with_scorer(&fuzzy_scorer)
             .prompt();
 
@@ -146,34 +146,34 @@ fn service_action_menu(
 ) -> Result<(), BoxErr> {
     let action = Select::new(
         &format!("{} :", row.name),
-        vec!["连接", "断开", "重启", "删除", "< 返回"],
+        vec!["Connect", "Disconnect", "Restart", "Delete", "< Back"],
     )
     .prompt();
 
     match action {
-        Ok("连接") => {
+        Ok("Connect") => {
             let result = rt.block_on(access.request(
                 crate::daemon::protocol::KernelOperation::ConnectService,
                 serde_json::json!({"instance_id": row.instance_id.to_string()}),
             ));
-            report(result, &format!("连接 {}", row.name));
+            report(result, &format!("Connect {}", row.name));
         }
-        Ok("断开") => {
+        Ok("Disconnect") => {
             let result = rt.block_on(access.request(
                 crate::daemon::protocol::KernelOperation::DisconnectService,
                 serde_json::json!({"instance_id": row.instance_id.to_string()}),
             ));
-            report(result, &format!("断开 {}", row.name));
+            report(result, &format!("Disconnect {}", row.name));
         }
-        Ok("重启") => {
+        Ok("Restart") => {
             let result = rt.block_on(access.request(
                 crate::daemon::protocol::KernelOperation::RestartService,
                 serde_json::json!({"instance_id": row.instance_id.to_string()}),
             ));
-            report(result, &format!("重启 {}", row.name));
+            report(result, &format!("Restart {}", row.name));
         }
-        Ok("删除") => {
-            let confirmed = Confirm::new(&format!("确认删除服务 {} ?", row.name))
+        Ok("Delete") => {
+            let confirmed = Confirm::new(&format!("Delete service {}?", row.name))
                 .with_default(false)
                 .prompt()
                 .unwrap_or(false);
@@ -182,7 +182,7 @@ fn service_action_menu(
                     crate::daemon::protocol::KernelOperation::RemoveServiceScope,
                     serde_json::json!({"service_name": row.name, "scope": row.scope}),
                 ));
-                report(result, &format!("删除 {}", row.name));
+                report(result, &format!("Delete {}", row.name));
             }
         }
         _ => {}
@@ -190,20 +190,20 @@ fn service_action_menu(
     Ok(())
 }
 
-/// 返回 false 表示用户取消（外层不再重复弹出）。
+/// Returns false when the user cancels (the caller will not re-prompt).
 fn add_service_flow(
     rt: &tokio::runtime::Runtime,
     access: &mut StoreAccess,
 ) -> Result<bool, BoxErr> {
-    let mode = Select::new("服务类型:", vec!["http", "stdio", "< 取消"]).prompt();
+    let mode = Select::new("Service type:", vec!["http", "stdio", "< Cancel"]).prompt();
     let mode = match mode {
-        Ok(m) if m != "< 取消" => m,
+        Ok(m) if m != "< Cancel" => m,
         _ => return Ok(false),
     };
 
-    let name = Text::new("服务名称:").prompt()?;
+    let name = Text::new("Service name:").prompt()?;
     if name.trim().is_empty() {
-        println!("[Error] 服务名称不能为空");
+        println!("[Error] Service name cannot be empty");
         return Ok(true);
     }
 
@@ -216,7 +216,7 @@ fn add_service_flow(
         );
         config.transport = Some("streamable-http".to_string());
     } else {
-        let command_line = Text::new("命令 (含参数):")
+        let command_line = Text::new("Command (with args):")
             .with_default("npx -y @modelcontextprotocol/server-filesystem .")
             .prompt()?;
         let mut parts = command_line.split_whitespace();
@@ -225,7 +225,7 @@ fn add_service_flow(
         config.transport = Some("stdio".to_string());
     }
 
-    let scope = Select::new("作用域:", vec!["store", "agent"]).prompt()?;
+    let scope = Select::new("Scope:", vec!["store", "agent"]).prompt()?;
     let target_scope = if scope == "agent" {
         let agent_id = Text::new("Agent ID:").prompt()?;
         ScopeRef::Agent { agent_id }
@@ -240,11 +240,11 @@ fn add_service_flow(
 
     match result {
         Ok(value) => {
-            println!("[Success] 已添加服务 {name}");
+            println!("[Success] Added service {name}");
             if let Ok(instance_id) =
                 serde_json::from_value::<InstanceId>(value["instance_id"].clone())
             {
-                if Confirm::new("立即连接?")
+                if Confirm::new("Connect now?")
                     .with_default(true)
                     .prompt()
                     .unwrap_or(false)
@@ -253,11 +253,11 @@ fn add_service_flow(
                         crate::daemon::protocol::KernelOperation::ConnectService,
                         serde_json::json!({"instance_id": instance_id.to_string()}),
                     ));
-                    report(connect_result, &format!("连接 {name}"));
+                    report(connect_result, &format!("Connect {name}"));
                 }
             }
         }
-        Err(error) => println!("[Error] 添加服务失败: {error}"),
+        Err(error) => println!("[Error] Failed to add service: {error}"),
     }
     Ok(true)
 }
@@ -290,7 +290,7 @@ fn tool_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<(
         .collect();
 
     if tools.is_empty() {
-        println!("[Info] 暂无可用工具（服务需先连接）");
+        println!("[Info] No tools available (services must be connected first)");
         return Ok(());
     }
 
@@ -305,14 +305,14 @@ fn tool_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<(
         })
         .collect();
 
-    let choice = Select::new("选择工具:", items.clone())
+    let choice = Select::new("Select tool:", items.clone())
         .with_scorer(&fuzzy_scorer)
         .prompt();
     let Ok(choice) = choice else { return Ok(()) };
     let idx = items.iter().position(|item| item == &choice).unwrap_or(0);
     let (instance_id, tool) = &tools[idx];
 
-    let args_input = Text::new("参数 (JSON, 留空为 {}):")
+    let args_input = Text::new("Args (JSON, empty for {}):")
         .prompt()
         .unwrap_or_default();
     let args: serde_json::Value = if args_input.trim().is_empty() {
@@ -321,7 +321,7 @@ fn tool_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<(
         match serde_json::from_str(&args_input) {
             Ok(value) => value,
             Err(error) => {
-                println!("[Error] 参数不是合法 JSON: {error}");
+                println!("[Error] Args are not valid JSON: {error}");
                 return Ok(());
             }
         }
@@ -338,10 +338,10 @@ fn tool_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<(
 
     match result {
         Ok(value) => println!(
-            "[Success] 调用完成:\n{}",
+            "[Success] Call completed:\n{}",
             serde_json::to_string_pretty(&value).unwrap_or_default()
         ),
-        Err(error) => println!("[Error] 调用失败: {error}"),
+        Err(error) => println!("[Error] Call failed: {error}"),
     }
     Ok(())
 }
@@ -359,18 +359,18 @@ fn agent_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<
     agents.dedup();
 
     let mut items = agents.clone();
-    items.push("+ 授权新服务给 Agent".to_string());
-    items.push("< 返回".to_string());
+    items.push("+ Grant service to agent".to_string());
+    items.push("< Back".to_string());
 
     let choice = Select::new("Agent:", items.clone()).prompt();
     let Ok(choice) = choice else { return Ok(()) };
 
-    if choice == "< 返回" {
+    if choice == "< Back" {
         return Ok(());
     }
-    if choice == "+ 授权新服务给 Agent" {
+    if choice == "+ Grant service to agent" {
         let agent_id = Text::new("Agent ID:").prompt()?;
-        let service_name = Text::new("服务名称:").prompt()?;
+        let service_name = Text::new("Service name:").prompt()?;
         let result = rt.block_on(access.request(
             crate::daemon::protocol::KernelOperation::DeclareServiceScope,
             serde_json::json!({
@@ -379,7 +379,7 @@ fn agent_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<
                 "descriptor": mcpstore::config::ScopeDescriptor::default(),
             }),
         ));
-        report(result, &format!("授权 {service_name} 给 {agent_id}"));
+        report(result, &format!("Grant {service_name} to {agent_id}"));
         return Ok(());
     }
 
@@ -391,16 +391,16 @@ fn agent_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<
         .collect();
 
     let mut svc_items = agent_services.clone();
-    svc_items.push("< 返回".to_string());
-    let service_choice = Select::new(&format!("{agent_id} 的服务:"), svc_items).prompt();
+    svc_items.push("< Back".to_string());
+    let service_choice = Select::new(&format!("Services of {agent_id}:"), svc_items).prompt();
     let Ok(service_name) = service_choice else {
         return Ok(());
     };
-    if service_name == "< 返回" {
+    if service_name == "< Back" {
         return Ok(());
     }
 
-    if Confirm::new(&format!("撤销 {agent_id} 对 {service_name} 的授权?"))
+    if Confirm::new(&format!("Revoke {agent_id}'s access to {service_name}?"))
         .with_default(false)
         .prompt()
         .unwrap_or(false)
@@ -412,7 +412,7 @@ fn agent_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<
                 "scope": ScopeRef::Agent { agent_id: agent_id.clone() },
             }),
         ));
-        report(result, &format!("撤销 {service_name}"));
+        report(result, &format!("Revoke {service_name}"));
     }
     Ok(())
 }
@@ -420,6 +420,6 @@ fn agent_menu(rt: &tokio::runtime::Runtime, access: &mut StoreAccess) -> Result<
 fn report(result: mcpstore::Result<serde_json::Value>, action: &str) {
     match result {
         Ok(_) => println!("[Success] {action}"),
-        Err(error) => println!("[Error] {action} 失败: {error}"),
+        Err(error) => println!("[Error] {action} failed: {error}"),
     }
 }

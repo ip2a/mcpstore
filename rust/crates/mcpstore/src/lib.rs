@@ -106,8 +106,8 @@ pub use error::Result;
 pub use overrides::{
     ComponentKind, ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule,
     ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,
-    ResourceTemplateOverrideRule, ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule,
-    ToolOverrideSafetyPolicy,
+    ResourceTemplateOverrideRule, ServiceOverridePatch, ServiceOverrideRule, ToolArgumentOverride,
+    ToolOverridePatch, ToolOverrideRule, ToolOverrideSafetyPolicy,
 };
 pub use store::swap::SwapResult;
 pub use store::{

@@ -21,7 +21,7 @@ pub(super) async fn inspect(State(state): State<Arc<ApiState>>) -> ApiResult {
         .cache_inspect()
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("缓存视图获取成功", report))
+    Ok(success("Cache view fetched successfully", report))
 }
 
 pub(super) async fn health(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -30,7 +30,7 @@ pub(super) async fn health(State(state): State<Arc<ApiState>>) -> ApiResult {
         .cache_health_check()
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("缓存健康检查成功", report))
+    Ok(success("Cache health check succeeded", report))
 }
 
 pub(super) async fn switch(
@@ -46,5 +46,5 @@ pub(super) async fn switch(
     let snapshot = serde_json::to_value(snapshot).map_err(|error| {
         ApiError::invalid_request(format!("Failed to serialize cache-switch result: {error}"))
     })?;
-    Ok(success("缓存后端切换成功", snapshot))
+    Ok(success("Cache backend switched successfully", snapshot))
 }

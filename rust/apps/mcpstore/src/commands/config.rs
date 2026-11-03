@@ -45,7 +45,7 @@ pub enum ConfigAction {
     },
 }
 
-/// daemon 运行面修改 flags（设计 §7 key 表）。修改一律经 daemon 热应用并回写 config.toml。
+/// Daemon runtime face edit flags (design §7 key table). All edits go through daemon hot-apply and are written back to config.toml.
 #[derive(Args, Debug, Default)]
 pub struct ConfigEdits {
     #[arg(long)]
@@ -94,7 +94,7 @@ pub async fn run(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     if let Some(action) = action {
         if !edits.pairs().is_empty() {
-            return Err("config 子命令与修改 flag 不能同时使用".into());
+            return Err("cannot use the config subcommand together with edit flags".into());
         }
         return run_action(action).await;
     }
@@ -124,10 +124,10 @@ async fn run_action(action: ConfigAction) -> std::result::Result<(), Box<dyn std
     }
 }
 
-/// 修改面唯一入口：daemon 未运行时拒绝（不悄悄改文件）。
+/// Sole entry point for edits: refuse when the daemon is not running (never silently edit files).
 async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error>> {
     if !crate::daemon::protocol::is_daemon_running() {
-        return Err("daemon 未运行；修改需经 daemon 热应用。先运行 mcpstore start".into());
+        return Err("daemon is not running; edits must be hot-applied by the daemon. Run mcpstore start first".into());
     }
     let mut client = crate::daemon::client::connect_admin(None).await?;
     for (key, value) in edits.pairs() {
@@ -137,7 +137,7 @@ async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// 裸 `mcpstore config`：daemon 运行面总览。
+/// Bare `mcpstore config`: daemon runtime face overview.
 async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(mut client) = crate::daemon::client::connect_admin(None).await {
         let status = client.status_host().await?;

@@ -84,7 +84,7 @@ pub(super) async fn daemon_meta(State(state): State<Arc<ApiState>>) -> ApiResult
 
 pub(super) async fn meta<T: PanelCtx>(State(state): State<Arc<T>>) -> ApiResult {
     let payload = app_meta_payload(state.as_ref())?;
-    Ok(success("应用元信息获取成功", payload))
+    Ok(success("App metadata fetched successfully", payload))
 }
 
 pub(super) async fn update_settings<T: PanelCtx>(
@@ -109,7 +109,7 @@ pub(super) async fn update_settings<T: PanelCtx>(
         if let Some(port) = api.port {
             if port == 0 {
                 return Err(ApiError::invalid_parameter(
-                    "后端端口必须大于 0",
+                    "API port must be greater than 0",
                     Some("api.port"),
                 ));
             }
@@ -121,7 +121,7 @@ pub(super) async fn update_settings<T: PanelCtx>(
         if let Some(port) = web.port {
             if port == 0 {
                 return Err(ApiError::invalid_parameter(
-                    "前端端口必须大于 0",
+                    "Web port must be greater than 0",
                     Some("web.port"),
                 ));
             }
@@ -133,7 +133,7 @@ pub(super) async fn update_settings<T: PanelCtx>(
         if let Some(port) = gateway.port {
             if port == 0 {
                 return Err(ApiError::invalid_parameter(
-                    "网关端口必须大于 0",
+                    "Gateway port must be greater than 0",
                     Some("gateway.port"),
                 ));
             }
@@ -152,7 +152,7 @@ pub(super) async fn update_settings<T: PanelCtx>(
             if let Some(max_size_bytes) = runtime_log.max_size_bytes {
                 if max_size_bytes == 0 {
                     return Err(ApiError::invalid_parameter(
-                        "运行Logs大小上限必须大于 0",
+                        "Runtime log size limit must be greater than 0",
                         Some("diagnostics.runtime_log.max_size_bytes"),
                     ));
                 }
@@ -183,7 +183,7 @@ pub(super) async fn update_settings<T: PanelCtx>(
         .map_err(ApiError::invalid_request)?;
 
     Ok(success(
-        "设置保存成功",
+        "Settings saved successfully",
         settings_payload(&config, &panel_settings),
     ))
 }

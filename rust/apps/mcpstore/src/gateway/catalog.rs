@@ -137,6 +137,62 @@ pub(super) fn projected_catalog_uri(
     Ok(uri.into())
 }
 
+/// Effective service overrides indexed by instance, shared by every catalog
+/// projection/call path so names round-trip. Corrupt stored rules are warned
+/// and skipped — one bad row must not take down the whole catalog.
+pub(super) async fn service_override_map(
+    store: &MCPStore,
+) -> Result<HashMap<InstanceId, mcpstore::ServiceOverrideRule>, mcpstore::Error> {
+    Ok(store
+        .list_service_overrides_lenient()
+        .await?
+        .into_iter()
+        .map(|rule| (rule.instance_id, rule))
+        .collect())
+}
+
+/// Project the raw catalog payloads through per-instance service overrides:
+/// disabled services drop out entirely, overridden services expose their
+/// display name in place of the real one (tool prefixes, namespaces, and
+/// reverse resolution all see the projected name). Call identically on the
+/// projection and resolution paths so names round-trip.
+///
+/// The real service name is preserved under `real_service_name` for
+/// observability surfaces (call log) that must stay joinable with the
+/// services page.
+pub(super) fn apply_service_overrides(
+    payloads: Vec<Value>,
+    overrides: &HashMap<InstanceId, mcpstore::ServiceOverrideRule>,
+) -> Result<Vec<Value>, ErrorData> {
+    payloads
+        .into_iter()
+        .map(|mut payload| {
+            let instance_id = read_required_instance_id(&payload, "instance_id")
+                .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+            match overrides.get(&instance_id) {
+                Some(rule) if !rule.common.enabled.unwrap_or(true) => Ok(None),
+                Some(rule) if rule.common.display_name.is_some() => {
+                    if let Some(object) = payload.as_object_mut() {
+                        object.insert(
+                            "service_name".to_string(),
+                            Value::String(
+                                rule.common.display_name.clone().expect("checked above"),
+                            ),
+                        );
+                        object.insert(
+                            "real_service_name".to_string(),
+                            Value::String(rule.service_name.clone()),
+                        );
+                    }
+                    Ok(Some(payload))
+                }
+                _ => Ok(Some(payload)),
+            }
+        })
+        .collect::<Result<Vec<Option<Value>>, ErrorData>>()
+        .map(|payloads| payloads.into_iter().flatten().collect())
+}
+
 pub(super) fn service_namespace(service_name: &str) -> String {
     service_name
         .chars()

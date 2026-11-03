@@ -75,8 +75,8 @@ export function useUnwireClientMutation() {
 }
 
 /**
- * 客户端接线/断线操作（toast + 清单失效）。wire 带 options 时覆盖作用域/暴露配置。
- * 返回 wire 结果；outcome=conflict 时调用方弹确认替换对话框，此处不弹 toast。
+ * Client wire/unwire operations (toast + inventory invalidation). Wire with options overrides scope/expose config.
+ * Returns the wire result; on outcome=conflict the caller shows the confirm-replace dialog — no toast here.
  */
 export function useClientToggle() {
   const { t } = useI18n()

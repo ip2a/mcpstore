@@ -38,7 +38,7 @@ pub(super) async fn plugins_list<T: PanelCtx>(State(_state): State<Arc<T>>) -> A
         })
         .collect();
     Ok(success(
-        "插件清单获取成功",
+        "Plugin inventory fetched successfully",
         json!({
             "plugins": plugins,
             "last_detect": trace.last_detect,
@@ -55,7 +55,7 @@ pub(super) async fn plugins_market<T: PanelCtx>(State(state): State<Arc<T>>) -> 
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "插件市场获取成功",
+        "Plugin market fetched successfully",
         json!({
             "plugins": listings,
             "market_fetched_at": mcpstore::agents::registry::load_trace().market_fetched_at
@@ -70,7 +70,7 @@ pub(super) async fn plugins_detect<T: PanelCtx>(State(state): State<Arc<T>>) -> 
     let hits = mcpstore::agents::market::detect_from_market(&urls)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("客户端探测完成", json!({ "detected": hits })))
+    Ok(success("Client detection completed", json!({ "detected": hits })))
 }
 
 pub(super) async fn plugin_install<T: PanelCtx>(
@@ -82,7 +82,7 @@ pub(super) async fn plugin_install<T: PanelCtx>(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        &format!("插件 {id} 已安装（默认未启用）"),
+        &format!("Plugin {id} installed (disabled by default)"),
         json!({ "id": id, "enabled": false }),
     ))
 }
@@ -94,7 +94,7 @@ pub(super) async fn plugin_uninstall<T: PanelCtx>(
     mcpstore::agents::market::uninstall(&id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success(&format!("插件 {id} 已卸载"), json!({ "id": id })))
+    Ok(success(&format!("Plugin {id} uninstalled"), json!({ "id": id })))
 }
 
 pub(super) async fn plugin_enable<T: PanelCtx>(
@@ -103,7 +103,7 @@ pub(super) async fn plugin_enable<T: PanelCtx>(
 ) -> ApiResult {
     mcpstore::agents::registry::enable(&id).map_err(ApiError::from_store)?;
     Ok(success(
-        &format!("插件 {id} 已启用"),
+        &format!("Plugin {id} enabled"),
         json!({ "id": id, "enabled": true }),
     ))
 }
@@ -114,7 +114,7 @@ pub(super) async fn plugin_disable<T: PanelCtx>(
 ) -> ApiResult {
     mcpstore::agents::registry::disable(&id).map_err(ApiError::from_store)?;
     Ok(success(
-        &format!("插件 {id} 已禁用"),
+        &format!("Plugin {id} disabled"),
         json!({ "id": id, "enabled": false }),
     ))
 }

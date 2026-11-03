@@ -4,6 +4,8 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Line,
+  LineChart,
   XAxis,
   YAxis,
 } from "recharts"
@@ -19,15 +21,41 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
-import { getFrameActivityStats, getFrameActivityByService } from "@/lib/api"
+import {
+  getFrameActivityStats,
+  getFrameActivityByMethod,
+  getFrameActivityByService,
+} from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 type TimeRange = "7d" | "3d" | "24h" | "1h"
-type SplitDim = "service" | "primitive" | "traces"
+type SplitDim = "service" | "primitive" | "method"
+type ChartKind = "bar" | "line"
 
-const SERIES_COLORS = ["#5b5bd5", "#38bdf8", "#34d399", "#f59e0b"]
+/** Categorical palette backed by shadcn theme tokens. Identity colors are
+ * assigned once per series key and never reshuffled when the visible set
+ * changes (color follows the entity). */
+const SERIES_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-6)",
+]
+const colorByKey = new Map<string, string>()
+function colorFor(key: string): string {
+  let color = colorByKey.get(key)
+  if (!color) {
+    color = SERIES_COLORS[colorByKey.size % SERIES_COLORS.length]
+    colorByKey.set(key, color)
+  }
+  return color
+}
+// Fixed identities first so the primitives keep their colors regardless of
+// which split renders first.
+for (const key of ["Tools", "Resources", "Prompts"]) colorFor(key)
 
 const TIME_RANGE_HOURS: Record<TimeRange, number> = {
   "7d": 24 * 7,
@@ -36,200 +64,217 @@ const TIME_RANGE_HOURS: Record<TimeRange, number> = {
   "1h": 1,
 }
 
+/** Bucket size requested from the backend — mirrors its range-based default. */
+const TIME_RANGE_BUCKET_MS: Record<TimeRange, number> = {
+  "7d": 86_400_000,
+  "3d": 3_600_000,
+  "24h": 3_600_000,
+  "1h": 60_000,
+}
+
+type Row = { label: string } & Record<string, number | string>
+
 function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
   return String(n)
 }
 
-function bucketLabel(bucketUnixMs: number, range: TimeRange): string {
-  const date = new Date(bucketUnixMs)
+function bucketLabel(bucketMs: number, range: TimeRange): string {
+  const date = new Date(bucketMs)
+  const hh = (h: number) => h.toString().padStart(2, "0")
   if (range === "1h") {
-    // 1 hour: show HH:MM
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
-  if (range === "24h") {
-    // 24 hours: show HH:00
-    return `${date.getHours().toString().padStart(2, "0")}:00`
+  const day = `${date.getMonth() + 1}/${date.getDate()}`
+  if (range === "7d") return day
+  return `${day} ${hh(date.getHours())}:00`
+}
+
+/** Densify the backend's sparse (non-empty-only) buckets into a full timeline
+ * so switching ranges never collapses or distorts the x axis. */
+function densify(
+  points: Array<{ bucket_unix_ms: number; key: string; count: number }>,
+  keys: string[],
+  range: TimeRange,
+): Row[] {
+  const bucketMs = TIME_RANGE_BUCKET_MS[range]
+  const byBucket = new Map<number, Record<string, number>>()
+  for (const point of points) {
+    if (!keys.includes(point.key)) continue
+    const row = byBucket.get(point.bucket_unix_ms) ?? Object.fromEntries(keys.map((k) => [k, 0]))
+    row[point.key] = (row[point.key] as number) + point.count
+    byBucket.set(point.bucket_unix_ms, row)
   }
-  if (range === "3d") {
-    // 3 days: show MM/DD HH:00, but only show date change points prominently
-    const hours = date.getHours()
-    if (hours === 0 || hours === 12) {
-      return `${date.getMonth() + 1}/${date.getDate()} ${hours.toString().padStart(2, "0")}:00`
-    }
-    return `${hours.toString().padStart(2, "0")}:00`
+  const first =
+    Math.floor((Date.now() - TIME_RANGE_HOURS[range] * 3_600_000) / bucketMs) * bucketMs
+  const last = Math.floor(Date.now() / bucketMs) * bucketMs
+  const rows: Row[] = []
+  for (let bucket = first; bucket <= last; bucket += bucketMs) {
+    rows.push({
+      label: bucketLabel(bucket, range),
+      ...(byBucket.get(bucket) ?? Object.fromEntries(keys.map((k) => [k, 0]))),
+    })
   }
-  // 7 days: show MM/DD
-  return `${date.getMonth() + 1}/${date.getDate()}`
+  return rows
 }
 
 export function OverviewUsageChartCard({ className }: { className?: string }) {
-  const { t } = useI18n()
   const [range, setRange] = useState<TimeRange>("24h")
   const [split, setSplit] = useState<SplitDim>("primitive")
-  
+  const [kind, setKind] = useState<ChartKind>("bar")
+
+  const hours = TIME_RANGE_HOURS[range]
+  const bucketMs = TIME_RANGE_BUCKET_MS[range]
+
   const { data: stats } = useQuery({
-    queryKey: queryKeys.frameActivityStats(TIME_RANGE_HOURS[range]),
-    queryFn: () => getFrameActivityStats(TIME_RANGE_HOURS[range]),
+    queryKey: queryKeys.frameActivityStats(hours, bucketMs),
+    queryFn: () => getFrameActivityStats(hours, bucketMs),
     refetchInterval: 60_000,
   })
-
   const { data: serviceStats } = useQuery({
-    queryKey: queryKeys.frameActivityByService(TIME_RANGE_HOURS[range]),
-    queryFn: () => getFrameActivityByService(TIME_RANGE_HOURS[range]),
+    queryKey: queryKeys.frameActivityByService(hours, bucketMs),
+    queryFn: () => getFrameActivityByService(hours, bucketMs),
     refetchInterval: 60_000,
     enabled: split === "service",
   })
+  const { data: methodStats } = useQuery({
+    queryKey: queryKeys.frameActivityByMethod(hours, bucketMs),
+    queryFn: () => getFrameActivityByMethod(hours, bucketMs),
+    refetchInterval: 60_000,
+    enabled: split === "method",
+  })
 
-  // Build series data based on split dimension
-  const { series, chartConfig } = useMemo(() => {
+  const { series, rows } = useMemo(() => {
     if (split === "service") {
-      if (!serviceStats || serviceStats.length === 0) {
-        return { series: [], chartConfig: {} }
-      }
-      
-      // Group by service and sum totals
-      const serviceTotals = new Map<string, number>()
+      if (!serviceStats) return { series: [], rows: [] }
+      const totals = new Map<string, number>()
       for (const point of serviceStats) {
-        const current = serviceTotals.get(point.service) ?? 0
-        serviceTotals.set(point.service, current + point.frame_count)
+        totals.set(point.service, (totals.get(point.service) ?? 0) + point.frame_count)
       }
-      
-      // Top 4 services by total frame count
-      const topServices = [...serviceTotals.entries()]
+      const keys = [...totals.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 4)
-        .map(([service, total], idx) => ({
-          key: service,
-          color: SERIES_COLORS[idx % SERIES_COLORS.length],
-          total,
-        }))
-      
-      const config = Object.fromEntries(
-        topServices.map((s) => [s.key, { label: s.key, color: s.color }]),
-      ) satisfies ChartConfig
-      
-      return { series: topServices, chartConfig: config }
-    }
-    
-    if (!stats || stats.length === 0) {
-      return { series: [], chartConfig: {} }
+        .map(([key]) => key)
+      const series = keys.map((key) => ({ key, color: colorFor(key), total: totals.get(key) ?? 0 }))
+      const rows = densify(
+        serviceStats.map((p) => ({ bucket_unix_ms: p.bucket_unix_ms, key: p.service, count: p.frame_count })),
+        keys,
+        range,
+      )
+      return { series, rows }
     }
 
-    let seriesData: Array<{ key: string; color: string; total: number }>
-    
-    switch (split) {
-      case "primitive":
-        // MCP 三大原语
-        seriesData = [
-          { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
-          { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
-          { key: "Prompts", color: SERIES_COLORS[2], total: stats.reduce((sum, s) => sum + s.prompt_calls, 0) },
-        ].filter(s => s.total > 0)
-        break
-      case "traces":
-        // 所有帧类型（包括 Other: ping, initialize 等）
-        seriesData = [
-          { key: "Tools", color: SERIES_COLORS[0], total: stats.reduce((sum, s) => sum + s.tool_calls, 0) },
-          { key: "Resources", color: SERIES_COLORS[1], total: stats.reduce((sum, s) => sum + s.resource_calls, 0) },
-          { key: "Prompts", color: SERIES_COLORS[2], total: stats.reduce((sum, s) => sum + s.prompt_calls, 0) },
-          { key: "Other", color: SERIES_COLORS[3], total: stats.reduce((sum, s) => sum + s.other_calls, 0) },
-        ].filter(s => s.total > 0)
-        break
-      default:
-        seriesData = []
-    }
-
-    const config = Object.fromEntries(
-      seriesData.map((s) => [s.key, { label: s.key, color: s.color }]),
-    ) satisfies ChartConfig
-
-    return { series: seriesData, chartConfig: config }
-  }, [stats, serviceStats, split])
-
-  const chartData = useMemo(() => {
-    if (split === "service") {
-      if (!serviceStats) return []
-      
-      // Build chart data with service columns
-      const buckets = new Map<number, Record<string, number>>()
-      const activeServices = new Set(series.map((s) => s.key))
-      
-      for (const point of serviceStats) {
-        if (!activeServices.has(point.service)) continue
-        
-        const bucket = buckets.get(point.bucket_unix_ms) ?? {}
-        bucket[point.service] = (bucket[point.service] ?? 0) + point.frame_count
-        buckets.set(point.bucket_unix_ms, bucket)
+    if (split === "method") {
+      if (!methodStats) return { series: [], rows: [] }
+      const totals = new Map<string, number>()
+      for (const point of methodStats) {
+        totals.set(point.method, (totals.get(point.method) ?? 0) + point.frame_count)
       }
-      
-      return [...buckets.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([bucketMs, data]) => ({
-          label: bucketLabel(bucketMs, range),
-          ...data,
-        }))
+      const keys = [...totals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([key]) => key)
+      const series = keys.map((key) => ({ key, color: colorFor(key), total: totals.get(key) ?? 0 }))
+      const rows = densify(
+        methodStats.map((p) => ({ bucket_unix_ms: p.bucket_unix_ms, key: p.method, count: p.frame_count })),
+        keys,
+        range,
+      )
+      return { series, rows }
     }
-    
-    if (!stats) return []
-    
-    return stats.map((bucket) => {
-      const row: Record<string, number | string> = {
-        label: bucketLabel(bucket.bucket_unix_ms, range),
-      }
-      
-      switch (split) {
-        case "primitive":
-          // 三大原语
-          row["Tools"] = bucket.tool_calls
-          row["Resources"] = bucket.resource_calls
-          row["Prompts"] = bucket.prompt_calls
-          break
-        case "traces":
-          // 所有帧类型
-          row["Tools"] = bucket.tool_calls
-          row["Resources"] = bucket.resource_calls
-          row["Prompts"] = bucket.prompt_calls
-          row["Other"] = bucket.other_calls
-          break
-      }
-      
-      return row
-    })
-  }, [stats, serviceStats, range, split, series])
+
+    if (!stats) return { series: [], rows: [] }
+    const keys = ["Tools", "Resources", "Prompts"]
+    const values: Record<string, number> = { Tools: 0, Resources: 0, Prompts: 0 }
+    const points: Array<{ bucket_unix_ms: number; key: string; count: number }> = []
+    for (const bucket of stats) {
+      points.push(
+        { bucket_unix_ms: bucket.bucket_unix_ms, key: "Tools", count: bucket.tool_calls },
+        { bucket_unix_ms: bucket.bucket_unix_ms, key: "Resources", count: bucket.resource_calls },
+        { bucket_unix_ms: bucket.bucket_unix_ms, key: "Prompts", count: bucket.prompt_calls },
+      )
+      values.Tools += bucket.tool_calls
+      values.Resources += bucket.resource_calls
+      values.Prompts += bucket.prompt_calls
+    }
+    const series = keys.map((key) => ({ key, color: colorFor(key), total: values[key] }))
+    return { series, rows: densify(points, keys, range) }
+  }, [stats, serviceStats, methodStats, split, range])
+
+  const totalCalls = series.reduce((sum, s) => sum + s.total, 0)
+
+  // Safe data keys let the official ChartStyle component generate CSS color
+  // variables even when service or method names contain spaces and slashes.
+  const chartSeries = series.map((s, index) => ({
+    ...s,
+    dataKey: `series${index}`,
+    colorVar: `var(--color-series${index})`,
+  }))
+  const chartRows = rows.map((row): Row => ({
+    label: row.label,
+    ...Object.fromEntries(
+      chartSeries.map((s) => [s.dataKey, (row[s.key] as number) ?? 0]),
+    ),
+  }))
+  const chartConfig = Object.fromEntries(
+    chartSeries.map((s) => [
+      s.dataKey,
+      { label: s.key, color: s.color },
+    ]),
+  ) satisfies ChartConfig
 
   const yMax = Math.max(
-    ...chartData.map((row) =>
-      series.reduce((sum, s) => sum + ((row[s.key] as number | undefined) ?? 0), 0),
+    ...chartRows.map((row) =>
+      kind === "bar"
+        ? chartSeries.reduce((sum, s) => sum + (row[s.dataKey] as number), 0)
+        : Math.max(...chartSeries.map((s) => row[s.dataKey] as number), 0),
     ),
     1,
   )
-  const totalCalls = series.reduce((sum, s) => sum + s.total, 0)
+
+  // Aggressive interval to prevent overlap: skip more labels on dense ranges
+  const xInterval = range === "1h" ? 5 : range === "24h" ? 3 : range === "3d" ? 8 : 2
 
   return (
     <Card className={cn("gap-0 py-0", className)}>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          value={range}
-          onValueChange={(v) => v && setRange(v as TimeRange)}
-        >
-          <ToggleGroupItem value="7d" className="px-3">
-            7 Days
-          </ToggleGroupItem>
-          <ToggleGroupItem value="3d" className="px-3">
-            3 Days
-          </ToggleGroupItem>
-          <ToggleGroupItem value="24h" className="px-3">
-            24 Hours
-          </ToggleGroupItem>
-          <ToggleGroupItem value="1h" className="px-3">
-            1 Hour
-          </ToggleGroupItem>
-        </ToggleGroup>
+        <div className="flex flex-wrap items-center gap-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={range}
+            onValueChange={(v) => v && setRange(v as TimeRange)}
+          >
+            <ToggleGroupItem value="7d" className="px-3">
+              7 Days
+            </ToggleGroupItem>
+            <ToggleGroupItem value="3d" className="px-3">
+              3 Days
+            </ToggleGroupItem>
+            <ToggleGroupItem value="24h" className="px-3">
+              24 Hours
+            </ToggleGroupItem>
+            <ToggleGroupItem value="1h" className="px-3">
+              1 Hour
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={kind}
+            onValueChange={(v) => v && setKind(v as ChartKind)}
+          >
+            <ToggleGroupItem value="bar" className="px-3">
+              Bar
+            </ToggleGroupItem>
+            <ToggleGroupItem value="line" className="px-3">
+              Line
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-muted-foreground">Split by</span>
@@ -242,7 +287,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
           >
             <ToggleGroupItem value="service">Service</ToggleGroupItem>
             <ToggleGroupItem value="primitive">Primitive</ToggleGroupItem>
-            <ToggleGroupItem value="traces">Traces</ToggleGroupItem>
+            <ToggleGroupItem value="method">Method</ToggleGroupItem>
           </ToggleGroup>
         </div>
       </div>
@@ -250,67 +295,102 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
       <CardContent className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <ChartContainer
           config={chartConfig}
-          className="aspect-auto min-h-[240px] h-full w-full min-w-0 flex-1"
+          className="aspect-auto h-[280px] w-full min-w-0"
         >
-          <BarChart 
-            data={chartData} 
-            margin={{ top: 8, right: 8, left: 0, bottom: range === "3d" ? 36 : 24 }}
-            barCategoryGap="10%"
-            barGap={0}
-          >
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis
-              dataKey="label"
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
-              height={32}
-              angle={range === "3d" ? -15 : 0}
-              textAnchor={range === "3d" ? "end" : "middle"}
-              interval={(() => {
-                // Adaptive tick interval based on data density and time range
-                const len = chartData.length
-                if (range === "1h") {
-                  // 60 data points: show every 5th (12 ticks)
-                  return 4
-                }
-                if (range === "24h") {
-                  // 24 data points: show every 2nd (12 ticks)
-                  return 1
-                }
-                if (range === "3d") {
-                  // 72 data points: show every 6th (12 ticks)
-                  return 5
-                }
-                if (range === "7d") {
-                  // 7 data points: show all
-                  return 0
-                }
-                // Fallback: aim for ~12 ticks
-                if (len <= 12) return 0
-                return Math.floor(len / 12)
-              })()}
-              tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-            />
-            <YAxis
-              tickLine={false}
-              axisLine={false}
-              width={44}
-              tickFormatter={(v) => formatCompact(Number(v))}
-              domain={[0, Math.ceil(yMax * 1.05)]}
-              tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-            />
-            <ChartTooltip cursor={{ fill: "var(--muted)" }} content={<ChartTooltipContent />} />
-            {series.map((s, idx) => (
-              <Bar
-                key={s.key}
-                dataKey={s.key}
-                stackId="usage"
-                fill={s.color}
-                radius={idx === series.length - 1 ? [4, 4, 0, 0] : 0}
+          {/* Remount per view state: Recharts data-swap animation can leave
+              half-rendered charts when toggling range/split. */}
+          {kind === "bar" ? (
+            <BarChart
+              key={`${range}-${split}-bar`}
+              accessibilityLayer
+              data={chartRows}
+              margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+              barCategoryGap="10%"
+              barGap={0}
+            >
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={10}
+                height={32}
+                interval={xInterval}
+                minTickGap={30}
+                tick={{ fontSize: 10 }}
               />
-            ))}
-          </BarChart>
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={44}
+                tickFormatter={(v) => formatCompact(Number(v))}
+                domain={[0, Math.ceil(yMax * 1.05)]}
+                tick={{ fontSize: 11 }}
+              />
+              <ChartTooltip
+                cursor={{ fill: "var(--muted)" }}
+                content={<ChartTooltipContent />}
+              />
+              {chartSeries.map((s, index) => (
+                <Bar
+                  key={s.dataKey}
+                  dataKey={s.dataKey}
+                  stackId="usage"
+                  fill={s.colorVar}
+                  isAnimationActive={false}
+                  radius={
+                    chartSeries.length === 1
+                      ? [4, 4, 4, 4]
+                      : index === 0
+                        ? [0, 0, 4, 4]
+                        : index === chartSeries.length - 1
+                          ? [4, 4, 0, 0]
+                          : 0
+                  }
+                />
+              ))}
+            </BarChart>
+          ) : (
+            <LineChart
+              key={`${range}-${split}-line`}
+              accessibilityLayer
+              data={chartRows}
+              margin={{ top: 8, right: 12, left: 12, bottom: 4 }}
+            >
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={10}
+                height={32}
+                interval={xInterval}
+                minTickGap={30}
+                tick={{ fontSize: 10 }}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={44}
+                tickFormatter={(v) => formatCompact(Number(v))}
+                domain={[0, Math.ceil(yMax * 1.05)]}
+                tick={{ fontSize: 11 }}
+              />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+              {chartSeries.map((s) => (
+                <Line
+                  key={s.dataKey}
+                  dataKey={s.dataKey}
+                  type="monotone"
+                  stroke={s.colorVar}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  isAnimationActive={false}
+                />
+              ))}
+            </LineChart>
+          )}
         </ChartContainer>
 
         <aside className="flex min-w-0 flex-col gap-4 border-t pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4">
@@ -327,7 +407,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
                   {formatCompact(s.total)}
                 </div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  {s.total} {s.total === 1 ? "call" : "calls"}
+                  {s.total} {split === "primitive" ? (s.total === 1 ? "call" : "calls") : "frames"}
                 </p>
               </div>
             ))

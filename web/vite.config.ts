@@ -17,7 +17,8 @@ export default defineConfig({
   define: {
     __WEB_APP_VERSION__: JSON.stringify(webPackageVersion),
   },
-  // node_modules 是软链共享时，依赖预构建缓存按 checkout 隔离，避免 lockfile 来回失效互相重打包
+  // Isolate the dep pre-bundle cache per checkout when node_modules is a shared symlink,
+  // so lockfile churn on one checkout doesn't force re-optimization in the other
   cacheDir: path.resolve(dirname, "../local/vite-cache"),
   resolve: {
     alias: {
@@ -25,7 +26,7 @@ export default defineConfig({
     },
   },
   server: {
-    // dev 端口避开面板 1828：vite 占 1829，/api 原样代理到面板进程
+    // Keep the dev port away from the panel's 1828: vite takes 1829, /api proxies as-is to the panel process
     port: 1829,
     proxy: {
       "/api": {

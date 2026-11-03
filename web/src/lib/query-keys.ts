@@ -59,6 +59,8 @@ export const queryKeys = {
   meta: ["meta"] as const,
   settings: ["settings"] as const,
   overrides: (kind: string) => ["overrides", ...hostSeg(), kind] as const,
+  serviceOverride: (serviceName: string, scope?: ScopeRef) =>
+    [...queryKeys.instance({ service_name: serviceName, scope: scope ?? { type: "store" } }), "service-override"] as const,
   clients: ["clients"] as const,
   clientVersion: (clientId: string) => ["clients", clientId, "version"] as const,
   clientPlugins: ["clients", "plugins"] as const,
@@ -76,10 +78,12 @@ export const queryKeys = {
   get heatmapStats() {
     return ["gateway", ...hostSeg(), "heatmap-stats"] as const
   },
-  frameActivityStats: (hours: number) =>
-    ["gateway", ...hostSeg(), "frame-activity-stats", hours] as const,
-  frameActivityByService: (hours: number) =>
-    ["gateway", ...hostSeg(), "frame-activity-by-service", hours] as const,
+  frameActivityStats: (hours: number, bucketMs?: number) =>
+    ["gateway", ...hostSeg(), "frame-activity-stats", hours, bucketMs ?? 0] as const,
+  frameActivityByService: (hours: number, bucketMs?: number) =>
+    ["gateway", ...hostSeg(), "frame-activity-by-service", hours, bucketMs ?? 0] as const,
+  frameActivityByMethod: (hours: number, bucketMs?: number) =>
+    ["gateway", ...hostSeg(), "frame-activity-by-method", hours, bucketMs ?? 0] as const,
   get gatewayHistory() {
     return ["gateway", ...hostSeg(), "requests-history"] as const
   },

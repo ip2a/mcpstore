@@ -130,7 +130,7 @@ pub(super) fn normalize_language(language: &str) -> Result<String, String> {
         "auto" => Ok("auto".to_string()),
         "zh" | "zh-cn" => Ok("zh".to_string()),
         "en" => Ok("en".to_string()),
-        _ => Err("语言必须是 auto、zh 或 en".to_string()),
+        _ => Err("Language must be auto, zh, or en".to_string()),
     }
 }
 

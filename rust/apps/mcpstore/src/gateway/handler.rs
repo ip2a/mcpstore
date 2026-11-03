@@ -1,6 +1,6 @@
 use super::catalog::{
-    project_catalog_uris, project_prompt_names, resolve_projected_catalog_uri,
-    resolve_projected_prompt,
+    apply_service_overrides, project_catalog_uris, project_prompt_names,
+    resolve_projected_catalog_uri, resolve_projected_prompt, service_override_map,
 };
 use super::tools::{
     build_cache_tools, build_openapi_tools, build_prompt_override_tools,
@@ -329,6 +329,7 @@ impl ServerHandler for GatewayServer {
                 store.list_resources_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let resources = apply_service_overrides(resources, &service_override_map(&store).await.map_err(map_store_error)?)?;
             let resources = project_catalog_uris(resources, "uri", false)?;
             let resources = deserialize_items::<Resource>(resources, "resource")?;
             Ok(ListResourcesResult::with_all_items(resources))
@@ -356,6 +357,8 @@ impl ServerHandler for GatewayServer {
                 store.list_resource_templates_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let templates =
+                apply_service_overrides(templates, &service_override_map(&store).await.map_err(map_store_error)?)?;
             let templates = project_catalog_uris(templates, "uriTemplate", true)?;
             let templates = deserialize_items::<ResourceTemplate>(templates, "resource template")?;
             Ok(ListResourceTemplatesResult::with_all_items(templates))
@@ -380,6 +383,7 @@ impl ServerHandler for GatewayServer {
                 store.list_resources_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let resources = apply_service_overrides(resources, &service_override_map(&store).await.map_err(map_store_error)?)?;
             let (instance_id, original_uri) =
                 resolve_projected_catalog_uri(&resources, "uri", false, &request.uri)?;
             let result = store
@@ -408,6 +412,7 @@ impl ServerHandler for GatewayServer {
                 store.list_prompts_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let prompts = apply_service_overrides(prompts, &service_override_map(&store).await.map_err(map_store_error)?)?;
             let prompts = project_prompt_names(prompts)?;
             let prompts = deserialize_items::<Prompt>(prompts, "prompt")?;
             Ok(ListPromptsResult::with_all_items(prompts))
@@ -433,6 +438,7 @@ impl ServerHandler for GatewayServer {
                 store.list_prompts_scoped(&scope).await
             }
             .map_err(map_store_error)?;
+            let prompts = apply_service_overrides(prompts, &service_override_map(&store).await.map_err(map_store_error)?)?;
             let (instance_id, original_name) = resolve_projected_prompt(&prompts, &request.name)?;
             let result = store
                 .get_prompt_scoped(instance_id, &original_name, arguments)
@@ -448,7 +454,6 @@ impl ServerHandler for GatewayServer {
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> impl std::future::Future<Output = Result<CallToolResponse, ErrorData>> + '_ {
         let tool_name = request.name.as_ref().to_string();
-        let binding = self.bindings.get(tool_name.as_str()).cloned();
         let is_session_state_tool = self.session_state_tools.contains_key(tool_name.as_str());
         let is_tool_override_tool = self.tool_override_tools.contains_key(tool_name.as_str());
         let is_prompt_override_tool = self.prompt_override_tools.contains_key(tool_name.as_str());
@@ -553,17 +558,18 @@ impl ServerHandler for GatewayServer {
                 arguments,
                 default_session_key.as_deref(),
             );
-            let binding = if let Some(session_key) = session_key.as_deref() {
-                build_tool_bindings(&store, &scope, instance_id, Some(session_key))
-                    .await
-                    .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
-                    .remove(tool_name.as_str())
-            } else {
-                binding.or(build_tool_bindings(&store, &scope, instance_id, None)
-                    .await
-                    .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
-                    .remove(tool_name.as_str()))
-            }
+            // Always resolve against freshly built bindings so override changes
+            // (disable/rename) apply on the next call, never through the stale
+            // startup snapshot.
+            let binding = build_tool_bindings(
+                &store,
+                &scope,
+                instance_id,
+                session_key.as_deref(),
+            )
+            .await
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
+            .remove(tool_name.as_str())
             .ok_or_else(|| ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None))?;
             let call_start = std::time::Instant::now();
             let record_binding = binding.clone();

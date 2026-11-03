@@ -23,7 +23,7 @@ pub enum PluginAction {
 
 pub async fn run(action: PluginAction) -> std::result::Result<(), Box<dyn std::error::Error>> {
     if !crate::daemon::protocol::is_daemon_running() {
-        return Err("daemon 未运行；插件操作需经 daemon。先运行 mcpstore start".into());
+        return Err("daemon is not running; plugin operations must go through the daemon. Run mcpstore start first".into());
     }
     let mut client = crate::daemon::client::connect_admin(None).await?;
     let result = match action {

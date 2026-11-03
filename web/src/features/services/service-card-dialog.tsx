@@ -7,7 +7,6 @@ import {
 } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
-import { DialogFormFooter } from "@/components/shared/dialog-form"
 import { McpIcon } from "@/components/shared/mcp-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
@@ -19,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   ServiceConfigDescriptionPane,
@@ -26,6 +26,8 @@ import {
   ServiceConfigPreviewPane,
 } from "@/features/services/add-service-playground-aside"
 import { useServiceDetailQuery } from "@/features/services/queries"
+import { useServiceOverrideQuery } from "@/features/overrides/queries"
+import { ServiceOverridePane } from "@/features/services/service-override-pane"
 import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
 import {
   isServiceRunning,
@@ -36,10 +38,9 @@ import { ServiceDetailField } from "@/features/services/service-panels"
 import { useEditServiceForm } from "@/features/services/use-edit-service-form"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance } from "@/lib/api"
-import { getServiceEndpointLabel } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
 
-type DetailAsideTab = "edit" | "preview" | "profile" | "scope"
+type DetailAsideTab = "edit" | "preview" | "profile" | "scope" | "gateway"
 
 const EDIT_TABS = new Set<DetailAsideTab>(["edit", "profile"])
 
@@ -144,8 +145,10 @@ function ServiceCardDialogBody({
 
   const connected = isServiceRunning(service.state)
   const status = deriveServiceDisplayStatus(service.state)
-  const transport = service.transport
-  const endpoint = getServiceEndpointLabel(service)
+  // Same cache key as ServiceOverridePane — no extra request.
+  const overrideQuery = useServiceOverrideQuery(service.service_name, service.scope)
+  const serviceOverride = overrideQuery.data?.override
+  const projectedName = serviceOverride?.display_name || service.service_name
   const scopeLabel =
     service.scope.type === "store"
       ? t("store")
@@ -164,11 +167,11 @@ function ServiceCardDialogBody({
       <DialogContent
         className={cn(
           "@container flex max-h-none max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none",
-          "h-[68dvh] w-[min(74vw,68rem)]",
+          "h-[68dvh] w-[min(90vw,calc(68dvh*1.618))]",
         )}
       >
         <DialogHeader className="shrink-0 border-b px-4 py-4 @min-[640px]:px-5">
-          <DialogTitle className="truncate font-mono">{service.service_name}</DialogTitle>
+          <DialogTitle className="truncate font-mono">{projectedName}</DialogTitle>
           <DialogDescription className="sr-only">
             {t("serviceListMoreActionsDescription", { name: service.service_name })}
           </DialogDescription>
@@ -178,53 +181,33 @@ function ServiceCardDialogBody({
           className="flex min-h-0 flex-1 flex-col"
           onSubmit={isEditTab ? onSubmit : (event) => event.preventDefault()}
         >
-          <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[minmax(0,25rem)_minmax(280px,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:py-4">
-            <QuietScroll className="min-h-0 @min-[640px]:min-h-0">
-              <div className="flex flex-col items-center gap-5 pt-3 text-center">
-                <div className="flex w-full min-w-0 flex-col items-center gap-3">
-                  <span
-                    aria-hidden
-                    className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-muted/60 text-muted-foreground"
-                  >
-                    <McpIcon
-                      icons={service.mcp?.serverInfo?.icons}
-                      fallback={<DefaultServiceIcon className="size-8" />}
-                      className="size-8"
-                    />
-                  </span>
-                  <div className="min-w-0 w-full">
-                    <p className="truncate font-mono text-base font-semibold">{service.service_name}</p>
-                    <p
-                      className={cn(
-                        "mt-1 text-xs",
-                        connected ? "text-emerald-600 dark:text-emerald-500" : "text-muted-foreground",
-                      )}
-                    >
-                      {t(SERVICE_STATUS_LABEL_KEYS[status])}
-                    </p>
-                  </div>
-                </div>
-
-                <dl className="grid w-full gap-3 text-start">
-                  {service.mcp ? (
-                    <ServiceDetailField
-                      label={t("serverImplementation")}
-                      value={`${service.mcp.serverInfo.title || service.mcp.serverInfo.name} · ${service.mcp.serverInfo.version}`}
-                    />
+          <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[auto_minmax(0,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:py-4">
+            <QuietScroll className="flex min-h-0 @min-[640px]:h-full @min-[640px]:w-auto @min-[640px]:max-w-full @min-[640px]:aspect-[1/1.618]">
+              <div className="m-auto flex w-full min-w-0 flex-col items-center gap-3 text-center">
+                <span
+                  aria-hidden
+                  className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-muted/60 text-muted-foreground"
+                >
+                  <McpIcon
+                    icons={serviceOverride?.icons ?? service.mcp?.serverInfo?.icons}
+                    fallback={<DefaultServiceIcon className="size-8" />}
+                    className="size-8"
+                  />
+                </span>
+                <div className="min-w-0 w-full">
+                  <p className="truncate font-mono text-base font-semibold">{projectedName}</p>
+                  {serviceOverride?.description ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{serviceOverride.description}</p>
                   ) : null}
-                  {service.mcp ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <ServiceDetailField
-                        label={t("protocolVersion")}
-                        value={service.mcp.protocolVersion}
-                      />
-                      <ServiceDetailField label={t("transport")} value={transport} />
-                    </div>
-                  ) : (
-                    <ServiceDetailField label={t("transport")} value={transport} />
-                  )}
-                  <ServiceDetailField label={t("endpoint")} value={endpoint} />
-                </dl>
+                  <p
+                    className={cn(
+                      "mt-1 text-xs",
+                      connected ? "text-emerald-600 dark:text-emerald-500" : "text-muted-foreground",
+                    )}
+                  >
+                    {t(SERVICE_STATUS_LABEL_KEYS[status])}
+                  </p>
+                </div>
               </div>
             </QuietScroll>
 
@@ -249,6 +232,9 @@ function ServiceCardDialogBody({
                   </TabsTrigger>
                   <TabsTrigger value="profile" className="flex-none">
                     {t("profile")}
+                  </TabsTrigger>
+                  <TabsTrigger value="gateway" className="flex-none">
+                    {t("gateway")}
                   </TabsTrigger>
                 </TabsList>
 
@@ -310,39 +296,56 @@ function ServiceCardDialogBody({
                     </div>
                   </QuietScroll>
                 </TabsContent>
+
+                <TabsContent value="gateway" className="min-h-0 flex-1 overflow-hidden">
+                  <QuietScroll className="h-full">
+                    <ServiceOverridePane
+                      serviceName={service.service_name}
+                      scope={service.scope}
+                    />
+                  </QuietScroll>
+                </TabsContent>
               </Tabs>
             </aside>
           </div>
 
           <div className="shrink-0 border-t px-5 py-3.5">
-            {isEditTab ? (
-              <DialogFormFooter
-                onCancel={() => setActiveTab("preview")}
-                submitLabel={submitting ? t("saving") : t("save")}
-                submitting={submitting}
-              />
-            ) : (
-              <DialogFooter className="sm:justify-between">
+            <DialogFooter className="sm:justify-between">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={Boolean(busy) || !connected}
+                  onClick={() => closeThen(() => onRestart(service))}
+                >
+                  <RotateCwIcon data-icon="inline-start" />
+                  {t("restart")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={Boolean(busy)}
+                  onClick={() => closeThen(() => onDelete(service))}
+                >
+                  <Trash2Icon data-icon="inline-start" />
+                  {t("delete")}
+                </Button>
+              </div>
+              {isEditTab ? (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={Boolean(busy) || !connected}
-                    onClick={() => closeThen(() => onRestart(service))}
+                    onClick={() => setActiveTab("preview")}
                   >
-                    <RotateCwIcon data-icon="inline-start" />
-                    {t("restart")}
+                    {t("cancel")}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    disabled={Boolean(busy)}
-                    onClick={() => closeThen(() => onDelete(service))}
-                  >
-                    <Trash2Icon data-icon="inline-start" />
-                    {t("delete")}
+                  <Button type="submit" disabled={submitting}>
+                    {submitting ? <Spinner data-icon="inline-start" /> : null}
+                    {submitting ? t("saving") : t("save")}
                   </Button>
                 </div>
+              ) : (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
                   <ServiceConnectionButton
                     busy={busy}
@@ -362,8 +365,8 @@ function ServiceCardDialogBody({
                     {t("detail")}
                   </Button>
                 </div>
-              </DialogFooter>
-            )}
+              )}
+            </DialogFooter>
           </div>
         </form>
       </DialogContent>

@@ -67,7 +67,7 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
       <button
         type="button"
         className="block w-full rounded-md text-left hover:bg-muted/30"
-        onClick={() => setHeroCollapsed(true)}
+        onClick={() => setCollapsed(true)}
         title={t("collapseBanner")}
       >
         <McpstoreAsciiBanner />

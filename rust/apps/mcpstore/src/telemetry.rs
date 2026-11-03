@@ -63,11 +63,24 @@ pub struct HeatmapDay {
     pub errors: i64,
 }
 
-/// Frame activity grouped by service (peer) for a time bucket.
+/// Frame activity grouped by service instance for a time bucket. `instance_id`
+/// identifies the (service, scope) pair — `service` is only a display label
+/// resolved against the live registry by the API layer.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ServiceActivityPoint {
     pub bucket_unix_ms: i64,
     pub service: String,
+    pub instance_id: Option<String>,
+    pub frame_count: i64,
+}
+
+/// Frame activity grouped by wire method for a time bucket. Every frame carries
+/// its real method (ping, initialize, tools/call, notifications/…), so there is
+/// no synthetic "other" bucket here.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MethodActivityPoint {
+    pub bucket_unix_ms: i64,
+    pub method: String,
     pub frame_count: i64,
 }
 
@@ -792,7 +805,12 @@ impl TelemetryLog {
         rows.collect()
     }
 
-    /// Frame activity grouped by service (peer) over a time range.
+    /// Frame activity grouped by service instance over a time range.
+    ///
+    /// Only the upstream face carries a service identity (`instance_id`); the
+    /// gateway face records client-side frames, whose `peer` is a client name.
+    /// Grouping by `instance_id` keeps same-named services in different scopes
+    /// (store vs agent) separate.
     pub fn frame_activity_by_service(
         &self,
         hours: u32,
@@ -802,14 +820,42 @@ impl TelemetryLog {
         let to = now_ms();
         let from = to - i64::from(hours.max(1)) * 3600 * 1000;
         let mut stmt = conn.prepare(
-            "SELECT (ts_unix_ms / ?1) * ?1 AS bucket, COALESCE(peer, '—') AS service, COUNT(*) \
-             FROM frames WHERE ts_unix_ms >= ?2 \
-             GROUP BY bucket, service ORDER BY bucket, service",
+            "SELECT (ts_unix_ms / ?1) * ?1 AS bucket, COALESCE(peer, '—') AS service, \
+             instance_id, COUNT(*) \
+             FROM frames WHERE face = 'upstream' AND ts_unix_ms >= ?2 \
+             GROUP BY bucket, service, instance_id ORDER BY bucket, service",
         )?;
         let rows = stmt.query_map(rusqlite::params![bucket_ms, from], |row| {
             Ok(ServiceActivityPoint {
                 bucket_unix_ms: row.get(0)?,
                 service: row.get(1)?,
+                instance_id: row.get(2)?,
+                frame_count: row.get(3)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Frame activity grouped by wire method over a time range. Both faces
+    /// count: every boundary crossing is a real named frame. Frames without a
+    /// method (responses, error envelopes) are not part of this dimension.
+    pub fn frame_activity_by_method(
+        &self,
+        hours: u32,
+        bucket_ms: i64,
+    ) -> rusqlite::Result<Vec<MethodActivityPoint>> {
+        let conn = self.read_conn()?;
+        let to = now_ms();
+        let from = to - i64::from(hours.max(1)) * 3600 * 1000;
+        let mut stmt = conn.prepare(
+            "SELECT (ts_unix_ms / ?1) * ?1 AS bucket, method, COUNT(*) \
+             FROM frames WHERE method IS NOT NULL AND ts_unix_ms >= ?2 \
+             GROUP BY bucket, method ORDER BY bucket, method",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![bucket_ms, from], |row| {
+            Ok(MethodActivityPoint {
+                bucket_unix_ms: row.get(0)?,
+                method: row.get(1)?,
                 frame_count: row.get(2)?,
             })
         })?;
@@ -1121,5 +1167,55 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(log.frame_sessions(None, 24, 50, 0).unwrap().total, 0);
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn frame_activity_by_service_scopes_by_instance() {
+        let path = temp_path("frame-svc");
+        let log = TelemetryLog::open(&path).unwrap();
+        let mut a = frame("s1", "upstream", "up", Some("tools/call"));
+        a.instance_id = Some("store-demo".to_string());
+        let mut b = frame("s2", "upstream", "up", Some("tools/call"));
+        b.instance_id = Some("agent-demo".to_string());
+        b.peer = Some("peer-y".to_string());
+        log.record_frame(a);
+        log.record_frame(b);
+        // Gateway face frames carry no service identity — excluded.
+        log.record_frame(frame("s3", "gateway", "up", Some("tools/call")));
+        std::thread::sleep(Duration::from_millis(300));
+
+        let points = log.frame_activity_by_service(24, 3_600_000).unwrap();
+        assert_eq!(
+            points.len(),
+            2,
+            "same-named peers in different scopes stay separate"
+        );
+        let ids: Vec<_> = points.iter().map(|p| p.instance_id.as_deref()).collect();
+        assert!(ids.contains(&Some("store-demo")));
+        assert!(ids.contains(&Some("agent-demo")));
+        assert!(points.iter().all(|p| p.frame_count == 1));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn frame_activity_by_method_names_every_frame() {
+        let path = temp_path("frame-method");
+        let log = TelemetryLog::open(&path).unwrap();
+        log.record_frame(frame("s1", "upstream", "up", Some("ping")));
+        log.record_frame(frame("s1", "upstream", "up", Some("ping")));
+        log.record_frame(frame("s2", "gateway", "up", Some("tools/list")));
+        // Responses and error envelopes have no method — excluded.
+        log.record_frame(frame("s1", "upstream", "down", None));
+        std::thread::sleep(Duration::from_millis(300));
+
+        let points = log.frame_activity_by_method(24, 3_600_000).unwrap();
+        let ping = points
+            .iter()
+            .find(|p| p.method == "ping")
+            .expect("ping keeps its real name instead of an 'other' bucket");
+        assert_eq!(ping.frame_count, 2);
+        assert!(points.iter().any(|p| p.method == "tools/list"));
+        assert!(!points.iter().any(|p| p.method == "tools/call"));
+        let _ = std::fs::remove_file(path);
     }
 }

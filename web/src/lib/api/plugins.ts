@@ -1,4 +1,4 @@
-// 客户端插件（coding-client 适配器）的注册表与市场接口，全部为 app 自有接口。
+// Registry and market APIs for client plugins (coding-client adapters); all are app-owned endpoints.
 import { appApi } from "./client";
 
 export type ClientPlugin = {

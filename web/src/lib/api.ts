@@ -111,6 +111,7 @@ export type ComponentOverrideCommon = {
   description?: string;
   meta?: unknown;
   annotations?: unknown;
+  icons?: unknown;
   tags?: string[];
   enabled?: boolean;
 };
@@ -137,20 +138,25 @@ export type ResourceTemplateOverrideRule = ResourceTemplateOverridePatch & {
   instance_id: string; service_name: string; scope: ScopeRef; uri_template: string;
   updated_at: number; version: number;
 };
+export type ServiceOverridePatch = ComponentOverrideCommon;
+export type ServiceOverrideRule = ServiceOverridePatch & {
+  instance_id: string; service_name: string; scope: ScopeRef;
+  updated_at: number; version: number;
+};
 
-/** 服务寻址（文档 §0.4：服务名 + 作用域；URL 中无 instance_id）。ServiceInstance 结构上兼容。 */
+/** Service addressing (doc §0.4: service name + scope; no instance_id in the URL). Structurally compatible with ServiceInstance. */
 export type ServiceAddress = {
   service_name: string;
   scope: ScopeRef;
 };
 
-/** 读视图作用域（文档 §17.2）：root 聚合 / store / agent。Root 是只读聚合，不能用于声明。 */
+/** Read-view scope (doc §17.2): root aggregation / store / agent. Root is a read-only aggregate and cannot be used for declarations. */
 export type ScopeView =
   | { type: "root" }
   | { type: "store" }
   | { type: "agent"; agent_id: string };
 
-/** 作用域注册表条目（GET /scopes/list）。 */
+/** Scope registry entry (GET /scopes/list). */
 export type ScopeSummary = {
   scope: ScopeView;
   service_count: number;
@@ -472,6 +478,7 @@ export {
   getHeatmapStats,
   getFrameActivityStats,
   getFrameActivityByService,
+  getFrameActivityByMethod,
   getRequestHistory,
   getRequestDetail,
   getFrameSessions,
