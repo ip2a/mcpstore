@@ -196,6 +196,8 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
 
   const matrix = useMemo(() => buildMatrix(stats ?? []), [stats])
   const hasTraffic = matrix.requests > 0 || matrix.errors > 0
+  const activeRate =
+    DAYS > 0 ? Math.round((matrix.activeDays / DAYS) * 100) : 0
 
   const contentRef = useRef<HTMLDivElement>(null)
   const [showStats, setShowStats] = useState(true)
@@ -227,34 +229,60 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
         className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3"
       >
         {showStats ? (
-          <div className="grid shrink-0 grid-cols-3 gap-6 pb-3">
+          <div className="grid shrink-0 grid-cols-2 gap-8 pb-3">
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">
+                {t("homeHeatmapCalls")}
+              </p>
+              <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                <span className="text-3xl font-semibold tabular-nums tracking-tight">
+                  {formatCompact(matrix.requests)}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {t("homeCallsUnit")}
+                </span>
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
                 {t("homeHeat24StatRequests")}
               </p>
-              <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight">
-                {formatCompact(matrix.requests)}
-              </p>
             </div>
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">
-                {t("homeHeat24StatErrors")}
+                {t("homeHeatmapErrors")}
               </p>
-              <p
-                className={cn(
-                  "mt-1 text-3xl font-semibold tabular-nums tracking-tight",
-                  matrix.errors > 0 && "text-[#dc2626]",
-                )}
+              <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                <span
+                  className={cn(
+                    "text-3xl font-semibold tabular-nums tracking-tight",
+                    matrix.errors > 0 && "text-[#dc2626]",
+                  )}
+                >
+                  {formatCompact(matrix.errors)}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {t("homeHeatmapErrorsUnit")}
+                </span>
+              </p>
+              <div
+                className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={activeRate}
+                aria-valuemin={0}
+                aria-valuemax={100}
               >
-                {formatCompact(matrix.errors)}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">
-                {t("homeHeat24StatDaily")}
-              </p>
-              <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight">
-                {formatCompact(matrix.requests / DAYS)}
+                <div
+                  className="h-full rounded-full bg-[#5b5bd5] transition-[width]"
+                  style={{ width: `${activeRate}%` }}
+                />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("homeHeatmapDaysOf", {
+                  active: matrix.activeDays,
+                  total: DAYS,
+                })}
+                {matrix.errorDays > 0
+                  ? ` · ${t("homeHeatmapErrorDays", { count: matrix.errorDays })}`
+                  : ""}
               </p>
             </div>
           </div>
@@ -273,9 +301,9 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
               {Array.from({ length: HOURS }, (_, hour) => (
                 <div
                   key={`h-${hour}`}
-                  className="flex h-4 items-end justify-center text-[10px] leading-none text-muted-foreground"
+                  className="flex h-4 items-end justify-center text-[10px] leading-none text-muted-foreground tabular-nums"
                 >
-                  {hour % 6 === 0 ? String(hour).padStart(2, "0") : ""}
+                  {String(hour).padStart(2, "0")}
                 </div>
               ))}
 
