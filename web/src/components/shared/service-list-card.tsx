@@ -103,13 +103,9 @@ export function ServiceListCard({
         </span>
       </div>
 
-      {description ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
-          {description}
-        </p>
-      ) : (
-        <Skeleton className="mt-3 h-5 w-3/4" aria-hidden />
-      )}
+      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
+        {description || t("noDescription")}
+      </p>
 
       {metaParts.length ? (
         <p className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground" title={metaParts.join(" · ")}>
