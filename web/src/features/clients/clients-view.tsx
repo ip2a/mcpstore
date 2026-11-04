@@ -803,6 +803,13 @@ function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelec
   const mcpCount = client.mcp_servers?.length ?? 0
   const statusText = clientStatusText(client, t)
   const path = client.config_path?.trim()
+  const detected = client.detected_by != null
+  const versionQuery = useClientVersionQuery(client.id, detected)
+  const version = versionQuery.data ?? client.version ?? null
+  const metaParts = [
+    version,
+    client.mcp_servers != null ? `mcp ${mcpCount}` : null,
+  ].filter((part): part is string => Boolean(part))
 
   return (
     <div
@@ -835,13 +842,13 @@ function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelec
         </span>
       </div>
 
-      {path ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{path}</p>
-      ) : null}
+      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
+        {path || t("noDescription")}
+      </p>
 
-      {client.mcp_servers != null ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          {t("clientsMcpShort")} {mcpCount}
+      {metaParts.length ? (
+        <p className="mt-3 font-mono text-xs tabular-nums text-muted-foreground">
+          {metaParts.join(" · ")}
         </p>
       ) : null}
     </div>
