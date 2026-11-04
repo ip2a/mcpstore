@@ -836,8 +836,12 @@ function ConnectionSection({
                 isActive && "border-primary/40 bg-primary/5",
                 isEditing && "border-border bg-muted/40",
               )}
-              onClick={() => patchDraft({ hosts: { ...draft.hosts, active: host.name } })}
+              onClick={(event) => {
+                if (event.target instanceof Element && event.target.closest("button")) return
+                patchDraft({ hosts: { ...draft.hosts, active: host.name } })
+              }}
               onKeyDown={(event) => {
+                if (event.target instanceof Element && event.target.closest("button")) return
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault()
                   patchDraft({ hosts: { ...draft.hosts, active: host.name } })
@@ -868,11 +872,7 @@ function ConnectionSection({
                     </span>
                   </span>
                 </span>
-                <div
-                  className="flex shrink-0 items-center gap-0.5"
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => event.stopPropagation()}
-                >
+                <div className="flex shrink-0 items-center gap-0.5">
                   <Button
                     type="button"
                     variant="ghost"
