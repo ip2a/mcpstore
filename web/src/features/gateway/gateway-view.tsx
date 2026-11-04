@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
+import { MarkIcon } from "@/components/shared/mark-icon"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
@@ -605,7 +606,7 @@ function HubFlowCard({ endpoint, running }: { endpoint: string; running: boolean
   const { t } = useI18n()
   return (
     <FlowNodeCard emphasized>
-      <img src="/logo.png" alt="" aria-hidden className="size-8 object-contain" />
+      <MarkIcon className="size-8" />
       <div className="flex min-w-0 items-center gap-1.5">
         <span
           className={cn(
