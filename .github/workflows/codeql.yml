@@ -1,0 +1,42 @@
+name: CodeQL
+
+# Release-time security scan only: runs on v* tags (rc and final) and manual
+# dispatch. Daily PR/push CI (ci.yml) deliberately does not include CodeQL —
+# it is a slow analyzer and was dragging every merge down. Default setup is
+# disabled at the repo level; this workflow is the sole CodeQL entry point.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, python, rust]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@7aa4d48f0aaa9b8ac3ea6a74fb54295f540febb8 # v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        if: matrix.language == 'rust'
+        uses: github/codeql-action/autobuild@7aa4d48f0aaa9b8ac3ea6a74fb54295f540febb8 # v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@7aa4d48f0aaa9b8ac3ea6a74fb54295f540febb8 # v3
+        with:
+          category: "/language:${{ matrix.language }}"
