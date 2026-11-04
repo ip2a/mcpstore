@@ -60,9 +60,9 @@ export function PromptListCard({
         </span>
       </div>
 
-      {description ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{description}</p>
-      ) : null}
+      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
+        {description || t("noDescription")}
+      </p>
 
       <p className="mt-3 text-xs text-muted-foreground">{t("paramCount", { count: argCount })}</p>
     </div>
