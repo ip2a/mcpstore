@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ActivityIcon, FileTextIcon, InfoIcon, MonitorIcon, NetworkIcon, PencilIcon, PlusIcon, RefreshCwIcon, SaveIcon, ServerIcon, SlidersHorizontalIcon, Trash2Icon, type LucideIcon } from "lucide-react"
+import { ActivityIcon, FileTextIcon, InfoIcon, MonitorIcon, NetworkIcon, PencilIcon, PlusIcon, RefreshCwIcon, SaveIcon, SlidersHorizontalIcon, Trash2Icon, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
@@ -8,8 +8,6 @@ import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
 import { MarkIcon } from "@/components/shared/mark-icon"
-import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -37,7 +35,6 @@ import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/query-keys"
 
 const sectionIcons: Record<SectionId, LucideIcon> = {
-  overview: ServerIcon,
   general: SlidersHorizontalIcon,
   connection: NetworkIcon,
   diagnostics: ActivityIcon,
@@ -50,7 +47,7 @@ const compactInputGroupClass = "w-20 shrink-0 !w-20"
 export function SettingsView() {
   const { setLanguageOverride, t } = useI18n()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<SectionId>("overview")
+  const [activeTab, setActiveTab] = useState<SectionId>("connection")
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
   const metaQuery = useSettingsMetaQuery(true)
   const settingsMutation = useUpdateSettingsMutation()
@@ -155,16 +152,9 @@ export function SettingsView() {
                 </div>
               </div>
 
-              <TabsContent value="overview" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-                <ScrollPane className="flex-1">
-                  <OverviewSection draft={draft} />
-                </ScrollPane>
-              </TabsContent>
-
               <TabsContent value="general" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
                 <ScrollPane className="flex-1">
                   <section className="flex flex-col gap-5">
-                    <SectionHead title={t("general")} />
                     <FieldGroup>
                       <Field orientation="responsive">
                         <FieldContent>
@@ -186,8 +176,10 @@ export function SettingsView() {
                       </Field>
                     </FieldGroup>
 
-                    <SectionHead title={t("coreBackend")} />
-                    <BackendFields draft={draft} patchDraft={patchDraft} />
+                    <div className="flex flex-col gap-3">
+                      <h4 className="text-sm font-medium">{t("coreBackend")}</h4>
+                      <BackendFields draft={draft} patchDraft={patchDraft} />
+                    </div>
                   </section>
                 </ScrollPane>
               </TabsContent>
@@ -201,7 +193,6 @@ export function SettingsView() {
               <TabsContent value="diagnostics" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
                 <ScrollPane className="flex-1">
                   <section className="flex flex-col gap-5">
-                    <SectionHead title={t("diagnostics")} description={t("diagnosticsDescription")} />
                     <FieldGroup>
                       <ToggleField title={t("diagnosticsEnabled")} description={t("diagnosticsEnabledDescription")} checked={draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ enabled })} />
                       <ToggleField title={t("runtimeLogEnabled")} description={t("runtimeLogEnabledDescription")} checked={draft.diagnostics.runtime_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ runtime_enabled: enabled })} />
@@ -242,8 +233,10 @@ export function SettingsView() {
 
               <TabsContent value="config" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
                 <ScrollPane className="flex-1">
-                  <section className="flex flex-col gap-4">
-                    <SectionHead title={t("configFile")} description={configFile?.path || t("configFileMissing")} />
+                  <section className="flex flex-col gap-3">
+                    <p className="truncate font-mono text-xs text-muted-foreground" title={configFile?.path || undefined}>
+                      {configFile?.path || t("configFileMissing")}
+                    </p>
                     <InputGroup>
                       <InputGroupTextarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
                     </InputGroup>
@@ -255,11 +248,10 @@ export function SettingsView() {
                 <ScrollPane className="flex-1">
                   <section className="flex flex-col gap-5">
                     <McpstoreAsciiBanner />
-                    <SectionHead
-                      title={t("about")}
-                      description={t("settingsDescription")}
-                      action={<MarkIcon className="size-8" />}
-                    />
+                    <div className="flex items-start justify-between gap-4">
+                      <p className="text-sm text-muted-foreground">{t("settingsDescription")}</p>
+                      <MarkIcon className="size-8 shrink-0" />
+                    </div>
                     <div className="divide-y">
                       <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
                       <AboutRow label={t("sdkVersion")} value={formatReleaseVersion(meta?.version)} />
@@ -294,18 +286,6 @@ export function SettingsView() {
   )
 }
 
-function SectionHead({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b pb-3">
-      <div className="min-w-0">
-        <h3 className="text-base font-semibold">{title}</h3>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-      </div>
-      {action}
-    </div>
-  )
-}
-
 function ToggleField({ title, description, checked, disabled, onCheckedChange }: { title: string; description?: string; checked: boolean; disabled?: boolean; onCheckedChange: (checked: boolean) => void }) {
   return (
     <Field orientation="responsive">
@@ -332,83 +312,6 @@ function AboutRow({ href, label, value, action }: { href?: string; label: string
         <span className="min-w-0 truncate text-sm font-medium">{value}</span>
       )}
     </div>
-  )
-}
-
-function OverviewSection({ draft }: { draft: SettingsDraft }) {
-  const { t } = useI18n()
-  const [statuses, setStatuses] = useState<Record<string, HostStatus>>({})
-  const hosts = useMemo(() => hostsToList(draft.hosts), [draft.hosts])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function probeAll() {
-      await Promise.all(
-        hosts.map(async (host) => {
-          const status = await probeHost(host.name)
-          if (!cancelled) setStatuses((current) => ({ ...current, [host.name]: status }))
-        }),
-      )
-    }
-
-    void probeAll()
-    const timer = window.setInterval(() => void probeAll(), 5000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [hosts])
-
-  return (
-    <section className="flex flex-col gap-5">
-      <SectionHead title={t("overview")} description={t("overviewDescription")} />
-      <div className="flex flex-col gap-3">
-        {hosts.map((host) => {
-          const status = statuses[host.name]
-          const isActive = host.name === draft.hosts.active
-          const online = status?.online === true
-
-          return (
-            <div
-              key={host.name}
-              className={cn("rounded-md border p-4", isActive && "border-primary/40 bg-primary/5")}
-            >
-              <h4 className="truncate text-sm font-medium">{host.name}</h4>
-              <div className="mt-2.5 flex min-w-0 items-center gap-2 overflow-hidden">
-                <Badge variant="secondary" className="gap-1.5">
-                  <span
-                    className={cn(
-                      "size-2 rounded-full",
-                      status == null ? "bg-muted-foreground/40" : online ? "bg-emerald-500" : "bg-destructive",
-                    )}
-                  />
-                  {status == null ? "…" : online ? t("online") : t("offline")}
-                </Badge>
-                <Badge variant="secondary">
-                  <MonitorIcon />
-                  {formatHostAddress(host.urls[0] ?? "")}
-                </Badge>
-                {host.urls.length > 1 ? (
-                  <Badge variant="secondary" title={host.urls.join("\n")}>
-                    +{host.urls.length - 1}
-                  </Badge>
-                ) : null}
-                <Badge variant="secondary">{status?.version ? `v${status.version}` : "-"}</Badge>
-                {online && status?.latencyMs != null ? (
-                  <Badge variant="secondary" className="tabular-nums">
-                    {formatLatency(status.latencyMs)}
-                  </Badge>
-                ) : null}
-              </div>
-              {online && status?.store ? (
-                <p className="mt-2 truncate text-xs text-muted-foreground">{status.store}</p>
-              ) : null}
-            </div>
-          )
-        })}
-      </div>
-    </section>
   )
 }
 
@@ -537,7 +440,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
   const [editingName, setEditingName] = useState<string | null>(null)
   const [editName, setEditName] = useState("")
   const [editUrls, setEditUrls] = useState("")
-  const [latencies, setLatencies] = useState<Record<string, number | null>>({})
+  const [statuses, setStatuses] = useState<Record<string, HostStatus>>({})
   const [checking, setChecking] = useState<Record<string, boolean>>({})
 
   function patchHosts(nextEntries: Record<string, { urls: string[] }>, active = draft.hosts.active) {
@@ -547,12 +450,14 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
   async function refreshLatency(name: string, options?: { notify?: boolean }) {
     setChecking((current) => ({ ...current, [name]: true }))
     const status = await probeHost(name)
-    const latency = status.online ? status.latencyMs : null
-    setLatencies((current) => ({ ...current, [name]: latency }))
+    setStatuses((current) => ({ ...current, [name]: status }))
     setChecking((current) => ({ ...current, [name]: false }))
     if (options?.notify) {
-      if (latency != null) toast.success(t("connectionRefreshOk", { latency: formatLatency(latency) }))
-      else toast.error(t("connectionRefreshFailed"))
+      if (status.online && status.latencyMs != null) {
+        toast.success(t("connectionRefreshOk", { latency: formatLatency(status.latencyMs) }))
+      } else {
+        toast.error(t("connectionRefreshFailed"))
+      }
     }
   }
 
@@ -685,150 +590,191 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     setAddingOpen(false)
   }
 
+  const editingHost = editingName ? hosts.find((host) => host.name === editingName) : null
+
   return (
-    <section className="flex flex-col gap-5">
-      <SectionHead
-        title={t("connection")}
-        description={t("connectionDescription")}
-        action={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => {
+    <section className="flex flex-col gap-4">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4">
+        {hosts.map((host) => {
+          const isActive = host.name === draft.hosts.active
+          const isEditing = editingName === host.name
+          const canDelete = hosts.length > 1
+          const isChecking = checking[host.name] === true
+          const status = statuses[host.name]
+          const online = status?.online === true
+          const address = formatHostAddress(host.urls[0] ?? "")
+          const detail =
+            online && status?.store
+              ? host.urls.length > 1
+                ? `${status.store} · +${host.urls.length - 1}`
+                : status.store
+              : host.urls.length > 1
+                ? `${host.urls[0]} +${host.urls.length - 1}`
+                : (host.urls[0] ?? address)
+          const metaParts = [
+            status?.version ? `v${status.version}` : null,
+            online && status?.latencyMs != null
+              ? formatLatency(status.latencyMs)
+              : isChecking
+                ? "…"
+                : null,
+          ].filter(Boolean)
+
+          return (
+            <div
+              key={host.name}
+              role="button"
+              tabIndex={0}
+              className={cn(
+                "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/40",
+                isActive && "border-primary/40 bg-primary/5",
+                isEditing && "border-border bg-muted/40",
+              )}
+              onClick={() => patchDraft({ hosts: { ...draft.hosts, active: host.name } })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  patchDraft({ hosts: { ...draft.hosts, active: host.name } })
+                }
+              }}
+            >
+              <div className="flex min-w-0 items-start gap-2">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground">
+                  <MonitorIcon className="size-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-1 text-sm font-semibold leading-snug">{host.name}</span>
+                  <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    <span
+                      className={cn(
+                        "size-1.5 shrink-0 rounded-full",
+                        status == null ? "bg-muted-foreground/40" : online ? "bg-emerald-500" : "bg-destructive",
+                      )}
+                    />
+                    <span className="truncate">{status == null ? "…" : online ? t("online") : t("offline")}</span>
+                  </span>
+                </span>
+                <div
+                  className="flex shrink-0 items-center gap-0.5"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("refresh")}
+                    disabled={isChecking}
+                    onClick={() => void refreshLatency(host.name, { notify: true })}
+                  >
+                    <RefreshCwIcon className={cn("size-3.5", isChecking && "animate-spin")} />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={isEditing ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    aria-label={t("edit")}
+                    aria-pressed={isEditing}
+                    onClick={() => toggleEdit(host)}
+                  >
+                    <PencilIcon className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("delete")}
+                    disabled={!canDelete}
+                    title={!canDelete ? t("connectionDeleteLastHint") : undefined}
+                    onClick={() => removeHost(host.name)}
+                  >
+                    <Trash2Icon className={cn("size-3.5", canDelete ? "text-destructive" : "text-muted-foreground")} />
+                  </Button>
+                </div>
+              </div>
+
+              <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground" title={detail}>
+                {address}
+                {detail && detail !== address ? ` · ${detail}` : null}
+              </p>
+
+              {metaParts.length > 0 ? (
+                <p className="mt-3 font-mono text-xs tabular-nums text-muted-foreground">{metaParts.join(" · ")}</p>
+              ) : null}
+            </div>
+          )
+        })}
+
+        <div
+          role="button"
+          tabIndex={0}
+          className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+          onClick={() => {
+            setEditingName(null)
+            setEditName("")
+            setEditUrls("")
+            resetPending()
+            setAddingOpen(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
               setEditingName(null)
               setEditName("")
               setEditUrls("")
               resetPending()
               setAddingOpen(true)
-            }}
-          >
-            <PlusIcon data-icon="inline-start" />
-            {t("addHost")}
-          </Button>
-        }
-      />
-
-      <div className="flex flex-col gap-2">
-        <p className="text-xs text-muted-foreground">{t("connection")}</p>
-        <div className="flex flex-col gap-2">
-          {hosts.map((host) => {
-            const isActive = host.name === draft.hosts.active
-            const isEditing = editingName === host.name
-            const canDelete = hosts.length > 1
-            const isChecking = checking[host.name] === true
-
-            return (
-              <div key={host.name} className="flex flex-col gap-2">
-                <div
-                  className={cn(
-                    "flex items-center justify-between gap-3 rounded-md border px-3 py-2.5",
-                    isActive && "border-primary/40 bg-primary/5",
-                  )}
-                >
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 truncate text-left"
-                    onClick={() => patchDraft({ hosts: { ...draft.hosts, active: host.name } })}
-                  >
-                    <span className="block truncate text-sm font-medium">{host.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {host.urls.length > 1 ? `${formatHostAddress(host.urls[0] ?? "")} +${host.urls.length - 1}` : host.urls[0]}
-                    </span>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {isChecking && latencies[host.name] == null
-                        ? "…"
-                        : latencies[host.name] != null
-                          ? formatLatency(latencies[host.name]!)
-                          : "-"}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("refresh")}
-                      disabled={isChecking}
-                      onClick={() => void refreshLatency(host.name, { notify: true })}
-                    >
-                      <RefreshCwIcon className={cn("size-3.5", isChecking && "animate-spin")} />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={isEditing ? "secondary" : "ghost"}
-                      size="icon-sm"
-                      aria-label={t("edit")}
-                      aria-pressed={isEditing}
-                      onClick={() => toggleEdit(host)}
-                    >
-                      <PencilIcon className="size-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("delete")}
-                      disabled={!canDelete}
-                      title={!canDelete ? t("connectionDeleteLastHint") : undefined}
-                      onClick={() => removeHost(host.name)}
-                    >
-                      <Trash2Icon className={cn("size-3.5", canDelete ? "text-destructive" : "text-muted-foreground")} />
-                    </Button>
-                  </div>
-                </div>
-
-                {isEditing ? (
-                  <Collapsible open onOpenChange={(open) => !open && setEditingName(null)}>
-                    <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-out data-[state=open]:animate-in">
-                      <div className="rounded-md border px-3 py-3">
-                        <p className="mb-2 text-xs text-muted-foreground">{t("edit")}</p>
-                        <div className="flex flex-col gap-3">
-                          <div className="flex flex-col gap-1.5">
-                            <Label htmlFor={`host-name-${host.name}`}>{t("host")}</Label>
-                            <InputGroup>
-                              <InputGroupInput
-                                id={`host-name-${host.name}`}
-                                value={editName}
-                                onChange={(event) => setEditName(event.target.value)}
-                                placeholder={t("host")}
-                              />
-                            </InputGroup>
-                          </div>
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                              <Label htmlFor={`host-url-${host.name}`}>{t("coreBackendUrlLabel")}</Label>
-                              <InputGroup>
-                                <InputGroupTextarea
-                                  id={`host-url-${host.name}`}
-                                  className="min-h-20 font-mono text-xs"
-                                  value={editUrls}
-                                  onChange={(event) => setEditUrls(event.target.value)}
-                                  placeholder={t("coreBackendUrlPlaceholder")}
-                                />
-                              </InputGroup>
-                              <p className="text-xs text-muted-foreground">{t("coreBackendUrlHint")}</p>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button type="button" size="sm" onClick={saveEdit}>
-                                {t("save")}
-                              </Button>
-                              <Button type="button" size="sm" variant="outline" onClick={() => setEditingName(null)}>
-                                {t("cancel")}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                ) : null}
-              </div>
-            )
-          })}
+            }
+          }}
+        >
+          <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
+            <PlusIcon className="size-4" />
+          </span>
+          <span className="text-sm font-medium">{t("addHost")}</span>
         </div>
       </div>
+
+      {editingHost ? (
+        <div className="rounded-lg border border-border/50 bg-card p-4">
+          <p className="mb-3 text-sm font-medium">{t("edit")}</p>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={`host-name-${editingHost.name}`}>{t("host")}</Label>
+              <InputGroup>
+                <InputGroupInput
+                  id={`host-name-${editingHost.name}`}
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                  placeholder={t("host")}
+                />
+              </InputGroup>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <Label htmlFor={`host-url-${editingHost.name}`}>{t("coreBackendUrlLabel")}</Label>
+                <InputGroup>
+                  <InputGroupTextarea
+                    id={`host-url-${editingHost.name}`}
+                    className="min-h-20 font-mono text-xs"
+                    value={editUrls}
+                    onChange={(event) => setEditUrls(event.target.value)}
+                    placeholder={t("coreBackendUrlPlaceholder")}
+                  />
+                </InputGroup>
+                <p className="text-xs text-muted-foreground">{t("coreBackendUrlHint")}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" onClick={saveEdit}>
+                  {t("save")}
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setEditingName(null)}>
+                  {t("cancel")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Dialog open={addingOpen} onOpenChange={handleAddDialogOpenChange}>
         <DialogContent className="sm:max-w-lg">

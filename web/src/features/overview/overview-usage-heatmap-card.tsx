@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Card, CardContent } from "@/components/ui/card"
@@ -18,7 +18,6 @@ const DAYS = 7
 const FETCH_HOURS = HOURS * DAYS
 const REFRESH_MS = 60_000
 const DAY_LABEL_COL = "1.75rem"
-const STATS_MIN_HEIGHT = 220
 
 const WEEK_KEYS = [
   "homeWeekMon",
@@ -54,8 +53,6 @@ type Matrix = {
   errors: number
   maxCalls: number
   maxErrors: number
-  activeDays: number
-  errorDays: number
 }
 
 function emptyCell(): DayCell {
@@ -81,20 +78,12 @@ function buildMatrix(days: HeatmapDay[]): Matrix {
     errors += day.errors
   }
   let requests = 0
-  let activeDays = 0
-  let errorDays = 0
   for (const row of cells) {
-    let dayCalls = 0
-    let dayErrors = 0
     for (const cell of row) {
       requests += cell.count
-      dayCalls += cell.count
-      dayErrors += cell.errors
       maxCalls = Math.max(maxCalls, cell.count)
       maxErrors = Math.max(maxErrors, cell.errors)
     }
-    if (dayCalls > 0) activeDays++
-    if (dayErrors > 0) errorDays++
   }
   return {
     cells,
@@ -102,8 +91,6 @@ function buildMatrix(days: HeatmapDay[]): Matrix {
     errors,
     maxCalls,
     maxErrors,
-    activeDays,
-    errorDays,
   }
 }
 
@@ -113,12 +100,6 @@ function shadeClass(cell: DayCell, maxCalls: number, maxErrors: number): string 
   }
   if (cell.count <= 0 || maxCalls <= 0) return OK_CLASS[0]
   return OK_CLASS[Math.min(4, Math.max(1, Math.ceil((cell.count / maxCalls) * 4)))]
-}
-
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(Math.round(n))
 }
 
 function HeatCell({
@@ -192,77 +173,9 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
   const matrix = useMemo(() => buildMatrix(stats ?? []), [stats])
   const hasTraffic = matrix.requests > 0 || matrix.errors > 0
 
-  const contentRef = useRef<HTMLDivElement>(null)
-  const [showStats, setShowStats] = useState(true)
-
-  useEffect(() => {
-    const el = contentRef.current
-    if (!el) return
-    const update = (height: number) => {
-      setShowStats((prev) => {
-        // Hysteresis: hide under threshold, show again with a little headroom.
-        if (prev) return height >= STATS_MIN_HEIGHT
-        return height >= STATS_MIN_HEIGHT + 40
-      })
-    }
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect
-      if (!rect) return
-      update(rect.height)
-    })
-    ro.observe(el)
-    update(el.clientHeight)
-    return () => ro.disconnect()
-  }, [])
-
   return (
     <Card className={cn("gap-0", className)}>
-      <CardContent
-        ref={contentRef}
-        className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3"
-      >
-        {showStats ? (
-          <div className="grid shrink-0 grid-cols-2 gap-8 pb-3">
-            <div className="min-w-0">
-              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
-                <span className="text-3xl font-semibold tabular-nums tracking-tight">
-                  {formatCompact(matrix.requests)}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {t("homeCallsUnit")}
-                </span>
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("homeHeat24StatRequests")}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
-                <span
-                  className={cn(
-                    "text-3xl font-semibold tabular-nums tracking-tight",
-                    matrix.errors > 0 && "text-[#dc2626]",
-                  )}
-                >
-                  {formatCompact(matrix.errors)}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {t("homeHeatmapErrorsUnit")}
-                </span>
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("homeHeatmapDaysOf", {
-                  active: matrix.activeDays,
-                  total: DAYS,
-                })}
-                {matrix.errorDays > 0
-                  ? ` · ${t("homeHeatmapErrorDays", { count: matrix.errorDays })}`
-                  : ""}
-              </p>
-            </div>
-          </div>
-        ) : null}
-
+      <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3">
         {hasTraffic ? (
           <>
             <div

@@ -285,7 +285,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
         </div>
       </div>
 
-      <CardContent className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <CardContent className="grid min-h-0 flex-1 grid-rows-[minmax(12rem,1fr)_auto] gap-4 overflow-hidden p-4 @2xl:grid-cols-[minmax(0,1fr)_280px] @2xl:grid-rows-[minmax(0,1fr)]">
         <ChartContainer
           config={chartConfig}
           className="aspect-auto h-full min-h-0 w-full min-w-0"
@@ -381,7 +381,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
           )}
         </ChartContainer>
 
-        <aside className="flex min-w-0 flex-col gap-4 border-t pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4">
+        <aside className="flex min-w-0 flex-col gap-4 overflow-y-auto border-t pt-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden @2xl:border-t-0 @2xl:border-l @2xl:pt-0 @2xl:pl-4">
           {totalCalls === 0 ? (
             <p className="text-sm leading-relaxed text-muted-foreground">No activity in this period</p>
           ) : (
