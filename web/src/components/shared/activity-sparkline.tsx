@@ -23,7 +23,10 @@ function buildSparklinePoints(values: number[], height: number): SparkPoint[] {
   const count = values.length
 
   return values.map((value, index) => {
-    const x = count <= 1 ? CHART_WIDTH / 2 : CHART_INSET + (index / Math.max(count - 1, 1)) * (CHART_WIDTH - CHART_INSET * 2)
+    const x =
+      count <= 1
+        ? CHART_WIDTH / 2
+        : CHART_INSET + (index / Math.max(count - 1, 1)) * (CHART_WIDTH - CHART_INSET * 2)
     const y = top + innerHeight * (1 - value / max)
     return { x, y }
   })
@@ -75,16 +78,26 @@ function buildSparklinePath(values: number[], height: number) {
   }
 }
 
-export function ActivitySparkline({ className, height = 36, isLoading, title, values }: ActivitySparklineProps) {
+export function ActivitySparkline({
+  className,
+  height = 36,
+  isLoading,
+  title,
+  values,
+}: ActivitySparklineProps) {
   const gradientId = useId().replace(/:/g, "")
   const paths = useMemo(() => buildSparklinePath(values, height), [height, values])
 
   if (isLoading) {
-    return <div className={cn("animate-pulse rounded-full bg-muted/50", className)} style={{ height }} />
+    return (
+      <div className={cn("animate-pulse rounded-full bg-muted/50", className)} style={{ height }} />
+    )
   }
 
   if (values.length === 0) {
-    return <div className={cn("rounded-full bg-muted/15", className)} style={{ height }} title={title} />
+    return (
+      <div className={cn("rounded-full bg-muted/15", className)} style={{ height }} title={title} />
+    )
   }
 
   return (
@@ -104,7 +117,11 @@ export function ActivitySparkline({ className, height = 36, isLoading, title, va
           <stop offset="100%" stopColor="currentColor" stopOpacity="0.01" />
         </linearGradient>
       </defs>
-      <path d={paths.area} className={`fill-[url(#${gradientId})]`} vectorEffect="non-scaling-stroke" />
+      <path
+        d={paths.area}
+        className={`fill-[url(#${gradientId})]`}
+        vectorEffect="non-scaling-stroke"
+      />
       <path
         d={paths.line}
         className="fill-none stroke-current"

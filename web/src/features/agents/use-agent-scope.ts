@@ -21,14 +21,13 @@ export function useAgentScope({
 
   // Services that can join an agent scope = declared in the store but not yet present under that agent.
   const storeServiceNames = useMemo(
-    () =>
-      [
-        ...new Set(
-          services
-            .filter((service) => service.scope.type === "store")
-            .map((service) => service.service_name),
-        ),
-      ],
+    () => [
+      ...new Set(
+        services
+          .filter((service) => service.scope.type === "store")
+          .map((service) => service.service_name),
+      ),
+    ],
     [services],
   )
   const addableServiceNames = useMemo(() => {
@@ -49,8 +48,7 @@ export function useAgentScope({
   )
 
   const scopeServicesError = scopeServicesQuery.error
-  const scopeToolsError =
-    scopeToolQueries.find((result) => result.error)?.error || null
+  const scopeToolsError = scopeToolQueries.find((result) => result.error)?.error || null
   const scopeServicesErrorMessage =
     scopeServicesError instanceof Error
       ? scopeServicesError.message

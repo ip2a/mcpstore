@@ -11,8 +11,7 @@ export function TracesView() {
   const { t } = useI18n()
   const sessions = useQuery({
     queryKey: queryKeys.gatewayFrameSessionsPage("upstream", 1, 0),
-    queryFn: () =>
-      getFrameSessions({ face: "upstream", hours: 24, limit: 1, offset: 0 }),
+    queryFn: () => getFrameSessions({ face: "upstream", hours: 24, limit: 1, offset: 0 }),
   })
 
   return (

@@ -1,7 +1,11 @@
 import { useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
-import { addServiceFromConfig, type ServiceRestartPolicy, type ServiceStartupPolicy } from "@/lib/api"
+import {
+  addServiceFromConfig,
+  type ServiceRestartPolicy,
+  type ServiceStartupPolicy,
+} from "@/lib/api"
 import { buildServiceLifecycleConfig } from "@/features/services/service-lifecycle"
 import {
   DEFAULT_SERVICE_CONFIG_FIELDS,
@@ -14,10 +18,18 @@ import {
 export type AddServiceScope = "store" | "agent"
 export type AddServiceTransport = ServiceConfigTransport
 
-export function useAddServiceForm({ onAdded, onBack }: { onAdded: () => Promise<void>; onBack: () => void }) {
+export function useAddServiceForm({
+  onAdded,
+  onBack,
+}: {
+  onAdded: () => Promise<void>
+  onBack: () => void
+}) {
   const [scope, setScope] = useState<AddServiceScope>("store")
   const [serviceName, setServiceName] = useState("")
-  const [configFields, setConfigFields] = useState<ServiceConfigFields>(DEFAULT_SERVICE_CONFIG_FIELDS)
+  const [configFields, setConfigFields] = useState<ServiceConfigFields>(
+    DEFAULT_SERVICE_CONFIG_FIELDS,
+  )
   const [previewFormat, setPreviewFormat] = useState<ServiceConfigFormat>("json")
   const [agentId, setAgentId] = useState("")
   const [startupPolicy, setStartupPolicy] = useState<ServiceStartupPolicy>("lazy")
@@ -38,7 +50,7 @@ export function useAddServiceForm({ onAdded, onBack }: { onAdded: () => Promise<
           ? ({ type: "store" } as const)
           : ({
               type: "agent",
-              agent_id: (agentId || String(data.get("agentId") || "").trim()),
+              agent_id: agentId || String(data.get("agentId") || "").trim(),
             } as const)
       if (scopeRef.type === "agent" && !scopeRef.agent_id) {
         throw new Error("Agent ID is required")

@@ -40,12 +40,23 @@ export function ServiceConnectionButton({
   const running = isServiceRunning(state)
   const starting = isServiceStarting(state, busy, instanceId)
   const disconnecting = isServiceDisconnecting(busy, instanceId)
-  const instanceConnectionBusy = busy === `connect:${instanceId}` || busy === `disconnect:${instanceId}`
+  const instanceConnectionBusy =
+    busy === `connect:${instanceId}` || busy === `disconnect:${instanceId}`
 
   if (running) {
     return (
-      <Button variant={variant} size={size} className={className} onClick={onDisconnect} disabled={disconnecting}>
-        {disconnecting ? <Spinner data-icon="inline-start" /> : <ServiceTransitionIcon direction="disconnect" data-icon="inline-start" />}
+      <Button
+        variant={variant}
+        size={size}
+        className={className}
+        onClick={onDisconnect}
+        disabled={disconnecting}
+      >
+        {disconnecting ? (
+          <Spinner data-icon="inline-start" />
+        ) : (
+          <ServiceTransitionIcon direction="disconnect" data-icon="inline-start" />
+        )}
         {disconnecting ? t("disconnecting") : t("disconnect")}
       </Button>
     )
@@ -61,7 +72,13 @@ export function ServiceConnectionButton({
   }
 
   return (
-    <Button variant={variant} size={size} className={className} onClick={onConnect} disabled={instanceConnectionBusy}>
+    <Button
+      variant={variant}
+      size={size}
+      className={className}
+      onClick={onConnect}
+      disabled={instanceConnectionBusy}
+    >
       <ServiceTransitionIcon direction="connect" data-icon="inline-start" />
       {t("connect")}
     </Button>
@@ -106,7 +123,13 @@ export function ServiceConnectionButtonForEntry({
       disabled={pending}
       onClick={() => (running ? onDisconnect(service) : onConnect(service))}
     >
-      {pending ? <Spinner /> : running ? <ServiceTransitionIcon direction="disconnect" /> : <ServiceTransitionIcon direction="connect" />}
+      {pending ? (
+        <Spinner />
+      ) : running ? (
+        <ServiceTransitionIcon direction="disconnect" />
+      ) : (
+        <ServiceTransitionIcon direction="connect" />
+      )}
     </Button>
   )
 }

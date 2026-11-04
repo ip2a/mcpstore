@@ -26,7 +26,13 @@ import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -61,7 +67,11 @@ export function collectionTypeIcon(type: string): LucideIcon {
   return COLLECTION_TYPE_ICONS[type] ?? FolderIcon
 }
 
-function parseCollectionDisplay(collection: string): { namespace: string; layer: string; type: string } {
+function parseCollectionDisplay(collection: string): {
+  namespace: string
+  layer: string
+  type: string
+} {
   const parts = collection.split(":")
   if (parts.length >= 3) {
     return {
@@ -119,7 +129,10 @@ function CacheKeyDetailDialog({
       <DialogContent className="flex max-h-[min(85vh,800px)] flex-col gap-4 overflow-hidden sm:max-w-3xl">
         <DialogHeader className="shrink-0 space-y-3">
           <div className="flex min-w-0 items-start gap-3">
-            <DialogTitle className="min-w-0 flex-1 break-all font-mono text-base" title={entry?.key}>
+            <DialogTitle
+              className="min-w-0 flex-1 break-all font-mono text-base"
+              title={entry?.key}
+            >
               {entry?.key}
             </DialogTitle>
             <Badge variant="secondary" className="shrink-0">
@@ -135,7 +148,11 @@ function CacheKeyDetailDialog({
           ) : null}
         </DialogHeader>
 
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "tree" | "json")} className="flex min-h-0 flex-1 flex-col">
+        <Tabs
+          value={viewMode}
+          onValueChange={(v) => setViewMode(v as "tree" | "json")}
+          className="flex min-h-0 flex-1 flex-col"
+        >
           <TabsList variant="line" className="h-9 shrink-0">
             <TabsTrigger value="tree">Tree View</TabsTrigger>
             <TabsTrigger value="json">Raw JSON</TabsTrigger>
@@ -148,12 +165,16 @@ function CacheKeyDetailDialog({
           </TabsContent>
 
           <TabsContent value="json" className="mt-3 min-h-0 flex-1">
-            {entry ? <JsonBlock value={entry.value} className="h-[min(50vh,500px)] max-h-none" /> : null}
+            {entry ? (
+              <JsonBlock value={entry.value} className="h-[min(50vh,500px)] max-h-none" />
+            ) : null}
           </TabsContent>
         </Tabs>
 
         <DialogFooter className="shrink-0 sm:justify-between">
-          <p className="text-xs text-muted-foreground">{Object.keys(entry?.value ?? {}).length} fields</p>
+          <p className="text-xs text-muted-foreground">
+            {Object.keys(entry?.value ?? {}).length} fields
+          </p>
           <Button size="sm" variant="outline" disabled={!entry} onClick={onCopy}>
             <ClipboardIcon data-icon="inline-start" />
             {t("copy")}
@@ -174,7 +195,17 @@ function fieldToText(value: unknown): string | null {
 /** Pulls a short list of the most useful scalar fields to preview inline, skipping noisy keys. */
 function previewFields(value: Record<string, unknown>): Array<[string, string]> {
   const skip = new Set(["name", "id"])
-  const preferredOrder = ["status", "type", "state", "url", "transport", "enabled", "count", "updated_at", "created_at"]
+  const preferredOrder = [
+    "status",
+    "type",
+    "state",
+    "url",
+    "transport",
+    "enabled",
+    "count",
+    "updated_at",
+    "created_at",
+  ]
   const entries: Array<[string, string]> = []
 
   for (const field of preferredOrder) {
@@ -241,7 +272,10 @@ function CacheKeyRow({
           </Badge>
         </div>
         {showKeyAsSubtitle ? (
-          <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/80" title={entry.key}>
+          <p
+            className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/80"
+            title={entry.key}
+          >
             {entry.key}
           </p>
         ) : null}
@@ -280,7 +314,11 @@ function CacheCollectionListItem({
       onClick={() => onSelect(collection.collection)}
       selected={selected}
       title={<span className="capitalize">{label}</span>}
-      trailing={<Badge variant={collection.keyCount > 0 ? "outline" : "secondary"}>{collection.keyCount}</Badge>}
+      trailing={
+        <Badge variant={collection.keyCount > 0 ? "outline" : "secondary"}>
+          {collection.keyCount}
+        </Badge>
+      }
     />
   )
 }
@@ -298,7 +336,10 @@ function CacheCollectionEmptyState({ collection }: { collection: CacheCollection
         <EmptyTitle>{collection.type}</EmptyTitle>
         <EmptyDescription>{t("cacheNoKeys")}</EmptyDescription>
       </EmptyHeader>
-      <p className="max-w-md truncate font-mono text-xs text-muted-foreground" title={collection.collection}>
+      <p
+        className="max-w-md truncate font-mono text-xs text-muted-foreground"
+        title={collection.collection}
+      >
         {collection.collection}
       </p>
     </Empty>
@@ -320,7 +361,9 @@ export function CacheCollectionNav({
   const filtered = useMemo(() => {
     if (!search.trim()) return collections
     const query = search.toLowerCase()
-    return collections.filter((c) => c.type.toLowerCase().includes(query) || c.collection.toLowerCase().includes(query))
+    return collections.filter(
+      (c) => c.type.toLowerCase().includes(query) || c.collection.toLowerCase().includes(query),
+    )
   }, [collections, search])
 
   if (collections.length === 0) {

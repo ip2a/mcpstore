@@ -1,7 +1,11 @@
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Badge } from "@/components/ui/badge"
 import { CacheCollectionDetail } from "@/features/cache/cache-layer-browser"
-import { LAYER_I18N_KEY, type CacheCollectionNode, type CacheTree } from "@/features/cache/cache-model"
+import {
+  LAYER_I18N_KEY,
+  type CacheCollectionNode,
+  type CacheTree,
+} from "@/features/cache/cache-model"
 import { useI18n } from "@/lib/i18n-context"
 
 function ScalarField({ label, value }: { label: string; value: string }) {
@@ -23,7 +27,9 @@ function RequestMetricsSection({ metrics }: { metrics: Record<string, unknown> }
     ["errors", metrics.errors as string | number | boolean],
     ["hit_rate", metrics.hit_rate as string | number | boolean],
     ["avg_latency_ms", metrics.avg_latency_ms as string | number | boolean],
-  ].filter(([, value]) => value !== undefined && value !== null) as Array<[string, string | number | boolean]>
+  ].filter(([, value]) => value !== undefined && value !== null) as Array<
+    [string, string | number | boolean]
+  >
 
   if (fields.length === 0) return null
 

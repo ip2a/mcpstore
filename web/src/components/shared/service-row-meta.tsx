@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
 
-import { deriveServiceDisplayStatus, isServiceConnected } from "@/features/services/service-display-status"
+import {
+  deriveServiceDisplayStatus,
+  isServiceConnected,
+} from "@/features/services/service-display-status"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { listInstancePrompts, listInstanceResources, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"

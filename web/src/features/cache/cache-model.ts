@@ -92,7 +92,10 @@ export function buildCollectionPath(namespace: string, layer: CacheLayerId, type
   return `${namespace}:${layer}:${type}`
 }
 
-function countForCollection(collection: string, counts: Record<string, unknown>): number | undefined {
+function countForCollection(
+  collection: string,
+  counts: Record<string, unknown>,
+): number | undefined {
   const parsed = parseCollectionPath(collection)
   if (!parsed) return undefined
   const typeCounts = counts[LAYER_COUNTS_KEY[parsed.layer]]
@@ -118,7 +121,9 @@ function asCacheKeyEntries(items: unknown, layer: CacheLayerId): CacheKeyEntry[]
     const key = typeof raw._key === "string" ? raw._key : `unknown-${index}`
     const type = typeof raw._type === "string" ? raw._type : "unknown"
     const collection =
-      typeof raw._collection === "string" ? raw._collection : buildCollectionPath("unknown", layer, type)
+      typeof raw._collection === "string"
+        ? raw._collection
+        : buildCollectionPath("unknown", layer, type)
     entries.push({
       id: `${collection}:${key}:${index}`,
       key,
@@ -141,10 +146,18 @@ function emptyCollectionNode(
   return { namespace, layer, type, collection, keyCount, keys: [] }
 }
 
-function buildLayerNode(layer: CacheLayerId, collectionMap: Map<string, CacheCollectionNode>): CacheLayerNode {
+function buildLayerNode(
+  layer: CacheLayerId,
+  collectionMap: Map<string, CacheCollectionNode>,
+): CacheLayerNode {
   const collections = [...collectionMap.values()]
     .filter((node) => node.layer === layer)
-    .sort((a, b) => b.keyCount - a.keyCount || a.type.localeCompare(b.type) || a.collection.localeCompare(b.collection))
+    .sort(
+      (a, b) =>
+        b.keyCount - a.keyCount ||
+        a.type.localeCompare(b.type) ||
+        a.collection.localeCompare(b.collection),
+    )
   const keyCount = collections.reduce((sum, node) => sum + node.keyCount, 0)
   return {
     layer,
@@ -154,21 +167,33 @@ function buildLayerNode(layer: CacheLayerId, collectionMap: Map<string, CacheCol
   }
 }
 
-function buildLayersFromCollections(collectionMap: Map<string, CacheCollectionNode>): CacheLayerNode[] {
+function buildLayersFromCollections(
+  collectionMap: Map<string, CacheCollectionNode>,
+): CacheLayerNode[] {
   return CACHE_LAYER_ORDER.map((layer) => buildLayerNode(layer, collectionMap)).filter(
     (layer) => layer.collections.length > 0,
   )
 }
 
 export function getLayerNode(tree: CacheTree | null, layer: CacheLayerId): CacheLayerNode {
-  return tree?.layers.find((node) => node.layer === layer) ?? { layer, collections: [], typeCount: 0, keyCount: 0 }
+  return (
+    tree?.layers.find((node) => node.layer === layer) ?? {
+      layer,
+      collections: [],
+      typeCount: 0,
+      keyCount: 0,
+    }
+  )
 }
 
 export function getAllLayerNodes(tree: CacheTree | null): CacheLayerNode[] {
   return CACHE_LAYER_ORDER.map((layer) => getLayerNode(tree, layer))
 }
 
-export function buildDisplayCacheTree(inspectReport: unknown, healthReport: unknown): CacheTree | null {
+export function buildDisplayCacheTree(
+  inspectReport: unknown,
+  healthReport: unknown,
+): CacheTree | null {
   return buildCacheTreeFromInspect(inspectReport) ?? buildCacheTreeFromHealth(healthReport)
 }
 
@@ -223,7 +248,12 @@ export function buildCacheTreeFromInspect(report: unknown): CacheTree | null {
     if (!parsed) continue
     collectionMap.set(
       collection,
-      emptyCollectionNode(parsed.namespace, parsed.layer, parsed.type, countForCollection(collection, counts) ?? 0),
+      emptyCollectionNode(
+        parsed.namespace,
+        parsed.layer,
+        parsed.type,
+        countForCollection(collection, counts) ?? 0,
+      ),
     )
   }
 
@@ -252,7 +282,11 @@ export function buildCacheTreeFromInspect(report: unknown): CacheTree | null {
     }
   }
 
-  return summarizeTree(namespace, buildLayersFromCollections(collectionMap), { backend, scope, requestMetrics })
+  return summarizeTree(namespace, buildLayersFromCollections(collectionMap), {
+    backend,
+    scope,
+    requestMetrics,
+  })
 }
 
 export function countHealthActiveTypes(report: unknown): number {
@@ -272,7 +306,10 @@ export function extractCacheNamespace(...reports: unknown[]): string | null {
   return null
 }
 
-export function findCacheKeyEntry(tree: CacheTree | null, keyId: string | null): CacheKeyEntry | null {
+export function findCacheKeyEntry(
+  tree: CacheTree | null,
+  keyId: string | null,
+): CacheKeyEntry | null {
   if (!tree || !keyId) return null
   for (const layer of tree.layers) {
     for (const collection of layer.collections) {

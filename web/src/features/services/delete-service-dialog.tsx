@@ -14,7 +14,15 @@ import {
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance } from "@/lib/api"
 
-export function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { service: ServiceInstance | null; onOpenChange: (open: boolean) => void; onConfirm: (service: ServiceInstance) => void }) {
+export function DeleteServiceDialog({
+  service,
+  onOpenChange,
+  onConfirm,
+}: {
+  service: ServiceInstance | null
+  onOpenChange: (open: boolean) => void
+  onConfirm: (service: ServiceInstance) => void
+}) {
   const { t } = useI18n()
   const serviceLabel = service
     ? `${service.service_name} · ${service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`}`
@@ -28,11 +36,15 @@ export function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { serv
             <Trash2Icon />
           </AlertDialogMedia>
           <AlertDialogTitle>{t("deleteServiceTitle")}</AlertDialogTitle>
-          <AlertDialogDescription>{serviceLabel ? t("deleteServiceDescription", { name: serviceLabel }) : null}</AlertDialogDescription>
+          <AlertDialogDescription>
+            {serviceLabel ? t("deleteServiceDescription", { name: serviceLabel }) : null}
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => service && onConfirm(service)}>{t("delete")}</AlertDialogAction>
+          <AlertDialogAction variant="destructive" onClick={() => service && onConfirm(service)}>
+            {t("delete")}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

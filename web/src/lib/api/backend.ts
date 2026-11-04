@@ -6,46 +6,46 @@
  * and failover stay on the backend.
  */
 
-import type { HostsConfig } from "@/lib/api/hosts";
+import type { HostsConfig } from "@/lib/api/hosts"
 
-const CORE_HOST_CHANGED = "mcpstore:core-host-changed";
+const CORE_HOST_CHANGED = "mcpstore:core-host-changed"
 
-let selectedHost = "";
+let selectedHost = ""
 
 export function getApiBase(): string {
-  return "/api";
+  return "/api"
 }
 
 export function getSelectedHost(): string {
-  return selectedHost;
+  return selectedHost
 }
 
 export function syncApiBaseFromHosts(hosts: HostsConfig): void {
-  if (selectedHost === hosts.active) return;
-  selectedHost = hosts.active;
-  window.dispatchEvent(new Event(CORE_HOST_CHANGED));
+  if (selectedHost === hosts.active) return
+  selectedHost = hosts.active
+  window.dispatchEvent(new Event(CORE_HOST_CHANGED))
 }
 
 /** Connection hints must not override persisted host selection. */
 export function tryInitFromConnectionHint(): boolean {
-  return false;
+  return false
 }
 
 export function onSelectedHostChanged(listener: () => void): () => void {
-  window.addEventListener(CORE_HOST_CHANGED, listener);
-  return () => window.removeEventListener(CORE_HOST_CHANGED, listener);
+  window.addEventListener(CORE_HOST_CHANGED, listener)
+  return () => window.removeEventListener(CORE_HOST_CHANGED, listener)
 }
 
 /** App-owned API base (meta, settings, client-config). Always same-origin. */
 export function getAppApiBase(): string {
-  return "/api";
+  return "/api"
 }
 
 /** Resolve an api base to an absolute URL (default `/api` -> `origin + /api`). */
 export function absoluteApiBase(base: string): string {
   try {
-    return new URL(base, window.location.origin).toString();
+    return new URL(base, window.location.origin).toString()
   } catch {
-    return base;
+    return base
   }
 }

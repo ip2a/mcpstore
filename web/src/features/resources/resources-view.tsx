@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { McpRegistryFilterDialog } from "@/features/mcp-registry/mcp-registry-filter-dialog"
 import { useResourcesRegistry } from "@/features/resources/use-resources-registry"
 import { useI18n } from "@/lib/i18n-context"
-import { type AgentItem, type ResourceInfo, type ServiceInstance } from "@/lib/api"
+import type { AgentItem, ResourceInfo, ServiceInstance } from "@/lib/api"
 
 type ResourceSortBy = "name" | "service"
 
@@ -66,10 +66,13 @@ export function ResourcesView(props: {
   }, [sortBy, visibleResources])
 
   const serviceTabs = useMemo(
-    () => [{ id: "all", label: t("filterAll") }, ...scopeInstances.map((instance) => ({
-      id: instance.instance_id,
-      label: instance.service_name,
-    }))],
+    () => [
+      { id: "all", label: t("filterAll") },
+      ...scopeInstances.map((instance) => ({
+        id: instance.instance_id,
+        label: instance.service_name,
+      })),
+    ],
     [scopeInstances, t],
   )
 
@@ -86,7 +89,8 @@ export function ResourcesView(props: {
         title={<h1 className="text-lg font-semibold">{t("resourceRegistryTitle")}</h1>}
         subtitle={t("resourceRegistryDescription", {
           count: visibleResources.length,
-          scope: scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
+          scope:
+            scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
         })}
       />
 
@@ -194,7 +198,11 @@ function ResourcesTabContent({
   if (error) {
     return (
       <div className="px-4 py-2">
-        <PageError title={t("resourcesFailedToLoad")} message={errorMessage} onRefresh={loadResources} />
+        <PageError
+          title={t("resourcesFailedToLoad")}
+          message={errorMessage}
+          onRefresh={loadResources}
+        />
       </div>
     )
   }
@@ -210,7 +218,11 @@ function ResourcesTabContent({
   if (!resources.length) {
     return (
       <div className="px-4 py-2">
-        <PageEmpty title={t("noResourcesFound")} description={t("noResourcesScopeDescription")} onRefresh={loadResources} />
+        <PageEmpty
+          title={t("noResourcesFound")}
+          description={t("noResourcesScopeDescription")}
+          onRefresh={loadResources}
+        />
       </div>
     )
   }

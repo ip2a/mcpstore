@@ -43,10 +43,16 @@ export function PromptListCard({
           aria-hidden
           className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
         >
-          <McpIcon icons={prompt.icons} fallback={<ScrollTextIcon className="size-4" />} className="size-4" />
+          <McpIcon
+            icons={prompt.icons}
+            fallback={<ScrollTextIcon className="size-4" />}
+            className="size-4"
+          />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{displayName}</span>
+          <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
+            {displayName}
+          </span>
           <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
             <BadgeCheckIcon className="size-3.5 shrink-0" />
             <span className="truncate">{instance.service_name}</span>
@@ -55,14 +61,10 @@ export function PromptListCard({
       </div>
 
       {description ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
-          {description}
-        </p>
+        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{description}</p>
       ) : null}
 
-      <p className="mt-3 text-xs text-muted-foreground">
-        {t("paramCount", { count: argCount })}
-      </p>
+      <p className="mt-3 text-xs text-muted-foreground">{t("paramCount", { count: argCount })}</p>
     </div>
   )
 }

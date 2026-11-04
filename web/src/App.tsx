@@ -32,7 +32,6 @@ import { getSelectedHost, onSelectedHostChanged } from "@/lib/api/backend"
 import { useAppQueryRefreshers } from "@/hooks/use-app-query-refreshers"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
-import { cn } from "@/lib/utils"
 
 export function App() {
   const { services, agents, backend, loading, error: dashboardError, refresh } = useDashboard()
@@ -60,14 +59,12 @@ export function App() {
   const { busy, runAction } = useAppActions(refresh)
   const {
     closeToolDetail,
-    closeToolDialog,
     closeToolResult,
     isToolRunning,
     openServiceToolDetail,
     openServiceToolRunner,
     openToolRunnerFromDetail,
     runToolFromDialogState,
-    setToolDetail,
     toolDetail,
     toolResult,
   } = useToolDialogState()
@@ -85,7 +82,14 @@ export function App() {
   })
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
   const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
-  const { closeDeleteDialog, closeResetDialog, confirmReset, deleteTarget, resetTarget, setDeleteTarget, setResetTarget } = useAppConfirmations({ refreshConfigQueries, runAction })
+  const {
+    closeDeleteDialog,
+    closeResetDialog,
+    confirmReset,
+    deleteTarget,
+    resetTarget,
+    setDeleteTarget,
+  } = useAppConfirmations({ refreshConfigQueries, runAction })
   const handleServiceAdded = async () => {
     await refresh()
     await refreshServiceRegistryQueries()
@@ -98,114 +102,130 @@ export function App() {
           <AppSidebar view={view} onViewChange={setView} />
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted">
-            <div
-              key={selectedHost}
-              className={cn(
-                "mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col px-3",
-                view.name === "instance" || view.name === "home" || view.name === "services" || view.name === "clients" || view.name === "plugins" || view.name === "gateway" || view.name === "history" || view.name === "traces" || view.name === "cache" || view.name === "settings" || view.name === "tools" || view.name === "tool" || view.name === "resources" || view.name === "resource" || view.name === "prompts" || view.name === "prompt" ? "gap-3 pt-3 pb-2" : "gap-6 overflow-auto py-3",
-              )}
-            >
-            {view.name === "home" ? (
-              <OverviewView />
-            ) : view.name === "instance" ? (
-            selectedService ? (
-              <ServiceDetailView
-                service={selectedService}
-                busy={busy}
-                refreshToken={serviceDetailRevision}
-                onBack={goBack}
-                onRunTool={(tool, args) => openServiceToolRunner(selectedService, tool, args)}
-                isToolRunning={(tool) => isToolRunning(selectedService.instance_id, tool.name)}
-                onToolDetail={(tool, service, statusReport) => openServiceToolDetail(service, tool, statusReport)}
-                onConnect={() => connectServiceEntry(selectedService)}
-                onDisconnect={() => disconnectServiceEntry(selectedService)}
-                onRestart={() => restartServiceEntry(selectedService)}
-                onDelete={() => setDeleteTarget(selectedService)}
-              />
-            ) : selectedServiceError ? (
-              <PageError
-                title="Instance failed to load"
-                message={selectedServiceError instanceof Error ? selectedServiceError.message : String(selectedServiceError)}
-                onRefresh={() => void refreshSelectedService()}
-              />
-            ) : selectedServiceLoading ? (
-              <PageSkeleton />
-            ) : null
-          ) : view.name === "tools" ? (
-            <ToolsView
-              agents={agents}
-              services={services}
-              onOpenTool={(instanceId, toolName) => setView({ name: "tool", instanceId, toolName })}
-            />
-          ) : view.name === "resources" ? (
-            <ResourcesView
-              agents={agents}
-              services={services}
-              onOpenResource={(instanceId, resourceUri) => setView({ name: "resource", instanceId, resourceUri })}
-            />
-          ) : view.name === "prompts" ? (
-            <PromptsView
-              agents={agents}
-              services={services}
-              onOpenPrompt={(instanceId, promptName) => setView({ name: "prompt", instanceId, promptName })}
-            />
-          ) : view.name === "tool" ? (
-            <ToolDetailView
-              instanceId={view.instanceId}
-              toolName={view.toolName}
-              services={services}
-              onBack={goBack}
-              onRunTool={runToolFromDialogState}
-              isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
-            />
-          ) : view.name === "resource" ? (
-            <ResourceDetailView
-              instanceId={view.instanceId}
-              resourceUri={view.resourceUri}
-              services={services}
-              onBack={goBack}
-            />
-          ) : view.name === "prompt" ? (
-            <PromptDetailView
-              instanceId={view.instanceId}
-              promptName={view.promptName}
-              services={services}
-              onBack={goBack}
-            />
-          ) : view.name === "clients" ? (
-            <ClientsView />
-          ) : view.name === "plugins" ? (
-            <PluginsView initialTab={view.tab} />
-          ) : view.name === "gateway" ? (
-            <GatewayView />
-          ) : view.name === "history" ? (
-            <HistoryView />
-          ) : view.name === "traces" ? (
-            <TracesView />
-          ) : view.name === "cache" ? (
-            <CacheView backend={backend} revision={cacheRevision} onRefreshDashboard={refresh} onSwitch={() => setCacheDialogOpen(true)} />
-          ) : view.name === "settings" ? (
-            <SettingsView />
-          ) : (
-            <ServicesView
-              services={services}
-              agents={agents}
-              busy={busy}
-              error={dashboardError}
-              loading={loading}
-              onCache={() => setView({ name: "cache" })}
-              onCheck={checkAllServices}
-              onConnect={connectServiceEntry}
-              onDeclareScope={declareServiceScope}
-              onDelete={setDeleteTarget}
-              onDisconnect={disconnectServiceEntry}
-              onOpen={(service) => setView({ name: "instance", addr: service })}
-              onRefresh={refresh}
-              onRestart={restartServiceEntry}
-              onAdded={handleServiceAdded}
-            />
-          )}
-            </div>
+              <div
+                key={selectedHost}
+                className="mx-auto flex min-h-0 w-full max-w-[1200px] min-w-0 flex-1 flex-col gap-3 px-3 pt-3 pb-2"
+              >
+                {view.name === "home" ? (
+                  <OverviewView />
+                ) : view.name === "instance" ? (
+                  selectedService ? (
+                    <ServiceDetailView
+                      service={selectedService}
+                      busy={busy}
+                      refreshToken={serviceDetailRevision}
+                      onBack={goBack}
+                      onRunTool={(tool, args) => openServiceToolRunner(selectedService, tool, args)}
+                      isToolRunning={(tool) =>
+                        isToolRunning(selectedService.instance_id, tool.name)
+                      }
+                      onToolDetail={(tool, service, statusReport) =>
+                        openServiceToolDetail(service, tool, statusReport)
+                      }
+                      onConnect={() => connectServiceEntry(selectedService)}
+                      onDisconnect={() => disconnectServiceEntry(selectedService)}
+                      onRestart={() => restartServiceEntry(selectedService)}
+                      onDelete={() => setDeleteTarget(selectedService)}
+                    />
+                  ) : selectedServiceError ? (
+                    <PageError
+                      title="Instance failed to load"
+                      message={
+                        selectedServiceError instanceof Error
+                          ? selectedServiceError.message
+                          : String(selectedServiceError)
+                      }
+                      onRefresh={() => void refreshSelectedService()}
+                    />
+                  ) : selectedServiceLoading ? (
+                    <PageSkeleton />
+                  ) : null
+                ) : view.name === "tools" ? (
+                  <ToolsView
+                    agents={agents}
+                    services={services}
+                    onOpenTool={(instanceId, toolName) =>
+                      setView({ name: "tool", instanceId, toolName })
+                    }
+                  />
+                ) : view.name === "resources" ? (
+                  <ResourcesView
+                    agents={agents}
+                    services={services}
+                    onOpenResource={(instanceId, resourceUri) =>
+                      setView({ name: "resource", instanceId, resourceUri })
+                    }
+                  />
+                ) : view.name === "prompts" ? (
+                  <PromptsView
+                    agents={agents}
+                    services={services}
+                    onOpenPrompt={(instanceId, promptName) =>
+                      setView({ name: "prompt", instanceId, promptName })
+                    }
+                  />
+                ) : view.name === "tool" ? (
+                  <ToolDetailView
+                    instanceId={view.instanceId}
+                    toolName={view.toolName}
+                    services={services}
+                    onBack={goBack}
+                    onRunTool={runToolFromDialogState}
+                    isToolRunning={(instanceId, toolName) => isToolRunning(instanceId, toolName)}
+                  />
+                ) : view.name === "resource" ? (
+                  <ResourceDetailView
+                    instanceId={view.instanceId}
+                    resourceUri={view.resourceUri}
+                    services={services}
+                    onBack={goBack}
+                  />
+                ) : view.name === "prompt" ? (
+                  <PromptDetailView
+                    instanceId={view.instanceId}
+                    promptName={view.promptName}
+                    services={services}
+                    onBack={goBack}
+                  />
+                ) : view.name === "clients" ? (
+                  <ClientsView />
+                ) : view.name === "plugins" ? (
+                  <PluginsView initialTab={view.tab} />
+                ) : view.name === "gateway" ? (
+                  <GatewayView />
+                ) : view.name === "history" ? (
+                  <HistoryView />
+                ) : view.name === "traces" ? (
+                  <TracesView />
+                ) : view.name === "cache" ? (
+                  <CacheView
+                    backend={backend}
+                    revision={cacheRevision}
+                    onRefreshDashboard={refresh}
+                    onSwitch={() => setCacheDialogOpen(true)}
+                  />
+                ) : view.name === "settings" ? (
+                  <SettingsView />
+                ) : (
+                  <ServicesView
+                    services={services}
+                    agents={agents}
+                    busy={busy}
+                    error={dashboardError}
+                    loading={loading}
+                    onCache={() => setView({ name: "cache" })}
+                    onCheck={checkAllServices}
+                    onConnect={connectServiceEntry}
+                    onDeclareScope={declareServiceScope}
+                    onDelete={setDeleteTarget}
+                    onDisconnect={disconnectServiceEntry}
+                    onOpen={(service) => setView({ name: "instance", addr: service })}
+                    onRefresh={refresh}
+                    onRestart={restartServiceEntry}
+                    onAdded={handleServiceAdded}
+                  />
+                )}
+              </div>
             </main>
           </div>
         </div>
@@ -218,20 +238,20 @@ export function App() {
         deleteTarget={deleteTarget}
         resetTarget={resetTarget}
         toolDetail={toolDetail}
-        toolDialog={null}
         toolResult={toolResult}
         onCacheChanged={async () => {
           await refresh()
           await refreshCacheQueries()
         }}
         onCacheDialogOpenChange={setCacheDialogOpen}
-        onConfirmDelete={(service) => removeServiceEntry(service).then(() => setView({ name: "services" }))}
+        onConfirmDelete={(service) =>
+          removeServiceEntry(service).then(() => setView({ name: "services" }))
+        }
         onConfirmReset={confirmReset}
         onDeleteDialogOpenChange={closeDeleteDialog}
         onResetDialogOpenChange={closeResetDialog}
         onRunToolFromDetail={openToolRunnerFromDetail}
         onToolDetailOpenChange={closeToolDetail}
-        onToolDialogOpenChange={closeToolDialog}
         onToolResultOpenChange={closeToolResult}
       />
       <Toaster />

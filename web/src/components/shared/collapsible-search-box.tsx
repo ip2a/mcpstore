@@ -17,7 +17,13 @@ type CollapsibleSearchBoxProps = {
 // - Force expand when there is a value
 // - Escape clears and collapses
 // - Collapses on blur when empty
-export function CollapsibleSearchBox({ id, inline = false, placeholder, value, onChange }: CollapsibleSearchBoxProps) {
+export function CollapsibleSearchBox({
+  id,
+  inline = false,
+  placeholder,
+  value,
+  onChange,
+}: CollapsibleSearchBoxProps) {
   const [open, setOpen] = useState(() => value.length > 0)
   const inputRef = useRef<HTMLInputElement>(null)
 

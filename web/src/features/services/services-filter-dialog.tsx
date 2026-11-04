@@ -11,11 +11,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-  type ServiceScopeFilter,
-  type ServiceStatusFilter,
-} from "@/features/services/use-services-list"
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import type { ServiceScopeFilter, ServiceStatusFilter } from "@/features/services/use-services-list"
 import { useI18n } from "@/lib/i18n-context"
 
 export function ServicesFilterDialog(props: {
@@ -55,7 +59,9 @@ export function ServicesFilterDialog(props: {
                 <FieldLabel>{t("scope")}</FieldLabel>
                 <Select
                   value={props.scopeFilter}
-                  onValueChange={(value) => props.onScopeFilterChange?.(value as ServiceScopeFilter)}
+                  onValueChange={(value) =>
+                    props.onScopeFilterChange?.(value as ServiceScopeFilter)
+                  }
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder={t("scope")} />
@@ -73,7 +79,9 @@ export function ServicesFilterDialog(props: {
                 <FieldLabel>{t("agent")}</FieldLabel>
                 <Select
                   value={props.agentFilter || "all"}
-                  onValueChange={(value) => props.onAgentFilterChange?.(value === "all" ? "" : value)}
+                  onValueChange={(value) =>
+                    props.onAgentFilterChange?.(value === "all" ? "" : value)
+                  }
                   disabled={props.scopeFilter !== "agent"}
                 >
                   <SelectTrigger className="w-full">

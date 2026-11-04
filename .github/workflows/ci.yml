@@ -73,6 +73,9 @@ jobs:
       - name: Install locked web dependencies
         run: npm ci
 
+      - name: Lint web application
+        run: npm run lint
+
       - name: Build web application
         run: npm run build
 

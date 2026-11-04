@@ -72,7 +72,8 @@ function formatArgsText(value: unknown) {
 }
 
 function normalizeHandshakeMode(value: unknown): HandshakeMode {
-  return typeof value === "string" && (value === "auto" || value === "discover" || value === "initialize")
+  return typeof value === "string" &&
+    (value === "auto" || value === "discover" || value === "initialize")
     ? value
     : "auto"
 }
@@ -167,7 +168,10 @@ function unwrapMcpServers(parsed: Record<string, unknown>): ParsedServiceConfigI
   return { name, config: config as Record<string, unknown> }
 }
 
-export function parseConfigText(format: ServiceConfigFormat, text: string): Record<string, unknown> {
+export function parseConfigText(
+  format: ServiceConfigFormat,
+  text: string,
+): Record<string, unknown> {
   return parseImportedServiceConfig(format, text).config
 }
 
@@ -192,7 +196,10 @@ export function parseImportedServiceConfig(
   return unwrapMcpServers(parsed as Record<string, unknown>)
 }
 
-export function serializeConfigFields(fields: ServiceConfigFields, format: ServiceConfigFormat): string {
+export function serializeConfigFields(
+  fields: ServiceConfigFields,
+  format: ServiceConfigFormat,
+): string {
   const config = fieldsToConfig(fields)
   if (format === "json") {
     return `${JSON.stringify(config, null, 2)}\n`

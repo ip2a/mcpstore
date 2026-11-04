@@ -2,10 +2,23 @@ import { useEffect } from "react"
 import { PlusIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { useI18n } from "@/lib/i18n-context"
 
@@ -88,7 +101,11 @@ export function AddScopeServiceDialog({
               {t("cancel")}
             </Button>
             <Button type="submit" disabled={!canSubmit || !addableServiceNames.length}>
-              {submitting ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+              {submitting ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <PlusIcon data-icon="inline-start" />
+              )}
               {submitting ? t("adding") : t("add")}
             </Button>
           </DialogFooter>

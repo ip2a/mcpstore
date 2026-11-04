@@ -27,7 +27,10 @@ export function ToolCard({
   variant?: "card" | "plain"
 }) {
   const { t } = useI18n()
-  const schema = getToolSchema(tool) as { properties?: Record<string, { type?: string; description?: string }>; required?: string[] }
+  const schema = getToolSchema(tool) as {
+    properties?: Record<string, { type?: string; description?: string }>
+    required?: string[]
+  }
   const params = Object.entries(schema.properties || {}).sort(([a], [b]) => a.localeCompare(b))
 
   async function onCopy() {
@@ -73,7 +76,9 @@ export function ToolCard({
         <div className="flex flex-wrap gap-2">
           {sourceLabel ? <Badge variant="secondary">{sourceLabel}</Badge> : null}
           {schema.required?.length ? (
-            <Badge variant="outline">{t("paramCount", { count: schema.required.length })} {t("required")}</Badge>
+            <Badge variant="outline">
+              {t("paramCount", { count: schema.required.length })} {t("required")}
+            </Badge>
           ) : (
             <Badge variant="outline">{t("optional")}</Badge>
           )}
@@ -83,7 +88,9 @@ export function ToolCard({
             <EntityRow key={name} actions={<Badge variant="outline">{meta.type || "any"}</Badge>}>
               <div className="min-w-0">
                 <code className="text-sm font-medium">{name}</code>
-                <p className="truncate text-sm text-muted-foreground">{meta.description || t("noDescription")}</p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {meta.description || t("noDescription")}
+                </p>
               </div>
             </EntityRow>
           ))

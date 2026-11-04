@@ -21,7 +21,10 @@ export function FormSectionCollapsible({
     <Collapsible open={open} onOpenChange={setOpen} className="rounded-md border">
       <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-muted/50">
         <ChevronRightIcon
-          className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-90",
+          )}
         />
         {icon}
         <span>{title}</span>

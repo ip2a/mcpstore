@@ -41,7 +41,11 @@ export function DialogFormFooter({
       <Button type="button" variant="outline" onClick={onCancel} {...cancelButtonProps}>
         {cancelLabel ?? t("cancel")}
       </Button>
-      <Button type="submit" {...submitButtonProps} disabled={submitDisabled || submitting || submitButtonProps?.disabled}>
+      <Button
+        type="submit"
+        {...submitButtonProps}
+        disabled={submitDisabled || submitting || submitButtonProps?.disabled}
+      >
         {submitting ? <Spinner data-icon="inline-start" /> : null}
         {submitLabel}
       </Button>

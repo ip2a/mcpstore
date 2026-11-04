@@ -121,8 +121,7 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
     (marketQuery.isPending && !marketQuery.data) ||
     (pluginsQuery.isPending && !pluginsQuery.data)
   const errored = servicesQuery.isError || marketQuery.isError || pluginsQuery.isError
-  const refreshing =
-    servicesQuery.isFetching || marketQuery.isFetching || pluginsQuery.isFetching
+  const refreshing = servicesQuery.isFetching || marketQuery.isFetching || pluginsQuery.isFetching
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.scopeServices({ type: "store" }) })
@@ -140,7 +139,11 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
       />
 
       <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
-        <Tabs value={tab} onValueChange={(value) => setTab(value as PluginTab)} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as PluginTab)}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
           <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
             <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
               {tabs.map((item) => (
@@ -197,7 +200,11 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
                 </ScrollPane>
               ) : (
                 <div className="px-4 py-2">
-                  <PageEmpty title={t("noPlugins")} description={t("noPluginsDescription")} onRefresh={refresh} />
+                  <PageEmpty
+                    title={t("noPlugins")}
+                    description={t("noPluginsDescription")}
+                    onRefresh={refresh}
+                  />
                 </div>
               )}
             </TabsContent>

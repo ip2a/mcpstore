@@ -9,7 +9,11 @@ export type LifecyclePolicyOption<T extends string> = {
 export const SERVICE_STARTUP_POLICY_OPTIONS: Array<LifecyclePolicyOption<ServiceStartupPolicy>> = [
   { value: "lazy", label: "lazy", descriptionKey: "lifecycleStartupLazy" },
   { value: "manual", label: "manual", descriptionKey: "lifecycleStartupManual" },
-  { value: "on-store-start", label: "on-store-start", descriptionKey: "lifecycleStartupOnStoreStart" },
+  {
+    value: "on-store-start",
+    label: "on-store-start",
+    descriptionKey: "lifecycleStartupOnStoreStart",
+  },
 ]
 
 export const SERVICE_RESTART_POLICY_OPTIONS: Array<LifecyclePolicyOption<ServiceRestartPolicy>> = [
@@ -19,14 +23,24 @@ export const SERVICE_RESTART_POLICY_OPTIONS: Array<LifecyclePolicyOption<Service
   { value: "on-failure:3", label: "on-failure:3", descriptionKey: "lifecycleRestartOnFailure3" },
   { value: "on-failure:5", label: "on-failure:5", descriptionKey: "lifecycleRestartOnFailure5" },
   { value: "always", label: "always", descriptionKey: "lifecycleRestartAlways" },
-  { value: "unless-stopped", label: "unless-stopped", descriptionKey: "lifecycleRestartUnlessStopped" },
+  {
+    value: "unless-stopped",
+    label: "unless-stopped",
+    descriptionKey: "lifecycleRestartUnlessStopped",
+  },
 ]
 
 export function getStartupPolicyOption(value: ServiceStartupPolicy) {
-  return SERVICE_STARTUP_POLICY_OPTIONS.find((option) => option.value === value) || SERVICE_STARTUP_POLICY_OPTIONS[0]
+  return (
+    SERVICE_STARTUP_POLICY_OPTIONS.find((option) => option.value === value) ||
+    SERVICE_STARTUP_POLICY_OPTIONS[0]
+  )
 }
 
-export function getRestartPolicyOption(value: ServiceRestartPolicy, t: (key: string, vars?: Record<string, string | number | null | undefined>) => string) {
+export function getRestartPolicyOption(
+  value: ServiceRestartPolicy,
+  t: (key: string, vars?: Record<string, string | number | null | undefined>) => string,
+) {
   const known = SERVICE_RESTART_POLICY_OPTIONS.find((option) => option.value === value)
   if (known) return known
 

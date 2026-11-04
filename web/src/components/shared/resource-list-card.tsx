@@ -41,10 +41,16 @@ export function ResourceListCard({
           aria-hidden
           className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
         >
-          <McpIcon icons={resource.icons} fallback={<FileStackIcon className="size-4" />} className="size-4" />
+          <McpIcon
+            icons={resource.icons}
+            fallback={<FileStackIcon className="size-4" />}
+            className="size-4"
+          />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{displayName}</span>
+          <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
+            {displayName}
+          </span>
           <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
             <BadgeCheckIcon className="size-3.5 shrink-0" />
             <span className="truncate">{instance.service_name}</span>
@@ -53,9 +59,7 @@ export function ResourceListCard({
       </div>
 
       {description ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
-          {description}
-        </p>
+        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{description}</p>
       ) : null}
 
       {mime ? <p className="mt-3 font-mono text-xs text-muted-foreground">{mime}</p> : null}

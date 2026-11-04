@@ -4,15 +4,19 @@ import { getAgentId } from "@/features/agents/model"
 import { useAgentServicesQuery } from "@/features/agents/queries"
 import type { AgentItem, ServiceInstance } from "@/lib/api"
 
-export function countActiveMcpRegistryFilters(filters: {
-  scope: "store" | "agent"
-}) {
+export function countActiveMcpRegistryFilters(filters: { scope: "store" | "agent" }) {
   let count = 0
   if (filters.scope !== "store") count++
   return count
 }
 
-export function useMcpRegistryScope({ agents, services }: { agents: AgentItem[]; services: ServiceInstance[] }) {
+export function useMcpRegistryScope({
+  agents,
+  services,
+}: {
+  agents: AgentItem[]
+  services: ServiceInstance[]
+}) {
   const agentIds = agents.map(getAgentId).filter(Boolean)
   const [scope, setScope] = useState<"store" | "agent">("store")
   const [agentId, setAgentId] = useState(agentIds[0] || "")
@@ -34,7 +38,10 @@ export function useMcpRegistryScope({ agents, services }: { agents: AgentItem[];
   }, [scope, agentId])
 
   useEffect(() => {
-    if (instanceId !== "all" && !scopeInstances.some((instance) => instance.instance_id === instanceId)) {
+    if (
+      instanceId !== "all" &&
+      !scopeInstances.some((instance) => instance.instance_id === instanceId)
+    ) {
       setInstanceId("all")
     }
   }, [instanceId, scopeInstances])

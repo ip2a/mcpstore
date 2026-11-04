@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 
 import { buildAddServiceCliCommand } from "@/features/services/build-add-service-cli"
-import { ServiceRestartPolicySelect, ServiceStartupPolicySelect } from "@/features/services/service-lifecycle-fields"
+import {
+  ServiceRestartPolicySelect,
+  ServiceStartupPolicySelect,
+} from "@/features/services/service-lifecycle-fields"
 import {
   configToFields,
   HANDSHAKE_MODES,
@@ -26,7 +29,14 @@ import {
 } from "@/components/ui/code-block"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TypographyLead } from "@/components/ui/typography"
@@ -64,7 +74,10 @@ export function ServiceConfigPreviewPane({
     () => buildAddServiceCliCommand({ name, scope, agentId, fields }),
     [agentId, fields, name, scope],
   )
-  const serialized = useMemo(() => serializeConfigFields(fields, previewFormat), [fields, previewFormat])
+  const serialized = useMemo(
+    () => serializeConfigFields(fields, previewFormat),
+    [fields, previewFormat],
+  )
   const [previewText, setPreviewText] = useState(serialized)
   const [parseError, setParseError] = useState<string | null>(null)
   const [previewDirty, setPreviewDirty] = useState(false)
@@ -101,7 +114,12 @@ export function ServiceConfigPreviewPane({
     parseError || (previewFormat === "json" ? t("fieldHelpJson") : t("fieldHelpToml"))
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col gap-3 overflow-hidden @min-[640px]:gap-4", className)}>
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden @min-[640px]:gap-4",
+        className,
+      )}
+    >
       {showCli ? (
         <CodeBlock variant="request" className="flex shrink-0 flex-col">
           <CodeBlockHeader variant="request">
@@ -113,7 +131,10 @@ export function ServiceConfigPreviewPane({
               <span className="rounded-md border border-zinc-700 px-2 py-1 font-mono text-[11px] text-zinc-400">
                 {t("cliRequestLabel")}
               </span>
-              <CodeBlockCopyButton value={cliCommand} className="text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50" />
+              <CodeBlockCopyButton
+                value={cliCommand}
+                className="text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50"
+              />
             </CodeBlockActions>
           </CodeBlockHeader>
           <CodeBlockBody variant="request" maxHeight="9rem">
@@ -122,10 +143,7 @@ export function ServiceConfigPreviewPane({
         </CodeBlock>
       ) : null}
 
-      <CodeBlock
-        variant="response"
-        className="flex min-h-0 flex-1 flex-col overflow-hidden"
-      >
+      <CodeBlock variant="response" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CodeBlockHeader variant="response" className="shrink-0">
           <Tabs
             value={previewFormat}
@@ -150,7 +168,9 @@ export function ServiceConfigPreviewPane({
           />
         </CodeBlockBody>
         <CodeBlockFooter variant="response" className="shrink-0">
-          <TypographyLead className={cn("m-0 text-xs", parseError ? "text-destructive" : "text-muted-foreground")}>
+          <TypographyLead
+            className={cn("m-0 text-xs", parseError ? "text-destructive" : "text-muted-foreground")}
+          >
             {previewHint}
           </TypographyLead>
         </CodeBlockFooter>
@@ -275,7 +295,9 @@ export function AddServicePlaygroundAside({
           <TabsTrigger value="description">{t("description")}</TabsTrigger>
           <TabsTrigger value="handshake">{t("handshakeMode")}</TabsTrigger>
           {showScopeTab ? <TabsTrigger value="scope">{t("scope")}</TabsTrigger> : null}
-          {showLifecycleTab ? <TabsTrigger value="lifecycle">{t("lifecyclePolicy")}</TabsTrigger> : null}
+          {showLifecycleTab ? (
+            <TabsTrigger value="lifecycle">{t("lifecyclePolicy")}</TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="preview" className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -334,8 +356,14 @@ export function AddServicePlaygroundAside({
         {showLifecycleTab && startupPolicy && restartPolicy ? (
           <TabsContent value="lifecycle" className="min-h-0 flex-1 overflow-hidden">
             <FieldGroup className="gap-4">
-              <ServiceStartupPolicySelect value={startupPolicy} onChange={(next) => onStartupPolicyChange?.(next)} />
-              <ServiceRestartPolicySelect value={restartPolicy} onChange={(next) => onRestartPolicyChange?.(next)} />
+              <ServiceStartupPolicySelect
+                value={startupPolicy}
+                onChange={(next) => onStartupPolicyChange?.(next)}
+              />
+              <ServiceRestartPolicySelect
+                value={restartPolicy}
+                onChange={(next) => onRestartPolicyChange?.(next)}
+              />
             </FieldGroup>
           </TabsContent>
         ) : null}

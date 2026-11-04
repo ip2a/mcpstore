@@ -10,7 +10,13 @@ import {
 import { ToolSchemaFields } from "@/components/shared/tool-schema-fields"
 import { useI18n } from "@/lib/i18n-context"
 import type { ToolInfo } from "@/lib/api"
-import { getToolAnnotations, getToolMeta, getToolOutputSchema, getToolSchema, hasJsonContent } from "@/lib/tool-info"
+import {
+  getToolAnnotations,
+  getToolMeta,
+  getToolOutputSchema,
+  getToolSchema,
+  hasJsonContent,
+} from "@/lib/tool-info"
 
 type SchemaField = Record<string, unknown>
 type JsonSchema = { properties?: Record<string, SchemaField>; required?: string[] }

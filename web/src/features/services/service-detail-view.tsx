@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 
-import { PageEmpty, PageError } from "@/components/shared/page-states";
-import { PanelCard } from "@/components/shared/panel-card";
-import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header";
-import { ScrollPane } from "@/components/shared/scroll-pane";
-import { SectionHeading } from "@/components/shared/section-heading";
-import { SelectableRowButton } from "@/components/shared/selectable-row-button";
+import { PageEmpty, PageError } from "@/components/shared/page-states"
+import { PanelCard } from "@/components/shared/panel-card"
+import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { SectionHeading } from "@/components/shared/section-heading"
+import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import {
   ToolDetailDocBody,
   ToolDetailDocHeader,
   ToolPlaygroundAside,
-} from "@/components/shared/tool-detail-playground";
-import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "@/components/shared/tool-detail-playground"
+import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useServiceAuthQuery,
   useServiceDetailQuery,
@@ -22,24 +22,18 @@ import {
   useServiceResourceTemplatesQuery,
   useServiceResourcesQuery,
   useServiceStatusQuery,
-} from "@/features/services/queries";
-import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
-import { serializeToolArgs } from "@/lib/tool-args";
-import { getOriginalToolName, getToolSchema, toolKey } from "@/lib/tool-info";
+} from "@/features/services/queries"
+import { useToolArgsForm } from "@/features/tools/use-tool-args-form"
+import { serializeToolArgs } from "@/lib/tool-args"
+import { getOriginalToolName, getToolSchema, toolKey } from "@/lib/tool-info"
 import {
   resourceTemplateKey,
   resourceTemplateMimeType,
   resourceTemplateUri,
-} from "@/lib/resource-template-info";
-import {
-  type PromptInfo,
-  type ResourceInfo,
-  type ServiceInstance,
-  type ServiceState,
-  type ToolInfo,
-} from "@/lib/api";
-import { formatServiceLaunchLine } from "@/lib/service-info";
-import { useI18n } from "@/lib/i18n-context";
+} from "@/lib/resource-template-info"
+import type { PromptInfo, ResourceInfo, ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
+import { formatServiceLaunchLine } from "@/lib/service-info"
+import { useI18n } from "@/lib/i18n-context"
 
 import {
   ServiceOverviewPane,
@@ -50,244 +44,202 @@ import {
   ServiceResourceTemplateDetailPane,
   type ResourceSubTab,
   type ServiceDetailTab,
-} from "@/features/services/service-panels";
+} from "@/features/services/service-panels"
 
 function resourceKey(resource: ResourceInfo) {
-  return resource.uri;
+  return resource.uri
 }
 
 function promptKey(prompt: PromptInfo) {
-  return prompt.name;
+  return prompt.name
 }
 
 function resourceMimeType(resource: ResourceInfo) {
-  return String(resource.mimeType || "").trim();
+  return String(resource.mimeType || "").trim()
 }
 
 export function ServiceDetailView(props: {
-  service: ServiceInstance;
-  busy: string | null;
-  refreshToken?: number;
-  onBack: () => void;
-  onRunTool: (tool: ToolInfo, args: Record<string, unknown>) => void;
-  isToolRunning?: (tool: ToolInfo) => boolean;
+  service: ServiceInstance
+  busy: string | null
+  refreshToken?: number
+  onBack: () => void
+  onRunTool: (tool: ToolInfo, args: Record<string, unknown>) => void
+  isToolRunning?: (tool: ToolInfo) => boolean
   onToolDetail: (
     tool: ToolInfo,
     service: ServiceInstance,
     statusReport?: ServiceState | null,
-  ) => void;
-  onConnect: () => void;
-  onDisconnect: () => void;
-  onRestart: () => void;
-  onDelete: () => void;
+  ) => void
+  onConnect: () => void
+  onDisconnect: () => void
+  onRestart: () => void
+  onDelete: () => void
 }) {
-  const { t } = useI18n();
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ServiceDetailTab>("service");
-  const [resourceSubTab, setResourceSubTab] = useState<ResourceSubTab>("items");
-  const [selectedToolKey, setSelectedToolKey] = useState<string | null>(null);
-  const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(
-    null,
-  );
-  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(
-    null,
-  );
-  const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(
-    null,
-  );
-  const detailQuery = useServiceDetailQuery(props.service);
-  const authQuery = useServiceAuthQuery(props.service);
-  const statusQuery = useServiceStatusQuery(props.service);
-  const resourcesQuery = useServiceResourcesQuery(props.service);
-  const resourceTemplatesQuery = useServiceResourceTemplatesQuery(props.service);
-  const promptsQuery = useServicePromptsQuery(props.service);
-  const detail = detailQuery.data;
-  const statusReport = statusQuery.data;
-  const error = detailQuery.error || detailError;
+  const { t } = useI18n()
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<ServiceDetailTab>("service")
+  const [resourceSubTab, setResourceSubTab] = useState<ResourceSubTab>("items")
+  const [selectedToolKey, setSelectedToolKey] = useState<string | null>(null)
+  const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null)
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null)
+  const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(null)
+  const detailQuery = useServiceDetailQuery(props.service)
+  const authQuery = useServiceAuthQuery(props.service)
+  const statusQuery = useServiceStatusQuery(props.service)
+  const resourcesQuery = useServiceResourcesQuery(props.service)
+  const resourceTemplatesQuery = useServiceResourceTemplatesQuery(props.service)
+  const promptsQuery = useServicePromptsQuery(props.service)
+  const detail = detailQuery.data
+  const statusReport = statusQuery.data
+  const error = detailQuery.error || detailError
   const errorMessage =
-    error instanceof Error
-      ? error.message
-      : error
-        ? String(error)
-        : t("serviceDetailLoadFailed");
+    error instanceof Error ? error.message : error ? String(error) : t("serviceDetailLoadFailed")
   const loading =
     detailQuery.isFetching ||
     statusQuery.isFetching ||
     resourcesQuery.isFetching ||
     resourceTemplatesQuery.isFetching ||
-    promptsQuery.isFetching;
-  const service = detail || props.service;
-  const endpoint = service.url || service.command || "-";
-  const tools = service.tools || [];
-  const resources = resourcesQuery.data || [];
-  const resourceTemplates = resourceTemplatesQuery.data || [];
-  const prompts = promptsQuery.data || [];
-  const serviceConfig = service.effective_config;
-  const transport = service.transport;
-  const launchLine = formatServiceLaunchLine(service);
-  const description = String(serviceConfig?.description || "").trim();
+    promptsQuery.isFetching
+  const service = detail || props.service
+  const endpoint = service.url || service.command || "-"
+  const tools = service.tools || []
+  const resources = resourcesQuery.data || []
+  const resourceTemplates = resourceTemplatesQuery.data || []
+  const prompts = promptsQuery.data || []
+  const serviceConfig = service.effective_config
+  const transport = service.transport
+  const launchLine = formatServiceLaunchLine(service)
+  const description = String(serviceConfig?.description || "").trim()
   const configArgs = Array.isArray(serviceConfig?.args)
     ? serviceConfig.args.map(String).join(" ")
-    : null;
+    : null
   const selectedTool = useMemo(() => {
-    if (!tools.length) return null;
-    return (
-      tools.find(
-        (tool) => toolKey(service.instance_id, tool) === selectedToolKey,
-      ) || tools[0]
-    );
-  }, [selectedToolKey, service.instance_id, tools]);
+    if (!tools.length) return null
+    return tools.find((tool) => toolKey(service.instance_id, tool) === selectedToolKey) || tools[0]
+  }, [selectedToolKey, service.instance_id, tools])
   const selectedResource = useMemo(() => {
-    if (!resources.length) return null;
+    if (!resources.length) return null
     return (
-      resources.find(
-        (resource) => resourceKey(resource) === selectedResourceKey,
-      ) || resources[0]
-    );
-  }, [resources, selectedResourceKey]);
+      resources.find((resource) => resourceKey(resource) === selectedResourceKey) || resources[0]
+    )
+  }, [resources, selectedResourceKey])
   const selectedTemplate = useMemo(() => {
-    if (!resourceTemplates.length) return null;
+    if (!resourceTemplates.length) return null
     return (
-      resourceTemplates.find(
-        (template) => resourceTemplateKey(template) === selectedTemplateKey,
-      ) || resourceTemplates[0]
-    );
-  }, [resourceTemplates, selectedTemplateKey]);
+      resourceTemplates.find((template) => resourceTemplateKey(template) === selectedTemplateKey) ||
+      resourceTemplates[0]
+    )
+  }, [resourceTemplates, selectedTemplateKey])
   const selectedPrompt = useMemo(() => {
-    if (!prompts.length) return null;
-    return (
-      prompts.find((prompt) => promptKey(prompt) === selectedPromptKey) ||
-      prompts[0]
-    );
-  }, [prompts, selectedPromptKey]);
+    if (!prompts.length) return null
+    return prompts.find((prompt) => promptKey(prompt) === selectedPromptKey) || prompts[0]
+  }, [prompts, selectedPromptKey])
   const {
     values: toolArgs,
     setField: setToolArg,
     schema: toolArgsSchema,
-  } = useToolArgsForm(selectedTool);
-  const runningSelectedTool = Boolean(
-    selectedTool && props.isToolRunning?.(selectedTool),
-  );
+  } = useToolArgsForm(selectedTool)
+  const runningSelectedTool = Boolean(selectedTool && props.isToolRunning?.(selectedTool))
 
   useEffect(() => {
     if (!tools.length) {
-      setSelectedToolKey(null);
-      return;
+      setSelectedToolKey(null)
+      return
     }
     if (
       !selectedToolKey ||
-      !tools.some(
-        (tool) => toolKey(service.instance_id, tool) === selectedToolKey,
-      )
+      !tools.some((tool) => toolKey(service.instance_id, tool) === selectedToolKey)
     ) {
-      setSelectedToolKey(toolKey(service.instance_id, tools[0]));
+      setSelectedToolKey(toolKey(service.instance_id, tools[0]))
     }
-  }, [selectedToolKey, service.instance_id, tools]);
+  }, [selectedToolKey, service.instance_id, tools])
 
   useEffect(() => {
     if (!resources.length) {
-      setSelectedResourceKey(null);
-      return;
+      setSelectedResourceKey(null)
+      return
     }
     if (
       !selectedResourceKey ||
-      !resources.some(
-        (resource) => resourceKey(resource) === selectedResourceKey,
-      )
+      !resources.some((resource) => resourceKey(resource) === selectedResourceKey)
     ) {
-      setSelectedResourceKey(resourceKey(resources[0]));
+      setSelectedResourceKey(resourceKey(resources[0]))
     }
-  }, [resources, selectedResourceKey]);
+  }, [resources, selectedResourceKey])
 
   useEffect(() => {
     if (!resourceTemplates.length) {
-      setSelectedTemplateKey(null);
-      return;
+      setSelectedTemplateKey(null)
+      return
     }
     if (
       !selectedTemplateKey ||
-      !resourceTemplates.some(
-        (template) => resourceTemplateKey(template) === selectedTemplateKey,
-      )
+      !resourceTemplates.some((template) => resourceTemplateKey(template) === selectedTemplateKey)
     ) {
-      setSelectedTemplateKey(resourceTemplateKey(resourceTemplates[0]));
+      setSelectedTemplateKey(resourceTemplateKey(resourceTemplates[0]))
     }
-  }, [resourceTemplates, selectedTemplateKey]);
+  }, [resourceTemplates, selectedTemplateKey])
 
   useEffect(() => {
     if (resourceSubTab === "items" && !resources.length && resourceTemplates.length) {
-      setResourceSubTab("templates");
-    } else if (
-      resourceSubTab === "templates" &&
-      !resourceTemplates.length &&
-      resources.length
-    ) {
-      setResourceSubTab("items");
+      setResourceSubTab("templates")
+    } else if (resourceSubTab === "templates" && !resourceTemplates.length && resources.length) {
+      setResourceSubTab("items")
     }
-  }, [resourceSubTab, resourceTemplates.length, resources.length]);
+  }, [resourceSubTab, resourceTemplates.length, resources.length])
 
   useEffect(() => {
     if (!prompts.length) {
-      setSelectedPromptKey(null);
-      return;
+      setSelectedPromptKey(null)
+      return
     }
-    if (
-      !selectedPromptKey ||
-      !prompts.some((prompt) => promptKey(prompt) === selectedPromptKey)
-    ) {
-      setSelectedPromptKey(promptKey(prompts[0]));
+    if (!selectedPromptKey || !prompts.some((prompt) => promptKey(prompt) === selectedPromptKey)) {
+      setSelectedPromptKey(promptKey(prompts[0]))
     }
-  }, [prompts, selectedPromptKey]);
+  }, [prompts, selectedPromptKey])
 
   async function loadDetail() {
     try {
-      setDetailError(null);
-      const [nextDetail] = await Promise.all([
-        detailQuery.refetch(),
-        statusQuery.refetch(),
-      ]);
-      if (nextDetail.error) throw nextDetail.error;
+      setDetailError(null)
+      const [nextDetail] = await Promise.all([detailQuery.refetch(), statusQuery.refetch()])
+      if (nextDetail.error) throw nextDetail.error
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : t("serviceDetailLoadFailed");
-      if (!detailQuery.error) setDetailError(message);
-      toast.error(message);
+      const message = err instanceof Error ? err.message : t("serviceDetailLoadFailed")
+      if (!detailQuery.error) setDetailError(message)
+      toast.error(message)
     }
   }
 
   async function loadCatalog() {
     if (activeTab === "resources") {
-      await Promise.all([
-        resourcesQuery.refetch(),
-        resourceTemplatesQuery.refetch(),
-      ]);
-      return;
+      await Promise.all([resourcesQuery.refetch(), resourceTemplatesQuery.refetch()])
+      return
     }
-    if (activeTab === "prompts") await promptsQuery.refetch();
+    if (activeTab === "prompts") await promptsQuery.refetch()
   }
 
   function refreshCurrentView() {
     if (activeTab === "service") {
-      return Promise.all([loadDetail(), authQuery.refetch()]);
+      return Promise.all([loadDetail(), authQuery.refetch()])
     }
-    return activeTab === "tools" ? loadDetail() : loadCatalog();
+    return activeTab === "tools" ? loadDetail() : loadCatalog()
   }
 
   useEffect(() => {
-    setActiveTab("service");
-    setResourceSubTab("items");
-  }, [props.service.instance_id]);
+    setActiveTab("service")
+    setResourceSubTab("items")
+  }, [props.service.instance_id])
 
   useEffect(() => {
-    void loadDetail();
-  }, [props.refreshToken, props.service.instance_id]);
+    void loadDetail()
+  }, [props.refreshToken, props.service.instance_id])
 
   useEffect(() => {
-    if (activeTab === "prompts" || activeTab === "resources") void loadCatalog();
-  }, [activeTab, props.service.instance_id]);
+    if (activeTab === "prompts" || activeTab === "resources") void loadCatalog()
+  }, [activeTab, props.service.instance_id])
 
   const catalogSplitClassName =
-    "mt-0 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(220px,0.38fr)_minmax(0,1fr)] grid-rows-1 gap-4 overflow-hidden [&>*]:min-h-0 [&>*]:min-w-0";
+    "mt-0 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(220px,0.38fr)_minmax(0,1fr)] grid-rows-1 gap-4 overflow-hidden [&>*]:min-h-0 [&>*]:min-w-0"
 
   const previewActionsProps = {
     activeTab,
@@ -304,18 +256,14 @@ export function ServiceDetailView(props: {
     busy: props.busy,
     onRun:
       activeTab === "tools" && selectedTool
-        ? () =>
-            props.onRunTool(
-              selectedTool,
-              serializeToolArgs(toolArgs, toolArgsSchema),
-            )
+        ? () => props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
         : undefined,
     runningTool: runningSelectedTool,
     onDetail:
       activeTab === "tools" && selectedTool
         ? () => props.onToolDetail(selectedTool, service, statusReport)
         : undefined,
-  };
+  }
 
   function renderServiceDetail() {
     return (
@@ -343,7 +291,7 @@ export function ServiceDetailView(props: {
           </ScrollPane>
         )}
       </div>
-    );
+    )
   }
 
   function renderCatalogDetail() {
@@ -379,10 +327,7 @@ export function ServiceDetailView(props: {
               toolArgsSchema={toolArgsSchema}
               running={runningSelectedTool}
               onRun={() =>
-                props.onRunTool(
-                  selectedTool,
-                  serializeToolArgs(toolArgs, toolArgsSchema),
-                )
+                props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
               }
             />
           </div>
@@ -409,10 +354,7 @@ export function ServiceDetailView(props: {
                   />
                 )
               ) : selectedResource ? (
-                <ServiceResourceDetailPane
-                  resource={selectedResource}
-                  service={service}
-                />
+                <ServiceResourceDetailPane resource={selectedResource} service={service} />
               ) : (
                 <PageEmpty
                   title={t("noResourceSelected")}
@@ -421,23 +363,17 @@ export function ServiceDetailView(props: {
                 />
               )
             ) : selectedPrompt ? (
-              <ServicePromptDetailPane
-                prompt={selectedPrompt}
-                service={service}
-              />
+              <ServicePromptDetailPane prompt={selectedPrompt} service={service} />
             ) : (
-              <PageEmpty
-                title={t("noPromptSelected")}
-                onRefresh={refreshCurrentView}
-              />
+              <PageEmpty title={t("noPromptSelected")} onRefresh={refreshCurrentView} />
             )}
           </ScrollPane>
         )}
       </div>
-    );
+    )
   }
 
-  const headerSubtitle = [transport, description].filter(Boolean).join(" · ");
+  const headerSubtitle = [transport, description].filter(Boolean).join(" · ")
 
   return (
     <>
@@ -482,30 +418,22 @@ export function ServiceDetailView(props: {
                 className="border-b-0 pb-0"
               />
               {tools.length ? (
-                <ScrollPane
-                  className="flex-1"
-                  innerClassName="flex flex-col gap-2"
-                >
+                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
                   {tools.map((tool) => {
-                    const key = toolKey(service.instance_id, tool);
+                    const key = toolKey(service.instance_id, tool)
                     const schema = getToolSchema(tool) as {
-                      properties?: Record<string, unknown>;
-                    };
-                    const paramCount = Object.keys(
-                      schema.properties || {},
-                    ).length;
+                      properties?: Record<string, unknown>
+                    }
+                    const paramCount = Object.keys(schema.properties || {}).length
                     return (
                       <SelectableRowButton
                         key={key}
                         meta={t("paramCount", { count: paramCount })}
                         onClick={() => setSelectedToolKey(key)}
-                        selected={
-                          key ===
-                          toolKey(service.instance_id, selectedTool || tool)
-                        }
+                        selected={key === toolKey(service.instance_id, selectedTool || tool)}
                         title={tool.name}
                       />
-                    );
+                    )
                   })}
                 </ScrollPane>
               ) : (
@@ -529,34 +457,26 @@ export function ServiceDetailView(props: {
                 className="border-b-0 pb-0"
               />
               {prompts.length ? (
-                <ScrollPane
-                  className="flex-1"
-                  innerClassName="flex flex-col gap-2"
-                >
+                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
                   {prompts.map((prompt) => {
-                    const key = promptKey(prompt);
-                    const argCount = promptArgCount(prompt);
+                    const key = promptKey(prompt)
+                    const argCount = promptArgCount(prompt)
                     return (
                       <SelectableRowButton
                         key={key}
                         meta={
                           prompt.description ||
-                          (argCount
-                            ? t("paramCount", { count: argCount })
-                            : t("noArgs"))
+                          (argCount ? t("paramCount", { count: argCount }) : t("noArgs"))
                         }
                         onClick={() => setSelectedPromptKey(key)}
                         selected={key === promptKey(selectedPrompt || prompt)}
                         title={prompt.title || prompt.name}
                       />
-                    );
+                    )
                   })}
                 </ScrollPane>
               ) : (
-                <PageEmpty
-                  title={t("noPromptsFound")}
-                  onRefresh={refreshCurrentView}
-                />
+                <PageEmpty title={t("noPromptsFound")} onRefresh={refreshCurrentView} />
               )}
             </div>
             {renderCatalogDetail()}
@@ -574,56 +494,46 @@ export function ServiceDetailView(props: {
                 className="border-b-0 pb-0"
               />
               {resources.length || resourceTemplates.length ? (
-                <ScrollPane
-                  className="flex-1"
-                  innerClassName="flex flex-col gap-2"
-                >
+                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
                   {resources.map((resource) => {
-                    const key = resourceKey(resource);
-                    const mimeType = resourceMimeType(resource);
+                    const key = resourceKey(resource)
+                    const mimeType = resourceMimeType(resource)
                     return (
                       <SelectableRowButton
                         key={`resource:${key}`}
                         meta={mimeType || resource.uri}
                         onClick={() => {
-                          setResourceSubTab("items");
-                          setSelectedResourceKey(key);
+                          setResourceSubTab("items")
+                          setSelectedResourceKey(key)
                         }}
                         selected={
                           resourceSubTab === "items" &&
                           key === resourceKey(selectedResource || resource)
                         }
-                        title={
-                          resource.title || resource.name || resource.uri
-                        }
+                        title={resource.title || resource.name || resource.uri}
                       />
-                    );
+                    )
                   })}
                   {resourceTemplates.map((template) => {
-                    const key = resourceTemplateKey(template);
-                    const mimeType = resourceTemplateMimeType(template);
-                    const uriTemplate = resourceTemplateUri(template);
+                    const key = resourceTemplateKey(template)
+                    const mimeType = resourceTemplateMimeType(template)
+                    const uriTemplate = resourceTemplateUri(template)
                     return (
                       <SelectableRowButton
                         key={`template:${key}`}
                         meta={mimeType || uriTemplate}
                         onClick={() => {
-                          setResourceSubTab("templates");
-                          setSelectedTemplateKey(key);
+                          setResourceSubTab("templates")
+                          setSelectedTemplateKey(key)
                         }}
                         selected={
                           resourceSubTab === "templates" &&
-                          key ===
-                            resourceTemplateKey(selectedTemplate || template)
+                          key === resourceTemplateKey(selectedTemplate || template)
                         }
-                        title={
-                          template.title || template.name || uriTemplate
-                        }
-                        trailing={
-                          <Badge variant="outline">{t("templates")}</Badge>
-                        }
+                        title={template.title || template.name || uriTemplate}
+                        trailing={<Badge variant="outline">{t("templates")}</Badge>}
                       />
-                    );
+                    )
                   })}
                 </ScrollPane>
               ) : (
@@ -639,5 +549,5 @@ export function ServiceDetailView(props: {
         </Tabs>
       </PanelCard>
     </>
-  );
+  )
 }
