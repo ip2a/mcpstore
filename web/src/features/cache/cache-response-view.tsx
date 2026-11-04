@@ -1,47 +1,250 @@
-import { SectionHeading } from "@/components/shared/section-heading"
-import { Badge } from "@/components/ui/badge"
+import type { ReactNode } from "react"
+import { ActivityIcon, PackageIcon } from "lucide-react"
+import { Bar, BarChart, Cell, Label, Pie, PieChart, XAxis, YAxis } from "recharts"
+
 import { CacheCollectionDetail } from "@/features/cache/cache-layer-browser"
 import {
   LAYER_I18N_KEY,
   type CacheCollectionNode,
+  type CacheLayerId,
   type CacheTree,
 } from "@/features/cache/cache-model"
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
+import { SectionHeading } from "@/components/shared/section-heading"
 import { useI18n } from "@/lib/i18n-context"
 
-function ScalarField({ label, value }: { label: string; value: string }) {
+const HIT_MISS_COLORS = {
+  hits: "var(--chart-2)",
+  misses: "var(--chart-3)",
+  errors: "var(--chart-5)",
+} as const
+
+const LAYER_COLORS: Record<CacheLayerId, string> = {
+  entity: "var(--chart-1)",
+  relations: "var(--chart-2)",
+  state: "var(--chart-3)",
+  event: "var(--chart-4)",
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
+
+function formatHitRate(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—"
+  const pct = value <= 1 ? value * 100 : value
+  return `${pct.toFixed(pct >= 10 ? 0 : 1)}%`
+}
+
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(n)
+}
+
+function ChartPanel({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
   return (
-    <div className="grid gap-1">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-all font-mono text-sm">{value}</dd>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 rounded-md border border-border/50 p-4">
+      <SectionHeading title={title} titleAs="h2" className="shrink-0 border-b-0 pb-0" />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+    </section>
+  )
+}
+
+function ChartEmpty({ title, description, icon: Icon }: { title: string; description: string; icon: typeof ActivityIcon }) {
+  return (
+    <Empty className="min-h-[220px] flex-1 border-0 p-4 md:p-6">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Icon />
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  )
+}
+
+function RequestQualityChart({ metrics }: { metrics: Record<string, unknown> }) {
+  const { t } = useI18n()
+  const hits = asNumber(metrics.hits)
+  const misses = asNumber(metrics.misses)
+  const errors = asNumber(metrics.errors)
+  const total = hits + misses + errors
+  const hitRate = formatHitRate(metrics.hit_rate)
+  const latency = asNumber(metrics.avg_latency_ms)
+
+  const chartConfig = {
+    hits: { label: t("cacheHits"), color: HIT_MISS_COLORS.hits },
+    misses: { label: t("cacheMisses"), color: HIT_MISS_COLORS.misses },
+    errors: { label: t("cacheErrors"), color: HIT_MISS_COLORS.errors },
+  } satisfies ChartConfig
+
+  const data = [
+    { key: "hits", value: hits, fill: HIT_MISS_COLORS.hits },
+    { key: "misses", value: misses, fill: HIT_MISS_COLORS.misses },
+    { key: "errors", value: errors, fill: HIT_MISS_COLORS.errors },
+  ].filter((row) => row.value > 0)
+
+  if (total <= 0) {
+    return (
+      <ChartEmpty
+        title={t("cacheRequestQuality")}
+        description={t("cacheNoRequestMetrics")}
+        icon={ActivityIcon}
+      />
+    )
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full max-h-[280px] w-full">
+        <PieChart>
+          <ChartTooltip cursor={false} content={<ChartTooltipContent nameKey="key" hideLabel />} />
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="key"
+            innerRadius="58%"
+            outerRadius="78%"
+            strokeWidth={2}
+            isAnimationActive={false}
+          >
+            {data.map((row) => (
+              <Cell key={row.key} fill={row.fill} />
+            ))}
+            <Label
+              content={({ viewBox }) => {
+                if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null
+                return (
+                  <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                    <tspan
+                      x={viewBox.cx}
+                      y={(viewBox.cy ?? 0) - 6}
+                      className="fill-foreground text-2xl font-semibold tabular-nums"
+                    >
+                      {hitRate}
+                    </tspan>
+                    <tspan
+                      x={viewBox.cx}
+                      y={(viewBox.cy ?? 0) + 16}
+                      className="fill-muted-foreground text-xs"
+                    >
+                      {t("cacheHitRate")}
+                    </tspan>
+                  </text>
+                )
+              }}
+            />
+          </Pie>
+          <ChartLegend content={<ChartLegendContent nameKey="key" />} />
+        </PieChart>
+      </ChartContainer>
+      {latency > 0 ? (
+        <p className="shrink-0 text-center text-xs text-muted-foreground">
+          {t("cacheAvgLatencyMs", { ms: Math.round(latency) })}
+        </p>
+      ) : null}
     </div>
   )
 }
 
-function RequestMetricsSection({ metrics }: { metrics: Record<string, unknown> }) {
+function KeysByLayerChart({ tree }: { tree: CacheTree }) {
   const { t } = useI18n()
-  const fields: Array<[string, string | number | boolean]> = [
-    ["available", metrics.available as string | number | boolean],
-    ["total_requests", metrics.total_requests as string | number | boolean],
-    ["hits", metrics.hits as string | number | boolean],
-    ["misses", metrics.misses as string | number | boolean],
-    ["errors", metrics.errors as string | number | boolean],
-    ["hit_rate", metrics.hit_rate as string | number | boolean],
-    ["avg_latency_ms", metrics.avg_latency_ms as string | number | boolean],
-  ].filter(([, value]) => value !== undefined && value !== null) as Array<
-    [string, string | number | boolean]
-  >
+  const rows = tree.layers.map((layer) => ({
+    layer: layer.layer,
+    label: t(LAYER_I18N_KEY[layer.layer]),
+    keys: layer.keyCount,
+    types: layer.typeCount,
+    fill: LAYER_COLORS[layer.layer],
+  }))
+  const hasKeys = rows.some((row) => row.keys > 0)
 
-  if (fields.length === 0) return null
+  const chartConfig = Object.fromEntries(
+    rows.map((row) => [row.layer, { label: row.label, color: row.fill }]),
+  ) satisfies ChartConfig
+
+  if (!hasKeys) {
+    return (
+      <ChartEmpty
+        title={t("cacheKeysByLayer")}
+        description={t("cacheNoKeysToChart")}
+        icon={PackageIcon}
+      />
+    )
+  }
+
+  const yMax = Math.max(...rows.map((row) => row.keys), 1)
 
   return (
-    <section className="border-b pb-4">
-      <SectionHeading title={t("cacheRequestMetrics")} titleAs="h2" className="border-b-0 pb-3" />
-      <dl className="grid gap-3 text-sm @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-3">
-        {fields.map(([label, value]) => (
-          <ScalarField key={label} label={label} value={String(value)} />
-        ))}
-      </dl>
-    </section>
+    <ChartContainer config={chartConfig} className="aspect-auto h-full min-h-[220px] w-full">
+      <BarChart
+        accessibilityLayer
+        data={rows}
+        layout="vertical"
+        margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
+      >
+        <XAxis
+          type="number"
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => formatCompact(Number(v))}
+          domain={[0, Math.ceil(yMax * 1.05)]}
+          tick={{ fontSize: 11 }}
+        />
+        <YAxis
+          type="category"
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          width={88}
+          tick={{ fontSize: 12 }}
+        />
+        <ChartTooltip
+          cursor={{ fill: "var(--muted)" }}
+          content={
+            <ChartTooltipContent
+              labelKey="label"
+              formatter={(value, _name, item) => {
+                const types = asNumber(item?.payload?.types)
+                return (
+                  <div className="flex flex-1 items-center justify-between gap-4 leading-none">
+                    <div className="grid gap-0.5">
+                      <span className="text-muted-foreground">{t("cacheTotalKeys")}</span>
+                      <span className="text-muted-foreground">
+                        {t("typesCount", { count: types })}
+                      </span>
+                    </div>
+                    <span className="font-mono font-medium tabular-nums">
+                      {typeof value === "number" ? value.toLocaleString() : String(value)}
+                    </span>
+                  </div>
+                )
+              }}
+            />
+          }
+        />
+        <Bar dataKey="keys" radius={4} isAnimationActive={false}>
+          {rows.map((row) => (
+            <Cell key={row.layer} fill={row.fill} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ChartContainer>
   )
 }
 
@@ -49,34 +252,21 @@ export function CacheOverviewContent({ tree }: { tree: CacheTree }) {
   const { t } = useI18n()
 
   return (
-    <div className="@container flex min-w-0 flex-col gap-4">
-      <section className="border-b pb-4">
-        <SectionHeading title={t("cacheStorageTitle")} titleAs="h2" className="border-b-0 pb-3" />
-        <dl className="grid gap-3 text-sm @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-4">
-          {tree.backend ? <ScalarField label={t("backend")} value={tree.backend} /> : null}
-          <ScalarField label={t("cacheNamespace")} value={tree.namespace} />
-          {tree.scope ? <ScalarField label={t("scope")} value={tree.scope} /> : null}
-          <ScalarField label={t("cacheCollections")} value={String(tree.totalCollections)} />
-          <ScalarField label={t("cacheTotalKeys")} value={String(tree.totalKeys)} />
-        </dl>
-      </section>
-      {tree.requestMetrics ? <RequestMetricsSection metrics={tree.requestMetrics} /> : null}
-      <section className="pb-2">
-        <SectionHeading title={t("cacheLayers")} titleAs="h2" className="border-b-0 pb-3" />
-        <div className="grid gap-2 @min-[32rem]:grid-cols-2">
-          {tree.layers.map((layerNode) => (
-            <div key={layerNode.layer} className="rounded-md border px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-medium">{t(LAYER_I18N_KEY[layerNode.layer])}</p>
-                <Badge variant="outline">{layerNode.layer}</Badge>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t("cacheLayerSummary", { types: layerNode.typeCount, keys: layerNode.keyCount })}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
+    <div className="@container grid min-h-0 min-w-0 flex-1 gap-4 @min-[42rem]:grid-cols-2">
+      <ChartPanel title={t("cacheRequestQuality")}>
+        {tree.requestMetrics ? (
+          <RequestQualityChart metrics={tree.requestMetrics} />
+        ) : (
+          <ChartEmpty
+            title={t("cacheRequestQuality")}
+            description={t("cacheNoRequestMetrics")}
+            icon={ActivityIcon}
+          />
+        )}
+      </ChartPanel>
+      <ChartPanel title={t("cacheKeysByLayer")}>
+        <KeysByLayerChart tree={tree} />
+      </ChartPanel>
     </div>
   )
 }
