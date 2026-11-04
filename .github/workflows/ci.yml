@@ -17,6 +17,7 @@ concurrency:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -31,7 +32,7 @@ jobs:
         run: cargo check -p mcpstore --no-default-features --features light --manifest-path rust/Cargo.toml
 
       - name: Test Rust workspace
-        run: cargo test --workspace --manifest-path rust/Cargo.toml
+        run: cargo test --workspace --manifest-path rust/Cargo.toml -- --nocapture
 
   python:
     runs-on: ubuntu-latest
