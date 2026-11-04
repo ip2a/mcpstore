@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
-  ActivityIcon,
-  FileTextIcon,
   MonitorIcon,
-  NetworkIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   SaveIcon,
-  SlidersHorizontalIcon,
   Trash2Icon,
-  type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -76,13 +71,6 @@ import { validateHostsConfig } from "@/lib/api/hosts"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/query-keys"
-
-const sectionIcons: Partial<Record<SectionId, LucideIcon>> = {
-  general: SlidersHorizontalIcon,
-  connection: NetworkIcon,
-  diagnostics: ActivityIcon,
-  config: FileTextIcon,
-}
 
 const compactInputGroupClass = "w-20 shrink-0"
 
@@ -181,11 +169,9 @@ export function SettingsView() {
               <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
                 <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start gap-1">
                   {sections.map((item) => {
-                    const Icon = sectionIcons[item.id]
                     const label = t(item.labelKey)
                     return (
                       <TabsTrigger key={item.id} value={item.id} title={label}>
-                        {item.id === "about" ? <MarkIcon /> : Icon ? <Icon /> : null}
                         {label}
                       </TabsTrigger>
                     )
