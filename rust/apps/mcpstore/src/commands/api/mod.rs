@@ -26,6 +26,7 @@ mod app;
 mod auth;
 mod cache;
 pub(crate) mod client;
+mod config_ops;
 mod envelope;
 mod filesystem;
 mod hosts;
@@ -477,6 +478,10 @@ fn core_routes(state: Arc<ApiState>) -> Router {
                 .put(service::service_set_tool_override)
                 .delete(service::service_delete_tool_override),
         )
+        // ===== config management =====
+        .route("/config/export", get(config_ops::config_export))
+        .route("/config/reload", post(config_ops::config_reload))
+        .route("/config/import", post(config_ops::config_import))
         .route(
             "/prompt_overrides",
             get(service::store_list_prompt_overrides),

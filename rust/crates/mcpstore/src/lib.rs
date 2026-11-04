@@ -39,6 +39,7 @@ pub use auth::{
 };
 pub use config::{
     AppConfig, CacheConfig, ConfigManager, GatewayConfig, McpConfig, RuntimeLogConfig, ServerConfig,
+    ScopesConfig, ScopesConfigError,
 };
 
 // Facade re-exports: cache layer
