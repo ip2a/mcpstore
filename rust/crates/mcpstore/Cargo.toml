@@ -16,6 +16,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml_ng = { workspace = true }
 toml = "0.8"
+toml_edit = "0.22"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 thiserror = "2.0"
 tracing = "0.1"
@@ -24,6 +25,7 @@ uuid = { version = "1.10", features = ["v4", "v5", "serde"] }
 arc-swap = "1.9"
 chrono = { version = "0.4", features = ["serde"] }
 hostname = "0.4"
+dirs = "6.0"
 
 # MCP protocol
 rmcp = { workspace = true }

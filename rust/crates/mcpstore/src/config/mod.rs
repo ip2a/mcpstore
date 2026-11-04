@@ -13,6 +13,10 @@ mod health_validation;
 mod manager;
 mod mcp_schema;
 mod merge;
+mod scopes;
+mod scopes_loader;
+#[cfg(test)]
+mod scopes_tests;
 pub mod models;
 pub mod resolver;
 mod server_validation;
@@ -35,6 +39,10 @@ pub use health_schema::HealthCheckConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;
 pub use merge::merge_config;
+pub use scopes::{
+    ArgumentOverride, ComponentOverride, ComponentsScopeConfig, IconsOverride, ScopeConfig,
+    ScopesConfig, ScopesConfigError, ServiceScopeConfig, ToolsScopeConfig,
+};
 pub use service_schema::{
     HandshakeMode, McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind,
     Runtime, RuntimeSelection, ScopeDeclarations, ScopeDescriptor, ServerConfig,
