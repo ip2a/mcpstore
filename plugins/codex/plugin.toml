@@ -1,0 +1,18 @@
+[plugin]
+id = "codex"
+label = "Codex"
+spec_version = 1
+plugin_version = "1.0.0"
+
+[config]
+format = "toml"
+servers_key = "mcp_servers"
+supported_fields = ["command", "args", "env", "url", "headers"]
+
+[gateway_entry]
+url_key = "url"
+
+[discover]
+config_paths = ["~/.codex/config.toml"]
+config_dirs = ["~/.codex"]
+cli_commands = ["codex"]

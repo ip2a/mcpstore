@@ -1,36 +1,39 @@
-import { ClipboardIcon, EyeIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
-import { toast } from "sonner"
+import { ArrowUpDownIcon, RefreshCwIcon } from "lucide-react"
+import { useMemo, useState } from "react"
 
+import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { ToolListCard } from "@/components/shared/tool-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { SelectableRowButton } from "@/components/shared/selectable-row-button"
-import {
-  ToolDetailDocBody,
-  ToolDetailDocHeader,
-  ToolPlaygroundAside,
-} from "@/components/shared/tool-detail-playground"
-import { TwoPanePage } from "@/components/shared/two-pane-page"
+import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
-import { Spinner } from "@/components/ui/spinner"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToolsFilterDialog } from "@/features/tools/tools-filter-dialog"
-import { useToolArgsForm } from "@/features/tools/use-tool-args-form"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
 import { useI18n } from "@/lib/i18n-context"
 import { type AgentItem, type ServiceInstance, type ToolInfo } from "@/lib/api"
-import { serializeToolArgs } from "@/lib/tool-args"
-import { getToolSchema, toolKey } from "@/lib/tool-info"
-import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
-import { cn } from "@/lib/utils"
+import { toolKey } from "@/lib/tool-info"
+
+type ToolSortBy = "name" | "service"
 
 export function ToolsView(props: {
   agents: AgentItem[]
   services: ServiceInstance[]
-  onRunTool: (state: NonNullable<ToolDialogState>) => void
-  onToolDetail: (state: ToolDetailState) => void
-  isToolRunning?: (instanceId: string, toolName: string) => boolean
+  onOpenTool: (instanceId: string, toolName: string) => void
 }) {
   const { t } = useI18n()
+  const [sortOpen, setSortOpen] = useState(false)
+  const [sortBy, setSortBy] = useState<ToolSortBy | null>(null)
   const {
     activeFilterCount,
     agentId,
@@ -39,17 +42,13 @@ export function ToolsView(props: {
     errorMessage,
     loadTools,
     loading,
-    makeRunner,
     query,
     scope,
-    selectedTool,
-    selectedToolKey,
     instanceId,
     scopeInstances,
     setAgentId,
     setQuery,
     setScope,
-    setSelectedToolKey,
     setInstanceId,
     clearToolPolicy,
     setVisibilityFilter,
@@ -57,207 +56,195 @@ export function ToolsView(props: {
     visibleTools,
   } = useToolsRegistry({ agents: props.agents, services: props.services })
 
-  const { values: toolArgs, setField: setToolArg, schema: toolArgsSchema } = useToolArgsForm(
-    selectedTool?.tool ?? null,
+  const sortedTools = useMemo(() => {
+    const items = [...visibleTools]
+    if (sortBy === "name") {
+      items.sort((a, b) => a.tool.name.localeCompare(b.tool.name))
+    } else if (sortBy === "service") {
+      items.sort((a, b) => {
+        const byService = a.instance.service_name.localeCompare(b.instance.service_name)
+        return byService !== 0 ? byService : a.tool.name.localeCompare(b.tool.name)
+      })
+    }
+    return items
+  }, [sortBy, visibleTools])
+
+  const serviceTabs = useMemo(
+    () => [{ id: "all", label: t("filterAll") }, ...scopeInstances.map((instance) => ({
+      id: instance.instance_id,
+      label: instance.service_name,
+    }))],
+    [scopeInstances, t],
   )
-  const runningSelectedTool = Boolean(
-    selectedTool && props.isToolRunning?.(selectedTool.instance.instance_id, selectedTool.tool.name),
-  )
+
+  const applySort = (value: ToolSortBy) => {
+    setSortBy(value)
+    setSortOpen(false)
+  }
+
+  const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
 
   return (
-    <TwoPanePage variant="full" className="h-full min-h-0 flex-1 gap-4">
-      <PanelCard className="@container flex h-full min-h-0 flex-col">
-        <section className="flex flex-col gap-3 border-b pb-4">
-          <div className="min-w-0">
-            <p className="font-mono text-xs uppercase text-muted-foreground">{t("tool")}</p>
-            <h2 className="mt-1 truncate text-lg font-semibold">{t("toolRegistryTitle")}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("toolRegistryDescription", {
-                count: visibleTools.length,
-                scope: scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
-              })}
-            </p>
-          </div>
-        </section>
+    <>
+      <WorkspacePageHeader
+        title={<h1 className="text-lg font-semibold">{t("toolRegistryTitle")}</h1>}
+        subtitle={t("toolRegistryDescription", {
+          count: visibleTools.length,
+          scope: scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
+        })}
+      />
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pt-3">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <h2 className="text-sm font-medium">{t("toolList")}</h2>
-            <ToolsFilterDialog
-              compact
-              activeFilterCount={activeFilterCount}
-              agentId={agentId}
-              agentIds={agentIds}
-              instanceId={instanceId}
-              onAgentIdChange={setAgentId}
-              onClearPolicy={
-                instanceId !== "all"
-                  ? () => {
-                      const instance = scopeInstances.find((item) => item.instance_id === instanceId)
-                      if (instance) void clearToolPolicy(instance)
-                    }
-                  : undefined
-              }
-              onInstanceIdChange={setInstanceId}
-              onQueryChange={setQuery}
-              onScopeChange={setScope}
-              onVisibilityFilterChange={setVisibilityFilter}
-              query={query}
-              scope={scope}
-              scopeInstances={scopeInstances}
-              visibilityFilter={visibilityFilter}
-            />
-          </div>
-          {error ? (
-            <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
-          ) : loading && !visibleTools.length ? (
-            <PageSkeleton />
-          ) : visibleTools.length ? (
-            <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-              {visibleTools.map(({ instance, tool }) => {
-                const key = toolKey(instance.instance_id, tool)
-                const itemSchema = getToolSchema(tool) as { properties?: Record<string, unknown> }
-                const itemParamCount = Object.keys(itemSchema.properties || {}).length
-                const scopeLabel = instance.scope.type === "store" ? t("store") : `${t("agent")} ${instance.scope.agent_id}`
-                return (
-                  <SelectableRowButton
-                    key={key}
-                    meta={`${instance.service_name} · ${scopeLabel} · ${t("paramCount", { count: itemParamCount })}`}
-                    onClick={() => setSelectedToolKey(key)}
-                    selected={key === selectedToolKey}
-                    title={tool.name}
-                  />
-                )
-              })}
-            </ScrollPane>
-          ) : (
-            <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
-          )}
-        </div>
-      </PanelCard>
-
-      <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-        <ToolPreviewHeader
-          loading={loading}
-          selectedTool={selectedTool?.tool ?? null}
-          runningTool={runningSelectedTool}
-          onRun={
-            selectedTool
-              ? () =>
-                  props.onRunTool({
-                    ...makeRunner(selectedTool),
-                    initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
-                  })
-              : undefined
-          }
-          onDetail={selectedTool ? () => props.onToolDetail(makeRunner(selectedTool)) : undefined}
-          onCopy={selectedTool ? () => void copyTool(selectedTool.tool) : undefined}
-          onRefresh={loadTools}
-        />
-
-        {error ? (
-          <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
-        ) : loading && !visibleTools.length ? (
-          <PageSkeleton />
-        ) : selectedTool ? (
-          <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)] grid-rows-1 gap-6 overflow-hidden">
-            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ToolDetailDocHeader tool={selectedTool.tool} serviceState={selectedTool.instance.state} />
-              <ScrollPane className="min-h-0 flex-1">
-                <ToolDetailDocBody
-                  tool={selectedTool.tool}
-                  toolArgs={toolArgs}
-                  onToolArgChange={setToolArg}
-                  serviceName={selectedTool.instance.service_name}
-                  scope={selectedTool.instance.scope}
-                />
-              </ScrollPane>
+      <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
+        <Tabs
+          value={instanceId}
+          onValueChange={setInstanceId}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
+            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+              {serviceTabs.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id} title={tab.label} className="flex-none">
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              <CollapsibleSearchBox
+                inline
+                id="tool-list-search"
+                placeholder={t("searchTools")}
+                value={query}
+                onChange={setQuery}
+              />
+              <Dialog open={sortOpen} onOpenChange={setSortOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <ArrowUpDownIcon data-icon="inline-start" />
+                    {t("sortLabel")}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>{t("sortLabel")}</DialogTitle>
+                    <DialogDescription>{t("sortHint")}</DialogDescription>
+                  </DialogHeader>
+                  <div className="flex flex-col gap-2">
+                    <Button variant="outline" onClick={() => applySort("name")}>
+                      {t("sortName")}
+                    </Button>
+                    <Button variant="outline" onClick={() => applySort("service")}>
+                      {t("service")}
+                    </Button>
+                  </div>
+                  <DialogFooter showCloseButton />
+                </DialogContent>
+              </Dialog>
+              <ToolsFilterDialog
+                activeFilterCount={activeFilterCount}
+                agentId={agentId}
+                agentIds={agentIds}
+                hideServiceFilter
+                instanceId={instanceId}
+                onAgentIdChange={setAgentId}
+                onClearPolicy={
+                  instanceId !== "all"
+                    ? () => {
+                        const instance = scopeInstances.find((item) => item.instance_id === instanceId)
+                        if (instance) void clearToolPolicy(instance)
+                      }
+                    : undefined
+                }
+                onInstanceIdChange={setInstanceId}
+                onScopeChange={setScope}
+                onVisibilityFilterChange={setVisibilityFilter}
+                scope={scope}
+                scopeInstances={scopeInstances}
+                visibilityFilter={visibilityFilter}
+              />
+              <Button size="sm" variant="outline" onClick={loadTools} disabled={loading}>
+                <RefreshCwIcon data-icon="inline-start" />
+                {t("refresh")}
+              </Button>
             </div>
-            <ToolPlaygroundAside
-              tool={selectedTool.tool}
-              instanceId={selectedTool.instance.instance_id}
-              toolArgs={toolArgs}
-              toolArgsSchema={toolArgsSchema}
-              running={runningSelectedTool}
-              onRun={() =>
-                props.onRunTool({
-                  ...makeRunner(selectedTool),
-                  initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
-                })
-              }
-            />
           </div>
-        ) : (
-          <PageEmpty
-            title={t("noToolSelected")}
-            description={t("noToolSelectedDescription")}
-            onRefresh={loadTools}
-          />
-        )}
+
+          {serviceTabs.map((tab) => (
+            <TabsContent key={tab.id} value={tab.id} className={tabContentClassName}>
+              {instanceId === tab.id ? (
+                <ToolsTabContent
+                  error={error}
+                  errorMessage={errorMessage}
+                  loading={loading}
+                  loadTools={loadTools}
+                  onOpenTool={props.onOpenTool}
+                  tools={sortedTools}
+                />
+              ) : null}
+            </TabsContent>
+          ))}
+        </Tabs>
       </PanelCard>
-    </TwoPanePage>
+    </>
   )
 }
 
-function ToolPreviewHeader({
+function ToolsTabContent({
+  error,
+  errorMessage,
+  loadTools,
   loading,
-  onCopy,
-  onDetail,
-  onRefresh,
-  onRun,
-  runningTool,
-  selectedTool,
+  onOpenTool,
+  tools,
 }: {
+  error: unknown
+  errorMessage: string
+  loadTools: () => void
   loading: boolean
-  onCopy?: () => void
-  onDetail?: () => void
-  onRefresh: () => void
-  onRun?: () => void
-  runningTool?: boolean
-  selectedTool: ToolInfo | null | undefined
+  onOpenTool: (instanceId: string, toolName: string) => void
+  tools: Array<{ instance: ServiceInstance; tool: ToolInfo }>
 }) {
   const { t } = useI18n()
-  const title = selectedTool?.name || t("noToolSelected")
-  const hideTitle = Boolean(selectedTool)
+
+  if (error) {
+    return (
+      <div className="px-4 py-2">
+        <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
+      </div>
+    )
+  }
+
+  if (loading && !tools.length) {
+    return (
+      <div className="px-4 py-2">
+        <PageSkeleton />
+      </div>
+    )
+  }
+
+  if (!tools.length) {
+    return (
+      <div className="px-4 py-2">
+        <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
+      </div>
+    )
+  }
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-3 border-b pb-2", hideTitle ? "justify-end" : "justify-between")}>
-      {!hideTitle ? (
-        <div className="flex min-w-0 flex-col gap-1">
-          <strong className="truncate font-mono text-sm font-medium" title={title}>
-            {title}
-          </strong>
-        </div>
-      ) : null}
-      <div className="flex shrink-0 flex-wrap justify-end gap-2">
-        {onRun ? (
-          <Button size="sm" onClick={onRun} disabled={runningTool}>
-            {runningTool ? <Spinner data-icon="inline-start" /> : <WrenchIcon data-icon="inline-start" />}
-            {runningTool ? t("executing") : t("run")}
-          </Button>
-        ) : null}
-        {onDetail ? (
-          <Button size="sm" variant="outline" onClick={onDetail}>
-            <EyeIcon data-icon="inline-start" />
-            {t("details")}
-          </Button>
-        ) : null}
-        {onCopy ? (
-          <Button size="sm" variant="outline" onClick={onCopy}>
-            <ClipboardIcon data-icon="inline-start" />
-            {t("copy")}
-          </Button>
-        ) : null}
-        <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-          <RefreshCwIcon data-icon="inline-start" />
-          {t("refresh")}
-        </Button>
-      </div>
-    </div>
+    <ScrollPane
+      className="min-h-0 flex-1"
+      innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
+    >
+      {tools.map(({ instance, tool }) => {
+        const key = toolKey(instance.instance_id, tool)
+        return (
+          <ToolListCard
+            key={key}
+            instance={instance}
+            tool={tool}
+            onSelect={() => onOpenTool(instance.instance_id, tool.name)}
+          />
+        )
+      })}
+    </ScrollPane>
   )
-}
-
-async function copyTool(tool: ToolInfo) {
-  await navigator.clipboard.writeText(JSON.stringify(tool, null, 2))
-  toast.success("Tool copied")
 }

@@ -118,6 +118,7 @@ pub(crate) struct AppliedToolOverride {
     pub display_name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+    pub icons: Option<serde_json::Value>,
 }
 
 impl MCPStore {
@@ -304,6 +305,7 @@ impl MCPStore {
         fallback_display_name: String,
         description: String,
         input_schema: serde_json::Value,
+        fallback_icons: Option<serde_json::Value>,
     ) -> Result<AppliedToolOverride> {
         let Some(rule) = self
             .load_enabled_tool_override(instance_id, tool_name)
@@ -313,12 +315,14 @@ impl MCPStore {
                 display_name: fallback_display_name,
                 description,
                 input_schema,
+                icons: fallback_icons,
             });
         };
         Ok(AppliedToolOverride {
             display_name: rule.common.display_name.unwrap_or(fallback_display_name),
             description: rule.common.description.unwrap_or(description),
             input_schema: Self::override_input_schema(input_schema, &rule.arguments),
+            icons: rule.common.icons.or(fallback_icons),
         })
     }
 

@@ -354,13 +354,16 @@ pub fn validate_form_response(
         .get("properties")
         .and_then(Value::as_object)
         .expect("rmcp ElicitationSchema properties should be an object");
-    for (field, value) in object {
+    // Deterministic error precedence: serde_json's map flavor (BTree vs IndexMap via
+    // preserve_order) depends on feature unification, so sort field names explicitly.
+    let mut fields: Vec<_> = object.iter().collect();
+    fields.sort_unstable_by_key(|(field, _)| *field);
+    for (field, value) in fields {
         if let Some(property) = properties.get(field) {
             validate_property(field, property, value)?;
         }
     }
-    Ok(())
-}
+    Ok(())}
 
 fn validate_property(
     field: &str,

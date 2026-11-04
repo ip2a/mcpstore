@@ -147,6 +147,7 @@ async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
                 }),
                 output_schema: None,
                 annotations: None,
+                icons: None,
                 meta: None,
                 created_time: 111,
                 tool_hash: "fixture".to_string(),
@@ -181,10 +182,7 @@ async fn spawn_test_api_with_state(
 ) -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<ApiState>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let state = Arc::new(ApiState {
-        store,
-        mcp_hub: Arc::new(Mutex::new(None)),
-    });
+    let state = state_for_store(store);
     let app = full_router(Arc::clone(&state), "");
     let handle = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -193,7 +191,7 @@ async fn spawn_test_api_with_state(
 }
 
 #[tokio::test]
-async fn app_and_core_routers_are_disjoint() {
+async fn app_and_core_routers_expose_the_expected_faces() {
     let store_path = unique_temp_dir_path("split-api-store").with_extension("json");
     std::fs::write(&store_path, b"{}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -203,10 +201,7 @@ async fn app_and_core_routers_are_disjoint() {
         panel: mcpstore::PanelRole::ControlPanel,
     })
     .unwrap();
-    let state = Arc::new(ApiState {
-        store,
-        mcp_hub: Arc::new(Mutex::new(None)),
-    });
+    let state = state_for_store(store);
     let client = reqwest::Client::new();
 
     let app_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -226,7 +221,8 @@ async fn app_and_core_routers_are_disjoint() {
             .unwrap();
     });
 
-    // The app plane only hosts the daemon itself; business routes are absent.
+    // The app face owns panel-local routes and exposes resource routes through
+    // the selected-host facade when a selector is supplied.
     assert_eq!(
         client
             .get(format!("http://{app_addr}/health"))
@@ -243,19 +239,22 @@ async fn app_and_core_routers_are_disjoint() {
             .await
             .unwrap()
             .status(),
-        axum::http::StatusCode::NOT_FOUND
+        axum::http::StatusCode::OK
     );
 
-    // The core plane is the opposite: business routes present, app-only routes absent.
+    // A panel-local endpoint never accepts a resource selector.
     assert_eq!(
         client
-            .get(format!("http://{core_addr}/services/list"))
+            .get(format!("http://{app_addr}/health"))
+            .header(hosts::HOST_HEADER, "local")
             .send()
             .await
             .unwrap()
             .status(),
-        axum::http::StatusCode::OK
+        axum::http::StatusCode::BAD_REQUEST
     );
+
+    // The core face exposes the daemon health contract and resource routes.
     assert_eq!(
         client
             .get(format!("http://{core_addr}/health"))
@@ -263,7 +262,7 @@ async fn app_and_core_routers_are_disjoint() {
             .await
             .unwrap()
             .status(),
-        axum::http::StatusCode::NOT_FOUND
+        axum::http::StatusCode::OK
     );
 
     app_handle.abort();
@@ -272,8 +271,8 @@ async fn app_and_core_routers_are_disjoint() {
 }
 
 #[tokio::test]
-async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_start() {
-    let store_path = unique_temp_dir_path("aggregate-api-store").with_extension("json");
+async fn gateway_routes_report_http_configuration() {
+    let store_path = unique_temp_dir_path("gateway-api-store").with_extension("json");
     std::fs::write(&store_path, b"{}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(store_path.to_string_lossy().into_owned()),
@@ -287,9 +286,7 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
     let base_url = format!("http://{addr}");
 
     let status: Value = client
-        .get(format!(
-            "{base_url}/mcp-hub/status?transport=streamable-http&port=1830"
-        ))
+        .get(format!("{base_url}/gateway/status?port=1830"))
         .send()
         .await
         .unwrap()
@@ -299,19 +296,13 @@ async fn aggregate_routes_report_http_configuration_and_reject_stdio_background_
     assert_eq!(status["data"]["running"], false);
     assert_eq!(status["data"]["port"], 1830);
     assert_eq!(status["data"]["url"], "http://127.0.0.1:1830/mcp");
-
-    let start = client
-        .post(format!("{base_url}/mcp-hub/start?transport=stdio"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(start.status(), axum::http::StatusCode::BAD_REQUEST);
     handle.abort();
     let _ = std::fs::remove_file(store_path);
 }
 
 #[tokio::test]
 async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
+    mcpstore::agents::registry::install_for_tests();
     let path = unique_temp_dir_path("client-config-api").with_extension("json");
     let secret = "api-secret-do-not-return";
     std::fs::write(
@@ -360,7 +351,7 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     let partial_import = client
         .post(format!("{base_url}/client-config/import"))
         .json(&json!({
-            "client": "claude_code",
+            "client": "claude",
             "path": path,
             "names": ["new", "conflict"]
         }))
@@ -378,15 +369,21 @@ async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     let import = client
         .post(format!("{base_url}/client-config/import"))
         .json(&json!({
-            "client": "claude_code",
+            "client": "claude",
             "path": path,
             "names": ["existing"]
         }))
         .send()
         .await
         .unwrap();
-    assert!(import.status().is_success());
+    let import_status = import.status();
     let import_body = import.text().await.unwrap();
+    assert!(
+        import_status.is_success(),
+        "status={} body={}",
+        import_status,
+        import_body
+    );
     assert!(import_body.contains("existing"));
     assert!(!import_body.contains(secret));
     assert!(!import_body.contains("Bearer header-secret"));
@@ -1764,4 +1761,497 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
 
     handle.abort();
     std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_language_persists_outside_daemon_config() {
+    let fixture_dir = unique_temp_dir_path("panel-language");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    std::fs::write(
+        fixture_dir.join("config.toml"),
+        "[ui]\nlanguage = \"zh-cn\"\n",
+    )
+    .unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "zh"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["data"]["language"],
+        json!("zh")
+    );
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    let payload = meta.json::<Value>().await.unwrap();
+    assert_eq!(payload["data"]["settings"]["language"], json!("zh"));
+
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let raw = manager.load_raw_app_config_value().unwrap();
+    assert!(raw.get("ui").is_none());
+    let panel: Value =
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel-settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(panel["language"], json!("zh"));
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_settings_corruption_fails_requests_explicitly() {
+    let fixture_dir = unique_temp_dir_path("panel-corrupt");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    std::fs::write(fixture_dir.join("panel-settings.json"), "{ broken").unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let meta = client
+        .get(format!("{base_url}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(meta.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    let update = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "en"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(update.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn panel_settings_write_failure_keeps_config_update_reported() {
+    let fixture_dir = unique_temp_dir_path("panel-write-fail");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let config_path = fixture_dir.join("mcp.json");
+    std::fs::write(&config_path, b"{}").unwrap();
+    // The hosts key is present, so load_or_migrate performs no migration
+    // write; the failure must come from the settings PUT's own panel save.
+    std::fs::write(
+        fixture_dir.join("panel-settings.json"),
+        r#"{ "language": "en", "hosts": { "active": "local" } }"#,
+    )
+    .unwrap();
+    // A directory at the temp path makes the second (panel) write fail while
+    // the first (daemon config) write already landed.
+    std::fs::create_dir_all(fixture_dir.join("panel-settings.json.tmp")).unwrap();
+    let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    let response = client
+        .put(format!("{base_url}/v1/settings"))
+        .json(&json!({"language": "zh", "api": {"port": 19999}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    let payload = response.json::<Value>().await.unwrap();
+    assert_eq!(payload["success"], json!(false));
+
+    // No cross-file transaction: the config write stands, the panel write did not.
+    let manager = mcpstore::config::ConfigManager::with_path(&config_path);
+    let raw = manager.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["api"]["port"], json!(19999));
+    let panel: Value =
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel-settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(panel["language"], json!("en"));
+
+    handle.abort();
+    std::fs::remove_dir_all(&fixture_dir).ok();
+}
+
+#[tokio::test]
+async fn cross_resource_import_writes_definitions_without_local_paths() {
+    mcpstore::agents::registry::install_for_tests();
+    use axum::{extract::Path as AxPath, response::IntoResponse, Json as AxJson};
+    use std::sync::Mutex as StdMutex;
+
+    // Fixture client config on this (panel) host.
+    let path = unique_temp_dir_path("cross-import-config").with_extension("json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "mcpServers": {
+                "good": {"command": "echo", "args": ["x"]},
+                "bad": {"command": "explode", "args": ["y"]}
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // Fake selected daemon: GET /services/:name answers 404, POST records and
+    // fails for "bad" — enough to exercise pre-flight and partial failure.
+    #[derive(Clone, Default)]
+    struct UpstreamLog {
+        posts: Arc<StdMutex<Vec<(String, Value)>>>,
+    }
+    async fn service_probe(AxPath(_name): AxPath<String>) -> impl IntoResponse {
+        axum::http::StatusCode::NOT_FOUND
+    }
+    async fn service_add(
+        State(log): State<UpstreamLog>,
+        AxPath(name): AxPath<String>,
+        AxJson(body): AxJson<Value>,
+    ) -> impl IntoResponse {
+        log.posts.lock().unwrap().push((name, body.clone()));
+        if body.get("command") == Some(&json!("explode")) {
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        } else {
+            axum::http::StatusCode::OK
+        }
+    }
+    let log = UpstreamLog::default();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new()
+            .route(
+                "/services/:name",
+                get(service_probe).post(service_add).with_state(log.clone()),
+            )
+            .fallback(get(|| async { axum::http::StatusCode::NOT_FOUND }));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    // Store whose hosts table registers the upstream as remote-u. The store
+    // file lives in a dedicated dir so its sibling config.toml is test-local.
+    let store_dir = unique_temp_dir_path("cross-import-store");
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let store_path = store_dir.join("mcp.json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    // Hosts live in the panel's own panel-settings.json next to config.toml.
+    std::fs::write(
+        store_dir.join("panel-settings.json"),
+        format!(
+            "{{\"language\":\"en\",\"hosts\":{{\"active\":\"local\",\"remote-u\":{{\"urls\":[\"{upstream_url}\"]}}}}}}\n"
+        ),
+    )
+    .unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle, state) = spawn_test_api_with_state(store).await;
+    let client = reqwest::Client::new();
+    let base_url = format!("http://{addr}");
+
+    // Unknown host never reaches anywhere.
+    let unknown = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "ghost")
+        .json(&json!({"client": "claude", "path": path, "names": ["good"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    // agent scope is a panel-host concept; cross-resource import rejects it.
+    let agent_scope = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["good"], "scope": "agent"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(agent_scope.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    // The actual import: partial failure is reported per service.
+    let import = client
+        .post(format!("{base_url}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["good", "bad"]}))
+        .send()
+        .await
+        .unwrap();
+    assert!(import.status().is_success());
+    let payload = import.json::<Value>().await.unwrap();
+    let data = &payload["data"];
+    assert_eq!(data["target"], json!("remote-u"));
+    assert_eq!(data["scope"], json!("store"));
+    assert_eq!(
+        data["imported"],
+        json!([{"name": "good", "transport": "stdio"}])
+    );
+    assert_eq!(data["failed"].as_array().unwrap().len(), 1);
+    assert_eq!(data["failed"][0]["name"], json!("bad"));
+
+    // Local paths never travel; only parsed definitions do.
+    let posts = log.posts.lock().unwrap();
+    assert_eq!(posts.len(), 2);
+    assert!(posts.iter().any(|(name, body)| name == "good"
+        && body.get("path").is_none()
+        && body.get("client").is_none()));
+    drop(posts);
+
+    // Nothing landed in the local store.
+    assert!(state
+        .store
+        .get_definition_config("good")
+        .await
+        .unwrap()
+        .is_none());
+    drop(handle);
+    drop(upstream_handle);
+}
+
+#[tokio::test]
+async fn cross_resource_import_preflight_rejects_conflicts_without_writes() {
+    use axum::{extract::Path as AxPath, response::IntoResponse};
+    use std::sync::Mutex as StdMutex;
+
+    let path = unique_temp_dir_path("cross-import-conflict").with_extension("json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "mcpServers": {"existing": {"command": "echo"}}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    #[derive(Clone, Default)]
+    struct PostLog {
+        posts: Arc<StdMutex<Vec<String>>>,
+    }
+    async fn existing() -> impl IntoResponse {
+        axum::http::StatusCode::OK
+    }
+    async fn record_post(
+        AxPath(name): AxPath<String>,
+        State(log): State<PostLog>,
+    ) -> impl IntoResponse {
+        log.posts.lock().unwrap().push(name);
+        axum::http::StatusCode::OK
+    }
+    let log = PostLog::default();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new()
+            .route("/services/existing", get(existing))
+            .route("/services/:name", post(record_post).with_state(log.clone()));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    let store_dir = unique_temp_dir_path("cross-import-conflict-store");
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let store_path = store_dir.join("mcp.json");
+    std::fs::write(&store_path, b"{}").unwrap();
+    // Hosts live in the panel's own panel-settings.json next to config.toml.
+    std::fs::write(
+        store_dir.join("panel-settings.json"),
+        format!(
+            "{{\"language\":\"en\",\"hosts\":{{\"active\":\"local\",\"remote-u\":{{\"urls\":[\"{upstream_url}\"]}}}}}}\n"
+        ),
+    )
+    .unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(store_path.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let (addr, handle) = spawn_test_api(store).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(format!("http://{addr}/client-config/import"))
+        .header(hosts::HOST_HEADER, "remote-u")
+        .json(&json!({"client": "claude", "path": path, "names": ["existing"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(body["errors"][0]["code"], json!("invalid_input"));
+    // Pre-flight ran before any write: the upstream received zero POSTs.
+    assert!(log.posts.lock().unwrap().is_empty());
+
+    drop(handle);
+    drop(upstream_handle);
+}
+
+// ===== standalone web panel (PanelState, no embedded store) =====
+
+/// Panel process over a fixture dir; writes a panel-settings.json when `hosts`
+/// JSON is given.
+async fn spawn_test_panel(hosts: Option<Value>) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+    let dir = unique_temp_dir_path("panel-state");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut settings = json!({ "language": "en" });
+    if let Some(hosts) = hosts {
+        settings["hosts"] = hosts;
+    }
+    std::fs::write(dir.join("panel-settings.json"), settings.to_string()).unwrap();
+    let config_manager = Arc::new(mcpstore::config::ConfigManager::with_path(
+        dir.join("mcp.json"),
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = panel_router(Arc::new(PanelState::new(config_manager)));
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (addr, handle)
+}
+
+#[tokio::test]
+async fn panel_serves_panel_routes_without_a_store() {
+    let (addr, handle) = spawn_test_panel(None).await;
+    let client = reqwest::Client::new();
+
+    let health = client
+        .get(format!("http://{addr}/v1/meta"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status(), axum::http::StatusCode::OK);
+    let body = health.json::<Value>().await.unwrap();
+    assert_eq!(body["data"]["node"]["id"], json!("control"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_forwards_unrouted_paths_to_the_local_entry() {
+    // Fake local daemon: an upstream that answers /ping.
+    async fn ping() -> &'static str {
+        "pong"
+    }
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+    let upstream_handle = {
+        let router = axum::Router::new().route("/ping", axum::routing::get(ping));
+        tokio::spawn(async move {
+            axum::serve(upstream, router).await.unwrap();
+        })
+    };
+
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": [upstream_url] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    // No selector, no matching panel route → the "local" entry.
+    let response = client
+        .get(format!("http://{addr}/ping"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "pong");
+
+    handle.abort();
+    drop(upstream_handle);
+}
+
+#[tokio::test]
+async fn panel_fails_loud_when_no_local_daemon_is_configured() {
+    // urls: [] — the deserializer always seeds a default "local" entry, so a
+    // user unsetting it is modeled as an entry with no usable URL.
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": [] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/services/list"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(body["success"], json!(false));
+    let message = body["message"].as_str().unwrap();
+    assert!(
+        message.contains("no reachable URL"),
+        "unexpected message: {message}"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_forwards_dead_local_daemon_as_503() {
+    let (addr, handle) = spawn_test_panel(Some(json!({
+        "active": "local",
+        "local": { "urls": ["http://127.0.0.1:9"] }
+    })))
+    .await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/services/list"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = response.json::<Value>().await.unwrap();
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("host request failed"));
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn panel_rejects_selector_on_panel_local_routes() {
+    let (addr, handle) = spawn_test_panel(None).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{addr}/v1/meta"))
+        .header(hosts::HOST_HEADER, "remote")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    handle.abort();
 }

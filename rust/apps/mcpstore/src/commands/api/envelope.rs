@@ -40,7 +40,7 @@ pub(super) struct ApiEnvelope {
 pub(super) struct ApiError {
     pub(super) status: StatusCode,
     pub(super) code: String,
-    message: String,
+    pub(super) message: String,
     field: Option<String>,
     details: Option<Value>,
 }
@@ -86,6 +86,16 @@ impl ApiError {
         Self::new(
             StatusCode::BAD_REQUEST,
             FailureCode::InvalidInput,
+            message,
+            None,
+            None,
+        )
+    }
+
+    pub(super) fn internal(message: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            FailureCode::Internal,
             message,
             None,
             None,

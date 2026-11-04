@@ -20,7 +20,7 @@ pub(super) fn extract_tool_args(payload: &Value) -> ApiResult<Value> {
         None | Some(Value::Null) => Ok(json!({})),
         Some(Value::Object(_)) => Ok(payload.get("args").cloned().unwrap_or_else(|| json!({}))),
         Some(_) => Err(ApiError::invalid_parameter(
-            "args 必须是 JSON 对象",
+            "args must be a JSON object",
             Some("args"),
         )),
     }
@@ -43,13 +43,13 @@ pub(super) fn extract_prompt_args(payload: &Value) -> ApiResult<Value> {
         None | Some(Value::Null) => Ok(json!({})),
         Some(Value::Object(_)) => Ok(payload.get("args").cloned().unwrap_or_else(|| json!({}))),
         Some(_) => Err(ApiError::invalid_parameter(
-            "args 必须是 JSON 对象",
+            "args must be a JSON object",
             Some("args"),
         )),
     }
 }
 
-/// Query 参数里的作用域标识：`?scope=store|agent&agent_id=...`，`scope` 缺省为 `store`。
+/// Scope identifier in query params: `?scope=store|agent&agent_id=...`; `scope` defaults to `store`.
 #[derive(Deserialize)]
 pub(super) struct ScopeQuery {
     pub(super) scope: Option<String>,
@@ -61,7 +61,7 @@ impl ScopeQuery {
         parse_scope_ref(self.scope.as_deref(), self.agent_id.as_deref())
     }
 
-    /// 读视图作用域：root | store | agent（root = 聚合，仅用于读 / 列表）。
+    /// Read-view scope: root | store | agent (root = aggregate, read/list only).
     pub(super) fn into_scope_view(self) -> ApiResult<ScopeView> {
         parse_scope_view(self.scope.as_deref(), self.agent_id.as_deref())
     }
@@ -84,7 +84,7 @@ pub(super) fn parse_scope_ref(scope: Option<&str>, agent_id: Option<&str>) -> Ap
     }
 }
 
-/// 读视图作用域解析：`root` 聚合 / `store` / `agent`（agent 需带 `agent_id`）。
+/// Read-view scope parsing: `root` aggregate / `store` / `agent` (agent requires `agent_id`).
 pub(super) fn parse_scope_view(
     scope: Option<&str>,
     agent_id: Option<&str>,

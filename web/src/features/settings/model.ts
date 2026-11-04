@@ -10,7 +10,7 @@ export type SectionId = "overview" | "general" | "connection" | "diagnostics" | 
 
 export type HostDraft = {
   name: string
-  url: string
+  urls: string[]
 }
 
 export type SettingsDraft = {
@@ -42,7 +42,7 @@ export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
 export function hostsToList(hosts: HostsConfig): HostDraft[] {
   return Object.entries(hosts.entries).map(([name, entry]) => ({
     name,
-    url: entry.url,
+    urls: entry.urls,
   }))
 }
 

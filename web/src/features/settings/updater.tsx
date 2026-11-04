@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { check, type Update } from "@tauri-apps/plugin-updater"
 import { relaunch } from "@tauri-apps/plugin-process"
 import { DownloadIcon, RotateCwIcon } from "lucide-react"
@@ -8,6 +8,28 @@ import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n-context"
 
 export const isDesktopShell = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+
+export function useAppVersionLabel() {
+  const [version, setVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isDesktopShell) {
+      void import("@tauri-apps/api/app")
+        .then(({ getVersion }) => getVersion())
+        .then(setVersion)
+        .catch(() => setVersion(null))
+      return
+    }
+    setVersion(typeof __WEB_APP_VERSION__ === "string" ? __WEB_APP_VERSION__ : null)
+  }, [])
+
+  return version
+}
+
+export function formatReleaseVersion(version: string | null | undefined) {
+  if (!version) return "-"
+  return version.startsWith("v") ? version : `v${version}`
+}
 
 type UpdaterPhase = "idle" | "checking" | "downloading" | "ready"
 

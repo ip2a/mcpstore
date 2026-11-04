@@ -19,7 +19,7 @@ export function useAgentScope({
   const scopeServicesQuery = useScopeServicesQuery(selectedScope)
   const scopeServices = scopeServicesQuery.data || []
 
-  // 可加入某 agent scope 的服务 = store 里声明、但该 agent 下还没有的。
+  // Services that can join an agent scope = declared in the store but not yet present under that agent.
   const storeServiceNames = useMemo(
     () =>
       [
@@ -56,13 +56,13 @@ export function useAgentScope({
       ? scopeServicesError.message
       : scopeServicesError
         ? String(scopeServicesError)
-        : "作用域服务加载失败"
+        : "Failed to load scope services"
   const scopeToolsErrorMessage =
     scopeToolsError instanceof Error
       ? scopeToolsError.message
       : scopeToolsError
         ? String(scopeToolsError)
-        : "作用域Failed to load tools"
+        : "Failed to load scope tools"
   const loadingScopeServices = scopeServicesQuery.isFetching
   const loadingScopeTools = scopeToolQueries.some((result) => result.isFetching)
 

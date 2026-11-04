@@ -111,7 +111,7 @@ fn mime_for_path(path: &str) -> &'static str {
     "application/octet-stream"
 }
 
-/// SPA 静态回退：命中嵌入资源返回资源；带扩展名未命中返回 404；其余回 index.html。
+/// SPA static fallback: serve the embedded asset on hit; 404 when a path with an extension misses; otherwise fall back to index.html.
 pub async fn serve_react_app(request: axum::extract::Request) -> Response {
     let path = request.uri().path().trim_start_matches('/');
     let asset_path = if path.is_empty() { "index.html" } else { path };

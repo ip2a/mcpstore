@@ -87,6 +87,8 @@ pub struct McpServerImplementation {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub website_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -130,6 +132,10 @@ impl From<&ServerPeerInfo> for McpServerMetadata {
                     version: server_info.version.clone(),
                     description: server_info.description.clone(),
                     website_url: server_info.website_url.clone(),
+                    icons: server_info
+                        .icons
+                        .as_ref()
+                        .and_then(|icons| serde_json::to_value(icons).ok()),
                 }),
             instructions: info.instructions.clone(),
             capabilities: McpServerCapabilities {

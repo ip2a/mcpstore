@@ -5,6 +5,7 @@ import {
   ClipboardIcon,
   DatabaseIcon,
   HistoryIcon,
+  LayoutDashboardIcon,
   LinkIcon,
   PackageIcon,
   RefreshCwIcon,
@@ -20,15 +21,13 @@ import {
 } from "@/features/cache/cache-model"
 import { CacheCollectionNav, firstCollection } from "@/features/cache/cache-layer-browser"
 import { CacheLayerContent, CacheOverviewContent } from "@/features/cache/cache-response-view"
-import { CatalogTabTrigger, CatalogTabsList } from "@/components/shared/catalog-tabs-list"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SectionHeading } from "@/components/shared/section-heading"
-import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Button } from "@/components/ui/button"
-import { Tabs } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useCacheHealthQuery, useCacheInspectQuery } from "@/features/cache/queries"
 import { useI18n } from "@/lib/i18n-context"
 import { type CacheBackend } from "@/lib/api"
@@ -41,7 +40,9 @@ const LAYER_TAB_ICONS: Record<CacheLayerId, LucideIcon> = {
   event: HistoryIcon,
 }
 
-type RightPaneView = "overview" | "layer"
+const OVERVIEW_TAB = "overview"
+
+type CacheTabId = "overview" | CacheLayerId
 
 export function CacheView(props: {
   backend?: CacheBackend
@@ -51,8 +52,7 @@ export function CacheView(props: {
 }) {
   const { t } = useI18n()
   const [refreshError, setRefreshError] = useState<string | null>(null)
-  const [rightPaneView, setRightPaneView] = useState<RightPaneView>("overview")
-  const [selectedLayer, setSelectedLayer] = useState<CacheLayerId>("entity")
+  const [activeTab, setActiveTab] = useState<CacheTabId>(OVERVIEW_TAB)
   const [selectedCollection, setSelectedCollection] = useState("")
   const healthQuery = useCacheHealthQuery()
   const inspectQuery = useCacheInspectQuery()
@@ -61,8 +61,8 @@ export function CacheView(props: {
   const tree = useMemo(() => buildDisplayCacheTree(inspectReport, healthReport), [inspectReport, healthReport])
   const layerNodes = useMemo(() => getAllLayerNodes(tree), [tree])
   const selectedLayerNode = useMemo(
-    () => layerNodes.find((layer) => layer.layer === selectedLayer) ?? layerNodes[0],
-    [layerNodes, selectedLayer],
+    () => layerNodes.find((layer) => layer.layer === activeTab) ?? layerNodes[0],
+    [layerNodes, activeTab],
   )
   const activeCollectionNode = useMemo(
     () => selectedLayerNode.collections.find((collection) => collection.collection === selectedCollection) ?? null,
@@ -71,6 +71,11 @@ export function CacheView(props: {
   const namespace = extractCacheNamespace(inspectReport, healthReport) ?? tree?.namespace ?? t("unknown")
   const backend = props.backend || tree?.backend || t("unknown")
   const namespaceLine = [namespace, backend].filter(Boolean).join(" · ")
+  const headerLine = tree
+    ? [namespaceLine, t("cacheLayerSummary", { types: tree.totalCollections, keys: tree.totalKeys })]
+        .filter(Boolean)
+        .join(" · ")
+    : namespaceLine
   const error = inspectQuery.error || refreshError
   const errorMessage = error instanceof Error ? error.message : error ? String(error) : t("cacheLoadFailed")
   const loading = healthQuery.isFetching || inspectQuery.isFetching
@@ -95,207 +100,196 @@ export function CacheView(props: {
   }, [props.revision])
 
   useEffect(() => {
-    setRightPaneView("overview")
+    setActiveTab(OVERVIEW_TAB)
   }, [props.revision])
 
   useEffect(() => {
     setSelectedCollection(firstCollection(selectedLayerNode.collections))
-  }, [selectedLayer, selectedLayerNode.collections])
+  }, [selectedLayerNode.layer, selectedLayerNode.collections])
+
+  const stateGuard =
+    error && !hasData ? (
+      <PageError
+        title={t("cacheViewFailedToLoad", { view: t("cacheStorageTitle") })}
+        message={errorMessage}
+        onRefresh={loadCache}
+      />
+    ) : loading && !hasData ? (
+      <PageSkeleton />
+    ) : !tree ? (
+      <PageSkeleton />
+    ) : null
 
   return (
-    <TwoPanePage variant="full" className="h-full min-h-0 flex-1 gap-4">
-      <PanelCard className="@container flex h-full min-h-0 flex-col">
-        <section className="flex flex-col gap-3 border-b pb-4">
-          <div className="min-w-0">
-            <p className="font-mono text-xs uppercase text-muted-foreground">{t("cache")}</p>
-            <button
-              type="button"
-              onClick={() => setRightPaneView("overview")}
-              className={cn(
-                "mt-1 block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-lg font-semibold underline-offset-4 outline-none transition-opacity",
-                "hover:underline active:opacity-70",
-              )}
-              title={t("cacheStorageTitle")}
-            >
-              {t("cacheStorageTitle")}
-            </button>
-            <p className="mt-1 truncate font-mono text-xs text-muted-foreground" title={namespaceLine}>
-              {namespaceLine}
-            </p>
-          </div>
-        </section>
+    <>
+      <div className="min-w-0 shrink-0 pl-4">
+        <h1 className="text-lg font-semibold">{t("cacheStorageTitle")}</h1>
+        <p className="mt-1 truncate font-mono text-sm text-muted-foreground" title={headerLine}>
+          {headerLine}
+        </p>
+      </div>
 
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         <Tabs
-          value={selectedLayer}
-          onValueChange={(value) => {
-            setSelectedLayer(value as CacheLayerId)
-            setRightPaneView("layer")
-          }}
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pt-3"
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as CacheTabId)}
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
         >
-          <CatalogTabsList>
-            {layerNodes.map((layerNode) => {
-              const Icon = LAYER_TAB_ICONS[layerNode.layer]
-              const label = t(LAYER_I18N_KEY[layerNode.layer])
-              return (
-                <CatalogTabTrigger key={layerNode.layer} value={layerNode.layer} label={label} title={label}>
-                  <Icon />
-                </CatalogTabTrigger>
-              )
-            })}
-          </CatalogTabsList>
+          <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
+            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+              <TabsTrigger value={OVERVIEW_TAB} title={t("overview")}>
+                <LayoutDashboardIcon />
+                {t("overview")}
+              </TabsTrigger>
+              {layerNodes.map((layerNode) => {
+                const Icon = LAYER_TAB_ICONS[layerNode.layer]
+                const label = t(LAYER_I18N_KEY[layerNode.layer])
+                return (
+                  <TabsTrigger key={layerNode.layer} value={layerNode.layer} title={label}>
+                    <Icon />
+                    {label}
+                  </TabsTrigger>
+                )
+              })}
+            </TabsList>
+            <CacheActions
+              className="ml-auto"
+              loading={loading}
+              canCopy={Boolean(inspectReport || healthReport)}
+              onCopy={() => copyReport({ inspect: inspectReport, health: healthReport })}
+              onRefresh={loadCache}
+              onSwitch={props.onSwitch}
+            />
+          </div>
 
-          <SectionHeading
-            title={t("cacheCollections")}
-            titleAs="h2"
-            description={
-              selectedLayerNode.keyCount > 0
-                ? t("cacheLayerSummary", {
-                    types: selectedLayerNode.typeCount,
-                    keys: selectedLayerNode.keyCount,
-                  })
-                : t("typesCount", { count: selectedLayerNode.typeCount })
-            }
-            descriptionPlacement="inline"
-            className="shrink-0 border-b-0 pb-0"
-          />
-          <CacheCollectionNav
-            collections={selectedLayerNode.collections}
-            value={rightPaneView === "layer" ? selectedCollection : ""}
-            onValueChange={(value) => {
-              setSelectedCollection(value)
-              setRightPaneView("layer")
-            }}
-          />
+          <TabsContent
+            value={OVERVIEW_TAB}
+            className="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+          >
+            {tree ? (
+              <MetricGrid columns="four">
+                <MetricTile
+                  variant="compact"
+                  label={t("cacheNamespace")}
+                  value={tree.namespace}
+                  title={tree.namespace}
+                />
+                <MetricTile
+                  variant="compact"
+                  label={t("backend")}
+                  value={props.backend || tree.backend || t("unknown")}
+                  hint={t("currentStorageBackend")}
+                />
+                <MetricTile
+                  variant="compact"
+                  label={t("cacheCollections")}
+                  value={String(tree.totalCollections)}
+                  hint={t("cacheActiveTypesHint")}
+                />
+                <MetricTile
+                  variant="compact"
+                  label={t("cacheTotalKeys")}
+                  value={String(tree.totalKeys)}
+                  hint={t("cacheTotalKeysHint")}
+                />
+              </MetricGrid>
+            ) : null}
+            <ScrollPane className="flex-1">
+              {stateGuard ?? (tree ? <CacheOverviewContent tree={tree} /> : null)}
+            </ScrollPane>
+          </TabsContent>
+
+          {layerNodes.map((layerNode) => {
+            const layerActive = activeTab === layerNode.layer
+            return (
+              <TabsContent
+                key={layerNode.layer}
+                value={layerNode.layer}
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                {stateGuard ?? (
+                  <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(240px,0.36fr)_minmax(0,1fr)] gap-4 [&>*]:min-h-0 [&>*]:min-w-0">
+                    <div className="flex min-h-0 min-w-0 flex-col gap-3">
+                      <SectionHeading
+                        title={t("cacheCollections")}
+                        titleAs="h2"
+                        description={
+                          layerNode.keyCount > 0
+                            ? t("cacheLayerSummary", {
+                                types: layerNode.typeCount,
+                                keys: layerNode.keyCount,
+                              })
+                            : t("typesCount", { count: layerNode.typeCount })
+                        }
+                        descriptionPlacement="inline"
+                        className="shrink-0 border-b-0 pb-0"
+                      />
+                      <CacheCollectionNav
+                        collections={layerNode.collections}
+                        value={layerActive ? selectedCollection : ""}
+                        onValueChange={setSelectedCollection}
+                      />
+                    </div>
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                      <div className="flex min-w-0 shrink-0 items-center justify-between gap-3 border-b pb-2">
+                        <strong
+                          className="truncate text-sm font-medium"
+                          title={activeCollectionNode?.type ?? t(LAYER_I18N_KEY[layerNode.layer])}
+                        >
+                          {activeCollectionNode?.type ?? t(LAYER_I18N_KEY[layerNode.layer])}
+                        </strong>
+                        {activeCollectionNode ? (
+                          <span className="shrink-0 text-sm text-muted-foreground">
+                            {t("keysCount", { count: activeCollectionNode.keyCount })}
+                          </span>
+                        ) : null}
+                      </div>
+                      <CacheLayerContent collection={activeCollectionNode} />
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+            )
+          })}
         </Tabs>
       </PanelCard>
-
-      <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-        <CachePreviewHeader
-          loading={loading}
-          title={
-            rightPaneView === "overview"
-              ? t("cacheStorageTitle")
-              : (activeCollectionNode?.type ?? t(LAYER_I18N_KEY[selectedLayerNode.layer]))
-          }
-          countLabel={
-            rightPaneView === "layer"
-              ? activeCollectionNode
-                ? t("keysCount", { count: activeCollectionNode.keyCount })
-                : t("cacheLayerSummary", {
-                    types: selectedLayerNode.typeCount,
-                    keys: selectedLayerNode.keyCount,
-                  })
-              : tree
-                ? t("keysCount", { count: tree.totalKeys })
-                : undefined
-          }
-          onCopy={
-            inspectReport || healthReport
-              ? () => copyReport({ inspect: inspectReport, health: healthReport })
-              : undefined
-          }
-          onRefresh={loadCache}
-          onSwitch={props.onSwitch}
-        />
-
-        {rightPaneView === "overview" && tree ? (
-          <MetricGrid columns="four">
-            <MetricTile variant="compact" label={t("cacheNamespace")} value={tree.namespace} title={tree.namespace} />
-            <MetricTile
-              variant="compact"
-              label={t("backend")}
-              value={props.backend || tree.backend || t("unknown")}
-              hint={t("currentStorageBackend")}
-            />
-            <MetricTile
-              variant="compact"
-              label={t("cacheCollections")}
-              value={String(tree.totalCollections)}
-              hint={t("cacheActiveTypesHint")}
-            />
-            <MetricTile
-              variant="compact"
-              label={t("cacheTotalKeys")}
-              value={String(tree.totalKeys)}
-              hint={t("cacheTotalKeysHint")}
-            />
-          </MetricGrid>
-        ) : null}
-
-        {rightPaneView === "overview" ? (
-          <ScrollPane className="flex-1">
-            {error && !hasData ? (
-              <PageError title={t("cacheViewFailedToLoad", { view: t("cacheStorageTitle") })} message={errorMessage} onRefresh={loadCache} />
-            ) : loading && !hasData ? (
-              <PageSkeleton />
-            ) : !tree ? (
-              <PageSkeleton />
-            ) : (
-              <CacheOverviewContent tree={tree} />
-            )}
-          </ScrollPane>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {error && !hasData ? (
-              <PageError title={t("cacheViewFailedToLoad", { view: t("cacheStorageTitle") })} message={errorMessage} onRefresh={loadCache} />
-            ) : loading && !hasData ? (
-              <PageSkeleton />
-            ) : !tree ? (
-              <PageSkeleton />
-            ) : (
-              <CacheLayerContent collection={activeCollectionNode} />
-            )}
-          </div>
-        )}
-      </PanelCard>
-    </TwoPanePage>
+    </>
   )
 }
 
-function CachePreviewHeader({
+function CacheActions({
   loading,
+  canCopy,
   onCopy,
   onRefresh,
   onSwitch,
-  title,
-  countLabel,
+  className,
 }: {
   loading: boolean
-  onCopy?: () => void
+  canCopy: boolean
+  onCopy: () => void
   onRefresh: () => void
   onSwitch: () => void
-  title: string
-  countLabel?: string
+  className?: string
 }) {
   const { t } = useI18n()
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-2">
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-        <strong className="truncate text-sm font-medium" title={title}>
-          {title}
-        </strong>
-        {countLabel ? (
-          <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 flex-wrap justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onSwitch}>
-          <DatabaseIcon data-icon="inline-start" />
-          {t("switchBackend")}
+    <div className={cn("flex shrink-0 gap-2", className)}>
+      <Button size="sm" variant="outline" onClick={onSwitch}>
+        <DatabaseIcon data-icon="inline-start" />
+        {t("switchBackend")}
+      </Button>
+      {canCopy ? (
+        <Button size="sm" variant="outline" onClick={onCopy}>
+          <ClipboardIcon data-icon="inline-start" />
+          {t("copy")}
         </Button>
-        {onCopy ? (
-          <Button size="sm" variant="outline" onClick={onCopy}>
-            <ClipboardIcon data-icon="inline-start" />
-            {t("copy")}
-          </Button>
-        ) : null}
-        <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-          <RefreshCwIcon data-icon="inline-start" />
-          {t("refresh")}
-        </Button>
-      </div>
+      ) : null}
+      <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
+        <RefreshCwIcon data-icon="inline-start" />
+        {t("refresh")}
+      </Button>
     </div>
   )
 }

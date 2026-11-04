@@ -12,6 +12,10 @@ use crate::{Error, FailureCode, InstanceId, Result, ServiceInstanceKey};
 
 impl MCPStore {
     pub(crate) async fn load_from_db(&self) -> Result<()> {
+        // Acquire lock to ensure atomic registry clear + repopulation.
+        // Prevents race condition where concurrent queries see empty registry.
+        let _guard = self.kernel.control.refresh_mutex.lock().await;
+
         let definition_values = self
             .kernel
             .persistence
@@ -190,6 +194,7 @@ impl MCPStore {
                             input_schema: tool.input_schema.clone(),
                             output_schema: tool.output_schema.clone(),
                             annotations: tool.annotations.clone(),
+                            icons: tool.icons.clone(),
                             meta: tool.meta.clone(),
                         });
                     }
@@ -467,6 +472,7 @@ impl MCPStore {
                 input_schema: tool.input_schema,
                 output_schema: tool.output_schema,
                 annotations: tool.annotations,
+                icons: tool.icons,
                 meta: tool.meta,
             });
         }

@@ -28,7 +28,7 @@ pub(super) async fn store_list_openapi_imports(State(state): State<Arc<ApiState>
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "OpenAPI 导入列表获取成功",
+        "OpenAPI import list fetched successfully",
         json!({ "imports": imports, "total": imports.len() }),
     ))
 }
@@ -43,7 +43,7 @@ pub(super) async fn store_get_openapi_import_by_path(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "OpenAPI 导入结果获取成功",
+        "OpenAPI import fetched successfully",
         json!({ "import": import }),
     ))
 }
@@ -112,7 +112,7 @@ pub(super) async fn store_import_openapi_impl(
         }
     }
     .map_err(ApiError::from_store)?;
-    Ok(success("OpenAPI 导入成功", json!({ "import": import })))
+    Ok(success("OpenAPI import succeeded", json!({ "import": import })))
 }
 
 pub(super) async fn store_bundle_openapi(
@@ -157,7 +157,7 @@ pub(super) async fn store_bundle_openapi(
         }
     }
     .map_err(ApiError::from_store)?;
-    Ok(success("OpenAPI 规范打包成功", json!({ "bundle": bundle })))
+    Ok(success("OpenAPI spec bundled successfully", json!({ "bundle": bundle })))
 }
 
 pub(super) async fn store_bundle_openapi_artifact(
@@ -207,7 +207,7 @@ pub(super) async fn store_bundle_openapi_artifact(
     }
     .map_err(ApiError::from_store)?;
     Ok(success(
-        "OpenAPI 规范打包产物获取成功",
+        "OpenAPI bundle artifact fetched successfully",
         json!({ "artifact": artifact }),
     ))
 }

@@ -1,71 +1,54 @@
 import { useCallback } from "react"
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { getAgentId } from "@/features/agents/model"
 import {
   health,
-  listAgentServices,
   listAgents,
   listServices,
   type CacheBackend,
-  type ServiceInstance,
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
-
-function mergeScopedServices(storeServices: ServiceInstance[], agentGroups: ServiceInstance[][]) {
-  const merged = new Map<string, ServiceInstance>()
-  for (const service of storeServices) {
-    merged.set(service.instance_id, service)
-  }
-  for (const group of agentGroups) {
-    for (const service of group) {
-      merged.set(service.instance_id, service)
-    }
-  }
-  return Array.from(merged.values()).sort((a, b) => a.service_name.localeCompare(b.service_name))
-}
 
 export function useDashboard() {
   const queryClient = useQueryClient()
   const healthQuery = useQuery({ queryKey: queryKeys.health, queryFn: health })
   const agentsQuery = useQuery({ queryKey: queryKeys.agents, queryFn: () => listAgents().catch(() => []) })
-  const storeServicesQuery = useQuery({
+  
+  // Use root scope to fetch all services in a single request
+  const servicesQuery = useQuery({
     queryKey: queryKeys.instances,
-    queryFn: () => listServices(),
-    refetchInterval: 5_000,
+    queryFn: () => listServices({ type: "root" }),
+    refetchInterval: (query) => {
+      // Dynamic polling: faster when services are transitioning, slower when stable
+      const services = query.state.data || []
+      const hasTransitioningServices = services.some(
+        (s) => s.state?.phase === "starting" || s.state?.phase === "stopping"
+      )
+      return hasTransitioningServices ? 3_000 : 12_000
+    },
   })
-  const agentIds = (agentsQuery.data || []).map(getAgentId).filter(Boolean)
-  const agentServicesQueries = useQueries({
-    queries: agentIds.map((agentId) => ({
-      queryKey: queryKeys.agentServices(agentId),
-      queryFn: () => listAgentServices(agentId),
-      enabled: agentsQuery.isSuccess,
-      refetchInterval: 5_000,
-    })),
-  })
-  const services = mergeScopedServices(
-    storeServicesQuery.data || [],
-    agentServicesQueries.map((query) => query.data || []),
-  )
+  
+  const services = servicesQuery.data || []
   const agents = agentsQuery.data || []
-  const backend = healthQuery.data?.backend as CacheBackend | undefined
+  
+  // /health returns {status, store} with no backend field; cache status comes from /cache/health (the cache page's own query)
+  const backend: CacheBackend | undefined = undefined
   const loading =
     healthQuery.isLoading ||
-    storeServicesQuery.isLoading ||
-    agentsQuery.isLoading ||
-    agentServicesQueries.some((query) => query.isLoading)
+    servicesQuery.isLoading ||
+    agentsQuery.isLoading
   const errorSource =
     healthQuery.error ||
-    storeServicesQuery.error ||
-    agentsQuery.error ||
-    agentServicesQueries.find((query) => query.error)?.error
+    servicesQuery.error ||
+    agentsQuery.error
   const error = errorSource instanceof Error ? errorSource.message : errorSource ? String(errorSource) : null
 
   const refresh = useCallback(async () => {
+    // Use refetchQueries to reset the polling timer
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.health }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.instances }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
+      queryClient.refetchQueries({ queryKey: queryKeys.health }),
+      queryClient.refetchQueries({ queryKey: queryKeys.instances }),
+      queryClient.refetchQueries({ queryKey: queryKeys.agents }),
     ])
   }, [queryClient])
 

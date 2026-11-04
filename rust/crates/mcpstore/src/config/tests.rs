@@ -294,9 +294,7 @@ fn test_app_config_roundtrip() {
     config.cache.config = serde_json::json!({"url": "redis://127.0.0.1/"});
     config.api.url_prefix = "/demo".to_string();
     config.diagnostics.runtime_log.level = "debug".to_string();
-    config.mcp_aggregate.transport = "streamable-http".to_string();
-    config.mcp_aggregate.port = 19400;
-    config.ui.language = "en".to_string();
+    config.gateway.port = 19400;
     config.diagnostics.runtime_log.max_size_bytes = 8 * 1024 * 1024;
     config.diagnostics.runtime_log.retention_days = Some(14);
 
@@ -306,9 +304,7 @@ fn test_app_config_roundtrip() {
     assert_eq!(loaded.cache.namespace, "mcpstore");
     assert_eq!(loaded.api.url_prefix, "/demo");
     assert_eq!(loaded.diagnostics.runtime_log.level, "debug");
-    assert_eq!(loaded.mcp_aggregate.transport, "streamable-http");
-    assert_eq!(loaded.mcp_aggregate.port, 19400);
-    assert_eq!(loaded.ui.language, "en");
+    assert_eq!(loaded.gateway.port, 19400);
     assert_eq!(
         loaded.diagnostics.runtime_log.max_size_bytes,
         8 * 1024 * 1024
@@ -327,93 +323,61 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[api]"));
     assert!(template.contains("[web]"));
     assert!(template.contains("[server]"));
-    assert!(template.contains("[mcp_aggregate]"));
-    assert!(template.contains("transport = \"stdio\""));
+    assert!(template.contains("[gateway]"));
     assert!(template.contains("port = 1830"));
     assert!(template.contains("[health_check]"));
     assert!(template.contains("[service_defaults.lifecycle]"));
     assert!(template.contains("startup_policy = \"lazy\""));
     assert!(template.contains("restart_policy = \"no\""));
-    assert!(template.contains("[ui]"));
-    assert!(template.contains("language = \"en\""));
     assert!(template.contains("[diagnostics.runtime_log]"));
     assert!(template.contains("max_size_bytes = 5242880"));
     assert!(template.contains("level = \"info\""));
     assert!(!template.contains("[monitoring]"));
     assert!(!template.contains("[standalone]"));
-    assert!(template.contains("[hosts]"));
-    assert!(template.contains("active = \"local\""));
+    // Hosts live in the panel's own panel-settings.json now, not in the
+    // daemon config template.
+    assert!(!template.contains("[hosts]"));
 }
 
 #[test]
 fn test_hosts_config_roundtrip() {
-    use std::collections::HashMap;
-
     use super::{HostEntry, HostsConfig};
 
-    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
-    std::fs::write(
-        mgr.app_config_path(),
-        r#"
-[hosts]
-active = "测试 A"
-
-[hosts.local]
-url = "/api"
-
-[hosts."测试 A"]
-url = "http://115.191.69.41:8021"
-"#,
-    )
+    // Legacy single-`url` entries migrate to `urls`; multi-URL entries pass
+    // through in preference order; `active` selects which one wins.
+    let hosts: HostsConfig = serde_json::from_value(serde_json::json!({
+        "active": "测试 A",
+        "local": { "url": "http://127.0.0.1:1820" },
+        "测试 A": { "urls": ["http://115.191.69.41:8021", "http://100.64.0.8:8021"] }
+    }))
     .unwrap();
-
-    let loaded = mgr.load_app_config().unwrap();
-    assert_eq!(loaded.hosts.active, "测试 A");
-    assert_eq!(loaded.hosts.entries.len(), 2);
+    assert_eq!(hosts.active, "测试 A");
     assert_eq!(
-        loaded
-            .hosts
+        hosts
             .entries
             .get("local")
-            .map(|entry| entry.url.as_str()),
-        Some("/api")
+            .map(|entry| entry.urls.as_slice()),
+        Some(&["http://127.0.0.1:1820".to_string()][..])
     );
     assert_eq!(
-        loaded
-            .hosts
+        hosts
             .entries
             .get("测试 A")
-            .map(|entry| entry.url.as_str()),
-        Some("http://115.191.69.41:8021")
+            .map(|entry| entry.urls.as_slice()),
+        Some(
+            &[
+                "http://115.191.69.41:8021".to_string(),
+                "http://100.64.0.8:8021".to_string()
+            ][..]
+        )
     );
-    assert_eq!(loaded.hosts.active_url(), "http://115.191.69.41:8021");
-
-    let mut config = AppConfig::default();
-    config.hosts = HostsConfig {
-        active: "remote".to_string(),
-        entries: HashMap::from([
-            (
-                "local".to_string(),
-                HostEntry {
-                    url: "/api".to_string(),
-                },
-            ),
-            (
-                "remote".to_string(),
-                HostEntry {
-                    url: "http://127.0.0.1:1820".to_string(),
-                },
-            ),
-        ]),
-    };
-    mgr.save_app_config(&config).unwrap();
-    let saved = mgr.load_app_config().unwrap();
-    assert_eq!(saved.hosts.active, "remote");
-    assert_eq!(saved.hosts.entries.len(), 2);
-
-    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(
+        hosts.active_urls(),
+        vec![
+            "http://115.191.69.41:8021".to_string(),
+            "http://100.64.0.8:8021".to_string()
+        ]
+    );
 }
 
 #[test]
@@ -721,13 +685,11 @@ fn test_server_settings_daemon_surfaces_default() {
     let server = ServerSettings::default();
     assert_eq!(server.host, "127.0.0.1");
     assert_eq!(server.port, 1820);
-    assert_eq!(server.app_port, 1821);
-    assert_eq!(server.web_port, 1828);
     assert!(server.core_enabled);
-    assert!(server.app_enabled);
-    assert!(server.web_enabled);
     assert!(!server.auto_open_browser);
-    assert!(!McpAggregateConfig::default().enabled);
+    // The web panel is a separate process; its bind lives in [web].
+    assert_eq!(WebSettings::default().port, 1828);
+    assert_eq!(GatewayConfig::default().port, 1830);
 }
 
 #[test]
@@ -737,15 +699,53 @@ fn test_save_app_config_round_trips_without_tmp_residue() {
     let mgr = ConfigManager::with_path(dir.join("mcp.json"));
 
     let mut config = AppConfig::default();
-    config.server.web_port = 1829;
-    config.mcp_aggregate.enabled = true;
+    config.web.port = 1829;
+    config.gateway.port = 1831;
     mgr.save_app_config(&config).unwrap();
 
     let loaded = mgr.load_app_config().unwrap();
-    assert_eq!(loaded.server.web_port, 1829);
-    assert!(loaded.mcp_aggregate.enabled);
-    assert_eq!(loaded.server.app_port, 1821);
+    assert_eq!(loaded.web.port, 1829);
+    assert_eq!(loaded.gateway.port, 1831);
     assert!(!mgr.app_config_path().with_extension("toml.tmp").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn save_preserves_foreign_top_level_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    std::fs::write(
+        &path,
+        "[ui]\nlanguage = \"zh\"\ntheme = \"dark\"\n\n[api]\nport = 1822\n",
+    )
+    .unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    // A save that knows nothing about [ui] must not drop it: the panel
+    // migration has not read it yet.
+    mgr.save_app_config(&AppConfig::default()).unwrap();
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert_eq!(raw["ui"]["language"], json!("zh"));
+    assert_eq!(raw["ui"]["theme"], json!("dark"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn save_still_drops_reverted_fields_from_known_sections() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    std::fs::write(&path, "[api]\nport = 1822\nurl_prefix = \"/x\"\n").unwrap();
+    let mgr = ConfigManager::with_path(dir.join("mcp.json"));
+
+    // [api] is owned: a config back at defaults rewrites the section, the
+    // stale non-default values must not leak back from the old file.
+    mgr.save_app_config(&AppConfig::default()).unwrap();
+    let raw = mgr.load_raw_app_config_value().unwrap();
+    assert!(raw.get("api").is_none());
 
     std::fs::remove_dir_all(&dir).ok();
 }

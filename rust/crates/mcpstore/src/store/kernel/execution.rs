@@ -9,4 +9,6 @@ pub(crate) struct ExecutionEngine {
     /// Self-healing supervisor mounted by the control panel; not mounted means no self-healing. Created on demand by ControlPanel.
     pub(crate) supervisor: std::sync::OnceLock<Arc<InstanceSupervisor>>,
     pub(crate) event_bus: EventBus,
+    /// Request-telemetry sink. None until the host attaches one; the SDK default is no telemetry.
+    pub(crate) telemetry: std::sync::OnceLock<Option<Arc<dyn crate::telemetry::RequestTelemetry>>>,
 }

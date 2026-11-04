@@ -34,14 +34,19 @@ async-trait = { workspace = true }
 axum = "0.7"
 maud = { version = "0.27", features = ["axum"] }
 tower-http = { version = "0.6", features = ["cors"] }
+futures-util = { version = "0.3", default-features = false }
 crossterm = "0.28"
 inquire = "0.7"
 nucleo-matcher = "0.3"
+
+# Request telemetry persistence (app/daemon layer only; the SDK stays storage-free)
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 mcpstore = { path = "../../crates/mcpstore", default-features = false, features = ["light", "redis", "valkey", "test-shared-memory"] }
 chrono = { workspace = true }
 rmcp = { workspace = true }
 url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 blake3 = "1"
 subtle = "2.6"
 

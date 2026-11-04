@@ -36,7 +36,7 @@ impl DaemonEndpoint {
     }
 }
 
-/// 连接 daemon 管理面；无 remote endpoint 时连本机默认 namespace。
+/// Connect to the daemon admin face; without a remote endpoint, connect to the local default namespace.
 pub async fn connect_admin(endpoint: Option<&DaemonEndpoint>) -> Result<KernelClient, Error> {
     match endpoint {
         Some(endpoint) => KernelClient::connect_remote(&endpoint.namespace, endpoint).await,
@@ -123,8 +123,9 @@ impl KernelClient {
         }
     }
 
-    /// 流式请求（StreamToolExecution 专用）：事件即时回调，`Finished` 事件即终态，
-    /// 返回其 result 载荷。放弃连接（drop）即停止接收事件。
+    /// Streaming request (StreamToolExecution only): events are delivered via callback as they
+    /// arrive, the `Finished` event is terminal and returns its result payload.
+    /// Dropping the connection stops event delivery.
     pub async fn request_stream<F>(
         &mut self,
         operation: KernelOperation,
@@ -248,9 +249,79 @@ impl KernelClient {
         .await
         .map(|(result, _)| result)
     }
+
+    pub async fn plugin_list(&mut self) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginList,
+            Value::Null,
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_market(&mut self) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginMarket,
+            Value::Null,
+            Duration::from_secs(120),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_detect(&mut self) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginDetect,
+            Value::Null,
+            Duration::from_secs(120),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_install(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginInstall,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(180),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_uninstall(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginUninstall,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_enable(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginEnable,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
+
+    pub async fn plugin_disable(&mut self, id: &str) -> Result<Value, Error> {
+        self.request(
+            KernelOperation::PluginDisable,
+            serde_json::json!({ "id": id }),
+            Duration::from_secs(30),
+        )
+        .await
+        .map(|(result, _)| result)
+    }
 }
 
-/// 连接本机 daemon（默认 namespace）并请求优雅停机。
+/// Connect to the local daemon (default namespace) and request a graceful shutdown.
 pub async fn stop_daemon() -> Result<Value, Error> {
     let mut client = KernelClient::connect(crate::daemon::protocol::DEFAULT_NAMESPACE).await?;
     client

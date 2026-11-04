@@ -22,6 +22,7 @@ pub fn openapi_tool_infos(import: &OpenApiImportResult) -> Vec<crate::registry::
             input_schema: component.input_schema.clone(),
             output_schema: tool_output_schema(component),
             annotations: None,
+            icons: None,
             meta: None,
         })
         .collect()
@@ -111,7 +112,11 @@ pub async fn call_openapi_tool(
             response.body,
         )]
     };
-    Ok(ToolCallResult { content, is_error })
+    Ok(ToolCallResult {
+        content,
+        structured_content: None,
+        is_error,
+    })
 }
 
 pub async fn read_openapi_resource(

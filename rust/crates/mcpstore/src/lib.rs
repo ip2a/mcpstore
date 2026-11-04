@@ -1,9 +1,12 @@
 #![recursion_limit = "256"]
 
 pub(crate) mod agent;
+pub mod agents;
 pub mod auth;
 pub mod cache;
+pub mod client_agent;
 pub mod client_config;
+pub mod client_wire;
 pub mod config;
 pub mod config_formats;
 pub(crate) mod control;
@@ -22,6 +25,7 @@ pub(crate) mod service;
 pub mod session;
 pub mod state;
 pub mod store;
+pub mod telemetry;
 pub mod transport;
 
 // Facade re-exports: configuration
@@ -34,8 +38,7 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, CacheConfig, ConfigManager, McpAggregateConfig, McpConfig, RuntimeLogConfig,
-    ServerConfig,
+    AppConfig, CacheConfig, ConfigManager, GatewayConfig, McpConfig, RuntimeLogConfig, ServerConfig,
 };
 
 // Facade re-exports: cache layer
@@ -103,8 +106,8 @@ pub use error::Result;
 pub use overrides::{
     ComponentKind, ComponentOverrideCommon, PromptOverridePatch, PromptOverrideRule,
     ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,
-    ResourceTemplateOverrideRule, ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule,
-    ToolOverrideSafetyPolicy,
+    ResourceTemplateOverrideRule, ServiceOverridePatch, ServiceOverrideRule, ToolArgumentOverride,
+    ToolOverridePatch, ToolOverrideRule, ToolOverrideSafetyPolicy,
 };
 pub use store::swap::SwapResult;
 pub use store::{

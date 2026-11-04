@@ -509,7 +509,7 @@ impl HostFixture {
         std::fs::write(&config_path, b"{}")?;
         std::fs::write(
             dir.join("config.toml"),
-            format!("[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\nrpc_port = {port}\nrpc_token = \"{token}\"\n"),
+            format!("[server]\ncore_enabled = false\nweb_enabled = false\nrpc_port = {port}\nrpc_token = \"{token}\"\n"),
         )?;
         let child = tokio::process::Command::new(repo_root().join("target/debug/mcpstore"))
             .args(["start", "--source", "local", "--config-path"])
@@ -555,7 +555,7 @@ impl HostFixture {
         std::fs::write(&config_path, b"{}")?;
         std::fs::write(
             dir.join("config.toml"),
-            "[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\n",
+            "[server]\ncore_enabled = false\nweb_enabled = false\n",
         )?;
         let mut daemon_args = vec![
             "start".to_string(),
@@ -606,7 +606,7 @@ impl HostFixture {
         // This contract only exercises the kernel socket; HTTP planes disabled to avoid port clashes with other tests/local services
         std::fs::write(
             dir.join("config.toml"),
-            "[server]\ncore_enabled = false\napp_enabled = false\nweb_enabled = false\n",
+            "[server]\ncore_enabled = false\nweb_enabled = false\n",
         )?;
         std::fs::write(
             &config_path,

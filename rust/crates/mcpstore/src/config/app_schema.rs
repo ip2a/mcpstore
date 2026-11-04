@@ -18,17 +18,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub server: ServerSettings,
     #[serde(default)]
-    pub mcp_aggregate: McpAggregateConfig,
+    pub gateway: GatewayConfig,
     #[serde(default)]
     pub health_check: HealthCheckConfig,
     #[serde(default)]
     pub service_defaults: ServiceDefaultsConfig,
     #[serde(default)]
-    pub ui: UiConfig,
-    #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
-    #[serde(default)]
-    pub hosts: HostsConfig,
     /// Per-panel placement decisions, data-panel only. Keys are `"{scope}.{service}"`
     /// (e.g. `"agentA.github"`, `"store.context7"`); the only meaningful value is
     /// `"delegate"` (the control panel executes). Missing entries, an absent section or
@@ -36,6 +32,10 @@ pub struct AppConfig {
     /// The control panel never reads this section.
     #[serde(default)]
     pub placement: HashMap<String, String>,
+    /// Client-plugin state: which installed plugins are enabled, and where the
+    /// market index lives.
+    #[serde(default)]
+    pub plugins: PluginsConfig,
 }
 
 impl Default for AppConfig {
@@ -45,73 +45,138 @@ impl Default for AppConfig {
             api: ApiSettings::default(),
             web: WebSettings::default(),
             server: ServerSettings::default(),
-            mcp_aggregate: McpAggregateConfig::default(),
+            gateway: GatewayConfig::default(),
             health_check: HealthCheckConfig::default(),
             service_defaults: ServiceDefaultsConfig::default(),
-            ui: UiConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
-            hosts: HostsConfig::default(),
             placement: HashMap::new(),
+            plugins: PluginsConfig::default(),
         }
     }
 }
 
+/// Plugin enablement and market source. `enabled` lists plugin ids; an id
+/// pointing at an uninstalled plugin is harmless and ignored by the registry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HostEntry {
-    pub url: String,
+pub struct PluginsConfig {
+    #[serde(default)]
+    pub enabled: Vec<String>,
+    /// Market index base URLs, tried in order.
+    #[serde(default = "default_market_urls")]
+    pub market_urls: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Default for PluginsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: Vec::new(),
+            market_urls: default_market_urls(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HostEntry {
+    /// Candidate base URLs in preference order; the first reachable one wins.
+    pub urls: Vec<String>,
+}
+
+// One-time config migration: entries written as `{ url = "..." }` (single URL)
+// normalize to `{ urls = ["..."] }` at the deserialize boundary. The runtime
+// type only knows the new shape; the file is rewritten in the new format on
+// the next config save.
+impl<'de> Deserialize<'de> for HostEntry {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Multi { urls: Vec<String> },
+            Legacy { url: String },
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Multi { urls } => Ok(Self { urls }),
+            Raw::Legacy { url } => Ok(Self { urls: vec![url] }),
+        }
+    }
+}
+
+// Custom Deserialize: serde ignores field defaults on #[serde(flatten)] maps,
+// so a plain derive would start from an empty map and lose the default entry
+// for keys omitted from disk by sparse persist.
+impl<'de> Deserialize<'de> for HostsConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default = "default_hosts_active")]
+            active: String,
+            #[serde(flatten)]
+            entries: HashMap<String, HostEntry>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let mut entries = default_hosts_entries();
+        entries.extend(raw.entries);
+        Ok(Self {
+            active: raw.active,
+            entries,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct HostsConfig {
     #[serde(default = "default_hosts_active")]
     pub active: String,
     #[serde(flatten)]
-    #[serde(default)]
     pub entries: HashMap<String, HostEntry>,
+}
+
+pub(in crate::config) fn default_hosts_entries() -> HashMap<String, HostEntry> {
+    let mut entries = HashMap::new();
+    entries.insert(
+        default_hosts_active(),
+        HostEntry {
+            urls: vec![default_host_url()],
+        },
+    );
+    entries
 }
 
 impl Default for HostsConfig {
     fn default() -> Self {
-        let mut entries = HashMap::new();
-        entries.insert(
-            default_hosts_active(),
-            HostEntry {
-                url: default_host_url(),
-            },
-        );
         Self {
             active: default_hosts_active(),
-            entries,
+            entries: default_hosts_entries(),
         }
     }
 }
 
 impl HostsConfig {
-    pub fn active_url(&self) -> String {
+    /// URLs of the active host in preference order.
+    pub fn active_urls(&self) -> Vec<String> {
         self.entries
             .get(&self.active)
-            .map(|entry| entry.url.clone())
-            .or_else(|| self.entries.values().next().map(|entry| entry.url.clone()))
-            .unwrap_or_else(default_host_url)
+            .map(|entry| entry.urls.clone())
+            .or_else(|| self.entries.values().next().map(|entry| entry.urls.clone()))
+            .unwrap_or_else(|| vec![default_host_url()])
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpAggregateConfig {
-    #[serde(default = "default_mcp_aggregate_transport")]
-    pub transport: String,
-    #[serde(default = "default_mcp_aggregate_port")]
+pub struct GatewayConfig {
+    #[serde(default = "default_gateway_port")]
     pub port: u16,
-    #[serde(default)]
-    pub enabled: bool,
 }
 
-impl Default for McpAggregateConfig {
+impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            transport: default_mcp_aggregate_transport(),
-            port: default_mcp_aggregate_port(),
-            enabled: false,
+            port: default_gateway_port(),
         }
     }
 }
@@ -171,20 +236,6 @@ impl Default for ServiceDefaultsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UiConfig {
-    #[serde(default = "default_ui_language")]
-    pub language: String,
-}
-
-impl Default for UiConfig {
-    fn default() -> Self {
-        Self {
-            language: default_ui_language(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiSettings {
     #[serde(default = "default_api_host")]
     pub host: String,
@@ -227,10 +278,6 @@ pub struct ServerSettings {
     pub host: String,
     #[serde(default = "default_server_port")]
     pub port: u16,
-    #[serde(default = "default_app_port")]
-    pub app_port: u16,
-    #[serde(default = "default_web_port")]
-    pub web_port: u16,
     /// Kernel RPC TCP listener port; 0 disables remote daemon access.
     #[serde(default)]
     pub rpc_port: u16,
@@ -239,10 +286,6 @@ pub struct ServerSettings {
     pub rpc_token: Option<String>,
     #[serde(default = "default_true")]
     pub core_enabled: bool,
-    #[serde(default = "default_true")]
-    pub app_enabled: bool,
-    #[serde(default = "default_true")]
-    pub web_enabled: bool,
     #[serde(default)]
     pub reload: bool,
     #[serde(default)]
@@ -260,13 +303,9 @@ impl Default for ServerSettings {
         Self {
             host: default_server_host(),
             port: default_server_port(),
-            app_port: default_app_port(),
-            web_port: default_web_port(),
             rpc_port: 0,
             rpc_token: None,
             core_enabled: true,
-            app_enabled: true,
-            web_enabled: true,
             reload: false,
             auto_open_browser: false,
             show_startup_info: true,

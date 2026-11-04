@@ -17,6 +17,7 @@ pub mod models;
 pub mod resolver;
 mod server_validation;
 mod service_schema;
+mod sparse;
 #[cfg(test)]
 mod tests;
 pub mod validator;
@@ -26,8 +27,8 @@ pub use crate::auth::{
     OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
 };
 pub use app_schema::{
-    ApiSettings, AppConfig, DiagnosticsConfig, HostEntry, HostsConfig, McpAggregateConfig,
-    RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, UiConfig, WebSettings,
+    ApiSettings, AppConfig, DiagnosticsConfig, GatewayConfig, HostEntry, HostsConfig,
+    PluginsConfig, RuntimeLogConfig, ServerSettings, ServiceDefaultsConfig, WebSettings,
 };
 pub use cache_schema::CacheConfig;
 pub use health_schema::HealthCheckConfig;

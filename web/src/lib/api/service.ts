@@ -1,9 +1,8 @@
-import { apiUrl, buildQuery, readJson, request, scopeParams, scopeQuery } from "./client";
+import { appApiUrl, buildQuery, readJson, request, scopeParams, scopeQuery } from "./client";
 import type {
   AgentItem,
   AuthOperationResult,
   AuthStatusView,
-  CacheBackend,
   PromptInfo,
   ResourceInfo,
   ResourceTemplateInfo,
@@ -16,7 +15,7 @@ import type {
   ToolVisibilityFilter,
 } from "../api";
 
-/** 拼 `/services/:name<suffix>` + 作用域 query（+ 可选额外参数）。文档 §17。 */
+/** Builds `/services/:name<suffix>` + scope query (+ optional extra params). Doc §17. */
 function svcPath(
   addr: ServiceAddress,
   suffix: string,
@@ -29,8 +28,9 @@ function svcPath(
 }
 
 export async function health() {
-  return readJson<{ status: string; backend: CacheBackend }>(
-    await fetch(apiUrl("/health")),
+  // app-face route (the app process's own state {status, store}); the core face has no /health
+  return readJson<{ status: string; store: string }>(
+    await fetch(appApiUrl("/health")),
   );
 }
 
@@ -47,7 +47,7 @@ export async function listServices(
   return data.services;
 }
 
-/** 作用域注册表（root + store + 各 agent，每项带 service_count）。文档 §17.3。 */
+/** Scope registry (root + store + each agent, each with service_count). Doc §17.3. */
 export async function listScopes(): Promise<ScopeSummary[]> {
   const data = await request<{ scopes: ScopeSummary[] }>("/scopes/list");
   return data.scopes;
@@ -173,7 +173,7 @@ export async function checkInstance(addr: ServiceAddress) {
   return request(svcPath(addr, "/check"));
 }
 
-export async function connectInstance(addr: ServiceAddress) {
+export async function connectInstance(addr: ServiceAddress): Promise<ServiceState> {
   return request(svcPath(addr, "/connect"), { method: "POST" });
 }
 

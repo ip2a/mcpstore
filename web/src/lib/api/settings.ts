@@ -1,4 +1,4 @@
-import { appApi, buildQuery, request } from "./client";
+import { appApi, buildQuery, api as request } from "./client";
 import type {
   AddServiceInput,
   AgentItem,
@@ -47,6 +47,21 @@ import type {
   UpdateServiceScopeInput,
   UpdateSettingsPayload,
 } from "../api";
+
+export type HostStatus = {
+  name: string;
+  online: boolean;
+  url: string | null;
+  node_id: string | null;
+  version: string | null;
+  store: string | null;
+  latency_ms: number | null;
+  error: string | null;
+};
+
+export function getHostStatus(name: string): Promise<HostStatus> {
+  return appApi<HostStatus>(`/v1/hosts/${encodeURIComponent(name)}/status`);
+}
 
 export async function showConfig(
   options: { format?: string; service?: ServiceAddress } = {},

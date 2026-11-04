@@ -30,6 +30,7 @@ import { OverrideEditor } from "@/features/overrides/override-editor"
 import { buildSchemaExampleValue, buildToolCliCommand } from "@/lib/tool-schema-preview"
 import { serializeToolArgs, type ToolSchema, getMissingRequiredArgs } from "@/lib/tool-args"
 import { getOriginalToolName, getToolOutputSchema, getToolSchema, extractToolDescriptionDocs } from "@/lib/tool-info"
+import { toolDetailPlaygroundAside } from "@/components/shared/tool-detail-section-layout"
 import { cn } from "@/lib/utils"
 
 type SchemaField = Record<string, unknown>
@@ -232,7 +233,7 @@ export function ToolPlaygroundAside({
 
   return (
     <>
-      <aside className={cn("flex h-full min-h-0 min-w-0 w-full flex-col gap-4", className)}>
+      <aside className={cn(toolDetailPlaygroundAside, "h-full min-h-0 min-w-0 w-full flex-col gap-4", className)}>
       <ToolRequestPanel command={cliCommand} toolName={tool.name} onRun={requestRun} running={running} />
       <ToolResponsePanel
         requestArgsText={requestArgsText}

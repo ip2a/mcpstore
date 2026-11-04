@@ -1,7 +1,9 @@
 //! Read-only inspection of programming-assistant MCP configuration files.
 //!
 //! This module deliberately stops before mutation and keeps unknown fields available
-//! to callers that need to inspect or import existing service definitions.
+//! to callers that need to inspect or import existing service definitions. The
+//! per-client knowledge (where the MCP map lives, which entry fields import) lives
+//! in `agents`; this module drives it through the registry.
 
 use crate::{config::ServerConfig, Error, FailureCode, Result};
 use serde_json::{Map, Value};
@@ -11,16 +13,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ClientKind {
-    Codex,
-    ClaudeCode,
-    OpenCode,
-    Cursor,
-    ClaudeDesktop,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ConfigFormat {
     Json,
@@ -29,7 +21,7 @@ pub enum ConfigFormat {
 
 #[derive(Debug, Clone)]
 pub struct ClientConfigInspection {
-    pub client: ClientKind,
+    pub client_id: String,
     pub path: PathBuf,
     pub format: ConfigFormat,
     pub content_hash: String,
@@ -76,172 +68,24 @@ pub fn import_selected_services(
                 })?;
             Ok((
                 name.clone(),
-                imported_server_config(inspection.client, name, &service.config)?,
+                crate::agents::by_id(&inspection.client_id)
+                    .ok_or_else(|| {
+                        Error::new(
+                            FailureCode::Internal,
+                            format!("Unknown client plugin: {}", inspection.client_id),
+                        )
+                    })?
+                    .import_service(name, &service.config)?,
             ))
         })
         .collect()
 }
 
-fn imported_server_config(client: ClientKind, name: &str, value: &Value) -> Result<ServerConfig> {
-    let object = value.as_object().ok_or_else(|| {
-        Error::new(
-            FailureCode::Internal,
-            format!("Service {name} configuration must be an object"),
-        )
-    })?;
-    let unsupported = object
-        .keys()
-        .filter(|field| !supported_fields(client).contains(&field.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    if !unsupported.is_empty() {
-        return Err(Error::new(
-            FailureCode::Internal,
-            format!(
-                "Service {name} contains fields that cannot be imported: {}",
-                unsupported.join(", ")
-            ),
-        ));
-    }
-
-    let (command, args, env) = if client == ClientKind::OpenCode {
-        let command = match object.get("command") {
-            Some(Value::Array(parts)) => {
-                let mut parts = parts
-                    .iter()
-                    .map(|part| {
-                        part.as_str().map(str::to_owned).ok_or_else(|| {
-                            Error::new(
-                                FailureCode::Internal,
-                                format!("Service {name} command must be an array of strings"),
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                if parts.is_empty() {
-                    return Err(Error::new(
-                        FailureCode::Internal,
-                        format!("Service {name} command cannot be empty"),
-                    ));
-                }
-                let executable = parts.remove(0);
-                (Some(executable), parts)
-            }
-            None => (None, Vec::new()),
-            _ => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} command must be an array of strings"),
-                ))
-            }
-        };
-        (
-            command.0,
-            command.1,
-            string_map(object.get("environment"), name, "environment")?,
-        )
-    } else {
-        (
-            optional_string(object.get("command"), name, "command")?,
-            string_array(object.get("args"), name, "args")?,
-            string_map(object.get("env"), name, "env")?,
-        )
-    };
-    let url = optional_string(object.get("url"), name, "url")?;
-    if command.is_some() == url.is_some() {
-        return Err(Error::new(
-            FailureCode::Internal,
-            format!("Service {name} must set exactly one of command or url"),
-        ));
-    }
-    if client == ClientKind::OpenCode {
-        match object.get("type").and_then(Value::as_str) {
-            Some("local") if command.is_none() => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Local service {name} is missing command"),
-                ))
-            }
-            Some("remote") if url.is_none() => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Remote service {name} is missing url"),
-                ))
-            }
-            Some("local" | "remote") | None => {}
-            Some(kind) => {
-                return Err(Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} uses unsupported OpenCode type: {kind}"),
-                ))
-            }
-        }
-        if object.get("enabled") == Some(&Value::Bool(false)) {
-            return Err(Error::new(
-                FailureCode::Internal,
-                format!("Service {name} is disabled in OpenCode"),
-            ));
-        }
-        if object.contains_key("timeout") {
-            return Err(Error::new(
-                FailureCode::Internal,
-                format!("Service {name} timeout has no safe MCPStore mapping"),
-            ));
-        }
-    }
-    Ok(ServerConfig {
-        url,
-        command,
-        args,
-        env,
-        headers: string_map(object.get("headers"), name, "headers")?,
-        transport: Some(if object.contains_key("url") {
-            "streamable-http".into()
-        } else {
-            "stdio".into()
-        }),
-        ..ServerConfig::default()
-    })
-}
-
-fn optional_string(value: Option<&Value>, name: &str, field: &str) -> Result<Option<String>> {
-    value
-        .map(|value| {
-            value.as_str().map(str::to_owned).ok_or_else(|| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} {field} must be a string"),
-                )
-            })
-        })
-        .transpose()
-}
-
-fn string_array(value: Option<&Value>, name: &str, field: &str) -> Result<Vec<String>> {
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    value
-        .as_array()
-        .ok_or_else(|| {
-            Error::new(
-                FailureCode::Internal,
-                format!("Service {name} {field} must be an array of strings"),
-            )
-        })?
-        .iter()
-        .map(|value| {
-            value.as_str().map(str::to_owned).ok_or_else(|| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("Service {name} {field} must be an array of strings"),
-                )
-            })
-        })
-        .collect()
-}
-
-fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<String, String>> {
+pub(crate) fn string_map(
+    value: Option<&Value>,
+    name: &str,
+    field: &str,
+) -> Result<HashMap<String, String>> {
     let Some(value) = value else {
         return Ok(HashMap::new());
     };
@@ -268,28 +112,16 @@ fn string_map(value: Option<&Value>, name: &str, field: &str) -> Result<HashMap<
         .collect()
 }
 
-fn supported_fields(client: ClientKind) -> &'static [&'static str] {
-    match client {
-        ClientKind::Codex
-        | ClientKind::ClaudeCode
-        | ClientKind::Cursor
-        | ClientKind::ClaudeDesktop => &["command", "args", "env", "url", "headers"],
-        ClientKind::OpenCode => &[
-            "type",
-            "command",
-            "url",
-            "headers",
-            "enabled",
-            "environment",
-            "timeout",
-        ],
-    }
-}
-
 pub fn inspect_client_config(
-    client: ClientKind,
+    client_id: &str,
     path: impl AsRef<Path>,
 ) -> Result<ClientConfigInspection> {
+    let setup = crate::agents::by_id(client_id).ok_or_else(|| {
+        Error::new(
+            FailureCode::Internal,
+            format!("Unknown client plugin: {client_id}"),
+        )
+    })?;
     let path = path.as_ref().to_path_buf();
     let bytes = fs::read(&path).map_err(|error| {
         Error::new(
@@ -297,14 +129,14 @@ pub fn inspect_client_config(
             format!("Failed to read {}: {error}", path.display()),
         )
     })?;
-    let (format, document) = match client {
-        ClientKind::Codex => (
+    let (format, document) = match setup.format() {
+        ConfigFormat::Toml => (
             ConfigFormat::Toml,
             toml::from_str::<toml::Value>(&String::from_utf8_lossy(&bytes))
                 .map_err(|error| {
                     Error::new(
                         FailureCode::Internal,
-                        format!("Codex configuration format error: {error}"),
+                        format!("{} configuration format error: {error}", setup.label()),
                     )
                 })
                 .and_then(|value| {
@@ -312,35 +144,27 @@ pub fn inspect_client_config(
                         .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
                 })?,
         ),
-        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => (
+        ConfigFormat::Json => (
             ConfigFormat::Json,
             serde_json::from_slice(&bytes).map_err(|error| {
                 Error::new(
                     FailureCode::Internal,
-                    format!("Claude Code configuration format error: {error}"),
-                )
-            })?,
-        ),
-        ClientKind::OpenCode => (
-            ConfigFormat::Json,
-            serde_json::from_slice(&bytes).map_err(|error| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("OpenCode configuration format error: {error}"),
+                    format!("{} configuration format error: {error}", setup.label()),
                 )
             })?,
         ),
     };
-    let services = service_map(client, &document)?
+    let key = setup.servers_key();
+    let services = service_map(key, &document)?
         .iter()
         .map(|(name, config)| ClientMcpService {
             name: name.clone(),
             config: config.clone(),
         })
         .collect();
-    let unsupported_fields = unsupported_fields(client, &document);
+    let unsupported_fields = unsupported_fields(key, setup.supported_fields(), &document);
     Ok(ClientConfigInspection {
-        client,
+        client_id: client_id.to_string(),
         path,
         format,
         content_hash: content_hash(&bytes),
@@ -350,12 +174,7 @@ pub fn inspect_client_config(
     })
 }
 
-fn service_map(client: ClientKind, document: &Value) -> Result<&Map<String, Value>> {
-    let key = match client {
-        ClientKind::Codex => "mcp_servers",
-        ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
-        ClientKind::OpenCode => "mcp",
-    };
+fn service_map<'a>(key: &str, document: &'a Value) -> Result<&'a Map<String, Value>> {
     match document.get(key) {
         None => Ok(&EMPTY_SERVICES),
         Some(value) => value.as_object().ok_or_else(|| {
@@ -369,15 +188,8 @@ fn service_map(client: ClientKind, document: &Value) -> Result<&Map<String, Valu
 
 static EMPTY_SERVICES: std::sync::LazyLock<Map<String, Value>> = std::sync::LazyLock::new(Map::new);
 
-fn unsupported_fields(client: ClientKind, document: &Value) -> Vec<String> {
-    let Some(servers) = document
-        .get(match client {
-            ClientKind::Codex => "mcp_servers",
-            ClientKind::ClaudeCode | ClientKind::Cursor | ClientKind::ClaudeDesktop => "mcpServers",
-            ClientKind::OpenCode => "mcp",
-        })
-        .and_then(Value::as_object)
-    else {
+fn unsupported_fields(key: &str, supported: &[&str], document: &Value) -> Vec<String> {
+    let Some(servers) = document.get(key).and_then(Value::as_object) else {
         return vec![];
     };
     let mut result = Vec::new();
@@ -386,7 +198,6 @@ fn unsupported_fields(client: ClientKind, document: &Value) -> Vec<String> {
             result.push(format!("{name}: entry must be an object"));
             continue;
         };
-        let supported = supported_fields(client);
         for key in object
             .keys()
             .filter(|key| !supported.contains(&key.as_str()))
@@ -405,6 +216,10 @@ fn content_hash(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    fn setup() {
+        crate::agents::registry::install_for_tests();
+    }
     fn sample(suffix: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "mcpstore-client-config-{suffix}-{}",
@@ -420,8 +235,9 @@ mod tests {
     }
     #[test]
     fn inspects_claude_without_dropping_unknown_fields() {
+        setup();
         let path = sample("claude");
-        let result = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let result = inspect_client_config("claude", &path).unwrap();
         assert_eq!(result.services.len(), 1);
         assert_eq!(result.document["other"], 1);
         assert_eq!(result.unsupported_fields, vec!["demo.custom"]);
@@ -429,37 +245,37 @@ mod tests {
     }
     #[test]
     fn inspects_codex_toml() {
+        setup();
         let path = std::env::temp_dir().join(format!("mcpstore-codex-{}", std::process::id()));
         fs::write(
             &path,
             "[mcp_servers.demo]\ncommand = 'node'\nargs = ['server.js']\n",
         )
         .unwrap();
-        let result = inspect_client_config(ClientKind::Codex, &path).unwrap();
+        let result = inspect_client_config("codex", &path).unwrap();
         assert_eq!(result.services[0].name, "demo");
         assert_eq!(result.format, ConfigFormat::Toml);
         let _ = fs::remove_file(path);
     }
     #[test]
     fn inspects_opencode_local_service() {
+        setup();
         let path = std::env::temp_dir().join(format!("mcpstore-opencode-{}", std::process::id()));
         fs::write(
             &path,
             "{\"mcp\":{\"demo\":{\"type\":\"local\",\"command\":[\"node\",\"server.js\"]}}}",
         )
         .unwrap();
-        let result = inspect_client_config(ClientKind::OpenCode, &path).unwrap();
+        let result = inspect_client_config("opencode", &path).unwrap();
         assert_eq!(result.services[0].config["type"], "local");
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn inspects_cursor_and_claude_desktop_json() {
-        for client in [ClientKind::Cursor, ClientKind::ClaudeDesktop] {
-            let path = sample(match client {
-                ClientKind::Cursor => "cursor",
-                _ => "desktop",
-            });
+    fn inspects_cursor_and_omp_json() {
+        setup();
+        for client in ["cursor", "omp"] {
+            let path = sample(client);
             let result = inspect_client_config(client, &path).unwrap();
             assert!(result.services.iter().any(|service| service.name == "demo"));
             let _ = fs::remove_file(path);
@@ -467,14 +283,23 @@ mod tests {
     }
 
     #[test]
+    fn unknown_client_id_is_an_error() {
+        setup();
+        let path = sample("unknown");
+        assert!(inspect_client_config("not-a-plugin", &path).is_err());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn imports_only_explicitly_selected_services_into_server_configs() {
+        setup();
         let path = sample("import");
         fs::write(
             &path,
             r#"{"mcpServers":{"stdio":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"}},"remote":{"url":"http://127.0.0.1/mcp","headers":{"Authorization":"Bearer secret"}}}}"#,
         )
         .unwrap();
-        let inspection = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let inspection = inspect_client_config("claude", &path).unwrap();
         let imported = import_selected_services(&inspection, &["stdio".into()]).unwrap();
         assert_eq!(imported.len(), 1);
         assert_eq!(imported[0].0, "stdio");
@@ -487,6 +312,7 @@ mod tests {
 
     #[test]
     fn imports_opencode_command_array_and_rejects_lossy_fields() {
+        setup();
         let path =
             std::env::temp_dir().join(format!("mcpstore-import-opencode-{}", std::process::id()));
         fs::write(
@@ -494,7 +320,7 @@ mod tests {
             r#"{"mcp":{"local":{"type":"local","command":["node","server.js"],"environment":{"TOKEN":"secret"}},"lossy":{"type":"remote","url":"http://127.0.0.1/mcp","timeout":1000}}}"#,
         )
         .unwrap();
-        let inspection = inspect_client_config(ClientKind::OpenCode, &path).unwrap();
+        let inspection = inspect_client_config("opencode", &path).unwrap();
         let imported = import_selected_services(&inspection, &["local".into()]).unwrap();
         assert_eq!(imported[0].1.command.as_deref(), Some("node"));
         assert_eq!(imported[0].1.args, ["server.js"]);
@@ -506,9 +332,10 @@ mod tests {
 
     #[test]
     fn accepts_config_without_mcp_section() {
+        setup();
         let path = sample("bad");
         fs::write(&path, "{\"other\":1}").unwrap();
-        let result = inspect_client_config(ClientKind::ClaudeCode, &path).unwrap();
+        let result = inspect_client_config("claude", &path).unwrap();
         assert!(result.services.is_empty());
         let _ = fs::remove_file(path);
     }

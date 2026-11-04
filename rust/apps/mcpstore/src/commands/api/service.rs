@@ -124,7 +124,7 @@ pub(super) async fn service_list_services(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Service list获取成功",
+        "Service list retrieved successfully",
         json!({ "services": services, "total": services.len() }),
     ))
 }
@@ -138,7 +138,7 @@ pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult
         .map_err(ApiError::from_store)?;
     let total = scopes.len();
     Ok(success(
-        "作用域列表获取成功",
+        "Scope list retrieved successfully",
         json!({ "scopes": scopes, "total": total }),
     ))
 }
@@ -168,12 +168,12 @@ async fn scope_info_for(state: &Arc<ApiState>, view: ScopeView) -> ApiResult {
         .ok_or_else(|| {
             ApiError::not_found(
                 mcpstore::error::FailureCode::ServiceNotFound,
-                "作用域不存在".to_string(),
+                "Scope does not exist".to_string(),
                 Some("scope"),
                 None,
             )
         })?;
-    Ok(success("作用域详情获取成功", json!(scope)))
+    Ok(success("Scope details retrieved successfully", json!(scope)))
 }
 
 /// `GET /agents/list` — agent list (kept).
@@ -184,7 +184,7 @@ pub(super) async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Agent 列表获取成功",
+        "Agent list retrieved successfully",
         json!({ "agents": agents, "total": agents.len() }),
     ))
 }
@@ -207,7 +207,7 @@ pub(super) async fn agent_info(
                 None,
             )
         })?;
-    Ok(success("Agent 详情获取成功", json!(agent)))
+    Ok(success("Agent details retrieved successfully", json!(agent)))
 }
 
 // ===== Service instances: info / status / lifecycle (service name + scope addressing) =====
@@ -224,7 +224,7 @@ pub(super) async fn service_info(
         .service_info_scoped(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务信息获取成功", service))
+    Ok(success("Service info retrieved successfully", service))
 }
 
 pub(super) async fn service_state(
@@ -239,7 +239,7 @@ pub(super) async fn service_state(
         .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务Status获取成功", service_state))
+    Ok(success("Service status retrieved successfully", service_state))
 }
 
 pub(super) async fn service_connect(
@@ -249,12 +249,22 @@ pub(super) async fn service_connect(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    state
+
+    // Trigger connection intent (fire-and-forget), supervisor will handle retries
+    let _ = tokio::spawn({
+        let store = state.store.clone();
+        async move {
+            let _ = store.connect_service(instance_id).await;
+        }
+    });
+
+    // Return current state snapshot immediately
+    let service_state = state
         .store
-        .connect_service(instance_id)
+        .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务连接成功", json!({ "status": "ok" })))
+    Ok(success("Connect intent recorded", service_state))
 }
 
 pub(super) async fn service_disconnect(
@@ -264,12 +274,22 @@ pub(super) async fn service_disconnect(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    state
+
+    // Trigger disconnect intent (fire-and-forget)
+    let _ = tokio::spawn({
+        let store = state.store.clone();
+        async move {
+            let _ = store.disconnect_service(instance_id).await;
+        }
+    });
+
+    // Return current state snapshot immediately
+    let service_state = state
         .store
-        .disconnect_service(instance_id)
+        .service_state(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务断开成功", json!({ "status": "ok" })))
+    Ok(success("Disconnect intent recorded", service_state))
 }
 
 pub(super) async fn service_restart(
@@ -284,7 +304,7 @@ pub(super) async fn service_restart(
         .restart_service(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务重启成功", json!({ "status": "ok" })))
+    Ok(success("Service restarted successfully", json!({ "status": "ok" })))
 }
 
 pub(super) async fn service_wait(
@@ -303,7 +323,7 @@ pub(super) async fn service_wait(
     let status = serde_json::to_value(status).map_err(|error| {
         ApiError::invalid_request(format!("Failed to serialize service status: {error}"))
     })?;
-    Ok(success("服务等待完成", status))
+    Ok(success("Service wait completed", status))
 }
 
 pub(super) async fn service_check(
@@ -318,7 +338,7 @@ pub(super) async fn service_check(
         .health_check(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务检查完成", json!(result)))
+    Ok(success("Service check completed", json!(result)))
 }
 
 // ===== Tools =====
@@ -339,7 +359,7 @@ pub(super) async fn service_list_tools(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool list获取成功",
+        "Tool list retrieved successfully",
         json!({ "filter": filter_name, "tools": tools, "total": tools.len() }),
     ))
 }
@@ -363,7 +383,7 @@ pub(super) async fn tools_list(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool list获取成功",
+        "Tool list retrieved successfully",
         json!({
             "service_name": service_name,
             "filter": filter_name,
@@ -390,7 +410,7 @@ pub(super) async fn service_call_tool(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "工具调用完成",
+        "Tool call completed",
         serde_json::to_value(result).unwrap_or(Value::Null),
     ))
 }
@@ -420,7 +440,7 @@ pub(super) async fn tools_call(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "工具调用完成",
+        "Tool call completed",
         serde_json::to_value(result).unwrap_or(Value::Null),
     ))
 }
@@ -441,7 +461,7 @@ pub(super) async fn service_list_resources(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "资源列表获取成功",
+        "Resource list retrieved successfully",
         json!({ "resources": resources, "total": resources.len() }),
     ))
 }
@@ -460,7 +480,7 @@ pub(super) async fn service_list_resource_templates(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "资源模板列表获取成功",
+        "Resource template list retrieved successfully",
         json!({ "resource_templates": templates, "total": templates.len() }),
     ))
 }
@@ -482,7 +502,7 @@ pub(super) async fn service_read_resource(
         .read_resource_scoped(instance_id, uri)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("资源读取成功", result))
+    Ok(success("Resource read successfully", result))
 }
 
 /// `GET /services/{name}/prompts/list?scope=`
@@ -499,7 +519,7 @@ pub(super) async fn service_list_prompts(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt 列表获取成功",
+        "Prompt list retrieved successfully",
         json!({ "prompts": prompts, "total": prompts.len() }),
     ))
 }
@@ -520,7 +540,7 @@ pub(super) async fn service_get_prompt(
         .get_prompt_scoped(instance_id, &prompt_name, args)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Prompt 获取成功", result))
+    Ok(success("Prompt retrieved successfully", result))
 }
 
 // ===== Service definitions (root-level CRUD, kept) =====
@@ -538,7 +558,7 @@ pub(super) async fn add_service_definition(
         .add_service(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务定义添加成功", json!({ "status": "ok" })))
+    Ok(success("Service definition added successfully", json!({ "status": "ok" })))
 }
 
 pub(super) async fn update_service_definition(
@@ -551,7 +571,7 @@ pub(super) async fn update_service_definition(
         .is_some_and(|config| config.contains_key("_mcpstore"))
     {
         return Err(ApiError::invalid_request(
-            "基础配置更新不能包含 _mcpstore；请使用作用域接口修改 scope",
+            "Base config update cannot contain _mcpstore; use the scope API to modify scope",
         ));
     }
     let config: ServerConfig = serde_json::from_value(payload).map_err(|error| {
@@ -562,7 +582,7 @@ pub(super) async fn update_service_definition(
         .update_service(&service_name, config)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务定义更新成功", json!({ "status": "ok" })))
+    Ok(success("Service definition updated successfully", json!({ "status": "ok" })))
 }
 
 pub(super) async fn remove_service_definition(
@@ -574,7 +594,7 @@ pub(super) async fn remove_service_definition(
         .remove_service(&service_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("服务定义删除成功", json!({ "status": "ok" })))
+    Ok(success("Service definition removed successfully", json!({ "status": "ok" })))
 }
 
 // ===== Scope declarations (kept) =====
@@ -589,7 +609,7 @@ pub(super) async fn declare_store_scope(
         .declare_service_scope(&service_name, &ScopeRef::Store, descriptor)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Store 作用域已声明", json!({ "status": "ok" })))
+    Ok(success("Store scope declared", json!({ "status": "ok" })))
 }
 
 pub(super) async fn remove_store_scope(
@@ -601,7 +621,7 @@ pub(super) async fn remove_store_scope(
         .remove_service_scope(&service_name, &ScopeRef::Store)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Store 作用域已删除", json!({ "status": "ok" })))
+    Ok(success("Store scope removed", json!({ "status": "ok" })))
 }
 
 pub(super) async fn declare_agent_scope(
@@ -614,7 +634,7 @@ pub(super) async fn declare_agent_scope(
         .declare_service_scope(&service_name, &ScopeRef::Agent { agent_id }, descriptor)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Agent 作用域已声明", json!({ "status": "ok" })))
+    Ok(success("Agent scope declared", json!({ "status": "ok" })))
 }
 
 pub(super) async fn remove_agent_scope(
@@ -626,7 +646,7 @@ pub(super) async fn remove_agent_scope(
         .remove_service_scope(&service_name, &ScopeRef::Agent { agent_id })
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Agent 作用域已删除", json!({ "status": "ok" })))
+    Ok(success("Agent scope removed", json!({ "status": "ok" })))
 }
 
 // ===== Tool policy (service name + scope addressing) =====
@@ -643,7 +663,7 @@ pub(super) async fn service_get_tool_policy(
         .get_context_tool_visibility(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("工具策略获取成功", json!({ "policy": policy })))
+    Ok(success("Tool policy retrieved successfully", json!({ "policy": policy })))
 }
 
 pub(super) async fn service_set_tool_policy(
@@ -659,7 +679,7 @@ pub(super) async fn service_set_tool_policy(
         .set_context_tool_visibility(instance_id, payload.available_tools)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("工具策略更新成功", json!({ "policy": policy })))
+    Ok(success("Tool policy updated successfully", json!({ "policy": policy })))
 }
 
 pub(super) async fn service_clear_tool_policy(
@@ -674,7 +694,7 @@ pub(super) async fn service_clear_tool_policy(
         .clear_context_tool_visibility(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("工具策略已清除", json!({ "policy": null })))
+    Ok(success("Tool policy cleared", json!({ "policy": null })))
 }
 
 // ===== Component override rules (global list + per service+scope management) =====
@@ -686,7 +706,7 @@ pub(super) async fn store_list_tool_overrides(State(state): State<Arc<ApiState>>
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool 覆盖规则列表获取成功",
+        "Tool override list retrieved successfully",
         json!({ "overrides": rules, "total": rules.len() }),
     ))
 }
@@ -704,7 +724,7 @@ pub(super) async fn service_get_tool_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool 覆盖规则获取成功",
+        "Tool override retrieved successfully",
         json!({ "override": rule }),
     ))
 }
@@ -723,7 +743,7 @@ pub(super) async fn service_set_tool_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Tool 覆盖规则设置成功",
+        "Tool override set successfully",
         json!({ "override": rule }),
     ))
 }
@@ -740,7 +760,7 @@ pub(super) async fn service_delete_tool_override(
         .delete_tool_override(instance_id, &tool_name)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Tool 覆盖规则删除成功", json!({ "status": "ok" })))
+    Ok(success("Tool override removed successfully", json!({ "status": "ok" })))
 }
 
 pub(super) async fn store_list_prompt_overrides(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -750,7 +770,7 @@ pub(super) async fn store_list_prompt_overrides(State(state): State<Arc<ApiState
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt 覆盖规则列表获取成功",
+        "Prompt override list retrieved successfully",
         json!({ "overrides": rules, "total": rules.len() }),
     ))
 }
@@ -768,7 +788,7 @@ pub(super) async fn service_get_prompt_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt 覆盖规则获取成功",
+        "Prompt override retrieved successfully",
         json!({ "override": rule }),
     ))
 }
@@ -787,7 +807,7 @@ pub(super) async fn service_set_prompt_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt 覆盖规则设置成功",
+        "Prompt override set successfully",
         json!({ "override": rule }),
     ))
 }
@@ -805,7 +825,7 @@ pub(super) async fn service_delete_prompt_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Prompt 覆盖规则删除成功",
+        "Prompt override removed successfully",
         json!({ "status": "ok" }),
     ))
 }
@@ -817,7 +837,7 @@ pub(super) async fn store_list_resource_overrides(State(state): State<Arc<ApiSta
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource 覆盖规则列表获取成功",
+        "Resource override list retrieved successfully",
         json!({ "overrides": rules, "total": rules.len() }),
     ))
 }
@@ -836,7 +856,7 @@ pub(super) async fn service_get_resource_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource 覆盖规则获取成功",
+        "Resource override retrieved successfully",
         json!({ "override": rule }),
     ))
 }
@@ -856,7 +876,7 @@ pub(super) async fn service_set_resource_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource 覆盖规则设置成功",
+        "Resource override set successfully",
         json!({ "override": rule }),
     ))
 }
@@ -875,7 +895,7 @@ pub(super) async fn service_delete_resource_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "Resource 覆盖规则删除成功",
+        "Resource override removed successfully",
         json!({ "status": "ok" }),
     ))
 }
@@ -889,7 +909,7 @@ pub(super) async fn store_list_resource_template_overrides(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "ResourceTemplate 覆盖规则列表获取成功",
+        "Resource template override list retrieved successfully",
         json!({ "overrides": rules, "total": rules.len() }),
     ))
 }
@@ -908,7 +928,7 @@ pub(super) async fn service_get_resource_template_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "ResourceTemplate 覆盖规则获取成功",
+        "Resource template override retrieved successfully",
         json!({ "override": rule }),
     ))
 }
@@ -928,7 +948,7 @@ pub(super) async fn service_set_resource_template_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "ResourceTemplate 覆盖规则设置成功",
+        "Resource template override set successfully",
         json!({ "override": rule }),
     ))
 }
@@ -947,9 +967,57 @@ pub(super) async fn service_delete_resource_template_override(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "ResourceTemplate 覆盖规则删除成功",
+        "Resource template override removed successfully",
         json!({ "status": "ok" }),
     ))
+}
+
+// ===== Service override rules (gateway-facing service projection) =====
+
+pub(super) async fn service_get_service_override(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .get_service_override(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Service override retrieved successfully", json!({ "override": rule })))
+}
+
+pub(super) async fn service_set_service_override(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+    Json(patch): Json<ServiceOverridePatch>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    let rule = state
+        .store
+        .set_service_override(instance_id, patch)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Service override set successfully", json!({ "override": rule })))
+}
+
+pub(super) async fn service_delete_service_override(
+    State(state): State<Arc<ApiState>>,
+    Path(service_name): Path<String>,
+    Query(query): Query<ScopeQuery>,
+) -> ApiResult {
+    let scope = query.into_scope_ref()?;
+    let instance_id = resolve_instance(&state, &service_name, &scope).await?;
+    state
+        .store
+        .delete_service_override(instance_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Service override removed successfully", json!({ "status": "ok" })))
 }
 
 // ===== Argument completions (service name + scope addressing) =====
@@ -967,7 +1035,7 @@ pub(super) async fn service_complete_argument(
         .complete_mcp_argument(instance_id, payload)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("参数补全成功", json!(completion)))
+    Ok(success("Argument completion succeeded", json!(completion)))
 }
 
 // ===== Resource subscriptions (service name + scope addressing) =====
@@ -983,7 +1051,7 @@ pub(super) async fn service_subscribe_resource(
     let uri = payload.uri.trim();
     if uri.is_empty() {
         return Err(ApiError::invalid_parameter(
-            "资源 URI 不能为空",
+            "Resource URI cannot be empty",
             Some("uri"),
         ));
     }
@@ -992,7 +1060,7 @@ pub(super) async fn service_subscribe_resource(
         .subscribe_resource_updates(instance_id, uri)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("资源更新订阅成功", json!({ "uri": uri })))
+    Ok(success("Resource updates subscribed successfully", json!({ "uri": uri })))
 }
 
 pub(super) async fn service_unsubscribe_resource(
@@ -1006,7 +1074,7 @@ pub(super) async fn service_unsubscribe_resource(
     let uri = payload.uri.trim();
     if uri.is_empty() {
         return Err(ApiError::invalid_parameter(
-            "资源 URI 不能为空",
+            "Resource URI cannot be empty",
             Some("uri"),
         ));
     }
@@ -1015,7 +1083,7 @@ pub(super) async fn service_unsubscribe_resource(
         .unsubscribe_resource_updates(instance_id, uri)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("资源更新订阅已取消", json!({ "uri": uri })))
+    Ok(success("Resource update subscription removed", json!({ "uri": uri })))
 }
 
 // ===== Config view / reset (kept) =====
@@ -1042,7 +1110,7 @@ pub(super) async fn store_show_config(
             .await
     }
     .map_err(ApiError::from_store)?;
-    Ok(success("配置获取成功", config))
+    Ok(success("Config retrieved successfully", config))
 }
 
 pub(super) async fn agent_show_config(
@@ -1068,7 +1136,7 @@ pub(super) async fn agent_show_config(
             .await
     }
     .map_err(ApiError::from_store)?;
-    Ok(success("Agent 配置获取成功", config))
+    Ok(success("Agent config retrieved successfully", config))
 }
 
 pub(super) async fn agent_reset_config(
@@ -1080,7 +1148,7 @@ pub(super) async fn agent_reset_config(
         .reset_scope(&ScopeRef::Agent { agent_id })
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("Agent 配置重置成功", json!({ "status": "ok" })))
+    Ok(success("Agent config reset successfully", json!({ "status": "ok" })))
 }
 
 pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -1089,5 +1157,5 @@ pub(super) async fn store_reset_config(State(state): State<Arc<ApiState>>) -> Ap
         .reset_config()
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("配置重置成功", json!({ "status": "ok" })))
+    Ok(success("Config reset successfully", json!({ "status": "ok" })))
 }
