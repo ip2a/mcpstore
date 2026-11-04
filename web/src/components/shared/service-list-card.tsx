@@ -26,8 +26,18 @@ export function ServiceListCard({
   const { t } = useI18n()
   const endpoint = getServiceEndpointLabel(service)
   const description = String(service.effective_config?.description || "").trim() || endpoint
+  const scopeLabel =
+    service.scope.type === "store" ? "store" : service.scope.agent_id
   const status = deriveServiceDisplayStatus(service.state)
   const connected = status === "connected"
+  const statusColorClass =
+    status === "connected"
+      ? "text-emerald-500"
+      : status === "connecting"
+        ? "text-amber-500"
+        : status === "error"
+          ? "text-destructive"
+          : "text-muted-foreground"
   const transport = getServiceTransport(service)
   const transportLabel =
     transport === "stdio" ? "stdio" : transport.includes("http") ? "http" : null
@@ -87,13 +97,13 @@ export function ServiceListCard({
           <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
             {service.service_name}
           </span>
-          <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          <span className={cn("mt-1 flex min-w-0 items-center gap-1 text-xs", statusColorClass)}>
             {status === "connected" ? (
               <BadgeCheckIcon className="size-3.5 shrink-0" />
             ) : status === "connecting" ? (
               <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
             ) : status === "error" ? (
-              <AlertCircleIcon className="size-3.5 shrink-0 text-destructive" />
+              <AlertCircleIcon className="size-3.5 shrink-0" />
             ) : null}
             <span className="truncate">
               {t(SERVICE_STATUS_LABEL_KEYS[status])}
@@ -103,9 +113,12 @@ export function ServiceListCard({
         </span>
       </div>
 
-      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
-        {description || t("noDescription")}
-      </p>
+      <div className="mt-3 min-h-10 min-w-0 w-full text-xs leading-5 text-muted-foreground">
+        <p className="truncate">{description || t("noDescription")}</p>
+        <p className="truncate">
+          by <span className="text-[#0077c2]">{scopeLabel}</span>
+        </p>
+      </div>
 
       {metaParts.length ? (
         <p className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground" title={metaParts.join(" · ")}>
