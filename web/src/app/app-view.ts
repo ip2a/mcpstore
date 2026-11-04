@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import type { ServiceAddress } from "@/lib/api"
+import type { I18nKey } from "@/lib/i18n-core"
 import { useI18n } from "@/lib/i18n-context"
 
 export type AppView =
@@ -34,36 +35,66 @@ export type AppView =
   | { name: "settings" }
   | { name: "instance"; addr: ServiceAddress }
 
+export type NavViewName = Exclude<AppView["name"], "instance" | "tool" | "resource" | "prompt">
+export type NavGroupKey = "work" | "extensions" | "primitives" | "observability" | "config"
+
+type NavEntry = { view: NavViewName; labelKey: I18nKey; icon: LucideIcon; group: NavGroupKey }
+
+/** Single source of truth for the sidebar: display order, grouping, labels, icons. */
+const NAV_ENTRIES: NavEntry[] = [
+  { view: "home", labelKey: "navHome", icon: HouseIcon, group: "work" },
+  { view: "services", labelKey: "navServices", icon: ServerIcon, group: "work" },
+  { view: "clients", labelKey: "navClients", icon: CableIcon, group: "work" },
+  { view: "gateway", labelKey: "gateway", icon: WaypointsIcon, group: "work" },
+  { view: "plugins", labelKey: "navPlugins", icon: PuzzleIcon, group: "extensions" },
+  { view: "tools", labelKey: "navTools", icon: WrenchIcon, group: "primitives" },
+  { view: "resources", labelKey: "navResources", icon: FileStackIcon, group: "primitives" },
+  { view: "prompts", labelKey: "navPrompts", icon: ScrollTextIcon, group: "primitives" },
+  { view: "history", labelKey: "navHistory", icon: HistoryIcon, group: "observability" },
+  { view: "traces", labelKey: "navTraces", icon: ActivityIcon, group: "observability" },
+  { view: "cache", labelKey: "navCache", icon: DatabaseIcon, group: "observability" },
+  { view: "settings", labelKey: "settings", icon: SettingsIcon, group: "config" },
+]
+
+const NAV_GROUP_ORDER: { key: NavGroupKey; labelKey: I18nKey }[] = [
+  { key: "work", labelKey: "navGroupWork" },
+  { key: "extensions", labelKey: "navGroupExtensions" },
+  { key: "primitives", labelKey: "navGroupPrimitives" },
+  { key: "observability", labelKey: "navGroupObservability" },
+  { key: "config", labelKey: "navGroupConfig" },
+]
+
 export type NavItem = {
   view: Exclude<AppView, { name: "instance" }>
   label: string
   icon: LucideIcon
 }
 
+export type NavSection = { labelKey: I18nKey; items: NavItem[] }
+
+function navItem(t: (key: I18nKey) => string, { labelKey, icon, view }: NavEntry): NavItem {
+  return { view: { name: view }, label: t(labelKey), icon }
+}
+
 export function useNavItems(): NavItem[] {
   const { t } = useI18n()
-  return [
-    { view: { name: "home" }, label: t("navHome"), icon: HouseIcon },
-    { view: { name: "services" }, label: t("navServices"), icon: ServerIcon },
-    { view: { name: "clients" }, label: t("navClients"), icon: CableIcon },
-    { view: { name: "gateway" }, label: t("gateway"), icon: WaypointsIcon },
-    { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
-    { view: { name: "resources" }, label: t("navResources"), icon: FileStackIcon },
-    { view: { name: "prompts" }, label: t("navPrompts"), icon: ScrollTextIcon },
-    { view: { name: "history" }, label: t("navHistory"), icon: HistoryIcon },
-    { view: { name: "traces" }, label: t("navTraces"), icon: ActivityIcon },
-    { view: { name: "cache" }, label: t("navCache"), icon: DatabaseIcon },
-    { view: { name: "plugins" }, label: t("navPlugins"), icon: PuzzleIcon },
-    { view: { name: "settings" }, label: t("settings"), icon: SettingsIcon },
-  ]
+  return NAV_ENTRIES.map((entry) => navItem(t, entry))
+}
+
+export function useNavSections(): NavSection[] {
+  const { t } = useI18n()
+  return NAV_GROUP_ORDER.map(({ key, labelKey }) => ({
+    labelKey,
+    items: NAV_ENTRIES.filter((entry) => entry.group === key).map((entry) => navItem(t, entry)),
+  }))
 }
 
 export function useViewTitle(view: AppView): string {
   const { t } = useI18n()
-  const items = useNavItems()
   if (view.name === "instance") return view.addr.service_name
   if (view.name === "tool") return view.toolName
   if (view.name === "resource") return view.resourceUri
   if (view.name === "prompt") return view.promptName
-  return items.find((item) => item.view.name === view.name)?.label || t("navServices")
+  const entry = NAV_ENTRIES.find((item) => item.view === view.name)
+  return entry ? t(entry.labelKey) : t("navServices")
 }

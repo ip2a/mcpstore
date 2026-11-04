@@ -80,7 +80,11 @@ export function ToolDetailView(props: {
           currentLabel={toolLabel}
         />
         <PanelCard className="h-full min-h-0 flex-1">
-          <PageEmpty title={t("noToolSelected")} description={t("noToolSelectedDescription")} onRefresh={props.onBack} />
+          <PageEmpty
+            title={t("noToolSelected")}
+            description={t("noToolSelectedDescription")}
+            onRefresh={props.onBack}
+          />
         </PanelCard>
       </>
     )
@@ -95,72 +99,83 @@ export function ToolDetailView(props: {
         currentLabel={toolLabel}
         subtitle={headerSubtitle}
       />
-      <PanelCard variant="plain" className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
-          {tool ? (
-            <Button
-              size="sm"
-              onClick={() =>
+      <PanelCard
+        variant="plain"
+        className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+      >
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            {tool ? (
+              <Button
+                size="sm"
+                onClick={() =>
+                  props.onRunTool({
+                    ...makeRunner(tool, instance),
+                    initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
+                  })
+                }
+                disabled={running}
+              >
+                {running ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <WrenchIcon data-icon="inline-start" />
+                )}
+                {running ? t("executing") : t("run")}
+              </Button>
+            ) : null}
+            {tool ? (
+              <Button size="sm" variant="outline" onClick={() => void copyTool(tool)}>
+                <ClipboardIcon data-icon="inline-start" />
+                {t("copy")}
+              </Button>
+            ) : null}
+            <Button size="sm" variant="outline" onClick={() => void loadTools()} disabled={loading}>
+              <RefreshCwIcon data-icon="inline-start" />
+              {t("refresh")}
+            </Button>
+          </div>
+        </div>
+
+        {error ? (
+          <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
+        ) : loading && !tool ? (
+          <PageSkeleton />
+        ) : tool ? (
+          <div className={toolDetailPlaygroundGrid}>
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+              <ToolDetailDocHeader tool={tool} serviceState={instance.state} />
+              <ScrollPane className="min-h-0 flex-1">
+                <ToolDetailDocBody
+                  tool={tool}
+                  toolArgs={toolArgs}
+                  onToolArgChange={setToolArg}
+                  serviceName={instance.service_name}
+                  scope={instance.scope}
+                />
+              </ScrollPane>
+            </div>
+            <ToolPlaygroundAside
+              tool={tool}
+              instanceId={instance.instance_id}
+              toolArgs={toolArgs}
+              toolArgsSchema={toolArgsSchema}
+              running={running}
+              onRun={() =>
                 props.onRunTool({
                   ...makeRunner(tool, instance),
                   initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
                 })
               }
-              disabled={running}
-            >
-              {running ? <Spinner data-icon="inline-start" /> : <WrenchIcon data-icon="inline-start" />}
-              {running ? t("executing") : t("run")}
-            </Button>
-          ) : null}
-          {tool ? (
-            <Button size="sm" variant="outline" onClick={() => void copyTool(tool)}>
-              <ClipboardIcon data-icon="inline-start" />
-              {t("copy")}
-            </Button>
-          ) : null}
-          <Button size="sm" variant="outline" onClick={() => void loadTools()} disabled={loading}>
-            <RefreshCwIcon data-icon="inline-start" />
-            {t("refresh")}
-          </Button>
-        </div>
-      </div>
-
-      {error ? (
-        <PageError title={t("toolsFailedToLoad")} message={errorMessage} onRefresh={loadTools} />
-      ) : loading && !tool ? (
-        <PageSkeleton />
-      ) : tool ? (
-        <div className={toolDetailPlaygroundGrid}>
-          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-            <ToolDetailDocHeader tool={tool} serviceState={instance.state} />
-            <ScrollPane className="min-h-0 flex-1">
-              <ToolDetailDocBody
-                tool={tool}
-                toolArgs={toolArgs}
-                onToolArgChange={setToolArg}
-                serviceName={instance.service_name}
-                scope={instance.scope}
-              />
-            </ScrollPane>
+            />
           </div>
-          <ToolPlaygroundAside
-            tool={tool}
-            instanceId={instance.instance_id}
-            toolArgs={toolArgs}
-            toolArgsSchema={toolArgsSchema}
-            running={running}
-            onRun={() =>
-              props.onRunTool({
-                ...makeRunner(tool, instance),
-                initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
-              })
-            }
+        ) : (
+          <PageEmpty
+            title={t("noTools")}
+            description={t("noToolsScopeDescription")}
+            onRefresh={loadTools}
           />
-        </div>
-      ) : (
-        <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
-      )}
+        )}
       </PanelCard>
     </>
   )

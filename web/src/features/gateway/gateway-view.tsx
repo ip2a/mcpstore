@@ -150,11 +150,7 @@ export function GatewayView() {
                   {t("gatewayStop")}
                 </Button>
               ) : (
-                <Button
-                  disabled={busy}
-                  size="sm"
-                  onClick={() => handleStart(launchOptions, false)}
-                >
+                <Button disabled={busy} size="sm" onClick={() => handleStart(launchOptions, false)}>
                   {t("gatewayStart")}
                 </Button>
               )}
@@ -350,7 +346,7 @@ function LaunchSettingsDialog({
             <Label>{t("clientsExpose")}</Label>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               {EXPOSE_KEYS.map((key) => (
-                <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                <div key={key} className="flex cursor-pointer items-center gap-2 text-sm">
                   <Switch
                     checked={options.expose?.[key] ?? false}
                     onCheckedChange={(checked) =>
@@ -361,16 +357,13 @@ function LaunchSettingsDialog({
                     }
                   />
                   <span className="font-mono text-xs">{key}</span>
-                </label>
+                </div>
               ))}
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button
-            disabled={busy}
-            onClick={() => onStart(options, isHttp && persistPort)}
-          >
+          <Button disabled={busy} onClick={() => onStart(options, isHttp && persistPort)}>
             {t("gatewayStart")}
           </Button>
         </DialogFooter>
@@ -478,10 +471,7 @@ function CallFlowDiagram({
         />
 
         <div className="flex w-[148px] shrink-0 flex-col justify-center">
-          <HubFlowCard
-            endpoint={hubEndpoint}
-            running={Boolean(status?.running)}
-          />
+          <HubFlowCard endpoint={hubEndpoint} running={Boolean(status?.running)} />
         </div>
 
         <FlowConnector accent={Boolean(latest)} endDot from={1} />
@@ -512,10 +502,7 @@ function FlowConnector({
   return (
     <div className="relative flex w-10 shrink-0 self-stretch px-1" aria-hidden>
       <svg
-        className={cn(
-          "h-full w-full overflow-visible",
-          accent ? "text-orange-400" : "text-border",
-        )}
+        className={cn("h-full w-full overflow-visible", accent ? "text-orange-400" : "text-border")}
         viewBox={`0 0 40 ${vbH}`}
         preserveAspectRatio="none"
       >
@@ -645,7 +632,11 @@ function ServiceFlowCard({
         <span
           className={cn(
             "size-1.5 shrink-0 rounded-full",
-            fresh ? "animate-pulse bg-orange-500" : record.success ? "bg-emerald-500" : "bg-destructive",
+            fresh
+              ? "animate-pulse bg-orange-500"
+              : record.success
+                ? "bg-emerald-500"
+                : "bg-destructive",
           )}
         />
         <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/50">
@@ -673,5 +664,3 @@ function ServiceFlowCard({
     </FlowNodeCard>
   )
 }
-
-

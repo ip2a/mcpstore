@@ -1,7 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react"
-import { toast } from "sonner"
-
-import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
+import { DialogFormFooter } from "@/components/shared/dialog-form"
 import { JsonBlock } from "@/components/shared/json-block"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { ToolResultView } from "@/components/shared/tool-result-view"
@@ -11,19 +8,10 @@ import {
   ToolOutputSchemaSection,
 } from "@/components/shared/tool-capability-sections"
 import { ToolServiceDetailGrid } from "@/features/tools/tool-service-detail-grid"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Field, FieldLabel } from "@/components/ui/field"
-import { InputGroup, InputGroupTextarea } from "@/components/ui/input-group"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
 import { getToolSchema } from "@/lib/tool-info"
-import { getMissingRequiredArgs, type ToolSchema } from "@/lib/tool-args"
 
 export type ToolDialogState = {
   tool: ToolInfo
@@ -47,7 +35,13 @@ export type ToolResultState = {
   result: unknown
 } | null
 
-export function ToolResultDialog({ state, onOpenChange }: { state: ToolResultState; onOpenChange: (open: boolean) => void }) {
+export function ToolResultDialog({
+  state,
+  onOpenChange,
+}: {
+  state: ToolResultState
+  onOpenChange: (open: boolean) => void
+}) {
   const { t } = useI18n()
 
   return (
@@ -72,108 +66,15 @@ export function ToolResultDialog({ state, onOpenChange }: { state: ToolResultSta
   )
 }
 
-export function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpenChange: (open: boolean) => void }) {
-  const { t } = useI18n()
-  const [args, setArgs] = useState("{}")
-  const [result, setResult] = useState<unknown>(null)
-  const [running, setRunning] = useState(false)
-  const [missingRequired, setMissingRequired] = useState<string[]>([])
-  const [pendingArgs, setPendingArgs] = useState<Record<string, unknown> | null>(null)
-
-  useEffect(() => {
-    if (state) {
-      setArgs(JSON.stringify(state.initialArgs || {}, null, 2))
-      setResult(null)
-    }
-  }, [state])
-
-  async function execute(parsed: Record<string, unknown>) {
-    if (!state) return
-    setRunning(true)
-    try {
-      setResult(await state.onRun(parsed))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("toolCallFailed"))
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  async function onRun(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!state) return
-    try {
-      const parsed = JSON.parse(args)
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error(t("toolTestArgsMustBeObject"))
-      const missing = getMissingRequiredArgs(parsed as Record<string, unknown>, getToolSchema(state.tool) as ToolSchema)
-      if (missing.length) {
-        setMissingRequired(missing)
-        setPendingArgs(parsed as Record<string, unknown>)
-        return
-      }
-      await execute(parsed as Record<string, unknown>)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("toolCallFailed"))
-    }
-  }
-
-  return (
-    <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{state ? t("confirmExecute", { name: state.tool.name }) : null}</DialogTitle>
-        </DialogHeader>
-        <DialogForm onSubmit={onRun}>
-          <Field>
-            <FieldLabel htmlFor="tool-args">{t("dynamicValue")}</FieldLabel>
-            <div className="overflow-hidden rounded-lg border bg-muted/20">
-              <InputGroup className="border-0 bg-transparent shadow-none">
-                <InputGroupTextarea
-                  id="tool-args"
-                  value={args}
-                  onChange={(event) => setArgs(event.target.value)}
-                  rows={14}
-                  className="min-h-[16rem] border-0 bg-transparent font-mono text-xs leading-relaxed shadow-none focus-visible:ring-0"
-                />
-              </InputGroup>
-            </div>
-          </Field>
-          {result ? (
-            <Field>
-              <FieldLabel>{t("result")}</FieldLabel>
-              <JsonBlock value={result} />
-            </Field>
-          ) : null}
-          <DialogFormFooter onCancel={() => onOpenChange(false)} submitLabel={running ? t("executing") : t("execute")} submitting={running} />
-        </DialogForm>
-      </DialogContent>
-      <AlertDialog open={missingRequired.length > 0} onOpenChange={(open) => !open && setMissingRequired([])}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("missingRequiredTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("missingRequiredDescription", { fields: missingRequired.join(", ") })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setPendingArgs(null)}>{t("cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (pendingArgs) void execute(pendingArgs)
-                setPendingArgs(null)
-                setMissingRequired([])
-              }}
-            >
-              {t("knownContinue")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Dialog>
-  )
-}
-
-export function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDetailState; onOpenChange: (open: boolean) => void; onRun: (state: NonNullable<ToolDetailState>) => void }) {
+export function ToolDetailDialog({
+  state,
+  onOpenChange,
+  onRun,
+}: {
+  state: ToolDetailState
+  onOpenChange: (open: boolean) => void
+  onRun: (state: NonNullable<ToolDetailState>) => void
+}) {
   const { t } = useI18n()
   const schema = state ? getToolSchema(state.tool) : {}
 
@@ -184,7 +85,9 @@ export function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDe
           <DialogTitle className="font-mono">{state?.tool.name}</DialogTitle>
         </DialogHeader>
         <div className="min-h-0 overflow-auto px-4 py-4 sm:px-5">
-          {state?.tool.description ? <p className="mb-4 text-sm text-muted-foreground">{state.tool.description}</p> : null}
+          {state?.tool.description ? (
+            <p className="mb-4 text-sm text-muted-foreground">{state.tool.description}</p>
+          ) : null}
           {state?.service ? (
             <div className="flex flex-col gap-4">
               <ToolServiceDetailGrid

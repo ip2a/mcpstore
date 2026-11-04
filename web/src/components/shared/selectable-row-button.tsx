@@ -11,7 +11,15 @@ type SelectableRowButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "t
   trailing?: ReactNode
 }
 
-export function SelectableRowButton({ className, leading, meta, selected = false, title, trailing, ...props }: SelectableRowButtonProps) {
+export function SelectableRowButton({
+  className,
+  leading,
+  meta,
+  selected = false,
+  title,
+  trailing,
+  ...props
+}: SelectableRowButtonProps) {
   return (
     <Button
       type="button"
@@ -19,7 +27,12 @@ export function SelectableRowButton({ className, leading, meta, selected = false
       className={cn("h-auto min-h-11 w-full justify-start px-3 py-2 text-left", className)}
       {...props}
     >
-      <span className={cn("grid w-full min-w-0 items-center gap-3", leading ? "grid-cols-[auto_minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto]")}>
+      <span
+        className={cn(
+          "grid w-full min-w-0 items-center gap-3",
+          leading ? "grid-cols-[auto_minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto]",
+        )}
+      >
         {leading}
         {meta ? (
           <span className="flex min-w-0 flex-col gap-1">

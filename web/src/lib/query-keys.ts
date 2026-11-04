@@ -28,24 +28,18 @@ export const queryKeys = {
   },
   instance: (addr: ServiceAddress) =>
     ["instances", ...hostSeg(), addr.service_name, ...scopeSeg(addr.scope)] as const,
-  instanceStatus: (addr: ServiceAddress) =>
-    [...queryKeys.instance(addr), "status"] as const,
-  instanceAuth: (addr: ServiceAddress) =>
-    [...queryKeys.instance(addr), "auth"] as const,
-  instanceTools: (addr: ServiceAddress) =>
-    [...queryKeys.instance(addr), "tools"] as const,
-  instanceResources: (addr: ServiceAddress) =>
-    [...queryKeys.instance(addr), "resources"] as const,
+  instanceStatus: (addr: ServiceAddress) => [...queryKeys.instance(addr), "status"] as const,
+  instanceAuth: (addr: ServiceAddress) => [...queryKeys.instance(addr), "auth"] as const,
+  instanceTools: (addr: ServiceAddress) => [...queryKeys.instance(addr), "tools"] as const,
+  instanceResources: (addr: ServiceAddress) => [...queryKeys.instance(addr), "resources"] as const,
   instanceResourceTemplates: (addr: ServiceAddress) =>
     [...queryKeys.instance(addr), "resource-templates"] as const,
-  instancePrompts: (addr: ServiceAddress) =>
-    [...queryKeys.instance(addr), "prompts"] as const,
+  instancePrompts: (addr: ServiceAddress) => [...queryKeys.instance(addr), "prompts"] as const,
   get agents() {
     return ["agents", ...hostSeg()] as const
   },
   agent: (agentId: string) => ["agents", ...hostSeg(), agentId] as const,
-  agentServices: (agentId: string) =>
-    ["agents", ...hostSeg(), agentId, "instances"] as const,
+  agentServices: (agentId: string) => ["agents", ...hostSeg(), agentId, "instances"] as const,
   get config() {
     return ["config", ...hostSeg(), "store"] as const
   },
@@ -60,7 +54,10 @@ export const queryKeys = {
   settings: ["settings"] as const,
   overrides: (kind: string) => ["overrides", ...hostSeg(), kind] as const,
   serviceOverride: (serviceName: string, scope?: ScopeRef) =>
-    [...queryKeys.instance({ service_name: serviceName, scope: scope ?? { type: "store" } }), "service-override"] as const,
+    [
+      ...queryKeys.instance({ service_name: serviceName, scope: scope ?? { type: "store" } }),
+      "service-override",
+    ] as const,
   clients: ["clients"] as const,
   clientVersion: (clientId: string) => ["clients", clientId, "version"] as const,
   clientPlugins: ["clients", "plugins"] as const,

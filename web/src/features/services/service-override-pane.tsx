@@ -10,7 +10,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { useI18n } from "@/lib/i18n-context"
 import type { ScopeRef, ServiceOverrideRule } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
-import { useDeleteServiceOverride, useServiceOverrideQuery, useSetServiceOverride } from "@/features/overrides/queries"
+import {
+  useDeleteServiceOverride,
+  useServiceOverrideQuery,
+  useSetServiceOverride,
+} from "@/features/overrides/queries"
 
 /**
  * Gateway-facing projection editor for one service instance: what the
@@ -45,7 +49,9 @@ export function ServiceOverridePane({
 
   async function refresh() {
     await client.invalidateQueries({ queryKey: queryKeys.serviceOverride(serviceName, scope) })
-    await client.invalidateQueries({ queryKey: queryKeys.instance({ service_name: serviceName, scope }) })
+    await client.invalidateQueries({
+      queryKey: queryKeys.instance({ service_name: serviceName, scope }),
+    })
   }
 
   async function save() {
@@ -73,7 +79,9 @@ export function ServiceOverridePane({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-muted-foreground">{t("serviceOverrideDescription")}</p>
-      {!rule ? <p className="text-xs text-muted-foreground">{t("serviceOverridePassthroughHint")}</p> : null}
+      {!rule ? (
+        <p className="text-xs text-muted-foreground">{t("serviceOverridePassthroughHint")}</p>
+      ) : null}
       <div className="grid gap-1.5">
         <Label htmlFor="service-override-name">{t("overrideDisplayName")}</Label>
         <Input
@@ -97,18 +105,19 @@ export function ServiceOverridePane({
           <Label htmlFor="service-override-enabled">{t("serviceOverrideDisabled")}</Label>
           <p className="text-xs text-muted-foreground">{t("serviceOverrideDisabledHint")}</p>
         </div>
-        <Switch
-          id="service-override-enabled"
-          checked={enabled}
-          onCheckedChange={setEnabled}
-        />
+        <Switch id="service-override-enabled" checked={enabled} onCheckedChange={setEnabled} />
       </div>
       <div className="flex gap-2">
         <Button size="sm" onClick={() => void save()} disabled={busy || loading}>
           {busy ? t("saving") : t("saveOverride")}
         </Button>
         {rule ? (
-          <Button size="sm" variant="outline" onClick={() => void resetToPassthrough()} disabled={busy}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void resetToPassthrough()}
+            disabled={busy}
+          >
             {t("serviceOverrideReset")}
           </Button>
         ) : null}

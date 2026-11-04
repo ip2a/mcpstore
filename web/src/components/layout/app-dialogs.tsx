@@ -1,8 +1,13 @@
-import type { ResetTarget } from "@/features/config/config-view"
+import type { ResetTarget } from "@/features/config/reset-config-dialog"
 import { ResetConfigDialog } from "@/features/config/reset-config-dialog"
 import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { DeleteServiceDialog } from "@/features/services/delete-service-dialog"
-import { RunToolDialog, ToolDetailDialog, ToolResultDialog, type ToolDetailState, type ToolDialogState, type ToolResultState } from "@/features/tools/tool-dialogs"
+import {
+  ToolDetailDialog,
+  ToolResultDialog,
+  type ToolDetailState,
+  type ToolResultState,
+} from "@/features/tools/tool-dialogs"
 import type { CacheBackend, ServiceInstance } from "@/lib/api"
 
 export function AppDialogs({
@@ -17,11 +22,9 @@ export function AppDialogs({
   onResetDialogOpenChange,
   onRunToolFromDetail,
   onToolDetailOpenChange,
-  onToolDialogOpenChange,
   onToolResultOpenChange,
   resetTarget,
   toolDetail,
-  toolDialog,
   toolResult,
 }: {
   backend?: CacheBackend
@@ -35,25 +38,35 @@ export function AppDialogs({
   onResetDialogOpenChange: (open: boolean) => void
   onRunToolFromDetail: (state: NonNullable<ToolDetailState>) => void
   onToolDetailOpenChange: (open: boolean) => void
-  onToolDialogOpenChange: (open: boolean) => void
   onToolResultOpenChange: (open: boolean) => void
   resetTarget: ResetTarget | null
   toolDetail: ToolDetailState
-  toolDialog: ToolDialogState
   toolResult: ToolResultState
 }) {
   return (
     <>
-      <RunToolDialog state={toolDialog} onOpenChange={onToolDialogOpenChange} />
       <ToolResultDialog state={toolResult} onOpenChange={onToolResultOpenChange} />
       <ToolDetailDialog
         state={toolDetail}
         onOpenChange={onToolDetailOpenChange}
         onRun={onRunToolFromDetail}
       />
-      <SwitchCacheDialog open={cacheDialogOpen} current={backend} onOpenChange={onCacheDialogOpenChange} onChanged={onCacheChanged} />
-      <DeleteServiceDialog service={deleteTarget} onOpenChange={onDeleteDialogOpenChange} onConfirm={onConfirmDelete} />
-      <ResetConfigDialog target={resetTarget} onOpenChange={onResetDialogOpenChange} onConfirm={onConfirmReset} />
+      <SwitchCacheDialog
+        open={cacheDialogOpen}
+        current={backend}
+        onOpenChange={onCacheDialogOpenChange}
+        onChanged={onCacheChanged}
+      />
+      <DeleteServiceDialog
+        service={deleteTarget}
+        onOpenChange={onDeleteDialogOpenChange}
+        onConfirm={onConfirmDelete}
+      />
+      <ResetConfigDialog
+        target={resetTarget}
+        onOpenChange={onResetDialogOpenChange}
+        onConfirm={onConfirmReset}
+      />
     </>
   )
 }

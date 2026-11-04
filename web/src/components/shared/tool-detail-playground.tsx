@@ -14,10 +14,27 @@ import {
   CodeBlockTitle,
 } from "@/components/ui/code-block"
 import { ToolParameterDocList } from "@/components/shared/tool-parameter-doc-list"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
-import { ToolAnnotationsSection, ToolMetaSection } from "@/components/shared/tool-capability-sections"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import {
+  ToolAnnotationsSection,
+  ToolMetaSection,
+} from "@/components/shared/tool-capability-sections"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
@@ -29,7 +46,12 @@ import type { ScopeRef, ServiceState, ToolInfo } from "@/lib/api"
 import { OverrideEditor } from "@/features/overrides/override-editor"
 import { buildSchemaExampleValue, buildToolCliCommand } from "@/lib/tool-schema-preview"
 import { serializeToolArgs, type ToolSchema, getMissingRequiredArgs } from "@/lib/tool-args"
-import { getOriginalToolName, getToolOutputSchema, getToolSchema, extractToolDescriptionDocs } from "@/lib/tool-info"
+import {
+  getOriginalToolName,
+  getToolOutputSchema,
+  getToolSchema,
+  extractToolDescriptionDocs,
+} from "@/lib/tool-info"
 import { toolDetailPlaygroundAside } from "@/components/shared/tool-detail-section-layout"
 import { cn } from "@/lib/utils"
 
@@ -55,7 +77,8 @@ function useToolPlaygroundData({
   const outputSchema = getToolOutputSchema(tool) as JsonSchema
   const inputParams = schemaFields(inputSchema)
   const outputParams = schemaFields(outputSchema)
-  const hasOutputSchema = outputParams.length > 0 || Object.keys(outputSchema.properties || {}).length > 0
+  const hasOutputSchema =
+    outputParams.length > 0 || Object.keys(outputSchema.properties || {}).length > 0
 
   const cliCommand = useMemo(
     () =>
@@ -106,7 +129,9 @@ export function ToolDetailDocHeader({
   return (
     <header className={cn("shrink-0 space-y-3 border-b pb-4", className)}>
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">{tool.name}</TypographyH2>
+        <TypographyH2 className="min-w-0 border-b-0 pb-0 break-words font-mono text-xl">
+          {tool.name}
+        </TypographyH2>
         {serviceState ? <ServiceStatusBadge state={serviceState} /> : null}
       </div>
       <ToolDescriptionBlock
@@ -137,12 +162,15 @@ export function ToolDetailDocBody({
   originalToolName?: string
 }) {
   const { t } = useI18n()
-  const { proseInputParams, proseOutputParams, proseReturnSummary } = extractToolDescriptionDocs(tool.description || "")
+  const { proseInputParams, proseOutputParams, proseReturnSummary } = extractToolDescriptionDocs(
+    tool.description || "",
+  )
   const inputSchema = getToolSchema(tool) as JsonSchema
   const outputSchema = getToolOutputSchema(tool) as JsonSchema
   const inputParams = schemaFields(inputSchema)
   const outputParams = schemaFields(outputSchema)
-  const hasOutputSchema = outputParams.length > 0 || Object.keys(outputSchema.properties || {}).length > 0
+  const hasOutputSchema =
+    outputParams.length > 0 || Object.keys(outputSchema.properties || {}).length > 0
 
   return (
     <div className={cn("min-w-0 space-y-6 pb-1 pt-4", className)}>
@@ -170,7 +198,9 @@ export function ToolDetailDocBody({
               {hasOutputSchema ? (
                 <div className="flex flex-col gap-3">
                   {proseReturnSummary ? (
-                    <p className="text-sm leading-relaxed text-muted-foreground">{proseReturnSummary}</p>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {proseReturnSummary}
+                    </p>
                   ) : null}
                   <ToolParameterDocList
                     fields={outputParams}
@@ -180,7 +210,9 @@ export function ToolDetailDocBody({
                   />
                 </div>
               ) : proseReturnSummary ? (
-                <p className="text-sm leading-relaxed text-muted-foreground">{proseReturnSummary}</p>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {proseReturnSummary}
+                </p>
               ) : (
                 <p className="text-sm text-muted-foreground">{t("noOutputSchema")}</p>
               )}
@@ -191,7 +223,14 @@ export function ToolDetailDocBody({
 
       <ToolAnnotationsSection tool={tool} />
       <ToolMetaSection tool={tool} />
-      {serviceName && scope ? <OverrideEditor kind="tool" serviceName={serviceName} componentKey={originalToolName || getOriginalToolName(tool)} scope={scope} /> : null}
+      {serviceName && scope ? (
+        <OverrideEditor
+          kind="tool"
+          serviceName={serviceName}
+          componentKey={originalToolName || getOriginalToolName(tool)}
+          scope={scope}
+        />
+      ) : null}
     </div>
   )
 }
@@ -215,15 +254,19 @@ export function ToolPlaygroundAside({
 }) {
   const { t } = useI18n()
   const [missingRequired, setMissingRequired] = useState<string[]>([])
-  const { cliCommand, hasOutputSchema, outputSchema, requestArgsText, responseText } = useToolPlaygroundData({
-    tool,
-    instanceId,
-    toolArgs,
-    toolArgsSchema,
-  })
+  const { cliCommand, hasOutputSchema, outputSchema, requestArgsText, responseText } =
+    useToolPlaygroundData({
+      tool,
+      instanceId,
+      toolArgs,
+      toolArgsSchema,
+    })
 
   function requestRun() {
-    const missing = getMissingRequiredArgs(serializeToolArgs(toolArgs, toolArgsSchema), toolArgsSchema)
+    const missing = getMissingRequiredArgs(
+      serializeToolArgs(toolArgs, toolArgsSchema),
+      toolArgsSchema,
+    )
     if (missing.length) {
       setMissingRequired(missing)
       return
@@ -233,24 +276,47 @@ export function ToolPlaygroundAside({
 
   return (
     <>
-      <aside className={cn(toolDetailPlaygroundAside, "h-full min-h-0 min-w-0 w-full flex-col gap-4", className)}>
-      <ToolRequestPanel command={cliCommand} toolName={tool.name} onRun={requestRun} running={running} />
-      <ToolResponsePanel
-        requestArgsText={requestArgsText}
-        responseText={responseText}
-        schema={outputSchema}
-        hasOutputSchema={hasOutputSchema}
-      />
+      <aside
+        className={cn(
+          toolDetailPlaygroundAside,
+          "h-full min-h-0 min-w-0 w-full flex-col gap-4",
+          className,
+        )}
+      >
+        <ToolRequestPanel
+          command={cliCommand}
+          toolName={tool.name}
+          onRun={requestRun}
+          running={running}
+        />
+        <ToolResponsePanel
+          requestArgsText={requestArgsText}
+          responseText={responseText}
+          schema={outputSchema}
+          hasOutputSchema={hasOutputSchema}
+        />
       </aside>
-      <AlertDialog open={missingRequired.length > 0} onOpenChange={(open) => !open && setMissingRequired([])}>
+      <AlertDialog
+        open={missingRequired.length > 0}
+        onOpenChange={(open) => !open && setMissingRequired([])}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("missingRequiredTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("missingRequiredDescription", { fields: missingRequired.join(", ") })}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {t("missingRequiredDescription", { fields: missingRequired.join(", ") })}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setMissingRequired([]); onRun?.() }}>{t("knownContinue")}</AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                setMissingRequired([])
+                onRun?.()
+              }}
+            >
+              {t("knownContinue")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -279,8 +345,13 @@ function ToolRequestPanel({
           <span className="truncate text-zinc-300">{toolName}</span>
         </CodeBlockTitle>
         <CodeBlockActions>
-          <span className="rounded-md border border-zinc-700 px-2 py-1 font-mono text-[11px] text-zinc-400">{t("cliRequestLabel")}</span>
-          <CodeBlockCopyButton value={command} className="text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50" />
+          <span className="rounded-md border border-zinc-700 px-2 py-1 font-mono text-[11px] text-zinc-400">
+            {t("cliRequestLabel")}
+          </span>
+          <CodeBlockCopyButton
+            value={command}
+            className="text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50"
+          />
         </CodeBlockActions>
       </CodeBlockHeader>
       <CodeBlockBody variant="request" maxHeight="11rem">
@@ -322,11 +393,18 @@ function ToolResponsePanel({
     <CodeBlock variant="response" className="flex min-h-0 flex-1 flex-col">
       <CodeBlockHeader variant="response" className="shrink-0">
         <CodeBlockTitle>
-          <span className="font-semibold text-foreground">{showSchema && hasOutputSchema ? "200" : t("dynamicValue")}</span>
+          <span className="font-semibold text-foreground">
+            {showSchema && hasOutputSchema ? "200" : t("dynamicValue")}
+          </span>
         </CodeBlockTitle>
         <CodeBlockActions>
           <div className="flex items-center gap-2">
-            <Switch id="show-schema" checked={showSchema} onCheckedChange={setShowSchema} disabled={!hasOutputSchema} />
+            <Switch
+              id="show-schema"
+              checked={showSchema}
+              onCheckedChange={setShowSchema}
+              disabled={!hasOutputSchema}
+            />
             <Label htmlFor="show-schema" className="text-xs font-normal text-muted-foreground">
               {t("showSchema")}
             </Label>

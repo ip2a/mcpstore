@@ -32,7 +32,9 @@ export function StringListEditor({
   value: string
 }) {
   const { t } = useI18n()
-  const [entries, setEntries] = useState<StringListEntry[]>(() => stringListFromText(value, defaultEmptyRow))
+  const [entries, setEntries] = useState<StringListEntry[]>(() =>
+    stringListFromText(value, defaultEmptyRow),
+  )
 
   useEffect(() => {
     setEntries((current) => {
@@ -68,7 +70,9 @@ export function StringListEditor({
   }
 
   function updateEntry(id: string, nextValue: string) {
-    updateEntries(entries.map((entry) => (entry.id === id ? { ...entry, value: nextValue } : entry)))
+    updateEntries(
+      entries.map((entry) => (entry.id === id ? { ...entry, value: nextValue } : entry)),
+    )
   }
 
   return (

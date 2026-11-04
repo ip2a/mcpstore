@@ -1,19 +1,8 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-} from "recharts"
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   ChartContainer,
   ChartTooltip,
@@ -103,8 +92,7 @@ function densify(
     row[point.key] = (row[point.key] as number) + point.count
     byBucket.set(point.bucket_unix_ms, row)
   }
-  const first =
-    Math.floor((Date.now() - TIME_RANGE_HOURS[range] * 3_600_000) / bucketMs) * bucketMs
+  const first = Math.floor((Date.now() - TIME_RANGE_HOURS[range] * 3_600_000) / bucketMs) * bucketMs
   const last = Math.floor(Date.now() / bucketMs) * bucketMs
   const rows: Row[] = []
   for (let bucket = first; bucket <= last; bucket += bucketMs) {
@@ -155,7 +143,11 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
         .map(([key]) => key)
       const series = keys.map((key) => ({ key, color: colorFor(key), total: totals.get(key) ?? 0 }))
       const rows = densify(
-        serviceStats.map((p) => ({ bucket_unix_ms: p.bucket_unix_ms, key: p.service, count: p.frame_count })),
+        serviceStats.map((p) => ({
+          bucket_unix_ms: p.bucket_unix_ms,
+          key: p.service,
+          count: p.frame_count,
+        })),
         keys,
         range,
       )
@@ -174,7 +166,11 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
         .map(([key]) => key)
       const series = keys.map((key) => ({ key, color: colorFor(key), total: totals.get(key) ?? 0 }))
       const rows = densify(
-        methodStats.map((p) => ({ bucket_unix_ms: p.bucket_unix_ms, key: p.method, count: p.frame_count })),
+        methodStats.map((p) => ({
+          bucket_unix_ms: p.bucket_unix_ms,
+          key: p.method,
+          count: p.frame_count,
+        })),
         keys,
         range,
       )
@@ -208,24 +204,19 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
     dataKey: `series${index}`,
     colorVar: `var(--color-series${index})`,
   }))
-  const chartRows = rows.map((row): Row => ({
-    label: row.label,
-    ...Object.fromEntries(
-      chartSeries.map((s) => [s.dataKey, (row[s.key] as number) ?? 0]),
-    ),
-  }))
+  const chartRows = rows.map(
+    (row): Row => ({
+      label: row.label,
+      ...Object.fromEntries(chartSeries.map((s) => [s.dataKey, (row[s.key] as number) ?? 0])),
+    }),
+  )
   const chartConfig = Object.fromEntries(
-    chartSeries.map((s) => [
-      s.dataKey,
-      { label: s.key, color: s.color },
-    ]),
+    chartSeries.map((s) => [s.dataKey, { label: s.key, color: s.color }]),
   ) satisfies ChartConfig
 
   // Both bar and stacked area share a summed y domain so the axis stays comparable.
   const yMax = Math.max(
-    ...chartRows.map((row) =>
-      chartSeries.reduce((sum, s) => sum + (row[s.dataKey] as number), 0),
-    ),
+    ...chartRows.map((row) => chartSeries.reduce((sum, s) => sum + (row[s.dataKey] as number), 0)),
     1,
   )
 
@@ -286,10 +277,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
       </div>
 
       <CardContent className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <ChartContainer
-          config={chartConfig}
-          className="aspect-auto h-full min-h-0 w-full min-w-0"
-        >
+        <ChartContainer config={chartConfig} className="aspect-auto h-full min-h-0 w-full min-w-0">
           {/* Remount per view state: Recharts data-swap animation can leave
               half-rendered charts when toggling range/split. */}
           {kind === "bar" ? (
@@ -320,10 +308,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
                 domain={[0, Math.ceil(yMax * 1.05)]}
                 tick={{ fontSize: 11 }}
               />
-              <ChartTooltip
-                cursor={{ fill: "var(--muted)" }}
-                content={<ChartTooltipContent />}
-              />
+              <ChartTooltip cursor={{ fill: "var(--muted)" }} content={<ChartTooltipContent />} />
               {chartSeries.map((s) => (
                 <Bar
                   key={s.dataKey}
@@ -361,10 +346,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
                 domain={[0, Math.ceil(yMax * 1.05)]}
                 tick={{ fontSize: 11 }}
               />
-              <ChartTooltip
-                cursor={false}
-                content={<ChartTooltipContent indicator="dot" />}
-              />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
               {chartSeries.map((s) => (
                 <Area
                   key={s.dataKey}
@@ -383,7 +365,9 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
 
         <aside className="flex min-w-0 flex-col gap-4 border-t pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4">
           {totalCalls === 0 ? (
-            <p className="text-sm leading-relaxed text-muted-foreground">No activity in this period</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              No activity in this period
+            </p>
           ) : (
             series.map((s) => (
               <div key={s.key} className="min-w-0 space-y-1">

@@ -47,7 +47,13 @@ export function parseToolDescription(description: string) {
   return { summary, sections }
 }
 
-const STRUCTURED_DESCRIPTION_SECTIONS = new Set(["args", "parameters", "returns", "return", "raises"])
+const STRUCTURED_DESCRIPTION_SECTIONS = new Set([
+  "args",
+  "parameters",
+  "returns",
+  "return",
+  "raises",
+])
 
 export function parseDescriptionParamDocs(content: string): Record<string, string> {
   const docs: Record<string, string> = {}

@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
-import { type AgentItem, type ScopeSummary, type ScopeView, type ServiceInstance } from "@/lib/api"
+import type { AgentItem, ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
@@ -53,7 +53,8 @@ export function AgentsView(props: {
   const storeConfigQuery = useStoreConfigQuery()
   const configAgentId = configScopeId.startsWith("agent:") ? configScopeId.slice(6) : ""
   const agentConfigQuery = useAgentConfigQuery(configAgentId)
-  const configValue = configScopeId === "store" ? storeConfigQuery.data : configAgentId ? agentConfigQuery.data : null
+  const configValue =
+    configScopeId === "store" ? storeConfigQuery.data : configAgentId ? agentConfigQuery.data : null
   const configLoading = storeConfigQuery.isFetching || agentConfigQuery.isFetching
 
   const scopesQuery = useScopesQuery()
@@ -103,11 +104,7 @@ export function AgentsView(props: {
 
   function selectScopeTab(scopeId: ScopeCardId) {
     setConfigScopeId(
-      scopeId === "root"
-        ? ALL_SCOPE_ID
-        : scopeId === STORE_SCOPE_ID
-          ? scopeId
-          : `agent:${scopeId}`,
+      scopeId === "root" ? ALL_SCOPE_ID : scopeId === STORE_SCOPE_ID ? scopeId : `agent:${scopeId}`,
     )
     setSelectedScopeId(scopeId)
     setActiveTab(scopeId)
@@ -132,69 +129,69 @@ export function AgentsView(props: {
       />
 
       <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => selectScopeTab(value)}
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-      >
-        <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
-          <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
-            {scopes.map((summary) => {
-              const scopeId = scopeIdFromSummary(summary)
-              const title = scopeTitleFromSummary(summary, t)
-              return (
-                <TabsTrigger key={scopeId} value={scopeId} title={title} className="flex-none">
-                  {title}
-                </TabsTrigger>
-              )
-            })}
-          </TabsList>
-          <ScopeActions
-            className="ml-auto"
-            busy={Boolean(props.busy)}
-            canAddService={selectedScope.type === "agent" && addableServiceNames.length > 0}
-            loading={props.loading || loadingScope}
-            onAddService={() => setAddScopeDialogOpen(true)}
-            onDetails={() => {
-              loadScopeConfig()
-              setConfigDialogOpen(true)
-            }}
-            onRefresh={handleRefresh}
-          />
-        </div>
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => selectScopeTab(value)}
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+        >
+          <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
+            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+              {scopes.map((summary) => {
+                const scopeId = scopeIdFromSummary(summary)
+                const title = scopeTitleFromSummary(summary, t)
+                return (
+                  <TabsTrigger key={scopeId} value={scopeId} title={title} className="flex-none">
+                    {title}
+                  </TabsTrigger>
+                )
+              })}
+            </TabsList>
+            <ScopeActions
+              className="ml-auto"
+              busy={Boolean(props.busy)}
+              canAddService={selectedScope.type === "agent" && addableServiceNames.length > 0}
+              loading={props.loading || loadingScope}
+              onAddService={() => setAddScopeDialogOpen(true)}
+              onDetails={() => {
+                loadScopeConfig()
+                setConfigDialogOpen(true)
+              }}
+              onRefresh={handleRefresh}
+            />
+          </div>
 
-        {scopes.map((summary) => {
-          const scopeId = scopeIdFromSummary(summary)
-          return (
-            <TabsContent key={scopeId} value={scopeId} className={scopeTabContentClassName}>
-              {activeTab === scopeId ? (
-                <ScopeDetailPanel
-                  addScopeDialogOpen={addScopeDialogOpen}
-                  addableServiceNames={addableServiceNames}
-                  activeAgentId={activeAgentId}
-                  busy={props.busy}
-                  configDialogOpen={configDialogOpen}
-                  configLoading={configLoading}
-                  configValue={configValue}
-                  loadingScopeServices={loadingScopeServices}
-                  onDeclareScope={handleDeclareScope}
-                  onOpenService={props.onOpenService}
-                  scopeError={scopeError}
-                  scopeErrorMessage={scopeErrorMessage}
-                  scopeServiceName={scopeServiceName}
-                  scopeServices={scopeServices}
-                  scopeToolCountByInstance={scopeToolCountByInstance}
-                  selectedScope={selectedScope}
-                  setAddScopeDialogOpen={setAddScopeDialogOpen}
-                  setConfigDialogOpen={setConfigDialogOpen}
-                  setScopeServiceName={setScopeServiceName}
-                  loadAgentScope={loadAgentScope}
-                />
-              ) : null}
-            </TabsContent>
-          )
-        })}
-      </Tabs>
+          {scopes.map((summary) => {
+            const scopeId = scopeIdFromSummary(summary)
+            return (
+              <TabsContent key={scopeId} value={scopeId} className={scopeTabContentClassName}>
+                {activeTab === scopeId ? (
+                  <ScopeDetailPanel
+                    addScopeDialogOpen={addScopeDialogOpen}
+                    addableServiceNames={addableServiceNames}
+                    activeAgentId={activeAgentId}
+                    busy={props.busy}
+                    configDialogOpen={configDialogOpen}
+                    configLoading={configLoading}
+                    configValue={configValue}
+                    loadingScopeServices={loadingScopeServices}
+                    onDeclareScope={handleDeclareScope}
+                    onOpenService={props.onOpenService}
+                    scopeError={scopeError}
+                    scopeErrorMessage={scopeErrorMessage}
+                    scopeServiceName={scopeServiceName}
+                    scopeServices={scopeServices}
+                    scopeToolCountByInstance={scopeToolCountByInstance}
+                    selectedScope={selectedScope}
+                    setAddScopeDialogOpen={setAddScopeDialogOpen}
+                    setConfigDialogOpen={setConfigDialogOpen}
+                    setScopeServiceName={setScopeServiceName}
+                    loadAgentScope={loadAgentScope}
+                  />
+                ) : null}
+              </TabsContent>
+            )
+          })}
+        </Tabs>
       </PanelCard>
     </>
   )
@@ -292,7 +289,11 @@ function ScopeDetailPanel({
             <DialogTitle>{t("configuration")}</DialogTitle>
           </DialogHeader>
           <div className="min-h-0 shrink overflow-hidden">
-            {configLoading && !configValue ? <PageSkeleton /> : <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />}
+            {configLoading && !configValue ? (
+              <PageSkeleton />
+            ) : (
+              <JsonBlock value={configValue || {}} className="h-[min(55vh,480px)] max-h-none" />
+            )}
           </div>
         </DialogContent>
       </Dialog>

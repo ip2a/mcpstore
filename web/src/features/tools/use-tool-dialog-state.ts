@@ -1,7 +1,11 @@
 import { useCallback, useState } from "react"
 import { toast } from "sonner"
 
-import { type ToolDetailState, type ToolDialogState, type ToolResultState } from "@/features/tools/tool-dialogs"
+import type {
+  ToolDetailState,
+  ToolDialogState,
+  ToolResultState,
+} from "@/features/tools/tool-dialogs"
 import { callInstanceTool, type ServiceInstance, type ServiceState, type ToolInfo } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 
@@ -17,37 +21,43 @@ function toolRunKey(instanceId: string, toolName: string) {
 
 export function useToolDialogState() {
   const { t } = useI18n()
-  const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
   const [toolResult, setToolResult] = useState<ToolResultState>(null)
   const [toolRunningKey, setToolRunningKey] = useState<string | null>(null)
 
-  const runServiceTool = useCallback(async (
+  const runServiceTool = useCallback(
+    async (service: ServiceInstance, tool: ToolInfo, args: Record<string, unknown> = {}) => {
+      const key = toolRunKey(service.instance_id, tool.name)
+      setToolRunningKey(key)
+      try {
+        const result = await callInstanceTool(service, tool.name, args)
+        setToolResult({
+          tool,
+          sourceLabel: buildSourceLabel(service),
+          result,
+        })
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("toolCallFailed"))
+      } finally {
+        setToolRunningKey(null)
+      }
+    },
+    [t],
+  )
+
+  function openServiceToolRunner(
     service: ServiceInstance,
     tool: ToolInfo,
-    args: Record<string, unknown> = {},
-  ) => {
-    const key = toolRunKey(service.instance_id, tool.name)
-    setToolRunningKey(key)
-    try {
-      const result = await callInstanceTool(service, tool.name, args)
-      setToolResult({
-        tool,
-        sourceLabel: buildSourceLabel(service),
-        result,
-      })
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("toolCallFailed"))
-    } finally {
-      setToolRunningKey(null)
-    }
-  }, [t])
-
-  function openServiceToolRunner(service: ServiceInstance, tool: ToolInfo, initialArgs?: Record<string, unknown>) {
+    initialArgs?: Record<string, unknown>,
+  ) {
     void runServiceTool(service, tool, initialArgs || {})
   }
 
-  function openServiceToolDetail(service: ServiceInstance, tool: ToolInfo, statusReport?: ServiceState | null) {
+  function openServiceToolDetail(
+    service: ServiceInstance,
+    tool: ToolInfo,
+    statusReport?: ServiceState | null,
+  ) {
     setToolDetail({
       tool,
       sourceLabel: buildSourceLabel(service),
@@ -74,17 +84,12 @@ export function useToolDialogState() {
     if (!open) setToolDetail(null)
   }
 
-  function closeToolDialog(open: boolean) {
-    if (!open) setToolDialog(null)
-  }
-
   function closeToolResult(open: boolean) {
     if (!open) setToolResult(null)
   }
 
   return {
     closeToolDetail,
-    closeToolDialog,
     closeToolResult,
     isToolRunning,
     openServiceToolDetail,
@@ -93,9 +98,7 @@ export function useToolDialogState() {
     runServiceTool,
     runToolFromDialogState,
     setToolDetail,
-    setToolDialog,
     toolDetail,
-    toolDialog,
     toolResult,
     toolRunningKey,
   }

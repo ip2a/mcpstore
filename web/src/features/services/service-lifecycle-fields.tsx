@@ -1,6 +1,16 @@
 import { Field, FieldLabel } from "@/components/ui/field"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { SERVICE_RESTART_POLICY_OPTIONS, SERVICE_STARTUP_POLICY_OPTIONS } from "@/features/services/service-lifecycle"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  SERVICE_RESTART_POLICY_OPTIONS,
+  SERVICE_STARTUP_POLICY_OPTIONS,
+} from "@/features/services/service-lifecycle"
 import type { ServiceRestartPolicy, ServiceStartupPolicy } from "@/lib/api"
 
 export function ServiceStartupPolicySelect({

@@ -49,13 +49,7 @@ import {
   useWiredClientsQuery,
 } from "@/features/clients/queries"
 import { useI18n } from "@/lib/i18n-context"
-import type {
-  ClientInventory,
-  ExposeConfig,
-  WiredEntry,
-  WireOptions,
-  WireResult,
-} from "@/lib/api"
+import type { ClientInventory, ExposeConfig, WiredEntry, WireOptions, WireResult } from "@/lib/api"
 import type { ClientPlugin, MarketPlugin } from "@/lib/api/plugins"
 import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
@@ -134,13 +128,13 @@ export function WireOptionsFields({
         <Label>{t("clientsExpose")}</Label>
         <div className="grid grid-cols-2 gap-x-4 gap-y-2">
           {EXPOSE_KEYS.map((key) => (
-            <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+            <div key={key} className="flex cursor-pointer items-center gap-2 text-sm">
               <Switch
                 checked={expose[key]}
                 onCheckedChange={(on) => onExposeChange({ ...expose, [key]: on })}
               />
               <span className="font-mono text-xs">{key}</span>
-            </label>
+            </div>
           ))}
         </div>
       </div>
@@ -169,7 +163,8 @@ export function ClientsView() {
 
   const clients = data ?? []
   const pluginBusy = busy || pluginAction.isPending || pluginUpdate.isPending
-  const refreshing = isFetching || wiredQuery.isFetching || pluginsQuery.isFetching || marketQuery.isFetching
+  const refreshing =
+    isFetching || wiredQuery.isFetching || pluginsQuery.isFetching || marketQuery.isFetching
   const installedById = Object.fromEntries(
     (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
   ) as Record<string, ClientPlugin>
@@ -202,8 +197,7 @@ export function ClientsView() {
   const installedClients = useMemo(
     () =>
       clients.filter(
-        (client) =>
-          client.wired || client.detected_by != null || Boolean(installedById[client.id]),
+        (client) => client.wired || client.detected_by != null || Boolean(installedById[client.id]),
       ),
     [clients, installedById],
   )
@@ -277,7 +271,11 @@ export function ClientsView() {
       />
 
       <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
-        <Tabs value={tab} onValueChange={(value) => setTab(value as ClientTab)} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as ClientTab)}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
           <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
             <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
               {tabs.map((item) => (
@@ -342,7 +340,10 @@ export function ClientsView() {
                   <PageSkeleton />
                 </div>
               ) : viewMode === "list" ? (
-                <ScrollPane className="min-h-0 flex-1" innerClassName="flex flex-col gap-2 px-0 pb-2">
+                <ScrollPane
+                  className="min-h-0 flex-1"
+                  innerClassName="flex flex-col gap-2 px-0 pb-2"
+                >
                   {visibleClients.length ? (
                     <div className="divide-y divide-border/50">
                       {visibleClients.map((client) => (
@@ -366,7 +367,11 @@ export function ClientsView() {
                     </div>
                   ) : (
                     <div className="px-4 py-2">
-                      <PageEmpty title={t("noClients")} description={t("noClientsDescription")} onRefresh={refresh} />
+                      <PageEmpty
+                        title={t("noClients")}
+                        description={t("noClientsDescription")}
+                        onRefresh={refresh}
+                      />
                     </div>
                   )}
                 </ScrollPane>
@@ -505,7 +510,12 @@ function WireDialog({
       ? state.entry.scope.agent_id
       : client.id
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
@@ -524,7 +534,9 @@ function WireDialog({
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t("cancel")}</Button>
+          <Button variant="outline" onClick={onClose}>
+            {t("cancel")}
+          </Button>
           <Button
             disabled={busy}
             onClick={() =>
@@ -558,7 +570,12 @@ function WireConflictDialog({
   const { t } = useI18n()
   if (!state) return null
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{t("clientsWireConflictTitle", { client: state.client.label })}</DialogTitle>
@@ -581,7 +598,9 @@ function WireConflictDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t("cancel")}</Button>
+          <Button variant="outline" onClick={onClose}>
+            {t("cancel")}
+          </Button>
           <Button disabled={busy} onClick={() => onReplace(state.client, state.options)}>
             {t("clientsWireConflictReplace")}
           </Button>
@@ -596,6 +615,91 @@ function clientStatusText(
   t: (key: string, vars?: Record<string, string | number | null | undefined>) => string,
 ) {
   return client.wired ? t("clientsStatusActive") : t("clientsStatusInactive")
+}
+
+function StatusDot({ active }: { active: boolean }) {
+  return (
+    <span
+      className={cn(
+        "size-1.5 shrink-0 rounded-full",
+        active ? "bg-emerald-500" : "bg-muted-foreground/40",
+      )}
+    />
+  )
+}
+
+/** Plugin install/update actions + edit-wire pencil + wire toggle, shared by the list row and the card detail dialog. */
+function ClientWireActions({
+  busy,
+  client,
+  installed,
+  marketEntry,
+  onInstall,
+  onUninstall,
+  onUpdate,
+  onWire,
+  onEditWire,
+  onUnwire,
+  showWireLabel,
+}: {
+  busy: boolean
+  client: ClientInventory
+  installed: ClientPlugin | undefined
+  marketEntry: MarketPlugin | undefined
+  onInstall: (id: string) => void
+  onUninstall: (id: string) => void
+  onUpdate: (id: string) => void
+  onWire: () => void
+  onEditWire: () => void
+  onUnwire: () => void
+  showWireLabel?: boolean
+}) {
+  const { t } = useI18n()
+  const wireSwitch = (
+    <Switch
+      checked={client.wired}
+      disabled={busy}
+      aria-label={client.wired ? t("clientsUnwire") : t("clientsWire")}
+      onCheckedChange={(checked) => {
+        if (checked) onWire()
+        else onUnwire()
+      }}
+    />
+  )
+  return (
+    <>
+      <ClientPluginRowActions
+        clientId={client.id}
+        busy={busy}
+        installed={installed}
+        marketEntry={marketEntry}
+        onInstall={onInstall}
+        onUninstall={onUninstall}
+        onUpdate={onUpdate}
+      />
+      {client.wired ? (
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={busy}
+          aria-label={t("gatewayEditWire")}
+          onClick={onEditWire}
+        >
+          <PencilIcon className="size-3.5" />
+        </Button>
+      ) : null}
+      {showWireLabel ? (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {client.wired ? t("clientsUnwire") : t("clientsWire")}
+          </span>
+          {wireSwitch}
+        </div>
+      ) : (
+        wireSwitch
+      )}
+    </>
+  )
 }
 
 function ClientRow({
@@ -643,12 +747,7 @@ function ClientRow({
             ) : null}
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <span
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                client.wired ? "bg-emerald-500" : "bg-muted-foreground/40",
-              )}
-            />
+            <StatusDot active={client.wired} />
             <span className="truncate">{statusText}</span>
           </div>
         </div>
@@ -675,51 +774,31 @@ function ClientRow({
           </button>
         )}
 
-        <ClientPluginRowActions
-          clientId={client.id}
+        <ClientWireActions
           busy={busy}
+          client={client}
           installed={installed}
           marketEntry={marketEntry}
           onInstall={onInstall}
           onUninstall={onUninstall}
           onUpdate={onUpdate}
-        />
-
-        {client.wired ? (
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            disabled={busy}
-            aria-label={t("gatewayEditWire")}
-            onClick={onEditWire}
-          >
-            <PencilIcon className="size-3.5" />
-          </Button>
-        ) : null}
-
-        <Switch
-          checked={client.wired}
-          disabled={busy}
-          aria-label={client.wired ? t("clientsUnwire") : t("clientsWire")}
-          onCheckedChange={(checked) => {
-            if (checked) onWire()
-            else onUnwire()
-          }}
+          onWire={onWire}
+          onEditWire={onEditWire}
+          onUnwire={onUnwire}
         />
       </div>
 
-      <ClientDetailDialog client={client} version={version} open={detailOpen} onOpenChange={setDetailOpen} />
+      <ClientDetailDialog
+        client={client}
+        version={version}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
     </>
   )
 }
 
-function ClientListCard({
-  client,
-  onSelect,
-}: {
-  client: ClientInventory
-  onSelect: () => void
-}) {
+function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelect: () => void }) {
   const { t } = useI18n()
   const mcpCount = client.mcp_servers?.length ?? 0
   const statusText = clientStatusText(client, t)
@@ -746,23 +825,18 @@ function ClientListCard({
           imageClassName="size-5"
         />
         <span className="min-w-0 flex-1">
-          <span className="line-clamp-1 text-sm font-semibold leading-snug">{client.label || client.id}</span>
+          <span className="line-clamp-1 text-sm font-semibold leading-snug">
+            {client.label || client.id}
+          </span>
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <span
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                client.wired ? "bg-emerald-500" : "bg-muted-foreground/40",
-              )}
-            />
+            <StatusDot active={client.wired} />
             <span className="truncate">{statusText}</span>
           </span>
         </span>
       </div>
 
       {path ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
-          {path}
-        </p>
+        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{path}</p>
       ) : null}
 
       {client.mcp_servers != null ? (
@@ -857,43 +931,21 @@ function ClientCardActions({
   onUninstall: (id: string) => void
   onUpdate: (id: string) => void
 }) {
-  const { t } = useI18n()
   return (
     <div className="flex w-full flex-wrap items-center justify-end gap-2">
-      <ClientPluginRowActions
-        clientId={client.id}
+      <ClientWireActions
         busy={busy}
+        client={client}
         installed={installed}
         marketEntry={marketEntry}
         onInstall={onInstall}
         onUninstall={onUninstall}
         onUpdate={onUpdate}
+        onWire={onWire}
+        onEditWire={onEditWire}
+        onUnwire={onUnwire}
+        showWireLabel
       />
-      {client.wired ? (
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          disabled={busy}
-          aria-label={t("gatewayEditWire")}
-          onClick={onEditWire}
-        >
-          <PencilIcon className="size-3.5" />
-        </Button>
-      ) : null}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground">
-          {client.wired ? t("clientsUnwire") : t("clientsWire")}
-        </span>
-        <Switch
-          checked={client.wired}
-          disabled={busy}
-          aria-label={client.wired ? t("clientsUnwire") : t("clientsWire")}
-          onCheckedChange={(checked) => {
-            if (checked) onWire()
-            else onUnwire()
-          }}
-        />
-      </div>
     </div>
   )
 }
@@ -971,15 +1023,12 @@ function ClientDetailDialog({
             <div className="min-w-0 flex-1">
               <p className="truncate text-base font-semibold">{client.label || client.id}</p>
               <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                <span
-                  className={cn(
-                    "size-1.5 shrink-0 rounded-full",
-                    client.wired ? "bg-emerald-500" : "bg-muted-foreground/40",
-                  )}
-                />
+                <StatusDot active={client.wired} />
                 <span className="truncate">{statusText}</span>
                 {version ? (
-                  <span className="shrink-0 font-mono tabular-nums text-muted-foreground">· {version}</span>
+                  <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                    · {version}
+                  </span>
                 ) : null}
               </p>
             </div>

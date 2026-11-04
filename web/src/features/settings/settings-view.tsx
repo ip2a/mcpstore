@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ActivityIcon, FileTextIcon, InfoIcon, MonitorIcon, NetworkIcon, PencilIcon, PlusIcon, RefreshCwIcon, SaveIcon, ServerIcon, SlidersHorizontalIcon, Trash2Icon, type LucideIcon } from "lucide-react"
+import {
+  ActivityIcon,
+  FileTextIcon,
+  InfoIcon,
+  MonitorIcon,
+  NetworkIcon,
+  PencilIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SaveIcon,
+  ServerIcon,
+  SlidersHorizontalIcon,
+  Trash2Icon,
+  type LucideIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
@@ -19,14 +33,45 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldTitle,
+} from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
-import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupTextarea,
+} from "@/components/ui/input-group"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
-import { hostsToList, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
-import { formatReleaseVersion, isDesktopShell, UpdateButton, useAppUpdater, useAppVersionLabel } from "@/features/settings/updater"
+import {
+  hostsToList,
+  payloadFromDraft,
+  sections,
+  settingsDraft,
+  type SectionId,
+  type SettingsDraft,
+} from "@/features/settings/model"
+import {
+  formatReleaseVersion,
+  isDesktopShell,
+  UpdateButton,
+  useAppUpdater,
+  useAppVersionLabel,
+} from "@/features/settings/updater"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
 import { getHostStatus, type HostStatus as ApiHostStatus, type UiLanguage } from "@/lib/api"
 import { syncApiBaseFromHosts } from "@/lib/api/backend"
@@ -44,7 +89,7 @@ const sectionIcons: Record<SectionId, LucideIcon> = {
   about: InfoIcon,
 }
 
-const compactInputGroupClass = "w-20 shrink-0 !w-20"
+const compactInputGroupClass = "w-20 shrink-0"
 
 export function SettingsView() {
   const { setLanguageOverride, t } = useI18n()
@@ -53,12 +98,19 @@ export function SettingsView() {
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
   const metaQuery = useSettingsMetaQuery(true)
   const settingsMutation = useUpdateSettingsMutation()
-  const { phase, progress, version: updateAvailable, checkForUpdate, restartToUpdate } = useAppUpdater()
+  const {
+    phase,
+    progress,
+    version: updateAvailable,
+    checkForUpdate,
+    restartToUpdate,
+  } = useAppUpdater()
   const appVersion = useAppVersionLabel()
   const meta = metaQuery.data
   const loading = metaQuery.isFetching && !draft
   const error = metaQuery.error
-  const errorMessage = error instanceof Error ? error.message : error ? String(error) : t("settingsUnavailable")
+  const errorMessage =
+    error instanceof Error ? error.message : error ? String(error) : t("settingsUnavailable")
   const saving = settingsMutation.isPending
 
   const configFile = meta?.config_file
@@ -80,7 +132,9 @@ export function SettingsView() {
   }
 
   function patchDiagnostics(patch: Partial<SettingsDraft["diagnostics"]>) {
-    setDraft((current) => (current ? { ...current, diagnostics: { ...current.diagnostics, ...patch } } : current))
+    setDraft((current) =>
+      current ? { ...current, diagnostics: { ...current.diagnostics, ...patch } } : current,
+    )
   }
 
   async function handleSave() {
@@ -122,8 +176,8 @@ export function SettingsView() {
       </div>
 
       <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-        {stateGuard ?? (
-          draft ? (
+        {stateGuard ??
+          (draft ? (
             <Tabs
               value={activeTab}
               onValueChange={(value) => setActiveTab(value as SectionId)}
@@ -143,7 +197,12 @@ export function SettingsView() {
                   })}
                 </TabsList>
                 <div className="ml-auto flex shrink-0 gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void metaQuery.refetch()} disabled={metaQuery.isFetching}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void metaQuery.refetch()}
+                    disabled={metaQuery.isFetching}
+                  >
                     <RefreshCwIcon data-icon="inline-start" />
                     {t("refresh")}
                   </Button>
@@ -154,13 +213,19 @@ export function SettingsView() {
                 </div>
               </div>
 
-              <TabsContent value="overview" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <TabsContent
+                value="overview"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 <ScrollPane className="flex-1">
                   <OverviewSection draft={draft} />
                 </ScrollPane>
               </TabsContent>
 
-              <TabsContent value="general" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <TabsContent
+                value="general"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 <ScrollPane className="flex-1">
                   <section className="flex flex-col gap-5">
                     <SectionHead title={t("general")} />
@@ -170,7 +235,10 @@ export function SettingsView() {
                           <FieldTitle>{t("language")}</FieldTitle>
                           <FieldDescription>{t("chooseLanguage")}</FieldDescription>
                         </FieldContent>
-                        <Select value={draft.language} onValueChange={(value) => patchDraft({ language: value as UiLanguage })}>
+                        <Select
+                          value={draft.language}
+                          onValueChange={(value) => patchDraft({ language: value as UiLanguage })}
+                        >
                           <SelectTrigger className="w-44">
                             <SelectValue />
                           </SelectTrigger>
@@ -191,20 +259,44 @@ export function SettingsView() {
                 </ScrollPane>
               </TabsContent>
 
-              <TabsContent value="connection" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <TabsContent
+                value="connection"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 <ScrollPane className="flex-1">
                   <ConnectionSection draft={draft} patchDraft={patchDraft} />
                 </ScrollPane>
               </TabsContent>
 
-              <TabsContent value="diagnostics" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <TabsContent
+                value="diagnostics"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 <ScrollPane className="flex-1">
                   <section className="flex flex-col gap-5">
-                    <SectionHead title={t("diagnostics")} description={t("diagnosticsDescription")} />
+                    <SectionHead
+                      title={t("diagnostics")}
+                      description={t("diagnosticsDescription")}
+                    />
                     <FieldGroup>
-                      <ToggleField title={t("diagnosticsEnabled")} description={t("diagnosticsEnabledDescription")} checked={draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ enabled })} />
-                      <ToggleField title={t("runtimeLogEnabled")} description={t("runtimeLogEnabledDescription")} checked={draft.diagnostics.runtime_enabled} disabled={!draft.diagnostics.enabled} onCheckedChange={(enabled) => patchDiagnostics({ runtime_enabled: enabled })} />
-                      <p className="text-xs text-muted-foreground">{t("runtimeLogRestartNotice")}</p>
+                      <ToggleField
+                        title={t("diagnosticsEnabled")}
+                        description={t("diagnosticsEnabledDescription")}
+                        checked={draft.diagnostics.enabled}
+                        onCheckedChange={(enabled) => patchDiagnostics({ enabled })}
+                      />
+                      <ToggleField
+                        title={t("runtimeLogEnabled")}
+                        description={t("runtimeLogEnabledDescription")}
+                        checked={draft.diagnostics.runtime_enabled}
+                        disabled={!draft.diagnostics.enabled}
+                        onCheckedChange={(enabled) =>
+                          patchDiagnostics({ runtime_enabled: enabled })
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {t("runtimeLogRestartNotice")}
+                      </p>
                       <Field orientation="responsive">
                         <FieldContent>
                           <FieldTitle>{t("runtimeLogMaxSize")}</FieldTitle>
@@ -213,8 +305,17 @@ export function SettingsView() {
                         <InputGroup className={compactInputGroupClass}>
                           <InputGroupInput
                             inputMode="decimal"
-                            value={String(draft.diagnostics.runtime_max_size_bytes / 1024 / 1024).replace(/\.0$/, "")}
-                            onChange={(event) => patchDiagnostics({ runtime_max_size_bytes: Math.max(1, Number(event.target.value || 1) * 1024 * 1024) })}
+                            value={String(
+                              draft.diagnostics.runtime_max_size_bytes / 1024 / 1024,
+                            ).replace(/\.0$/, "")}
+                            onChange={(event) =>
+                              patchDiagnostics({
+                                runtime_max_size_bytes: Math.max(
+                                  1,
+                                  Number(event.target.value || 1) * 1024 * 1024,
+                                ),
+                              })
+                            }
                           />
                           <InputGroupAddon align="inline-end">MB</InputGroupAddon>
                         </InputGroup>
@@ -229,7 +330,14 @@ export function SettingsView() {
                             inputMode="numeric"
                             placeholder={t("unlimitedPlaceholder")}
                             value={draft.diagnostics.runtime_retention_days ?? ""}
-                            onChange={(event) => patchDiagnostics({ runtime_retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
+                            onChange={(event) =>
+                              patchDiagnostics({
+                                runtime_retention_days:
+                                  event.target.value === ""
+                                    ? null
+                                    : Math.max(0, Number(event.target.value)),
+                              })
+                            }
                           />
                           <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
                         </InputGroup>
@@ -239,38 +347,52 @@ export function SettingsView() {
                 </ScrollPane>
               </TabsContent>
 
-              <TabsContent value="config" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <TabsContent
+                value="config"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 <ScrollPane className="flex-1">
                   <section className="flex flex-col gap-4">
-                    <SectionHead title={t("configFile")} description={configFile?.path || t("configFileMissing")} />
+                    <SectionHead
+                      title={t("configFile")}
+                      description={configFile?.path || t("configFileMissing")}
+                    />
                     <InputGroup>
-                      <InputGroupTextarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
+                      <InputGroupTextarea
+                        className="min-h-80 font-mono text-xs"
+                        readOnly
+                        value={configContent}
+                      />
                     </InputGroup>
                   </section>
                 </ScrollPane>
               </TabsContent>
 
-              <TabsContent value="about" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <TabsContent
+                value="about"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
                 <ScrollPane className="flex-1">
                   <section className="flex flex-col gap-5">
                     <McpstoreAsciiBanner />
                     <SectionHead
                       title={t("about")}
                       description={t("settingsDescription")}
-                      action={
-                        <img
-                          alt="mcpstore"
-                          className="size-8 shrink-0"
-                          src="/logo.png"
-                        />
-                      }
+                      action={<img alt="mcpstore" className="size-8 shrink-0" src="/logo.png" />}
                     />
                     <div className="divide-y">
                       <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
-                      <AboutRow label={t("sdkVersion")} value={formatReleaseVersion(meta?.version)} />
+                      <AboutRow
+                        label={t("sdkVersion")}
+                        value={formatReleaseVersion(meta?.version)}
+                      />
                       {isDesktopShell ? (
                         <AboutRow
-                          label={updateAvailable ? t("updateAvailable", { version: `v${updateAvailable}` }) : t("checkUpdates")}
+                          label={
+                            updateAvailable
+                              ? t("updateAvailable", { version: `v${updateAvailable}` })
+                              : t("checkUpdates")
+                          }
                           action={
                             <UpdateButton
                               phase={phase}
@@ -281,10 +403,26 @@ export function SettingsView() {
                           }
                         />
                       ) : null}
-                      <AboutRow label={t("github")} href="https://github.com/ip2a/mcpstore" value="https://github.com/ip2a/mcpstore" />
-                      <AboutRow label={t("rustCrate")} href="https://crates.io/crates/mcpstore" value="https://crates.io/crates/mcpstore" />
-                      <AboutRow label={t("pythonPackage")} href="https://pypi.org/project/mcpstore/" value="https://pypi.org/project/mcpstore/" />
-                      <AboutRow label={t("npmPackage")} href="https://www.npmjs.com/package/@ip2a/mcpstore" value="https://www.npmjs.com/package/@ip2a/mcpstore" />
+                      <AboutRow
+                        label={t("github")}
+                        href="https://github.com/ip2a/mcpstore"
+                        value="https://github.com/ip2a/mcpstore"
+                      />
+                      <AboutRow
+                        label={t("rustCrate")}
+                        href="https://crates.io/crates/mcpstore"
+                        value="https://crates.io/crates/mcpstore"
+                      />
+                      <AboutRow
+                        label={t("pythonPackage")}
+                        href="https://pypi.org/project/mcpstore/"
+                        value="https://pypi.org/project/mcpstore/"
+                      />
+                      <AboutRow
+                        label={t("npmPackage")}
+                        href="https://www.npmjs.com/package/@ip2a/mcpstore"
+                        value="https://www.npmjs.com/package/@ip2a/mcpstore"
+                      />
                     </div>
                   </section>
                 </ScrollPane>
@@ -292,14 +430,21 @@ export function SettingsView() {
             </Tabs>
           ) : (
             <PageSkeleton />
-          )
-        )}
+          ))}
       </PanelCard>
     </>
   )
 }
 
-function SectionHead({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
+function SectionHead({
+  title,
+  description,
+  action,
+}: {
+  title: string
+  description?: string
+  action?: ReactNode
+}) {
   return (
     <div className="flex items-start justify-between gap-4 border-b pb-3">
       <div className="min-w-0">
@@ -311,26 +456,58 @@ function SectionHead({ title, description, action }: { title: string; descriptio
   )
 }
 
-function ToggleField({ title, description, checked, disabled, onCheckedChange }: { title: string; description?: string; checked: boolean; disabled?: boolean; onCheckedChange: (checked: boolean) => void }) {
+function ToggleField({
+  title,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  title: string
+  description?: string
+  checked: boolean
+  disabled?: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
   return (
     <Field orientation="responsive">
       <FieldContent>
         <FieldTitle>{title}</FieldTitle>
         {description ? <FieldDescription>{description}</FieldDescription> : null}
       </FieldContent>
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} aria-label={title} />
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+        aria-label={title}
+      />
     </Field>
   )
 }
 
-function AboutRow({ href, label, value, action }: { href?: string; label: string; value?: string; action?: ReactNode }) {
+function AboutRow({
+  href,
+  label,
+  value,
+  action,
+}: {
+  href?: string
+  label: string
+  value?: string
+  action?: ReactNode
+}) {
   return (
     <div className="flex min-w-0 items-center justify-between gap-4 py-3">
       <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
       {action ? (
         action
       ) : href ? (
-        <a href={href} target="_blank" rel="noreferrer" className="min-w-0 truncate text-sm font-medium hover:underline">
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="min-w-0 truncate text-sm font-medium hover:underline"
+        >
           {value}
         </a>
       ) : (
@@ -385,7 +562,11 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
                   <span
                     className={cn(
                       "size-2 rounded-full",
-                      status == null ? "bg-muted-foreground/40" : online ? "bg-emerald-500" : "bg-destructive",
+                      status == null
+                        ? "bg-muted-foreground/40"
+                        : online
+                          ? "bg-emerald-500"
+                          : "bg-destructive",
                     )}
                   />
                   {status == null ? "…" : online ? t("online") : t("offline")}
@@ -417,7 +598,13 @@ function OverviewSection({ draft }: { draft: SettingsDraft }) {
   )
 }
 
-function BackendFields({ draft, patchDraft }: { draft: SettingsDraft; patchDraft: (patch: Partial<SettingsDraft>) => void }) {
+function BackendFields({
+  draft,
+  patchDraft,
+}: {
+  draft: SettingsDraft
+  patchDraft: (patch: Partial<SettingsDraft>) => void
+}) {
   const { t } = useI18n()
   return (
     <FieldGroup>
@@ -426,14 +613,34 @@ function BackendFields({ draft, patchDraft }: { draft: SettingsDraft; patchDraft
           <FieldTitle>{t("defaultBackendPort")}</FieldTitle>
           <FieldDescription>{t("defaultBackendPortDescription")}</FieldDescription>
         </FieldContent>
-        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.api.port} onChange={(event) => patchDraft({ api: { ...draft.api, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+        <InputGroup className={compactInputGroupClass}>
+          <InputGroupInput
+            inputMode="numeric"
+            value={draft.api.port}
+            onChange={(event) =>
+              patchDraft({
+                api: { ...draft.api, port: Math.max(1, Number(event.target.value || 1)) },
+              })
+            }
+          />
+        </InputGroup>
       </Field>
       <Field orientation="responsive">
         <FieldContent>
           <FieldTitle>{t("defaultFrontendPort")}</FieldTitle>
           <FieldDescription>{t("defaultFrontendPortDescription")}</FieldDescription>
         </FieldContent>
-        <InputGroup className={compactInputGroupClass}><InputGroupInput inputMode="numeric" value={draft.web.port} onChange={(event) => patchDraft({ web: { ...draft.web, port: Math.max(1, Number(event.target.value || 1)) } })} /></InputGroup>
+        <InputGroup className={compactInputGroupClass}>
+          <InputGroupInput
+            inputMode="numeric"
+            value={draft.web.port}
+            onChange={(event) =>
+              patchDraft({
+                web: { ...draft.web, port: Math.max(1, Number(event.target.value || 1)) },
+              })
+            }
+          />
+        </InputGroup>
       </Field>
     </FieldGroup>
   )
@@ -470,7 +677,10 @@ async function probeHost(name: string): Promise<HostStatus> {
 
 function formatHostAddress(url: string): string {
   try {
-    const parsed = url.startsWith("http://") || url.startsWith("https://") ? new URL(url) : new URL(url, window.location.origin)
+    const parsed =
+      url.startsWith("http://") || url.startsWith("https://")
+        ? new URL(url)
+        : new URL(url, window.location.origin)
     return parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname
   } catch {
     return url
@@ -510,7 +720,9 @@ function parseFullUrlBodyInput(value: string): { body: string; secure?: boolean 
   return { body: trimmed.replace(/^https?:\/\//i, "") }
 }
 
-function parseConnectionUrl(url: string): { host: string; port: string; secure: boolean; path: string } | null {
+function parseConnectionUrl(
+  url: string,
+): { host: string; port: string; secure: boolean; path: string } | null {
   const trimmed = url.trim()
   if (!trimmed) return null
   try {
@@ -528,7 +740,13 @@ function parseConnectionUrl(url: string): { host: string; port: string; secure: 
   }
 }
 
-function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchDraft: (patch: Partial<SettingsDraft>) => void }) {
+function ConnectionSection({
+  draft,
+  patchDraft,
+}: {
+  draft: SettingsDraft
+  patchDraft: (patch: Partial<SettingsDraft>) => void
+}) {
   const { t } = useI18n()
   const hosts = useMemo(() => hostsToList(draft.hosts), [draft.hosts])
   const [addingOpen, setAddingOpen] = useState(false)
@@ -545,7 +763,10 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
   const [latencies, setLatencies] = useState<Record<string, number | null>>({})
   const [checking, setChecking] = useState<Record<string, boolean>>({})
 
-  function patchHosts(nextEntries: Record<string, { urls: string[] }>, active = draft.hosts.active) {
+  function patchHosts(
+    nextEntries: Record<string, { urls: string[] }>,
+    active = draft.hosts.active,
+  ) {
     patchDraft({ hosts: { active, entries: nextEntries } })
   }
 
@@ -556,7 +777,8 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     setLatencies((current) => ({ ...current, [name]: latency }))
     setChecking((current) => ({ ...current, [name]: false }))
     if (options?.notify) {
-      if (latency != null) toast.success(t("connectionRefreshOk", { latency: formatLatency(latency) }))
+      if (latency != null)
+        toast.success(t("connectionRefreshOk", { latency: formatLatency(latency) }))
       else toast.error(t("connectionRefreshFailed"))
     }
   }
@@ -587,7 +809,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
   const pendingUrlValue = pendingFullUrlMode ? pendingFullUrl : pendingUrl
   const pendingValid =
     pendingName.trim() !== "" &&
-    !Object.prototype.hasOwnProperty.call(draft.hosts.entries, pendingName.trim()) &&
+    !Object.hasOwn(draft.hosts.entries, pendingName.trim()) &&
     (pendingFullUrlMode ? parsedRawUrl != null : pendingUrl !== "")
 
   function resetPending() {
@@ -648,7 +870,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
     const name = editName.trim()
     const urls = parseEditUrls()
     if (!name || urls.length === 0) return
-    if (name !== editingName && Object.prototype.hasOwnProperty.call(draft.hosts.entries, name)) {
+    if (name !== editingName && Object.hasOwn(draft.hosts.entries, name)) {
       toast.error(t("saveFailed"))
       return
     }
@@ -739,7 +961,9 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                   >
                     <span className="block truncate text-sm font-medium">{host.name}</span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {host.urls.length > 1 ? `${formatHostAddress(host.urls[0] ?? "")} +${host.urls.length - 1}` : host.urls[0]}
+                      {host.urls.length > 1
+                        ? `${formatHostAddress(host.urls[0] ?? "")} +${host.urls.length - 1}`
+                        : host.urls[0]}
                     </span>
                   </button>
                   <div className="flex shrink-0 items-center gap-2">
@@ -779,7 +1003,12 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                       title={!canDelete ? t("connectionDeleteLastHint") : undefined}
                       onClick={() => removeHost(host.name)}
                     >
-                      <Trash2Icon className={cn("size-3.5", canDelete ? "text-destructive" : "text-muted-foreground")} />
+                      <Trash2Icon
+                        className={cn(
+                          "size-3.5",
+                          canDelete ? "text-destructive" : "text-muted-foreground",
+                        )}
+                      />
                     </Button>
                   </div>
                 </div>
@@ -803,7 +1032,9 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                           </div>
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                              <Label htmlFor={`host-url-${host.name}`}>{t("coreBackendUrlLabel")}</Label>
+                              <Label htmlFor={`host-url-${host.name}`}>
+                                {t("coreBackendUrlLabel")}
+                              </Label>
                               <InputGroup>
                                 <InputGroupTextarea
                                   id={`host-url-${host.name}`}
@@ -813,13 +1044,20 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                                   placeholder={t("coreBackendUrlPlaceholder")}
                                 />
                               </InputGroup>
-                              <p className="text-xs text-muted-foreground">{t("coreBackendUrlHint")}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {t("coreBackendUrlHint")}
+                              </p>
                             </div>
                             <div className="flex gap-2">
                               <Button type="button" size="sm" onClick={saveEdit}>
                                 {t("save")}
                               </Button>
-                              <Button type="button" size="sm" variant="outline" onClick={() => setEditingName(null)}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditingName(null)}
+                              >
                                 {t("cancel")}
                               </Button>
                             </div>
@@ -854,7 +1092,7 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                   placeholder={t("host")}
                   className={cn(
                     pendingName.trim() &&
-                      Object.prototype.hasOwnProperty.call(draft.hosts.entries, pendingName.trim()) &&
+                      Object.hasOwn(draft.hosts.entries, pendingName.trim()) &&
                       "border-destructive/50",
                   )}
                 />
@@ -865,7 +1103,9 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="connection-full-url">{t("fullUrl")}</Label>
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 font-mono text-sm text-muted-foreground">{pendingSecure ? "https://" : "http://"}</span>
+                  <span className="shrink-0 font-mono text-sm text-muted-foreground">
+                    {pendingSecure ? "https://" : "http://"}
+                  </span>
                   <InputGroup className="min-w-0 flex-1">
                     <InputGroupInput
                       id="connection-full-url"
@@ -876,7 +1116,9 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                         if (next.secure != null) setPendingSecure(next.secure)
                       }}
                       placeholder="127.0.0.1:1820/api"
-                      className={cn(pendingFullUrlBody.trim() && !parsedRawUrl && "border-destructive/50")}
+                      className={cn(
+                        pendingFullUrlBody.trim() && !parsedRawUrl && "border-destructive/50",
+                      )}
                     />
                   </InputGroup>
                 </div>
@@ -886,7 +1128,9 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <Label htmlFor="connection-host">{t("coreBackendUrlLabel")}</Label>
                   <div className="flex items-center gap-2">
-                    <span className="shrink-0 font-mono text-sm text-muted-foreground">{pendingSecure ? "https://" : "http://"}</span>
+                    <span className="shrink-0 font-mono text-sm text-muted-foreground">
+                      {pendingSecure ? "https://" : "http://"}
+                    </span>
                     <InputGroup className="min-w-0 flex-1">
                       <InputGroupInput
                         id="connection-host"
@@ -913,19 +1157,31 @@ function ConnectionSection({ draft, patchDraft }: { draft: SettingsDraft; patchD
             )}
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <label className="flex items-center gap-2 text-sm">
-                <Switch checked={pendingSecure} onCheckedChange={setPendingSecure} aria-label={t("useHttps")} />
+              <div className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={pendingSecure}
+                  onCheckedChange={setPendingSecure}
+                  aria-label={t("useHttps")}
+                />
                 {t("useHttps")}
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Switch checked={pendingFullUrlMode} onCheckedChange={setFullUrlMode} aria-label={t("useFullUrl")} />
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={pendingFullUrlMode}
+                  onCheckedChange={setFullUrlMode}
+                  aria-label={t("useFullUrl")}
+                />
                 {t("useFullUrl")}
-              </label>
+              </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => handleAddDialogOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleAddDialogOpenChange(false)}
+            >
               {t("cancel")}
             </Button>
             <Button type="button" disabled={!pendingValid} onClick={addHost}>

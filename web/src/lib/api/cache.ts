@@ -1,5 +1,5 @@
 // Cache state belongs to the selected daemon resource.
-import { api, buildQuery } from "./client";
+import { api, buildQuery } from "./client"
 import type {
   AddServiceInput,
   AgentItem,
@@ -46,15 +46,15 @@ import type {
   UiLanguage,
   UpdateServiceScopeInput,
   UpdateSettingsPayload,
-} from "../api";
+} from "../api"
 
 // Cache state belongs to the selected daemon resource.
 export async function cacheHealth(): Promise<CacheReport> {
-  return api("/cache/health");
+  return api("/cache/health")
 }
 
 export async function cacheInspect(): Promise<CacheReport> {
-  return api("/cache/inspect");
+  return api("/cache/inspect")
 }
 
 export async function switchCache(backend: CacheBackend) {
@@ -62,5 +62,5 @@ export async function switchCache(backend: CacheBackend) {
   return api("/cache/switch", {
     method: "POST",
     body: JSON.stringify({ store: backend, config: {} }),
-  });
+  })
 }

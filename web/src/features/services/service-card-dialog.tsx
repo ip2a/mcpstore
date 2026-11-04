@@ -1,10 +1,5 @@
 import { useState, type ReactNode } from "react"
-import {
-  EyeIcon,
-  LayersIcon,
-  RotateCwIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { EyeIcon, LayersIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { McpIcon } from "@/components/shared/mcp-icon"
@@ -130,18 +125,12 @@ function ServiceCardDialogBody({
   const [activeTab, setActiveTab] = useState<DetailAsideTab>("preview")
   const detailQuery = useServiceDetailQuery(listService, open)
   const service = detailQuery.data || listService
-  const {
-    configFields,
-    onSubmit,
-    previewFormat,
-    setConfigFields,
-    setPreviewFormat,
-    submitting,
-  } = useEditServiceForm({
-    onCancel: () => setActiveTab("preview"),
-    onUpdated,
-    service,
-  })
+  const { configFields, onSubmit, previewFormat, setConfigFields, setPreviewFormat, submitting } =
+    useEditServiceForm({
+      onCancel: () => setActiveTab("preview"),
+      onUpdated,
+      service,
+    })
 
   const connected = isServiceRunning(service.state)
   const status = deriveServiceDisplayStatus(service.state)
@@ -150,9 +139,7 @@ function ServiceCardDialogBody({
   const serviceOverride = overrideQuery.data?.override
   const projectedName = serviceOverride?.display_name || service.service_name
   const scopeLabel =
-    service.scope.type === "store"
-      ? t("store")
-      : `${t("agent")} ${service.scope.agent_id}`
+    service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
   const isEditTab = EDIT_TABS.has(activeTab)
   const editScope = service.scope.type === "store" ? "store" : "agent"
   const editAgentId = service.scope.type === "agent" ? service.scope.agent_id : ""
@@ -197,12 +184,16 @@ function ServiceCardDialogBody({
                 <div className="min-w-0 w-full">
                   <p className="truncate font-mono text-base font-semibold">{projectedName}</p>
                   {serviceOverride?.description ? (
-                    <p className="mt-1 text-xs text-muted-foreground">{serviceOverride.description}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {serviceOverride.description}
+                    </p>
                   ) : null}
                   <p
                     className={cn(
                       "mt-1 text-xs",
-                      connected ? "text-emerald-600 dark:text-emerald-500" : "text-muted-foreground",
+                      connected
+                        ? "text-emerald-600 dark:text-emerald-500"
+                        : "text-muted-foreground",
                     )}
                   >
                     {t(SERVICE_STATUS_LABEL_KEYS[status])}
@@ -238,7 +229,10 @@ function ServiceCardDialogBody({
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="preview" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <TabsContent
+                  value="preview"
+                  className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                >
                   <ServiceConfigPreviewPane
                     agentId={editAgentId}
                     className="h-full [&_textarea]:[scrollbar-width:none] [&_textarea]:[-ms-overflow-style:none] [&_textarea::-webkit-scrollbar]:hidden"
@@ -299,10 +293,7 @@ function ServiceCardDialogBody({
 
                 <TabsContent value="gateway" className="min-h-0 flex-1 overflow-hidden">
                   <QuietScroll className="h-full">
-                    <ServiceOverridePane
-                      serviceName={service.service_name}
-                      scope={service.scope}
-                    />
+                    <ServiceOverridePane serviceName={service.service_name} scope={service.scope} />
                   </QuietScroll>
                 </TabsContent>
               </Tabs>
@@ -333,11 +324,7 @@ function ServiceCardDialogBody({
               </div>
               {isEditTab ? (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setActiveTab("preview")}
-                  >
+                  <Button type="button" variant="outline" onClick={() => setActiveTab("preview")}>
                     {t("cancel")}
                   </Button>
                   <Button type="submit" disabled={submitting}>

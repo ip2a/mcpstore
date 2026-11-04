@@ -1,12 +1,24 @@
 import { useState } from "react"
-import { GripVerticalIcon, LayersIcon, MoreHorizontalIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
+import {
+  GripVerticalIcon,
+  LayersIcon,
+  MoreHorizontalIcon,
+  RotateCwIcon,
+  Trash2Icon,
+} from "lucide-react"
 
 import { Sortable, SortableItem, SortableItemHandle } from "@/components/reui/sortable"
 import { EntityRow } from "@/components/shared/entity-row"
 import { ServiceTransitionIcon } from "@/components/shared/service-transition-icon"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
 import {
   isServiceRunning,
@@ -50,7 +62,9 @@ function ServiceMoreActionsDialog({
         <DialogHeader>
           <DialogTitle>{t("serviceListMoreActions")}</DialogTitle>
           <DialogDescription className="truncate">
-            {service ? t("serviceListMoreActionsDescription", { name: service.service_name }) : null}
+            {service
+              ? t("serviceListMoreActionsDescription", { name: service.service_name })
+              : null}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
@@ -65,7 +79,11 @@ function ServiceMoreActionsDialog({
                   onDisconnect(service)
                 }}
               >
-                {disconnecting ? <Spinner data-icon="inline-start" /> : <ServiceTransitionIcon direction="disconnect" data-icon="inline-start" />}
+                {disconnecting ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <ServiceTransitionIcon direction="disconnect" data-icon="inline-start" />
+                )}
                 {disconnecting ? t("disconnecting") : t("disconnect")}
               </Button>
               <Button
@@ -184,14 +202,24 @@ function ServiceRow({
       }}
       actions={
         <>
-          <ServiceConnectionButtonForEntry busy={busy} service={service} onConnect={onConnect} onDisconnect={onDisconnect} />
+          <ServiceConnectionButtonForEntry
+            busy={busy}
+            service={service}
+            onConnect={onConnect}
+            onDisconnect={onDisconnect}
+          />
           <Button variant="outline" size="sm" onClick={() => onOpen(service)}>
             {t("detail")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => onEdit(service)}>
             {t("edit")}
           </Button>
-          <Button variant="outline" size="sm" aria-label={t("serviceListMoreActionsFor", { name: service.service_name })} onClick={() => onMore(service)}>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={t("serviceListMoreActionsFor", { name: service.service_name })}
+            onClick={() => onMore(service)}
+          >
             <MoreHorizontalIcon data-icon="inline-start" />
             {t("more")}
           </Button>
@@ -210,7 +238,10 @@ function ServiceRow({
       <div className="min-w-0">
         <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
-          <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
+          <span
+            className="min-w-0 truncate text-sm text-muted-foreground"
+            title={getServiceEndpointLabel(service)}
+          >
             {getServiceEndpointLabel(service)}
           </span>
         </div>

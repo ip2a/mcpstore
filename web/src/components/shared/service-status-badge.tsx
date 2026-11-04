@@ -1,7 +1,10 @@
 import { AlertCircleIcon, LinkIcon, Loader2Icon, UnlinkIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { deriveServiceDisplayStatus, type ServiceDisplayStatus } from "@/features/services/service-display-status"
+import {
+  deriveServiceDisplayStatus,
+  type ServiceDisplayStatus,
+} from "@/features/services/service-display-status"
 import type { ServiceState } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
@@ -40,7 +43,13 @@ export function ServiceStatusBadge({ state }: { state: ServiceState }) {
 }
 
 /** Compact icon mark for list rows — placed after the service name. */
-export function ServiceConnectionMark({ state, className }: { state: ServiceState; className?: string }) {
+export function ServiceConnectionMark({
+  state,
+  className,
+}: {
+  state: ServiceState
+  className?: string
+}) {
   const { t } = useI18n()
   const status = deriveServiceDisplayStatus(state)
   const Icon = STATUS_ICONS[status]

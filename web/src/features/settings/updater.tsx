@@ -54,7 +54,8 @@ export function useAppUpdater() {
       let total = 0
       let received = 0
       await result.downloadAndInstall((event) => {
-        if (event.event === "Started" && event.data.contentLength != null) total = event.data.contentLength
+        if (event.event === "Started" && event.data.contentLength != null)
+          total = event.data.contentLength
         if (event.event === "Progress" && total > 0) {
           received += event.data.chunkLength
           setProgress(Math.min(100, Math.round((received / total) * 100)))
@@ -64,7 +65,9 @@ export function useAppUpdater() {
       toast.success(t("updateDownloaded"))
     } catch (error) {
       setPhase("idle")
-      toast.error(t("updateCheckFailed", { error: error instanceof Error ? error.message : String(error) }))
+      toast.error(
+        t("updateCheckFailed", { error: error instanceof Error ? error.message : String(error) }),
+      )
     }
   }, [t])
 
@@ -75,7 +78,12 @@ export function useAppUpdater() {
   return { phase, progress, version: update?.version ?? null, checkForUpdate, restartToUpdate }
 }
 
-export function UpdateButton({ phase, progress, onCheck, onRestart }: {
+export function UpdateButton({
+  phase,
+  progress,
+  onCheck,
+  onRestart,
+}: {
   phase: UpdaterPhase
   progress: number
   onCheck: () => void
@@ -97,7 +105,9 @@ export function UpdateButton({ phase, progress, onCheck, onRestart }: {
       ) : (
         <DownloadIcon data-icon="inline-start" />
       )}
-      {phase === "downloading" ? t("downloadingUpdate", { progress: `${progress}%` }) : t("checkUpdates")}
+      {phase === "downloading"
+        ? t("downloadingUpdate", { progress: `${progress}%` })
+        : t("checkUpdates")}
     </Button>
   )
 }

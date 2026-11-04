@@ -103,7 +103,9 @@ export function PluginListCard({
       </p>
 
       {plugin.version ? (
-        <p className="mt-3 font-mono text-xs tabular-nums text-muted-foreground">{plugin.version}</p>
+        <p className="mt-3 font-mono text-xs tabular-nums text-muted-foreground">
+          {plugin.version}
+        </p>
       ) : null}
     </div>
   )

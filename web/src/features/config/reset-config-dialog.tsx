@@ -12,9 +12,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { ResetTarget } from "@/features/config/config-view"
 
-export function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetTarget | null; onOpenChange: (open: boolean) => void; onConfirm: (target: ResetTarget) => void }) {
+export type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
+
+export function ResetConfigDialog({
+  target,
+  onOpenChange,
+  onConfirm,
+}: {
+  target: ResetTarget | null
+  onOpenChange: (open: boolean) => void
+  onConfirm: (target: ResetTarget) => void
+}) {
   const { t } = useI18n()
   const label = target?.scope === "agent" ? `${t("agent")} ${target.agentId}` : t("store")
 
@@ -26,11 +35,15 @@ export function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target:
             <RefreshCwIcon />
           </AlertDialogMedia>
           <AlertDialogTitle>{t("resetConfigTitle")}</AlertDialogTitle>
-          <AlertDialogDescription>{target ? t("resetConfigDescription", { label }) : null}</AlertDialogDescription>
+          <AlertDialogDescription>
+            {target ? t("resetConfigDescription", { label }) : null}
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => target && onConfirm(target)}>{t("reset")}</AlertDialogAction>
+          <AlertDialogAction variant="destructive" onClick={() => target && onConfirm(target)}>
+            {t("reset")}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -69,8 +69,15 @@ function CacheValueTreeNode({
         )}
         style={{ paddingLeft: `${depth * 14}px` }}
       >
-        <ChevronRightIcon className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
-        <span className="truncate text-foreground">{name !== undefined ? nodeLabel(name, value) : isArray ? `[${value.length}]` : "{…}"}</span>
+        <ChevronRightIcon
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-90",
+          )}
+        />
+        <span className="truncate text-foreground">
+          {name !== undefined ? nodeLabel(name, value) : isArray ? `[${value.length}]` : "{…}"}
+        </span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="flex flex-col">

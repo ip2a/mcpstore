@@ -13,7 +13,11 @@ export function ServiceTransitionIcon({
   const ToIcon = direction === "connect" ? LinkIcon : UnlinkIcon
 
   return (
-    <span className={cn("inline-flex items-center gap-0.5 text-current", className)} aria-hidden="true" {...props}>
+    <span
+      className={cn("inline-flex items-center gap-0.5 text-current", className)}
+      aria-hidden="true"
+      {...props}
+    >
       <FromIcon className="size-4 shrink-0" />
       <ArrowRightIcon className="size-3.5 shrink-0 opacity-80" />
       <ToIcon className="size-4 shrink-0" />

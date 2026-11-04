@@ -29,7 +29,11 @@ export function EntityRow({
 }: EntityRowProps) {
   if (asChild) {
     return (
-      <article className={cn("rounded-md border px-3 py-3", selected && "bg-muted", className)} data-selected={selected ? "true" : "false"} {...props}>
+      <article
+        className={cn("rounded-md border px-3 py-3", selected && "bg-muted", className)}
+        data-selected={selected ? "true" : "false"}
+        {...props}
+      >
         {children}
       </article>
     )
@@ -39,7 +43,13 @@ export function EntityRow({
     <>
       <div className="min-w-0">{children}</div>
       {actions ? (
-        <div {...actionsProps} className={cn("flex flex-wrap justify-start gap-2 @min-[36rem]:justify-end", actionsProps?.className)}>
+        <div
+          {...actionsProps}
+          className={cn(
+            "flex flex-wrap justify-start gap-2 @min-[36rem]:justify-end",
+            actionsProps?.className,
+          )}
+        >
           {actions}
         </div>
       ) : null}
@@ -69,8 +79,14 @@ export function EntityRow({
   }
 
   return (
-    <article className={cn("@container rounded-md border px-3 py-3", selected && "bg-muted", className)} data-selected={selected ? "true" : "false"} {...props}>
-      <div className="grid gap-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-start">{content}</div>
+    <article
+      className={cn("@container rounded-md border px-3 py-3", selected && "bg-muted", className)}
+      data-selected={selected ? "true" : "false"}
+      {...props}
+    >
+      <div className="grid gap-3 @min-[36rem]:grid-cols-[minmax(0,1fr)_auto] @min-[36rem]:items-start">
+        {content}
+      </div>
     </article>
   )
 }

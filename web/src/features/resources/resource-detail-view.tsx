@@ -74,16 +74,28 @@ export function ResourceDetailView(props: {
         currentLabel={resourceLabel}
         subtitle={headerSubtitle}
       />
-      <PanelCard variant="plain" className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <PanelCard
+        variant="plain"
+        className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+      >
         <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
-          <Button size="sm" variant="outline" onClick={() => void loadResources()} disabled={loading}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void loadResources()}
+            disabled={loading}
+          >
             <RefreshCwIcon data-icon="inline-start" />
             {t("refresh")}
           </Button>
         </div>
 
         {error ? (
-          <PageError title={t("resourcesFailedToLoad")} message={errorMessage} onRefresh={loadResources} />
+          <PageError
+            title={t("resourcesFailedToLoad")}
+            message={errorMessage}
+            onRefresh={loadResources}
+          />
         ) : loading && !resource ? (
           <PageSkeleton />
         ) : resource ? (
@@ -91,7 +103,11 @@ export function ResourceDetailView(props: {
             <ServiceResourceDetailPane resource={resource} service={instance} />
           </ScrollPane>
         ) : (
-          <PageEmpty title={t("noResourcesFound")} description={t("noResourcesScopeDescription")} onRefresh={loadResources} />
+          <PageEmpty
+            title={t("noResourcesFound")}
+            description={t("noResourcesScopeDescription")}
+            onRefresh={loadResources}
+          />
         )}
       </PanelCard>
     </>

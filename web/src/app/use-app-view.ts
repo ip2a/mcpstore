@@ -25,13 +25,14 @@ export function useAppView(services: ServiceInstance[]) {
   const location = useLocation()
   const navigate = useNavigate()
   const view = viewFromPath(location.pathname, location.search)
-  const listedService = view.name === "instance"
-    ? services.find(
-        (service) =>
-          service.service_name === view.addr.service_name &&
-          scopeEquals(service.scope, view.addr.scope),
-      )
-    : undefined
+  const listedService =
+    view.name === "instance"
+      ? services.find(
+          (service) =>
+            service.service_name === view.addr.service_name &&
+            scopeEquals(service.scope, view.addr.scope),
+        )
+      : undefined
   const instanceQuery = useServiceDetailQuery(
     view.name === "instance" ? view.addr : EMPTY_ADDR,
     view.name === "instance" && !listedService,
@@ -72,7 +73,6 @@ export function useAppView(services: ServiceInstance[]) {
 function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/" || pathname === "/home") return { name: "home" }
   if (pathname === "/services") return { name: "services" }
-  if (pathname === "/scope" || pathname === "/config") return { name: "services" }
   if (pathname === "/tools") return { name: "tools" }
   if (pathname === "/resources") return { name: "resources" }
   if (pathname === "/prompts") return { name: "prompts" }
@@ -101,7 +101,6 @@ function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/traces") return { name: "traces" }
   if (pathname === "/cache") return { name: "cache" }
   if (pathname === "/settings") return { name: "settings" }
-  if (pathname === "/add") return { name: "services" }
   if (pathname.startsWith("/services/")) {
     const raw = pathname.slice("/services/".length)
     let service_name: string

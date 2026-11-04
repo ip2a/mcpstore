@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import type { ResetTarget } from "@/features/config/config-view"
+import type { ResetTarget } from "@/features/config/reset-config-dialog"
 import { resetAgentConfig, resetConfig, type ServiceInstance } from "@/lib/api"
 
 type RunAction = (
@@ -23,7 +23,11 @@ export function useAppConfirmations({
     if (target.scope === "store") {
       await runAction("reset:store", resetConfig, () => refreshConfigQueries(target))
     } else {
-      await runAction(`reset:${target.agentId}`, () => resetAgentConfig(target.agentId), () => refreshConfigQueries(target))
+      await runAction(
+        `reset:${target.agentId}`,
+        () => resetAgentConfig(target.agentId),
+        () => refreshConfigQueries(target),
+      )
     }
 
     setResetTarget(null)
