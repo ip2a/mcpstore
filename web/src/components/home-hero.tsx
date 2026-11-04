@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronDownIcon } from "lucide-react"
 import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
+import { MarkIcon } from "@/components/shared/mark-icon"
 import { PathText } from "@/components/shared/path-text"
 import { useI18n } from "@/lib/i18n-context"
 import { absoluteApiBase, getApiBase } from "@/lib/api/backend"
@@ -47,7 +48,7 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
           <span className="flex min-w-0 items-baseline gap-2">
             <span className="shrink-0 font-mono text-xs uppercase text-muted-foreground">{t("store")}</span>
             <span className="flex shrink-0 items-center gap-1.5">
-              <img alt="" aria-hidden="true" className="size-4 shrink-0" src="/logo.png" />
+              <MarkIcon />
               <strong className="truncate font-mono">mcpstore</strong>
             </span>
             <PathText
