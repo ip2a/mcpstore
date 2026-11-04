@@ -27,6 +27,7 @@ mod auth;
 mod cache;
 pub(crate) mod client;
 mod envelope;
+mod filesystem;
 mod hosts;
 mod openapi;
 mod panel_settings;
@@ -276,6 +277,7 @@ fn app_routes<T: PanelCtx>() -> Router<Arc<T>> {
         .route("/v1/hosts/:name/status", get(hosts::host_status::<T>))
         .route("/clients/:id/version", get(client::client_version))
         .route("/clients", get(client::clients_list::<T>))
+        .route("/filesystem/directories", get(filesystem::directories_list::<T>))
         .route("/plugins", get(plugins::plugins_list::<T>))
         .route("/plugins/market", get(plugins::plugins_market::<T>))
         .route("/plugins/detect", post(plugins::plugins_detect::<T>))
