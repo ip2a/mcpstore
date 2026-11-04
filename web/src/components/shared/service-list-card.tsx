@@ -1,12 +1,14 @@
-import { BadgeCheckIcon } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { AlertCircleIcon, BadgeCheckIcon, Loader2Icon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { McpIcon } from "@/components/shared/mcp-icon"
-import { deriveServiceDisplayStatus } from "@/features/services/service-display-status"
+import { deriveServiceDisplayStatus, isServiceConnected } from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceInstance } from "@/lib/api"
-import { getServiceEndpointLabel } from "@/lib/service-info"
+import { listInstancePrompts, listInstanceResources, type ServiceInstance } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
+import { getServiceEndpointLabel, getServiceTransport } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
 
 export function ServiceListCard({
@@ -25,6 +27,33 @@ export function ServiceListCard({
   const description = String(service.effective_config?.description || "").trim() || endpoint
   const status = deriveServiceDisplayStatus(service.state)
   const connected = status === "connected"
+  const transport = getServiceTransport(service)
+  const transportLabel =
+    transport === "stdio" ? "stdio" : transport.includes("http") ? "http" : null
+
+  const canListResources = isServiceConnected(service.state) && service.mcp?.capabilities?.resources !== false
+  const canListPrompts = isServiceConnected(service.state) && service.mcp?.capabilities?.prompts !== false
+
+  const resourcesQuery = useQuery({
+    enabled: canListResources,
+    queryKey: queryKeys.instanceResources(service),
+    queryFn: () => listInstanceResources(service).catch(() => []),
+    staleTime: 60_000,
+  })
+  const promptsQuery = useQuery({
+    enabled: canListPrompts,
+    queryKey: queryKeys.instancePrompts(service),
+    queryFn: () => listInstancePrompts(service).catch(() => []),
+    staleTime: 60_000,
+  })
+
+  const resourceCount = resourcesQuery.data?.length ?? 0
+  const promptCount = promptsQuery.data?.length ?? 0
+  const metaParts = [
+    toolCount > 0 ? t("serviceRowToolCount", { count: toolCount }) : null,
+    resourceCount > 0 ? t("serviceRowResourceCount", { count: resourceCount }) : null,
+    promptCount > 0 ? t("serviceRowPromptCount", { count: promptCount }) : null,
+  ].filter((part): part is string => Boolean(part))
 
   return (
     <div
@@ -58,8 +87,17 @@ export function ServiceListCard({
             {service.service_name}
           </span>
           <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-            {connected ? <BadgeCheckIcon className="size-3.5 shrink-0" /> : null}
-            <span className="truncate">{t(SERVICE_STATUS_LABEL_KEYS[status])}</span>
+            {status === "connected" ? (
+              <BadgeCheckIcon className="size-3.5 shrink-0" />
+            ) : status === "connecting" ? (
+              <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
+            ) : status === "error" ? (
+              <AlertCircleIcon className="size-3.5 shrink-0 text-destructive" />
+            ) : null}
+            <span className="truncate">
+              {t(SERVICE_STATUS_LABEL_KEYS[status])}
+              {connected && transportLabel ? ` · ${transportLabel}` : null}
+            </span>
           </span>
         </span>
       </div>
@@ -70,9 +108,9 @@ export function ServiceListCard({
         </p>
       ) : null}
 
-      {toolCount > 0 ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          {t("serviceRowToolCount", { count: toolCount })}
+      {metaParts.length ? (
+        <p className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground" title={metaParts.join(" · ")}>
+          {metaParts.join(" · ")}
         </p>
       ) : null}
     </div>

@@ -177,7 +177,7 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
               ) : visiblePlugins.length ? (
                 <ScrollPane
                   className="min-h-0 flex-1"
-                  innerClassName="px-4 py-2 grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
+                  innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
                 >
                   {visiblePlugins.map((plugin) => (
                     <PluginListCard
