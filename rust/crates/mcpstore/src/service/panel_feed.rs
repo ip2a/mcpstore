@@ -53,7 +53,10 @@ impl MCPStore {
             );
         }
         let key = uuid::Uuid::new_v4().to_string();
+        let mark_name = value["service_name"].as_str().unwrap_or("?").to_string();
+        let _put_done = eprintln!("MARK put_service_event({mark_name}): put_entity starting");
         self.cache().put_entity(SERVICE_EVENTS, &key, value).await?;
+        let _put_ok = eprintln!("MARK put_service_event({mark_name}): put_entity ok");
         // Read-your-writes: when the writer is also the executor (control panel), wait until our own event is consumed
         // before returning. Events still go through kv + the consume loop, no shortcuts. The data panel's executor is
         // elsewhere; it returns right after writing. Wait timeout is an error: either apply failed (the key is still being retried),
@@ -215,10 +218,19 @@ impl MCPStore {
                 return;
             }
         };
+        let _apply_start = eprintln!(
+            "MARK apply({}): applying {}",
+            value["service_name"].as_str().unwrap_or("?"),
+            value["op"].as_str().unwrap_or("?")
+        );
         if let Err(error) = self.apply_service_event_value(&value).await {
             tracing::warn!("[STORE] service event {key} left in place: {error}");
             return;
         }
+        let _applied = eprintln!(
+            "MARK apply({}): applied, deleting",
+            value["service_name"].as_str().unwrap_or("?")
+        );
         if let Err(error) = self.cache().delete_entity(SERVICE_EVENTS, key).await {
             tracing::warn!("[STORE] service event {key} applied but not deleted: {error}");
         }
