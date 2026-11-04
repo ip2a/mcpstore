@@ -11,7 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useI18n } from "@/lib/i18n-context"
-import { type AgentItem } from "@/lib/api"
+import type { AgentItem } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function AddServiceDialog(props: {

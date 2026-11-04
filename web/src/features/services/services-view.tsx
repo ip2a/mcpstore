@@ -25,7 +25,7 @@ import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dia
 import { ServiceCardDialog } from "@/features/services/service-card-dialog"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
-import { type ServiceSortBy } from "@/features/services/use-services-list"
+import type { ServiceSortBy } from "@/features/services/use-services-list"
 import { usePreserveServiceListScroll } from "@/features/services/use-preserve-service-list-scroll"
 import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
@@ -98,10 +98,7 @@ export function ServicesView(props: {
   const scopesQuery = useScopesQuery()
   const scopes = scopesQuery.data || []
 
-  const selectedScope = useMemo(
-    () => selectedScopeFromId(selectedScopeId),
-    [selectedScopeId],
-  )
+  const selectedScope = useMemo(() => selectedScopeFromId(selectedScopeId), [selectedScopeId])
 
   const {
     loadAgentScope,

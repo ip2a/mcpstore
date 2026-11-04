@@ -8,5 +8,9 @@ export function useStoreConfigQuery() {
 }
 
 export function useAgentConfigQuery(agentId: string) {
-  return useQuery({ enabled: false, queryKey: queryKeys.agentConfig(agentId), queryFn: () => showAgentConfig(agentId) })
+  return useQuery({
+    enabled: false,
+    queryKey: queryKeys.agentConfig(agentId),
+    queryFn: () => showAgentConfig(agentId),
+  })
 }

@@ -48,15 +48,34 @@ export function DetailHeader({
   ) : null
 
   return (
-    <section className={cn("@container flex flex-col gap-3", separated && "border-b pb-4", className)} {...props}>
-      <div className={cn(actionsPlacement === "inline" && actions ? "grid gap-3 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto] @min-[42rem]:items-start" : "flex flex-col gap-2")}>
+    <section
+      className={cn("@container flex flex-col gap-3", separated && "border-b pb-4", className)}
+      {...props}
+    >
+      <div
+        className={cn(
+          actionsPlacement === "inline" && actions
+            ? "grid gap-3 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto] @min-[42rem]:items-start"
+            : "flex flex-col gap-2",
+        )}
+      >
         <div className="flex min-w-0 flex-col gap-2">
           {badges ? <div className="flex flex-wrap gap-2">{badges}</div> : null}
-          {eyebrow ? <p className="font-mono text-xs uppercase text-muted-foreground">{eyebrow}</p> : null}
-          <h1 className={cn("line-clamp-2 font-semibold leading-snug [overflow-wrap:anywhere]", titleSize === "large" ? "text-3xl" : "text-2xl")} title={titleText}>
+          {eyebrow ? (
+            <p className="font-mono text-xs uppercase text-muted-foreground">{eyebrow}</p>
+          ) : null}
+          <h1
+            className={cn(
+              "line-clamp-2 font-semibold leading-snug [overflow-wrap:anywhere]",
+              titleSize === "large" ? "text-3xl" : "text-2xl",
+            )}
+            title={titleText}
+          >
             {title}
           </h1>
-          {description ? <div className="text-muted-foreground [overflow-wrap:anywhere]">{description}</div> : null}
+          {description ? (
+            <div className="text-muted-foreground [overflow-wrap:anywhere]">{description}</div>
+          ) : null}
           {meta ? <div className="w-full">{meta}</div> : null}
         </div>
         {actionsPlacement === "inline" ? actionsNode : null}

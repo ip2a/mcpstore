@@ -7,7 +7,14 @@ import letterO from "@/assets/ascii/letters/O.ascii?raw"
 import letterR from "@/assets/ascii/letters/R.ascii?raw"
 import letterE from "@/assets/ascii/letters/E.ascii?raw"
 
-export const ASCII_BANNER_COLORS = ["#7dd3fc", "#86efac", "#f0abfc", "#facc15", "#fb7185", "#c4b5fd"] as const
+export const ASCII_BANNER_COLORS = [
+  "#7dd3fc",
+  "#86efac",
+  "#f0abfc",
+  "#facc15",
+  "#fb7185",
+  "#c4b5fd",
+] as const
 
 export function randomAsciiBannerColor() {
   return ASCII_BANNER_COLORS[Math.floor(Math.random() * ASCII_BANNER_COLORS.length)]

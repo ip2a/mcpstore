@@ -31,7 +31,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
       <div className="flex min-h-dvh items-center justify-center p-6">
         <Alert variant="destructive" className="flex w-full max-w-xl flex-col gap-3">
           <AlertTitle>Page rendering failed</AlertTitle>
-          <AlertDescription className="break-all">{error.message || error.name || "Unknown error"}</AlertDescription>
+          <AlertDescription className="break-all">
+            {error.message || error.name || "Unknown error"}
+          </AlertDescription>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-3 font-mono text-xs">
             {error.stack ?? error.toString()}
           </pre>

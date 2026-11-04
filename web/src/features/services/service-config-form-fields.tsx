@@ -6,7 +6,10 @@ import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Switch } from "@/components/ui/switch"
 import { useI18n } from "@/lib/i18n-context"
-import { getUiTransportMode, type ServiceConfigFields } from "@/features/services/service-config-draft"
+import {
+  getUiTransportMode,
+  type ServiceConfigFields,
+} from "@/features/services/service-config-draft"
 import { cn } from "@/lib/utils"
 
 export function ServiceConfigFormFields({
@@ -153,7 +156,6 @@ export function ServiceConfigFormFields({
           ) : null}
         </>
       )}
-
     </div>
   )
 }

@@ -1,21 +1,12 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  RefreshCwIcon,
-} from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon } from "lucide-react"
 
 import { PanelCard } from "@/components/shared/panel-card"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -121,12 +112,7 @@ export function HistoryView() {
         <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
           <div className="text-sm font-medium">{t("gatewayHistoryTitle")}</div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <Button
-              disabled={history.isFetching}
-              size="sm"
-              variant="outline"
-              onClick={refresh}
-            >
+            <Button disabled={history.isFetching} size="sm" variant="outline" onClick={refresh}>
               <RefreshCwIcon data-icon="inline-start" />
               {t("refresh")}
             </Button>
@@ -134,9 +120,7 @@ export function HistoryView() {
         </div>
 
         {total === 0 && !history.isLoading ? (
-          <p className="px-4 py-3 text-sm text-muted-foreground">
-            {t("gatewayHistoryEmpty")}
-          </p>
+          <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayHistoryEmpty")}</p>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
@@ -148,9 +132,7 @@ export function HistoryView() {
                     <TableHead>{t("gatewayHistoryColTarget")}</TableHead>
                     <TableHead>{t("gatewayHistoryColKind")}</TableHead>
                     <TableHead>{t("gatewayHistoryColStatus")}</TableHead>
-                    <TableHead className="text-right">
-                      {t("gatewayHistoryColDuration")}
-                    </TableHead>
+                    <TableHead className="text-right">{t("gatewayHistoryColDuration")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -180,9 +162,7 @@ export function HistoryView() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={record.success ? "secondary" : "destructive"}
-                        >
+                        <Badge variant={record.success ? "secondary" : "destructive"}>
                           {record.success ? "OK" : "ERR"}
                         </Badge>
                       </TableCell>
@@ -244,9 +224,7 @@ function RequestDetailDialog({
                 {record.caller ?? t("gatewayCallDirect")}
               </Badge>
               <Badge variant="secondary">
-                {record.kind === "tool"
-                  ? t("gatewayKindTool")
-                  : t("gatewayKindManagement")}
+                {record.kind === "tool" ? t("gatewayKindTool") : t("gatewayKindManagement")}
               </Badge>
               <Badge variant={record.success ? "secondary" : "destructive"}>
                 {record.success ? "OK" : "ERR"}
@@ -255,9 +233,7 @@ function RequestDetailDialog({
             </div>
             {record.error_summary ? (
               <div>
-                <span className="font-medium text-destructive">
-                  {record.error_code ?? "ERR"}
-                </span>
+                <span className="font-medium text-destructive">{record.error_code ?? "ERR"}</span>
                 <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2">
                   {record.error_summary}
                 </pre>

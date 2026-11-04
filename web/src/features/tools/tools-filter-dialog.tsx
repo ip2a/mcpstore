@@ -11,7 +11,14 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance, ToolVisibilityFilter } from "@/lib/api"
 
@@ -55,7 +62,9 @@ export function ToolsFilterDialog(props: {
               <FieldLabel>{t("availability")}</FieldLabel>
               <Select
                 value={props.visibilityFilter}
-                onValueChange={(value) => props.onVisibilityFilterChange(value as ToolVisibilityFilter)}
+                onValueChange={(value) =>
+                  props.onVisibilityFilterChange(value as ToolVisibilityFilter)
+                }
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t("availability")} />
@@ -71,7 +80,10 @@ export function ToolsFilterDialog(props: {
             </Field>
             <Field>
               <FieldLabel>{t("scope")}</FieldLabel>
-              <Select value={props.scope} onValueChange={(value) => props.onScopeChange(value as "store" | "agent")}>
+              <Select
+                value={props.scope}
+                onValueChange={(value) => props.onScopeChange(value as "store" | "agent")}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t("scope")} />
                 </SelectTrigger>

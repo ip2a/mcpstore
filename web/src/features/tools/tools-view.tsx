@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToolsFilterDialog } from "@/features/tools/tools-filter-dialog"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
 import { useI18n } from "@/lib/i18n-context"
-import { type AgentItem, type ServiceInstance, type ToolInfo } from "@/lib/api"
+import type { AgentItem, ServiceInstance, ToolInfo } from "@/lib/api"
 import { toolKey } from "@/lib/tool-info"
 
 type ToolSortBy = "name" | "service"
@@ -70,10 +70,13 @@ export function ToolsView(props: {
   }, [sortBy, visibleTools])
 
   const serviceTabs = useMemo(
-    () => [{ id: "all", label: t("filterAll") }, ...scopeInstances.map((instance) => ({
-      id: instance.instance_id,
-      label: instance.service_name,
-    }))],
+    () => [
+      { id: "all", label: t("filterAll") },
+      ...scopeInstances.map((instance) => ({
+        id: instance.instance_id,
+        label: instance.service_name,
+      })),
+    ],
     [scopeInstances, t],
   )
 
@@ -90,7 +93,8 @@ export function ToolsView(props: {
         title={<h1 className="text-lg font-semibold">{t("toolRegistryTitle")}</h1>}
         subtitle={t("toolRegistryDescription", {
           count: visibleTools.length,
-          scope: scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
+          scope:
+            scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
         })}
       />
 
@@ -149,7 +153,9 @@ export function ToolsView(props: {
                 onClearPolicy={
                   instanceId !== "all"
                     ? () => {
-                        const instance = scopeInstances.find((item) => item.instance_id === instanceId)
+                        const instance = scopeInstances.find(
+                          (item) => item.instance_id === instanceId,
+                        )
                         if (instance) void clearToolPolicy(instance)
                       }
                     : undefined
@@ -224,7 +230,11 @@ function ToolsTabContent({
   if (!tools.length) {
     return (
       <div className="px-4 py-2">
-        <PageEmpty title={t("noTools")} description={t("noToolsScopeDescription")} onRefresh={loadTools} />
+        <PageEmpty
+          title={t("noTools")}
+          description={t("noToolsScopeDescription")}
+          onRefresh={loadTools}
+        />
       </div>
     )
   }

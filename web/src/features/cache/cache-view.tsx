@@ -30,7 +30,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useCacheHealthQuery, useCacheInspectQuery } from "@/features/cache/queries"
 import { useI18n } from "@/lib/i18n-context"
-import { type CacheBackend } from "@/lib/api"
+import type { CacheBackend } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const LAYER_TAB_ICONS: Record<CacheLayerId, LucideIcon> = {
@@ -58,26 +58,37 @@ export function CacheView(props: {
   const inspectQuery = useCacheInspectQuery()
   const healthReport = healthQuery.data
   const inspectReport = inspectQuery.data
-  const tree = useMemo(() => buildDisplayCacheTree(inspectReport, healthReport), [inspectReport, healthReport])
+  const tree = useMemo(
+    () => buildDisplayCacheTree(inspectReport, healthReport),
+    [inspectReport, healthReport],
+  )
   const layerNodes = useMemo(() => getAllLayerNodes(tree), [tree])
   const selectedLayerNode = useMemo(
     () => layerNodes.find((layer) => layer.layer === activeTab) ?? layerNodes[0],
     [layerNodes, activeTab],
   )
   const activeCollectionNode = useMemo(
-    () => selectedLayerNode.collections.find((collection) => collection.collection === selectedCollection) ?? null,
+    () =>
+      selectedLayerNode.collections.find(
+        (collection) => collection.collection === selectedCollection,
+      ) ?? null,
     [selectedLayerNode, selectedCollection],
   )
-  const namespace = extractCacheNamespace(inspectReport, healthReport) ?? tree?.namespace ?? t("unknown")
+  const namespace =
+    extractCacheNamespace(inspectReport, healthReport) ?? tree?.namespace ?? t("unknown")
   const backend = props.backend || tree?.backend || t("unknown")
   const namespaceLine = [namespace, backend].filter(Boolean).join(" · ")
   const headerLine = tree
-    ? [namespaceLine, t("cacheLayerSummary", { types: tree.totalCollections, keys: tree.totalKeys })]
+    ? [
+        namespaceLine,
+        t("cacheLayerSummary", { types: tree.totalCollections, keys: tree.totalKeys }),
+      ]
         .filter(Boolean)
         .join(" · ")
     : namespaceLine
   const error = inspectQuery.error || refreshError
-  const errorMessage = error instanceof Error ? error.message : error ? String(error) : t("cacheLoadFailed")
+  const errorMessage =
+    error instanceof Error ? error.message : error ? String(error) : t("cacheLoadFailed")
   const loading = healthQuery.isFetching || inspectQuery.isFetching
   const hasData = Boolean(tree)
 

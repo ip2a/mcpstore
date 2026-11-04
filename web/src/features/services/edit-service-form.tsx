@@ -22,18 +22,12 @@ export function EditServiceForm({
   service: ServiceInstance
 }) {
   const { t } = useI18n()
-  const {
-    configFields,
-    onSubmit,
-    previewFormat,
-    setConfigFields,
-    setPreviewFormat,
-    submitting,
-  } = useEditServiceForm({
-    onCancel,
-    onUpdated,
-    service,
-  })
+  const { configFields, onSubmit, previewFormat, setConfigFields, setPreviewFormat, submitting } =
+    useEditServiceForm({
+      onCancel,
+      onUpdated,
+      service,
+    })
 
   const scopeLabel =
     service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`

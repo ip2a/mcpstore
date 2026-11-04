@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react"
 import {
   ClipboardIcon,
   EyeIcon,
@@ -6,40 +6,37 @@ import {
   LayoutTemplateIcon,
   RefreshCwIcon,
   WrenchIcon,
-} from "lucide-react";
-import { toast } from "sonner";
-import { JsonBlock } from "@/components/shared/json-block";
-import { MetricGrid, MetricTile } from "@/components/shared/metric-grid";
-import { PageEmpty, PageError } from "@/components/shared/page-states";
-import { PanelCard } from "@/components/shared/panel-card";
-import { ScrollPane } from "@/components/shared/scroll-pane";
-import { SectionHeading } from "@/components/shared/section-heading";
-import { SelectableRowButton } from "@/components/shared/selectable-row-button";
-import {
-  CatalogTabTrigger,
-  CatalogTabsList,
-} from "@/components/shared/catalog-tabs-list";
+} from "lucide-react"
+import { toast } from "sonner"
+import { JsonBlock } from "@/components/shared/json-block"
+import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
+import { PageEmpty, PageError } from "@/components/shared/page-states"
+import { PanelCard } from "@/components/shared/panel-card"
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { SectionHeading } from "@/components/shared/section-heading"
+import { SelectableRowButton } from "@/components/shared/selectable-row-button"
+import { CatalogTabTrigger, CatalogTabsList } from "@/components/shared/catalog-tabs-list"
 import {
   ToolDetailDocBody,
   ToolDetailDocHeader,
   ToolPlaygroundAside,
-} from "@/components/shared/tool-detail-playground";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "@/components/shared/tool-detail-playground"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useServiceDetailQuery,
   useServicePromptsQuery,
   useServiceResourceTemplatesQuery,
   useServiceResourcesQuery,
   useServiceStatusQuery,
-} from "@/features/services/queries";
-import { ServiceAuthConnectionFields } from "@/features/services/service-auth-panel";
-import { ServiceConnectionButton } from "@/features/services/service-connection-button";
-import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
-import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args";
-import { getToolSchema, toolKey } from "@/lib/tool-info";
+} from "@/features/services/queries"
+import { ServiceAuthConnectionFields } from "@/features/services/service-auth-panel"
+import { ServiceConnectionButton } from "@/features/services/service-connection-button"
+import { useToolArgsForm } from "@/features/tools/use-tool-args-form"
+import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args"
+import { getToolSchema, toolKey } from "@/lib/tool-info"
 import {
   getResourceTemplateAnnotations,
   getResourceTemplateMeta,
@@ -48,7 +45,7 @@ import {
   resourceTemplateKey,
   resourceTemplateMimeType,
   resourceTemplateUri,
-} from "@/lib/resource-template-info";
+} from "@/lib/resource-template-info"
 import {
   readInstanceResource,
   type PromptInfo,
@@ -56,31 +53,31 @@ import {
   type ResourceTemplateInfo,
   type ServiceInstance,
   type ToolInfo,
-} from "@/lib/api";
-import { formatServiceLaunchLine } from "@/lib/service-info";
-import { useI18n } from "@/lib/i18n-context";
-import { cn } from "@/lib/utils";
-import { OverrideEditor } from "@/features/overrides/override-editor";
+} from "@/lib/api"
+import { formatServiceLaunchLine } from "@/lib/service-info"
+import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
+import { OverrideEditor } from "@/features/overrides/override-editor"
 
-export type CatalogTab = "tools" | "resources" | "prompts";
-export type ServiceDetailTab = "service" | CatalogTab;
-export type ResourceSubTab = "items" | "templates";
+export type CatalogTab = "tools" | "resources" | "prompts"
+export type ServiceDetailTab = "service" | CatalogTab
+export type ResourceSubTab = "items" | "templates"
 
 export function resourceMimeType(resource: ResourceInfo) {
-  return String(resource.mimeType || "").trim();
+  return String(resource.mimeType || "").trim()
 }
 
 export function promptArgCount(prompt: PromptInfo) {
-  const args = prompt.arguments;
-  if (!args) return 0;
-  if (Array.isArray(args)) return args.length;
+  const args = prompt.arguments
+  if (!args) return 0
+  if (Array.isArray(args)) return args.length
   if (
     typeof args === "object" &&
     args !== null &&
     Array.isArray((args as { properties?: unknown[] }).properties)
   )
-    return (args as { properties: unknown[] }).properties.length;
-  return 0;
+    return (args as { properties: unknown[] }).properties.length
+  return 0
 }
 
 export function ServicePreviewActions({
@@ -101,24 +98,24 @@ export function ServicePreviewActions({
   onDetail,
   className,
 }: {
-  activeTab: ServiceDetailTab;
-  resourceSubTab: ResourceSubTab;
-  loading: boolean;
-  service: ServiceInstance;
-  selectedTool: ToolInfo | null;
-  selectedResource: ResourceInfo | null;
-  selectedTemplate: ResourceTemplateInfo | null;
-  selectedPrompt: PromptInfo | null;
-  onRefresh: () => void;
-  onConnect: () => void;
-  onDisconnect: () => void;
-  busy: string | null;
-  onRun?: () => void;
-  runningTool?: boolean;
-  onDetail?: () => void;
-  className?: string;
+  activeTab: ServiceDetailTab
+  resourceSubTab: ResourceSubTab
+  loading: boolean
+  service: ServiceInstance
+  selectedTool: ToolInfo | null
+  selectedResource: ResourceInfo | null
+  selectedTemplate: ResourceTemplateInfo | null
+  selectedPrompt: PromptInfo | null
+  onRefresh: () => void
+  onConnect: () => void
+  onDisconnect: () => void
+  busy: string | null
+  onRun?: () => void
+  runningTool?: boolean
+  onDetail?: () => void
+  className?: string
 }) {
-  const { t } = useI18n();
+  const { t } = useI18n()
 
   const copyPayload =
     activeTab === "service"
@@ -129,27 +126,23 @@ export function ServicePreviewActions({
           ? resourceSubTab === "templates"
             ? selectedTemplate
             : selectedResource
-          : selectedPrompt;
+          : selectedPrompt
 
   async function onCopy() {
-    if (!copyPayload) return;
-    await navigator.clipboard.writeText(JSON.stringify(copyPayload, null, 2));
-    toast.success(t("copied"));
+    if (!copyPayload) return
+    await navigator.clipboard.writeText(JSON.stringify(copyPayload, null, 2))
+    toast.success(t("copied"))
   }
 
   async function onReadResource() {
-    if (!selectedResource) return;
+    if (!selectedResource) return
     try {
-      const result = await readInstanceResource(
-        service,
-        selectedResource.uri,
-      );
-      await navigator.clipboard.writeText(JSON.stringify(result, null, 2));
-      toast.success(t("resourceContentCopied"));
+      const result = await readInstanceResource(service, selectedResource.uri)
+      await navigator.clipboard.writeText(JSON.stringify(result, null, 2))
+      toast.success(t("resourceContentCopied"))
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : t("readResourceFailed");
-      toast.error(message);
+      const message = err instanceof Error ? err.message : t("readResourceFailed")
+      toast.error(message)
     }
   }
 
@@ -180,9 +173,7 @@ export function ServicePreviewActions({
           {t("details")}
         </Button>
       ) : null}
-      {activeTab === "resources" &&
-      resourceSubTab === "items" &&
-      selectedResource ? (
+      {activeTab === "resources" && resourceSubTab === "items" && selectedResource ? (
         <Button size="sm" variant="outline" onClick={onReadResource}>
           <FileIcon data-icon="inline-start" />
           {t("read")}
@@ -194,17 +185,12 @@ export function ServicePreviewActions({
           {t("copy")}
         </Button>
       ) : null}
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={onRefresh}
-        disabled={loading}
-      >
+      <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
         <RefreshCwIcon data-icon="inline-start" />
         {t("refresh")}
       </Button>
     </div>
-  );
+  )
 }
 
 export function ServiceDetailField({
@@ -213,21 +199,17 @@ export function ServiceDetailField({
   mono = true,
   span = false,
 }: {
-  label: string;
-  value: ReactNode;
-  mono?: boolean;
-  span?: boolean;
+  label: string
+  value: ReactNode
+  mono?: boolean
+  span?: boolean
 }) {
   return (
     <div className={cn("grid gap-1", span && "@min-[32rem]:col-span-2")}>
-      <dt className="font-mono text-xs uppercase text-muted-foreground">
-        {label}
-      </dt>
-      <dd className={cn("break-words text-sm", mono && "font-mono")}>
-        {value}
-      </dd>
+      <dt className="font-mono text-xs uppercase text-muted-foreground">{label}</dt>
+      <dd className={cn("break-words text-sm", mono && "font-mono")}>{value}</dd>
     </div>
-  );
+  )
 }
 
 export function ServiceOverviewPane({
@@ -238,15 +220,15 @@ export function ServiceOverviewPane({
   configArgs,
   endpoint,
 }: {
-  service: ServiceInstance;
-  description: string;
-  transport: string;
-  launchLine: string;
-  configArgs: string | null;
-  endpoint: string;
+  service: ServiceInstance
+  description: string
+  transport: string
+  launchLine: string
+  configArgs: string | null
+  endpoint: string
 }) {
-  const { t } = useI18n();
-  const capabilities = service.mcp?.capabilities;
+  const { t } = useI18n()
+  const capabilities = service.mcp?.capabilities
   const capabilityLabels = capabilities
     ? [
         capabilities.tools && t("tools"),
@@ -256,45 +238,26 @@ export function ServiceOverviewPane({
         capabilities.completions && t("completions"),
         capabilities.tasks && t("tasks"),
       ].filter((label): label is string => Boolean(label))
-    : [];
+    : []
   const scopeLabel =
-    service.scope.type === "store"
-      ? t("store")
-      : `${t("agent")} ${service.scope.agent_id}`;
+    service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
 
   return (
     <div className="@container flex min-w-0 flex-col gap-5">
       <section className="flex flex-col gap-3">
-        <SectionHeading
-          title={t("serviceDetail")}
-          titleAs="h2"
-          className="border-b-0 pb-0"
-        />
+        <SectionHeading title={t("serviceDetail")} titleAs="h2" className="border-b-0 pb-0" />
         <dl className="grid gap-3 @min-[32rem]:grid-cols-2">
           <ServiceDetailField label={t("name")} value={service.service_name} />
           <ServiceDetailField label={t("agentScope")} value={scopeLabel} />
-          <ServiceDetailField
-            label="Instance ID"
-            value={service.instance_id}
-            span
-          />
+          <ServiceDetailField label="Instance ID" value={service.instance_id} span />
           {description ? (
-            <ServiceDetailField
-              label={t("description")}
-              value={description}
-              mono={false}
-              span
-            />
+            <ServiceDetailField label={t("description")} value={description} mono={false} span />
           ) : null}
         </dl>
       </section>
 
       <section className="flex flex-col gap-3 border-t border-border/50 pt-5">
-        <SectionHeading
-          title={t("connection")}
-          titleAs="h2"
-          className="border-b-0 pb-0"
-        />
+        <SectionHeading title={t("connection")} titleAs="h2" className="border-b-0 pb-0" />
         <ServiceAuthConnectionFields
           service={service}
           render={({ statusField, actions }) => (
@@ -302,9 +265,7 @@ export function ServiceOverviewPane({
               <dl className="grid gap-3 @min-[32rem]:grid-cols-2">
                 <ServiceDetailField
                   label={t("transport")}
-                  value={
-                    configArgs ? `${transport} · ${configArgs}` : transport
-                  }
+                  value={configArgs ? `${transport} · ${configArgs}` : transport}
                 />
                 {statusField}
                 <ServiceDetailField label={t("endpoint")} value={endpoint} span />
@@ -318,20 +279,13 @@ export function ServiceOverviewPane({
 
       {service.mcp ? (
         <section className="flex flex-col gap-3 border-t border-border/50 pt-5">
-          <SectionHeading
-            title={t("mcpServer")}
-            titleAs="h2"
-            className="border-b-0 pb-0"
-          />
+          <SectionHeading title={t("mcpServer")} titleAs="h2" className="border-b-0 pb-0" />
           <dl className="grid gap-3 @min-[32rem]:grid-cols-2">
             <ServiceDetailField
               label={t("serverImplementation")}
               value={`${service.mcp.serverInfo.title || service.mcp.serverInfo.name} · ${service.mcp.serverInfo.version}`}
             />
-            <ServiceDetailField
-              label={t("protocolVersion")}
-              value={service.mcp.protocolVersion}
-            />
+            <ServiceDetailField label={t("protocolVersion")} value={service.mcp.protocolVersion} />
             {capabilityLabels.length ? (
               <div className="@min-[32rem]:col-span-2">
                 <dt className="font-mono text-xs uppercase text-muted-foreground">
@@ -362,43 +316,38 @@ export function ServiceOverviewPane({
         </section>
       ) : null}
     </div>
-  );
+  )
 }
 
 export function ServiceResourceDetailPane({
   resource,
   service,
 }: {
-  resource: ResourceInfo;
-  service: ServiceInstance;
+  resource: ResourceInfo
+  service: ServiceInstance
 }) {
-  const { t } = useI18n();
-  const [content, setContent] = useState<unknown>(null);
-  const [reading, setReading] = useState(false);
-  const mimeType = resourceMimeType(resource);
+  const { t } = useI18n()
+  const [content, setContent] = useState<unknown>(null)
+  const [reading, setReading] = useState(false)
+  const mimeType = resourceMimeType(resource)
 
   async function onRead() {
-    setReading(true);
+    setReading(true)
     try {
-      const result = await readInstanceResource(service, resource.uri);
-      setContent(result);
+      const result = await readInstanceResource(service, resource.uri)
+      setContent(result)
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : t("readResourceFailed");
-      toast.error(message);
+      const message = err instanceof Error ? err.message : t("readResourceFailed")
+      toast.error(message)
     } finally {
-      setReading(false);
+      setReading(false)
     }
   }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <section className="border-b pb-4">
-        <SectionHeading
-          title={t("resource")}
-          titleAs="h2"
-          className="border-b-0 pb-3"
-        />
+        <SectionHeading title={t("resource")} titleAs="h2" className="border-b-0 pb-3" />
         <dl className="grid gap-3 text-sm">
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("uri")}</dt>
@@ -424,12 +373,7 @@ export function ServiceResourceDetailPane({
           ) : null}
         </dl>
         <div className="mt-4">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onRead}
-            disabled={reading}
-          >
+          <Button size="sm" variant="outline" onClick={onRead} disabled={reading}>
             <FileIcon data-icon="inline-start" />
             {reading ? t("reading") : t("readResource")}
           </Button>
@@ -437,40 +381,37 @@ export function ServiceResourceDetailPane({
       </section>
       {content ? (
         <section className="pb-2">
-          <SectionHeading
-            title={t("content")}
-            titleAs="h2"
-            className="border-b-0 pb-3"
-          />
+          <SectionHeading title={t("content")} titleAs="h2" className="border-b-0 pb-3" />
           <JsonBlock value={content} />
         </section>
       ) : null}
-      <OverrideEditor kind="resource" serviceName={service.service_name} componentKey={resource.uri} scope={service.scope} />
+      <OverrideEditor
+        kind="resource"
+        serviceName={service.service_name}
+        componentKey={resource.uri}
+        scope={service.scope}
+      />
     </div>
-  );
+  )
 }
 
 export function ServiceResourceTemplateDetailPane({
   template,
   service,
 }: {
-  template: ResourceTemplateInfo;
-  service: ServiceInstance;
+  template: ResourceTemplateInfo
+  service: ServiceInstance
 }) {
-  const { t } = useI18n();
-  const uriTemplate = resourceTemplateUri(template);
-  const mimeType = resourceTemplateMimeType(template);
-  const annotations = getResourceTemplateAnnotations(template);
-  const meta = getResourceTemplateMeta(template);
+  const { t } = useI18n()
+  const uriTemplate = resourceTemplateUri(template)
+  const mimeType = resourceTemplateMimeType(template)
+  const annotations = getResourceTemplateAnnotations(template)
+  const meta = getResourceTemplateMeta(template)
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <section className="border-b pb-4">
-        <SectionHeading
-          title={t("resourceTemplate")}
-          titleAs="h2"
-          className="border-b-0 pb-3"
-        />
+        <SectionHeading title={t("resourceTemplate")} titleAs="h2" className="border-b-0 pb-3" />
         <dl className="grid gap-3 text-sm">
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("uriTemplate")}</dt>
@@ -504,41 +445,40 @@ export function ServiceResourceTemplateDetailPane({
       </section>
       {hasResourceTemplateAnnotations(template) ? (
         <section className="border-b pb-4">
-          <SectionHeading
-            title={t("annotations")}
-            titleAs="h2"
-            className="border-b-0 pb-3"
-          />
+          <SectionHeading title={t("annotations")} titleAs="h2" className="border-b-0 pb-3" />
           <JsonBlock value={annotations} />
         </section>
       ) : null}
       {hasResourceTemplateMeta(template) ? (
         <section className="pb-2">
-          <SectionHeading
-            title={t("meta")}
-            titleAs="h2"
-            className="border-b-0 pb-3"
-          />
+          <SectionHeading title={t("meta")} titleAs="h2" className="border-b-0 pb-3" />
           <JsonBlock value={meta} />
         </section>
       ) : null}
-      <OverrideEditor kind="resource_template" serviceName={service.service_name} componentKey={uriTemplate} scope={service.scope} />
+      <OverrideEditor
+        kind="resource_template"
+        serviceName={service.service_name}
+        componentKey={uriTemplate}
+        scope={service.scope}
+      />
     </div>
-  );
+  )
 }
 
-export function ServicePromptDetailPane({ prompt, service }: { prompt: PromptInfo; service: ServiceInstance }) {
-  const { t } = useI18n();
-  const argCount = promptArgCount(prompt);
+export function ServicePromptDetailPane({
+  prompt,
+  service,
+}: {
+  prompt: PromptInfo
+  service: ServiceInstance
+}) {
+  const { t } = useI18n()
+  const argCount = promptArgCount(prompt)
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <section className="border-b pb-4">
-        <SectionHeading
-          title={t("promptLabel")}
-          titleAs="h2"
-          className="border-b-0 pb-3"
-        />
+        <SectionHeading title={t("promptLabel")} titleAs="h2" className="border-b-0 pb-3" />
         <dl className="grid gap-3 text-sm">
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("name")}</dt>
@@ -558,7 +498,12 @@ export function ServicePromptDetailPane({ prompt, service }: { prompt: PromptInf
           ) : null}
         </dl>
       </section>
-      <OverrideEditor kind="prompt" serviceName={service.service_name} componentKey={prompt.name} scope={service.scope} />
+      <OverrideEditor
+        kind="prompt"
+        serviceName={service.service_name}
+        componentKey={prompt.name}
+        scope={service.scope}
+      />
       <section className="pb-2">
         <SectionHeading
           title={t("arguments")}
@@ -575,5 +520,5 @@ export function ServicePromptDetailPane({ prompt, service }: { prompt: PromptInf
         )}
       </section>
     </div>
-  );
+  )
 }

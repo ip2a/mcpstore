@@ -12,7 +12,11 @@ import {
 import { queryKeys } from "@/lib/query-keys"
 
 export function useServiceDetailQuery(addr: ServiceAddress, enabled = false) {
-  return useQuery({ enabled: enabled && Boolean(addr.service_name), queryKey: queryKeys.instance(addr), queryFn: () => getServiceInstance(addr) })
+  return useQuery({
+    enabled: enabled && Boolean(addr.service_name),
+    queryKey: queryKeys.instance(addr),
+    queryFn: () => getServiceInstance(addr),
+  })
 }
 
 export function useServiceAuthQuery(addr: ServiceAddress) {

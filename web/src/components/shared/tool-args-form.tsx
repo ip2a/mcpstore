@@ -1,6 +1,12 @@
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ToolSchemaEmptyHint } from "@/components/shared/tool-schema-empty-hint"
@@ -41,9 +47,7 @@ export function ToolArgsForm({
 
   if (!fields.length) {
     return (
-      <ToolSchemaEmptyHint align={valueAlign}>
-        {t("toolNoArgsRunDirectly")}
-      </ToolSchemaEmptyHint>
+      <ToolSchemaEmptyHint align={valueAlign}>{t("toolNoArgsRunDirectly")}</ToolSchemaEmptyHint>
     )
   }
 
@@ -93,7 +97,11 @@ function ToolArgRow({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <code className="text-sm font-medium">{name}</code>
-            {required ? <Badge variant="secondary" className="px-1.5 py-0 text-[10px] uppercase">{t("required")}</Badge> : null}
+            {required ? (
+              <Badge variant="secondary" className="px-1.5 py-0 text-[10px] uppercase">
+                {t("required")}
+              </Badge>
+            ) : null}
           </div>
           {subtitle && subtitle !== label ? (
             <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
@@ -103,7 +111,14 @@ function ToolArgRow({
         </div>
 
         <div className={cn("min-w-0", valueAlign === "right" && "text-right")}>
-          <ToolArgFieldInput id={name} field={field} type={type} value={value} valueAlign={valueAlign} onChange={onChange} />
+          <ToolArgFieldInput
+            id={name}
+            field={field}
+            type={type}
+            value={value}
+            valueAlign={valueAlign}
+            onChange={onChange}
+          />
         </div>
       </div>
     </div>
@@ -133,7 +148,12 @@ export function ToolArgFieldInput({
 
   if (type === "boolean") {
     return (
-      <div className={cn("flex min-h-9 w-full items-center", aligned ? "justify-end" : "justify-start")}>
+      <div
+        className={cn(
+          "flex min-h-9 w-full items-center",
+          aligned ? "justify-end" : "justify-start",
+        )}
+      >
         <Switch id={id} checked={Boolean(value)} onCheckedChange={onChange} />
       </div>
     )
@@ -143,10 +163,17 @@ export function ToolArgFieldInput({
     const options = (field.enum as unknown[]).map(String)
     if (compact) {
       return (
-        <Select value={empty ? "__empty__" : String(value)} onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}>
+        <Select
+          value={empty ? "__empty__" : String(value)}
+          onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}
+        >
           <SelectTrigger
             id={id}
-            className={cn("h-auto min-h-9 w-full py-1", inputMutedClass, aligned && "text-right [&_[data-slot=select-value]]:text-right")}
+            className={cn(
+              "h-auto min-h-9 w-full py-1",
+              inputMutedClass,
+              aligned && "text-right [&_[data-slot=select-value]]:text-right",
+            )}
           >
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>
@@ -162,8 +189,18 @@ export function ToolArgFieldInput({
       )
     }
     return (
-      <Select value={empty ? "__empty__" : String(value)} onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}>
-        <SelectTrigger id={id} className={cn("w-full", inputMutedClass, aligned && "text-right [&_[data-slot=select-value]]:text-right")}>
+      <Select
+        value={empty ? "__empty__" : String(value)}
+        onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}
+      >
+        <SelectTrigger
+          id={id}
+          className={cn(
+            "w-full",
+            inputMutedClass,
+            aligned && "text-right [&_[data-slot=select-value]]:text-right",
+          )}
+        >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -187,7 +224,12 @@ export function ToolArgFieldInput({
           inputMode={type === "integer" ? "numeric" : "decimal"}
           value={empty ? "" : String(value)}
           placeholder={placeholder}
-          className={cn(compactTextareaClass, inputMutedClass, empty && "text-muted-foreground", aligned && "text-right")}
+          className={cn(
+            compactTextareaClass,
+            inputMutedClass,
+            empty && "text-muted-foreground",
+            aligned && "text-right",
+          )}
           onChange={(event) => onChange(event.target.value)}
         />
       )
@@ -218,8 +260,7 @@ export function ToolArgFieldInput({
           inputMutedClass,
           compact && compactTextareaClass,
           aligned && "text-right",
-        )
-}
+        )}
         onChange={(event) => onChange(event.target.value)}
       />
     )
@@ -232,7 +273,12 @@ export function ToolArgFieldInput({
         rows={1}
         value={empty ? "" : String(value)}
         placeholder={placeholder}
-        className={cn(compactTextareaClass, inputMutedClass, empty && "text-muted-foreground", aligned && "text-right")}
+        className={cn(
+          compactTextareaClass,
+          inputMutedClass,
+          empty && "text-muted-foreground",
+          aligned && "text-right",
+        )}
         onChange={(event) => onChange(event.target.value)}
       />
     )

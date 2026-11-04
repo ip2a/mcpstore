@@ -3,7 +3,11 @@ import { ToolSchemaEmptyHint } from "@/components/shared/tool-schema-empty-hint"
 import { TypographyInlineCode } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
 import { resolveFormFieldType } from "@/lib/tool-args"
-import { formatSchemaDefaultValue, resolveParameterDoc, resolveSchemaFieldType } from "@/lib/tool-info"
+import {
+  formatSchemaDefaultValue,
+  resolveParameterDoc,
+  resolveSchemaFieldType,
+} from "@/lib/tool-info"
 import { cn } from "@/lib/utils"
 
 type SchemaField = Record<string, unknown>
@@ -46,9 +50,14 @@ export function ToolParameterDocList({
         const isLast = index === fields.length - 1
 
         return (
-          <article key={name} className={cn("grid gap-3 border-b py-4", isLast && "border-b-0 pb-0")}>
+          <article
+            key={name}
+            className={cn("grid gap-3 border-b py-4", isLast && "border-b-0 pb-0")}
+          >
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <TypographyInlineCode className="break-all text-sm font-semibold">{name}</TypographyInlineCode>
+              <TypographyInlineCode className="break-all text-sm font-semibold">
+                {name}
+              </TypographyInlineCode>
               <span className="font-mono text-xs text-muted-foreground">{fieldType}</span>
               {isRequired ? (
                 <span className="text-xs font-medium text-foreground">{t("required")}</span>

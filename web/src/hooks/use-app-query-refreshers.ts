@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import type { ResetTarget } from "@/features/config/config-view"
+import type { ResetTarget } from "@/features/config/reset-config-dialog"
 import type { ServiceAddress } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
@@ -50,7 +50,9 @@ export function useAppQueryRefreshers() {
   }
 
   async function refreshConfigQueries(target: ResetTarget) {
-    await queryClient.invalidateQueries({ queryKey: target.scope === "store" ? queryKeys.config : queryKeys.agentConfig(target.agentId) })
+    await queryClient.invalidateQueries({
+      queryKey: target.scope === "store" ? queryKeys.config : queryKeys.agentConfig(target.agentId),
+    })
   }
 
   return {

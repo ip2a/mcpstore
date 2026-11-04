@@ -106,9 +106,10 @@ export function useServicesList(services: ServiceInstance[]) {
     return orderedServices.filter((service) => {
       const description = String(service.effective_config.description || "")
       const scope = service.scope.type === "store" ? "store" : `agent ${service.scope.agent_id}`
-      const matchesQuery = `${service.service_name} ${service.instance_id} ${scope} ${service.transport} ${description}`
-        .toLowerCase()
-        .includes(normalizedQuery)
+      const matchesQuery =
+        `${service.service_name} ${service.instance_id} ${scope} ${service.transport} ${description}`
+          .toLowerCase()
+          .includes(normalizedQuery)
       if (!matchesQuery) return false
 
       if (scopeFilter === "store" && service.scope.type !== "store") return false
@@ -117,7 +118,8 @@ export function useServicesList(services: ServiceInstance[]) {
         if (agentFilter && service.scope.agent_id !== agentFilter) return false
       }
 
-      if (statusFilter !== "all" && deriveServiceDisplayStatus(service.state) !== statusFilter) return false
+      if (statusFilter !== "all" && deriveServiceDisplayStatus(service.state) !== statusFilter)
+        return false
       return true
     })
   }, [agentFilter, orderedServices, query, scopeFilter, statusFilter])

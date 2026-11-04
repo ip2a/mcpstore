@@ -21,11 +21,10 @@ function useStatItems() {
   ]
 }
 
-function formatHeroStats(
-  statItems: ReturnType<typeof useStatItems>,
-  stats: HomeHeroStats,
-) {
-  return statItems.map(({ key, label }) => `${label}=${stats.loading ? "-" : stats[key]}`).join(" · ")
+function formatHeroStats(statItems: ReturnType<typeof useStatItems>, stats: HomeHeroStats) {
+  return statItems
+    .map(({ key, label }) => `${label}=${stats.loading ? "-" : stats[key]}`)
+    .join(" · ")
 }
 
 export function HomeHero({ stats }: { stats: HomeHeroStats }) {
@@ -45,7 +44,9 @@ export function HomeHero({ stats }: { stats: HomeHeroStats }) {
           aria-label={t("expandBanner")}
         >
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className="shrink-0 font-mono text-xs uppercase text-muted-foreground">{t("store")}</span>
+            <span className="shrink-0 font-mono text-xs uppercase text-muted-foreground">
+              {t("store")}
+            </span>
             <span className="flex shrink-0 items-center gap-1.5">
               <img alt="" aria-hidden="true" className="size-4 shrink-0" src="/logo.png" />
               <strong className="truncate font-mono">mcpstore</strong>

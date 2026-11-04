@@ -4,7 +4,10 @@ import { AlertCircleIcon, BadgeCheckIcon, Loader2Icon } from "lucide-react"
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { McpIcon } from "@/components/shared/mcp-icon"
-import { deriveServiceDisplayStatus, isServiceConnected } from "@/features/services/service-display-status"
+import {
+  deriveServiceDisplayStatus,
+  isServiceConnected,
+} from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
 import { listInstancePrompts, listInstanceResources, type ServiceInstance } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
@@ -31,8 +34,10 @@ export function ServiceListCard({
   const transportLabel =
     transport === "stdio" ? "stdio" : transport.includes("http") ? "http" : null
 
-  const canListResources = isServiceConnected(service.state) && service.mcp?.capabilities?.resources !== false
-  const canListPrompts = isServiceConnected(service.state) && service.mcp?.capabilities?.prompts !== false
+  const canListResources =
+    isServiceConnected(service.state) && service.mcp?.capabilities?.resources !== false
+  const canListPrompts =
+    isServiceConnected(service.state) && service.mcp?.capabilities?.prompts !== false
 
   const resourcesQuery = useQuery({
     enabled: canListResources,
@@ -103,13 +108,14 @@ export function ServiceListCard({
       </div>
 
       {description ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
-          {description}
-        </p>
+        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{description}</p>
       ) : null}
 
       {metaParts.length ? (
-        <p className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground" title={metaParts.join(" · ")}>
+        <p
+          className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground"
+          title={metaParts.join(" · ")}
+        >
           {metaParts.join(" · ")}
         </p>
       ) : null}

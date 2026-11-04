@@ -4,13 +4,30 @@ import { toast } from "sonner"
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useI18n } from "@/lib/i18n-context"
 import { switchCache, type CacheBackend } from "@/lib/api"
 
 const cacheOptions: CacheBackend[] = ["memory", "redis"]
 
-export function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { open: boolean; current?: CacheBackend; onOpenChange: (open: boolean) => void; onChanged: () => Promise<void> }) {
+export function SwitchCacheDialog({
+  open,
+  current,
+  onOpenChange,
+  onChanged,
+}: {
+  open: boolean
+  current?: CacheBackend
+  onOpenChange: (open: boolean) => void
+  onChanged: () => Promise<void>
+}) {
   const { t } = useI18n()
   const [target, setTarget] = useState<CacheBackend>(current || "memory")
   const [submitting, setSubmitting] = useState(false)
@@ -44,15 +61,25 @@ export function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { 
           <Field>
             <FieldLabel>{t("targetCacheStorage")}</FieldLabel>
             <Select value={target} onValueChange={(value) => setTarget(value as CacheBackend)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {cacheOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                  {cacheOptions.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
           </Field>
-          <DialogFormFooter onCancel={() => onOpenChange(false)} submitLabel={submitting ? t("switching") : t("switch")} submitting={submitting} />
+          <DialogFormFooter
+            onCancel={() => onOpenChange(false)}
+            submitLabel={submitting ? t("switching") : t("switch")}
+            submitting={submitting}
+          />
         </DialogForm>
       </DialogContent>
     </Dialog>
