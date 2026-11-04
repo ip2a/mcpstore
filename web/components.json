@@ -17,5 +17,9 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "iconLibrary": "lucide"
+  "iconLibrary": "lucide",
+  "registries": {
+    "@reui": "https://reui.io/r/{style}/{name}.json",
+    "@heatmap": "https://shadcn-heatmap.pages.dev/r/{name}.json"
+  }
 }

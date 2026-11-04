@@ -43,8 +43,8 @@ function normalizeToolResult(result: unknown) {
 
   return {
     content,
-    structuredContent: record.structuredContent,
-    isError: Boolean(record.isError),
+    structuredContent: record.structured_content,
+    isError: Boolean(record.is_error),
   }
 }
 

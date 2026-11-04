@@ -1,5 +1,6 @@
 export type HostEntry = {
-  url: string;
+  /** Candidate base URLs in preference order; the first reachable one wins. */
+  urls: string[];
 };
 
 export type HostsConfig = {
@@ -12,15 +13,15 @@ export type HostsPayload = {
   [name: string]: string | HostEntry;
 };
 
-export const DEFAULT_API_BASE = "/api";
-
 export function parseHostsPayload(data: HostsPayload): HostsConfig {
   const entries: Record<string, HostEntry> = {};
   for (const [key, value] of Object.entries(data)) {
     if (key === "active") continue;
-    if (value && typeof value === "object" && "url" in value) {
-      const url = (value as HostEntry).url.trim();
-      if (url) entries[key] = { url };
+    if (value && typeof value === "object" && "urls" in value) {
+      const urls = (value as HostEntry).urls
+        .map((url) => url.trim())
+        .filter((url) => url !== "");
+      if (urls.length > 0) entries[key] = { urls };
     }
   }
 
@@ -43,8 +44,9 @@ export function serializeHostsPayload(hosts: HostsConfig): HostsPayload {
   };
 }
 
-export function resolveActiveHostUrl(hosts: HostsConfig): string {
-  return hosts.entries[hosts.active].url;
+/** URLs of the active host in preference order. */
+export function resolveActiveHostUrls(hosts: HostsConfig): string[] {
+  return hosts.entries[hosts.active].urls;
 }
 
 export function validateHostsConfig(hosts: HostsConfig): string | null {
@@ -54,8 +56,14 @@ export function validateHostsConfig(hosts: HostsConfig): string | null {
   if (!hosts.entries[hosts.active]) return "Active host does not exist";
 
   for (const name of names) {
+    const entry = hosts.entries[name];
     if (!name.trim()) return "Host name cannot be empty";
-    if (!hosts.entries[name]?.url.trim()) return `URL for host "${name}" cannot be empty`;
+    if (!entry || entry.urls.length === 0) {
+      return `Host "${name}" needs at least one URL`;
+    }
+    if (entry.urls.some((url) => !url.trim())) {
+      return `Host "${name}" has an empty URL`;
+    }
   }
 
   return null;

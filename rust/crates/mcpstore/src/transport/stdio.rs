@@ -9,8 +9,10 @@ use crate::config::ServerConfig;
 use crate::error::{Error, FailureCode};
 use crate::health::supervisor::InstanceSupervisor;
 use crate::identity::InstanceId;
+use crate::telemetry::FrameTelemetry;
 use crate::transport::client::McpClient;
 use crate::transport::handler::McpStoreClientHandler;
+use crate::transport::telemetry_transport::TelemetryTransport;
 
 use rmcp::transport::async_rw::AsyncRwTransport;
 use rmcp::RoleClient;
@@ -47,6 +49,7 @@ pub(super) async fn connect(
     handler: McpStoreClientHandler,
     instance_id: InstanceId,
     supervisor: Option<Arc<InstanceSupervisor>>,
+    frame_telemetry: Option<Arc<dyn FrameTelemetry>>,
 ) -> crate::error::Result<(McpClient, StdioProcess)> {
     let command = config.command.as_deref().ok_or_else(|| {
         Error::new(
@@ -166,6 +169,13 @@ pub(super) async fn connect(
     });
 
     let transport = StdioTransport::new_client(stdout, stdin);
+    let transport = TelemetryTransport::wrap(
+        transport,
+        frame_telemetry,
+        instance_id,
+        name.to_string(),
+        "stdio",
+    );
     let client = match rmcp::service::serve_client_with_lifecycle(
         handler,
         transport,

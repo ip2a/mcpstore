@@ -370,18 +370,18 @@ pub(crate) async fn execute(
             }))
         }
         KernelOperation::SaveAppConfig => {
-            // server/mcp_aggregate is a daemon hot-apply section and must go through config --<key>; other sections save wholesale
+            // server/gateway is a daemon hot-apply section and must go through config --<key>; other sections save wholesale
             let new_config = payload_field::<AppConfig>(&payload, "config")?;
             let manager = store.config_manager();
             let current = manager.load_app_config_or_default().map_err(config_error)?;
             if serde_json::to_value(&new_config.server).unwrap_or(Value::Null)
                 != serde_json::to_value(&current.server).unwrap_or(Value::Null)
-                || serde_json::to_value(&new_config.mcp_aggregate).unwrap_or(Value::Null)
-                    != serde_json::to_value(&current.mcp_aggregate).unwrap_or(Value::Null)
+                || serde_json::to_value(&new_config.gateway).unwrap_or(Value::Null)
+                    != serde_json::to_value(&current.gateway).unwrap_or(Value::Null)
             {
                 return Err(Error::new(
                     FailureCode::InvalidInput,
-                    "server/mcp_aggregate 段是 daemon 热应用配置，请用 mcpstore config --<key> <value> 修改",
+                    "server/gateway is daemon hot-apply config; use mcpstore config --<key> <value>",
                 ));
             }
             manager.save_app_config(&new_config).map_err(config_error)?;
@@ -408,6 +408,13 @@ pub(crate) async fn execute(
         | KernelOperation::StopHost
         | KernelOperation::StatusHost
         | KernelOperation::GetDaemonConfig
+        | KernelOperation::PluginList
+        | KernelOperation::PluginMarket
+        | KernelOperation::PluginDetect
+        | KernelOperation::PluginInstall
+        | KernelOperation::PluginUninstall
+        | KernelOperation::PluginEnable
+        | KernelOperation::PluginDisable
         | KernelOperation::SetDaemonConfig => {
             unreachable!("stream/admin operations are handled by the daemon server")
         }
@@ -552,33 +559,18 @@ pub(crate) fn plan_config_change(
 ) -> Result<Vec<(crate::daemon::listeners::ListenerKey, Option<u16>)>, Error> {
     use crate::daemon::listeners::ListenerKey;
 
-    fn aggregate_target(config: &AppConfig) -> Option<u16> {
-        (config.mcp_aggregate.enabled && config.mcp_aggregate.transport == "streamable-http")
-            .then_some(config.mcp_aggregate.port)
-    }
-
     let server = &mut config.server;
     match key {
         "host" => {
             let host = required_str_value(value, "host")?;
             if host.trim().is_empty() {
-                return Err(Error::new(FailureCode::InvalidInput, "host 不能为空"));
+                return Err(Error::new(FailureCode::InvalidInput, "host cannot be empty"));
             }
             let mut planned = Vec::new();
             if server.core_enabled {
                 planned.push((ListenerKey::Core, Some(server.port)));
             }
-            if server.app_enabled {
-                planned.push((ListenerKey::App, Some(server.app_port)));
-            }
-            if server.web_enabled {
-                planned.push((ListenerKey::Web, Some(server.web_port)));
-            }
             server.host = host;
-            let aggregate = aggregate_target(config);
-            if aggregate.is_some() {
-                planned.push((ListenerKey::Aggregate, aggregate));
-            }
             Ok(planned)
         }
         "core" => {
@@ -594,70 +586,24 @@ pub(crate) fn plan_config_change(
                 .then_some(vec![(ListenerKey::Core, Some(port))])
                 .unwrap_or_default())
         }
-        "app" => {
-            let on = parse_switch(value, "app")?;
-            server.app_enabled = on;
-            Ok(vec![(ListenerKey::App, on.then_some(server.app_port))])
-        }
-        "app-port" => {
-            let port = parse_port(value, "app-port")?;
-            server.app_port = port;
-            Ok(server
-                .app_enabled
-                .then_some(vec![(ListenerKey::App, Some(port))])
-                .unwrap_or_default())
-        }
-        "web" => {
-            let on = parse_switch(value, "web")?;
-            server.web_enabled = on;
-            Ok(vec![(ListenerKey::Web, on.then_some(server.web_port))])
-        }
         "web-port" => {
+            // The web panel is a standalone process (mcpstore web); the daemon
+            // only records the port in [web], no listener to rebind.
             let port = parse_port(value, "web-port")?;
-            server.web_port = port;
-            Ok(server
-                .web_enabled
-                .then_some(vec![(ListenerKey::Web, Some(port))])
-                .unwrap_or_default())
+            config.web.port = port;
+            Ok(Vec::new())
         }
-        "mcp" => {
-            let on = parse_switch(value, "mcp")?;
-            config.mcp_aggregate.enabled = on;
-            let target = aggregate_target(config);
-            if on && target.is_none() {
-                return Err(Error::new(
-                    FailureCode::InvalidInput,
-                    "mcp 聚合监听要求 transport=streamable-http；先 --mcp-transport streamable-http",
-                ));
-            }
-            Ok(vec![(ListenerKey::Aggregate, target)])
-        }
-        "mcp-port" => {
-            let port = parse_port(value, "mcp-port")?;
-            config.mcp_aggregate.port = port;
-            Ok(aggregate_target(config)
-                .map(|_| vec![(ListenerKey::Aggregate, Some(port))])
-                .unwrap_or_default())
-        }
-        "mcp-transport" => {
-            let transport = required_str_value(value, "mcp-transport")?;
-            if !matches!(transport.as_str(), "stdio" | "streamable-http") {
-                return Err(Error::new(
-                    FailureCode::InvalidInput,
-                    format!("mcp-transport must be stdio or streamable-http, got {transport}"),
-                ));
-            }
-            config.mcp_aggregate.transport = transport;
-            Ok(config
-                .mcp_aggregate
-                .enabled
-                .then_some(vec![(ListenerKey::Aggregate, aggregate_target(config))])
-                .unwrap_or_default())
+        "gateway-port" => {
+            // The gateway is a standalone child process (mcpstore gateway); the
+            // daemon only records the port, no listener to rebind.
+            let port = parse_port(value, "gateway-port")?;
+            config.gateway.port = port;
+            Ok(Vec::new())
         }
         other => Err(Error::new(
             FailureCode::InvalidInput,
             format!(
-                "未知配置 key {other:?}；可用：host, core, core-port, app, app-port, web, web-port, mcp, mcp-port, mcp-transport"
+                "unknown config key {other:?}; available: host, core, core-port, web-port, gateway, gateway-port"
             ),
         )),
     }

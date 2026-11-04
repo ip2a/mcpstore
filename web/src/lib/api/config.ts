@@ -1,6 +1,5 @@
-// 本模块全部为 app 自有接口（聚合服务 spawn 本地子进程 + 读取并导入本地编辑器配置），
-// 固定走 appRequest（本 app 进程），不随 core 后端切换 —— 见 接口文档 §附录C。
-import { appRequest as request, buildQuery } from "./client";
+// Service configuration belongs to the selected daemon resource.
+import { api as request, buildQuery } from "./client";
 import type {
   AddServiceInput,
   AgentItem,
@@ -48,6 +47,7 @@ import type {
   UpdateServiceScopeInput,
   UpdateSettingsPayload,
 } from "../api";
+import type { ExposeConfig } from "./clients";
 
 export type McpHubOptions = {
   scope?: "store" | "agent";
@@ -58,6 +58,7 @@ export type McpHubOptions = {
   path?: string;
   instanceId?: string;
   sessionKey?: string;
+  expose?: Partial<ExposeConfig>;
 };
 
 export type McpHubStatus = {
@@ -74,6 +75,7 @@ export type McpHubStatus = {
 };
 
 function mcpHubQuery(options: McpHubOptions) {
+  const expose = options.expose;
   return buildQuery({
     scope: options.scope,
     agent_id: options.agentId,
@@ -83,6 +85,14 @@ function mcpHubQuery(options: McpHubOptions) {
     path: options.path,
     instance_id: options.instanceId,
     session_key: options.sessionKey,
+    expose_session_state: expose?.session_state,
+    expose_tool: expose?.tool,
+    expose_prompt: expose?.prompt,
+    expose_resource: expose?.resource,
+    expose_openapi: expose?.openapi,
+    expose_service: expose?.service,
+    expose_cache: expose?.cache,
+    expose_search: expose?.search,
   });
 }
 
@@ -92,22 +102,22 @@ export async function getMcpHubDescriptor(options: McpHubOptions) {
     command: string | null;
     args: string[];
     url: string | null;
-  }>(`/mcp-hub/descriptor${mcpHubQuery(options)}`);
+  }>(`/gateway/descriptor${mcpHubQuery(options)}`);
 }
 
 export async function getMcpHubStatus(options: McpHubOptions) {
-  return request<McpHubStatus>(`/mcp-hub/status${mcpHubQuery(options)}`);
+  return request<McpHubStatus>(`/gateway/status${mcpHubQuery(options)}`);
 }
 
 export async function startMcpHub(options: McpHubOptions) {
   return request<{ running: boolean; pid: number | null; transport: string; url: string | null }>(
-    `/mcp-hub/start${mcpHubQuery(options)}`,
+    `/gateway/start${mcpHubQuery(options)}`,
     { method: "POST" },
   );
 }
 
 export async function stopMcpHub() {
-  return request<{ running: boolean; pid?: number | null }>("/mcp-hub/stop", {
+  return request<{ running: boolean; pid?: number | null }>("/gateway/stop", {
     method: "POST",
   });
 }

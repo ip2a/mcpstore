@@ -1,18 +1,15 @@
-import { ApiError, type ApiEnvelope, type CacheBackend, type ScopeRef } from "../api";
-import { getApiBase, getAppApiBase } from "./backend";
+import { ApiError, type ApiEnvelope, type ScopeRef } from "../api";
+import { getAppApiBase, getApiBase, getSelectedHost } from "./backend";
 
 type FlexibleEnvelope<T> =
-  ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string };
+  | ApiEnvelope<T>
+  | { ok: boolean; message?: string; data?: T; error?: string };
 
-/** Core 后端 base（可切换，默认 /api；指向本地 lib 或远程 mcpstore）。 */
-export function apiUrl(path: string) {
+function apiUrl(path: string) {
   return `${getApiBase()}${path}`;
 }
 
-/**
- * App 自有接口 base（固定指向本 app 进程，不随 core 后端切换）。
- * 用于 v1/meta、v1/settings、client-config、mcp-hub —— 见 接口文档 §附录C。
- */
+/** App-owned API base (always points at this app process; never switches with the resource backend). */
 export function appApiUrl(path: string) {
   return `${getAppApiBase()}${path}`;
 }
@@ -29,14 +26,13 @@ export function buildQuery(
   return query ? `?${query}` : "";
 }
 
-/** 作用域 query 参数对象（文档 §17.2：?scope=store | ?scope=agent&agent_id=…）。 */
+/** Scope query parameter object. */
 export function scopeParams(scope: ScopeRef): Record<string, string | undefined> {
   return scope.type === "agent"
     ? { scope: "agent", agent_id: scope.agent_id }
     : { scope: "store" };
 }
 
-/** 作用域 query 串；需附加更多参数时展开 scopeParams(...) 传入 buildQuery。 */
 export function scopeQuery(scope: ScopeRef): string {
   return buildQuery(scopeParams(scope));
 }
@@ -52,10 +48,21 @@ export async function readJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
+async function apiFetch(path: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const host = getSelectedHost();
+  if (host) headers.set("X-MCPStore-Host", host);
+  return fetch(apiUrl(path), { ...init, headers });
+}
+
+async function appFetch(path: string, init: RequestInit): Promise<Response> {
+  return fetch(`${getAppApiBase()}${path}`, init);
+}
+
 async function apiAt<T>(
   path: string,
   options: RequestInit,
-  urlFn: (path: string) => string,
+  fetcher: (path: string, init: RequestInit) => Promise<Response>,
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
@@ -69,10 +76,7 @@ async function apiAt<T>(
   }
 
   const payload = await readJson<T | FlexibleEnvelope<T>>(
-    await fetch(urlFn(path), {
-      ...options,
-      headers,
-    }),
+    await fetcher(path, { ...options, headers }),
   );
 
   if (payload && typeof payload === "object" && "success" in payload) {
@@ -104,25 +108,25 @@ async function apiAt<T>(
   return payload as T;
 }
 
-/** Core 接口调用（走可切换的 apiUrl）。 */
+/** Resource request: same-origin App face plus the selected host name. */
 export function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  return apiAt<T>(path, options, apiUrl);
+  return apiAt<T>(path, options, apiFetch);
 }
 
-/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
+/** Panel-local request: same-origin App face without a resource selector. */
 export function appApi<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  return apiAt<T>(path, options, appApiUrl);
+  return apiAt<T>(path, options, appFetch);
 }
 
 async function requestAt<T>(
   path: string,
   init: RequestInit | undefined,
-  urlFn: (path: string) => string,
+  fetcher: (path: string, init: RequestInit) => Promise<Response>,
 ): Promise<T> {
-  const response = await fetch(urlFn(path), {
+  const response = await fetcher(path, {
     headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
   });
@@ -137,12 +141,10 @@ async function requestAt<T>(
   return payload.data as T;
 }
 
-/** Core 接口调用（走可切换的 apiUrl）。 */
 export function request<T>(path: string, init?: RequestInit): Promise<T> {
-  return requestAt<T>(path, init, apiUrl);
+  return requestAt<T>(path, init, apiFetch);
 }
 
-/** App 自有接口调用（固定走 appApiUrl，不随 core 后端切换）。 */
 export function appRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  return requestAt<T>(path, init, appApiUrl);
+  return requestAt<T>(path, init, appFetch);
 }

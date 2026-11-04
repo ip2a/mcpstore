@@ -33,6 +33,8 @@ struct ToolExecutionContext {
     task_tool_name: Option<String>,
     is_openapi_virtual: bool,
     started_at: Instant,
+    caller: Option<String>,
+    session_key: Option<String>,
 }
 
 pub struct McpStoreToolExecutionHandle<'a> {
@@ -309,6 +311,8 @@ impl ExecutionEngine {
             task_tool_name: matches!(mode, ToolExecutionMode::Task).then(|| tool_name.clone()),
             is_openapi_virtual,
             started_at: Instant::now(),
+            caller: options.caller.clone(),
+            session_key: options.session_key.clone(),
         };
 
         if is_openapi_virtual {
@@ -421,6 +425,21 @@ impl ExecutionEngine {
                         (false, "task_created", Some(task.task_id.as_str()))
                     }
                 };
+                let result_json = match &execution {
+                    McpToolExecution::Immediate { result } => serde_json::to_string(result).ok(),
+                    McpToolExecution::Task { task } => Some(
+                        serde_json::json!({"status": status, "task_id": task.task_id}).to_string(),
+                    ),
+                };
+                record_tool_telemetry(
+                    store,
+                    &context,
+                    latency_ms,
+                    !is_error,
+                    None,
+                    None,
+                    result_json,
+                );
                 self.event_bus
                     .publish(
                         Event::new(
@@ -479,6 +498,15 @@ impl ExecutionEngine {
                         true,
                     )
                     .await;
+                record_tool_telemetry(
+                    store,
+                    &context,
+                    latency_ms,
+                    false,
+                    Some(error.code().as_str().to_string()),
+                    Some(error.to_string()),
+                    None,
+                );
                 Err(error)
             }
         }
@@ -512,6 +540,38 @@ impl ExecutionEngine {
             .await?;
         crate::openapi_runtime::call_openapi_tool(&import, tool_name, args, &options).await
     }
+}
+
+/// Append one completed execution to request telemetry. No-op when telemetry is
+/// not attached; the record is queued and never blocks or fails the call itself.
+fn record_tool_telemetry(
+    store: &MCPStore,
+    context: &ToolExecutionContext,
+    latency_ms: f64,
+    success: bool,
+    error_code: Option<String>,
+    error_summary: Option<String>,
+    result_json: Option<String>,
+) {
+    let Some(telemetry) = store.telemetry() else {
+        return;
+    };
+    let mut record = crate::telemetry::RequestRecord::new("tool", &context.tool_name);
+    record.duration_ms = latency_ms as i64;
+    record.caller = context.caller.clone();
+    record.scope = Some(match &context.scope {
+        ScopeRef::Store => "store".to_string(),
+        ScopeRef::Agent { agent_id } => format!("agent:{agent_id}"),
+    });
+    record.session_key = context.session_key.clone();
+    record.instance_id = Some(context.instance_id.to_string());
+    record.service_name = Some(context.service_name.clone());
+    record.success = success;
+    record.error_code = error_code;
+    record.error_summary = error_summary;
+    record.args_json = Some(context.arguments.to_string());
+    record.result_json = result_json;
+    telemetry.record(record);
 }
 
 fn execution_failure_impairs_connection(error: &Error) -> bool {

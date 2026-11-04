@@ -28,6 +28,9 @@ pub struct ConnectionPool {
     event_bus: EventBus,
     task_state: TaskStateStore,
     supervisor: Arc<Mutex<Option<Arc<InstanceSupervisor>>>>,
+    /// Frame-telemetry sink. None until the host attaches one; read lazily at
+    /// connect time so late attachment still covers the next connection.
+    frame_telemetry: Arc<std::sync::OnceLock<Option<Arc<dyn crate::telemetry::FrameTelemetry>>>>,
 }
 
 impl Clone for ConnectionPool {
@@ -40,6 +43,7 @@ impl Clone for ConnectionPool {
             event_bus: self.event_bus.clone(),
             task_state: self.task_state.clone(),
             supervisor: Arc::clone(&self.supervisor),
+            frame_telemetry: Arc::clone(&self.frame_telemetry),
         }
     }
 }
@@ -59,11 +63,25 @@ impl ConnectionPool {
             event_bus,
             task_state: TaskStateStore::new(cache),
             supervisor: Arc::new(Mutex::new(None)),
+            frame_telemetry: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
     pub(crate) fn attach_supervisor(&self, supervisor: Arc<InstanceSupervisor>) {
         *self.supervisor.lock().unwrap() = Some(supervisor);
+    }
+
+    /// Attach the frame-telemetry sink (host opts in; SDK default = off).
+    /// Idempotent: the first attach wins.
+    pub(crate) fn attach_frame_telemetry(
+        &self,
+        sink: Option<Arc<dyn crate::telemetry::FrameTelemetry>>,
+    ) {
+        let _ = self.frame_telemetry.set(sink);
+    }
+
+    pub(crate) fn frame_telemetry(&self) -> Option<Arc<dyn crate::telemetry::FrameTelemetry>> {
+        self.frame_telemetry.get().and_then(|slot| slot.clone())
     }
 
     pub async fn add(&self, instance_id: InstanceId, config: ServerConfig) {
@@ -74,6 +92,7 @@ impl ConnectionPool {
             self.auth_coordinator.clone(),
             self.registry.clone(),
             self.event_bus.clone(),
+            Arc::clone(&self.frame_telemetry),
         );
         self.connections.write().await.insert(instance_id, conn);
     }

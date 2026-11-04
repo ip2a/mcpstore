@@ -3,9 +3,9 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { getMeta, updateSettings } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
-export function useSettingsMetaQuery(open: boolean) {
+export function useSettingsMetaQuery(enabled = true) {
   return useQuery({
-    enabled: open,
+    enabled,
     queryKey: queryKeys.meta,
     queryFn: getMeta,
   })

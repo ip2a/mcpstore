@@ -502,7 +502,7 @@ async fn login(
             .await
         }
         Some(AuthFlow::ClientCredentials) => {
-            // AuthBegin 的 ClientCredentials 分支 = refresh + reconnect + status
+            // AuthBegin's ClientCredentials branch = refresh + reconnect + status
             access
                 .request(
                     KernelOperation::AuthBegin,
@@ -668,7 +668,7 @@ async fn complete_local_browser_flow(
 ) -> Result<(), BoxErr> {
     announce_authorization(&authorization, output, open_browser)?;
     let mut pending = listener.wait(timeout_seconds).await?;
-    // AuthCallback op 内部已含 reconnect
+    // the AuthCallback op already includes reconnect internally
     let result = access
         .request(
             KernelOperation::AuthCallback,

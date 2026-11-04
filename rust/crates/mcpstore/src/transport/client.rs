@@ -5,6 +5,7 @@ use crate::events::EventBus;
 use crate::health::supervisor::InstanceSupervisor;
 use crate::identity::InstanceId;
 use crate::registry::ServiceRegistry;
+use crate::telemetry::FrameTelemetry;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::stdio::StdioProcess;
 use crate::transport::{http as http_transport, stdio as stdio_transport};
@@ -42,6 +43,9 @@ pub struct McpConnection {
     pub(in crate::transport) handler: McpStoreClientHandler,
     pub(in crate::transport) subscription_task: Option<tokio::task::JoinHandle<()>>,
     event_bus: crate::events::EventBus,
+    /// Pool-shared sink cell; resolved at connect time so late attachment
+    /// still covers the next connection.
+    frame_telemetry: Arc<std::sync::OnceLock<Option<Arc<dyn FrameTelemetry>>>>,
 }
 
 impl McpConnection {
@@ -52,6 +56,7 @@ impl McpConnection {
         auth_coordinator: AuthCoordinator,
         registry: ServiceRegistry,
         event_bus: EventBus,
+        frame_telemetry: Arc<std::sync::OnceLock<Option<Arc<dyn FrameTelemetry>>>>,
     ) -> Self {
         Self {
             instance_id,
@@ -63,7 +68,12 @@ impl McpConnection {
             handler: McpStoreClientHandler::new(instance_id, registry, event_bus.clone()),
             event_bus,
             subscription_task: None,
+            frame_telemetry,
         }
+    }
+
+    fn frame_telemetry(&self) -> Option<Arc<dyn FrameTelemetry>> {
+        self.frame_telemetry.get().and_then(|slot| slot.clone())
     }
 
     pub fn is_connected(&self) -> bool {
@@ -95,6 +105,7 @@ impl McpConnection {
             handler,
             event_bus: crate::events::EventBus::new(),
             subscription_task: None,
+            frame_telemetry: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -180,6 +191,7 @@ impl McpConnection {
             self.handler.clone(),
             self.instance_id,
             supervisor,
+            self.frame_telemetry(),
         )
         .await?;
         tracing::info!("stdio connected: {}", self.name);
@@ -195,6 +207,7 @@ impl McpConnection {
             &self.config,
             &self.auth_coordinator,
             self.handler.clone(),
+            self.frame_telemetry(),
         )
         .await?;
         tracing::info!("HTTP connected: {}", self.name);
@@ -584,6 +597,7 @@ mod tests {
             .expect("test auth coordinator"),
             ServiceRegistry::new(),
             EventBus::new(),
+            Arc::new(std::sync::OnceLock::new()),
         );
 
         let error = connection.connect(None).await.unwrap_err();
@@ -616,6 +630,7 @@ mod tests {
             .expect("test auth coordinator"),
             ServiceRegistry::new(),
             EventBus::new(),
+            Arc::new(std::sync::OnceLock::new()),
         )
     }
 

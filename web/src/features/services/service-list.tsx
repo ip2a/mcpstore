@@ -1,10 +1,10 @@
 import { useState } from "react"
-import { LayersIcon, MoreHorizontalIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
+import { GripVerticalIcon, LayersIcon, MoreHorizontalIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
 
+import { Sortable, SortableItem, SortableItemHandle } from "@/components/reui/sortable"
 import { EntityRow } from "@/components/shared/entity-row"
 import { ServiceTransitionIcon } from "@/components/shared/service-transition-icon"
 import { ServiceRowMeta } from "@/components/shared/service-row-meta"
-import { ServiceConnectionMark } from "@/components/shared/service-status-badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
@@ -195,6 +195,14 @@ function ServiceRow({
             <MoreHorizontalIcon data-icon="inline-start" />
             {t("more")}
           </Button>
+          <SortableItemHandle
+            aria-label={t("dragService", { name: service.service_name })}
+            render={<Button variant="outline" size="icon-sm" />}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <GripVerticalIcon />
+          </SortableItemHandle>
         </>
       }
       actionsProps={{ onClick: (event) => event.stopPropagation() }}
@@ -202,7 +210,6 @@ function ServiceRow({
       <div className="min-w-0">
         <div className="flex min-w-0 flex-nowrap items-center gap-x-2 text-base">
           <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
-          <ServiceConnectionMark state={service.state} />
           <span className="min-w-0 truncate text-sm text-muted-foreground" title={getServiceEndpointLabel(service)}>
             {getServiceEndpointLabel(service)}
           </span>
@@ -222,6 +229,7 @@ export function ServiceList(props: {
   onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
+  onMove: (fromId: string, toId: string) => void
   onOpen: (service: ServiceInstance) => void
   onRefresh: () => void
   onRestart: (service: ServiceInstance) => void
@@ -232,21 +240,31 @@ export function ServiceList(props: {
 
   return (
     <>
-      <div>
+      <Sortable
+        value={props.services}
+        getItemValue={(service) => service.instance_id}
+        onValueChange={() => {}}
+        onMove={({ activeIndex, overIndex }) => {
+          const from = props.services[activeIndex]
+          const to = props.services[overIndex]
+          if (from && to) props.onMove(from.instance_id, to.instance_id)
+        }}
+      >
         {props.services.map((service) => (
-          <ServiceRow
-            key={service.instance_id}
-            busy={props.busy}
-            onAddScope={setScopeService}
-            onConnect={props.onConnect}
-            onDisconnect={props.onDisconnect}
-            onEdit={setEditService}
-            onMore={setMoreService}
-            onOpen={props.onOpen}
-            service={service}
-          />
+          <SortableItem key={service.instance_id} value={service.instance_id}>
+            <ServiceRow
+              busy={props.busy}
+              onAddScope={setScopeService}
+              onConnect={props.onConnect}
+              onDisconnect={props.onDisconnect}
+              onEdit={setEditService}
+              onMore={setMoreService}
+              onOpen={props.onOpen}
+              service={service}
+            />
+          </SortableItem>
         ))}
-      </div>
+      </Sortable>
       <EditServiceDialog
         open={Boolean(editService)}
         service={editService}

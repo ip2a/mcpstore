@@ -30,7 +30,7 @@ pub async fn wait_daemon_ready(timeout: Duration) -> Result<(), Error> {
     }
     Err(Error::new(
         FailureCode::ServiceUnavailable,
-        "daemon 未在期限内就绪；运行 mcpstore start（前台）排查原因",
+        "daemon did not become ready in time; run mcpstore start (foreground) to investigate",
     ))
 }
 

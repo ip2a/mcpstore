@@ -2,6 +2,10 @@
   <strong>English</strong> | <a href="README_zh.md">简体中文</a>
 </h4>
 
+<p align="center">
+  <img src="docs/assets/images/logo.png" width="128" alt="mcpstore logo">
+</p>
+
 <h1 align="center">mcpstore</h1>
 
 <p align="center">
@@ -76,6 +80,8 @@ mcpstore api --host 127.0.0.1 --port 1820
 ## Desktop App (Beta)
 
 The GUI is the control plane: manage MCP services and tools, inspect parameters, and try invocations. Currently in Beta — download from [GitHub Releases](https://github.com/ip2a/mcpstore/releases/latest).
+
+The desktop app is a thin shell over the same `mcpstore` daemon the CLI uses: on launch it attaches to a running local daemon, or starts the daemon binary bundled inside the app, then loads the daemon's Web face. All business state (config, telemetry, gateway, plugins) lives in the single daemon's `~/.mcpstore`.
 
 <p align="center">
   <img src="./docs/assets/images/app-tools.png" width="100%" alt="mcpstore tools panel">

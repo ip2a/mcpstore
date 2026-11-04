@@ -55,6 +55,10 @@ pub enum Commands {
         json: bool,
     },
     Auth(commands::auth::AuthArgs),
+    Plugin {
+        #[command(subcommand)]
+        action: commands::plugin::PluginAction,
+    },
     Config {
         #[command(subcommand)]
         action: Option<commands::config::ConfigAction>,
@@ -83,17 +87,49 @@ pub enum Commands {
     Prompt(commands::protocol::PromptArgs),
     Complete(commands::protocol::CompleteArgs),
     MigrateStore(commands::mcp::MigrateStoreArgs),
-    #[command(name = "mcp")]
-    McpServer(commands::mcp_server::McpServerArgs),
+    /// Standalone gateway process: wired per-client mounts + one generic /mcp mount
+    Gateway(commands::gateway_cmd::GatewayArgs),
+    /// Standalone web panel process: frontend + panel API, no embedded store
     #[command(visible_alias = "ui")]
     Web {
+        /// Bind address (defaults to config.toml [web].host)
         #[arg(long)]
-        json: bool,
+        host: Option<String>,
+        /// Bind port (defaults to config.toml [web].port)
+        #[arg(long)]
+        port: Option<u16>,
     },
     Tui(crate::tui::TuiArgs),
 }
 
 pub fn run() -> Result<(), BoxErr> {
+    let started = std::time::Instant::now();
+    let result = run_inner();
+    audit_cli_command(started, &result);
+    result
+}
+
+/// Audit every CLI command into request telemetry (kind=management). Best-effort:
+/// a broken telemetry file must not take down the command itself.
+fn audit_cli_command(started: std::time::Instant, result: &Result<(), BoxErr>) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut record =
+        mcpstore::telemetry::RequestRecord::new("management", format!("cli {}", args.join(" ")));
+    let tool = record.tool.take().unwrap_or_default();
+    record.tool = Some(tool.chars().take(200).collect());
+    record.duration_ms = started.elapsed().as_millis() as i64;
+    record.success = result.is_ok();
+    if let Some(error) = result.as_ref().err() {
+        record.error_summary = Some(error.to_string());
+    }
+    record.args_json = Some(serde_json::json!({ "argv": args }).to_string());
+    if let Err(error) = crate::telemetry::record_once(&crate::telemetry::default_db_path(), record)
+    {
+        tracing::warn!(%error, "cli command audit failed");
+    }
+}
+
+fn run_inner() -> Result<(), BoxErr> {
     let cli = Cli::parse();
 
     // TUI runs its own blocking event loop and creates its own runtime,
@@ -127,6 +163,7 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::Daemon { action } => commands::daemon_cmd::run_daemon(action).await,
             Commands::Api { json } => commands::daemon_cmd::face_view("core", json).await,
             Commands::Auth(args) => commands::auth::run(args, embedded, endpoint.clone()).await,
+            Commands::Plugin { action } => commands::plugin::run(action).await,
             Commands::Config {
                 action,
                 edits,
@@ -172,8 +209,8 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::MigrateStore(args) => {
                 commands::mcp::migrate_store(args, embedded, endpoint.clone()).await
             }
-            Commands::McpServer(args) => commands::mcp_server::run(args).await,
-            Commands::Web { json } => commands::daemon_cmd::face_view("web", json).await,
+            Commands::Gateway(args) => commands::gateway_cmd::run(args).await,
+            Commands::Web { host, port } => commands::web_panel::run(host, port).await,
             Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
     });
@@ -663,22 +700,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_mcp_command() {
-        let cli = Cli::try_parse_from(["mcpstore", "mcp", "--scope", "agent", "--agent", "agent1"])
-            .unwrap();
-
-        match cli.command {
-            Commands::McpServer(args) => {
-                assert_eq!(args.scope, commands::mcp::Scope::Agent);
-                assert_eq!(args.agent.as_deref(), Some("agent1"));
-                assert_eq!(args.transport, None);
-                assert_eq!(args.port, None);
-            }
-            _ => panic!("Expected to parse as mcp command"),
-        }
-    }
-
-    #[test]
     fn rejects_legacy_call_tool_command() {
         match Cli::try_parse_from(["mcpstore", "call-tool", "gitodo", "get_repo_status"]) {
             Ok(_) => panic!("Legacy call-tool command should no longer be accepted"),
@@ -766,6 +787,20 @@ mod tests {
     }
 
     #[test]
+    fn data_panel_without_panel_id_defaults_to_hostname() {
+        let cli = Cli::try_parse_from(["mcpstore", "list", "--data-panel"]).unwrap();
+        match cli.command {
+            Commands::List(args) => {
+                assert!(matches!(
+                    args.store.panel_role(),
+                    mcpstore::PanelRole::DataPanel { panel_id } if !panel_id.is_empty()
+                ));
+            }
+            _ => panic!("Expected to parse as list command"),
+        }
+    }
+
+    #[test]
     fn parses_migrate_store_command() {
         let cli = Cli::try_parse_from([
             "mcpstore",
@@ -794,13 +829,14 @@ mod tests {
 
     #[test]
     fn parses_web_command() {
-        let cli = Cli::try_parse_from(["mcpstore", "web", "--json"]).unwrap();
+        let cli = Cli::try_parse_from(["mcpstore", "web", "--port", "9000"]).unwrap();
         match cli.command {
-            Commands::Web { json } => assert!(json),
-            _ => panic!("Expected to parse as web view command"),
+            Commands::Web { host, port } => {
+                assert!(host.is_none());
+                assert_eq!(port, Some(9000));
+            }
+            _ => panic!("Expected to parse as web panel command"),
         }
-        // startup semantics removed: the old flag must fail to parse
-        assert!(Cli::try_parse_from(["mcpstore", "web", "--port", "9090"]).is_err());
     }
 
     #[test]

@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 const OAUTH_CALLBACK_TIMEOUT_SECS: u64 = 300;
 
-/// OAuth 回调（GET）：浏览器跳转带来 `code/state/iss`，同时携带 `scope/agent_id` 用于定位服务。
+/// OAuth callback (GET): the browser redirect carries `code/state/iss` plus `scope/agent_id` to locate the service.
 #[derive(Deserialize)]
 pub(super) struct AuthCallbackQuery {
     scope: Option<String>,
@@ -51,7 +51,7 @@ pub(super) async fn service_auth_status(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("认证Status获取成功", json!({ "auth": auth })))
+    Ok(success("Auth status fetched successfully", json!({ "auth": auth })))
 }
 
 pub(super) async fn service_auth_start(
@@ -91,7 +91,7 @@ pub(super) async fn service_auth_start(
                 .await
                 .map_err(ApiError::from_store)?;
             Ok(success(
-                "授权已开始",
+                "Authorization started",
                 json!({ "auth": auth, "authorization": authorization }),
             ))
         }
@@ -108,7 +108,7 @@ pub(super) async fn service_auth_start(
                 .await
                 .map_err(ApiError::from_store)?;
             Ok(success(
-                "客户端凭证授权成功",
+                "Client credentials authorization succeeded",
                 json!({ "auth": auth, "authorization": null }),
             ))
         }
@@ -146,7 +146,7 @@ pub(super) async fn service_auth_callback_get(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("授权回调处理成功", json!({ "auth": auth })))
+    Ok(success("Authorization callback processed successfully", json!({ "auth": auth })))
 }
 
 pub(super) async fn service_auth_callback_post(
@@ -159,7 +159,7 @@ pub(super) async fn service_auth_callback_post(
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
     if payload.callback_url.trim().is_empty() {
         return Err(ApiError::invalid_parameter(
-            "callback_url 不能为空",
+            "callback_url must not be empty",
             Some("callback_url"),
         ));
     }
@@ -174,7 +174,7 @@ pub(super) async fn service_auth_callback_post(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("授权回调处理成功", json!({ "auth": auth })))
+    Ok(success("Authorization callback processed successfully", json!({ "auth": auth })))
 }
 
 pub(super) async fn service_auth_refresh(
@@ -195,7 +195,7 @@ pub(super) async fn service_auth_refresh(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("授权刷新成功", json!({ "auth": auth })))
+    Ok(success("Authorization refreshed successfully", json!({ "auth": auth })))
 }
 
 pub(super) async fn service_auth_logout(
@@ -215,7 +215,7 @@ pub(super) async fn service_auth_logout(
         .auth_status_view(instance_id)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("授权已退出", json!({ "auth": auth })))
+    Ok(success("Logged out successfully", json!({ "auth": auth })))
 }
 
 pub(super) async fn service_auth_save_client_secret(
@@ -231,7 +231,7 @@ pub(super) async fn service_auth_save_client_secret(
         .save_oauth_client_secret(instance_id, payload.client_secret)
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("客户端密钥已安全保存", json!({ "stored": true })))
+    Ok(success("Client secret saved securely", json!({ "stored": true })))
 }
 
 pub(super) async fn service_auth_save_private_key(
@@ -247,7 +247,7 @@ pub(super) async fn service_auth_save_private_key(
         .save_oauth_private_key(instance_id, payload.private_key_pem.into_bytes())
         .await
         .map_err(ApiError::from_store)?;
-    Ok(success("私钥已安全保存", json!({ "stored": true })))
+    Ok(success("Private key saved securely", json!({ "stored": true })))
 }
 
 pub(super) async fn service_auth_scope_upgrade(
@@ -281,7 +281,7 @@ pub(super) async fn service_auth_scope_upgrade(
         .await
         .map_err(ApiError::from_store)?;
     Ok(success(
-        "权限范围升级授权已开始",
+        "Scope upgrade authorization started",
         json!({ "auth": auth, "authorization": authorization }),
     ))
 }

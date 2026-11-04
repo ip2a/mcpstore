@@ -13,6 +13,8 @@ pub struct ComponentOverrideCommon {
     pub meta: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Value>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -34,6 +36,10 @@ impl ComponentOverrideCommon {
     }
     pub fn with_annotations(mut self, value: Value) -> Self {
         self.annotations = Some(value);
+        self
+    }
+    pub fn with_icons(mut self, value: Value) -> Self {
+        self.icons = Some(value);
         self
     }
     pub fn with_tag(mut self, value: impl Into<String>) -> Self {
@@ -80,6 +86,9 @@ pub(crate) fn apply_meta_override(
     }
     if let Some(annotations) = &common.annotations {
         value.insert("annotations".into(), annotations.clone());
+    }
+    if let Some(icons) = &common.icons {
+        value.insert("icons".into(), icons.clone());
     }
 }
 
@@ -331,6 +340,7 @@ impl MCPStore {
 
 pub mod prompts;
 pub mod resources;
+pub mod services;
 pub mod tools;
 
 pub use prompts::{PromptOverridePatch, PromptOverrideRule};
@@ -338,6 +348,7 @@ pub use resources::{
     ResourceOverridePatch, ResourceOverrideRule, ResourceTemplateOverridePatch,
     ResourceTemplateOverrideRule,
 };
+pub use services::{ServiceOverridePatch, ServiceOverrideRule};
 pub use tools::{
     ToolArgumentOverride, ToolOverridePatch, ToolOverrideRule, ToolOverrideSafetyPolicy,
 };

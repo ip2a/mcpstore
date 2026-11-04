@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 
 use super::{
     envelope::{success, ApiError, ApiResult},
-    ApiState,
+    panel_settings::{self, PanelSettings},
+    ApiState, PanelCtx,
 };
 
 #[derive(Deserialize)]
@@ -19,6 +20,7 @@ pub(super) struct UpdateSettingsRequest {
     diagnostics: Option<UpdateDiagnosticsRequest>,
     api: Option<UpdateApiRequest>,
     web: Option<UpdateWebRequest>,
+    gateway: Option<UpdateGatewayRequest>,
     hosts: Option<HostsConfig>,
 }
 
@@ -29,6 +31,11 @@ struct UpdateApiRequest {
 
 #[derive(Deserialize)]
 struct UpdateWebRequest {
+    port: Option<u16>,
+}
+
+#[derive(Deserialize)]
+struct UpdateGatewayRequest {
     port: Option<u16>,
 }
 
@@ -45,36 +52,64 @@ struct UpdateRuntimeLogRequest {
     retention_days: Option<Option<u64>>,
 }
 
-pub(super) async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
+pub(super) async fn health<T: PanelCtx>(State(state): State<Arc<T>>) -> Json<Value> {
+    let store = match state.daemon() {
+        Some(daemon) => Some(daemon.current_store_name().await),
+        None => None,
+    };
     Json(json!({
         "status": "ok",
-        "store": state.store.current_store_name().await,
+        "store": store,
     }))
 }
 
-pub(super) async fn meta(State(state): State<Arc<ApiState>>) -> ApiResult {
-    let payload = app_meta_payload(&state)?;
-    Ok(success("应用元信息获取成功", payload))
+pub(super) async fn daemon_meta(State(state): State<Arc<ApiState>>) -> ApiResult {
+    Ok(success(
+        "Daemon metadata fetched",
+        json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "node": {
+                "id": state.store.panel_id(),
+                "mode": match state.store.panel_role() {
+                    mcpstore::PanelRole::ControlPanel => "control",
+                    mcpstore::PanelRole::DataPanel { .. } => "data",
+                },
+            },
+            "features": {
+                "app_host_routing_v1": true
+            },
+        }),
+    ))
 }
 
-pub(super) async fn update_settings(
-    State(state): State<Arc<ApiState>>,
+pub(super) async fn meta<T: PanelCtx>(State(state): State<Arc<T>>) -> ApiResult {
+    let payload = app_meta_payload(state.as_ref())?;
+    Ok(success("App metadata fetched successfully", payload))
+}
+
+pub(super) async fn update_settings<T: PanelCtx>(
+    State(state): State<Arc<T>>,
     Json(payload): Json<UpdateSettingsRequest>,
 ) -> ApiResult {
-    let config_manager = state.store.config_manager();
+    let config_manager = state.config_manager();
     let mut config = config_manager
         .load_app_config_or_default()
         .map_err(config_api_error)?;
 
-    if let Some(language) = payload.language {
-        config.ui.language = normalize_ui_language(&language)?;
-    }
+    // Validate every input before any file write lands.
+    let language = match payload.language {
+        Some(language) => Some(
+            panel_settings::normalize_language(&language)
+                .map_err(|message| ApiError::invalid_parameter(message, Some("language")))?,
+        ),
+        None => None,
+    };
 
     if let Some(api) = payload.api {
         if let Some(port) = api.port {
             if port == 0 {
                 return Err(ApiError::invalid_parameter(
-                    "后端端口必须大于 0",
+                    "API port must be greater than 0",
                     Some("api.port"),
                 ));
             }
@@ -86,7 +121,7 @@ pub(super) async fn update_settings(
         if let Some(port) = web.port {
             if port == 0 {
                 return Err(ApiError::invalid_parameter(
-                    "前端端口必须大于 0",
+                    "Web port must be greater than 0",
                     Some("web.port"),
                 ));
             }
@@ -94,8 +129,16 @@ pub(super) async fn update_settings(
         }
     }
 
-    if let Some(hosts) = payload.hosts {
-        config.hosts = hosts;
+    if let Some(gateway) = payload.gateway {
+        if let Some(port) = gateway.port {
+            if port == 0 {
+                return Err(ApiError::invalid_parameter(
+                    "Gateway port must be greater than 0",
+                    Some("gateway.port"),
+                ));
+            }
+            config.gateway.port = port;
+        }
     }
 
     if let Some(diagnostics) = payload.diagnostics {
@@ -109,7 +152,7 @@ pub(super) async fn update_settings(
             if let Some(max_size_bytes) = runtime_log.max_size_bytes {
                 if max_size_bytes == 0 {
                     return Err(ApiError::invalid_parameter(
-                        "运行Logs大小上限必须大于 0",
+                        "Runtime log size limit must be greater than 0",
                         Some("diagnostics.runtime_log.max_size_bytes"),
                     ));
                 }
@@ -121,15 +164,32 @@ pub(super) async fn update_settings(
         }
     }
 
+    // One in-process lock covers panel-settings read, mutate and persist; the
+    // two file writes are atomic individually but are not one transaction.
+    let _persistence = panel_settings::persistence_lock();
+    let mut panel_settings =
+        panel_settings::load_or_migrate(config_manager).map_err(ApiError::invalid_request)?;
+    if let Some(language) = language {
+        panel_settings.language = language;
+    }
+    if let Some(hosts) = payload.hosts {
+        panel_settings.hosts = hosts;
+    }
+
     config_manager
         .save_app_config(&config)
         .map_err(config_api_error)?;
+    panel_settings::save_for_manager(config_manager, &panel_settings)
+        .map_err(ApiError::invalid_request)?;
 
-    Ok(success("设置保存成功", settings_payload(&config)))
+    Ok(success(
+        "Settings saved successfully",
+        settings_payload(&config, &panel_settings),
+    ))
 }
 
-fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
-    let config_manager = state.store.config_manager();
+fn app_meta_payload<T: PanelCtx>(state: &T) -> Result<Value, ApiError> {
+    let config_manager = state.config_manager();
     let config = config_manager
         .load_app_config_or_default()
         .map_err(config_api_error)?;
@@ -142,9 +202,29 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
             .map_err(config_api_error)?
     };
 
+    let _persistence = panel_settings::persistence_lock();
+    let panel_settings =
+        panel_settings::load_or_migrate(config_manager).map_err(ApiError::invalid_request)?;
+
+    let (node_id, node_mode) = match state.daemon() {
+        Some(daemon) => (
+            daemon.panel_id(),
+            match daemon.panel_role() {
+                mcpstore::PanelRole::ControlPanel => "control",
+                mcpstore::PanelRole::DataPanel { .. } => "data",
+            },
+        ),
+        // The standalone web panel is a control panel without a store.
+        None => (mcpstore::state::CONTROL_NODE_ID.to_string(), "control"),
+    };
+
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "settings": settings_payload(&config),
+        "node": {
+            "id": node_id,
+            "mode": node_mode,
+        },
+        "settings": settings_payload(&config, &panel_settings),
         "settings_paths": settings_paths_payload(config_manager.mcp_path()),
         "config_file": {
             "path": config_path.display().to_string(),
@@ -154,9 +234,9 @@ fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
     }))
 }
 
-fn settings_payload(config: &AppConfig) -> Value {
+fn settings_payload(config: &AppConfig, panel_settings: &PanelSettings) -> Value {
     json!({
-        "language": api_ui_language(&config.ui.language),
+        "language": panel_settings.language,
         "api": {
             "host": config.api.host,
             "port": config.api.port,
@@ -166,6 +246,9 @@ fn settings_payload(config: &AppConfig) -> Value {
             "host": config.web.host,
             "port": config.web.port,
         },
+        "gateway": {
+            "port": config.gateway.port,
+        },
         "diagnostics": {
             "enabled": config.diagnostics.enabled,
             "runtime_log": {
@@ -174,7 +257,7 @@ fn settings_payload(config: &AppConfig) -> Value {
                 "retention_days": config.diagnostics.runtime_log.retention_days,
             },
         },
-        "hosts": hosts_payload(&config.hosts),
+        "hosts": hosts_payload(&panel_settings.hosts),
     })
 }
 
@@ -182,7 +265,7 @@ fn hosts_payload(hosts: &HostsConfig) -> Value {
     let mut value = serde_json::Map::new();
     value.insert("active".to_string(), json!(hosts.active));
     for (name, entry) in &hosts.entries {
-        value.insert(name.clone(), json!({ "url": entry.url }));
+        value.insert(name.clone(), json!({ "urls": entry.urls }));
     }
     Value::Object(value)
 }
@@ -197,25 +280,6 @@ fn settings_paths_payload(mcp_path: &FsPath) -> Value {
         "log_file_name": log_file_name,
         "log_file_path": log_dir.join(log_file_name).display().to_string(),
     })
-}
-
-fn normalize_ui_language(language: &str) -> Result<String, ApiError> {
-    match language.trim() {
-        "auto" => Ok("auto".to_string()),
-        "zh" | "zh-cn" => Ok("zh".to_string()),
-        "en" => Ok("en".to_string()),
-        _ => Err(ApiError::invalid_parameter(
-            "语言必须是 auto、zh 或 en",
-            Some("language"),
-        )),
-    }
-}
-
-fn api_ui_language(language: &str) -> &str {
-    match language {
-        "zh-cn" => "zh",
-        value => value,
-    }
 }
 
 fn config_api_error(error: ConfigError) -> ApiError {

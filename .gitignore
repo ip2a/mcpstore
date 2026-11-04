@@ -15,6 +15,8 @@
 !i18n/**
 !npm/
 !npm/**
+!plugins/
+!plugins/**
 !python/
 !python/**
 !rust/
@@ -71,3 +73,6 @@ npm/packages/*/bin/
 # Local example fixtures are intentionally not Git-managed for now.
 /python/example_local/
 web/REFACTOR_PLAN.md
+
+# tauri externalBin sidecar, built by run_debug.sh / release workflow
+desktop/tauri/binaries/

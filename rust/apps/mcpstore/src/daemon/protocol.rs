@@ -131,6 +131,13 @@ pub enum KernelOperation {
     ListScopeResources,
     ListScopeResourceTemplates,
     ListScopePrompts,
+    PluginList,
+    PluginMarket,
+    PluginDetect,
+    PluginInstall,
+    PluginUninstall,
+    PluginEnable,
+    PluginDisable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

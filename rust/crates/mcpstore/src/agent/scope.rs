@@ -51,6 +51,7 @@ impl MCPStore {
     }
 
     /// Scope registry: root + store + each agent, each entry carrying its runtime service count (from the registry).
+    /// Also includes agents from client-agent bindings even if they have no services yet.
     pub async fn list_scopes(&self) -> Result<Vec<ScopeSummary>> {
         self.refresh_from_db_if_needed().await?;
         let instances = self.kernel.control.registry.list_instances().await;
@@ -64,6 +65,26 @@ impl MCPStore {
                 }
             }
         }
+
+        // Include agents from client-agent bindings even if they have no services
+        let app_config_path = self.config_manager().app_config_path();
+        tracing::debug!("list_scopes: app_config_path={:?}", app_config_path);
+        if let Some(parent_dir) = app_config_path.parent() {
+            let registry_path = parent_dir.join("client-agents.json");
+            tracing::debug!("list_scopes: registry_path={:?}", registry_path);
+            match crate::client_agent::load_client_agent_registry(&registry_path) {
+                Ok(registry) => {
+                    tracing::debug!("list_scopes: loaded {} bindings", registry.bindings.len());
+                    for binding in registry.bindings.values() {
+                        agent_counts.entry(binding.agent_id.clone()).or_insert(0);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("list_scopes: failed to load client-agents registry: {}", e);
+                }
+            }
+        }
+
         let mut summaries = Vec::with_capacity(2 + agent_counts.len());
         summaries.push(ScopeSummary {
             scope: ScopeView::Root,

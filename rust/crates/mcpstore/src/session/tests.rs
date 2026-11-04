@@ -70,6 +70,7 @@ async fn register_tool_service(
             input_schema: serde_json::json!({"type": "object"}),
             output_schema: None,
             annotations: None,
+            icons: None,
             meta: None,
         })
         .collect::<Vec<_>>();

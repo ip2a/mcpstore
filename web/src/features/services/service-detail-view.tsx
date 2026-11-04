@@ -2,23 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { PageEmpty, PageError } from "@/components/shared/page-states";
-import { MetricGrid, MetricTile } from "@/components/shared/metric-grid";
 import { PanelCard } from "@/components/shared/panel-card";
+import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header";
 import { ScrollPane } from "@/components/shared/scroll-pane";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { SelectableRowButton } from "@/components/shared/selectable-row-button";
-import {
-  CatalogTabTrigger,
-  CatalogTabsList,
-} from "@/components/shared/catalog-tabs-list";
 import {
   ToolDetailDocBody,
   ToolDetailDocHeader,
   ToolPlaygroundAside,
 } from "@/components/shared/tool-detail-playground";
-import { TwoPanePage } from "@/components/shared/two-pane-page";
+import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useServiceAuthQuery,
   useServiceDetailQuery,
@@ -27,7 +23,6 @@ import {
   useServiceResourcesQuery,
   useServiceStatusQuery,
 } from "@/features/services/queries";
-import { ServiceStatusActionsDialog } from "@/features/services/service-status-actions-dialog";
 import { useToolArgsForm } from "@/features/tools/use-tool-args-form";
 import { serializeToolArgs } from "@/lib/tool-args";
 import { getOriginalToolName, getToolSchema, toolKey } from "@/lib/tool-info";
@@ -45,18 +40,16 @@ import {
 } from "@/lib/api";
 import { formatServiceLaunchLine } from "@/lib/service-info";
 import { useI18n } from "@/lib/i18n-context";
-import { cn } from "@/lib/utils";
 
 import {
   ServiceOverviewPane,
   promptArgCount,
-  ServicePreviewHeader,
+  ServicePreviewActions,
   ServicePromptDetailPane,
   ServiceResourceDetailPane,
   ServiceResourceTemplateDetailPane,
-  type CatalogTab,
   type ResourceSubTab,
-  type RightPaneView,
+  type ServiceDetailTab,
 } from "@/features/services/service-panels";
 
 function resourceKey(resource: ResourceInfo) {
@@ -90,8 +83,7 @@ export function ServiceDetailView(props: {
 }) {
   const { t } = useI18n();
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [rightPaneView, setRightPaneView] = useState<RightPaneView>("service");
-  const [activeTab, setActiveTab] = useState<CatalogTab>("tools");
+  const [activeTab, setActiveTab] = useState<ServiceDetailTab>("service");
   const [resourceSubTab, setResourceSubTab] = useState<ResourceSubTab>("items");
   const [selectedToolKey, setSelectedToolKey] = useState<string | null>(null);
   const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(
@@ -103,7 +95,6 @@ export function ServiceDetailView(props: {
   const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(
     null,
   );
-  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const detailQuery = useServiceDetailQuery(props.service);
   const authQuery = useServiceAuthQuery(props.service);
   const statusQuery = useServiceStatusQuery(props.service);
@@ -138,27 +129,6 @@ export function ServiceDetailView(props: {
   const configArgs = Array.isArray(serviceConfig?.args)
     ? serviceConfig.args.map(String).join(" ")
     : null;
-  const totalParamCount = useMemo(() => {
-    if (!tools.length) return null;
-    return tools.reduce((sum, tool) => {
-      const schema = getToolSchema(tool) as { properties?: Record<string, unknown> };
-      return sum + Object.keys(schema.properties || {}).length;
-    }, 0);
-  }, [tools]);
-  const catalogCounts = useMemo(
-    () => ({
-      prompts: prompts.length,
-      tools: tools.length,
-      resources: resources.length + resourceTemplates.length,
-    }),
-    [prompts.length, resourceTemplates.length, resources.length, tools.length],
-  );
-  const catalogTotal =
-    catalogCounts.prompts + catalogCounts.tools + catalogCounts.resources;
-  const goToCatalogTab = (tab: CatalogTab) => {
-    setActiveTab(tab);
-    setRightPaneView("catalog");
-  };
   const selectedTool = useMemo(() => {
     if (!tools.length) return null;
     return (
@@ -297,14 +267,14 @@ export function ServiceDetailView(props: {
   }
 
   function refreshCurrentView() {
-    if (rightPaneView === "service") {
+    if (activeTab === "service") {
       return Promise.all([loadDetail(), authQuery.refetch()]);
     }
     return activeTab === "tools" ? loadDetail() : loadCatalog();
   }
 
   useEffect(() => {
-    setRightPaneView("service");
+    setActiveTab("service");
     setResourceSubTab("items");
   }, [props.service.instance_id]);
 
@@ -313,76 +283,197 @@ export function ServiceDetailView(props: {
   }, [props.refreshToken, props.service.instance_id]);
 
   useEffect(() => {
-    if (activeTab !== "tools") void loadCatalog();
+    if (activeTab === "prompts" || activeTab === "resources") void loadCatalog();
   }, [activeTab, props.service.instance_id]);
+
+  const catalogSplitClassName =
+    "mt-0 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(220px,0.38fr)_minmax(0,1fr)] grid-rows-1 gap-4 overflow-hidden [&>*]:min-h-0 [&>*]:min-w-0";
+
+  const previewActionsProps = {
+    activeTab,
+    resourceSubTab,
+    loading,
+    service,
+    selectedTool,
+    selectedResource,
+    selectedTemplate,
+    selectedPrompt,
+    onRefresh: refreshCurrentView,
+    onConnect: props.onConnect,
+    onDisconnect: props.onDisconnect,
+    busy: props.busy,
+    onRun:
+      activeTab === "tools" && selectedTool
+        ? () =>
+            props.onRunTool(
+              selectedTool,
+              serializeToolArgs(toolArgs, toolArgsSchema),
+            )
+        : undefined,
+    runningTool: runningSelectedTool,
+    onDetail:
+      activeTab === "tools" && selectedTool
+        ? () => props.onToolDetail(selectedTool, service, statusReport)
+        : undefined,
+  };
+
+  function renderServiceDetail() {
+    return (
+      <div className="flex min-h-0 flex-col overflow-hidden">
+        {error ? (
+          <ScrollPane className="flex-1">
+            <PageError
+              title={t("serviceDetailLoadFailed")}
+              message={errorMessage}
+              onRefresh={refreshCurrentView}
+            />
+          </ScrollPane>
+        ) : (
+          <ScrollPane className="flex-1">
+            <div className="rounded-lg bg-muted/15 p-4">
+              <ServiceOverviewPane
+                service={service}
+                description={description}
+                transport={transport}
+                launchLine={launchLine}
+                configArgs={configArgs}
+                endpoint={String(endpoint)}
+              />
+            </div>
+          </ScrollPane>
+        )}
+      </div>
+    );
+  }
+
+  function renderCatalogDetail() {
+    return (
+      <div className="flex min-h-0 flex-col overflow-hidden">
+        {error ? (
+          <ScrollPane className="flex-1">
+            <PageError
+              title={t("serviceDetailLoadFailed")}
+              message={errorMessage}
+              onRefresh={refreshCurrentView}
+            />
+          </ScrollPane>
+        ) : activeTab === "tools" && selectedTool ? (
+          <div className={toolDetailPlaygroundGrid}>
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+              <ToolDetailDocHeader tool={selectedTool} />
+              <ScrollPane className="min-h-0 flex-1">
+                <ToolDetailDocBody
+                  tool={selectedTool}
+                  toolArgs={toolArgs}
+                  onToolArgChange={setToolArg}
+                  serviceName={service.service_name}
+                  scope={service.scope}
+                  originalToolName={getOriginalToolName(selectedTool)}
+                />
+              </ScrollPane>
+            </div>
+            <ToolPlaygroundAside
+              tool={selectedTool}
+              instanceId={service.instance_id}
+              toolArgs={toolArgs}
+              toolArgsSchema={toolArgsSchema}
+              running={runningSelectedTool}
+              onRun={() =>
+                props.onRunTool(
+                  selectedTool,
+                  serializeToolArgs(toolArgs, toolArgsSchema),
+                )
+              }
+            />
+          </div>
+        ) : (
+          <ScrollPane className="flex-1">
+            {activeTab === "tools" ? (
+              <PageEmpty
+                title={t("noToolSelected")}
+                description={t("serviceToolDetailsWillAppear")}
+                onRefresh={refreshCurrentView}
+              />
+            ) : activeTab === "resources" ? (
+              resourceSubTab === "templates" ? (
+                selectedTemplate ? (
+                  <ServiceResourceTemplateDetailPane
+                    template={selectedTemplate}
+                    service={service}
+                  />
+                ) : (
+                  <PageEmpty
+                    title={t("noTemplateSelected")}
+                    description={t("noTemplateSelectedDescription")}
+                    onRefresh={refreshCurrentView}
+                  />
+                )
+              ) : selectedResource ? (
+                <ServiceResourceDetailPane
+                  resource={selectedResource}
+                  service={service}
+                />
+              ) : (
+                <PageEmpty
+                  title={t("noResourceSelected")}
+                  description={t("noResourceSelectedDescription")}
+                  onRefresh={refreshCurrentView}
+                />
+              )
+            ) : selectedPrompt ? (
+              <ServicePromptDetailPane
+                prompt={selectedPrompt}
+                service={service}
+              />
+            ) : (
+              <PageEmpty
+                title={t("noPromptSelected")}
+                onRefresh={refreshCurrentView}
+              />
+            )}
+          </ScrollPane>
+        )}
+      </div>
+    );
+  }
+
+  const headerSubtitle = [transport, description].filter(Boolean).join(" · ");
 
   return (
     <>
-      <TwoPanePage variant="full" className="h-full min-h-0 flex-1 gap-4">
-        <PanelCard className="@container h-full min-h-0">
-          <section className="flex flex-col gap-3 border-b pb-4">
-            <div className="min-w-0">
-              <p className="font-mono text-xs uppercase text-muted-foreground">
-                {t("service")}
-              </p>
-              <button
-                type="button"
-                onClick={() => setRightPaneView("service")}
-                className={cn(
-                  "mt-1 block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-lg font-semibold underline-offset-4 outline-none transition-opacity",
-                  "hover:underline active:opacity-70",
-                )}
-                title={service.service_name}
-              >
-                {service.service_name}
-              </button>
-              <p
-                className="mt-1 truncate font-mono text-xs text-muted-foreground"
-                title={transport}
-              >
-                {transport}
-              </p>
-              {description ? (
-                <p
-                  className="mt-2 line-clamp-2 text-sm text-muted-foreground"
-                  title={description}
-                >
-                  {description}
-                </p>
-              ) : null}
-            </div>
-          </section>
+      <WorkspaceBreadcrumb
+        ariaLabel={t("serviceDetail")}
+        parentLabel={t("servicesWorkspaceTitle")}
+        onParentClick={props.onBack}
+        currentLabel={service.service_name}
+        subtitle={headerSubtitle || undefined}
+      />
 
-          <Tabs
-            value={activeTab}
-            onValueChange={(value) => {
-              setActiveTab(value as CatalogTab);
-              setRightPaneView("catalog");
-            }}
-            className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as ServiceDetailTab)}
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 pt-2 pb-2"
+        >
+          <div className="flex min-w-0 shrink-0 items-center gap-3">
+            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+              <TabsTrigger value="service">{t("service")}</TabsTrigger>
+              <TabsTrigger value="prompts">{t("prompts")}</TabsTrigger>
+              <TabsTrigger value="tools">{t("tools")}</TabsTrigger>
+              <TabsTrigger value="resources">{t("resources")}</TabsTrigger>
+            </TabsList>
+            <ServicePreviewActions {...previewActionsProps} className="ml-auto" />
+          </div>
+
+          <TabsContent
+            value="service"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
           >
-            <CatalogTabsList variant="line" layout="catalog">
-              <CatalogTabTrigger
-                value="prompts"
-                label={t("prompts")}
-                variant="text"
-              />
-              <CatalogTabTrigger
-                value="tools"
-                label={t("tools")}
-                variant="text"
-              />
-              <CatalogTabTrigger
-                value="resources"
-                label={t("resources")}
-                variant="text"
-              />
-            </CatalogTabsList>
+            {renderServiceDetail()}
+          </TabsContent>
 
-            <TabsContent
-              value="tools"
-              className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-            >
+          <TabsContent value="tools" className={catalogSplitClassName}>
+            <div className="flex min-h-0 flex-col gap-3 overflow-hidden border-r border-border/50 pr-4">
               <SectionHeading
                 title={t("toolList")}
                 titleAs="h2"
@@ -392,35 +483,31 @@ export function ServiceDetailView(props: {
               />
               {tools.length ? (
                 <ScrollPane
-                    className="flex-1"
-                    innerClassName="flex flex-col gap-2"
-                  >
-                    {tools.map((tool) => {
-                      const key = toolKey(service.instance_id, tool);
-                      const schema = getToolSchema(tool) as {
-                        properties?: Record<string, unknown>;
-                      };
-                      const paramCount = Object.keys(
-                        schema.properties || {},
-                      ).length;
-                      return (
-                        <SelectableRowButton
-                          key={key}
-                          meta={t("paramCount", { count: paramCount })}
-                          onClick={() => {
-                            setSelectedToolKey(key);
-                            setRightPaneView("catalog");
-                          }}
-                          selected={
-                            rightPaneView === "catalog" &&
-                            key ===
-                              toolKey(service.instance_id, selectedTool || tool)
-                          }
-                          title={tool.name}
-                        />
-                      );
-                    })}
-                  </ScrollPane>
+                  className="flex-1"
+                  innerClassName="flex flex-col gap-2"
+                >
+                  {tools.map((tool) => {
+                    const key = toolKey(service.instance_id, tool);
+                    const schema = getToolSchema(tool) as {
+                      properties?: Record<string, unknown>;
+                    };
+                    const paramCount = Object.keys(
+                      schema.properties || {},
+                    ).length;
+                    return (
+                      <SelectableRowButton
+                        key={key}
+                        meta={t("paramCount", { count: paramCount })}
+                        onClick={() => setSelectedToolKey(key)}
+                        selected={
+                          key ===
+                          toolKey(service.instance_id, selectedTool || tool)
+                        }
+                        title={tool.name}
+                      />
+                    );
+                  })}
+                </ScrollPane>
               ) : (
                 <PageEmpty
                   title={t("noToolsFound")}
@@ -428,12 +515,12 @@ export function ServiceDetailView(props: {
                   onRefresh={refreshCurrentView}
                 />
               )}
-            </TabsContent>
+            </div>
+            {renderCatalogDetail()}
+          </TabsContent>
 
-            <TabsContent
-              value="prompts"
-              className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-            >
+          <TabsContent value="prompts" className={catalogSplitClassName}>
+            <div className="flex min-h-0 flex-col gap-3 overflow-hidden border-r border-border/50 pr-4">
               <SectionHeading
                 title={t("promptList")}
                 titleAs="h2"
@@ -458,14 +545,8 @@ export function ServiceDetailView(props: {
                             ? t("paramCount", { count: argCount })
                             : t("noArgs"))
                         }
-                        onClick={() => {
-                          setSelectedPromptKey(key);
-                          setRightPaneView("catalog");
-                        }}
-                        selected={
-                          rightPaneView === "catalog" &&
-                          key === promptKey(selectedPrompt || prompt)
-                        }
+                        onClick={() => setSelectedPromptKey(key)}
+                        selected={key === promptKey(selectedPrompt || prompt)}
                         title={prompt.title || prompt.name}
                       />
                     );
@@ -477,12 +558,12 @@ export function ServiceDetailView(props: {
                   onRefresh={refreshCurrentView}
                 />
               )}
-            </TabsContent>
+            </div>
+            {renderCatalogDetail()}
+          </TabsContent>
 
-            <TabsContent
-              value="resources"
-              className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-            >
+          <TabsContent value="resources" className={catalogSplitClassName}>
+            <div className="flex min-h-0 flex-col gap-3 overflow-hidden border-r border-border/50 pr-4">
               <SectionHeading
                 title={t("resourceList")}
                 titleAs="h2"
@@ -507,10 +588,8 @@ export function ServiceDetailView(props: {
                         onClick={() => {
                           setResourceSubTab("items");
                           setSelectedResourceKey(key);
-                          setRightPaneView("catalog");
                         }}
                         selected={
-                          rightPaneView === "catalog" &&
                           resourceSubTab === "items" &&
                           key === resourceKey(selectedResource || resource)
                         }
@@ -531,10 +610,8 @@ export function ServiceDetailView(props: {
                         onClick={() => {
                           setResourceSubTab("templates");
                           setSelectedTemplateKey(key);
-                          setRightPaneView("catalog");
                         }}
                         selected={
-                          rightPaneView === "catalog" &&
                           resourceSubTab === "templates" &&
                           key ===
                             resourceTemplateKey(selectedTemplate || template)
@@ -556,228 +633,11 @@ export function ServiceDetailView(props: {
                   onRefresh={refreshCurrentView}
                 />
               )}
-            </TabsContent>
-          </Tabs>
-        </PanelCard>
-
-        <PanelCard
-          variant="plain"
-          className="flex h-full min-h-0 flex-col gap-4 overflow-hidden"
-        >
-          <ServicePreviewHeader
-            rightPaneView={rightPaneView}
-            activeTab={activeTab}
-            resourceSubTab={resourceSubTab}
-            loading={loading}
-            service={service}
-            selectedTool={selectedTool}
-            selectedResource={selectedResource}
-            selectedTemplate={selectedTemplate}
-            selectedPrompt={selectedPrompt}
-            toolCount={tools.length}
-            resourceCount={resources.length}
-            templateCount={resourceTemplates.length}
-            promptCount={prompts.length}
-            onRefresh={refreshCurrentView}
-            onConnect={props.onConnect}
-            onDisconnect={props.onDisconnect}
-            busy={props.busy}
-            onRun={
-              rightPaneView === "catalog" &&
-              activeTab === "tools" &&
-              selectedTool
-                ? () =>
-                    props.onRunTool(
-                      selectedTool,
-                      serializeToolArgs(toolArgs, toolArgsSchema),
-                    )
-                : undefined
-            }
-            runningTool={runningSelectedTool}
-            onDetail={
-              rightPaneView === "catalog" &&
-              activeTab === "tools" &&
-              selectedTool
-                ? () => props.onToolDetail(selectedTool, service, statusReport)
-                : undefined
-            }
-          />
-          {rightPaneView === "service" ? (
-            <section className="shrink-0 border-b pb-4">
-              <MetricGrid columns="four">
-                <MetricTile
-                  variant="compact"
-                  label={t("status")}
-                  value={String(service.state.readiness.status || t("unknown"))}
-                  title={String(service.state.readiness.status || t("unknown"))}
-                  hint={statusReport?.health || t("clickToManage")}
-                  active={statusDialogOpen}
-                  onClick={() => setStatusDialogOpen(true)}
-                />
-                <MetricTile
-                  variant="compact"
-                  label={t("totalParamCount")}
-                  value={
-                    totalParamCount === null ? "" : String(totalParamCount)
-                  }
-                  title={
-                    totalParamCount === null
-                      ? undefined
-                      : t("paramCount", { count: totalParamCount })
-                  }
-                  hint={
-                    tools.length
-                      ? t("itemsCount", { count: tools.length })
-                      : undefined
-                  }
-                />
-                <MetricTile
-                  variant="compact"
-                  label={t("uptime")}
-                  value=""
-                />
-                <MetricTile
-                  variant="compact"
-                  label={t("catalog")}
-                  value={String(catalogTotal)}
-                  hintClassName="flex min-w-0 gap-1 overflow-hidden sm:gap-2"
-                  hint={
-                    <>
-                      {(
-                        [
-                          ["prompts", catalogCounts.prompts, t("prompts")] as const,
-                          ["tools", catalogCounts.tools, t("tools")] as const,
-                          [
-                            "resources",
-                            catalogCounts.resources,
-                            t("resources"),
-                          ] as const,
-                        ] as const
-                      ).map(([tab, count, label]) => (
-                        <button
-                          key={tab}
-                          type="button"
-                          className="rounded-sm px-0.5 transition-colors hover:text-foreground"
-                          title={label}
-                          onClick={() => goToCatalogTab(tab)}
-                        >
-                          {count}
-                        </button>
-                      ))}
-                    </>
-                  }
-                />
-              </MetricGrid>
-            </section>
-          ) : null}
-          {error ? (
-            <ScrollPane className="flex-1">
-              <PageError
-                title={t("serviceDetailLoadFailed")}
-                message={errorMessage}
-                onRefresh={refreshCurrentView}
-              />
-            </ScrollPane>
-          ) : rightPaneView === "catalog" &&
-            activeTab === "tools" &&
-            selectedTool ? (
-            <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)] grid-rows-1 gap-6 overflow-hidden">
-              <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-                <ToolDetailDocHeader tool={selectedTool} />
-                <ScrollPane className="min-h-0 flex-1">
-                  <ToolDetailDocBody
-                    tool={selectedTool}
-                    toolArgs={toolArgs}
-                    onToolArgChange={setToolArg}
-                    serviceName={service.service_name}
-                    scope={service.scope}
-                    originalToolName={getOriginalToolName(selectedTool)}
-                  />
-                </ScrollPane>
-              </div>
-              <ToolPlaygroundAside
-                tool={selectedTool}
-                instanceId={service.instance_id}
-                toolArgs={toolArgs}
-                toolArgsSchema={toolArgsSchema}
-                running={runningSelectedTool}
-                onRun={() =>
-                  props.onRunTool(
-                    selectedTool,
-                    serializeToolArgs(toolArgs, toolArgsSchema),
-                  )
-                }
-              />
             </div>
-          ) : (
-            <ScrollPane className="flex-1">
-              {rightPaneView === "service" ? (
-                <div className="rounded-lg border border-border/50 bg-muted/15 p-4">
-                  <ServiceOverviewPane
-                    service={service}
-                    description={description}
-                    transport={transport}
-                    launchLine={launchLine}
-                    configArgs={configArgs}
-                    endpoint={String(endpoint)}
-                  />
-                </div>
-              ) : activeTab === "tools" ? (
-                <PageEmpty
-                  title={t("noToolSelected")}
-                  description={t("serviceToolDetailsWillAppear")}
-                  onRefresh={refreshCurrentView}
-                />
-              ) : activeTab === "resources" ? (
-                resourceSubTab === "templates" ? (
-                  selectedTemplate ? (
-                    <ServiceResourceTemplateDetailPane
-                      template={selectedTemplate}
-                      service={service}
-                    />
-                  ) : (
-                    <PageEmpty
-                      title={t("noTemplateSelected")}
-                      description={t("noTemplateSelectedDescription")}
-                      onRefresh={refreshCurrentView}
-                    />
-                  )
-                ) : selectedResource ? (
-                  <ServiceResourceDetailPane
-                    resource={selectedResource}
-                    service={service}
-                  />
-                ) : (
-                  <PageEmpty
-                    title={t("noResourceSelected")}
-                    description={t("noResourceSelectedDescription")}
-                    onRefresh={refreshCurrentView}
-                  />
-                )
-              ) : selectedPrompt ? (
-                <ServicePromptDetailPane prompt={selectedPrompt} service={service} />
-              ) : (
-                <PageEmpty
-                  title={t("noPromptSelected")}
-                  onRefresh={refreshCurrentView}
-                />
-              )}
-            </ScrollPane>
-          )}
-        </PanelCard>
-      </TwoPanePage>
-
-      <ServiceStatusActionsDialog
-        busy={props.busy}
-        open={statusDialogOpen}
-        service={service}
-        serviceState={service.state}
-        onConnect={props.onConnect}
-        onDelete={props.onDelete}
-        onDisconnect={props.onDisconnect}
-        onOpenChange={setStatusDialogOpen}
-        onRestart={props.onRestart}
-      />
+            {renderCatalogDetail()}
+          </TabsContent>
+        </Tabs>
+      </PanelCard>
     </>
   );
 }

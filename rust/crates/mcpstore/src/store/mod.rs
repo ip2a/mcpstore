@@ -190,11 +190,13 @@ impl MCPStore {
                     registry,
                     auth: auth_coordinator.clone(),
                     state: state_manager,
+                    refresh_mutex: tokio::sync::Mutex::new(()),
                 },
                 execution: ExecutionEngine {
                     pool,
                     supervisor: Default::default(),
                     event_bus: event_bus.clone(),
+                    telemetry: std::sync::OnceLock::new(),
                 },
                 persistence: PersistenceRouter {
                     store_config: tokio::sync::RwLock::new(store_config),
@@ -234,6 +236,39 @@ impl MCPStore {
     /// This process's panel role.
     pub fn panel_role(&self) -> &PanelRole {
         &self.kernel.runtime.panel_role
+    }
+
+    /// Attach the request-telemetry sink (host opts in; SDK default = off).
+    /// Idempotent: the first attach wins.
+    pub fn set_telemetry(
+        &self,
+        telemetry: Option<std::sync::Arc<dyn crate::telemetry::RequestTelemetry>>,
+    ) {
+        let _ = self.kernel.execution.telemetry.set(telemetry);
+    }
+
+    /// The attached telemetry sink, if any.
+    pub fn telemetry(&self) -> Option<std::sync::Arc<dyn crate::telemetry::RequestTelemetry>> {
+        self.kernel
+            .execution
+            .telemetry
+            .get()
+            .and_then(|slot| slot.clone())
+    }
+
+    /// Attach the frame-telemetry sink (host opts in; SDK default = off).
+    /// Idempotent: the first attach wins. Read lazily by upstream connections
+    /// at connect time.
+    pub fn set_frame_telemetry(
+        &self,
+        sink: Option<std::sync::Arc<dyn crate::telemetry::FrameTelemetry>>,
+    ) {
+        self.kernel.execution.pool.attach_frame_telemetry(sink);
+    }
+
+    /// The attached frame-telemetry sink, if any.
+    pub fn frame_telemetry(&self) -> Option<std::sync::Arc<dyn crate::telemetry::FrameTelemetry>> {
+        self.kernel.execution.pool.frame_telemetry()
     }
 
     /// Mount the control panel's self-healing supervisor (idempotent).
@@ -375,3 +410,13 @@ impl MCPStore {
 mod role_tests;
 #[cfg(test)]
 mod tests;
+
+/// Serializes tests that share the process-global `memory-test-shared` store. Concurrent
+/// async tests contending on that single store can deadlock (hold-and-wait across their
+/// per-test runtimes), which surfaced as hangs in `cargo test --workspace` while
+/// `cargo test -p mcpstore --lib` stayed green.
+#[cfg(test)]
+pub(crate) fn shared_store_test_guard() -> &'static tokio::sync::Mutex<()> {
+    static GUARD: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    GUARD.get_or_init(|| tokio::sync::Mutex::new(()))
+}

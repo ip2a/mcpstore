@@ -1,4 +1,5 @@
-import { api, buildQuery, request } from "./client";
+// Cache state belongs to the selected daemon resource.
+import { api, buildQuery } from "./client";
 import type {
   AddServiceInput,
   AgentItem,
@@ -47,17 +48,19 @@ import type {
   UpdateSettingsPayload,
 } from "../api";
 
+// Cache state belongs to the selected daemon resource.
 export async function cacheHealth(): Promise<CacheReport> {
-  return request("/cache/health");
+  return api("/cache/health");
 }
 
 export async function cacheInspect(): Promise<CacheReport> {
-  return request("/cache/inspect");
+  return api("/cache/inspect");
 }
 
 export async function switchCache(backend: CacheBackend) {
-  return request("/cache/switch", {
+  // Backend CacheSwitchRequest = { store, config }; the frontend has no config editing UI, so config is an empty object that takes backend defaults.
+  return api("/cache/switch", {
     method: "POST",
-    body: JSON.stringify({ backend }),
+    body: JSON.stringify({ store: backend, config: {} }),
   });
 }

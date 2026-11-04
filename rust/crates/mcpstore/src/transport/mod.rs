@@ -23,6 +23,7 @@ mod resources;
 mod stdio;
 mod task_state;
 mod tasks;
+mod telemetry_transport;
 mod tools;
 
 pub(crate) use elicitation::McpElicitationController;
@@ -256,6 +257,8 @@ pub struct DiscoveredPrompt {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolCallResult {
     pub content: Vec<ContentItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structured_content: Option<Value>,
     pub is_error: bool,
 }
 

@@ -2,9 +2,11 @@ use crate::auth::{AuthCoordinator, AuthError};
 use crate::config::ServerConfig;
 use crate::error::{Error, ErrorContext, FailureCode};
 use crate::identity::InstanceId;
+use crate::telemetry::FrameTelemetry;
 use crate::transport::client::McpClient;
 use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::oauth::McpStoreOAuthClient;
+use crate::transport::telemetry_transport::TelemetryTransport;
 
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
@@ -37,6 +39,7 @@ pub(super) async fn connect(
     server_config: &ServerConfig,
     auth_coordinator: &AuthCoordinator,
     handler: McpStoreClientHandler,
+    frame_telemetry: Option<std::sync::Arc<dyn FrameTelemetry>>,
 ) -> crate::error::Result<McpClient> {
     let config = server_config;
     let url = config.url.as_deref().ok_or_else(|| {
@@ -77,6 +80,13 @@ pub(super) async fn connect(
 
     if server_config.auth.is_none() {
         let transport = StreamableHttpClientTransport::from_config(transport_config);
+        let transport = TelemetryTransport::wrap(
+            transport,
+            frame_telemetry,
+            instance_id,
+            name.to_string(),
+            "streamable-http",
+        );
         return rmcp::service::serve_client_with_lifecycle(
             handler,
             transport,
@@ -129,6 +139,13 @@ pub(super) async fn connect(
         server_config.auth.clone(),
     );
     let transport = StreamableHttpClientTransport::with_client(oauth_client, transport_config);
+    let transport = TelemetryTransport::wrap(
+        transport,
+        frame_telemetry,
+        instance_id,
+        name.to_string(),
+        "streamable-http",
+    );
 
     match rmcp::service::serve_client_with_lifecycle(
         handler,

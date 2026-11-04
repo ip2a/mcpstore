@@ -381,6 +381,12 @@
           "markdownDescription": "Enables the default_window_icon command without any pre-configured scope."
         },
         {
+          "description": "Enables the exit command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:allow-exit",
+          "markdownDescription": "Enables the exit command without any pre-configured scope."
+        },
+        {
           "description": "Enables the fetch_data_store_identifiers command without any pre-configured scope.",
           "type": "string",
           "const": "core:app:allow-fetch-data-store-identifiers",
@@ -469,6 +475,12 @@
           "type": "string",
           "const": "core:app:deny-default-window-icon",
           "markdownDescription": "Denies the default_window_icon command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the exit command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:deny-exit",
+          "markdownDescription": "Denies the exit command without any pre-configured scope."
         },
         {
           "description": "Denies the fetch_data_store_identifiers command without any pre-configured scope.",
@@ -1731,6 +1743,12 @@
           "markdownDescription": "Enables the set_fullscreen command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_fullscreen_on_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:window:allow-set-fullscreen-on-monitor",
+          "markdownDescription": "Enables the set_fullscreen_on_monitor command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_icon command without any pre-configured scope.",
           "type": "string",
           "const": "core:window:allow-set-icon",
@@ -2199,6 +2217,12 @@
           "markdownDescription": "Denies the set_fullscreen command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_fullscreen_on_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:window:deny-set-fullscreen-on-monitor",
+          "markdownDescription": "Denies the set_fullscreen_on_monitor command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_icon command without any pre-configured scope.",
           "type": "string",
           "const": "core:window:deny-set-icon",
@@ -2491,6 +2515,48 @@
           "type": "string",
           "const": "updater:deny-install",
           "markdownDescription": "Denies the install command without any pre-configured scope."
+        },
+        {
+          "description": "This permission set configures what kind of\noperations are available from the window state plugin.\n\n#### Granted Permissions\n\nAll operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-filename`\n- `allow-restore-state`\n- `allow-save-window-state`",
+          "type": "string",
+          "const": "window-state:default",
+          "markdownDescription": "This permission set configures what kind of\noperations are available from the window state plugin.\n\n#### Granted Permissions\n\nAll operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-filename`\n- `allow-restore-state`\n- `allow-save-window-state`"
+        },
+        {
+          "description": "Enables the filename command without any pre-configured scope.",
+          "type": "string",
+          "const": "window-state:allow-filename",
+          "markdownDescription": "Enables the filename command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the restore_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "window-state:allow-restore-state",
+          "markdownDescription": "Enables the restore_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_window_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "window-state:allow-save-window-state",
+          "markdownDescription": "Enables the save_window_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the filename command without any pre-configured scope.",
+          "type": "string",
+          "const": "window-state:deny-filename",
+          "markdownDescription": "Denies the filename command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the restore_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "window-state:deny-restore-state",
+          "markdownDescription": "Denies the restore_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_window_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "window-state:deny-save-window-state",
+          "markdownDescription": "Denies the save_window_state command without any pre-configured scope."
         }
       ]
     },

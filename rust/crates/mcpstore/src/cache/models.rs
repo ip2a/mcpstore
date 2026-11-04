@@ -103,6 +103,8 @@ pub struct ToolEntity {
     #[serde(default)]
     pub annotations: Option<serde_json::Value>,
     #[serde(default)]
+    pub icons: Option<serde_json::Value>,
+    #[serde(default)]
     pub meta: Option<serde_json::Value>,
     pub created_time: i64,
     pub tool_hash: String,

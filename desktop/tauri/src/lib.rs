@@ -1,10 +1,12 @@
-use anyhow::Result;
-use mcpstore_cli::store_args::{build_store, StoreSourceArgs};
+use anyhow::{anyhow, Result};
+use reqwest::Client;
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::process::Command;
-use std::sync::{Arc, Mutex};
-use tauri::{LogicalSize, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use std::process::{Child, Command, Stdio};
+use std::time::Duration;
+use tauri::{
+    AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 
 // Mirrors `web/src/App.tsx` shell: w-[min(1280px,calc(100vw-24px))]
 const WEB_CONTENT_MAX_WIDTH: f64 = 1280.0;
@@ -35,53 +37,108 @@ struct WindowState {
     height: u32,
 }
 
-fn start_local_server() -> Result<String> {
-    let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    let addr = std_listener.local_addr()?;
-    std_listener.set_nonblocking(true)?;
-    let url = format!("http://{}", addr);
+/// The desktop loads the standalone web panel process (`mcpstore web`), which
+/// owns the /api face and the static frontend. The daemon is only attached or
+/// started first because the panel forwards every resource request to it.
+fn panel_url(app: &AppHandle) -> Result<String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        if !mcpstore_cli::daemon::ensure::is_daemon_ready().await {
+            start_daemon(app)?;
+            mcpstore_cli::daemon::ensure::wait_daemon_ready(Duration::from_secs(30)).await?;
+        }
 
-    std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("desktop server runtime should build");
-        runtime.block_on(async move {
-            let store_args = StoreSourceArgs {
-                config_path: None,
-                source: mcpstore_cli::store_args::SourceArg::Local,
-                store: None,
-                store_config: None,
-                namespace: None,
-            };
-            let store = match build_store(&store_args) {
-                Ok(store) => store,
-                Err(error) => {
-                    eprintln!("mcpstore desktop store setup failed: {error}");
-                    return;
-                }
-            };
-            if let Err(error) = store.load_from_source().await {
-                eprintln!("mcpstore desktop store load failed: {error}");
-                return;
-            }
-            let listener = tokio::net::TcpListener::from_std(std_listener)
-                .expect("desktop listener should convert");
-            let app = mcpstore_cli::commands::web::router(store);
-            if let Err(error) = axum::serve(listener, app).await {
-                eprintln!("mcpstore desktop server stopped: {error}");
-            }
-        });
-    });
+        // Same precedence as the panel itself: config.toml [web], default port.
+        let web = mcpstore_cli::ConfigManager::new()
+            .load_app_config_or_default()
+            .map_err(|error| anyhow!("failed to load config.toml: {error}"))?
+            .web;
+        let url = format!("http://127.0.0.1:{}", web.port);
+        let client = Client::new();
+        if client
+            .get(format!("{url}/api/health"))
+            .send()
+            .await
+            .is_ok()
+        {
+            return Ok(url);
+        }
+        start_panel(app)?;
 
-    Ok(url)
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            if client
+                .get(format!("{url}/api/health"))
+                .send()
+                .await
+                .is_ok()
+            {
+                return Ok(url);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(anyhow!("web panel did not become ready"));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
 }
 
-fn logical_state_from_physical(size: PhysicalSize<u32>, scale_factor: f64) -> WindowState {
-    WindowState {
-        width: ((size.width as f64) / scale_factor).round().max(1.0) as u32,
-        height: ((size.height as f64) / scale_factor).round().max(1.0) as u32,
+fn sidecar_binary() -> Result<std::path::PathBuf> {
+    // tauri-build copies the externalBin sidecar (built as
+    // binaries/mcpstore-<target-triple>) next to the compiled app binary with
+    // the triple stripped: target/debug/mcpstore in dev, Contents/MacOS/mcpstore
+    // in a packaged .app. It does NOT live under resource_dir().
+    std::env::current_exe()?
+        .parent()
+        .map(|dir| {
+            dir.join(if cfg!(windows) {
+                "mcpstore.exe"
+            } else {
+                "mcpstore"
+            })
+        })
+        .filter(|path| path.is_file())
+        .ok_or_else(|| anyhow!("packaged mcpstore daemon binary is missing"))
+}
+
+fn spawn_sidecar(
+    app: &AppHandle,
+    arg: &'static str,
+    log_name: &str,
+    current_dir: Option<std::path::PathBuf>,
+) -> Result<Child> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("home directory is unavailable"))?;
+    let log_path = home.join(".mcpstore").join("logs").join(log_name);
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)?;
+    let mut command = Command::new(sidecar_binary()?);
+    command.arg(arg);
+    if let Some(dir) = current_dir {
+        command.current_dir(dir);
+    }
+    Ok(command
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .spawn()?)
+}
+
+fn start_daemon(app: &AppHandle) -> Result<Child> {
+    // Bundled plugins ship as Resources/plugins; the daemon's own first-launch
+    // materialization scans cwd/plugins, so run it from resource_dir().
+    let resource_dir = app.path().resource_dir()?;
+    spawn_sidecar(app, "start", "desktop-daemon.out", Some(resource_dir))
+}
+
+fn start_panel(app: &AppHandle) -> Result<Child> {
+    spawn_sidecar(app, "web", "desktop-panel.out", None)
 }
 
 fn compute_min_inner_size(window: &WebviewWindow) -> MinInnerSize {
@@ -106,10 +163,7 @@ fn compute_min_inner_size(window: &WebviewWindow) -> MinInnerSize {
 
 fn apply_min_inner_size(window: &WebviewWindow) {
     let min_size = compute_min_inner_size(window);
-    let _ = window.set_min_size(Some(LogicalSize::new(
-        min_size.width,
-        min_size.height,
-    )));
+    let _ = window.set_min_size(Some(LogicalSize::new(min_size.width, min_size.height)));
 }
 
 fn prime_desktop_environment() {
@@ -181,6 +235,11 @@ fn merge_path_values(preferred: &str, current: Option<OsString>) -> Option<OsStr
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Persists size/position/maximized/fullscreen per window label and
+        // restores on next launch — the cross-platform standard from
+        // docs/调研文档-成熟保存窗口大小方案v1.md. Registered before setup so the
+        // state applies to the window created below.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -190,7 +249,7 @@ pub fn run() {
                 let _ = std::env::set_current_dir(home);
             }
 
-            let url = start_local_server()?;
+            let url = panel_url(&app.handle())?;
             let initial_state = WindowState {
                 width: DEFAULT_INNER_WIDTH as u32,
                 height: DEFAULT_INNER_HEIGHT as u32,
@@ -210,29 +269,13 @@ pub fn run() {
 
             apply_min_inner_size(&window);
 
-            let latest_window_state = Arc::new(Mutex::new(initial_state));
-            let latest_window_state_handle = Arc::clone(&latest_window_state);
             let event_window = window.clone();
             window.on_window_event(move |event| match event {
-                WindowEvent::Resized(size) => {
-                    if let Ok(scale_factor) = event_window.scale_factor() {
-                        if let Ok(mut state) = latest_window_state_handle.lock() {
-                            *state = logical_state_from_physical(*size, scale_factor);
-                        }
-                    }
-                }
                 WindowEvent::Moved(_) => {
                     apply_min_inner_size(&event_window);
                 }
-                WindowEvent::ScaleFactorChanged {
-                    scale_factor,
-                    new_inner_size,
-                    ..
-                } => {
+                WindowEvent::ScaleFactorChanged { .. } => {
                     apply_min_inner_size(&event_window);
-                    if let Ok(mut state) = latest_window_state_handle.lock() {
-                        *state = logical_state_from_physical(*new_inner_size, *scale_factor);
-                    }
                 }
                 _ => {}
             });

@@ -41,9 +41,21 @@ export function useAppView(services: ServiceInstance[]) {
   const pageTitle = selectedService?.service_name || viewTitle
   const setView = useCallback((nextView: AppView) => navigate(pathForView(nextView)), [navigate])
   const goBack = useCallback(() => {
+    if (view.name === "tool") {
+      navigate("/tools", { replace: location.key === "default" })
+      return
+    }
+    if (view.name === "resource") {
+      navigate("/resources", { replace: location.key === "default" })
+      return
+    }
+    if (view.name === "prompt") {
+      navigate("/prompts", { replace: location.key === "default" })
+      return
+    }
     if (location.key !== "default") navigate(-1)
     else navigate("/services", { replace: true })
-  }, [location.key, navigate])
+  }, [location.key, navigate, view.name])
 
   return {
     goBack,
@@ -58,11 +70,37 @@ export function useAppView(services: ServiceInstance[]) {
 }
 
 function viewFromPath(pathname: string, search: string): AppView {
-  if (pathname === "/" || pathname === "/services") return { name: "services" }
-  if (pathname === "/scope") return { name: "agents" }
+  if (pathname === "/" || pathname === "/home") return { name: "home" }
+  if (pathname === "/services") return { name: "services" }
+  if (pathname === "/scope" || pathname === "/config") return { name: "services" }
   if (pathname === "/tools") return { name: "tools" }
-  if (pathname === "/config") return { name: "agents" }
+  if (pathname === "/resources") return { name: "resources" }
+  if (pathname === "/prompts") return { name: "prompts" }
+  if (pathname.startsWith("/tools/")) {
+    const parsed = parseRegistryDetailPath(pathname.slice("/tools/".length))
+    if (parsed) return { name: "tool", instanceId: parsed.instanceId, toolName: parsed.key }
+  }
+  if (pathname.startsWith("/resources/")) {
+    const parsed = parseRegistryDetailPath(pathname.slice("/resources/".length))
+    if (parsed) return { name: "resource", instanceId: parsed.instanceId, resourceUri: parsed.key }
+  }
+  if (pathname.startsWith("/prompts/")) {
+    const parsed = parseRegistryDetailPath(pathname.slice("/prompts/".length))
+    if (parsed) return { name: "prompt", instanceId: parsed.instanceId, promptName: parsed.key }
+  }
+  if (pathname === "/clients") return { name: "clients" }
+  if (pathname === "/plugins") {
+    const tab = new URLSearchParams(search).get("tab")
+    if (tab === "installed" || tab === "services" || tab === "agents") {
+      return { name: "plugins", tab }
+    }
+    return { name: "plugins", tab: "installed" }
+  }
+  if (pathname === "/gateway") return { name: "gateway" }
+  if (pathname === "/history") return { name: "history" }
+  if (pathname === "/traces") return { name: "traces" }
   if (pathname === "/cache") return { name: "cache" }
+  if (pathname === "/settings") return { name: "settings" }
   if (pathname === "/add") return { name: "services" }
   if (pathname.startsWith("/services/")) {
     const raw = pathname.slice("/services/".length)
@@ -74,12 +112,36 @@ function viewFromPath(pathname: string, search: string): AppView {
     }
     return { name: "instance", addr: { service_name, scope: scopeFromSearch(search) } }
   }
-  return { name: "services" }
+  return { name: "home" }
+}
+
+function parseRegistryDetailPath(rest: string): { instanceId: string; key: string } | null {
+  const slash = rest.indexOf("/")
+  if (slash <= 0) return null
+  try {
+    return {
+      instanceId: decodeURIComponent(rest.slice(0, slash)),
+      key: decodeURIComponent(rest.slice(slash + 1)),
+    }
+  } catch {
+    return {
+      instanceId: rest.slice(0, slash),
+      key: rest.slice(slash + 1),
+    }
+  }
 }
 
 function pathForView(view: AppView): string {
   if (view.name === "services") return "/services"
-  if (view.name === "agents") return "/scope"
+  if (view.name === "tool") {
+    return `/tools/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.toolName)}`
+  }
+  if (view.name === "resource") {
+    return `/resources/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.resourceUri)}`
+  }
+  if (view.name === "prompt") {
+    return `/prompts/${encodeURIComponent(view.instanceId)}/${encodeURIComponent(view.promptName)}`
+  }
   if (view.name === "instance") {
     const base = `/services/${encodeURIComponent(view.addr.service_name)}`
     const query =
@@ -88,5 +150,6 @@ function pathForView(view: AppView): string {
         : "?scope=store"
     return `${base}${query}`
   }
+  if (view.name === "plugins" && view.tab) return `/plugins?tab=${encodeURIComponent(view.tab)}`
   return `/${view.name}`
 }

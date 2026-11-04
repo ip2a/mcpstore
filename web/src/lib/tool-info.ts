@@ -175,11 +175,12 @@ export function getSchemaFieldSubtitle(field: SchemaField): string | null {
 }
 
 /**
- * MCP 工具参数说明有两个常见来源，按参数各自独立取值：
- * 1. input_schema.properties[name].description — JSON Schema 结构化说明
- * 2. tool.description 里 Args/Parameters 段的 `name: text` — docstring 风格说明
+ * MCP tool parameter docs have two common sources, resolved independently per parameter:
+ * 1. input_schema.properties[name].description — JSON Schema structured description
+ * 2. `name: text` lines in the Args/Parameters section of tool.description — docstring-style description
  *
- * 对单个参数：有 schema 说明就用 schema；没有再看 prose。不是“降级”，而是服务端可能只写其中一处。
+ * For a single parameter: use the schema description if present, otherwise fall back to prose.
+ * This is not a "downgrade" — servers may only write one of the two.
  */
 export function resolveParameterDoc(
   name: string,

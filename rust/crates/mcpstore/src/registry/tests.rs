@@ -31,6 +31,7 @@ async fn test_registry_lifecycle() {
             input_schema: serde_json::json!({}),
             output_schema: None,
             annotations: None,
+            icons: None,
             meta: None,
         }],
         effective_config: Map::new(),

@@ -1,46 +1,32 @@
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 
-use axum::routing::any;
-use axum::{http::StatusCode, Router};
+use axum::Router;
 use mcpstore::error::{Error, FailureCode};
-use mcpstore::{AppConfig, ScopeRef};
+use mcpstore::AppConfig;
 use serde::Serialize;
 
 use crate::commands::api::{self, ApiState};
 
-/// daemon 托管的四个 HTTP 面。Kernel RPC（unix socket）不在此列，由 server.rs 持有。
+/// HTTP faces hosted by the daemon. Kernel RPC (unix socket) is not listed here; server.rs owns it.
+/// The daemon is core-only: the web panel is a separate main process (mcpstore web), gateway is a child process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListenerKey {
     Core,
-    App,
-    Web,
-    Aggregate,
 }
 
-const ALL_KEYS: [ListenerKey; 4] = [
-    ListenerKey::Core,
-    ListenerKey::App,
-    ListenerKey::Web,
-    ListenerKey::Aggregate,
-];
+const ALL_KEYS: [ListenerKey; 1] = [ListenerKey::Core];
 
 impl ListenerKey {
     fn name(self) -> &'static str {
         match self {
             Self::Core => "core",
-            Self::App => "app",
-            Self::Web => "web",
-            Self::Aggregate => "aggregate",
         }
     }
 
     fn index(self) -> usize {
         match self {
             Self::Core => 0,
-            Self::App => 1,
-            Self::Web => 2,
-            Self::Aggregate => 3,
         }
     }
 }
@@ -57,45 +43,29 @@ struct ListenerSlot {
     bind: SocketAddr,
 }
 
-/// listener 生命周期唯一主人：启停、热重绑、快照。
-/// 热重绑语义：先 bind 新地址成功 → abort 旧任务；bind 失败时旧 listener 原样运行。
+/// Sole owner of listener lifecycles: start/stop, hot rebind, snapshots.
+/// Hot rebind semantics: bind the new address first, then abort the old task; if bind fails the old listener keeps running.
 pub struct ListenerManager {
-    // ponytail: 全局一把锁；daemon 管理操作串行到达，无争用场景
-    slots: Mutex<[Option<ListenerSlot>; 4]>,
+    // ponytail: one global lock; daemon management ops arrive serially, no contention scenario
+    slots: Mutex<[Option<ListenerSlot>; 1]>,
 }
 
 impl ListenerManager {
     pub fn new() -> Self {
         Self {
-            slots: Mutex::new([None, None, None, None]),
+            slots: Mutex::new([None]),
         }
     }
 
-    /// daemon 启动：按 config.toml 拉起所有启用的面。
-    /// 单面 bind 失败不致命：kernel socket 才是命脉，面失败降级为「未运行」并大声告警
-    /// （与热切换「失败保留旧 listener」同一哲学）。
+    /// Daemon startup: bring up every enabled face per config.toml.
+    /// A single face failing to bind is not fatal: the kernel socket is the lifeline, so the face
+    /// degrades to "not running" with a loud warning (same philosophy as hot switch keeping the old listener on failure).
     pub async fn start_all(&self, config: &AppConfig, state: &Arc<ApiState>) {
         let server = &config.server;
-        let aggregate = &config.mcp_aggregate;
-        for (key, port) in [
-            (
-                ListenerKey::Core,
-                server.core_enabled.then_some(server.port),
-            ),
-            (
-                ListenerKey::App,
-                server.app_enabled.then_some(server.app_port),
-            ),
-            (
-                ListenerKey::Web,
-                server.web_enabled.then_some(server.web_port),
-            ),
-            (
-                ListenerKey::Aggregate,
-                (aggregate.enabled && aggregate.transport == "streamable-http")
-                    .then_some(aggregate.port),
-            ),
-        ] {
+        for (key, port) in [(
+            ListenerKey::Core,
+            server.core_enabled.then_some(server.port),
+        )] {
             match port {
                 Some(port) => {
                     let bind = match resolve_bind(&server.host, port) {
@@ -107,7 +77,7 @@ impl ListenerManager {
                     };
                     if let Err(error) = self.apply(key, bind, state).await {
                         eprintln!(
-                            "[DAEMON] {} face start failed on http://{bind}: {error}（该面未启动，其余不受影响）",
+                            "[DAEMON] {} face start failed on http://{bind}: {error} (this face did not start, the rest are unaffected)",
                             key.name()
                         );
                     }
@@ -117,7 +87,8 @@ impl ListenerManager {
         }
     }
 
-    /// 启用/重绑一个面。目标与现状相同则跳过（幂等）；bind 失败保留旧 listener，不会出现空窗。
+    /// Enable/rebind a face. Skips when the target matches the current state (idempotent); on bind
+    /// failure the old listener is kept, so there is no gap.
     pub async fn apply(
         &self,
         key: ListenerKey,
@@ -155,7 +126,7 @@ impl ListenerManager {
         Ok(())
     }
 
-    /// 停用一个面。显式关闭是意图本身，直接停，无空窗问题。
+    /// Stop a face. An explicit close is intent in itself, so stop directly; no gap concern.
     pub fn stop(&self, key: ListenerKey) {
         let mut slots = self.slots.lock().expect("listener slots poisoned");
         if let Some(old) = slots[key.index()].take() {
@@ -169,7 +140,7 @@ impl ListenerManager {
         for slot in slots.iter_mut().flatten() {
             slot.task.abort();
         }
-        *slots = [None, None, None, None];
+        *slots = [None];
     }
 
     pub fn snapshot(&self) -> Vec<ListenerStatus> {
@@ -192,49 +163,9 @@ impl ListenerManager {
     }
 }
 
-/// Web 面：静态资源 + 同源 /api → App 面（App API 固定描述本机 daemon）。
-pub fn web_router(state: Arc<ApiState>) -> Router {
-    let api = Router::new().nest("/api", api::app_router(state));
-    Router::new()
-        .merge(api)
-        .route("/api", any(api_not_found))
-        .route("/api/*path", any(api_not_found))
-        .fallback(crate::commands::web_assets::serve_react_app)
-}
-
-async fn api_not_found() -> StatusCode {
-    StatusCode::NOT_FOUND
-}
-
 async fn build_router(key: ListenerKey, state: &Arc<ApiState>) -> Result<Router, Error> {
     match key {
         ListenerKey::Core => Ok(api::core_router(Arc::clone(state))),
-        ListenerKey::App => Ok(api::app_router(Arc::clone(state))),
-        ListenerKey::Web => Ok(web_router(Arc::clone(state))),
-        ListenerKey::Aggregate => {
-            let server = crate::mcp_server::McpStoreServer::from_store(
-                Arc::clone(state.store()),
-                ScopeRef::Store,
-                None,
-                None,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-            )
-            .await
-            .map_err(|error| {
-                Error::new(
-                    FailureCode::ServiceUnavailable,
-                    format!("failed to build aggregate server: {error}"),
-                )
-            })?;
-            Ok(crate::mcp_server::streamable_http_router(server, "/mcp"))
-        }
     }
 }
 
@@ -266,8 +197,7 @@ mod tests {
     #[test]
     fn key_names_and_indices_are_stable() {
         assert_eq!(ListenerKey::Core.name(), "core");
-        assert_eq!(ListenerKey::App.index(), 1);
-        assert_eq!(ALL_KEYS.len(), 4);
+        assert_eq!(ALL_KEYS.len(), 1);
     }
 
     #[test]

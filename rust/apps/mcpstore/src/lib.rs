@@ -7,9 +7,14 @@ pub mod cli_app;
 pub mod commands;
 pub mod daemon;
 pub mod error;
-pub mod mcp_server;
+pub mod gateway;
 pub mod schema_cache;
 pub mod store_args;
+pub mod telemetry;
 pub mod tui;
 
 pub type BoxErr = Box<dyn std::error::Error>;
+
+/// Panel/desktop shells read the daemon config (e.g. the `[web]` panel bind)
+/// without linking the full SDK surface.
+pub use mcpstore::config::ConfigManager;

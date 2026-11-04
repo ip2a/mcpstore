@@ -38,7 +38,7 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
   const [transport, setTransport] = useState<"stdio" | "streamable-http">("streamable-http")
   const [scopeState, setScopeState] = useState<"store" | "agent">("store")
   const [agentIdState, setAgentIdState] = useState("")
-  // 传入 scope 时锁定到该作用域（per-scope 模式，隐藏选择器）；不传则用内部选择器（全局模式）。
+  // When a scope is passed in, lock to that scope (per-scope mode, selector hidden); otherwise use the internal selector (global mode).
   const locked = Boolean(scopeProp)
   const scope: "store" | "agent" = scopeProp
     ? scopeProp.type === "agent"
@@ -102,17 +102,17 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
       <SectionHeading title="Programming assistant configuration" titleAs="h2" />
 
       <div className="flex min-w-0 items-baseline justify-between gap-4 border-b py-3">
-        <span className="shrink-0 text-sm text-muted-foreground">作用域聚合mcp</span>
+        <span className="shrink-0 text-sm text-muted-foreground">Scope-aggregated MCP</span>
         <Dialog open={open ?? mcpHubOpen} onOpenChange={onOpenChange ?? setMcpHubOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" className="h-8 min-w-28 justify-between">
               <span>{mcpHubStatus?.running ? "running" : "stopped"}</span>
-              <span className="text-xs text-muted-foreground">配置</span>
+              <span className="text-xs text-muted-foreground">Configure</span>
             </Button>
           </DialogTrigger>
           <DialogContent className="max-h-[min(720px,calc(100vh-2rem))] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>作用域聚合mcp</DialogTitle>
+              <DialogTitle>Scope-aggregated MCP</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-2"><Label>MCP Hub transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>

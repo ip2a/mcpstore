@@ -1,6 +1,6 @@
 use clap::{Args, Subcommand};
 use mcpstore::{
-    client_config::{import_selected_services, inspect_client_config, ClientKind},
+    client_config::{import_selected_services, inspect_client_config},
     config::ConfigManager,
 };
 use serde_json::{json, Value};
@@ -45,7 +45,7 @@ pub enum ConfigAction {
     },
 }
 
-/// daemon 运行面修改 flags（设计 §7 key 表）。修改一律经 daemon 热应用并回写 config.toml。
+/// Daemon runtime face edit flags (design §7 key table). All edits go through daemon hot-apply and are written back to config.toml.
 #[derive(Args, Debug, Default)]
 pub struct ConfigEdits {
     #[arg(long)]
@@ -54,20 +54,12 @@ pub struct ConfigEdits {
     pub core: Option<String>,
     #[arg(long = "core-port")]
     pub core_port: Option<u16>,
-    #[arg(long = "app")]
-    pub app: Option<String>,
-    #[arg(long = "app-port")]
-    pub app_port: Option<u16>,
     #[arg(long = "web")]
     pub web: Option<String>,
     #[arg(long = "web-port")]
     pub web_port: Option<u16>,
-    #[arg(long = "mcp")]
-    pub mcp: Option<String>,
-    #[arg(long = "mcp-port")]
-    pub mcp_port: Option<u16>,
-    #[arg(long = "mcp-transport")]
-    pub mcp_transport: Option<String>,
+    #[arg(long = "gateway-port")]
+    pub gateway_port: Option<u16>,
 }
 
 impl ConfigEdits {
@@ -82,26 +74,14 @@ impl ConfigEdits {
         if let Some(value) = self.core_port {
             pairs.push(("core-port", json!(value)));
         }
-        if let Some(value) = &self.app {
-            pairs.push(("app", json!(value)));
-        }
-        if let Some(value) = self.app_port {
-            pairs.push(("app-port", json!(value)));
-        }
         if let Some(value) = &self.web {
             pairs.push(("web", json!(value)));
         }
         if let Some(value) = self.web_port {
             pairs.push(("web-port", json!(value)));
         }
-        if let Some(value) = &self.mcp {
-            pairs.push(("mcp", json!(value)));
-        }
-        if let Some(value) = self.mcp_port {
-            pairs.push(("mcp-port", json!(value)));
-        }
-        if let Some(value) = &self.mcp_transport {
-            pairs.push(("mcp-transport", json!(value)));
+        if let Some(value) = self.gateway_port {
+            pairs.push(("gateway-port", json!(value)));
         }
         pairs
     }
@@ -114,7 +94,7 @@ pub async fn run(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     if let Some(action) = action {
         if !edits.pairs().is_empty() {
-            return Err("config 子命令与修改 flag 不能同时使用".into());
+            return Err("cannot use the config subcommand together with edit flags".into());
         }
         return run_action(action).await;
     }
@@ -144,10 +124,10 @@ async fn run_action(action: ConfigAction) -> std::result::Result<(), Box<dyn std
     }
 }
 
-/// 修改面唯一入口：daemon 未运行时拒绝（不悄悄改文件）。
+/// Sole entry point for edits: refuse when the daemon is not running (never silently edit files).
 async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error>> {
     if !crate::daemon::protocol::is_daemon_running() {
-        return Err("daemon 未运行；修改需经 daemon 热应用。先运行 mcpstore start".into());
+        return Err("daemon is not running; edits must be hot-applied by the daemon. Run mcpstore start first".into());
     }
     let mut client = crate::daemon::client::connect_admin(None).await?;
     for (key, value) in edits.pairs() {
@@ -157,7 +137,7 @@ async fn apply_edits(edits: ConfigEdits) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// 裸 `mcpstore config`：daemon 运行面总览。
+/// Bare `mcpstore config`: daemon runtime face overview.
 async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(mut client) = crate::daemon::client::connect_admin(None).await {
         let status = client.status_host().await?;
@@ -193,21 +173,10 @@ async fn overview(json: bool) -> Result<(), Box<dyn std::error::Error>> {
         on_off(config.server.core_enabled),
         config.server.port
     );
+    println!("  web (panel process): port={}", config.web.port);
     println!(
-        "  app:  {} port={}",
-        on_off(config.server.app_enabled),
-        config.server.app_port
-    );
-    println!(
-        "  web:  {} port={}",
-        on_off(config.server.web_enabled),
-        config.server.web_port
-    );
-    println!(
-        "  mcp:  {} transport={} port={}",
-        on_off(config.mcp_aggregate.enabled),
-        config.mcp_aggregate.transport,
-        config.mcp_aggregate.port
+        "  gateway: standalone process, port={}",
+        config.gateway.port
     );
     println!("Use this command to change settings: mcpstore config --<key> <value>");
     Ok(())
@@ -240,7 +209,7 @@ async fn import_client(
     names_file: String,
     source: StoreSourceArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let inspection = inspect_client_config(parse_client(&client)?, &path)?;
+    let inspection = inspect_client_config(&client, &path)?;
     let names: Vec<String> = serde_json::from_str(&std::fs::read_to_string(names_file)?)?;
     let services = import_selected_services(&inspection, &names)?;
     let store = load_kernel(&source).await?.store().clone();
@@ -255,17 +224,6 @@ async fn import_client(
         println!("imported {name} (transport={transport})");
     }
     Ok(())
-}
-
-fn parse_client(value: &str) -> Result<ClientKind, Box<dyn std::error::Error>> {
-    match value {
-        "codex" => Ok(ClientKind::Codex),
-        "claude_code" | "claude-code" => Ok(ClientKind::ClaudeCode),
-        "opencode" | "open-code" => Ok(ClientKind::OpenCode),
-        "cursor" => Ok(ClientKind::Cursor),
-        "claude_desktop" | "claude-desktop" => Ok(ClientKind::ClaudeDesktop),
-        _ => Err(format!("unsupported client: {value}").into()),
-    }
 }
 fn mgr(path: Option<String>) -> ConfigManager {
     match path {

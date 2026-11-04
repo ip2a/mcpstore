@@ -6,12 +6,14 @@ import type { ServiceState } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
-const STATUS_LABELS = {
+export const SERVICE_STATUS_LABEL_KEYS = {
   connected: "statusConnected",
   connecting: "statusConnecting",
   disconnected: "statusDisconnected",
   error: "statusError",
 } as const
+
+const STATUS_LABELS = SERVICE_STATUS_LABEL_KEYS
 
 const STATUS_ICONS = {
   connected: LinkIcon,

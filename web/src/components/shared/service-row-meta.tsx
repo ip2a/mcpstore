@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
-import { isServiceConnected } from "@/features/services/service-display-status"
+import { deriveServiceDisplayStatus, isServiceConnected } from "@/features/services/service-display-status"
+import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { listInstancePrompts, listInstanceResources, type ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
@@ -41,7 +42,9 @@ export function ServiceRowMeta({
   const resourceCount = resourcesQuery.data?.length ?? 0
   const promptCount = promptsQuery.data?.length ?? 0
 
+  const status = deriveServiceDisplayStatus(service.state)
   const parts = [
+    t(SERVICE_STATUS_LABEL_KEYS[status]),
     showScope ? scope : null,
     transportLabel,
     connected && toolCount !== undefined && toolCount > 0
@@ -52,7 +55,10 @@ export function ServiceRowMeta({
   ].filter((part): part is string => Boolean(part))
 
   return (
-    <div className="mt-1 min-w-0 truncate text-sm text-muted-foreground" title={parts.join(" · ")}>
+    <div
+      className="mt-1 min-w-0 truncate text-sm lowercase text-muted-foreground"
+      title={parts.join(" · ")}
+    >
       {parts.join("  ")}
     </div>
   )

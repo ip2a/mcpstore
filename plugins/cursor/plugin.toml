@@ -1,0 +1,18 @@
+[plugin]
+id = "cursor"
+label = "Cursor"
+spec_version = 1
+plugin_version = "1.0.0"
+
+[config]
+format = "json"
+servers_key = "mcpServers"
+supported_fields = ["command", "args", "env", "url", "headers"]
+
+[gateway_entry]
+url_key = "url"
+
+[discover]
+config_paths = ["~/.cursor/mcp.json"]
+config_dirs = ["~/.cursor"]
+cli_commands = ["cursor"]

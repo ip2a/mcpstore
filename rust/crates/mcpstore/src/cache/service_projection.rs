@@ -138,6 +138,7 @@ impl MCPStore {
                 input_schema: tool.input_schema.clone(),
                 output_schema: tool.output_schema.clone(),
                 annotations: tool.annotations.clone(),
+                icons: tool.icons.clone(),
                 meta: tool.meta.clone(),
                 created_time: now,
                 tool_hash: Self::tool_content_hash(instance_id, tool),
