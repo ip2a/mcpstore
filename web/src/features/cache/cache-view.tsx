@@ -1,15 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import type { LucideIcon } from "lucide-react"
-import {
-  ActivityIcon,
-  ClipboardIcon,
-  DatabaseIcon,
-  HistoryIcon,
-  LayoutDashboardIcon,
-  LinkIcon,
-  PackageIcon,
-  RefreshCwIcon,
-} from "lucide-react"
+import { ClipboardIcon, DatabaseIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -30,13 +20,6 @@ import { useCacheHealthQuery, useCacheInspectQuery } from "@/features/cache/quer
 import { useI18n } from "@/lib/i18n-context"
 import type { CacheBackend } from "@/lib/api"
 import { cn } from "@/lib/utils"
-
-const LAYER_TAB_ICONS: Record<CacheLayerId, LucideIcon> = {
-  entity: PackageIcon,
-  relations: LinkIcon,
-  state: ActivityIcon,
-  event: HistoryIcon,
-}
 
 const OVERVIEW_TAB = "overview"
 
@@ -147,15 +130,12 @@ export function CacheView(props: {
           <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
             <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
               <TabsTrigger value={OVERVIEW_TAB} title={t("overview")}>
-                <LayoutDashboardIcon />
                 {t("overview")}
               </TabsTrigger>
               {layerNodes.map((layerNode) => {
-                const Icon = LAYER_TAB_ICONS[layerNode.layer]
                 const label = t(LAYER_I18N_KEY[layerNode.layer])
                 return (
                   <TabsTrigger key={layerNode.layer} value={layerNode.layer} title={label}>
-                    <Icon />
                     {label}
                   </TabsTrigger>
                 )

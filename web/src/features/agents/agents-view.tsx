@@ -28,7 +28,7 @@ function scopeIdFromSummary(summary: ScopeSummary): ScopeCardId {
 }
 
 function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string): string {
-  if (summary.scope.type === "root") return "root"
+  if (summary.scope.type === "root") return t("filterAll")
   if (summary.scope.type === "store") return t("store")
   if (summary.scope.type === "agent") return summary.scope.agent_id
   return scopeIdFromSummary(summary)

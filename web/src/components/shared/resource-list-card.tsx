@@ -2,6 +2,7 @@ import { BadgeCheckIcon, FileStackIcon } from "lucide-react"
 
 import { McpIcon } from "@/components/shared/mcp-icon"
 import { resourceMimeType } from "@/features/services/service-panels"
+import { useI18n } from "@/lib/i18n-context"
 import type { ResourceInfo, ServiceInstance } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -16,6 +17,7 @@ export function ResourceListCard({
   onSelect: () => void
   resource: ResourceInfo
 }) {
+  const { t } = useI18n()
   const displayName = resource.title?.trim() || resource.name
   const description = resource.description?.trim() || resource.uri
   const mime = resourceMimeType(resource)
@@ -58,9 +60,9 @@ export function ResourceListCard({
         </span>
       </div>
 
-      {description ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{description}</p>
-      ) : null}
+      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
+        {description || t("noDescription")}
+      </p>
 
       {mime ? <p className="mt-3 font-mono text-xs text-muted-foreground">{mime}</p> : null}
     </div>
