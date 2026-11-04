@@ -374,7 +374,7 @@ export function ClientsView() {
                 <>
                   <ScrollPane
                     className="min-h-0 flex-1"
-                    innerClassName="px-4 py-2 grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
+                    innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
                   >
                     {visibleClients.map((client) => (
                       <ClientListCard
@@ -721,17 +721,15 @@ function ClientListCard({
   onSelect: () => void
 }) {
   const { t } = useI18n()
-  const detected = client.detected_by != null
   const mcpCount = client.mcp_servers?.length ?? 0
-  const versionQuery = useClientVersionQuery(client.id, detected)
-  const version = versionQuery.data ?? client.version ?? null
   const statusText = clientStatusText(client, t)
+  const path = client.config_path?.trim()
 
   return (
     <div
       role="button"
       tabIndex={0}
-      className="group flex h-full min-h-36 cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left shadow-xs transition-colors hover:border-border hover:bg-muted/40"
+      className="group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/40"
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -740,16 +738,16 @@ function ClientListCard({
         }
       }}
     >
-      <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 items-start gap-2">
         <ClientLogo
           clientId={client.id}
           label={client.label}
-          className="size-10 rounded-lg border border-border/50 bg-muted/60"
-          imageClassName="size-7"
+          className="size-8 rounded-md border border-border/50 bg-muted/60"
+          imageClassName="size-5"
         />
-        <span className="min-w-0 flex-1 pt-0.5">
+        <span className="min-w-0 flex-1">
           <span className="line-clamp-1 text-sm font-semibold leading-snug">{client.label || client.id}</span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span
               className={cn(
                 "size-1.5 shrink-0 rounded-full",
@@ -761,18 +759,17 @@ function ClientListCard({
         </span>
       </div>
 
-      <p className="mt-3 line-clamp-2 flex-1 font-mono text-xs leading-relaxed text-muted-foreground">
-        {client.config_path || client.id}
-      </p>
+      {path ? (
+        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
+          {path}
+        </p>
+      ) : null}
 
-      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        {version ? <span className="shrink-0 font-mono tabular-nums">{version}</span> : null}
-        {client.mcp_servers != null ? (
-          <span className="shrink-0">
-            {t("clientsMcpShort")} {mcpCount}
-          </span>
-        ) : null}
-      </div>
+      {client.mcp_servers != null ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {t("clientsMcpShort")} {mcpCount}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -783,7 +780,7 @@ function AddAgentCard({ onSelect }: { onSelect: () => void }) {
     <div
       role="button"
       tabIndex={0}
-      className="group flex h-full min-h-36 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+      className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -792,8 +789,8 @@ function AddAgentCard({ onSelect }: { onSelect: () => void }) {
         }
       }}
     >
-      <span className="flex size-10 items-center justify-center rounded-lg border border-dashed border-border/70">
-        <PlusIcon className="size-5" />
+      <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
+        <PlusIcon className="size-4" />
       </span>
       <span className="text-sm font-medium">{t("clientsAddCardLabel")}</span>
     </div>

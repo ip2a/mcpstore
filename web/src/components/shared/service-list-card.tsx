@@ -1,4 +1,4 @@
-import { BadgeCheckIcon, PlugIcon } from "lucide-react"
+import { BadgeCheckIcon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
@@ -6,7 +6,7 @@ import { McpIcon } from "@/components/shared/mcp-icon"
 import { deriveServiceDisplayStatus } from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance } from "@/lib/api"
-import { getServiceEndpointLabel, getServiceTransport } from "@/lib/service-info"
+import { getServiceEndpointLabel } from "@/lib/service-info"
 import { cn } from "@/lib/utils"
 
 export function ServiceListCard({
@@ -21,10 +21,8 @@ export function ServiceListCard({
   toolCount: number
 }) {
   const { t } = useI18n()
-  const transport = getServiceTransport(service)
-  const version = service.mcp?.serverInfo?.version?.trim()
   const endpoint = getServiceEndpointLabel(service)
-  const description = String(service.effective_config?.description || "").trim()
+  const description = String(service.effective_config?.description || "").trim() || endpoint
   const status = deriveServiceDisplayStatus(service.state)
   const connected = status === "connected"
 
@@ -33,7 +31,7 @@ export function ServiceListCard({
       role="button"
       tabIndex={0}
       className={cn(
-        "group flex h-full min-h-36 cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left shadow-xs transition-colors hover:border-border hover:bg-muted/40",
+        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/40",
         className,
       )}
       onClick={onSelect}
@@ -44,45 +42,39 @@ export function ServiceListCard({
         }
       }}
     >
-      <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 items-start gap-2">
         <span
           aria-hidden
-          className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/60 text-muted-foreground"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
         >
           <McpIcon
             icons={service.mcp?.serverInfo?.icons}
             fallback={<DefaultServiceIcon />}
-            className="size-5"
+            className="size-4"
           />
         </span>
-        <span className="min-w-0 flex-1 pt-0.5">
-          <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">{service.service_name}</span>
-          <span
-            className={cn(
-              "mt-0.5 flex min-w-0 items-center gap-1 text-xs",
-              connected ? "text-emerald-600 dark:text-emerald-500" : "text-muted-foreground",
-            )}
-          >
+        <span className="min-w-0 flex-1">
+          <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
+            {service.service_name}
+          </span>
+          <span className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
             {connected ? <BadgeCheckIcon className="size-3.5 shrink-0" /> : null}
             <span className="truncate">{t(SERVICE_STATUS_LABEL_KEYS[status])}</span>
           </span>
         </span>
       </div>
 
-      <p className="mt-3 line-clamp-2 flex-1 text-xs leading-relaxed text-muted-foreground">
-        {description || endpoint || t("noDescription")}
-      </p>
+      {description ? (
+        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
 
-      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        {transport !== "unknown" ? (
-          <span className="inline-flex min-w-0 items-center gap-1 text-primary">
-            <PlugIcon className="size-3 shrink-0" />
-            <span className="truncate lowercase">{transport}</span>
-          </span>
-        ) : null}
-        {toolCount > 0 ? <span className="shrink-0">{t("serviceRowToolCount", { count: toolCount })}</span> : null}
-        {version ? <span className="shrink-0 font-mono">v{version}</span> : null}
-      </div>
+      {toolCount > 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {t("serviceRowToolCount", { count: toolCount })}
+        </p>
+      ) : null}
     </div>
   )
 }

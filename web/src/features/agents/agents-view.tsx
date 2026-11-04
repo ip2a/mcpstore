@@ -299,7 +299,7 @@ function ScopeDetailPanel({
 
       <ScrollPane
         className="min-h-0 flex-1"
-        innerClassName="grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-3"
+        innerClassName="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
       >
         {scopeError ? (
           <PageError

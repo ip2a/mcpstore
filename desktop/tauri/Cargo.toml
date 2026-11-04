@@ -26,19 +26,6 @@ tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 tokio = { version = "1", features = ["rt", "time"] }
 
-# Native content-aspect lock while dragging (avoids Resized↔set_size flicker).
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = [
-  "std",
-  "NSResponder",
-  "NSWindow",
-] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = [
-  "std",
-  "NSGeometry",
-] }
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
