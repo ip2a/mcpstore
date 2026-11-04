@@ -17,6 +17,7 @@ import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
 import { SettingsView } from "@/features/settings/settings-view"
+import { UpdateBanner } from "@/features/settings/update-banner"
 import { ToolDetailView } from "@/features/tools/tool-detail-view"
 import { PromptDetailView } from "@/features/prompts/prompt-detail-view"
 import { PromptsView } from "@/features/prompts/prompts-view"
@@ -234,6 +235,7 @@ export function App() {
         onToolResultOpenChange={closeToolResult}
       />
       <Toaster />
+      <UpdateBanner />
     </TooltipProvider>
   )
 }
