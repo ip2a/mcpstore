@@ -189,7 +189,7 @@ export function App() {
                     onBack={goBack}
                   />
                 ) : view.name === "scope" ? (
-                  <ScopeView />
+                  <ScopeView services={services} />
                 ) : view.name === "clients" ? (
                   <ClientsView />
                 ) : view.name === "plugins" ? (
