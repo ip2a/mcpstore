@@ -410,3 +410,13 @@ impl MCPStore {
 mod role_tests;
 #[cfg(test)]
 mod tests;
+
+/// Serializes tests that share the process-global `memory-test-shared` store. Concurrent
+/// async tests contending on that single store can deadlock (hold-and-wait across their
+/// per-test runtimes), which surfaced as hangs in `cargo test --workspace` while
+/// `cargo test -p mcpstore --lib` stayed green.
+#[cfg(test)]
+pub(crate) fn shared_store_test_guard() -> &'static tokio::sync::Mutex<()> {
+    static GUARD: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    GUARD.get_or_init(|| tokio::sync::Mutex::new(()))
+}

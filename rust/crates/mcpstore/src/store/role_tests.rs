@@ -48,6 +48,7 @@ async fn default_role_is_control_panel() {
 
 #[tokio::test]
 async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let path =
         std::env::temp_dir().join(format!("mcpstore-role-feed-{}.json", uuid::Uuid::new_v4()));
     let namespace = format!("role-feed-{}", uuid::Uuid::new_v4());
@@ -165,6 +166,7 @@ async fn db_data_panel_write_is_applied_only_by_the_control_panel() {
 
 #[tokio::test]
 async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let path =
         std::env::temp_dir().join(format!("mcpstore-role-scope-{}.json", uuid::Uuid::new_v4()));
     let namespace = format!("role-scope-{}", uuid::Uuid::new_v4());
@@ -261,6 +263,7 @@ async fn db_data_panel_scope_declare_is_applied_by_control_panel() {
 
 #[tokio::test]
 async fn db_query_reads_kv_without_hydrating_the_registry() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let namespace = format!("role-read-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
@@ -351,6 +354,7 @@ fn write_panel_config(entries: &[(&str, &str)]) -> String {
 
 #[tokio::test]
 async fn db_data_panel_remote_call_executes_on_control_panel() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let namespace = format!("role-remote-call-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: None,
@@ -441,6 +445,7 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
 
 #[tokio::test]
 async fn db_data_panel_default_placement_executes_locally() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let namespace = format!("role-local-call-{}", uuid::Uuid::new_v4());
     let control = MCPStore::setup_with_options(StoreOptions {
         config_path: None,

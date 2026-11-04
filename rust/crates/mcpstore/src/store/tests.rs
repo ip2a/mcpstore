@@ -1040,6 +1040,7 @@ async fn remove_service_clears_definition_and_all_instance_cache() {
 
 #[tokio::test]
 async fn db_source_add_lands_after_control_panel_consumes_the_event() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
@@ -1066,6 +1067,7 @@ async fn db_source_add_lands_after_control_panel_consumes_the_event() {
 
 #[tokio::test]
 async fn db_source_rebuilds_definition_instance_tools_and_status_on_read() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(source_path.clone()),
@@ -5454,6 +5456,7 @@ async fn export_instance_config_projects_third_party_config_without_mcpstore_ext
 
 #[tokio::test]
 async fn db_load_does_not_rewrite_cached_agent_relations() {
+    let _shared_store = super::shared_store_test_guard().lock().await;
     let source_path = temp_config_path();
     let source = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(source_path.clone()),
@@ -6882,6 +6885,7 @@ mod scoped_contract {
 
     #[tokio::test]
     async fn removing_scope_only_removes_its_exact_instance() {
+        let _shared_store = super::shared_store_test_guard().lock().await;
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
             store: Some(ScopeDescriptor::default()),
@@ -7175,6 +7179,7 @@ mod scoped_contract {
 
     #[tokio::test]
     async fn reset_scope_updates_all_definition_projections() {
+        let _shared_store = super::shared_store_test_guard().lock().await;
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
             store: Some(ScopeDescriptor::default()),
