@@ -108,7 +108,7 @@ function OverrideArgumentsEditor({ arguments_, onChange }: { arguments_: ToolArg
       <p className="text-xs text-muted-foreground">{t("overrideArgumentsHint")}</p>
       {arguments_.map((argument, index) => (
         <ArgumentRow
-          key={argument.original_name || `row-${index}`}
+          key={argument.original_name ? String(argument.original_name) : `row-${index}`}
           argument={argument}
           onUpdate={(patch) => update(index, patch)}
           onDelete={() => onChange(arguments_.filter((_, i) => i !== index))}
@@ -137,11 +137,11 @@ function ArgumentRow({
       <div className="grid grid-cols-2 gap-2">
         <div className="grid gap-1">
           <Label className="text-xs">{t("argOriginalName")}</Label>
-          <Input className="h-8 font-mono text-xs" value={argument.original_name} onChange={(event) => onUpdate({ original_name: event.target.value })} />
+          <Input className="h-8 font-mono text-xs" value={String(argument.original_name ?? "")} onChange={(event) => onUpdate({ original_name: event.target.value })} />
         </div>
         <div className="grid gap-1">
           <Label className="text-xs">{t("argNewName")}</Label>
-          <Input className="h-8 font-mono text-xs" value={argument.new_name || ""} onChange={(event) => onUpdate({ new_name: event.target.value || null })} />
+          <Input className="h-8 font-mono text-xs" value={String(argument.new_name ?? "")} onChange={(event) => onUpdate({ new_name: event.target.value || null })} />
         </div>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-end gap-2">

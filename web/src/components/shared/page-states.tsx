@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
 
-export function PageSkeleton() {
+export function PageSkeleton({ className }: { className?: string }) {
   return (
-    <div className="flex flex-col gap-4">
+    <div className={cn("flex flex-col gap-4", className)}>
       <Skeleton className="h-8 w-64" />
       <Skeleton className="h-28 w-full" />
       <Skeleton className="h-48 w-full" />
@@ -16,11 +17,11 @@ export function PageSkeleton() {
   )
 }
 
-export function PageEmpty({ title, description, onRefresh }: { title: string; description?: string; onRefresh?: () => void }) {
+export function PageEmpty({ className, title, description, onRefresh }: { className?: string; title: string; description?: string; onRefresh?: () => void }) {
   const { t } = useI18n()
 
   return (
-    <Empty>
+    <Empty className={className}>
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <FolderSearchIcon />
@@ -40,15 +41,15 @@ export function PageEmpty({ title, description, onRefresh }: { title: string; de
   )
 }
 
-export function PageError({ onRefresh }: { title?: string; message?: string; onRefresh?: () => void }) {
+export function PageError({ className, title, message, onRefresh }: { className?: string; title?: string; message?: string; onRefresh?: () => void }) {
   const { t } = useI18n()
 
   return (
-    <Alert className="border-border/80 bg-muted/30 text-foreground shadow-none [&>svg]:text-muted-foreground">
+    <Alert className={cn("border-border/80 bg-muted/30 text-foreground shadow-none [&>svg]:text-muted-foreground", className)}>
       <ServerOffIcon />
       <div className="flex min-w-0 flex-col gap-1">
-        <AlertTitle>Display error</AlertTitle>
-        <AlertDescription className="text-muted-foreground">Please check the logs.</AlertDescription>
+        <AlertTitle>{title ?? "Display error"}</AlertTitle>
+        <AlertDescription className="text-muted-foreground">{message ?? "Please check the logs."}</AlertDescription>
       </div>
       {onRefresh ? (
         <div className="mt-1">

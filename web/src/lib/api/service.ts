@@ -173,7 +173,7 @@ export async function checkInstance(addr: ServiceAddress) {
   return request(svcPath(addr, "/check"));
 }
 
-export async function connectInstance(addr: ServiceAddress) {
+export async function connectInstance(addr: ServiceAddress): Promise<ServiceState> {
   return request(svcPath(addr, "/connect"), { method: "POST" });
 }
 
