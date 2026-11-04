@@ -11,7 +11,10 @@ import { cn } from "@/lib/utils"
 
 type CodeBlockVariant = "request" | "response"
 
-const variantStyles: Record<CodeBlockVariant, { root: string; header: string; body: string; code: string }> = {
+const variantStyles: Record<
+  CodeBlockVariant,
+  { root: string; header: string; body: string; code: string }
+> = {
   request: {
     root: "border-zinc-800 bg-zinc-950 text-zinc-50",
     header: "border-zinc-800 bg-zinc-950/90 text-zinc-300",
@@ -56,7 +59,11 @@ export function CodeBlockHeader({
   return (
     <div
       data-slot="code-block-header"
-      className={cn("flex items-center justify-between gap-3 border-b px-3 py-2 text-xs", styles.header, className)}
+      className={cn(
+        "flex items-center justify-between gap-3 border-b px-3 py-2 text-xs",
+        styles.header,
+        className,
+      )}
       {...props}
     >
       {children}
@@ -103,7 +110,12 @@ export function CodeBlockBody({
         className={cn("relative", styles.body, className)}
         {...props}
       >
-        <pre className={cn("overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap", styles.code)}>
+        <pre
+          className={cn(
+            "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap",
+            styles.code,
+          )}
+        >
           {children}
         </pre>
       </div>
@@ -114,7 +126,11 @@ export function CodeBlockBody({
     return (
       <div
         data-slot="code-block-body"
-        className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden", styles.body, className)}
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col overflow-hidden",
+          styles.body,
+          className,
+        )}
         {...props}
       >
         {children}
@@ -126,11 +142,20 @@ export function CodeBlockBody({
     return (
       <div
         data-slot="code-block-body"
-        className={cn("relative min-h-0 overflow-auto", fill && "flex flex-1 flex-col", styles.body, className)}
+        className={cn(
+          "relative min-h-0 overflow-auto",
+          fill && "flex flex-1 flex-col",
+          styles.body,
+          className,
+        )}
         style={fill ? undefined : { maxHeight }}
         {...props}
       >
-        <pre className={cn("min-w-0 p-4 font-mono leading-relaxed whitespace-pre-wrap", styles.code)}>{children}</pre>
+        <pre
+          className={cn("min-w-0 p-4 font-mono leading-relaxed whitespace-pre-wrap", styles.code)}
+        >
+          {children}
+        </pre>
       </div>
     )
   }
@@ -145,7 +170,12 @@ export function CodeBlockBody({
         style={fill ? undefined : { maxHeight }}
         className={cn("w-full", fill && "min-h-0 flex-1")}
       >
-        <pre className={cn("overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap", styles.code)}>
+        <pre
+          className={cn(
+            "overflow-x-auto p-4 font-mono leading-relaxed whitespace-pre-wrap",
+            styles.code,
+          )}
+        >
           {children}
         </pre>
       </ScrollArea>
@@ -164,7 +194,11 @@ export function CodeBlockFooter({
   return (
     <div
       data-slot="code-block-footer"
-      className={cn("flex items-center justify-between gap-3 border-t px-3 py-2 text-xs", styles.header, className)}
+      className={cn(
+        "flex items-center justify-between gap-3 border-t px-3 py-2 text-xs",
+        styles.header,
+        className,
+      )}
       {...props}
     >
       {children}

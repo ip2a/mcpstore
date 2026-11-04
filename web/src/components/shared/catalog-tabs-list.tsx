@@ -8,18 +8,13 @@ type CatalogTabsListProps = ComponentProps<typeof TabsList> & {
   layout?: "flex" | "catalog"
 }
 
-export function CatalogTabsList({
-  className,
-  layout = "flex",
-  ...props
-}: CatalogTabsListProps) {
+export function CatalogTabsList({ className, layout = "flex", ...props }: CatalogTabsListProps) {
   return (
     <TabsList
       className={cn(
         "@container w-full min-w-0",
         layout === "flex" && "justify-start",
-        layout === "catalog" &&
-          "grid grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)_minmax(0,1.12fr)]",
+        layout === "catalog" && "grid grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)_minmax(0,1.12fr)]",
         className,
       )}
       {...props}

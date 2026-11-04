@@ -31,11 +31,19 @@ function normalizeToolResult(result: unknown) {
   }
 
   if (typeof result === "string") {
-    return { content: [{ type: "text", text: result }], structuredContent: undefined, isError: false }
+    return {
+      content: [{ type: "text", text: result }],
+      structuredContent: undefined,
+      isError: false,
+    }
   }
 
   if (typeof result !== "object" || Array.isArray(result)) {
-    return { content: [{ type: "text", text: String(result) }], structuredContent: undefined, isError: false }
+    return {
+      content: [{ type: "text", text: String(result) }],
+      structuredContent: undefined,
+      isError: false,
+    }
   }
 
   const record = result as Record<string, unknown>
@@ -80,7 +88,11 @@ function ImageBlock({ data, mimeType }: { data: string; mimeType?: string }) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/60 bg-muted/10 p-3">
-      <img src={src} alt="" className="mx-auto max-h-[min(50dvh,480px)] max-w-full object-contain" />
+      <img
+        src={src}
+        alt=""
+        className="mx-auto max-h-[min(50dvh,480px)] max-w-full object-contain"
+      />
     </div>
   )
 }
@@ -131,7 +143,12 @@ export function ToolResultView({ result, className }: { result: unknown; classNa
 
   if (!content.length && structuredContent == null) {
     return (
-      <p className={cn("rounded-lg border border-dashed bg-muted/10 px-4 py-6 text-sm text-muted-foreground", className)}>
+      <p
+        className={cn(
+          "rounded-lg border border-dashed bg-muted/10 px-4 py-6 text-sm text-muted-foreground",
+          className,
+        )}
+      >
         {t("toolResultEmpty")}
       </p>
     )

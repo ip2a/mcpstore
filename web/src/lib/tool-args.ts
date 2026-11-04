@@ -35,7 +35,10 @@ export function buildDefaultArgs(schema: ToolSchema): Record<string, unknown> {
   )
 }
 
-export function serializeToolArgs(values: Record<string, unknown>, schema: ToolSchema): Record<string, unknown> {
+export function serializeToolArgs(
+  values: Record<string, unknown>,
+  schema: ToolSchema,
+): Record<string, unknown> {
   const properties = schema.properties || {}
   const result: Record<string, unknown> = {}
 
@@ -112,7 +115,10 @@ export function isSchemaFieldRequired(name: string, schema: ToolSchema): boolean
   return schema.required?.includes(name) ?? false
 }
 
-export function getMissingRequiredArgs(args: Record<string, unknown>, schema: ToolSchema): string[] {
+export function getMissingRequiredArgs(
+  args: Record<string, unknown>,
+  schema: ToolSchema,
+): string[] {
   return (schema.required || []).filter((name) => isEmptyFormValue(args[name]))
 }
 

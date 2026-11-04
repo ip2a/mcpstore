@@ -1,18 +1,18 @@
-export type CacheBackend = "memory" | "redis";
+export type CacheBackend = "memory" | "redis"
 
-export type DesiredState = "running" | "stopped";
-export type RuntimePhase = "stopped" | "starting" | "running" | "stopping";
-export type HealthState = "unknown" | "healthy" | "degraded" | "unhealthy";
+export type DesiredState = "running" | "stopped"
+export type RuntimePhase = "stopped" | "starting" | "running" | "stopping"
+export type HealthState = "unknown" | "healthy" | "degraded" | "unhealthy"
 export type RecoveryState =
   | { status: "idle" }
   | {
-      status: "waiting";
-      attempt: number;
-      retry_at: number;
-      hard_deadline: number;
+      status: "waiting"
+      attempt: number
+      retry_at: number
+      hard_deadline: number
     }
   | { status: "probing"; attempt: number; hard_deadline: number }
-  | { status: "exhausted"; attempts: number };
+  | { status: "exhausted"; attempts: number }
 export type ServiceAuthState =
   | { status: "not_required" }
   | { status: "unauthenticated" }
@@ -20,10 +20,10 @@ export type ServiceAuthState =
   | { status: "authenticated" }
   | { status: "refreshing" }
   | { status: "scope_upgrade_required"; required_scope: string | null }
-  | { status: "failed" };
-export type ToolsStatus = "unknown" | "syncing" | "ready" | "stale" | "failed";
-export type ToolAvailability = "available" | "unavailable";
-export type ReadinessStatus = "unknown" | "ready" | "not_ready";
+  | { status: "failed" }
+export type ToolsStatus = "unknown" | "syncing" | "ready" | "stale" | "failed"
+export type ToolAvailability = "available" | "unavailable"
+export type ReadinessStatus = "unknown" | "ready" | "not_ready"
 export type ReadinessReason =
   | "unknown"
   | "stopped"
@@ -32,46 +32,45 @@ export type ReadinessReason =
   | "unhealthy"
   | "auth_required"
   | "tools_not_ready"
-  | "ready";
-export type FailurePhase =
-  "start" | "transport" | "health" | "recovery" | "auth" | "tools";
+  | "ready"
+export type FailurePhase = "start" | "transport" | "health" | "recovery" | "auth" | "tools"
 export type FailureInfo = {
-  phase: FailurePhase;
-  code: string;
-  retryable: boolean;
-  message: string;
-  since: number;
-};
+  phase: FailurePhase
+  code: string
+  retryable: boolean
+  message: string
+  since: number
+}
 export type ServiceState = {
-  instance_id: string;
-  service_name: string;
-  scope: ScopeRef;
-  desired: DesiredState;
-  phase: RuntimePhase;
-  health: HealthState;
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  desired: DesiredState
+  phase: RuntimePhase
+  health: HealthState
   health_metrics: {
-    error_rate: number | null;
-    latency_p95_ms: number | null;
-    latency_p99_ms: number | null;
-    sample_size: number;
-  };
-  last_observed_at: number | null;
-  recovery: RecoveryState;
-  auth: ServiceAuthState;
+    error_rate: number | null
+    latency_p95_ms: number | null
+    latency_p99_ms: number | null
+    sample_size: number
+  }
+  last_observed_at: number | null
+  recovery: RecoveryState
+  auth: ServiceAuthState
   tools: {
-    status: ToolsStatus;
-    items: Array<{ name: string; availability: ToolAvailability }>;
-  };
+    status: ToolsStatus
+    items: Array<{ name: string; availability: ToolAvailability }>
+  }
   readiness: {
-    status: ReadinessStatus;
-    reason: ReadinessReason;
-    message: string | null;
-    last_transition_at: number;
-  };
-  failure: FailureInfo | null;
-  version: number;
-  updated_at: number;
-};
+    status: ReadinessStatus
+    reason: ReadinessReason
+    message: string | null
+    last_transition_at: number
+  }
+  failure: FailureInfo | null
+  version: number
+  updated_at: number
+}
 
 export type AuthStatus =
   | "not_required"
@@ -80,324 +79,341 @@ export type AuthStatus =
   | "authenticated"
   | "refreshing"
   | "scope_upgrade_required"
-  | "error";
+  | "error"
 
-export type AuthFlow = "authorization_code" | "client_credentials";
+export type AuthFlow = "authorization_code" | "client_credentials"
 
 export type AuthStatusView = {
-  instance_id: string;
-  status: AuthStatus;
-  flow?: AuthFlow;
-  scopes?: string[];
-  required_scope?: string;
-};
+  instance_id: string
+  status: AuthStatus
+  flow?: AuthFlow
+  scopes?: string[]
+  required_scope?: string
+}
 
 export type AuthorizationStart = {
-  instance_id: string;
-  authorization_url: string;
-  scopes: string[];
-};
+  instance_id: string
+  authorization_url: string
+  scopes: string[]
+}
 
 export type AuthOperationResult = {
-  auth: AuthStatusView;
-  authorization?: AuthorizationStart | null;
-};
+  auth: AuthStatusView
+  authorization?: AuthorizationStart | null
+}
 
-export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string };
+export type ScopeRef = { type: "store" } | { type: "agent"; agent_id: string }
 
-export type ToolArgumentOverride = Record<string, unknown>;
+export type ToolArgumentOverride = Record<string, unknown>
 export type ComponentOverrideCommon = {
-  display_name?: string;
-  description?: string;
-  meta?: unknown;
-  annotations?: unknown;
-  icons?: unknown;
-  tags?: string[];
-  enabled?: boolean;
-};
+  display_name?: string
+  description?: string
+  meta?: unknown
+  annotations?: unknown
+  icons?: unknown
+  tags?: string[]
+  enabled?: boolean
+}
 export type ToolOverridePatch = ComponentOverrideCommon & {
-  arguments?: ToolArgumentOverride[];
-  safety_policy?: unknown;
-};
-export type PromptOverridePatch = ComponentOverrideCommon;
-export type ResourceOverridePatch = ComponentOverrideCommon & { mime_type?: string };
-export type ResourceTemplateOverridePatch = ResourceOverridePatch;
+  arguments?: ToolArgumentOverride[]
+  safety_policy?: unknown
+}
+export type PromptOverridePatch = ComponentOverrideCommon
+export type ResourceOverridePatch = ComponentOverrideCommon & { mime_type?: string }
+export type ResourceTemplateOverridePatch = ResourceOverridePatch
 export type ToolOverrideRule = ToolOverridePatch & {
-  instance_id: string; service_name: string; scope: ScopeRef; tool_name: string;
-  updated_at: number; version: number;
-};
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  tool_name: string
+  updated_at: number
+  version: number
+}
 export type PromptOverrideRule = PromptOverridePatch & {
-  instance_id: string; service_name: string; scope: ScopeRef; prompt_name: string;
-  updated_at: number; version: number;
-};
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  prompt_name: string
+  updated_at: number
+  version: number
+}
 export type ResourceOverrideRule = ResourceOverridePatch & {
-  instance_id: string; service_name: string; scope: ScopeRef; uri: string;
-  updated_at: number; version: number;
-};
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  uri: string
+  updated_at: number
+  version: number
+}
 export type ResourceTemplateOverrideRule = ResourceTemplateOverridePatch & {
-  instance_id: string; service_name: string; scope: ScopeRef; uri_template: string;
-  updated_at: number; version: number;
-};
-export type ServiceOverridePatch = ComponentOverrideCommon;
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  uri_template: string
+  updated_at: number
+  version: number
+}
+export type ServiceOverridePatch = ComponentOverrideCommon
 export type ServiceOverrideRule = ServiceOverridePatch & {
-  instance_id: string; service_name: string; scope: ScopeRef;
-  updated_at: number; version: number;
-};
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  updated_at: number
+  version: number
+}
 
 /** Service addressing (doc §0.4: service name + scope; no instance_id in the URL). Structurally compatible with ServiceInstance. */
 export type ServiceAddress = {
-  service_name: string;
-  scope: ScopeRef;
-};
+  service_name: string
+  scope: ScopeRef
+}
 
 /** Read-view scope (doc §17.2): root aggregation / store / agent. Root is a read-only aggregate and cannot be used for declarations. */
-export type ScopeView =
-  | { type: "root" }
-  | { type: "store" }
-  | { type: "agent"; agent_id: string };
+export type ScopeView = { type: "root" } | { type: "store" } | { type: "agent"; agent_id: string }
 
 /** Scope registry entry (GET /scopes/list). */
 export type ScopeSummary = {
-  scope: ScopeView;
-  service_count: number;
-};
+  scope: ScopeView
+  service_count: number
+}
 
 export type ConfigRevision = {
-  base_revision: number;
-  scope_revision: number;
-};
+  base_revision: number
+  scope_revision: number
+}
 
-export type ToolVisibilityFilter = "all" | "available" | "removed";
+export type ToolVisibilityFilter = "all" | "available" | "removed"
 
 export type ToolInfo = {
-  name: string;
-  original_name?: string;
-  title?: string | null;
-  description: string;
-  input_schema: unknown;
-  output_schema?: unknown;
-  annotations?: unknown;
-  icons?: unknown;
-  meta?: unknown;
-};
+  name: string
+  original_name?: string
+  title?: string | null
+  description: string
+  input_schema: unknown
+  output_schema?: unknown
+  annotations?: unknown
+  icons?: unknown
+  meta?: unknown
+}
 
 export type ResourceInfo = {
-  uri: string;
-  name: string;
-  title?: string;
-  description?: string;
-  mimeType?: string;
-  size?: number;
-  icons?: unknown;
-  annotations?: unknown;
-  _meta?: unknown;
-};
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  size?: number
+  icons?: unknown
+  annotations?: unknown
+  _meta?: unknown
+}
 
 export type PromptInfo = {
-  name: string;
-  title?: string;
-  description?: string;
-  arguments?: unknown;
-  icons?: unknown;
-  _meta?: unknown;
-};
+  name: string
+  title?: string
+  description?: string
+  arguments?: unknown
+  icons?: unknown
+  _meta?: unknown
+}
 
 export type ResourceTemplateInfo = {
-  uriTemplate: string;
-  name: string;
-  title?: string;
-  description?: string;
-  mimeType?: string;
-  icons?: unknown;
-  annotations?: unknown;
-  _meta?: unknown;
-};
+  uriTemplate: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  icons?: unknown
+  annotations?: unknown
+  _meta?: unknown
+}
 
 export type McpServerCapabilities = {
-  tools: boolean;
-  toolsListChanged: boolean;
-  resources: boolean;
-  resourcesSubscribe: boolean;
-  resourcesListChanged: boolean;
-  prompts: boolean;
-  promptsListChanged: boolean;
-  completions: boolean;
-  tasks: boolean;
-  taskList: boolean;
-  taskCancel: boolean;
-  taskToolCalls: boolean;
-  extensions?: Record<string, unknown>;
-  experimental?: Record<string, unknown>;
-};
+  tools: boolean
+  toolsListChanged: boolean
+  resources: boolean
+  resourcesSubscribe: boolean
+  resourcesListChanged: boolean
+  prompts: boolean
+  promptsListChanged: boolean
+  completions: boolean
+  tasks: boolean
+  taskList: boolean
+  taskCancel: boolean
+  taskToolCalls: boolean
+  extensions?: Record<string, unknown>
+  experimental?: Record<string, unknown>
+}
 
 export type McpServerMetadata = {
-  protocolVersion: string;
+  protocolVersion: string
   serverInfo: {
-    name: string;
-    title?: string;
-    version: string;
-    description?: string;
-    websiteUrl?: string;
-    icons?: unknown;
-  };
-  instructions?: string;
-  capabilities: McpServerCapabilities;
-};
+    name: string
+    title?: string
+    version: string
+    description?: string
+    websiteUrl?: string
+    icons?: unknown
+  }
+  instructions?: string
+  capabilities: McpServerCapabilities
+}
 
 export type ServiceInstance = {
-  instance_id: string;
-  service_name: string;
-  scope: ScopeRef;
-  transport: string;
-  url: string | null;
-  command: string | null;
-  state: ServiceState;
-  tools: ToolInfo[];
-  effective_config: Record<string, unknown>;
-  config_revision: ConfigRevision;
-  applied_config_revision: ConfigRevision | null;
-  added_time: number;
-  mcp?: McpServerMetadata | null;
-};
+  instance_id: string
+  service_name: string
+  scope: ScopeRef
+  transport: string
+  url: string | null
+  command: string | null
+  state: ServiceState
+  tools: ToolInfo[]
+  effective_config: Record<string, unknown>
+  config_revision: ConfigRevision
+  applied_config_revision: ConfigRevision | null
+  added_time: number
+  mcp?: McpServerMetadata | null
+}
 
 export type AgentItem = {
-  agent_id: string;
-  instance_ids: string[];
-};
+  agent_id: string
+  instance_ids: string[]
+}
 
-export type CacheReport = Record<string, unknown>;
-export type ConfigReport = Record<string, unknown>;
+export type CacheReport = Record<string, unknown>
+export type ConfigReport = Record<string, unknown>
 
-export type UiLanguage = "auto" | "en" | "zh" | string;
+export type UiLanguage = "auto" | "en" | "zh" | string
 
 export type LogSettingsPayload = {
-  max_size_bytes?: number | null;
-  retention_days?: number | null;
-};
+  max_size_bytes?: number | null
+  retention_days?: number | null
+}
 
 export type HostEntry = {
-  urls: string[];
-};
+  urls: string[]
+}
 
 export type HostsPayload = {
-  active: string;
-  [name: string]: string | HostEntry;
-};
+  active: string
+  [name: string]: string | HostEntry
+}
 
 export type SettingsPayload = {
-  language?: UiLanguage;
-  api?: { host?: string; port?: number; url_prefix?: string };
-  web?: { host?: string; port?: number };
-  gateway?: { port?: number };
-  diagnostics?: DiagnosticsSettingsPayload;
-  hosts?: HostsPayload;
-  [key: string]: unknown;
-};
+  language?: UiLanguage
+  api?: { host?: string; port?: number; url_prefix?: string }
+  web?: { host?: string; port?: number }
+  gateway?: { port?: number }
+  diagnostics?: DiagnosticsSettingsPayload
+  hosts?: HostsPayload
+  [key: string]: unknown
+}
 
 export type DiagnosticsSettingsPayload = {
-  enabled?: boolean;
+  enabled?: boolean
   runtime_log?: {
-    enabled?: boolean;
-    max_size_bytes?: number;
-    retention_days?: number | null;
-  };
-};
-
-export type SettingsPathsPayload = {
-  log_dir?: string | null;
-  log_file_name?: string | null;
-  log_file_path?: string | null;
-};
-
-export type ConfigFilePayload = {
-  path?: string;
-  format?: string;
-  content?: string;
-};
-
-export type MetaPayload = {
-  version?: string;
-  node?: { id: string; mode: string };
-  settings?: SettingsPayload;
-  settings_paths?: SettingsPathsPayload;
-  config_file?: ConfigFilePayload;
-  [key: string]: unknown;
-};
-
-export type UpdateSettingsPayload = {
-  language?: UiLanguage;
-  api?: { port?: number };
-  web?: { port?: number };
-  gateway?: { port?: number };
-  diagnostics?: DiagnosticsSettingsPayload;
-  hosts?: HostsPayload;
-  [key: string]: unknown;
-};
-
-export type ApiEnvelope<T> = {
-  success: boolean;
-  message: string;
-  data?: T;
-  errors?: Array<{ code: string; message: string; field?: string }>;
-};
-
-type FlexibleEnvelope<T> =
-  ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string };
-
-export class ApiError extends Error {
-  status: number;
-  code?: string;
-
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
+    enabled?: boolean
+    max_size_bytes?: number
+    retention_days?: number | null
   }
 }
 
-export type ServiceStartupPolicy = "manual" | "lazy" | "on-store-start";
+export type SettingsPathsPayload = {
+  log_dir?: string | null
+  log_file_name?: string | null
+  log_file_path?: string | null
+}
+
+export type ConfigFilePayload = {
+  path?: string
+  format?: string
+  content?: string
+}
+
+export type MetaPayload = {
+  version?: string
+  node?: { id: string; mode: string }
+  settings?: SettingsPayload
+  settings_paths?: SettingsPathsPayload
+  config_file?: ConfigFilePayload
+  [key: string]: unknown
+}
+
+export type UpdateSettingsPayload = {
+  language?: UiLanguage
+  api?: { port?: number }
+  web?: { port?: number }
+  gateway?: { port?: number }
+  diagnostics?: DiagnosticsSettingsPayload
+  hosts?: HostsPayload
+  [key: string]: unknown
+}
+
+export type ApiEnvelope<T> = {
+  success: boolean
+  message: string
+  data?: T
+  errors?: Array<{ code: string; message: string; field?: string }>
+}
+
+export class ApiError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+    this.code = code
+  }
+}
+
+export type ServiceStartupPolicy = "manual" | "lazy" | "on-store-start"
 export type ServiceRestartPolicy =
-  "no" | "on-failure" | `on-failure:${number}` | "always" | "unless-stopped";
+  | "no"
+  | "on-failure"
+  | `on-failure:${number}`
+  | "always"
+  | "unless-stopped"
 
 export type ServiceLifecycleConfig = {
-  startup_policy?: ServiceStartupPolicy;
-  restart_policy?: ServiceRestartPolicy;
-};
+  startup_policy?: ServiceStartupPolicy
+  restart_policy?: ServiceRestartPolicy
+}
 
 export type ScopeDescriptor = {
-  config?: Record<string, unknown>;
-  lifecycle?: ServiceLifecycleConfig;
-  handshake_mode?: HandshakeMode;
-};
+  config?: Record<string, unknown>
+  lifecycle?: ServiceLifecycleConfig
+  handshake_mode?: HandshakeMode
+}
 
-export type HandshakeMode = "auto" | "discover" | "initialize";
+export type HandshakeMode = "auto" | "discover" | "initialize"
 
 export type AddServiceInput = {
-  name: string;
-  scope: ScopeRef;
-  transport: "stdio" | "streamable-http";
-  commandOrUrl: string;
-  description?: string;
-  workingDir?: string;
-  env?: Record<string, string>;
-  headers?: Record<string, string>;
-  lifecycle?: ServiceLifecycleConfig;
-};
+  name: string
+  scope: ScopeRef
+  transport: "stdio" | "streamable-http"
+  commandOrUrl: string
+  description?: string
+  workingDir?: string
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  lifecycle?: ServiceLifecycleConfig
+}
 
 export type UpdateServiceScopeInput = {
-  serviceName: string;
-  scope: ScopeRef;
-  transport: "stdio" | "streamable-http";
-  commandOrUrl: string;
-  description?: string;
-  workingDir?: string;
-  env?: Record<string, string>;
-  headers?: Record<string, string>;
-  lifecycle?: ServiceLifecycleConfig;
-  config?: Record<string, unknown>;
-  handshakeMode?: HandshakeMode;
-};
+  serviceName: string
+  scope: ScopeRef
+  transport: "stdio" | "streamable-http"
+  commandOrUrl: string
+  description?: string
+  workingDir?: string
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  lifecycle?: ServiceLifecycleConfig
+  config?: Record<string, unknown>
+  handshakeMode?: HandshakeMode
+}
 
 export {
   health,
@@ -424,7 +440,7 @@ export {
   disconnectInstance,
   restartInstance,
   callInstanceTool,
-} from "./api/service";
+} from "./api/service"
 export {
   getMcpHubDescriptor,
   getMcpHubStatus,
@@ -433,7 +449,7 @@ export {
   importClientServices,
   type McpHubOptions,
   type McpHubStatus,
-} from "./api/config";
+} from "./api/config"
 export {
   showConfig,
   showAgentConfig,
@@ -443,8 +459,8 @@ export {
   updateSettings,
   resetConfig,
   resetAgentConfig,
-} from "./api/settings";
-export { cacheHealth, cacheInspect, switchCache } from "./api/cache";
+} from "./api/settings"
+export { cacheHealth, cacheInspect, switchCache } from "./api/cache"
 export {
   addService,
   addServiceFromConfig,
@@ -453,7 +469,7 @@ export {
   updateServiceScope,
   parseKvLines,
   formatKvLines,
-} from "./api/service-config";
+} from "./api/service-config"
 export {
   listClients,
   getClientVersion,
@@ -471,7 +487,7 @@ export {
   type WireOptions,
   type WireResult,
   type WiredEntry,
-} from "./api/clients";
+} from "./api/clients"
 export {
   getUsageStats,
   getDailyUsageStats,
@@ -495,4 +511,4 @@ export {
   type FrameSessionSummary,
   type FrameSessionsPage,
   type FrameRecord,
-} from "./api/telemetry";
+} from "./api/telemetry"

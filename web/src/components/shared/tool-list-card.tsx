@@ -59,14 +59,10 @@ export function ToolListCard({
       </div>
 
       {description ? (
-        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
-          {description}
-        </p>
+        <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">{description}</p>
       ) : null}
 
-      <p className="mt-3 text-xs text-muted-foreground">
-        {t("paramCount", { count: paramCount })}
-      </p>
+      <p className="mt-3 text-xs text-muted-foreground">{t("paramCount", { count: paramCount })}</p>
     </div>
   )
 }

@@ -8,7 +8,12 @@ export function getServiceTransport(service: ServiceInstance) {
 export function getServiceLaunchCommand(service: ServiceInstance) {
   const config = service.effective_config
   const command = String(service.command || "").trim()
-  const args = Array.isArray(config?.args) ? config.args.map(String).map((item) => item.trim()).filter(Boolean) : []
+  const args = Array.isArray(config?.args)
+    ? config.args
+        .map(String)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : []
   return [command, ...args].filter(Boolean).join(" ")
 }
 
@@ -27,16 +32,18 @@ export function formatServiceLaunchLine(service: ServiceInstance) {
     return [transport !== "unknown" ? transport : null, url].filter(Boolean).join(" · ")
   }
 
-  return [transport !== "unknown" ? transport : null, launchCommand || null].filter(Boolean).join(" · ") || "-"
+  return (
+    [transport !== "unknown" ? transport : null, launchCommand || null]
+      .filter(Boolean)
+      .join(" · ") || "-"
+  )
 }
 
 export function getServiceEditValues(service: ServiceInstance) {
   const config = service.effective_config
   const transport = getServiceTransport(service) as "stdio" | "streamable-http"
   const commandOrUrl =
-    transport === "stdio"
-      ? getServiceLaunchCommand(service)
-      : String(service.url || "").trim()
+    transport === "stdio" ? getServiceLaunchCommand(service) : String(service.url || "").trim()
 
   return {
     transport,

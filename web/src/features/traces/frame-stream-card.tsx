@@ -7,24 +7,13 @@ import {
   ChevronRightIcon,
   RefreshCwIcon,
 } from "lucide-react"
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts"
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
 import { PanelCard } from "@/components/shared/panel-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -113,51 +102,52 @@ export function FrameStreamCard(props: {
   const from = total === 0 ? 0 : offset + 1
   const to = Math.min(offset + items.length, total)
 
-  const pager = total === 0 && !sessions.isLoading ? null : (
-    <div
-      className={cn(
-        "flex flex-wrap items-center justify-between gap-2",
-        fill ? "shrink-0 border-t px-4 py-2" : "border-t pt-2",
-      )}
-    >
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>{t("gatewayFramesPageSize")}</span>
-        <Select value={String(pageSize)} onValueChange={changePageSize}>
-          <SelectTrigger size="sm" className="h-8 w-[72px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PAGE_SIZES.map((size) => (
-              <SelectItem key={size} value={String(size)}>
-                {size}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span>{t("gatewayFramesShowing", { from, to, total })}</span>
+  const pager =
+    total === 0 && !sessions.isLoading ? null : (
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-2",
+          fill ? "shrink-0 border-t px-4 py-2" : "border-t pt-2",
+        )}
+      >
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{t("gatewayFramesPageSize")}</span>
+          <Select value={String(pageSize)} onValueChange={changePageSize}>
+            <SelectTrigger size="sm" className="h-8 w-[72px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZES.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span>{t("gatewayFramesShowing", { from, to, total })}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            disabled={page <= 0}
+            size="sm"
+            variant="outline"
+            onClick={() => setPage((prev) => Math.max(0, prev - 1))}
+          >
+            <ChevronLeftIcon className="size-3.5" />
+            {t("gatewayFramesPrev")}
+          </Button>
+          <Button
+            disabled={page + 1 >= pageCount}
+            size="sm"
+            variant="outline"
+            onClick={() => setPage((prev) => prev + 1)}
+          >
+            {t("gatewayFramesNext")}
+            <ChevronRightIcon className="size-3.5" />
+          </Button>
+        </div>
       </div>
-      <div className="flex items-center gap-1">
-        <Button
-          disabled={page <= 0}
-          size="sm"
-          variant="outline"
-          onClick={() => setPage((prev) => Math.max(0, prev - 1))}
-        >
-          <ChevronLeftIcon className="size-3.5" />
-          {t("gatewayFramesPrev")}
-        </Button>
-        <Button
-          disabled={page + 1 >= pageCount}
-          size="sm"
-          variant="outline"
-          onClick={() => setPage((prev) => prev + 1)}
-        >
-          {t("gatewayFramesNext")}
-          <ChevronRightIcon className="size-3.5" />
-        </Button>
-      </div>
-    </div>
-  )
+    )
 
   const tabContentClassName = fill
     ? "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -165,9 +155,7 @@ export function FrameStreamCard(props: {
 
   const tableBody =
     total === 0 && !sessions.isLoading ? (
-      <p className={cn("text-sm text-muted-foreground", fill && "px-4 py-3")}>
-        {t(emptyKey)}
-      </p>
+      <p className={cn("text-sm text-muted-foreground", fill && "px-4 py-3")}>{t(emptyKey)}</p>
     ) : (
       <>
         <div
@@ -216,19 +204,13 @@ export function FrameStreamCard(props: {
   return (
     <>
       <PanelCard
-        className={cn(
-          fill ? "h-full min-h-0 flex-1 gap-0 p-0" : "gap-2",
-          !fill && "flex flex-col",
-        )}
+        className={cn(fill ? "h-full min-h-0 flex-1 gap-0 p-0" : "gap-2", !fill && "flex flex-col")}
         variant={fill ? "stack" : "plain"}
       >
         <Tabs
           value={view}
           onValueChange={(value) => setView(value as FrameViewMode)}
-          className={cn(
-            "flex flex-col overflow-hidden",
-            fill ? "min-h-0 flex-1" : undefined,
-          )}
+          className={cn("flex flex-col overflow-hidden", fill ? "min-h-0 flex-1" : undefined)}
         >
           <div
             className={cn(
@@ -246,12 +228,7 @@ export function FrameStreamCard(props: {
               </TabsTrigger>
             </TabsList>
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              <Button
-                disabled={sessions.isFetching}
-                size="sm"
-                variant="outline"
-                onClick={refresh}
-              >
+              <Button disabled={sessions.isFetching} size="sm" variant="outline" onClick={refresh}>
                 <RefreshCwIcon data-icon="inline-start" />
                 {t("refresh")}
               </Button>
@@ -353,10 +330,7 @@ function FrameGraphView({
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col gap-2", fill ? "px-4 py-3" : "py-2")}>
       <ChartContainer config={chartConfig} className="aspect-auto h-[240px] w-full min-w-0">
-        <LineChart
-          data={points}
-          margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
-        >
+        <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
             dataKey="label"
@@ -431,9 +405,7 @@ function SessionTimelineDialog({
                   frame={frame}
                   key={frame.id}
                   open={openFrame === frame.id}
-                  onToggle={() =>
-                    setOpenFrame((prev) => (prev === frame.id ? null : frame.id))
-                  }
+                  onToggle={() => setOpenFrame((prev) => (prev === frame.id ? null : frame.id))}
                 />
               ))}
             </div>
@@ -484,9 +456,7 @@ function FrameRow({
         >
           {frame.kind}
         </Badge>
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {frame.size_bytes}B
-        </span>
+        <span className="shrink-0 text-xs text-muted-foreground">{frame.size_bytes}B</span>
       </button>
       {open ? (
         <div className="border-t px-3 py-2 text-xs">

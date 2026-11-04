@@ -11,7 +11,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useI18n } from "@/lib/i18n-context"
 import { getAgentId } from "@/features/agents/model"
-import { type AgentItem } from "@/lib/api"
+import type { AgentItem } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function AddServiceForm({

@@ -26,7 +26,10 @@ export function FieldCollapsible({
           )}
         >
           <ChevronRightIcon
-            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
           />
           <span>{title}</span>
         </CollapsibleTrigger>

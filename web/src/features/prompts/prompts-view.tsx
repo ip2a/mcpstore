@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { McpRegistryFilterDialog } from "@/features/mcp-registry/mcp-registry-filter-dialog"
 import { usePromptsRegistry } from "@/features/prompts/use-prompts-registry"
 import { useI18n } from "@/lib/i18n-context"
-import { type AgentItem, type PromptInfo, type ServiceInstance } from "@/lib/api"
+import type { AgentItem, PromptInfo, ServiceInstance } from "@/lib/api"
 
 type PromptSortBy = "name" | "service"
 
@@ -66,10 +66,13 @@ export function PromptsView(props: {
   }, [sortBy, visiblePrompts])
 
   const serviceTabs = useMemo(
-    () => [{ id: "all", label: t("filterAll") }, ...scopeInstances.map((instance) => ({
-      id: instance.instance_id,
-      label: instance.service_name,
-    }))],
+    () => [
+      { id: "all", label: t("filterAll") },
+      ...scopeInstances.map((instance) => ({
+        id: instance.instance_id,
+        label: instance.service_name,
+      })),
+    ],
     [scopeInstances, t],
   )
 
@@ -86,7 +89,8 @@ export function PromptsView(props: {
         title={<h1 className="text-lg font-semibold">{t("promptRegistryTitle")}</h1>}
         subtitle={t("promptRegistryDescription", {
           count: visiblePrompts.length,
-          scope: scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
+          scope:
+            scope === "agent" ? t("agentScopeLabel", { agentId: agentId || "-" }) : t("storeScope"),
         })}
       />
 
@@ -194,7 +198,11 @@ function PromptsTabContent({
   if (error) {
     return (
       <div className="px-4 py-2">
-        <PageError title={t("promptsFailedToLoad")} message={errorMessage} onRefresh={loadPrompts} />
+        <PageError
+          title={t("promptsFailedToLoad")}
+          message={errorMessage}
+          onRefresh={loadPrompts}
+        />
       </div>
     )
   }
@@ -210,7 +218,11 @@ function PromptsTabContent({
   if (!prompts.length) {
     return (
       <div className="px-4 py-2">
-        <PageEmpty title={t("noPromptsFound")} description={t("noPromptsScopeDescription")} onRefresh={loadPrompts} />
+        <PageEmpty
+          title={t("noPromptsFound")}
+          description={t("noPromptsScopeDescription")}
+          onRefresh={loadPrompts}
+        />
       </div>
     )
   }

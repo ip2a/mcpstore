@@ -3,7 +3,13 @@ import { PlusIcon } from "lucide-react"
 
 import { AgentIdPicker } from "@/components/shared/agent-id-picker"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
@@ -96,7 +102,11 @@ export function AddServiceScopeDialog({
               {t("cancel")}
             </Button>
             <Button type="submit" disabled={!canSubmit}>
-              {submitting ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+              {submitting ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <PlusIcon data-icon="inline-start" />
+              )}
               {submitting ? t("adding") : t("addScope")}
             </Button>
           </DialogFooter>

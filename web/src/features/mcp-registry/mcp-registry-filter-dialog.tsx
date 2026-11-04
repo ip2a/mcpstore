@@ -11,7 +11,14 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance } from "@/lib/api"
 
@@ -50,7 +57,10 @@ export function McpRegistryFilterDialog(props: {
           <div className="grid grid-cols-2 gap-4">
             <Field>
               <FieldLabel>{t("scope")}</FieldLabel>
-              <Select value={props.scope} onValueChange={(value) => props.onScopeChange(value as "store" | "agent")}>
+              <Select
+                value={props.scope}
+                onValueChange={(value) => props.onScopeChange(value as "store" | "agent")}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t("scope")} />
                 </SelectTrigger>

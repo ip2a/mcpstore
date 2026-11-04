@@ -29,7 +29,9 @@ export function useServiceActions({
   const { t } = useI18n()
 
   function checkAllServices() {
-    return runAction("check:instances", () => Promise.all(services.map((service) => checkInstance(service))))
+    return runAction("check:instances", () =>
+      Promise.all(services.map((service) => checkInstance(service))),
+    )
   }
 
   function connectServiceEntry(service: ServiceInstance) {

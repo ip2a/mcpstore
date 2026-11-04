@@ -74,7 +74,10 @@ export function PromptDetailView(props: {
         currentLabel={promptLabel}
         subtitle={headerSubtitle}
       />
-      <PanelCard variant="plain" className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <PanelCard
+        variant="plain"
+        className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+      >
         <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
           <Button size="sm" variant="outline" onClick={() => void loadPrompts()} disabled={loading}>
             <RefreshCwIcon data-icon="inline-start" />
@@ -83,7 +86,11 @@ export function PromptDetailView(props: {
         </div>
 
         {error ? (
-          <PageError title={t("promptsFailedToLoad")} message={errorMessage} onRefresh={loadPrompts} />
+          <PageError
+            title={t("promptsFailedToLoad")}
+            message={errorMessage}
+            onRefresh={loadPrompts}
+          />
         ) : loading && !prompt ? (
           <PageSkeleton />
         ) : prompt ? (
@@ -91,7 +98,11 @@ export function PromptDetailView(props: {
             <ServicePromptDetailPane prompt={prompt} service={instance} />
           </ScrollPane>
         ) : (
-          <PageEmpty title={t("noPromptsFound")} description={t("noPromptsScopeDescription")} onRefresh={loadPrompts} />
+          <PageEmpty
+            title={t("noPromptsFound")}
+            description={t("noPromptsScopeDescription")}
+            onRefresh={loadPrompts}
+          />
         )}
       </PanelCard>
     </>

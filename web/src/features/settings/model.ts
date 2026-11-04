@@ -1,9 +1,5 @@
 import type { HostsPayload, SettingsPayload, UiLanguage, UpdateSettingsPayload } from "@/lib/api"
-import {
-  type HostsConfig,
-  parseHostsPayload,
-  serializeHostsPayload,
-} from "@/lib/api/hosts"
+import { type HostsConfig, parseHostsPayload, serializeHostsPayload } from "@/lib/api/hosts"
 import type { I18nKey } from "@/lib/i18n-core"
 
 export type SectionId = "general" | "connection" | "diagnostics" | "config" | "about"

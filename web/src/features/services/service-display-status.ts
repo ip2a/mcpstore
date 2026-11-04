@@ -5,7 +5,11 @@ export type ServiceDisplayStatus = "connected" | "connecting" | "disconnected" |
 export function deriveServiceDisplayStatus(state: ServiceState): ServiceDisplayStatus {
   if (state.desired === "stopped") return "disconnected"
   if (state.recovery.status === "exhausted") return "error"
-  if (state.phase === "starting" || state.recovery.status === "waiting" || state.recovery.status === "probing") {
+  if (
+    state.phase === "starting" ||
+    state.recovery.status === "waiting" ||
+    state.recovery.status === "probing"
+  ) {
     return "connecting"
   }
   if (state.health === "unhealthy") return "error"

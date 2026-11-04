@@ -117,21 +117,11 @@ export function ClientPluginRowActions({
     return (
       <div className="flex shrink-0 items-center gap-1">
         {marketEntry?.update_available ? (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onUpdate(clientId)}
-          >
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => onUpdate(clientId)}>
             {t("clientPluginUpdate")}
           </Button>
         ) : null}
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={busy}
-          onClick={() => onUninstall(clientId)}
-        >
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onUninstall(clientId)}>
           {t("clientPluginUninstall")}
         </Button>
       </div>
@@ -140,12 +130,7 @@ export function ClientPluginRowActions({
 
   if (marketEntry && !marketEntry.installed) {
     return (
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={busy}
-        onClick={() => onInstall(clientId)}
-      >
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => onInstall(clientId)}>
         {t("clientPluginInstall")}
       </Button>
     )

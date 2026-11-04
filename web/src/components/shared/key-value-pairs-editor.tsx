@@ -43,7 +43,9 @@ export function KeyValuePairsEditor({
   valuePlaceholder?: string
 }) {
   const { t } = useI18n()
-  const [entries, setEntries] = useState<KeyValuePairEntry[]>(() => normalizeEntries(value, defaultEmptyRow))
+  const [entries, setEntries] = useState<KeyValuePairEntry[]>(() =>
+    normalizeEntries(value, defaultEmptyRow),
+  )
 
   useEffect(() => {
     setEntries((current) => {
@@ -79,7 +81,9 @@ export function KeyValuePairsEditor({
   }
 
   function updateEntry(id: string, field: "key" | "value", nextValue: string) {
-    updateEntries(entries.map((entry) => (entry.id === id ? { ...entry, [field]: nextValue } : entry)))
+    updateEntries(
+      entries.map((entry) => (entry.id === id ? { ...entry, [field]: nextValue } : entry)),
+    )
   }
 
   const rowLayoutClass = "flex items-start gap-2"

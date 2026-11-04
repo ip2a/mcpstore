@@ -2,7 +2,11 @@ import { EntityRow } from "@/components/shared/entity-row"
 import { ToolSchemaEmptyHint } from "@/components/shared/tool-schema-empty-hint"
 import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/lib/i18n-context"
-import { formatSchemaDefaultValue, getSchemaFieldSubtitle, resolveSchemaFieldType } from "@/lib/tool-info"
+import {
+  formatSchemaDefaultValue,
+  getSchemaFieldSubtitle,
+  resolveSchemaFieldType,
+} from "@/lib/tool-info"
 
 type SchemaField = Record<string, unknown>
 
@@ -29,7 +33,12 @@ export function filterSchemaFields(
   })
 }
 
-export function ToolSchemaFields({ emptyMessage, fields, required = [], search = "" }: ToolSchemaFieldsProps) {
+export function ToolSchemaFields({
+  emptyMessage,
+  fields,
+  required = [],
+  search = "",
+}: ToolSchemaFieldsProps) {
   const { t } = useI18n()
   const filteredFields = filterSchemaFields(fields, search)
 
@@ -57,11 +66,17 @@ export function ToolSchemaFields({ emptyMessage, fields, required = [], search =
             className={isLast ? "border-b-0" : undefined}
             actions={
               <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className={paramBadgeClass}>{fieldType}</Badge>
+                <Badge variant="outline" className={paramBadgeClass}>
+                  {fieldType}
+                </Badge>
                 {isRequired ? (
-                  <Badge variant="secondary" className={paramBadgeClass}>{t("required")}</Badge>
+                  <Badge variant="secondary" className={paramBadgeClass}>
+                    {t("required")}
+                  </Badge>
                 ) : (
-                  <Badge variant="outline" className={paramBadgeClass}>{t("optional")}</Badge>
+                  <Badge variant="outline" className={paramBadgeClass}>
+                    {t("optional")}
+                  </Badge>
                 )}
                 {defaultValue !== undefined ? (
                   <Badge variant="outline" className={`font-mono ${paramBadgeClass}`}>

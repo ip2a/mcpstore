@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 
 export function McpstoreAsciiBanner({ className }: { className?: string }) {
   const [bannerColor] = useState(randomAsciiBannerColor)
-  const letters = ['M', 'C', 'P', 'S', 'T', 'O', 'R', 'E']
+  const letters = ["M", "C", "P", "S", "T", "O", "R", "E"]
 
   return (
     <div
@@ -20,7 +20,9 @@ export function McpstoreAsciiBanner({ className }: { className?: string }) {
           <pre
             key={letter}
             className="m-0 whitespace-pre text-[var(--ascii-banner-color)]"
-            style={{ textShadow: "0 0 14px color-mix(in srgb, var(--ascii-banner-color) 28%, transparent)" }}
+            style={{
+              textShadow: "0 0 14px color-mix(in srgb, var(--ascii-banner-color) 28%, transparent)",
+            }}
           >
             {ASCII_LETTERS[letter]}
           </pre>

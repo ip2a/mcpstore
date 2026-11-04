@@ -38,10 +38,17 @@ export function SectionHeading({
   const titleClassName = cn(variant === "page" ? "text-2xl font-semibold" : "text-sm font-medium")
 
   return (
-    <div className={cn("@container", variant === "compact" && "border-b pb-2", className)} {...props}>
+    <div
+      className={cn("@container", variant === "compact" && "border-b pb-2", className)}
+      {...props}
+    >
       <div className="grid gap-3 @min-[42rem]:grid-cols-[minmax(0,1fr)_auto] @min-[42rem]:items-start">
         <div className="flex min-w-0 flex-col gap-1">
-          {eyebrow ? <Badge variant="secondary" className="w-fit">{eyebrow}</Badge> : null}
+          {eyebrow ? (
+            <Badge variant="secondary" className="w-fit">
+              {eyebrow}
+            </Badge>
+          ) : null}
           {description && descriptionPlacement === "inline" ? (
             <div className="flex min-w-0 items-center justify-between gap-2">
               <Title className={titleClassName}>{title}</Title>
@@ -53,13 +60,20 @@ export function SectionHeading({
                 <Title className={cn(titleClassName, titleAddon && "shrink-0")}>{title}</Title>
                 {titleAddon}
               </div>
-              {description ? <span className="text-sm text-muted-foreground">{description}</span> : null}
+              {description ? (
+                <span className="text-sm text-muted-foreground">{description}</span>
+              ) : null}
             </>
-          )
-}
+          )}
         </div>
         {actions || badge !== undefined ? (
-          <div {...actionsProps} className={cn("flex flex-wrap justify-start gap-2 @min-[42rem]:justify-end", actionsProps?.className)}>
+          <div
+            {...actionsProps}
+            className={cn(
+              "flex flex-wrap justify-start gap-2 @min-[42rem]:justify-end",
+              actionsProps?.className,
+            )}
+          >
             {actions}
             {badge !== undefined ? <Badge variant="outline">{badge}</Badge> : null}
           </div>

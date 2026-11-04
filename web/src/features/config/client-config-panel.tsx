@@ -14,7 +14,15 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { getMcpHubDescriptor, getMcpHubStatus, startMcpHub, stopMcpHub, type McpHubOptions, type McpHubStatus, type ScopeRef } from "@/lib/api"
+import {
+  getMcpHubDescriptor,
+  getMcpHubStatus,
+  startMcpHub,
+  stopMcpHub,
+  type McpHubOptions,
+  type McpHubStatus,
+  type ScopeRef,
+} from "@/lib/api"
 
 function ConfigModule({
   children,
@@ -33,7 +41,15 @@ function ConfigModule({
   )
 }
 
-export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { scope?: ScopeRef; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+export function ClientConfigPanel({
+  scope: scopeProp,
+  open,
+  onOpenChange,
+}: {
+  scope?: ScopeRef
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}) {
   const [busy, setBusy] = useState(false)
   const [transport, setTransport] = useState<"stdio" | "streamable-http">("streamable-http")
   const [scopeState, setScopeState] = useState<"store" | "agent">("store")
@@ -55,14 +71,26 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
 
   function mcpHubOptions(): McpHubOptions {
     const parsedPort = Number(port)
-    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) throw new Error("Port must be between 1 and 65535")
-    if (scope === "agent" && !agentId.trim()) throw new Error("Agent ID is required for agent scope")
-    return { transport, scope, agentId: scope === "agent" ? agentId.trim() : undefined, host, port: parsedPort, path: pathValue }
+    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)
+      throw new Error("Port must be between 1 and 65535")
+    if (scope === "agent" && !agentId.trim())
+      throw new Error("Agent ID is required for agent scope")
+    return {
+      transport,
+      scope,
+      agentId: scope === "agent" ? agentId.trim() : undefined,
+      host,
+      port: parsedPort,
+      path: pathValue,
+    }
   }
 
   async function loadMcpHubStatus() {
-    try { setMcpHubStatus(await getMcpHubStatus(mcpHubOptions())) }
-    catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
+    try {
+      setMcpHubStatus(await getMcpHubStatus(mcpHubOptions()))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    }
   }
 
   async function loadLaunch() {
@@ -71,8 +99,11 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
       const options = mcpHubOptions()
       setLaunch(await getMcpHubDescriptor(options))
       setMcpHubStatus(await getMcpHubStatus(options))
-    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
-    finally { setBusy(false) }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function toggleMcpHub(action: "start" | "stop") {
@@ -83,8 +114,11 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
       else await stopMcpHub()
       await loadMcpHubStatus()
       toast.success(action === "start" ? "MCP Hub Service started" : "MCP Hub Service stopped")
-    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
-    finally { setBusy(false) }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -115,28 +149,114 @@ export function ClientConfigPanel({ scope: scopeProp, open, onOpenChange }: { sc
               <DialogTitle>Scope-aggregated MCP</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2"><Label>MCP Hub transport</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)}><option value="streamable-http">Streamable HTTP</option><option value="stdio">stdio</option></select></label>
-              {!locked ? <label className="grid gap-2"><Label>Scope</Label><select className="h-9 rounded-md border bg-background px-3 text-sm" value={scope} onChange={(event) => setScopeState(event.target.value as typeof scopeState)}><option value="store">Store</option><option value="agent">Agent</option></select></label> : null}
-              {!locked && scope === "agent" ? <label className="grid gap-2"><Label>Agent ID</Label><Input value={agentId} onChange={(event) => setAgentIdState(event.target.value)} placeholder="agent-id" /></label> : null}
-              <label className="grid gap-2"><Label>Host</Label><Input value={host} onChange={(event) => setHost(event.target.value)} /></label>
-              <label className="grid gap-2"><Label>HTTP port</Label><Input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} /></label>
-              <label className="grid gap-2"><Label>Path</Label><Input value={pathValue} onChange={(event) => setPathValue(event.target.value)} /></label>
+              <div className="grid gap-2">
+                <Label>MCP Hub transport</Label>
+                <select
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  value={transport}
+                  onChange={(event) => setTransport(event.target.value as typeof transport)}
+                >
+                  <option value="streamable-http">Streamable HTTP</option>
+                  <option value="stdio">stdio</option>
+                </select>
+              </div>
+              {!locked ? (
+                <div className="grid gap-2">
+                  <Label>Scope</Label>
+                  <select
+                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                    value={scope}
+                    onChange={(event) => setScopeState(event.target.value as typeof scopeState)}
+                  >
+                    <option value="store">Store</option>
+                    <option value="agent">Agent</option>
+                  </select>
+                </div>
+              ) : null}
+              {!locked && scope === "agent" ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="client-config-agent-id">Agent ID</Label>
+                  <Input
+                    id="client-config-agent-id"
+                    value={agentId}
+                    onChange={(event) => setAgentIdState(event.target.value)}
+                    placeholder="agent-id"
+                  />
+                </div>
+              ) : null}
+              <div className="grid gap-2">
+                <Label htmlFor="client-config-host">Host</Label>
+                <Input
+                  id="client-config-host"
+                  value={host}
+                  onChange={(event) => setHost(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="client-config-port">HTTP port</Label>
+                <Input
+                  id="client-config-port"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={port}
+                  onChange={(event) => setPort(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="client-config-path">Path</Label>
+                <Input
+                  id="client-config-path"
+                  value={pathValue}
+                  onChange={(event) => setPathValue(event.target.value)}
+                />
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button disabled={busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())} onClick={() => void toggleMcpHub("start")}>Start MCP Hub</Button>
-              <Button variant="outline" disabled={busy || !mcpHubStatus?.running} onClick={() => void toggleMcpHub("stop")}>Stop</Button>
-              <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>Show launch info</Button>
-              <Button variant="ghost" disabled={busy} onClick={() => void loadMcpHubStatus()}>Refresh status</Button>
-              <span className="text-sm text-muted-foreground">Status: {mcpHubStatus?.running ? `running${mcpHubStatus.pid ? ` (#${mcpHubStatus.pid})` : ""}` : "stopped"}</span>
+              <Button
+                disabled={
+                  busy || transport !== "streamable-http" || (scope === "agent" && !agentId.trim())
+                }
+                onClick={() => void toggleMcpHub("start")}
+              >
+                Start MCP Hub
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy || !mcpHubStatus?.running}
+                onClick={() => void toggleMcpHub("stop")}
+              >
+                Stop
+              </Button>
+              <Button variant="outline" disabled={busy} onClick={() => void loadLaunch()}>
+                Show launch info
+              </Button>
+              <Button variant="ghost" disabled={busy} onClick={() => void loadMcpHubStatus()}>
+                Refresh status
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Status:{" "}
+                {mcpHubStatus?.running
+                  ? `running${mcpHubStatus.pid ? ` (#${mcpHubStatus.pid})` : ""}`
+                  : "stopped"}
+              </span>
             </div>
-            {transport === "stdio" ? <p className="text-sm text-muted-foreground">stdio is started by the MCP client; use launch info and client configuration instead of the Web background control.</p> : null}
-            {mcpHubStatus?.url ? <p className="break-all font-mono text-xs text-muted-foreground">{mcpHubStatus.url}</p> : null}
+            {transport === "stdio" ? (
+              <p className="text-sm text-muted-foreground">
+                stdio is started by the MCP client; use launch info and client configuration instead
+                of the Web background control.
+              </p>
+            ) : null}
+            {mcpHubStatus?.url ? (
+              <p className="break-all font-mono text-xs text-muted-foreground">
+                {mcpHubStatus.url}
+              </p>
+            ) : null}
             {launch ? <JsonBlock value={launch} /> : null}
             <DialogFooter showCloseButton />
           </DialogContent>
         </Dialog>
       </div>
-
     </section>
   )
 }

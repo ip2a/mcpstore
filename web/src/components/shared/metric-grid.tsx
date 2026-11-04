@@ -52,9 +52,29 @@ export function MetricTile({
         )}
         title={title ?? (typeof label === "string" ? label : undefined)}
       >
-        <span className={cn("truncate font-mono text-[9px] uppercase leading-none text-muted-foreground", tileText)}>{label}</span>
-        <strong className={cn("truncate text-sm font-semibold leading-tight sm:text-base", tileText)}>{value ?? "-"}</strong>
-        {hint ? <span className={cn("truncate font-mono text-[8px] leading-none text-muted-foreground", tileText)}>{hint}</span> : null}
+        <span
+          className={cn(
+            "truncate font-mono text-[9px] uppercase leading-none text-muted-foreground",
+            tileText,
+          )}
+        >
+          {label}
+        </span>
+        <strong
+          className={cn("truncate text-sm font-semibold leading-tight sm:text-base", tileText)}
+        >
+          {value ?? "-"}
+        </strong>
+        {hint ? (
+          <span
+            className={cn(
+              "truncate font-mono text-[8px] leading-none text-muted-foreground",
+              tileText,
+            )}
+          >
+            {hint}
+          </span>
+        ) : null}
       </div>
     )
   }
@@ -65,7 +85,9 @@ export function MetricTile({
         <span className="flex min-w-0 w-full max-w-full flex-col items-center gap-1 overflow-hidden text-center">
           <strong className={cn("text-lg font-semibold", tileText)}>{value ?? "-"}</strong>
           <span className={cn("text-xs text-muted-foreground", tileText)}>{label}</span>
-          {hint ? <span className={cn("font-mono text-xs text-muted-foreground", tileText)}>{hint}</span> : null}
+          {hint ? (
+            <span className={cn("font-mono text-xs text-muted-foreground", tileText)}>{hint}</span>
+          ) : null}
         </span>
       </div>
     )
@@ -73,7 +95,9 @@ export function MetricTile({
 
   const content = (
     <span className="flex min-w-0 w-full max-w-full flex-col items-start gap-1 overflow-hidden text-left">
-      <span className={cn("font-mono text-xs uppercase text-muted-foreground", tileText)}>{label}</span>
+      <span className={cn("font-mono text-xs uppercase text-muted-foreground", tileText)}>
+        {label}
+      </span>
       <strong
         className={cn(
           "font-semibold",
@@ -111,7 +135,8 @@ export function MetricTile({
   return (
     <div
       className={cn(
-        variant === "compact" && "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
+        variant === "compact" &&
+          "min-w-0 overflow-hidden rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
         variant === "plain" && "min-w-0 overflow-hidden border-b pb-3",
         className,
       )}
