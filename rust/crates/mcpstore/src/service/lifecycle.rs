@@ -8,7 +8,6 @@ impl ControlPlane {
         service_name: &str,
         mut config: ServerConfig,
     ) -> Result<()> {
-        let _kv_done = eprintln!("MARK add_service({service_name}): kv check done");
         if store.definition_from_kv(service_name).await?.is_some()
             || store.seed_file_has_service(service_name)
         {
@@ -17,7 +16,6 @@ impl ControlPlane {
                 format!("Service definition already exists: {service_name}"),
             ));
         }
-        let _seed_done = eprintln!("MARK add_service({service_name}): seed check done");
 
         config.ensure_native_scopes();
         store

@@ -7180,8 +7180,6 @@ mod scoped_contract {
     #[tokio::test]
     async fn reset_scope_updates_all_definition_projections() {
         let _shared_store = super::shared_store_test_guard().lock().await;
-        let mark = |step: &str| eprintln!("MARK reset_scope: {step}");
-        mark("start");
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
             store: Some(ScopeDescriptor::default()),
@@ -7191,21 +7189,17 @@ mod scoped_contract {
             ]),
         };
         let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
-        mark("store setup done");
         store
             .add_service("alpha", native_config(scopes.clone()))
             .await
             .unwrap();
-        mark("add alpha done");
         store
             .add_service("beta", native_config(scopes))
             .await
             .unwrap();
-        mark("add beta done");
 
         let agent_1_scope = agent_scope("agent-1");
         store.reset_scope(&agent_1_scope).await.unwrap();
-        mark("reset_scope done");
 
         let saved = store.kernel.control.config_manager.load_or_empty().unwrap();
         for service_name in ["alpha", "beta"] {
@@ -7254,11 +7248,8 @@ mod scoped_contract {
             panel: PanelRole::ControlPanel,
         })
         .unwrap();
-        mark("shared db setup done");
         copy_cache_snapshot(&store, &db).await;
-        mark("snapshot copy done");
         db.load_from_db().await.unwrap();
-        mark("load_from_db done");
         assert!(db
             .list_scope_instances(&agent_1_scope)
             .await

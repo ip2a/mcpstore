@@ -32,7 +32,7 @@ jobs:
         run: cargo check -p mcpstore --no-default-features --features light --manifest-path rust/Cargo.toml
 
       - name: Test Rust workspace
-        run: cargo test --workspace --manifest-path rust/Cargo.toml -- --nocapture
+        run: cargo test --workspace --manifest-path rust/Cargo.toml
 
   python:
     runs-on: ubuntu-latest
