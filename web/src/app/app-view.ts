@@ -5,6 +5,7 @@ import {
   FileStackIcon,
   HistoryIcon,
   HouseIcon,
+  LayersIcon,
   PuzzleIcon,
   ScrollTextIcon,
   ServerIcon,
@@ -20,6 +21,7 @@ import { useI18n } from "@/lib/i18n-context"
 export type AppView =
   | { name: "home" }
   | { name: "services" }
+  | { name: "scope" }
   | { name: "clients" }
   | { name: "plugins"; tab?: "installed" | "services" | "agents" }
   | { name: "tools" }
@@ -44,6 +46,7 @@ type NavEntry = { view: NavViewName; labelKey: I18nKey; icon: LucideIcon; group:
 const NAV_ENTRIES: NavEntry[] = [
   { view: "home", labelKey: "navHome", icon: HouseIcon, group: "work" },
   { view: "services", labelKey: "navServices", icon: ServerIcon, group: "work" },
+  { view: "scope", labelKey: "navAgents", icon: LayersIcon, group: "work" },
   { view: "clients", labelKey: "navClients", icon: CableIcon, group: "work" },
   { view: "gateway", labelKey: "gateway", icon: WaypointsIcon, group: "work" },
   { view: "plugins", labelKey: "navPlugins", icon: PuzzleIcon, group: "extensions" },

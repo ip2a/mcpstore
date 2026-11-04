@@ -73,6 +73,7 @@ export function useAppView(services: ServiceInstance[]) {
 function viewFromPath(pathname: string, search: string): AppView {
   if (pathname === "/" || pathname === "/home") return { name: "home" }
   if (pathname === "/services") return { name: "services" }
+  if (pathname === "/scope") return { name: "scope" }
   if (pathname === "/tools") return { name: "tools" }
   if (pathname === "/resources") return { name: "resources" }
   if (pathname === "/prompts") return { name: "prompts" }

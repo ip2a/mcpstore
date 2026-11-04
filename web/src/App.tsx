@@ -24,6 +24,7 @@ import { PromptsView } from "@/features/prompts/prompts-view"
 import { ResourceDetailView } from "@/features/resources/resource-detail-view"
 import { ResourcesView } from "@/features/resources/resources-view"
 import { PluginsView } from "@/features/plugins/plugins-view"
+import { ScopeView } from "@/features/scope/scope-view"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
@@ -187,6 +188,8 @@ export function App() {
                     services={services}
                     onBack={goBack}
                   />
+                ) : view.name === "scope" ? (
+                  <ScopeView />
                 ) : view.name === "clients" ? (
                   <ClientsView />
                 ) : view.name === "plugins" ? (
