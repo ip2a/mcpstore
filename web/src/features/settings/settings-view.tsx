@@ -7,6 +7,7 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
+import { MarkIcon } from "@/components/shared/mark-icon"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -257,13 +258,7 @@ export function SettingsView() {
                     <SectionHead
                       title={t("about")}
                       description={t("settingsDescription")}
-                      action={
-                        <img
-                          alt="mcpstore"
-                          className="size-8 shrink-0"
-                          src="/logo.png"
-                        />
-                      }
+                      action={<MarkIcon className="size-8" />}
                     />
                     <div className="divide-y">
                       <AboutRow label={t("appVersion")} value={formatReleaseVersion(appVersion)} />
