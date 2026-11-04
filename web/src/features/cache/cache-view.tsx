@@ -21,10 +21,8 @@ import {
 } from "@/features/cache/cache-model"
 import { CacheCollectionNav, firstCollection } from "@/features/cache/cache-layer-browser"
 import { CacheLayerContent, CacheOverviewContent } from "@/features/cache/cache-response-view"
-import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -175,39 +173,9 @@ export function CacheView(props: {
 
           <TabsContent
             value={OVERVIEW_TAB}
-            className="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
           >
-            {tree ? (
-              <MetricGrid columns="four">
-                <MetricTile
-                  variant="compact"
-                  label={t("cacheNamespace")}
-                  value={tree.namespace}
-                  title={tree.namespace}
-                />
-                <MetricTile
-                  variant="compact"
-                  label={t("backend")}
-                  value={props.backend || tree.backend || t("unknown")}
-                  hint={t("currentStorageBackend")}
-                />
-                <MetricTile
-                  variant="compact"
-                  label={t("cacheCollections")}
-                  value={String(tree.totalCollections)}
-                  hint={t("cacheActiveTypesHint")}
-                />
-                <MetricTile
-                  variant="compact"
-                  label={t("cacheTotalKeys")}
-                  value={String(tree.totalKeys)}
-                  hint={t("cacheTotalKeysHint")}
-                />
-              </MetricGrid>
-            ) : null}
-            <ScrollPane className="flex-1">
-              {stateGuard ?? (tree ? <CacheOverviewContent tree={tree} /> : null)}
-            </ScrollPane>
+            {stateGuard ?? (tree ? <CacheOverviewContent tree={tree} /> : null)}
           </TabsContent>
 
           {layerNodes.map((layerNode) => {
