@@ -405,10 +405,11 @@ fn save_trace_at(path: &Path, trace: &DetectionTrace) -> Result<()> {
 }
 
 /// Test-only: replace the registry with setups parsed from the repo's own
-/// plugin manifests, so `client_config` and `client_wire` tests never touch a
-/// real plugin directory. Idempotent.
-#[cfg(test)]
-pub(crate) fn install_for_tests() {
+/// plugin manifests, so client-config tests never depend on a real plugin
+/// directory (a clean CI machine has none). Not cfg(test): the CLI app's
+/// tests live in a separate crate and need this too. Idempotent.
+#[doc(hidden)]
+pub fn install_for_tests() {
     let builtins: &[(&str, &str)] = &[
         (
             "claude",

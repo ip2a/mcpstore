@@ -302,6 +302,7 @@ async fn gateway_routes_report_http_configuration() {
 
 #[tokio::test]
 async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
+    mcpstore::agents::registry::install_for_tests();
     let path = unique_temp_dir_path("client-config-api").with_extension("json");
     let secret = "api-secret-do-not-return";
     std::fs::write(
@@ -1887,6 +1888,7 @@ async fn panel_settings_write_failure_keeps_config_update_reported() {
 
 #[tokio::test]
 async fn cross_resource_import_writes_definitions_without_local_paths() {
+    mcpstore::agents::registry::install_for_tests();
     use axum::{extract::Path as AxPath, response::IntoResponse, Json as AxJson};
     use std::sync::Mutex as StdMutex;
 
