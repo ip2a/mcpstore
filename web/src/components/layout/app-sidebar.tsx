@@ -139,7 +139,7 @@ export function AppSidebar({
 
   return (
     <aside className="flex w-48 shrink-0 flex-col border-r bg-card/40">
-      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2 pt-3">
+      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2 pt-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {sections.map((section, index) =>
           section.type === "group" ? (
             <div key={section.key} className="flex flex-col gap-0.5 pb-1">

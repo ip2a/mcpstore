@@ -4,6 +4,7 @@ import { AlertCircleIcon, BadgeCheckIcon, Loader2Icon } from "lucide-react"
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-badge"
 import { McpIcon } from "@/components/shared/mcp-icon"
+import { Skeleton } from "@/components/ui/skeleton"
 import { deriveServiceDisplayStatus, isServiceConnected } from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
 import { listInstancePrompts, listInstanceResources, type ServiceInstance } from "@/lib/api"
@@ -106,13 +107,17 @@ export function ServiceListCard({
         <p className="mt-3 min-w-0 w-full truncate text-sm text-muted-foreground">
           {description}
         </p>
-      ) : null}
+      ) : (
+        <Skeleton className="mt-3 h-5 w-3/4" aria-hidden />
+      )}
 
       {metaParts.length ? (
         <p className="mt-3 min-w-0 truncate text-xs lowercase text-muted-foreground" title={metaParts.join(" · ")}>
           {metaParts.join(" · ")}
         </p>
-      ) : null}
+      ) : (
+        <Skeleton className="mt-3 h-4 w-1/2" aria-hidden />
+      )}
     </div>
   )
 }
