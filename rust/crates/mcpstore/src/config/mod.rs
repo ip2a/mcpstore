@@ -17,6 +17,7 @@ mod scopes;
 mod scopes_loader;
 #[cfg(test)]
 mod scopes_tests;
+mod scopes_writeback;
 pub mod models;
 pub mod resolver;
 mod server_validation;

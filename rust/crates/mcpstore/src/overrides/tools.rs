@@ -237,6 +237,15 @@ impl MCPStore {
         rule.updated_at = now;
         rule.version += 1;
         self.store_tool_override(&rule, expected_version).await?;
+
+        // Best-effort writeback to scopes.toml; openkeyv above is the source of truth.
+        if let Err(error) = self
+            .writeback_tool_override(&rule.service_name, &rule.tool_name, &rule.scope, &rule.arguments, &rule.common)
+            .await
+        {
+            tracing::warn!("Failed to write back tool override to scopes.toml: {error}");
+        }
+
         Ok(rule)
     }
 
