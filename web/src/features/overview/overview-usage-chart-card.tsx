@@ -285,10 +285,10 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
         </div>
       </div>
 
-      <CardContent className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <CardContent className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <ChartContainer
           config={chartConfig}
-          className="aspect-auto h-[280px] w-full min-w-0"
+          className="aspect-auto h-full min-h-0 w-full min-w-0"
         >
           {/* Remount per view state: Recharts data-swap animation can leave
               half-rendered charts when toggling range/split. */}
@@ -297,7 +297,7 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
               key={`${range}-${split}-bar`}
               accessibilityLayer
               data={chartRows}
-              margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+              margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
               barCategoryGap="10%"
               barGap={0}
             >
@@ -306,8 +306,8 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
                 dataKey="label"
                 tickLine={false}
                 axisLine={false}
-                tickMargin={10}
-                height={32}
+                tickMargin={6}
+                height={28}
                 interval={xInterval}
                 minTickGap={30}
                 tick={{ fontSize: 10 }}
@@ -340,15 +340,15 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
               key={`${range}-${split}-area`}
               accessibilityLayer
               data={chartRows}
-              margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
+              margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
             >
               <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="label"
                 tickLine={false}
                 axisLine={false}
-                tickMargin={10}
-                height={32}
+                tickMargin={6}
+                height={28}
                 interval={xInterval}
                 minTickGap={30}
                 tick={{ fontSize: 10 }}

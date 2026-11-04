@@ -13,15 +13,17 @@ pub(super) struct HistoryQuery {
     to_ms: Option<i64>,
     before_id: Option<i64>,
     limit: Option<u32>,
+    offset: Option<u32>,
 }
 
 /// GET /gateway/requests/history — persisted request records, newest first.
+/// Supports filters and `limit` / `offset` pagination in SQL.
 pub(super) async fn requests_history(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<HistoryQuery>,
 ) -> ApiResult {
     let telemetry = require_telemetry(&state)?;
-    let records = telemetry
+    let page = telemetry
         .history(crate::telemetry::HistoryFilter {
             caller: query.caller,
             service: query.service,
@@ -31,12 +33,12 @@ pub(super) async fn requests_history(
             to_unix_ms: query.to_ms,
             before_id: query.before_id,
             limit: query.limit.unwrap_or(50),
+            offset: query.offset.unwrap_or(0),
         })
         .map_err(|error| ApiError::invalid_request(format!("telemetry read failed: {error}")))?;
-    let count = records.len();
     Ok(success(
         "Request history retrieved successfully",
-        json!({ "requests": records, "has_more": count == query.limit.unwrap_or(50) as usize }),
+        serde_json::to_value(page).unwrap_or(Value::Null),
     ))
 }
 

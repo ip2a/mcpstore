@@ -22,9 +22,12 @@ export type RequestRecord = {
   result_truncated: boolean;
 };
 
+/** Server-paginated request history list. */
 export type HistoryPage = {
   requests: RequestRecord[];
-  has_more: boolean;
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type UsageTotals = {
@@ -117,6 +120,7 @@ export function getFrameActivityByMethod(
 export function getRequestHistory(
   params: {
     limit?: number;
+    offset?: number;
     caller?: string;
     service?: string;
     tool?: string;

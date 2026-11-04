@@ -40,6 +40,16 @@ pub struct HistoryFilter {
     /// Page backwards: only records with `id < before_id`.
     pub before_id: Option<i64>,
     pub limit: u32,
+    pub offset: u32,
+}
+
+/// Paginated request-history listing (server-side filter + LIMIT/OFFSET).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HistoryPage {
+    pub requests: Vec<RequestRecord>,
+    pub total: i64,
+    pub limit: u32,
+    pub offset: u32,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -463,50 +473,69 @@ impl TelemetryLog {
         open_connection(&self.path)
     }
 
-    /// Newest first, `limit` capped at 500.
-    pub fn history(&self, filter: HistoryFilter) -> rusqlite::Result<Vec<RequestRecord>> {
+    /// Newest first. Filtering and pagination happen in SQL — `limit` capped
+    /// at 500, `offset` capped at 10_000.
+    pub fn history(&self, filter: HistoryFilter) -> rusqlite::Result<HistoryPage> {
         let conn = self.read_conn()?;
-        let mut sql = format!("SELECT {SELECT_COLUMNS} FROM requests WHERE 1=1");
+        let mut where_sql = String::from("WHERE 1=1");
         let mut args: Vec<Value> = Vec::new();
         let mut push = |sql: &mut String, clause: &str, value: Value| {
             sql.push_str(&format!(" {clause}?{}", args.len() + 1));
             args.push(value);
         };
         if let Some(value) = filter.caller.as_deref() {
-            push(&mut sql, "AND caller = ", Value::Text(value.to_string()));
+            push(&mut where_sql, "AND caller = ", Value::Text(value.to_string()));
         }
         if let Some(value) = filter.service.as_deref() {
             push(
-                &mut sql,
+                &mut where_sql,
                 "AND service_name = ",
                 Value::Text(value.to_string()),
             );
         }
         if let Some(value) = filter.tool.as_deref() {
-            push(&mut sql, "AND tool = ", Value::Text(value.to_string()));
+            push(&mut where_sql, "AND tool = ", Value::Text(value.to_string()));
         }
         if let Some(value) = filter.success {
-            push(&mut sql, "AND success = ", Value::from(value));
+            push(&mut where_sql, "AND success = ", Value::from(value));
         }
         if let Some(value) = filter.from_unix_ms {
-            push(&mut sql, "AND started_at_unix_ms >= ", value.into());
+            push(&mut where_sql, "AND started_at_unix_ms >= ", value.into());
         }
         if let Some(value) = filter.to_unix_ms {
-            push(&mut sql, "AND started_at_unix_ms <= ", value.into());
+            push(&mut where_sql, "AND started_at_unix_ms <= ", value.into());
         }
         if let Some(value) = filter.before_id {
-            push(&mut sql, "AND id < ", value.into());
+            push(&mut where_sql, "AND id < ", value.into());
         }
-        sql.push_str(" ORDER BY id DESC LIMIT ?");
-        let limit = filter.limit.clamp(1, 500) as i64;
-        sql.push_str(&(args.len() + 1).to_string());
-        args.push(limit.into());
+
+        let total: i64 = {
+            let sql = format!("SELECT COUNT(*) FROM requests {where_sql}");
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_row(rusqlite::params_from_iter(args.iter()), |row| row.get(0))?
+        };
+
+        let limit = filter.limit.clamp(1, 500);
+        let offset = filter.offset.min(10_000);
+        let sql = format!(
+            "SELECT {SELECT_COLUMNS} FROM requests {where_sql} ORDER BY id DESC LIMIT ?{} OFFSET ?{}",
+            args.len() + 1,
+            args.len() + 2
+        );
+        let mut page_args = args;
+        page_args.push((limit as i64).into());
+        page_args.push((offset as i64).into());
 
         let mut stmt = conn.prepare(&sql)?;
-        let records = stmt
-            .query_map(rusqlite::params_from_iter(args.iter()), row_to_record)?
+        let requests = stmt
+            .query_map(rusqlite::params_from_iter(page_args.iter()), row_to_record)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(records)
+        Ok(HistoryPage {
+            requests,
+            total,
+            limit,
+            offset,
+        })
     }
 
     pub fn get(&self, id: i64) -> rusqlite::Result<Option<RequestRecord>> {
@@ -921,11 +950,25 @@ mod tests {
         // Wait for the writer to drain.
         std::thread::sleep(Duration::from_millis(300));
 
-        let all = log.history(HistoryFilter {
-            limit: 50,
-            ..Default::default()
-        });
-        assert_eq!(all.unwrap().len(), 3);
+        let all = log
+            .history(HistoryFilter {
+                limit: 50,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(all.total, 3);
+        assert_eq!(all.requests.len(), 3);
+
+        let page = log
+            .history(HistoryFilter {
+                limit: 1,
+                offset: 1,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(page.total, 3);
+        assert_eq!(page.requests.len(), 1);
+        assert_eq!(page.offset, 1);
 
         let failures = log
             .history(HistoryFilter {
@@ -934,8 +977,12 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].error_code.as_deref(), Some("TOOL_FAILED"));
+        assert_eq!(failures.total, 1);
+        assert_eq!(failures.requests.len(), 1);
+        assert_eq!(
+            failures.requests[0].error_code.as_deref(),
+            Some("TOOL_FAILED")
+        );
 
         let by_caller = log
             .history(HistoryFilter {
@@ -944,8 +991,9 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        assert_eq!(by_caller.len(), 1);
-        let id = by_caller[0].id.unwrap();
+        assert_eq!(by_caller.total, 1);
+        assert_eq!(by_caller.requests.len(), 1);
+        let id = by_caller.requests[0].id.unwrap();
         assert_eq!(
             log.get(id).unwrap().unwrap().caller.as_deref(),
             Some("claude")
@@ -1085,7 +1133,7 @@ mod tests {
                 ..Default::default()
             })
             .unwrap()
-            .len(),
+            .total,
             0
         );
         std::fs::remove_file(&path).ok();
