@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  Line,
-  LineChart,
   XAxis,
   YAxis,
 } from "recharts"
@@ -29,20 +29,19 @@ import {
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
-type TimeRange = "7d" | "3d" | "24h" | "1h"
+type TimeRange = "7d" | "24h" | "1h"
 type SplitDim = "service" | "primitive" | "method"
-type ChartKind = "bar" | "line"
+type ChartKind = "bar" | "area"
 
-/** Categorical palette backed by shadcn theme tokens. Identity colors are
- * assigned once per series key and never reshuffled when the visible set
- * changes (color follows the entity). */
+/** Cool blue categorical palette. Identity colors are assigned once per
+ * series key and never reshuffled when the visible set changes. */
 const SERIES_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-  "var(--chart-6)",
+  "oklch(0.52 0.16 250)", // deep blue
+  "oklch(0.62 0.14 230)", // sky blue
+  "oklch(0.58 0.12 210)", // cyan-blue
+  "oklch(0.48 0.12 265)", // indigo
+  "oklch(0.68 0.10 220)", // soft steel
+  "oklch(0.45 0.10 245)", // slate blue
 ]
 const colorByKey = new Map<string, string>()
 function colorFor(key: string): string {
@@ -59,7 +58,6 @@ for (const key of ["Tools", "Resources", "Prompts"]) colorFor(key)
 
 const TIME_RANGE_HOURS: Record<TimeRange, number> = {
   "7d": 24 * 7,
-  "3d": 24 * 3,
   "24h": 24,
   "1h": 1,
 }
@@ -67,7 +65,6 @@ const TIME_RANGE_HOURS: Record<TimeRange, number> = {
 /** Bucket size requested from the backend — mirrors its range-based default. */
 const TIME_RANGE_BUCKET_MS: Record<TimeRange, number> = {
   "7d": 86_400_000,
-  "3d": 3_600_000,
   "24h": 3_600_000,
   "1h": 60_000,
 }
@@ -224,17 +221,16 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
     ]),
   ) satisfies ChartConfig
 
+  // Both bar and stacked area share a summed y domain so the axis stays comparable.
   const yMax = Math.max(
     ...chartRows.map((row) =>
-      kind === "bar"
-        ? chartSeries.reduce((sum, s) => sum + (row[s.dataKey] as number), 0)
-        : Math.max(...chartSeries.map((s) => row[s.dataKey] as number), 0),
+      chartSeries.reduce((sum, s) => sum + (row[s.dataKey] as number), 0),
     ),
     1,
   )
 
   // Aggressive interval to prevent overlap: skip more labels on dense ranges
-  const xInterval = range === "1h" ? 5 : range === "24h" ? 3 : range === "3d" ? 8 : 2
+  const xInterval = range === "1h" ? 5 : range === "24h" ? 3 : 2
 
   return (
     <Card className={cn("gap-0 py-0", className)}>
@@ -249,9 +245,6 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
           >
             <ToggleGroupItem value="7d" className="px-3">
               7 Days
-            </ToggleGroupItem>
-            <ToggleGroupItem value="3d" className="px-3">
-              3 Days
             </ToggleGroupItem>
             <ToggleGroupItem value="24h" className="px-3">
               24 Hours
@@ -270,8 +263,8 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
             <ToggleGroupItem value="bar" className="px-3">
               Bar
             </ToggleGroupItem>
-            <ToggleGroupItem value="line" className="px-3">
-              Line
+            <ToggleGroupItem value="area" className="px-3">
+              Area
             </ToggleGroupItem>
           </ToggleGroup>
         </div>
@@ -331,31 +324,23 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
                 cursor={{ fill: "var(--muted)" }}
                 content={<ChartTooltipContent />}
               />
-              {chartSeries.map((s, index) => (
+              {chartSeries.map((s) => (
                 <Bar
                   key={s.dataKey}
                   dataKey={s.dataKey}
                   stackId="usage"
                   fill={s.colorVar}
                   isAnimationActive={false}
-                  radius={
-                    chartSeries.length === 1
-                      ? [4, 4, 4, 4]
-                      : index === 0
-                        ? [0, 0, 4, 4]
-                        : index === chartSeries.length - 1
-                          ? [4, 4, 0, 0]
-                          : 0
-                  }
+                  radius={0}
                 />
               ))}
             </BarChart>
           ) : (
-            <LineChart
-              key={`${range}-${split}-line`}
+            <AreaChart
+              key={`${range}-${split}-area`}
               accessibilityLayer
               data={chartRows}
-              margin={{ top: 8, right: 12, left: 12, bottom: 4 }}
+              margin={{ top: 8, right: 12, left: 0, bottom: 4 }}
             >
               <CartesianGrid vertical={false} />
               <XAxis
@@ -376,20 +361,23 @@ export function OverviewUsageChartCard({ className }: { className?: string }) {
                 domain={[0, Math.ceil(yMax * 1.05)]}
                 tick={{ fontSize: 11 }}
               />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+              <ChartTooltip
+                cursor={false}
+                content={<ChartTooltipContent indicator="dot" />}
+              />
               {chartSeries.map((s) => (
-                <Line
+                <Area
                   key={s.dataKey}
                   dataKey={s.dataKey}
-                  type="monotone"
+                  type="natural"
+                  fill={s.colorVar}
+                  fillOpacity={0.4}
                   stroke={s.colorVar}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
+                  stackId="usage"
                   isAnimationActive={false}
                 />
               ))}
-            </LineChart>
+            </AreaChart>
           )}
         </ChartContainer>
 

@@ -45,7 +45,6 @@ type DayCell = {
   tool: number
   resource: number
   prompt: number
-  other: number
   errors: number
 }
 
@@ -60,7 +59,7 @@ type Matrix = {
 }
 
 function emptyCell(): DayCell {
-  return { count: 0, tool: 0, resource: 0, prompt: 0, other: 0, errors: 0 }
+  return { count: 0, tool: 0, resource: 0, prompt: 0, errors: 0 }
 }
 
 /** Row 0 = Monday; columns = local hours 0–23. Buckets are summed (DST-safe). */
@@ -77,7 +76,6 @@ function buildMatrix(days: HeatmapDay[]): Matrix {
     cell.tool += day.tool_calls
     cell.resource += day.resource_calls
     cell.prompt += day.prompt_calls
-    cell.other += day.other_calls
     cell.errors += day.errors
     cell.count += day.tool_calls + day.resource_calls + day.prompt_calls
     errors += day.errors
@@ -133,7 +131,6 @@ function HeatCell({
   famTools,
   famResources,
   famPrompts,
-  famOther,
   callsUnit,
   errorsLabel,
 }: {
@@ -146,7 +143,6 @@ function HeatCell({
   famTools: string
   famResources: string
   famPrompts: string
-  famOther: string
   callsUnit: string
   errorsLabel: string
 }) {
@@ -165,7 +161,6 @@ function HeatCell({
   if (cell.tool > 0) parts.push(`${famTools} ${cell.tool}`)
   if (cell.resource > 0) parts.push(`${famResources} ${cell.resource}`)
   if (cell.prompt > 0) parts.push(`${famPrompts} ${cell.prompt}`)
-  if (cell.other > 0) parts.push(`${famOther} ${cell.other}`)
 
   return (
     <Tooltip>
@@ -196,8 +191,6 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
 
   const matrix = useMemo(() => buildMatrix(stats ?? []), [stats])
   const hasTraffic = matrix.requests > 0 || matrix.errors > 0
-  const activeRate =
-    DAYS > 0 ? Math.round((matrix.activeDays / DAYS) * 100) : 0
 
   const contentRef = useRef<HTMLDivElement>(null)
   const [showStats, setShowStats] = useState(true)
@@ -231,10 +224,7 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
         {showStats ? (
           <div className="grid shrink-0 grid-cols-2 gap-8 pb-3">
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">
-                {t("homeHeatmapCalls")}
-              </p>
-              <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
                 <span className="text-3xl font-semibold tabular-nums tracking-tight">
                   {formatCompact(matrix.requests)}
                 </span>
@@ -247,10 +237,7 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
               </p>
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">
-                {t("homeHeatmapErrors")}
-              </p>
-              <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
                 <span
                   className={cn(
                     "text-3xl font-semibold tabular-nums tracking-tight",
@@ -263,18 +250,6 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
                   {t("homeHeatmapErrorsUnit")}
                 </span>
               </p>
-              <div
-                className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-valuenow={activeRate}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div
-                  className="h-full rounded-full bg-[#5b5bd5] transition-[width]"
-                  style={{ width: `${activeRate}%` }}
-                />
-              </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 {t("homeHeatmapDaysOf", {
                   active: matrix.activeDays,
@@ -329,7 +304,6 @@ export function OverviewUsageHeatmapCard({ className }: { className?: string }) 
                         famTools={t("homeFrameFamTools")}
                         famResources={t("homeFrameFamResources")}
                         famPrompts={t("homeFrameFamPrompts")}
-                        famOther={t("homeFrameFamOther")}
                         callsUnit={t("homeCallsUnit")}
                         errorsLabel={t("homeFrameStatErrors", {
                           count: cell.errors,

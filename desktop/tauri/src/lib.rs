@@ -19,11 +19,16 @@ const MIN_CONTENT_WIDTH_RATIO: f64 = 0.70;
 /// Hard floor so ultra-narrow monitors still stay usable.
 const ABSOLUTE_MIN_INNER_WIDTH: f64 = 720.0;
 
-/// Height can shrink more aggressively than width; list pages scroll internally.
-const DESIGN_MIN_INNER_HEIGHT: f64 = 480.0;
-
+/// Default size keeps the overview heatmap cells roughly square
+/// (chart flex 1.15 + heatmap flex 1 under the current shell chrome).
 const DEFAULT_INNER_WIDTH: f64 = 1180.0;
-const DEFAULT_INNER_HEIGHT: f64 = 760.0;
+const DEFAULT_INNER_HEIGHT: f64 = 910.0;
+
+/// Locked inner aspect (width / height). Resize scales uniformly.
+const WINDOW_ASPECT: f64 = DEFAULT_INNER_WIDTH / DEFAULT_INNER_HEIGHT;
+
+/// Absolute min height derived from the locked aspect + min width.
+const ABSOLUTE_MIN_INNER_HEIGHT: f64 = ABSOLUTE_MIN_INNER_WIDTH / WINDOW_ASPECT;
 
 #[derive(Clone, Copy)]
 struct MinInnerSize {
@@ -155,9 +160,11 @@ fn compute_min_inner_size(window: &WebviewWindow) -> MinInnerSize {
         }
     }
 
+    let min_height = (min_width / WINDOW_ASPECT).max(ABSOLUTE_MIN_INNER_HEIGHT);
+    let min_width = (min_height * WINDOW_ASPECT).max(min_width);
     MinInnerSize {
         width: min_width,
-        height: DESIGN_MIN_INNER_HEIGHT,
+        height: min_height,
     }
 }
 
@@ -165,6 +172,44 @@ fn apply_min_inner_size(window: &WebviewWindow) {
     let min_size = compute_min_inner_size(window);
     let _ = window.set_min_size(Some(LogicalSize::new(min_size.width, min_size.height)));
 }
+
+fn sync_aspect_from_width(window: &WebviewWindow) {
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    let Ok(scale) = window.scale_factor() else {
+        return;
+    };
+    if scale <= 0.0 {
+        return;
+    }
+    let logical_w = size.width as f64 / scale;
+    let _ = window.set_size(LogicalSize::new(logical_w, logical_w / WINDOW_ASPECT));
+}
+
+/// Lock content aspect in the window server so live resize stays proportional
+/// (no post-hoc set_size fighting → no flicker).
+#[cfg(target_os = "macos")]
+fn lock_native_content_aspect(window: &WebviewWindow) {
+    let Ok(ptr) = window.ns_window() else {
+        return;
+    };
+    if ptr.is_null() {
+        return;
+    }
+    // SAFETY: ptr is the live NSWindow for this WebviewWindow; we only call
+    // AppKit on the main thread during setup / window events.
+    unsafe {
+        let ns_window = &*ptr.cast::<objc2_app_kit::NSWindow>();
+        ns_window.setContentAspectRatio(objc2_foundation::NSSize::new(
+            DEFAULT_INNER_WIDTH,
+            DEFAULT_INNER_HEIGHT,
+        ));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn lock_native_content_aspect(_window: &WebviewWindow) {}
 
 fn prime_desktop_environment() {
     #[cfg(not(target_os = "windows"))]
@@ -262,12 +307,17 @@ pub fn run() {
             .title("mcpstore")
             .hidden_title(true)
             .inner_size(initial_state.width as f64, initial_state.height as f64)
-            .min_inner_size(ABSOLUTE_MIN_INNER_WIDTH, DESIGN_MIN_INNER_HEIGHT)
+            .min_inner_size(ABSOLUTE_MIN_INNER_WIDTH, ABSOLUTE_MIN_INNER_HEIGHT)
+            // Aspect-locked scaling; green maximize would break the ratio.
+            .maximizable(false)
             .zoom_hotkeys_enabled(false)
             .center()
             .build()?;
 
+            // window-state may restore a legacy non-aspect size; re-lock from width.
+            sync_aspect_from_width(&window);
             apply_min_inner_size(&window);
+            lock_native_content_aspect(&window);
 
             let event_window = window.clone();
             window.on_window_event(move |event| match event {
@@ -276,6 +326,8 @@ pub fn run() {
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     apply_min_inner_size(&event_window);
+                    sync_aspect_from_width(&event_window);
+                    lock_native_content_aspect(&event_window);
                 }
                 _ => {}
             });
