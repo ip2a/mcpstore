@@ -1,4 +1,4 @@
-import { ArrowUpDownIcon, LayoutGridIcon, ListIcon, RefreshCwIcon } from "lucide-react"
+import { ArrowUpDownIcon, LayoutGridIcon, ListIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
 import { useMemo, useRef, useState, type ComponentRef, type RefObject } from "react"
 
 import {
@@ -93,6 +93,7 @@ export function ServicesView(props: {
   const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("root")
   const [viewMode, setViewMode] = useState<ServicesViewMode>(readViewMode)
   const [sortOpen, setSortOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const listScrollRef = useRef<ComponentRef<typeof ScrollPane>>(null)
 
   const scopesQuery = useScopesQuery()
@@ -227,7 +228,14 @@ export function ServicesView(props: {
                 <RefreshCwIcon data-icon="inline-start" />
                 {t("refresh")}
               </Button>
-              <AddServiceDialog agents={props.agents} onAdded={props.onAdded} size="sm" />
+              <AddServiceDialog
+                agents={props.agents}
+                onAdded={props.onAdded}
+                open={addOpen}
+                onOpenChange={setAddOpen}
+                showTrigger={viewMode === "list"}
+                size="sm"
+              />
               <div className="flex shrink-0 items-center gap-1">
                 <Button
                   aria-label={t("servicesViewCards")}
@@ -266,6 +274,7 @@ export function ServicesView(props: {
                     loading={loadingScope}
                     loadAgentScope={loadAgentScope}
                     moveService={moveService}
+                    onAdd={() => setAddOpen(true)}
                     onConnect={props.onConnect}
                     onDeclareScope={props.onDeclareScope}
                     onDelete={props.onDelete}
@@ -290,6 +299,29 @@ export function ServicesView(props: {
   )
 }
 
+function AddServiceCard({ onSelect }: { onSelect: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+    >
+      <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
+        <PlusIcon className="size-4" />
+      </span>
+      <span className="text-sm font-medium">{t("addService")}</span>
+    </div>
+  )
+}
+
 function ServicesScopeContent({
   agents,
   busy,
@@ -299,6 +331,7 @@ function ServicesScopeContent({
   loading,
   loadAgentScope,
   moveService,
+  onAdd,
   onConnect,
   onDeclareScope,
   onDelete,
@@ -320,6 +353,7 @@ function ServicesScopeContent({
   loading: boolean
   loadAgentScope: () => void
   moveService: (fromId: string, toId: string) => void
+  onAdd: () => void
   onConnect: (service: ServiceInstance) => void
   onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
   onDelete: (service: ServiceInstance) => void
@@ -369,7 +403,7 @@ function ServicesScopeContent({
     )
   }
 
-  if (!filteredServices.length) {
+  if (!filteredServices.length && viewMode === "list") {
     return (
       <div className="px-4 py-2">
         <PageEmpty
@@ -424,6 +458,7 @@ function ServicesScopeContent({
             />
           )
         })}
+        <AddServiceCard onSelect={onAdd} />
       </ScrollPane>
       <ServiceCardDialog
         busy={busy}
@@ -453,5 +488,28 @@ function ServicesScopeContent({
         onDeclareScope={onDeclareScope}
       />
     </>
+  )
+}
+
+function AddServiceCard({ onSelect }: { onSelect: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+    >
+      <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
+        <PlusIcon className="size-4" />
+      </span>
+      <span className="text-sm font-medium">{t("addService")}</span>
+    </div>
   )
 }

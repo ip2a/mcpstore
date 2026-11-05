@@ -55,7 +55,8 @@ export function AddServiceDialog(props: {
       <DialogContent
         className={cn(
           "@container flex max-h-none max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none",
-          "h-[78dvh] w-[min(84vw,68rem)]",
+          // Same control as detail (height drives width); larger budget for the form.
+          "h-[78dvh] w-[min(90vw,calc(78dvh*1.618))]",
         )}
       >
         <DialogHeader className="shrink-0 border-b px-4 py-4 @min-[640px]:px-5">
