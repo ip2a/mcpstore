@@ -167,23 +167,11 @@ export function useServicesList(services: ServiceInstance[]) {
     commitOrder([...services].sort(compareBySort(sortBy)).map((service) => service.instance_id))
   }
 
-  const moveService = (fromId: string, toId: string) => {
-    if (fromId === toId) return
-    const next = resolvedOrder.slice()
-    const from = next.indexOf(fromId)
-    const to = next.indexOf(toId)
-    if (from < 0 || to < 0) return
-    const [item] = next.splice(from, 1)
-    next.splice(to, 0, item)
-    commitOrder(next)
-  }
-
   return {
     activeFilterCount,
     agentFilter,
     applySort,
     filteredServices,
-    moveService,
     query,
     scopeFilter,
     setAgentFilter,
