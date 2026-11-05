@@ -30,10 +30,12 @@ struct DaemonHost {
 /// Start the KernelHost: create one StoreKernel and accept typed IPC requests.
 pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
     let store = load_kernel(&args).await?.store().clone();
-    // Request telemetry (host-owned SQLite; the SDK only sees the sink trait):
-    // fail loud — a daemon that can't record its calls points at broken storage.
-    let telemetry = crate::telemetry::TelemetryLog::open(crate::telemetry::default_db_path())
-        .map_err(|error| format!("request telemetry db unavailable: {error}"))?;
+
+    // Unified storage manager: telemetry SQLite opened once, shared by store/API/gateway.
+    let mut storage = crate::storage::StorageManager::new(crate::telemetry::default_db_path());
+    storage.init_telemetry()?;
+    let telemetry = storage.telemetry();
+
     store.set_telemetry(Some(telemetry.clone()));
     // Frame telemetry rides the same file (frames table) and the same handle.
     let frame_sink: std::sync::Arc<dyn mcpstore::telemetry::FrameTelemetry> = telemetry.clone();
@@ -441,7 +443,7 @@ fn plugin_id(payload: &Value) -> Result<String, Error> {
     crate::daemon::ops::required_str(payload, "id")
 }
 
-fn plugin_list(host: &DaemonHost) -> Result<Value, Error> {
+fn plugin_list(_host: &DaemonHost) -> Result<Value, Error> {
     let trace = mcpstore::agents::registry::load_trace();
     let plugins: Vec<Value> = mcpstore::agents::registry::registry_report()
         .into_iter()

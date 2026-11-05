@@ -1,4 +1,4 @@
-use crate::config::{ComponentOverride, ScopesConfig, ServiceScopeConfig, ToolsScopeConfig};
+use crate::config::ScopesConfig;
 use crate::cache::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
