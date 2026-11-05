@@ -1,6 +1,5 @@
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     Json,
 };
 use serde::Deserialize;
