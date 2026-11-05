@@ -292,7 +292,7 @@ function ServicesScopeContent({
       <ScrollPane
         className="min-h-0 flex-1"
         innerClassName={cn(
-          "px-4 py-2",
+          "px-4 py-3 pb-6",
           "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4",
         )}
       >
