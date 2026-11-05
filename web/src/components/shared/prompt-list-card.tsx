@@ -21,6 +21,8 @@ export function PromptListCard({
   const displayName = prompt.title?.trim() || prompt.name
   const description = prompt.description?.trim()
   const argCount = promptArgCount(prompt)
+  const scopeLabel =
+    instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <div
@@ -64,7 +66,11 @@ export function PromptListCard({
         {description || t("noDescription")}
       </p>
 
-      <p className="mt-3 text-xs text-muted-foreground">{t("paramCount", { count: argCount })}</p>
+      <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
+        {t("paramCount", { count: argCount })}
+        {" · by "}
+        <span className="text-[#0077c2]">{scopeLabel}</span>
+      </p>
     </div>
   )
 }

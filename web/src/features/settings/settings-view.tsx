@@ -47,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -898,19 +899,24 @@ function ConnectionSection({
                 </div>
               </div>
 
-              <p
-                className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground"
+              <div
+                className="mt-3 min-h-10 min-w-0 w-full text-xs leading-5 text-muted-foreground"
                 title={detail}
               >
-                {address}
-                {detail && detail !== address ? ` · ${detail}` : null}
-              </p>
+                <p className="truncate">{address || t("noDescription")}</p>
+                {detail && detail !== address ? <p className="truncate">{detail}</p> : null}
+              </div>
 
               {metaParts.length > 0 ? (
-                <p className="mt-3 font-mono text-xs tabular-nums text-muted-foreground">
+                <p
+                  className="mt-3 min-w-0 truncate font-mono text-xs tabular-nums text-muted-foreground"
+                  title={metaParts.join(" · ")}
+                >
                   {metaParts.join(" · ")}
                 </p>
-              ) : null}
+              ) : (
+                <Skeleton className="mt-3 h-4 w-1/2" aria-hidden />
+              )}
             </div>
           )
         })}

@@ -490,26 +490,3 @@ function ServicesScopeContent({
     </>
   )
 }
-
-function AddServiceCard({ onSelect }: { onSelect: () => void }) {
-  const { t } = useI18n()
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onSelect()
-        }
-      }}
-    >
-      <span className="flex size-8 items-center justify-center rounded-md border border-dashed border-border/70">
-        <PlusIcon className="size-4" />
-      </span>
-      <span className="text-sm font-medium">{t("addService")}</span>
-    </div>
-  )
-}

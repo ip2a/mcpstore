@@ -21,6 +21,8 @@ export function ResourceListCard({
   const displayName = resource.title?.trim() || resource.name
   const description = resource.description?.trim() || resource.uri
   const mime = resourceMimeType(resource)
+  const scopeLabel =
+    instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <div
@@ -64,7 +66,11 @@ export function ResourceListCard({
         {description || t("noDescription")}
       </p>
 
-      {mime ? <p className="mt-3 font-mono text-xs text-muted-foreground">{mime}</p> : null}
+      <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
+        {mime ? <span className="font-mono">{mime}</span> : null}
+        {mime ? " · by " : "by "}
+        <span className="text-[#0077c2]">{scopeLabel}</span>
+      </p>
     </div>
   )
 }
