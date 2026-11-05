@@ -220,7 +220,10 @@ impl GatewayServer {
 
 impl ServerHandler for GatewayServer {
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
-        Cow::Borrowed(&[ProtocolVersion::V_2026_07_28])
+        // Inclusive gateway: advertise every revision rmcp knows, so the
+        // version echoed by the initialize handshake is always accepted again
+        // by per-request inline negotiation.
+        Cow::Borrowed(ProtocolVersion::KNOWN_VERSIONS)
     }
 
     fn accepted_subscription_filter(
