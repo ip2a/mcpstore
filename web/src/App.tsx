@@ -219,7 +219,6 @@ export function App() {
                     onCache={() => setView({ name: "cache" })}
                     onCheck={checkAllServices}
                     onConnect={connectServiceEntry}
-                    onDeclareScope={declareServiceScope}
                     onDelete={setDeleteTarget}
                     onDisconnect={disconnectServiceEntry}
                     onOpen={(service) => setView({ name: "instance", addr: service })}
