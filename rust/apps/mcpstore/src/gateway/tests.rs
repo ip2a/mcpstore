@@ -362,6 +362,98 @@ mod tests {
         assert_eq!(service_namespace("a_b-c9"), "a_b-c9");
     }
 
+    /// Inclusive gateway contract: bare legacy callers (no headers, no _meta),
+    /// callers naming the negotiated 2025-11-25 per request, and initialize
+    /// handshakes all succeed against the same stateless router. Regression
+    /// for the handshake/per-request version contradiction.
+    #[tokio::test]
+    async fn gateway_serves_bare_and_negotiated_version_requests() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            store: Some(JsonStoreConfig::memory()),
+            ..StoreOptions::default()
+        })
+        .unwrap();
+        let server = GatewayServer {
+            store: Arc::clone(&store),
+            scope: ScopeRef::Store,
+            instance_id: None,
+            session_key: None,
+            scope_label: "store".to_string(),
+            bindings: Arc::new(HashMap::new()),
+            session_state_tools: Arc::new(HashMap::new()),
+            tool_override_tools: Arc::new(HashMap::new()),
+            prompt_override_tools: Arc::new(HashMap::new()),
+            resource_override_tools: Arc::new(HashMap::new()),
+            openapi_tools: Arc::new(HashMap::new()),
+            service_tools: Arc::new(HashMap::new()),
+            cache_tools: Arc::new(HashMap::new()),
+            search_tools: Arc::new(HashMap::new()),
+            tools: Arc::new(Vec::new()),
+            caller: None,
+            call_log: GatewayCallLog::new(),
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let router =
+            super::super::transport::streamable_http_router(server, "/mcp");
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = reqwest::Client::new();
+        let url = format!("http://{addr}/mcp");
+
+        // Initialize at a legacy revision, with curl's default Accept: the
+        // handshake must echo the requested version back.
+        let initialize = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "clientInfo": { "name": "curl", "version": "0" },
+                "capabilities": {}
+            }
+        });
+        let response = client
+            .post(&url)
+            .header("Accept", "*/*")
+            .json(&initialize)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["result"]["protocolVersion"], "2025-11-25");
+
+        // Bare request: no MCP-Protocol-Version header, no _meta, curl Accept.
+        let bare = serde_json::json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
+        let response = client
+            .post(&url)
+            .header("Accept", "*/*")
+            .json(&bare)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert!(body["result"]["tools"].is_array(), "bare tools/list failed: {body}");
+
+        // Per-request inline version naming the negotiated revision (P0-1).
+        let versioned = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/list",
+            "params": {
+                "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25" }
+            }
+        });
+        let response = client.post(&url).json(&versioned).send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert!(
+            body["result"]["tools"].is_array(),
+            "versioned tools/list failed: {body}"
+        );
+    }
+
     #[test]
     fn call_records_carry_caller_and_service_name() {
         let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
