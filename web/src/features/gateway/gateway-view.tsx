@@ -407,6 +407,12 @@ function useGatewayRequestFlow() {
   return records
 }
 
+const KIND_LABEL_KEYS = {
+  tool: "gatewayCallKindTool",
+  prompt: "gatewayCallKindPrompt",
+  resource: "gatewayCallKindResource",
+} as const
+
 function FlowRow({ record }: { record: GatewayRequestRecord }) {
   const { t } = useI18n()
   return (
@@ -414,9 +420,12 @@ function FlowRow({ record }: { record: GatewayRequestRecord }) {
       <Badge variant="outline" className="shrink-0 font-mono">
         {record.caller ?? t("gatewayCallDirect")}
       </Badge>
+      <Badge variant="secondary" className="shrink-0 text-[11px] uppercase">
+        {t(KIND_LABEL_KEYS[record.kind])}
+      </Badge>
       <WaypointsIcon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate font-mono text-sm">
-        {record.service_name}.{record.tool}
+        {record.kind === "resource" ? record.name : `${record.service_name}.${record.name}`}
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <Badge variant={record.success ? "secondary" : "destructive"}>
@@ -645,7 +654,7 @@ function ServiceFlowCard({
         </span>
         <span className="min-w-0 truncate text-sm font-semibold">{record.service_name}</span>
         <Badge variant="secondary" className="max-w-[40%] shrink-0 truncate font-mono text-[11px]">
-          {record.tool}
+          {record.name}
         </Badge>
       </div>
       <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">

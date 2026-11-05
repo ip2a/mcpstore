@@ -32,7 +32,7 @@ pub(super) fn project_prompt_names(mut payloads: Vec<Value>) -> Result<Vec<Value
 pub(super) fn resolve_projected_prompt(
     payloads: &[Value],
     projected_name: &str,
-) -> Result<(InstanceId, String), ErrorData> {
+) -> Result<(InstanceId, String, String), ErrorData> {
     let names = catalog_name_counts(payloads, "name")
         .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
     for payload in payloads {
@@ -40,9 +40,9 @@ pub(super) fn resolve_projected_prompt(
             .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
         let instance_id = read_required_instance_id(payload, "instance_id")
             .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        let service_name = read_required_string(payload, "service_name")
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
         let candidate = if names.get(&original).copied().unwrap_or_default() > 1 {
-            let service_name = read_required_string(payload, "service_name")
-                .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
             format!(
                 "{}__{}",
                 stable_namespace(&service_name, instance_id),
@@ -52,7 +52,7 @@ pub(super) fn resolve_projected_prompt(
             original.clone()
         };
         if candidate == projected_name {
-            return Ok((instance_id, original));
+            return Ok((instance_id, original, service_name.to_string()));
         }
     }
     Err(ErrorData::invalid_params(
@@ -95,7 +95,7 @@ pub(super) fn resolve_projected_catalog_uri(
     field: &str,
     template: bool,
     projected_uri: &str,
-) -> Result<(InstanceId, String), ErrorData> {
+) -> Result<(InstanceId, String, String), ErrorData> {
     for payload in payloads {
         let candidate = projected_catalog_uri(payload, field, template)
             .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
@@ -104,6 +104,8 @@ pub(super) fn resolve_projected_catalog_uri(
                 read_required_instance_id(payload, "instance_id")
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?,
                 read_required_string(payload, field)
+                    .map_err(|error| ErrorData::internal_error(error.to_string(), None))?,
+                read_required_string(payload, "service_name")
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?,
             ));
         }
