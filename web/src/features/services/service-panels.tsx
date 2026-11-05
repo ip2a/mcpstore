@@ -4,6 +4,8 @@ import {
   EyeIcon,
   FileIcon,
   LayoutTemplateIcon,
+  PanelRightCloseIcon,
+  PanelRightIcon,
   RefreshCwIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -96,6 +98,8 @@ export function ServicePreviewActions({
   onRun,
   runningTool,
   onDetail,
+  playgroundOpen,
+  onTogglePlayground,
   className,
 }: {
   activeTab: ServiceDetailTab
@@ -113,6 +117,8 @@ export function ServicePreviewActions({
   onRun?: () => void
   runningTool?: boolean
   onDetail?: () => void
+  playgroundOpen?: boolean
+  onTogglePlayground?: () => void
   className?: string
 }) {
   const { t } = useI18n()
@@ -189,6 +195,17 @@ export function ServicePreviewActions({
         <RefreshCwIcon data-icon="inline-start" />
         {t("refresh")}
       </Button>
+      {onTogglePlayground ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onTogglePlayground}
+          aria-label={playgroundOpen ? t("collapse") : t("expand")}
+          title={playgroundOpen ? t("collapse") : t("expand")}
+        >
+          {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+        </Button>
+      ) : null}
     </div>
   )
 }

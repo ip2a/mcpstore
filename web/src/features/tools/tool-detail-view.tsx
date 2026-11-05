@@ -1,4 +1,5 @@
-import { ClipboardIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
+import { useState } from "react"
+import { ClipboardIcon, PanelRightCloseIcon, PanelRightIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -20,6 +21,7 @@ import type { ServiceInstance, ToolInfo } from "@/lib/api"
 import { serializeToolArgs } from "@/lib/tool-args"
 import type { ToolDialogState } from "@/features/tools/tool-dialogs"
 import { callInstanceTool } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 export function ToolDetailView(props: {
   instanceId: string
@@ -41,6 +43,7 @@ export function ToolDetailView(props: {
 
   const { values: toolArgs, setField: setToolArg, schema: toolArgsSchema } = useToolArgsForm(tool)
   const running = Boolean(tool && props.isToolRunning?.(props.instanceId, tool.name))
+  const [playgroundOpen, setPlaygroundOpen] = useState(true)
 
   async function loadTools() {
     const results = await Promise.all(toolQueries.map((query) => query.refetch()))
@@ -134,6 +137,17 @@ export function ToolDetailView(props: {
               <RefreshCwIcon data-icon="inline-start" />
               {t("refresh")}
             </Button>
+            {tool ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPlaygroundOpen((open) => !open)}
+                aria-label={playgroundOpen ? t("collapse") : t("expand")}
+                title={playgroundOpen ? t("collapse") : t("expand")}
+              >
+                {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -142,10 +156,15 @@ export function ToolDetailView(props: {
         ) : loading && !tool ? (
           <PageSkeleton />
         ) : tool ? (
-          <div className={toolDetailPlaygroundGrid}>
+          <div
+            className={cn(
+              toolDetailPlaygroundGrid,
+              !playgroundOpen && "@min-[42rem]:grid-cols-1",
+            )}
+          >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ToolDetailDocHeader tool={tool} serviceState={instance.state} />
               <ScrollPane className="min-h-0 flex-1">
+                <ToolDetailDocHeader tool={tool} serviceState={instance.state} />
                 <ToolDetailDocBody
                   tool={tool}
                   toolArgs={toolArgs}
@@ -155,19 +174,21 @@ export function ToolDetailView(props: {
                 />
               </ScrollPane>
             </div>
-            <ToolPlaygroundAside
-              tool={tool}
-              instanceId={instance.instance_id}
-              toolArgs={toolArgs}
-              toolArgsSchema={toolArgsSchema}
-              running={running}
-              onRun={() =>
-                props.onRunTool({
-                  ...makeRunner(tool, instance),
-                  initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
-                })
-              }
-            />
+            {playgroundOpen ? (
+              <ToolPlaygroundAside
+                tool={tool}
+                instanceId={instance.instance_id}
+                toolArgs={toolArgs}
+                toolArgsSchema={toolArgsSchema}
+                running={running}
+                onRun={() =>
+                  props.onRunTool({
+                    ...makeRunner(tool, instance),
+                    initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
+                  })
+                }
+              />
+            ) : null}
           </div>
         ) : (
           <PageEmpty
