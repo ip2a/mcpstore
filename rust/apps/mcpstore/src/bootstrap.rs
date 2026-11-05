@@ -78,7 +78,7 @@ pub fn init_tracing_from_config(config: Option<&mcpstore::AppConfig>) {
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
         .join("logs")
-        .join("mcpstore.log");
+        .join("daemon.log");
     init_tracing_from_config_with_path(config, default_path);
 }
 

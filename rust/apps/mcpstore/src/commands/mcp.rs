@@ -1286,15 +1286,6 @@ fn scope_label(scope: &ScopeRef) -> &'static str {
     }
 }
 
-/// Cache key for the name→instance target cache; agents must not share entries,
-/// so agent scopes are keyed by agent id.
-fn scope_cache_key(scope: &ScopeRef) -> String {
-    match scope {
-        ScopeRef::Store => "store".to_string(),
-        ScopeRef::Agent { agent_id } => format!("agent:{agent_id}"),
-    }
-}
-
 #[derive(Debug)]
 enum ResolveError {
     NotFound {
@@ -1327,17 +1318,7 @@ async fn resolve_target(
     if let Ok(instance_id) = InstanceId::from_str(target) {
         return Ok(instance_id);
     }
-    let identity = access
-        .cache_identity()
-        .await
-        .map_err(|e| ResolveError::Backend(e.to_string()))?;
     let scope_name = scope_label(scope);
-    let cache_key = scope_cache_key(scope);
-    if let Some(cached) = crate::schema_cache::load_target(&identity, &cache_key, target) {
-        if let Ok(instance_id) = InstanceId::from_str(&cached) {
-            return Ok(instance_id);
-        }
-    }
     let result = access
         .request(KernelOperation::ListServices, json!({ "scope": scope }))
         .await
@@ -1349,9 +1330,6 @@ async fn resolve_target(
             .and_then(|service| service["instance_id"].as_str())
             .map(str::to_string)
     });
-    if let Some(id) = &instance_id {
-        crate::schema_cache::save_target(&identity, &cache_key, target, id);
-    }
     instance_id
         .and_then(|id| InstanceId::from_str(&id).ok())
         .ok_or_else(|| ResolveError::NotFound {
@@ -1376,18 +1354,6 @@ async fn load_tool_input_schema(
     instance_id: InstanceId,
     tool_name: &str,
 ) -> mcpstore::Result<Option<Value>> {
-    let identity = access.cache_identity().await.map_err(|error| {
-        call_error_from_store(
-            mcpstore::Error::new(mcpstore::FailureCode::ServiceUnavailable, error.to_string()),
-            instance_id,
-            tool_name,
-        )
-    })?;
-    if let Some(cached) = crate::schema_cache::load(&identity, &instance_id.to_string()) {
-        if let Some(schema) = crate::schema_cache::find_schema(&cached, tool_name) {
-            return Ok(Some(schema));
-        }
-    }
     let result = access
         .request(
             KernelOperation::ListTools,
@@ -1396,11 +1362,6 @@ async fn load_tool_input_schema(
         .await
         .map_err(|error| call_error_from_store(error, instance_id, tool_name))?;
     let tools = result["tools"].as_array().cloned().unwrap_or_default();
-    let tools_json: Vec<Value> = tools
-        .iter()
-        .map(|tool| json!({ "name": tool["name"], "schema": tool["schema"] }))
-        .collect();
-    crate::schema_cache::save(&identity, &instance_id.to_string(), &tools_json);
     Ok(tools
         .iter()
         .find(|tool| tool["name"].as_str() == Some(tool_name))
@@ -2180,20 +2141,6 @@ mod tests {
 
     fn json_schema(json: &str) -> Value {
         serde_json::from_str(json).unwrap()
-    }
-
-    #[test]
-    fn scope_cache_key_separates_agents() {
-        let store = scope_cache_key(&ScopeRef::Store);
-        let agent_x = scope_cache_key(&ScopeRef::Agent {
-            agent_id: "x".into(),
-        });
-        let agent_y = scope_cache_key(&ScopeRef::Agent {
-            agent_id: "y".into(),
-        });
-        assert_eq!(store, "store");
-        assert_eq!(agent_x, "agent:x");
-        assert_ne!(agent_x, agent_y);
     }
 
     #[test]

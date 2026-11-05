@@ -131,9 +131,7 @@ impl MCPStore {
     pub async fn load_from_source(&self) -> Result<()> {
         self.load_from_config().await?;
         // scopes.toml overrides depend on services already being registered.
-        if let Err(error) = self.load_scopes_config().await {
-            tracing::warn!("Failed to load scopes.toml: {error}");
-        }
+        self.load_scopes_config().await?;
         Ok(())
     }
 

@@ -4,6 +4,21 @@ pub const MCP_CONFIG_FILENAME: &str = "mcp.json";
 pub const APP_CONFIG_FILENAME: &str = "config.toml";
 const APP_NAME: &str = "mcpstore";
 
+/// Default user data directory (~/.mcpstore)
+pub fn data_dir() -> PathBuf {
+    default_user_data_dir()
+}
+
+/// Panel settings directory (panel/)
+pub fn panel_dir() -> PathBuf {
+    default_user_data_dir().join("panel")
+}
+
+/// Logs directory (logs/)
+pub fn logs_dir() -> PathBuf {
+    default_user_data_dir().join("logs")
+}
+
 pub fn resolve_config_path() -> PathBuf {
     resolve_mcp_config_path()
 }

@@ -30,6 +30,8 @@ clap = { workspace = true }
 colored = { workspace = true }
 tabled = { workspace = true }
 async-trait = { workspace = true }
+rand = "0.8"
+base64 = "0.22"
 
 axum = "0.7"
 maud = { version = "0.27", features = ["axum"] }

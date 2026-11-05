@@ -600,10 +600,25 @@ pub(crate) fn plan_config_change(
             config.gateway.port = port;
             Ok(Vec::new())
         }
+        key if key.starts_with("placement.") => {
+            // placement.<scope>.<service> = "delegate" | "local" (data panel only)
+            let placement_key = key.strip_prefix("placement.").unwrap();
+            let placement_value = value.as_str().unwrap_or("");
+
+            if placement_value == "delegate" || placement_value == "local" || placement_value.is_empty() {
+                config.placement.insert(placement_key.to_string(), placement_value.to_string());
+                Ok(Vec::new())
+            } else {
+                Err(Error::new(
+                    FailureCode::InvalidInput,
+                    format!("placement value must be 'delegate', 'local', or empty; got: {}", placement_value),
+                ))
+            }
+        }
         other => Err(Error::new(
             FailureCode::InvalidInput,
             format!(
-                "unknown config key {other:?}; available: host, core, core-port, web-port, gateway, gateway-port"
+                "unknown config key {other:?}; available: host, core, core-port, web-port, gateway-port, placement.<scope>.<service>"
             ),
         )),
     }

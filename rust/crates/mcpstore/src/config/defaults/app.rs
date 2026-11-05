@@ -39,6 +39,10 @@ pub(in crate::config) fn default_gateway_port() -> u16 {
     1830
 }
 
+pub(in crate::config) fn default_gateway_host() -> String {
+    "127.0.0.1".to_string()
+}
+
 pub(in crate::config) fn default_runtime_log_level() -> String {
     DEFAULT_RUNTIME_LOG_LEVEL.to_string()
 }
