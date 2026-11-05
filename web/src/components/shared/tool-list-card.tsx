@@ -23,6 +23,8 @@ export function ToolListCard({
   const schema = getToolSchema(tool) as { properties?: Record<string, unknown> }
   const paramCount = Object.keys(schema.properties || {}).length
   const description = tool.description?.trim()
+  const scopeLabel =
+    instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <div
@@ -62,7 +64,11 @@ export function ToolListCard({
         {description || t("noDescription")}
       </p>
 
-      <p className="mt-3 text-xs text-muted-foreground">{t("paramCount", { count: paramCount })}</p>
+      <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
+        {t("paramCount", { count: paramCount })}
+        {" · by "}
+        <span className="text-[#0077c2]">{scopeLabel}</span>
+      </p>
     </div>
   )
 }

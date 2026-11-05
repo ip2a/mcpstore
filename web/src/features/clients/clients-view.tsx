@@ -809,6 +809,7 @@ function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelec
   const { t } = useI18n()
   const mcpCount = client.mcp_servers?.length ?? 0
   const statusText = clientStatusText(client, t)
+  const executable = client.executable_path?.trim()
   const path = client.config_path?.trim()
   const detected = client.detected_by != null
   const versionQuery = useClientVersionQuery(client.id, detected)
@@ -849,8 +850,11 @@ function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelec
         </span>
       </div>
 
-      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
-        {path || t("noDescription")}
+      <p
+        className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground"
+        title={executable || path || undefined}
+      >
+        {executable || path || t("noDescription")}
       </p>
 
       {metaParts.length ? (
