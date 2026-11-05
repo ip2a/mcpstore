@@ -31,6 +31,17 @@ struct DaemonHost {
 pub async fn start_daemon(args: StoreSourceArgs) -> Result<(), Box<dyn std::error::Error>> {
     let store = load_kernel(&args).await?.store().clone();
 
+    // Initialize daemon identity (学 Paseo server-id)
+    let data_dir = store.config_manager().mcp_path().parent().unwrap_or_else(|| std::path::Path::new("."));
+    let daemon_id = crate::daemon::identity::get_or_create_daemon_id(data_dir)
+        .map_err(|e| format!("Failed to initialize daemon ID: {}", e))?;
+    tracing::info!("[DAEMON] ID: {}", daemon_id);
+
+    // Enforce file permissions (0600 for sensitive files)
+    if let Err(e) = enforce_file_permissions(data_dir) {
+        tracing::warn!("[SECURITY] Failed to enforce file permissions: {}", e);
+    }
+
     // Unified storage manager: telemetry SQLite opened once, shared by store/API/gateway.
     let mut storage = crate::storage::StorageManager::new(crate::telemetry::default_db_path());
     storage.init_telemetry()?;
@@ -682,4 +693,43 @@ fn wire_error(error: serde_json::Error) -> Error {
         FailureCode::ConnectionClosed,
         format!("failed to serialize KernelHost response: {error}"),
     )
+}
+
+/// Enforce 0600 permissions on sensitive files (学 Paseo ensurePrivateFile).
+#[cfg(unix)]
+fn enforce_file_permissions(data_dir: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sensitive_files = [
+        "daemon-id",
+        "config.toml",
+        "mcp.json",
+        "scopes.toml",
+        "telemetry.db",
+    ];
+
+    for file in &sensitive_files {
+        let path = data_dir.join(file);
+        if !path.exists() {
+            continue;
+        }
+
+        let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+        let mode = metadata.permissions().mode();
+        if mode & 0o077 != 0 {
+            tracing::warn!(
+                "Sensitive file {:?} has unsafe permissions {:o}, fixing to 0600",
+                path,
+                mode
+            );
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("Failed to set 0600 permissions on {:?}: {}", path, e))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn enforce_file_permissions(_data_dir: &std::path::Path) -> Result<(), String> {
+    Ok(())
 }

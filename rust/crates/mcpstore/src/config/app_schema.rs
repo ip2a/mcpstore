@@ -171,12 +171,16 @@ impl HostsConfig {
 pub struct GatewayConfig {
     #[serde(default = "default_gateway_port")]
     pub port: u16,
+    /// Bind host for gateway (default 127.0.0.1 for localhost-only; use 0.0.0.0 for remote clients)
+    #[serde(default = "default_gateway_host")]
+    pub host: String,
 }
 
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
             port: default_gateway_port(),
+            host: default_gateway_host(),
         }
     }
 }

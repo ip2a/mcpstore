@@ -8,7 +8,6 @@ pub mod commands;
 pub mod daemon;
 pub mod error;
 pub mod gateway;
-pub mod schema_cache;
 pub mod storage;
 pub mod store_args;
 pub mod telemetry;

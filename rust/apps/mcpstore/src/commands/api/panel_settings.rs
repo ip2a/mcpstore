@@ -117,12 +117,37 @@ pub(super) fn save_for_manager(
     save(&panel_settings_path(manager), settings)
 }
 
-fn panel_settings_path(manager: &ConfigManager) -> PathBuf {
+fn legacy_panel_settings_path(manager: &ConfigManager) -> PathBuf {
     manager
         .app_config_path()
         .parent()
         .map(|parent| parent.join("panel-settings.json"))
         .unwrap_or_else(|| PathBuf::from("panel-settings.json"))
+}
+
+/// New home for panel settings: `panel/settings.json`. If a legacy
+/// `panel-settings.json` exists and the new file does not yet, it is moved
+/// into place once so subsequent reads/writes only ever touch the new path.
+fn panel_settings_path(manager: &ConfigManager) -> PathBuf {
+    let new_path = manager
+        .app_config_path()
+        .parent()
+        .map(|parent| parent.join("panel").join("settings.json"))
+        .unwrap_or_else(|| PathBuf::from("panel/settings.json"));
+
+    if !new_path.exists() {
+        let old_path = legacy_panel_settings_path(manager);
+        if old_path.exists() {
+            if let Some(parent) = new_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            // Best-effort one-time migration; on failure callers fall through
+            // to creating a fresh file at new_path, old data stays in place.
+            let _ = std::fs::rename(&old_path, &new_path);
+        }
+    }
+
+    new_path
 }
 
 pub(super) fn normalize_language(language: &str) -> Result<String, String> {

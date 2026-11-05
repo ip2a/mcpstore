@@ -238,6 +238,11 @@ impl MCPStore {
         &self.kernel.runtime.panel_role
     }
 
+    /// Store configuration (for gateway spawn inheritance).
+    pub async fn store_config(&self) -> JsonStoreConfig {
+        self.kernel.persistence.store_config.read().await.clone()
+    }
+
     /// Attach the request-telemetry sink (host opts in; SDK default = off).
     /// Idempotent: the first attach wins.
     pub fn set_telemetry(
