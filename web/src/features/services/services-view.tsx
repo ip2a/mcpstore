@@ -12,7 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useScopesQuery } from "@/features/agents/queries"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { AddServiceDialog } from "@/features/services/add-service-dialog"
-import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dialog"
 import { ServiceCardDialog } from "@/features/services/service-card-dialog"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { useServicesList } from "@/features/services/use-services-list"
@@ -48,7 +47,6 @@ export function ServicesView(props: {
   onCache: () => void
   onCheck: () => void
   onConnect: (service: ServiceInstance) => void
-  onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
   onAdded: () => Promise<void>
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
@@ -176,7 +174,6 @@ export function ServicesView(props: {
                     loadAgentScope={loadAgentScope}
                     onAdd={() => setAddOpen(true)}
                     onConnect={props.onConnect}
-                    onDeclareScope={props.onDeclareScope}
                     onDelete={props.onDelete}
                     onDisconnect={props.onDisconnect}
                     onOpen={props.onOpen}
@@ -186,7 +183,6 @@ export function ServicesView(props: {
                     scopeErrorMessage={scopeServicesErrorMessage}
                     scopeToolCountByInstance={scopeToolCountByInstance}
                     services={props.services}
-                    agents={props.agents}
                   />
                 ) : null}
               </TabsContent>
@@ -222,7 +218,6 @@ function AddServiceCard({ onSelect }: { onSelect: () => void }) {
 }
 
 function ServicesScopeContent({
-  agents,
   busy,
   error,
   filteredServices,
@@ -230,7 +225,6 @@ function ServicesScopeContent({
   loadAgentScope,
   onAdd,
   onConnect,
-  onDeclareScope,
   onDelete,
   onDisconnect,
   onOpen,
@@ -241,7 +235,6 @@ function ServicesScopeContent({
   scopeToolCountByInstance,
   services,
 }: {
-  agents: AgentItem[]
   busy: string | null
   error: string | null
   filteredServices: ServiceInstance[]
@@ -249,7 +242,6 @@ function ServicesScopeContent({
   loadAgentScope: () => void
   onAdd: () => void
   onConnect: (service: ServiceInstance) => void
-  onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
   onOpen: (service: ServiceInstance) => void
@@ -262,7 +254,6 @@ function ServicesScopeContent({
 }) {
   const { t } = useI18n()
   const [cardServiceId, setCardServiceId] = useState<string | null>(null)
-  const [scopeService, setScopeService] = useState<ServiceInstance | null>(null)
   const cardService =
     (cardServiceId
       ? filteredServices.find((service) => service.instance_id === cardServiceId) ||
@@ -327,7 +318,6 @@ function ServicesScopeContent({
         onOpenChange={(open) => {
           if (!open) setCardServiceId(null)
         }}
-        onAddScope={setScopeService}
         onConnect={onConnect}
         onDelete={onDelete}
         onDisconnect={onDisconnect}
@@ -336,16 +326,6 @@ function ServicesScopeContent({
         onUpdated={async () => {
           await onRefresh()
         }}
-      />
-      <AddServiceScopeDialog
-        agents={agents}
-        allServices={services}
-        busy={busy}
-        service={scopeService}
-        onOpenChange={(open) => {
-          if (!open) setScopeService(null)
-        }}
-        onDeclareScope={onDeclareScope}
       />
     </>
   )

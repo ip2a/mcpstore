@@ -20,12 +20,13 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { getAgentId } from "@/features/agents/model"
 import { useI18n } from "@/lib/i18n-context"
 import type { AgentItem, ServiceInstance } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function AddServiceForm({
-  agents: _agents,
+  agents,
   className,
   onAdded,
   onCancel,
@@ -38,6 +39,7 @@ export function AddServiceForm({
   showActions?: boolean
 }) {
   const { t } = useI18n()
+  const agentIds = agents.map(getAgentId).filter(Boolean)
   const storeServicesQuery = useScopeServicesQuery({ type: "store" })
   const existingServices = storeServicesQuery.data ?? []
   const {
@@ -48,9 +50,11 @@ export function AddServiceForm({
     restartPolicy,
     scope,
     serviceName,
+    setAgentId,
     setConfigFields,
     setPreviewFormat,
     setRestartPolicy,
+    setScope,
     setServiceName,
     setStartupPolicy,
     startupPolicy,
@@ -140,6 +144,7 @@ export function AddServiceForm({
 
         <AddServicePlaygroundAside
           agentId={agentId}
+          agentIds={agentIds}
           className="min-h-0 max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none"
           fields={configFields}
           name={serviceName}
@@ -147,11 +152,14 @@ export function AddServiceForm({
           restartPolicy={restartPolicy}
           scope={scope}
           showLifecycleTab
+          showScopeTab
           startupPolicy={startupPolicy}
+          onAgentIdChange={setAgentId}
           onFieldsChange={setConfigFields}
           onNameChange={setServiceName}
           onPreviewFormatChange={setPreviewFormat}
           onRestartPolicyChange={setRestartPolicy}
+          onScopeChange={setScope}
           onStartupPolicyChange={setStartupPolicy}
         />
       </div>
