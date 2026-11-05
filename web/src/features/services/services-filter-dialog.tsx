@@ -2,15 +2,25 @@ import { ListFilterIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -19,8 +29,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import type { ServiceScopeFilter, ServiceStatusFilter } from "@/features/services/use-services-list"
+import type { ServiceDisplayStatus } from "@/features/services/service-display-status"
+import type {
+  ServiceScopeFilter,
+  ServiceSortBy,
+  ServiceStatusFilter,
+} from "@/features/services/use-services-list"
+import { SERVICE_STATUS_OPTIONS } from "@/features/services/use-services-list"
 import { useI18n } from "@/lib/i18n-context"
+
+const STATUS_LABEL_KEYS: Record<ServiceDisplayStatus, string> = {
+  connected: "filterConnected",
+  connecting: "filterConnecting",
+  disconnected: "filterDisconnected",
+  error: "filterError",
+}
 
 export function ServicesFilterDialog(props: {
   activeFilterCount: number
@@ -29,7 +52,9 @@ export function ServicesFilterDialog(props: {
   hideScopeFilters?: boolean
   onAgentFilterChange?: (value: string) => void
   onScopeFilterChange?: (value: ServiceScopeFilter) => void
+  onSort?: (value: ServiceSortBy) => void
   onStatusFilterChange: (value: ServiceStatusFilter) => void
+  onStatusToggle: (status: ServiceDisplayStatus) => void
   scopeFilter?: ServiceScopeFilter
   statusFilter: ServiceStatusFilter
 }) {
@@ -48,13 +73,15 @@ export function ServicesFilterDialog(props: {
           ) : null}
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("filter")}</DialogTitle>
+          <DialogDescription>{t("filterDescription")}</DialogDescription>
         </DialogHeader>
-        <FieldGroup className="grid gap-4 sm:grid-cols-2">
+
+        <FieldGroup>
           {props.hideScopeFilters ? null : (
-            <>
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field>
                 <FieldLabel>{t("scope")}</FieldLabel>
                 <Select
@@ -99,29 +126,52 @@ export function ServicesFilterDialog(props: {
                   </SelectContent>
                 </Select>
               </Field>
-            </>
+            </div>
           )}
-          <Field>
-            <FieldLabel>{t("status")}</FieldLabel>
-            <Select
-              value={props.statusFilter}
-              onValueChange={(value) => props.onStatusFilterChange(value as ServiceStatusFilter)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("status")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="all">{t("filterAll")}</SelectItem>
-                  <SelectItem value="connected">{t("filterConnected")}</SelectItem>
-                  <SelectItem value="connecting">{t("filterConnecting")}</SelectItem>
-                  <SelectItem value="disconnected">{t("filterDisconnected")}</SelectItem>
-                  <SelectItem value="error">{t("filterError")}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
+
+          <div className="grid gap-6 sm:grid-cols-2">
+            <FieldSet>
+              <FieldLegend variant="label">{t("status")}</FieldLegend>
+              <div data-slot="checkbox-group" className="flex flex-col gap-3">
+                {SERVICE_STATUS_OPTIONS.map((status) => {
+                  const id = `service-status-${status}`
+                  const checked = props.statusFilter.includes(status)
+                  return (
+                    <Field key={status} orientation="horizontal" className="items-center gap-2">
+                      <Checkbox
+                        id={id}
+                        checked={checked}
+                        onCheckedChange={() => props.onStatusToggle(status)}
+                      />
+                      <Label htmlFor={id} className="font-normal">
+                        {t(STATUS_LABEL_KEYS[status])}
+                      </Label>
+                    </Field>
+                  )
+                })}
+              </div>
+            </FieldSet>
+
+            {props.onSort ? (
+              <Field>
+                <FieldLabel>{t("sortLabel")}</FieldLabel>
+                <div className="flex flex-col gap-2">
+                  <Button variant="outline" size="sm" onClick={() => props.onSort?.("name")}>
+                    {t("sortName")}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => props.onSort?.("status")}>
+                    {t("sortStatus")}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => props.onSort?.("tools")}>
+                    {t("sortTools")}
+                  </Button>
+                </div>
+                <FieldDescription>{t("sortHint")}</FieldDescription>
+              </Field>
+            ) : null}
+          </div>
         </FieldGroup>
+
         <DialogFooter showCloseButton>
           {props.activeFilterCount > 0 ? (
             <Button
@@ -130,7 +180,7 @@ export function ServicesFilterDialog(props: {
               onClick={() => {
                 props.onScopeFilterChange?.("all")
                 props.onAgentFilterChange?.("")
-                props.onStatusFilterChange("all")
+                props.onStatusFilterChange([])
               }}
             >
               {t("reset")}

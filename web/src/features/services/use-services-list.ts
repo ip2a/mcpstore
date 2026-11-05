@@ -7,8 +7,15 @@ import {
 } from "@/features/services/service-display-status"
 
 export type ServiceScopeFilter = "all" | "store" | "agent"
-export type ServiceStatusFilter = "all" | ServiceDisplayStatus
+export type ServiceStatusFilter = ServiceDisplayStatus[]
 export type ServiceSortBy = "name" | "status" | "tools"
+
+export const SERVICE_STATUS_OPTIONS: ServiceDisplayStatus[] = [
+  "connected",
+  "connecting",
+  "disconnected",
+  "error",
+]
 
 const ORDER_STORAGE_KEY = "mcpstore.service-list-order"
 
@@ -75,15 +82,24 @@ export function countActiveServiceFilters(filters: {
 }) {
   let count = 0
   if (filters.scopeFilter !== "all") count++
-  if (filters.statusFilter !== "all") count++
+  count += filters.statusFilter.length
   return count
+}
+
+export function toggleServiceStatusFilter(
+  current: ServiceStatusFilter,
+  status: ServiceDisplayStatus,
+): ServiceStatusFilter {
+  return current.includes(status)
+    ? current.filter((item) => item !== status)
+    : [...current, status]
 }
 
 export function useServicesList(services: ServiceInstance[]) {
   const [query, setQuery] = useState("")
   const [scopeFilter, setScopeFilter] = useState<ServiceScopeFilter>("all")
   const [agentFilter, setAgentFilter] = useState("")
-  const [statusFilter, setStatusFilter] = useState<ServiceStatusFilter>("all")
+  const [statusFilter, setStatusFilter] = useState<ServiceStatusFilter>([])
   const [order, setOrder] = useState<string[]>(readStoredOrder)
   const resolvedOrder = useMemo(() => reconcileServiceOrder(order, services), [order, services])
 
@@ -103,6 +119,7 @@ export function useServicesList(services: ServiceInstance[]) {
 
   const filteredServices = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
+    const statusSet = statusFilter.length > 0 ? new Set(statusFilter) : null
     return orderedServices.filter((service) => {
       const description = String(service.effective_config.description || "")
       const scope = service.scope.type === "store" ? "store" : `agent ${service.scope.agent_id}`
@@ -118,8 +135,7 @@ export function useServicesList(services: ServiceInstance[]) {
         if (agentFilter && service.scope.agent_id !== agentFilter) return false
       }
 
-      if (statusFilter !== "all" && deriveServiceDisplayStatus(service.state) !== statusFilter)
-        return false
+      if (statusSet && !statusSet.has(deriveServiceDisplayStatus(service.state))) return false
       return true
     })
   }, [agentFilter, orderedServices, query, scopeFilter, statusFilter])
@@ -136,6 +152,10 @@ export function useServicesList(services: ServiceInstance[]) {
   const setScopeFilterValue = (value: ServiceScopeFilter) => {
     setScopeFilter(value)
     if (value !== "agent") setAgentFilter("")
+  }
+
+  const toggleStatusFilter = (status: ServiceDisplayStatus) => {
+    setStatusFilter((current) => toggleServiceStatusFilter(current, status))
   }
 
   const commitOrder = (next: string[]) => {
@@ -171,6 +191,7 @@ export function useServicesList(services: ServiceInstance[]) {
     setScopeFilter: setScopeFilterValue,
     setStatusFilter,
     statusFilter,
+    toggleStatusFilter,
     totals,
   }
 }
