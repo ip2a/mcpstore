@@ -15,7 +15,6 @@ import {
   type ServiceConfigFormat,
 } from "@/features/services/service-config-draft"
 import type { AddServiceScope } from "@/features/services/use-add-service-form"
-import { AgentIdPicker } from "@/components/shared/agent-id-picker"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -37,14 +36,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TypographyLead } from "@/components/ui/typography"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceRestartPolicy, ServiceStartupPolicy } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type StoreAsideTab = "preview" | "description" | "handshake" | "scope" | "lifecycle"
+type StoreAsideTab = "preview" | "description" | "handshake" | "lifecycle"
 
 export function ServiceConfigPreviewPane({
   agentId,
@@ -241,15 +239,12 @@ export function ServiceConfigHandshakePane({
 
 export function AddServicePlaygroundAside({
   agentId,
-  agentIds = [],
   className,
   fields,
   name,
-  onAgentIdChange,
   onFieldsChange,
   onNameChange,
   onRestartPolicyChange,
-  onScopeChange,
   onStartupPolicyChange,
   previewFormat,
   onPreviewFormatChange,
@@ -257,19 +252,15 @@ export function AddServicePlaygroundAside({
   scope,
   showCli = true,
   showLifecycleTab = false,
-  showScopeTab = false,
   startupPolicy,
 }: {
   agentId: string
-  agentIds?: string[]
   className?: string
   fields: ServiceConfigFields
   name: string
-  onAgentIdChange?: (agentId: string) => void
   onFieldsChange: (fields: ServiceConfigFields) => void
   onNameChange?: (name: string) => void
   onRestartPolicyChange?: (policy: ServiceRestartPolicy) => void
-  onScopeChange?: (scope: AddServiceScope) => void
   onStartupPolicyChange?: (policy: ServiceStartupPolicy) => void
   previewFormat: ServiceConfigFormat
   onPreviewFormatChange: (format: ServiceConfigFormat) => void
@@ -277,7 +268,6 @@ export function AddServicePlaygroundAside({
   scope: AddServiceScope
   showCli?: boolean
   showLifecycleTab?: boolean
-  showScopeTab?: boolean
   startupPolicy?: ServiceStartupPolicy
 }) {
   const { t } = useI18n()
@@ -294,7 +284,6 @@ export function AddServicePlaygroundAside({
           <TabsTrigger value="preview">Preview</TabsTrigger>
           <TabsTrigger value="description">{t("description")}</TabsTrigger>
           <TabsTrigger value="handshake">{t("handshakeMode")}</TabsTrigger>
-          {showScopeTab ? <TabsTrigger value="scope">{t("scope")}</TabsTrigger> : null}
           {showLifecycleTab ? (
             <TabsTrigger value="lifecycle">{t("lifecyclePolicy")}</TabsTrigger>
           ) : null}
@@ -321,37 +310,6 @@ export function AddServicePlaygroundAside({
         <TabsContent value="handshake" className="min-h-0 flex-1 overflow-hidden">
           <ServiceConfigHandshakePane fields={fields} onFieldsChange={onFieldsChange} />
         </TabsContent>
-
-        {showScopeTab ? (
-          <TabsContent value="scope" className="min-h-0 flex-1 overflow-hidden">
-            <FieldGroup>
-              <div className="flex items-center gap-3">
-                <span className="shrink-0 text-sm text-muted-foreground">{t("agent")}</span>
-                <Switch
-                  id="aside-add-service-agent-scope"
-                  checked={scope === "agent"}
-                  onCheckedChange={(useAgent) => {
-                    onScopeChange?.(useAgent ? "agent" : "store")
-                    if (!useAgent) {
-                      onAgentIdChange?.("")
-                    }
-                  }}
-                  aria-label={t("agent")}
-                />
-                <AgentIdPicker
-                  id="aside-agentId"
-                  name="agentId"
-                  agentIds={agentIds}
-                  value={agentId}
-                  disabled={scope !== "agent"}
-                  required={scope === "agent"}
-                  placeholder={scope === "agent" ? t("agentIdPlaceholder") : t("store")}
-                  onChange={(next) => onAgentIdChange?.(next)}
-                />
-              </div>
-            </FieldGroup>
-          </TabsContent>
-        ) : null}
 
         {showLifecycleTab && startupPolicy && restartPolicy ? (
           <TabsContent value="lifecycle" className="min-h-0 flex-1 overflow-hidden">
