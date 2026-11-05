@@ -1,20 +1,11 @@
-import { ArrowUpDownIcon, LayoutGridIcon, ListIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
+import { LayoutGridIcon, ListIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
 import { useMemo, useRef, useState, type ComponentRef, type RefObject } from "react"
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { ServiceListCard } from "@/components/shared/service-list-card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -25,7 +16,6 @@ import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dia
 import { ServiceCardDialog } from "@/features/services/service-card-dialog"
 import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
-import type { ServiceSortBy } from "@/features/services/use-services-list"
 import { usePreserveServiceListScroll } from "@/features/services/use-preserve-service-list-scroll"
 import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
@@ -92,7 +82,6 @@ export function ServicesView(props: {
   const [activeTab, setActiveTab] = useState<ScopeCardId>("root")
   const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("root")
   const [viewMode, setViewMode] = useState<ServicesViewMode>(readViewMode)
-  const [sortOpen, setSortOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const listScrollRef = useRef<ComponentRef<typeof ScrollPane>>(null)
 
@@ -118,9 +107,10 @@ export function ServicesView(props: {
     setQuery,
     setStatusFilter,
     statusFilter,
+    toggleStatusFilter,
   } = useServicesList(scopeServices)
 
-  const statusFilterCount = statusFilter !== "all" ? 1 : 0
+  const statusFilterCount = statusFilter.length
 
   usePreserveServiceListScroll({
     busy: props.busy,
@@ -149,11 +139,6 @@ export function ServicesView(props: {
   function handleViewModeChange(mode: ServicesViewMode) {
     setViewMode(mode)
     writeViewMode(mode)
-  }
-
-  const sortBy = (value: ServiceSortBy) => {
-    applySort(value)
-    setSortOpen(false)
   }
 
   const loadingScope = props.loading || loadingScopeServices
@@ -185,43 +170,18 @@ export function ServicesView(props: {
               })}
             </TabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <CollapsibleSearchBox
-                inline
+              <UiverseSearchInput
                 id="service-list-search"
                 placeholder={t("searchServices")}
                 value={query}
                 onChange={setQuery}
               />
-              <Dialog open={sortOpen} onOpenChange={setSortOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <ArrowUpDownIcon data-icon="inline-start" />
-                    {t("sortLabel")}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>{t("sortLabel")}</DialogTitle>
-                    <DialogDescription>{t("sortHint")}</DialogDescription>
-                  </DialogHeader>
-                  <div className="flex flex-col gap-2">
-                    <Button variant="outline" onClick={() => sortBy("name")}>
-                      {t("sortName")}
-                    </Button>
-                    <Button variant="outline" onClick={() => sortBy("status")}>
-                      {t("sortStatus")}
-                    </Button>
-                    <Button variant="outline" onClick={() => sortBy("tools")}>
-                      {t("sortTools")}
-                    </Button>
-                  </div>
-                  <DialogFooter showCloseButton />
-                </DialogContent>
-              </Dialog>
               <ServicesFilterDialog
                 activeFilterCount={statusFilterCount}
                 hideScopeFilters
+                onSort={applySort}
                 onStatusFilterChange={setStatusFilter}
+                onStatusToggle={toggleStatusFilter}
                 statusFilter={statusFilter}
               />
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loadingScope}>

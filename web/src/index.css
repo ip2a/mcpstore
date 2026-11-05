@@ -117,3 +117,126 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Uiverse.io satyamchaudharydev/slippery-parrot-22 — compact h-8 toolbar fit */
+.uiverse-search {
+  --rotate: 80deg;
+  --icon-change-color: #15a986;
+  --icon-size: 14px;
+  box-sizing: border-box;
+  position: relative;
+  width: 200px;
+  height: 2rem; /* Button size="sm" */
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md); /* rounded-md */
+  box-shadow: 0 1px 2px oklch(0 0 0 / 4%);
+}
+
+.uiverse-search label {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.uiverse-search input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 1.75rem 0 1.75rem; /* room for icon + clear */
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.uiverse-search input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.uiverse-search .icon {
+  position: absolute;
+  left: 0.5rem;
+  top: 50%;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.uiverse-search .icon svg {
+  grid-area: 1 / 1;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  color: var(--foreground);
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.uiverse-search .swap-off {
+  transform: rotate(-80deg);
+  opacity: 0;
+  visibility: hidden;
+}
+
+.uiverse-search .close-btn {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%) scale(0);
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted-foreground);
+  opacity: 0;
+  visibility: hidden;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.uiverse-search .close-btn:hover {
+  color: var(--foreground);
+}
+
+.uiverse-search .close-btn svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: currentColor;
+}
+
+.uiverse-search input:focus ~ .icon,
+.uiverse-search input:valid ~ .icon {
+  transform: translateY(-50%) rotate(var(--rotate)) scale(1.15);
+}
+
+.uiverse-search input:focus ~ .icon .swap-off,
+.uiverse-search input:valid ~ .icon .swap-off {
+  opacity: 1;
+  visibility: visible;
+  color: var(--icon-change-color);
+}
+
+.uiverse-search input:focus ~ .icon .swap-on,
+.uiverse-search input:valid ~ .icon .swap-on {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.uiverse-search input:valid ~ .close-btn {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) scale(1);
+  transition: 0s;
+}
