@@ -98,6 +98,8 @@ const DEFAULT_EXPOSE: ExposeConfig = {
   search: false,
 }
 
+const EMPTY_CLIENTS: ClientInventory[] = []
+
 /** Form fields for scope + the 8 expose toggles, shared by the wire dialog and the gateway page edit dialog. */
 export function WireOptionsFields({
   dedicatedScope,
@@ -161,13 +163,17 @@ export function ClientsView() {
   const [wireDialog, setWireDialog] = useState<WireDialogState | null>(null)
   const [wireConflict, setWireConflict] = useState<WireConflictState | null>(null)
 
-  const clients = data ?? []
+  const clients = data ?? EMPTY_CLIENTS
   const pluginBusy = busy || pluginAction.isPending || pluginUpdate.isPending
   const refreshing =
     isFetching || wiredQuery.isFetching || pluginsQuery.isFetching || marketQuery.isFetching
-  const installedById = Object.fromEntries(
-    (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
-  ) as Record<string, ClientPlugin>
+  const installedById = useMemo(
+    () =>
+      Object.fromEntries(
+        (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
+      ) as Record<string, ClientPlugin>,
+    [pluginsQuery.data?.plugins],
+  )
   const marketById = Object.fromEntries(
     (marketQuery.data?.plugins ?? []).map((entry) => [entry.id, entry]),
   ) as Record<string, MarketPlugin>
@@ -224,14 +230,15 @@ export function ClientsView() {
     // Re-seed only when entering the tab, or when data first arrives into an empty snapshot.
     if (sameTab && !tabChanged && existing.ids.size > 0) return
 
-    membershipRef.current = {
-      tab,
-      ids: new Set(
-        installedClients
-          .filter((client) => (tab === "active" ? client.wired : !client.wired))
-          .map((client) => client.id),
-      ),
-    }
+    const nextIds = new Set(
+      installedClients
+        .filter((client) => (tab === "active" ? client.wired : !client.wired))
+        .map((client) => client.id),
+    )
+    // Empty→empty on the same tab: wait for real data; bumping would loop forever.
+    if (sameTab && !tabChanged && nextIds.size === 0) return
+
+    membershipRef.current = { tab, ids: nextIds }
     setMembershipVersion((value) => value + 1)
   }, [tab, installedClients])
 

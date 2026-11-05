@@ -34,6 +34,7 @@ import {
 import type { PromptInfo, ResourceInfo, ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
 import { formatServiceLaunchLine } from "@/lib/service-info"
 import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
 
 import {
   ServiceOverviewPane,
@@ -83,6 +84,7 @@ export function ServiceDetailView(props: {
   const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null)
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null)
   const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(null)
+  const [playgroundOpen, setPlaygroundOpen] = useState(true)
   const detailQuery = useServiceDetailQuery(props.service)
   const authQuery = useServiceAuthQuery(props.service)
   const statusQuery = useServiceStatusQuery(props.service)
@@ -263,6 +265,11 @@ export function ServiceDetailView(props: {
       activeTab === "tools" && selectedTool
         ? () => props.onToolDetail(selectedTool, service, statusReport)
         : undefined,
+    playgroundOpen,
+    onTogglePlayground:
+      activeTab === "tools" && selectedTool
+        ? () => setPlaygroundOpen((open) => !open)
+        : undefined,
   }
 
   function renderServiceDetail() {
@@ -306,10 +313,15 @@ export function ServiceDetailView(props: {
             />
           </ScrollPane>
         ) : activeTab === "tools" && selectedTool ? (
-          <div className={toolDetailPlaygroundGrid}>
+          <div
+            className={cn(
+              toolDetailPlaygroundGrid,
+              !playgroundOpen && "@min-[42rem]:grid-cols-1",
+            )}
+          >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ToolDetailDocHeader tool={selectedTool} />
               <ScrollPane className="min-h-0 flex-1">
+                <ToolDetailDocHeader tool={selectedTool} />
                 <ToolDetailDocBody
                   tool={selectedTool}
                   toolArgs={toolArgs}
@@ -320,16 +332,18 @@ export function ServiceDetailView(props: {
                 />
               </ScrollPane>
             </div>
-            <ToolPlaygroundAside
-              tool={selectedTool}
-              instanceId={service.instance_id}
-              toolArgs={toolArgs}
-              toolArgsSchema={toolArgsSchema}
-              running={runningSelectedTool}
-              onRun={() =>
-                props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
-              }
-            />
+            {playgroundOpen ? (
+              <ToolPlaygroundAside
+                tool={selectedTool}
+                instanceId={service.instance_id}
+                toolArgs={toolArgs}
+                toolArgsSchema={toolArgsSchema}
+                running={runningSelectedTool}
+                onRun={() =>
+                  props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
+                }
+              />
+            ) : null}
           </div>
         ) : (
           <ScrollPane className="flex-1">
