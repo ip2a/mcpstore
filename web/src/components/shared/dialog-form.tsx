@@ -13,6 +13,8 @@ type DialogFormFooterProps = Omit<ComponentProps<typeof DialogFooter>, "children
   cancelLabel?: ReactNode
   children?: ReactNode
   onCancel: () => void
+  /** Left-side actions (e.g. secondary helpers). Pulled left via mr-auto. */
+  start?: ReactNode
   submitButtonProps?: ComponentProps<typeof Button>
   submitDisabled?: boolean
   submitLabel: ReactNode
@@ -28,6 +30,7 @@ export function DialogFormFooter({
   cancelLabel,
   children,
   onCancel,
+  start,
   submitButtonProps,
   submitDisabled = false,
   submitLabel,
@@ -38,6 +41,7 @@ export function DialogFormFooter({
 
   return (
     <DialogFooter {...props}>
+      {start ? <div className="mr-auto flex flex-col-reverse gap-2 sm:flex-row">{start}</div> : null}
       <Button type="button" variant="outline" onClick={onCancel} {...cancelButtonProps}>
         {cancelLabel ?? t("cancel")}
       </Button>
