@@ -92,14 +92,25 @@ pub struct GatewayLaunchDescriptor {
     pub url: String,
 }
 
-/// One routed business tool call through the gateway (management tools excluded).
+/// What kind of business call a routed record represents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayCallKind {
+    Tool,
+    Prompt,
+    Resource,
+}
+
+/// One routed business call through the gateway (management tools excluded).
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct GatewayCallRecord {
     pub seq: u64,
     pub at_unix_ms: u64,
     /// Mount the call came through (`/mcp/<id>`); None = the generic `/mcp`.
     pub caller: Option<String>,
-    pub tool: String,
+    pub kind: GatewayCallKind,
+    /// Tool/prompt name, or the resolved upstream URI for resources.
+    pub name: String,
     pub instance_id: InstanceId,
     pub service_name: String,
     pub duration_ms: u64,
@@ -124,6 +135,34 @@ impl GatewayCallLog {
             latest: std::sync::atomic::AtomicU64::new(0),
             changed,
         })
+    }
+
+    /// Record one routed call with `now` timestamping, then wake waiters.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record(
+        &self,
+        caller: Option<&str>,
+        kind: GatewayCallKind,
+        name: &str,
+        instance_id: InstanceId,
+        service_name: &str,
+        duration: std::time::Duration,
+        success: bool,
+    ) {
+        self.push(GatewayCallRecord {
+            seq: 0,
+            at_unix_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or_default(),
+            caller: caller.map(str::to_string),
+            kind,
+            name: name.to_string(),
+            instance_id,
+            service_name: service_name.to_string(),
+            duration_ms: duration.as_millis() as u64,
+            success,
+        });
     }
 
     /// Push at the ring tail, dropping the oldest past the cap, and wake waiters.

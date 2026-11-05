@@ -141,33 +141,6 @@ impl GatewayServer {
         })
     }
 
-    /// Record one routed business call at the ring tail, dropping the oldest past the cap.
-    pub(super) fn record_call(
-        &self,
-        tool: &str,
-        binding: &ToolBinding,
-        duration: std::time::Duration,
-        response: &Result<CallToolResponse, ErrorData>,
-    ) {
-        let success = match response {
-            Ok(CallToolResponse::Complete(result)) => result.is_error != Some(true),
-            _ => false,
-        };
-        self.call_log.push(GatewayCallRecord {
-            seq: 0,
-            at_unix_ms: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or_default(),
-            caller: self.caller.clone(),
-            tool: tool.to_string(),
-            instance_id: binding.instance_id,
-            service_name: binding.service_name.clone(),
-            duration_ms: duration.as_millis() as u64,
-            success,
-        });
-    }
-
     fn instructions(&self) -> String {
         format!(
             "Rust MCPStore server. scope={} tool_count={}",
@@ -374,7 +347,10 @@ impl ServerHandler for GatewayServer {
         let scope = self.scope.clone();
         let target_instance_id = self.instance_id;
         let session_key = self.session_key.clone();
+        let call_log = Arc::clone(&self.call_log);
+        let caller = self.caller.clone();
         async move {
+            let call_start = std::time::Instant::now();
             let resources = if let Some(session_key) = session_key.as_deref() {
                 store.list_resources_in_session(session_key).await
             } else if let Some(instance_id) = target_instance_id {
@@ -384,13 +360,21 @@ impl ServerHandler for GatewayServer {
             }
             .map_err(map_store_error)?;
             let resources = apply_service_overrides(resources, &service_override_map(&store).await.map_err(map_store_error)?)?;
-            let (instance_id, original_uri) =
+            let (instance_id, original_uri, service_name) =
                 resolve_projected_catalog_uri(&resources, "uri", false, &request.uri)?;
             let result = store
                 .read_resource_scoped(instance_id, &original_uri)
-                .await
-                .map_err(map_store_error)?;
-            deserialize_item::<ReadResourceResult>(result, "read resource result").map(Into::into)
+                .await;
+            call_log.record(
+                caller.as_deref(),
+                GatewayCallKind::Resource,
+                &original_uri,
+                instance_id,
+                &service_name,
+                call_start.elapsed(),
+                result.is_ok(),
+            );
+            deserialize_item::<ReadResourceResult>(result.map_err(map_store_error)?, "read resource result").map(Into::into)
         }
     }
 
@@ -428,7 +412,10 @@ impl ServerHandler for GatewayServer {
         let scope = self.scope.clone();
         let target_instance_id = self.instance_id;
         let session_key = self.session_key.clone();
+        let call_log = Arc::clone(&self.call_log);
+        let caller = self.caller.clone();
         async move {
+            let call_start = std::time::Instant::now();
             let arguments = Value::Object(request.arguments.unwrap_or_default());
             let prompts = if let Some(session_key) = session_key.as_deref() {
                 store.list_prompts_in_session(session_key).await
@@ -439,12 +426,21 @@ impl ServerHandler for GatewayServer {
             }
             .map_err(map_store_error)?;
             let prompts = apply_service_overrides(prompts, &service_override_map(&store).await.map_err(map_store_error)?)?;
-            let (instance_id, original_name) = resolve_projected_prompt(&prompts, &request.name)?;
+            let (instance_id, original_name, service_name) =
+                resolve_projected_prompt(&prompts, &request.name)?;
             let result = store
                 .get_prompt_scoped(instance_id, &original_name, arguments)
-                .await
-                .map_err(map_store_error)?;
-            deserialize_item::<GetPromptResult>(result, "prompt result").map(Into::into)
+                .await;
+            call_log.record(
+                caller.as_deref(),
+                GatewayCallKind::Prompt,
+                &original_name,
+                instance_id,
+                &service_name,
+                call_start.elapsed(),
+                result.is_ok(),
+            );
+            deserialize_item::<GetPromptResult>(result.map_err(map_store_error)?, "prompt result").map(Into::into)
         }
     }
 
@@ -652,7 +648,19 @@ impl ServerHandler for GatewayServer {
                 Ok(CallToolResponse::Complete(call_result))
             }
             .await;
-            self.record_call(&tool_name, &record_binding, call_start.elapsed(), &response);
+            let success = match &response {
+                Ok(CallToolResponse::Complete(result)) => result.is_error != Some(true),
+                _ => false,
+            };
+            self.call_log.record(
+                self.caller.as_deref(),
+                GatewayCallKind::Tool,
+                &tool_name,
+                record_binding.instance_id,
+                &record_binding.service_name,
+                call_start.elapsed(),
+                success,
+            );
             if management_tool {
                 record_management_call(
                     &management_store,

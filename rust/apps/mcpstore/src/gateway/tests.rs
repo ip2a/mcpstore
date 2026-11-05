@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(first_name, format!("first-service__{first}__review"));
         assert_eq!(
             resolve_projected_prompt(&prompts, first_name).unwrap(),
-            (first, "review".to_string())
+            (first, "review".to_string(), "first service".to_string())
         );
     }
 
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(
             resolve_projected_catalog_uri(&[resource], "uri", false, projected_resource_uri)
                 .unwrap(),
-            (instance_id, "fixture://docs/readme".to_string())
+            (instance_id, "fixture://docs/readme".to_string(), "docs service".to_string())
         );
 
         let projected_template =
@@ -189,7 +189,7 @@ mod tests {
                 projected_template_uri,
             )
             .unwrap(),
-            (instance_id, "fixture://docs/{name}".to_string())
+            (instance_id, "fixture://docs/{name}".to_string(), "docs service".to_string())
         );
     }
 
@@ -364,56 +364,24 @@ mod tests {
 
     #[test]
     fn call_records_carry_caller_and_service_name() {
-        let store = MCPStore::setup_with_options(StoreOptions {
-            store: Some(JsonStoreConfig::memory()),
-            ..StoreOptions::default()
-        })
-        .unwrap();
         let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
         let log = GatewayCallLog::new();
-        let server = GatewayServer {
-            store: Arc::clone(&store),
-            scope: ScopeRef::Store,
-            instance_id: None,
-            session_key: None,
-            scope_label: "store".to_string(),
-            bindings: Arc::new(HashMap::new()),
-            session_state_tools: Arc::new(HashMap::new()),
-            tool_override_tools: Arc::new(HashMap::new()),
-            prompt_override_tools: Arc::new(HashMap::new()),
-            resource_override_tools: Arc::new(HashMap::new()),
-            openapi_tools: Arc::new(HashMap::new()),
-            service_tools: Arc::new(HashMap::new()),
-            cache_tools: Arc::new(HashMap::new()),
-            search_tools: Arc::new(HashMap::new()),
-            tools: Arc::new(Vec::new()),
-            caller: Some("claude".into()),
-            call_log: Arc::clone(&log),
-        };
-        let binding = ToolBinding {
-            tool: rmcp::model::Tool::new_with_raw(
-                "demo__echo",
-                None,
-                Arc::new(serde_json::Map::new().into()),
-            ),
-            instance_id,
-            tool_name: "echo".to_string(),
-            service_name: "demo".to_string(),
-        };
-        let failure: Result<rmcp::model::CallToolResponse, rmcp::ErrorData> =
-            Err(rmcp::ErrorData::internal_error("downstream gone", None));
-        server.record_call(
+        log.record(
+            Some("claude"),
+            GatewayCallKind::Tool,
             "demo__echo",
-            &binding,
+            instance_id,
+            "demo",
             std::time::Duration::from_millis(3),
-            &failure,
+            false,
         );
 
         let records = log.snapshot_after(0);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].caller.as_deref(), Some("claude"));
         assert_eq!(records[0].service_name, "demo");
-        assert_eq!(records[0].tool, "demo__echo");
+        assert_eq!(records[0].name, "demo__echo");
+        assert_eq!(records[0].kind, GatewayCallKind::Tool);
         assert!(!records[0].success);
         assert_eq!(records[0].duration_ms, 3);
     }
