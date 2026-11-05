@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(first_name, format!("first-service__{first}__review"));
         assert_eq!(
             resolve_projected_prompt(&prompts, first_name).unwrap(),
-            (first, "review".to_string())
+            (first, "review".to_string(), "first service".to_string())
         );
     }
 
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(
             resolve_projected_catalog_uri(&[resource], "uri", false, projected_resource_uri)
                 .unwrap(),
-            (instance_id, "fixture://docs/readme".to_string())
+            (instance_id, "fixture://docs/readme".to_string(), "docs service".to_string())
         );
 
         let projected_template =
@@ -189,7 +189,7 @@ mod tests {
                 projected_template_uri,
             )
             .unwrap(),
-            (instance_id, "fixture://docs/{name}".to_string())
+            (instance_id, "fixture://docs/{name}".to_string(), "docs service".to_string())
         );
     }
 
@@ -362,15 +362,17 @@ mod tests {
         assert_eq!(service_namespace("a_b-c9"), "a_b-c9");
     }
 
-    #[test]
-    fn call_records_carry_caller_and_service_name() {
+    /// Inclusive gateway contract: bare legacy callers (no headers, no _meta),
+    /// callers naming the negotiated 2025-11-25 per request, and initialize
+    /// handshakes all succeed against the same stateless router. Regression
+    /// for the handshake/per-request version contradiction.
+    #[tokio::test]
+    async fn gateway_serves_bare_and_negotiated_version_requests() {
         let store = MCPStore::setup_with_options(StoreOptions {
             store: Some(JsonStoreConfig::memory()),
             ..StoreOptions::default()
         })
         .unwrap();
-        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
-        let log = GatewayCallLog::new();
         let server = GatewayServer {
             store: Arc::clone(&store),
             scope: ScopeRef::Store,
@@ -387,33 +389,91 @@ mod tests {
             cache_tools: Arc::new(HashMap::new()),
             search_tools: Arc::new(HashMap::new()),
             tools: Arc::new(Vec::new()),
-            caller: Some("claude".into()),
-            call_log: Arc::clone(&log),
+            caller: None,
+            call_log: GatewayCallLog::new(),
         };
-        let binding = ToolBinding {
-            tool: rmcp::model::Tool::new_with_raw(
-                "demo__echo",
-                None,
-                Arc::new(serde_json::Map::new().into()),
-            ),
-            instance_id,
-            tool_name: "echo".to_string(),
-            service_name: "demo".to_string(),
-        };
-        let failure: Result<rmcp::model::CallToolResponse, rmcp::ErrorData> =
-            Err(rmcp::ErrorData::internal_error("downstream gone", None));
-        server.record_call(
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let router =
+            super::super::transport::streamable_http_router(server, "/mcp");
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = reqwest::Client::new();
+        let url = format!("http://{addr}/mcp");
+
+        // Initialize at a legacy revision, with curl's default Accept: the
+        // handshake must echo the requested version back.
+        let initialize = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "clientInfo": { "name": "curl", "version": "0" },
+                "capabilities": {}
+            }
+        });
+        let response = client
+            .post(&url)
+            .header("Accept", "*/*")
+            .json(&initialize)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["result"]["protocolVersion"], "2025-11-25");
+
+        // Bare request: no MCP-Protocol-Version header, no _meta, curl Accept.
+        let bare = serde_json::json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
+        let response = client
+            .post(&url)
+            .header("Accept", "*/*")
+            .json(&bare)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert!(body["result"]["tools"].is_array(), "bare tools/list failed: {body}");
+
+        // Per-request inline version naming the negotiated revision (P0-1).
+        let versioned = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/list",
+            "params": {
+                "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25" }
+            }
+        });
+        let response = client.post(&url).json(&versioned).send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert!(
+            body["result"]["tools"].is_array(),
+            "versioned tools/list failed: {body}"
+        );
+    }
+
+    #[test]
+    fn call_records_carry_caller_and_service_name() {
+        let instance_id = ServiceInstanceKey::new("demo", ScopeRef::Store).instance_id();
+        let log = GatewayCallLog::new();
+        log.record(
+            Some("claude"),
+            GatewayCallKind::Tool,
             "demo__echo",
-            &binding,
+            instance_id,
+            "demo",
             std::time::Duration::from_millis(3),
-            &failure,
+            false,
         );
 
         let records = log.snapshot_after(0);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].caller.as_deref(), Some("claude"));
         assert_eq!(records[0].service_name, "demo");
-        assert_eq!(records[0].tool, "demo__echo");
+        assert_eq!(records[0].name, "demo__echo");
+        assert_eq!(records[0].kind, GatewayCallKind::Tool);
         assert!(!records[0].success);
         assert_eq!(records[0].duration_ms, 3);
     }

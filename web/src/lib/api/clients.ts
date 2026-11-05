@@ -29,7 +29,8 @@ export type GatewayRequestRecord = {
   seq: number
   at_unix_ms: number
   caller: string | null
-  tool: string
+  kind: "tool" | "prompt" | "resource"
+  name: string
   instance_id: string
   service_name: string
   duration_ms: number

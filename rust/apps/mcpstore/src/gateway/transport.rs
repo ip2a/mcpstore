@@ -131,15 +131,163 @@ pub(crate) fn streamable_http_router(server: GatewayServer, path: &str) -> axum:
         StreamableHttpService::new(
             move || Ok(server.clone()),
             Default::default(),
+            // Inclusive gateway: every request is served statelessly, but the
+            // per-request SEP-2575/SEP-2243 metadata stays optional — bare
+            // legacy callers (curl, old SDKs) are served as 2025-03-26, and
+            // clients that do send the metadata keep working. JSON responses
+            // for simple request/response, SSE fallback when a notification
+            // precedes the response.
             StreamableHttpServerConfig::default()
                 .with_legacy_session_mode(false)
-                .with_stateless_protocol_metadata_required(true),
+                .with_json_response(true),
         );
     axum::Router::new()
         .nest_service(&normalize_http_path(path), service)
         .layer(axum::middleware::from_fn(move |request, next| {
             record_gateway_frames(frame_sink.clone(), caller.clone(), request, next)
         }))
+        .layer(axum::middleware::from_fn(relax_stateless_contract))
+}
+
+/// Body size cap for the inclusive-gateway shim; requests larger than this
+/// pass through untouched (rmcp enforces its own body limit).
+const RELAX_STATELESS_BODY_LIMIT: usize = 16 * 1024 * 1024;
+
+/// Inclusive-gateway shim: absorb protocol gaps for callers that don't
+/// implement the stateless request contract (curl, quick scripts, older
+/// SDKs). Only ever ADDS what is absent — a caller's explicit header or
+/// `_meta` is never rewritten, and partial `_meta` passes through so rmcp's
+/// validation still reports exactly what a half-implemented client must add.
+///
+/// - Widens an incomplete `Accept` header to the streamable contract
+///   (`application/json, text/event-stream`); rmcp 406s anything narrower,
+///   including curl's default `*/*`.
+/// - Requests with no `_meta` at all get the two stateless-required keys
+///   injected (`io.modelcontextprotocol/protocolVersion`, and an empty
+///   `io.modelcontextprotocol/clientCapabilities`). The version comes from
+///   the `MCP-Protocol-Version` header when present (header and `_meta` must
+///   agree); with no header both default to `2025-03-26`, matching rmcp's
+///   bare-request peer assumption.
+async fn relax_stateless_contract(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let accept = request
+        .headers()
+        .get(axum::http::header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if !accept.contains("application/json") || !accept.contains("text/event-stream") {
+        request.headers_mut().insert(
+            axum::http::header::ACCEPT,
+            axum::http::HeaderValue::from_static("application/json, text/event-stream"),
+        );
+    }
+
+    if request.method() == axum::http::Method::POST {
+        let (mut parts, body) = request.into_parts();
+        let header_version = parts
+            .headers
+            .get("MCP-Protocol-Version")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let bytes = match axum::body::to_bytes(body, RELAX_STATELESS_BODY_LIMIT).await {
+            Ok(bytes) => bytes,
+            // Same rejection rmcp would produce for an oversized body.
+            Err(_) => {
+                use axum::response::IntoResponse;
+                return axum::http::StatusCode::PAYLOAD_TOO_LARGE.into_response();
+            }
+        };
+        let bytes = if bytes.is_empty() {
+            bytes
+        } else {
+            match inject_stateless_meta(&bytes, header_version) {
+                Some((json, echo_version)) => {
+                    // rmcp rejects `_meta.protocolVersion` without a matching
+                    // `MCP-Protocol-Version` header; echo one only when the
+                    // caller sent none (an existing header is never rewritten).
+                    if let Some(version) = echo_version {
+                        if let Ok(value) = axum::http::HeaderValue::from_str(&version) {
+                            parts.headers.insert("MCP-Protocol-Version", value);
+                        }
+                    }
+                    json
+                }
+                None => bytes,
+            }
+        };
+        request = axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes));
+    }
+
+    next.run(request).await
+}
+
+/// Fill the stateless-required request metadata a caller omitted: the
+/// `io.modelcontextprotocol/protocolVersion` key and the
+/// `io.modelcontextprotocol/clientCapabilities` key. The version comes from
+/// the caller's `MCP-Protocol-Version` header, else from their `_meta`, else
+/// defaults to `2025-03-26` (rmcp's bare-request peer assumption). Returns
+/// the rewritten body plus the version to echo into an absent
+/// `MCP-Protocol-Version` header, or `None` when the body is not a JSON-RPC
+/// request (`initialize`, notifications) or already carries everything.
+fn inject_stateless_meta(
+    body: &[u8],
+    header_version: Option<String>,
+) -> Option<(axum::body::Bytes, Option<String>)> {
+    const META_VERSION_KEY: &str = "io.modelcontextprotocol/protocolVersion";
+    const META_CAPABILITIES_KEY: &str = "io.modelcontextprotocol/clientCapabilities";
+
+    let mut value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let object = value.as_object_mut()?;
+    if object.get("method").and_then(serde_json::Value::as_str) == Some("initialize") {
+        return None;
+    }
+    if !object.contains_key("id") {
+        return None; // notifications carry no request meta
+    }
+    let params = object
+        .entry("params")
+        .or_insert_with(|| serde_json::Value::Object(Default::default()));
+    let params = params.as_object_mut()?;
+    // Per-key fill: add only what the caller omitted. A caller that names a
+    // version is treated as speaking the stateless contract — their values
+    // are never rewritten, so an unsupported version still fails loudly in
+    // dispatch with the supported list attached.
+    let meta = match params.get_mut("_meta") {
+        Some(serde_json::Value::Object(meta)) => meta,
+        Some(_) => return None, // non-object _meta: caller's payload, untouched
+        None => {
+            params.insert("_meta".to_string(), serde_json::Value::Object(Default::default()));
+            params
+                .get_mut("_meta")
+                .and_then(serde_json::Value::as_object_mut)
+                .expect("just inserted")
+        }
+    };
+    let meta_version = meta
+        .get(META_VERSION_KEY)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let effective_version = match &meta_version {
+        Some(version) => version.clone(),
+        None => header_version.unwrap_or_else(|| "2025-03-26".to_string()),
+    };
+    let mut added = false;
+    if meta_version.is_none() {
+        meta.insert(META_VERSION_KEY.to_string(), serde_json::Value::String(effective_version.clone()));
+        added = true;
+    }
+    if !meta.contains_key(META_CAPABILITIES_KEY) {
+        meta.insert(META_CAPABILITIES_KEY.to_string(), serde_json::json!({}));
+        added = true;
+    }
+    if !added {
+        return None;
+    }
+    let bytes = serde_json::to_vec(&value).ok()?;
+    Some((axum::body::Bytes::from(bytes), Some(effective_version)))
 }
 
 /// The store-attached sink on in-daemon routers; a standalone gateway (no
