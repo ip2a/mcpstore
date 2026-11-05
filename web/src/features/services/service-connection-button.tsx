@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { isServiceConnected, isServiceConnecting } from "@/features/services/service-display-status"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceInstance, ServiceState } from "@/lib/api"
+import type { ServiceState } from "@/lib/api"
 
 export function isServiceRunning(state?: ServiceState) {
   return isServiceConnected(state)
@@ -81,55 +81,6 @@ export function ServiceConnectionButton({
     >
       <ServiceTransitionIcon direction="connect" data-icon="inline-start" />
       {t("connect")}
-    </Button>
-  )
-}
-
-export function ServiceConnectionButtonForEntry({
-  busy,
-  service,
-  onConnect,
-  onDisconnect,
-}: {
-  busy: string | null
-  service: ServiceInstance
-  onConnect: (service: ServiceInstance) => void
-  onDisconnect: (service: ServiceInstance) => void
-}) {
-  const { t } = useI18n()
-  const running = isServiceRunning(service.state)
-  const starting = isServiceStarting(service.state, busy, service.instance_id)
-  const disconnecting = isServiceDisconnecting(busy, service.instance_id)
-  const pending =
-    starting ||
-    disconnecting ||
-    busy === `connect:${service.instance_id}` ||
-    busy === `disconnect:${service.instance_id}`
-  const label = running
-    ? disconnecting
-      ? t("disconnecting")
-      : t("disconnect")
-    : starting
-      ? t("connecting")
-      : t("connect")
-
-  return (
-    <Button
-      variant="outline"
-      size="icon-sm"
-      className="h-8 w-auto px-2"
-      aria-label={label}
-      title={label}
-      disabled={pending}
-      onClick={() => (running ? onDisconnect(service) : onConnect(service))}
-    >
-      {pending ? (
-        <Spinner />
-      ) : running ? (
-        <ServiceTransitionIcon direction="disconnect" />
-      ) : (
-        <ServiceTransitionIcon direction="connect" />
-      )}
     </Button>
   )
 }

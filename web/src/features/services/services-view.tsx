@@ -1,7 +1,7 @@
-import { LayoutGridIcon, ListIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
-import { useMemo, useRef, useState, type ComponentRef, type RefObject } from "react"
+import { PlusIcon, RefreshCwIcon } from "lucide-react"
+import { useMemo, useState } from "react"
 
-import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
+import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
@@ -14,35 +14,13 @@ import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { AddServiceDialog } from "@/features/services/add-service-dialog"
 import { AddServiceScopeDialog } from "@/features/services/add-service-scope-dialog"
 import { ServiceCardDialog } from "@/features/services/service-card-dialog"
-import { ServiceList } from "@/features/services/service-list"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
-import { usePreserveServiceListScroll } from "@/features/services/use-preserve-service-list-scroll"
 import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
 type ScopeCardId = "store" | string
-type ServicesViewMode = "cards" | "list"
-
-const VIEW_MODE_STORAGE_KEY = "mcpstore.services-view-mode"
-
-function readViewMode(): ServicesViewMode {
-  try {
-    const value = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-    return value === "list" ? "list" : "cards"
-  } catch {
-    return "cards"
-  }
-}
-
-function writeViewMode(mode: ServicesViewMode) {
-  try {
-    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
-  } catch {
-    // Ignore storage failures.
-  }
-}
 
 function scopeIdFromSummary(summary: ScopeSummary): ScopeCardId {
   return summary.scope.type === "agent" ? summary.scope.agent_id : summary.scope.type
@@ -81,9 +59,7 @@ export function ServicesView(props: {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<ScopeCardId>("root")
   const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("root")
-  const [viewMode, setViewMode] = useState<ServicesViewMode>(readViewMode)
   const [addOpen, setAddOpen] = useState(false)
-  const listScrollRef = useRef<ComponentRef<typeof ScrollPane>>(null)
 
   const scopesQuery = useScopesQuery()
   const scopes = scopesQuery.data || []
@@ -102,7 +78,6 @@ export function ServicesView(props: {
   const {
     applySort,
     filteredServices,
-    moveService,
     query,
     setQuery,
     setStatusFilter,
@@ -111,12 +86,6 @@ export function ServicesView(props: {
   } = useServicesList(scopeServices)
 
   const statusFilterCount = statusFilter.length
-
-  usePreserveServiceListScroll({
-    busy: props.busy,
-    listRootRef: listScrollRef,
-    services: scopeServices,
-  })
 
   const scopeToolCountByInstance = useMemo(() => {
     const counts = new Map<string, number>()
@@ -134,11 +103,6 @@ export function ServicesView(props: {
   function handleRefresh() {
     void props.onRefresh()
     void loadAgentScope()
-  }
-
-  function handleViewModeChange(mode: ServicesViewMode) {
-    setViewMode(mode)
-    writeViewMode(mode)
   }
 
   const loadingScope = props.loading || loadingScopeServices
@@ -193,31 +157,9 @@ export function ServicesView(props: {
                 onAdded={props.onAdded}
                 open={addOpen}
                 onOpenChange={setAddOpen}
-                showTrigger={viewMode === "list"}
+                showTrigger={false}
                 size="sm"
               />
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  aria-label={t("servicesViewCards")}
-                  aria-pressed={viewMode === "cards"}
-                  size="icon-sm"
-                  title={t("servicesViewCards")}
-                  variant={viewMode === "cards" ? "secondary" : "outline"}
-                  onClick={() => handleViewModeChange("cards")}
-                >
-                  <LayoutGridIcon aria-hidden="true" />
-                </Button>
-                <Button
-                  aria-label={t("servicesViewList")}
-                  aria-pressed={viewMode === "list"}
-                  size="icon-sm"
-                  title={t("servicesViewList")}
-                  variant={viewMode === "list" ? "secondary" : "outline"}
-                  onClick={() => handleViewModeChange("list")}
-                >
-                  <ListIcon aria-hidden="true" />
-                </Button>
-              </div>
             </div>
           </div>
 
@@ -230,10 +172,8 @@ export function ServicesView(props: {
                     busy={props.busy}
                     error={props.error}
                     filteredServices={filteredServices}
-                    listScrollRef={listScrollRef}
                     loading={loadingScope}
                     loadAgentScope={loadAgentScope}
-                    moveService={moveService}
                     onAdd={() => setAddOpen(true)}
                     onConnect={props.onConnect}
                     onDeclareScope={props.onDeclareScope}
@@ -247,7 +187,6 @@ export function ServicesView(props: {
                     scopeToolCountByInstance={scopeToolCountByInstance}
                     services={props.services}
                     agents={props.agents}
-                    viewMode={viewMode}
                   />
                 ) : null}
               </TabsContent>
@@ -287,10 +226,8 @@ function ServicesScopeContent({
   busy,
   error,
   filteredServices,
-  listScrollRef,
   loading,
   loadAgentScope,
-  moveService,
   onAdd,
   onConnect,
   onDeclareScope,
@@ -303,16 +240,13 @@ function ServicesScopeContent({
   scopeErrorMessage,
   scopeToolCountByInstance,
   services,
-  viewMode,
 }: {
   agents: AgentItem[]
   busy: string | null
   error: string | null
   filteredServices: ServiceInstance[]
-  listScrollRef: RefObject<ComponentRef<typeof ScrollPane> | null>
   loading: boolean
   loadAgentScope: () => void
-  moveService: (fromId: string, toId: string) => void
   onAdd: () => void
   onConnect: (service: ServiceInstance) => void
   onDeclareScope: (agentId: string, serviceName: string) => Promise<void>
@@ -325,7 +259,6 @@ function ServicesScopeContent({
   scopeErrorMessage: string
   scopeToolCountByInstance: Map<string, number>
   services: ServiceInstance[]
-  viewMode: ServicesViewMode
 }) {
   const { t } = useI18n()
   const [cardServiceId, setCardServiceId] = useState<string | null>(null)
@@ -360,39 +293,6 @@ function ServicesScopeContent({
       <div className="px-4 py-2">
         <PageSkeleton />
       </div>
-    )
-  }
-
-  if (!filteredServices.length && viewMode === "list") {
-    return (
-      <div className="px-4 py-2">
-        <PageEmpty
-          title={t("noServices")}
-          description={t("noServicesInViewDescription")}
-          onRefresh={onRefresh}
-        />
-      </div>
-    )
-  }
-
-  if (viewMode === "list") {
-    return (
-      <ScrollPane ref={listScrollRef} className="min-h-0 flex-1 px-4 py-2">
-        <ServiceList
-          agents={agents}
-          allServices={services}
-          busy={busy}
-          onConnect={onConnect}
-          onDeclareScope={onDeclareScope}
-          onDelete={onDelete}
-          onDisconnect={onDisconnect}
-          onOpen={onOpen}
-          onRefresh={onRefresh}
-          onRestart={onRestart}
-          services={filteredServices}
-          onMove={moveService}
-        />
-      </ScrollPane>
     )
   }
 
