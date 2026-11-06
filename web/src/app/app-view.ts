@@ -61,9 +61,9 @@ const NAV_ENTRIES: NavEntry[] = [
 
 const NAV_GROUP_ORDER: { key: NavGroupKey; labelKey: I18nKey }[] = [
   { key: "work", labelKey: "navGroupWork" },
-  { key: "extensions", labelKey: "navGroupExtensions" },
   { key: "primitives", labelKey: "navGroupPrimitives" },
   { key: "observability", labelKey: "navGroupObservability" },
+  { key: "extensions", labelKey: "navGroupExtensions" },
   { key: "config", labelKey: "navGroupConfig" },
 ]
 
