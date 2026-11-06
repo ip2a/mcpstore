@@ -62,6 +62,9 @@ export const queryKeys = {
   clientVersion: (clientId: string) => ["clients", clientId, "version"] as const,
   clientPlugins: ["clients", "plugins"] as const,
   clientPluginMarket: ["clients", "plugins", "market"] as const,
+  servicesMarketFeatured: ["clients", "plugins", "market", "services"] as const,
+  servicesMarketRegistry: (q: string) =>
+    ["clients", "plugins", "market", "services", "registry", q] as const,
   wiredClients: ["clients", "wired"] as const,
   get gatewayStatus() {
     return ["gateway", ...hostSeg(), "status"] as const
