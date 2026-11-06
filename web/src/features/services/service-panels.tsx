@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react"
+
 import {
   ClipboardIcon,
   EyeIcon,
@@ -6,7 +7,6 @@ import {
   LayoutTemplateIcon,
   PanelRightCloseIcon,
   PanelRightIcon,
-  RefreshCwIcon,
   WrenchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -14,6 +14,7 @@ import { JsonBlock } from "@/components/shared/json-block"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
@@ -192,7 +193,7 @@ export function ServicePreviewActions({
         </Button>
       ) : null}
       <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-        <RefreshCwIcon data-icon="inline-start" />
+        <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
         {t("refresh")}
       </Button>
       {onTogglePlayground ? (

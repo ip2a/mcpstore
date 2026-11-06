@@ -1,4 +1,3 @@
-import { RefreshCwIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -6,6 +5,7 @@ import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { PluginListCard, type PluginItem } from "@/components/shared/plugin-list-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
@@ -161,7 +161,7 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
                 onChange={setQuery}
               />
               <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshing} />
                 {t("refresh")}
               </Button>
             </div>

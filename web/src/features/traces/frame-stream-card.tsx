@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
+
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  RefreshCwIcon,
-} from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -229,7 +225,7 @@ export function FrameStreamCard(props: {
             </TabsList>
             <div className="ml-auto flex shrink-0 items-center gap-2">
               <Button disabled={sessions.isFetching} size="sm" variant="outline" onClick={refresh}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={sessions.isFetching} />
                 {t("refresh")}
               </Button>
             </div>

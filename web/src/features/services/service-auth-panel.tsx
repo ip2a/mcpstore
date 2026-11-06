@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { ExternalLinkIcon, LogInIcon, LogOutIcon, RefreshCwIcon } from "lucide-react"
+
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -219,7 +221,7 @@ function ServiceAuthActionsView({
             onClick={() => authQuery.refetch()}
             disabled={Boolean(busy)}
           >
-            <RefreshCwIcon data-icon="inline-start" />
+            <RefreshCwSpinIcon data-icon="inline-start" spinning={authQuery.isFetching} />
             {t("refreshAuthorizationStatus")}
           </Button>
         ) : null}

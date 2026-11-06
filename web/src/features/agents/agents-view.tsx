@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react"
-import { EyeIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
+import { EyeIcon, PlusIcon } from "lucide-react"
 
 import { JsonBlock } from "@/components/shared/json-block"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { ServiceListCard } from "@/components/shared/service-list-card"
@@ -229,7 +230,7 @@ function ScopeActions({
         {t("details")}
       </Button>
       <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-        <RefreshCwIcon data-icon="inline-start" />
+        <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
         {t("refresh")}
       </Button>
     </div>

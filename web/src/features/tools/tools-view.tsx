@@ -1,7 +1,8 @@
-import { ArrowUpDownIcon, RefreshCwIcon } from "lucide-react"
+import { ArrowUpDownIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ToolListCard } from "@/components/shared/tool-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
@@ -199,7 +200,7 @@ export function ToolsView(props: {
                 visibilityFilter={visibilityFilter}
               />
               <Button size="sm" variant="outline" onClick={loadTools} disabled={loading}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
                 {t("refresh")}
               </Button>
             </div>

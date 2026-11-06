@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
+
 import { useQueryClient } from "@tanstack/react-query"
-import {
-  MonitorIcon,
-  PencilIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  SaveIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { MonitorIcon, PencilIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { McpstoreAsciiBanner } from "@/components/shared/mcpstore-ascii-banner"
@@ -185,7 +180,7 @@ export function SettingsView() {
                     onClick={() => void metaQuery.refetch()}
                     disabled={metaQuery.isFetching}
                   >
-                    <RefreshCwIcon data-icon="inline-start" />
+                    <RefreshCwSpinIcon data-icon="inline-start" spinning={metaQuery.isFetching} />
                     {t("refresh")}
                   </Button>
                   <Button size="sm" onClick={() => void handleSave()} disabled={saving}>
@@ -868,7 +863,7 @@ function ConnectionSection({
                     disabled={isChecking}
                     onClick={() => void refreshLatency(host.name, { notify: true })}
                   >
-                    <RefreshCwIcon className={cn("size-3.5", isChecking && "animate-spin")} />
+                    <RefreshCwSpinIcon spinning={isChecking} className="size-3.5" />
                   </Button>
                   <Button
                     type="button"

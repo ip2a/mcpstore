@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -113,7 +114,7 @@ export function HistoryView() {
           <div className="text-sm font-medium">{t("gatewayHistoryTitle")}</div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <Button disabled={history.isFetching} size="sm" variant="outline" onClick={refresh}>
-              <RefreshCwIcon data-icon="inline-start" />
+              <RefreshCwSpinIcon data-icon="inline-start" spinning={history.isFetching} />
               {t("refresh")}
             </Button>
           </div>
