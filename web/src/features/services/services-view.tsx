@@ -3,7 +3,10 @@ import { useMemo, useState } from "react"
 
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
+import {
+  breadcrumbUppercase,
+  WorkspaceBreadcrumb,
+} from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { ServiceListCard } from "@/components/shared/service-list-card"
@@ -106,11 +109,26 @@ export function ServicesView(props: {
   const loadingScope = props.loading || loadingScopeServices
   const scopeTabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
 
+  const selectedScopeTitle = useMemo(() => {
+    const summary = scopes.find((item) => scopeIdFromSummary(item) === selectedScopeId)
+    if (summary) return scopeTitleFromSummary(summary, t)
+    if (selectedScopeId === "root") return t("filterAll")
+    if (selectedScopeId === "store") return t("store")
+    return selectedScopeId
+  }, [scopes, selectedScopeId, t])
+
   return (
     <>
-      <WorkspacePageHeader
-        title={<h1 className="text-lg font-semibold">{t("servicesWorkspaceTitle")}</h1>}
-        subtitle={t("servicesWorkspaceDescription", { count: props.services.length })}
+      <WorkspaceBreadcrumb
+        ariaLabel={t("breadcrumb")}
+        crumbs={[
+          {
+            label: t("servicesWorkspaceTitle"),
+            onClick: () => selectScopeTab("root"),
+          },
+          { label: breadcrumbUppercase(selectedScopeTitle) },
+        ]}
+        subtitle={t("servicesWorkspaceDescription", { count: scopeServices.length })}
       />
 
       <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0">
@@ -200,7 +218,7 @@ function AddServiceCard({ onSelect }: { onSelect: () => void }) {
     <div
       role="button"
       tabIndex={0}
-      className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
+      className="group flex min-h-[9.5rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/70 bg-card/40 p-4 text-muted-foreground transition-colors hover:border-border hover:bg-muted/40 hover:text-foreground"
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
