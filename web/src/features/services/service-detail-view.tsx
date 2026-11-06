@@ -7,7 +7,10 @@ import { DefaultToolIcon } from "@/components/shared/default-tool-icon"
 import { McpIcon } from "@/components/shared/mcp-icon"
 import { PageEmpty, PageError } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import {
+  breadcrumbUppercase,
+  WorkspaceBreadcrumb,
+} from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import {
@@ -455,14 +458,23 @@ export function ServiceDetailView(props: {
   }
 
   const headerSubtitle = [transport, description].filter(Boolean).join(" · ")
+  const scopeLabel = breadcrumbUppercase(
+    service.scope.type === "store"
+      ? t("store")
+      : service.scope.type === "agent"
+        ? service.scope.agent_id
+        : t("filterAll"),
+  )
 
   return (
     <>
       <WorkspaceBreadcrumb
         ariaLabel={t("serviceDetail")}
-        parentLabel={t("servicesWorkspaceTitle")}
-        onParentClick={props.onBack}
-        currentLabel={service.service_name}
+        crumbs={[
+          { label: t("servicesWorkspaceTitle"), onClick: props.onBack },
+          { label: scopeLabel, onClick: props.onBack },
+          { label: service.service_name },
+        ]}
         subtitle={headerSubtitle || undefined}
       />
 

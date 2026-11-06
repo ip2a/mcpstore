@@ -6,7 +6,11 @@ import { ResourceListCard } from "@/components/shared/resource-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
+import {
+  breadcrumbUppercase,
+  instanceScopeBreadcrumbLabel,
+  WorkspaceBreadcrumb,
+} from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -76,6 +80,32 @@ export function ResourcesView(props: {
     [scopeInstances, t],
   )
 
+  const selectedInstance = scopeInstances.find((instance) => instance.instance_id === instanceId)
+  const serviceTabLabel = breadcrumbUppercase(
+    selectedInstance?.service_name ||
+      serviceTabs.find((tab) => tab.id === instanceId)?.label ||
+      t("filterAll"),
+  )
+  const isAllServices = instanceId === "all"
+  const listCrumbs = isAllServices
+    ? [
+        { label: t("navResources"), onClick: () => setInstanceId("all") },
+        { label: breadcrumbUppercase(t("filterAll")) },
+      ]
+    : [
+        { label: t("navResources"), onClick: () => setInstanceId("all") },
+        {
+          label: selectedInstance
+            ? instanceScopeBreadcrumbLabel(selectedInstance.scope, {
+                store: t("store"),
+                all: t("filterAll"),
+              })
+            : breadcrumbUppercase(scope === "agent" ? agentId || t("agent") : t("store")),
+          onClick: () => setInstanceId("all"),
+        },
+        { label: serviceTabLabel },
+      ]
+
   const applySort = (value: ResourceSortBy) => {
     setSortBy(value)
     setSortOpen(false)
@@ -85,8 +115,9 @@ export function ResourcesView(props: {
 
   return (
     <>
-      <WorkspacePageHeader
-        title={<h1 className="text-lg font-semibold">{t("resourceRegistryTitle")}</h1>}
+      <WorkspaceBreadcrumb
+        ariaLabel={t("breadcrumb")}
+        crumbs={listCrumbs}
         subtitle={t("resourceRegistryDescription", {
           count: visibleResources.length,
           scope:
