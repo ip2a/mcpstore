@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
@@ -43,7 +43,7 @@ import {
 } from "@/lib/api"
 
 type FrameFace = FrameSessionSummary["face"]
-type FrameViewMode = "table" | "graph"
+type FrameViewMode = "table" | "graph" | "history"
 
 const PAGE_SIZES = [10, 20, 50] as const
 
@@ -52,14 +52,21 @@ export function FrameStreamCard(props: {
   face: FrameFace
   /** Fill parent height (Tools-style); table scrolls inside, page chrome stays put. */
   fill?: boolean
+  /** Optional History tab content (Traces page only; Gateway omits this). */
+  historySlot?: ReactNode
+  initialView?: FrameViewMode
 }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const fill = props.fill ?? false
-  const [view, setView] = useState<FrameViewMode>("table")
+  const [view, setView] = useState<FrameViewMode>(props.initialView ?? "table")
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
   const [page, setPage] = useState(0)
   const [active, setActive] = useState<FrameSessionSummary | null>(null)
+
+  useEffect(() => {
+    setView(props.initialView ?? "table")
+  }, [props.initialView])
 
   const offset = page * pageSize
   const sessions = useQuery({
@@ -72,6 +79,7 @@ export function FrameStreamCard(props: {
         offset,
       }),
   })
+  const historyFetching = useIsFetching({ queryKey: queryKeys.gatewayHistory }) > 0
 
   const items = sessions.data?.sessions ?? []
   const total = sessions.data?.total ?? 0
@@ -80,6 +88,10 @@ export function FrameStreamCard(props: {
     props.face === "gateway" ? "gatewayFramesEmptyGateway" : "gatewayFramesEmptyUpstream"
 
   function refresh() {
+    if (view === "history") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.gatewayHistory })
+      return
+    }
     void queryClient.invalidateQueries({
       queryKey: queryKeys.gatewayFrameSessions,
     })
@@ -222,10 +234,23 @@ export function FrameStreamCard(props: {
               <TabsTrigger value="graph" className="flex-none">
                 {t("gatewayFramesTabGraph")}
               </TabsTrigger>
+              {props.historySlot ? (
+                <TabsTrigger value="history" className="flex-none">
+                  {t("navHistory")}
+                </TabsTrigger>
+              ) : null}
             </TabsList>
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              <Button disabled={sessions.isFetching} size="sm" variant="outline" onClick={refresh}>
-                <RefreshCwSpinIcon data-icon="inline-start" spinning={sessions.isFetching} />
+              <Button
+                disabled={view === "history" ? historyFetching : sessions.isFetching}
+                size="sm"
+                variant="outline"
+                onClick={refresh}
+              >
+                <RefreshCwSpinIcon
+                  data-icon="inline-start"
+                  spinning={view === "history" ? historyFetching : sessions.isFetching}
+                />
                 {t("refresh")}
               </Button>
             </div>
@@ -242,6 +267,11 @@ export function FrameStreamCard(props: {
               sessions={items}
             />
           </TabsContent>
+          {props.historySlot ? (
+            <TabsContent value="history" className={tabContentClassName}>
+              {props.historySlot}
+            </TabsContent>
+          ) : null}
         </Tabs>
       </PanelCard>
 
