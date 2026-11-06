@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ListFilterIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, ListFilterIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,13 +16,13 @@ import {
 } from "@/components/ui/dialog"
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldLegend,
   FieldSet,
 } from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   Select,
   SelectContent,
@@ -31,14 +31,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ServiceDisplayStatus } from "@/features/services/service-display-status"
 import type {
+  ServicePrimitiveKind,
   ServiceScopeFilter,
   ServiceSortBy,
+  ServiceSortDirection,
+  ServiceSortSpec,
   ServiceStatusFilter,
 } from "@/features/services/use-services-list"
 import {
   countActiveServiceFilters,
+  DEFAULT_STATUS_SORT_PRIORITY,
   SERVICE_STATUS_OPTIONS,
   toggleServiceStatusFilter,
 } from "@/features/services/use-services-list"
@@ -52,6 +57,18 @@ const STATUS_LABEL_KEYS: Record<ServiceDisplayStatus, string> = {
   error: "filterError",
 }
 
+function movePriority(
+  priority: ServiceDisplayStatus[],
+  index: number,
+  direction: -1 | 1,
+): ServiceDisplayStatus[] {
+  const nextIndex = index + direction
+  if (nextIndex < 0 || nextIndex >= priority.length) return priority
+  const next = [...priority]
+  ;[next[index], next[nextIndex]] = [next[nextIndex], next[index]]
+  return next
+}
+
 export function ServicesFilterDialog(props: {
   activeFilterCount: number
   agentFilter?: string
@@ -59,7 +76,7 @@ export function ServicesFilterDialog(props: {
   hideScopeFilters?: boolean
   onAgentFilterChange?: (value: string) => void
   onScopeFilterChange?: (value: ServiceScopeFilter) => void
-  onSort?: (value: ServiceSortBy) => void
+  onSort?: (value: ServiceSortSpec) => void
   onStatusFilterChange: (value: ServiceStatusFilter) => void
   scopeFilter?: ServiceScopeFilter
   statusFilter: ServiceStatusFilter
@@ -69,7 +86,14 @@ export function ServicesFilterDialog(props: {
   const [draftScope, setDraftScope] = useState<ServiceScopeFilter>(props.scopeFilter ?? "all")
   const [draftAgent, setDraftAgent] = useState(props.agentFilter ?? "")
   const [draftStatus, setDraftStatus] = useState<ServiceStatusFilter>(props.statusFilter)
-  const [pendingSort, setPendingSort] = useState<ServiceSortBy | null>(null)
+  const [sortTab, setSortTab] = useState<ServiceSortBy>("name")
+  const [nameDirection, setNameDirection] = useState<ServiceSortDirection>("asc")
+  const [primitiveKind, setPrimitiveKind] = useState<ServicePrimitiveKind>("tools")
+  const [primitiveDirection, setPrimitiveDirection] = useState<ServiceSortDirection>("desc")
+  const [statusPriority, setStatusPriority] = useState<ServiceDisplayStatus[]>(
+    DEFAULT_STATUS_SORT_PRIORITY,
+  )
+  const [pendingSort, setPendingSort] = useState<ServiceSortSpec | null>(null)
 
   const draftFilterCount = countActiveServiceFilters({
     scopeFilter: props.hideScopeFilters ? "all" : draftScope,
@@ -80,6 +104,11 @@ export function ServicesFilterDialog(props: {
     setDraftScope(props.scopeFilter ?? "all")
     setDraftAgent(props.agentFilter ?? "")
     setDraftStatus(props.statusFilter)
+    setSortTab("name")
+    setNameDirection("asc")
+    setPrimitiveKind("tools")
+    setPrimitiveDirection("desc")
+    setStatusPriority(DEFAULT_STATUS_SORT_PRIORITY)
     setPendingSort(null)
   }
 
@@ -103,6 +132,25 @@ export function ServicesFilterDialog(props: {
     setDraftAgent("")
     setDraftStatus([])
     setPendingSort(null)
+  }
+
+  function selectNameDirection(direction: ServiceSortDirection) {
+    setNameDirection(direction)
+    setPendingSort({ by: "name", direction })
+  }
+
+  function selectPrimitive(kind: ServicePrimitiveKind, direction: ServiceSortDirection) {
+    setPrimitiveKind(kind)
+    setPrimitiveDirection(direction)
+    setPendingSort({ by: "primitives", kind, direction })
+  }
+
+  function changeStatusPriority(index: number, direction: -1 | 1) {
+    setStatusPriority((current) => {
+      const next = movePriority(current, index, direction)
+      setPendingSort({ by: "status", priority: next })
+      return next
+    })
   }
 
   return (
@@ -209,33 +257,153 @@ export function ServicesFilterDialog(props: {
 
           <aside className="flex h-full min-h-0 min-w-0 w-full flex-col max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none">
             {props.onSort ? (
-              <Field className="min-h-0 flex-1">
-                <FieldLabel>{t("sortLabel")}</FieldLabel>
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  <Button
-                    variant={pendingSort === "name" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPendingSort("name")}
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <Tabs
+                  value={sortTab}
+                  onValueChange={(value) => {
+                    const tab = value as ServiceSortBy
+                    setSortTab(tab)
+                    if (tab === "status") {
+                      setPendingSort({ by: "status", priority: statusPriority })
+                    }
+                  }}
+                  className="flex min-h-0 flex-1 flex-col gap-3"
+                >
+                  <div className="flex min-w-0 shrink-0 items-center gap-3">
+                    <FieldLabel className="shrink-0">{t("sortLabel")}</FieldLabel>
+                    <TabsList
+                      variant="line"
+                      className="h-9 min-w-0 flex-1 justify-start overflow-x-auto [scrollbar-width:none]"
+                    >
+                      <TabsTrigger value="name" className="flex-none">
+                        {t("sortName")}
+                      </TabsTrigger>
+                      <TabsTrigger value="status" className="flex-none">
+                        {t("sortStatus")}
+                      </TabsTrigger>
+                      <TabsTrigger value="primitives" className="flex-none">
+                        {t("sortPrimitives")}
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
+
+                  <TabsContent value="name" className="mt-0 flex min-h-0 flex-1 flex-col gap-3">
+                    <RadioGroup
+                      value={pendingSort?.by === "name" ? nameDirection : undefined}
+                      onValueChange={(value) =>
+                        selectNameDirection(value as ServiceSortDirection)
+                      }
+                      className="flex flex-col gap-3"
+                    >
+                      <Field orientation="horizontal" className="items-center gap-2">
+                        <RadioGroupItem value="asc" id="sort-name-asc" />
+                        <Label htmlFor="sort-name-asc" className="font-normal">
+                          {t("sortNameAsc")}
+                        </Label>
+                      </Field>
+                      <Field orientation="horizontal" className="items-center gap-2">
+                        <RadioGroupItem value="desc" id="sort-name-desc" />
+                        <Label htmlFor="sort-name-desc" className="font-normal">
+                          {t("sortNameDesc")}
+                        </Label>
+                      </Field>
+                    </RadioGroup>
+                  </TabsContent>
+
+                  <TabsContent value="status" className="mt-0 flex min-h-0 flex-1 flex-col gap-3">
+                    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto [scrollbar-width:none]">
+                      {statusPriority.map((status, index) => (
+                        <div
+                          key={status}
+                          className="flex items-center gap-2 rounded-md border border-border/50 px-2 py-1.5"
+                        >
+                          <span className="w-4 shrink-0 text-xs text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          <span className="min-w-0 flex-1 text-sm">
+                            {t(STATUS_LABEL_KEYS[status])}
+                          </span>
+                          <div className="flex shrink-0 gap-1">
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="ghost"
+                              disabled={index === 0}
+                              aria-label={t("sortMoveUp")}
+                              onClick={() => changeStatusPriority(index, -1)}
+                            >
+                              <ChevronUpIcon />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="ghost"
+                              disabled={index === statusPriority.length - 1}
+                              aria-label={t("sortMoveDown")}
+                              onClick={() => changeStatusPriority(index, 1)}
+                            >
+                              <ChevronDownIcon />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent
+                    value="primitives"
+                    className="mt-0 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto [scrollbar-width:none]"
                   >
-                    {t("sortName")}
-                  </Button>
-                  <Button
-                    variant={pendingSort === "status" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPendingSort("status")}
-                  >
-                    {t("sortStatus")}
-                  </Button>
-                  <Button
-                    variant={pendingSort === "tools" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setPendingSort("tools")}
-                  >
-                    {t("sortTools")}
-                  </Button>
-                </div>
-                <FieldDescription className="mt-2">{t("sortHint")}</FieldDescription>
-              </Field>
+                    <RadioGroup
+                      value={
+                        pendingSort?.by === "primitives"
+                          ? `${primitiveKind}:${primitiveDirection}`
+                          : undefined
+                      }
+                      onValueChange={(value) => {
+                        const [kind, direction] = value.split(":") as [
+                          ServicePrimitiveKind,
+                          ServiceSortDirection,
+                        ]
+                        selectPrimitive(kind, direction)
+                      }}
+                      className="flex flex-col gap-4"
+                    >
+                      {(
+                        [
+                          ["tools", "navTools"],
+                          ["prompts", "prompts"],
+                          ["resources", "resources"],
+                        ] as const
+                      ).map(([kind, labelKey]) => (
+                        <FieldSet key={kind}>
+                          <FieldLegend variant="label">{t(labelKey)}</FieldLegend>
+                          <div className="flex flex-col gap-3">
+                            <Field orientation="horizontal" className="items-center gap-2">
+                              <RadioGroupItem
+                                value={`${kind}:asc`}
+                                id={`sort-${kind}-asc`}
+                              />
+                              <Label htmlFor={`sort-${kind}-asc`} className="font-normal">
+                                {t("sortPrimitiveAsc")}
+                              </Label>
+                            </Field>
+                            <Field orientation="horizontal" className="items-center gap-2">
+                              <RadioGroupItem
+                                value={`${kind}:desc`}
+                                id={`sort-${kind}-desc`}
+                              />
+                              <Label htmlFor={`sort-${kind}-desc`} className="font-normal">
+                                {t("sortPrimitiveDesc")}
+                              </Label>
+                            </Field>
+                          </div>
+                        </FieldSet>
+                      ))}
+                    </RadioGroup>
+                  </TabsContent>
+                </Tabs>
+              </div>
             ) : (
               <div className="text-sm text-muted-foreground">{t("filterDescription")}</div>
             )}
