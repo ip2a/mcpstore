@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { MonitorIcon, PencilIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react"
+import {
+  DatabaseIcon,
+  MonitorIcon,
+  PencilIcon,
+  PlusIcon,
+  SaveIcon,
+  Trash2Icon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
@@ -61,12 +68,14 @@ import {
   useAppVersionLabel,
 } from "@/features/settings/updater"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
+import { useCacheHealthQuery } from "@/features/cache/queries"
 import { getHostStatus, type HostStatus as ApiHostStatus, type UiLanguage } from "@/lib/api"
 import { syncApiBaseFromHosts } from "@/lib/api/backend"
 import { validateHostsConfig } from "@/lib/api/hosts"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/query-keys"
+import { useUiStore } from "@/stores/ui-store"
 
 const compactInputGroupClass = "w-20 shrink-0"
 
@@ -313,6 +322,15 @@ export function SettingsView() {
               </TabsContent>
 
               <TabsContent
+                value="cache"
+                className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                <ScrollPane className="flex-1">
+                  <CacheSettingsSection />
+                </ScrollPane>
+              </TabsContent>
+
+              <TabsContent
                 value="config"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
@@ -399,6 +417,39 @@ export function SettingsView() {
           ))}
       </PanelCard>
     </>
+  )
+}
+
+function CacheSettingsSection() {
+  const { t } = useI18n()
+  const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
+  const healthQuery = useCacheHealthQuery()
+  const backend =
+    healthQuery.data &&
+    typeof healthQuery.data === "object" &&
+    healthQuery.data !== null &&
+    "backend" in healthQuery.data &&
+    typeof (healthQuery.data as { backend?: unknown }).backend === "string"
+      ? (healthQuery.data as { backend: string }).backend
+      : t("unknown")
+
+  return (
+    <section className="flex flex-col gap-5">
+      <FieldGroup>
+        <Field orientation="responsive">
+          <FieldContent>
+            <FieldTitle>{t("switchCacheStorage")}</FieldTitle>
+            <FieldDescription>
+              {t("currentCacheStorage", { backend })}
+            </FieldDescription>
+          </FieldContent>
+          <Button size="sm" variant="outline" onClick={() => setCacheDialogOpen(true)}>
+            <DatabaseIcon data-icon="inline-start" />
+            {t("switchBackend")}
+          </Button>
+        </Field>
+      </FieldGroup>
+    </section>
   )
 }
 

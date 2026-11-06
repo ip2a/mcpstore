@@ -7,7 +7,6 @@ import { AppBottomBar } from "@/components/layout/app-bottom-bar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
-import { CacheView } from "@/features/cache/cache-view"
 import { ClientsView } from "@/features/clients/clients-view"
 import { GatewayView } from "@/features/gateway/gateway-view"
 import { OverviewView } from "@/features/overview/overview-view"
@@ -39,7 +38,6 @@ export function App() {
   // host-scoped keys and view-local state (telemetry cursor, dialogs) resets.
   const selectedHost = useSyncExternalStore(onSelectedHostChanged, getSelectedHost)
   const {
-    cacheRevision,
     refreshAgentQueries,
     refreshCacheQueries,
     refreshConfigQueries,
@@ -188,7 +186,10 @@ export function App() {
                     onBack={goBack}
                   />
                 ) : view.name === "scope" ? (
-                  <ScopeView services={services} />
+                  <ScopeView
+                    services={services}
+                    onOpenService={(service) => setView({ name: "instance", addr: service })}
+                  />
                 ) : view.name === "clients" ? (
                   <ClientsView />
                 ) : view.name === "plugins" ? (
@@ -197,13 +198,6 @@ export function App() {
                   <GatewayView />
                 ) : view.name === "traces" ? (
                   <TracesView initialTab={view.tab} />
-                ) : view.name === "cache" ? (
-                  <CacheView
-                    backend={backend}
-                    revision={cacheRevision}
-                    onRefreshDashboard={refresh}
-                    onSwitch={() => setCacheDialogOpen(true)}
-                  />
                 ) : view.name === "settings" ? (
                   <SettingsView />
                 ) : (
@@ -213,7 +207,6 @@ export function App() {
                     busy={busy}
                     error={dashboardError}
                     loading={loading}
-                    onCache={() => setView({ name: "cache" })}
                     onCheck={checkAllServices}
                     onConnect={connectServiceEntry}
                     onDelete={setDeleteTarget}

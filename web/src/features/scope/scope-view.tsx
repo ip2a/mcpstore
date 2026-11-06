@@ -1,14 +1,17 @@
 import { useState, useMemo } from "react"
-import { PencilIcon, ChevronRightIcon, ListChecksIcon } from "lucide-react"
+import { ChevronRightIcon, ListChecksIcon } from "lucide-react"
 
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
-import { PageError, PageSkeleton } from "@/components/shared/page-states"
+import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
+import {
+  breadcrumbUppercase,
+  WorkspaceBreadcrumb,
+  WorkspacePageHeader,
+} from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useScopesQuery } from "@/features/agents/queries"
 import { useInstanceToolsQueries } from "@/features/tools/queries"
@@ -36,23 +39,51 @@ function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string
   return scopeIdFromSummary(summary)
 }
 
-export function ScopeView(props: { services: ServiceInstance[] }) {
+function scopeViewFromId(scopeId: string): ScopeView {
+  if (scopeId === "root") return { type: "root" }
+  if (scopeId === "store") return { type: "store" }
+  return { type: "agent", agent_id: scopeId }
+}
+
+function servicesForScope(
+  services: ServiceInstance[],
+  scope: ScopeView,
+): ServiceInstance[] {
+  if (scope.type === "store") {
+    return services.filter((service) => service.scope.type === "store")
+  }
+  if (scope.type === "agent") {
+    return services.filter(
+      (service) =>
+        service.scope.type === "agent" && service.scope.agent_id === scope.agent_id,
+    )
+  }
+  return services
+}
+
+export function ScopeView(props: {
+  services: ServiceInstance[]
+  onOpenService: (service: ServiceInstance) => void
+}) {
   const { t } = useI18n()
   const scopesQuery = useScopesQuery()
-  const scopes = scopesQuery.data || []
-  const [selectedScopeId, setSelectedScopeId] = useState<string>("root")
+  const scopes = useMemo(
+    () => (scopesQuery.data || []).filter((summary) => summary.scope.type !== "root"),
+    [scopesQuery.data],
+  )
+  const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const toolOverridesQuery = useToolOverridesQuery()
   const toolOverrides = toolOverridesQuery.data?.overrides || []
 
-  const selectedScope: ScopeView = useMemo(() => {
-    if (selectedScopeId === "root") return { type: "root" }
-    if (selectedScopeId === "store") return { type: "store" }
-    return { type: "agent", agent_id: selectedScopeId }
-  }, [selectedScopeId])
+  const selectedScope: ScopeView | null = useMemo(
+    () => (selectedScopeId ? scopeViewFromId(selectedScopeId) : null),
+    [selectedScopeId],
+  )
 
   const overrideSet = useMemo(() => {
     const set = new Set<string>()
+    if (!selectedScope) return set
     for (const override of toolOverrides) {
       if (sameScopeRefView(override.scope, selectedScope)) {
         set.add(`${override.service_name}::${override.tool_name}`)
@@ -62,6 +93,7 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
   }, [toolOverrides, selectedScope])
 
   const scopeServices = useMemo(() => {
+    if (!selectedScope) return []
     if (selectedScope.type === "root") return props.services
     if (selectedScope.type === "store") {
       return props.services.filter((service) => service.scope.type === "store")
@@ -73,7 +105,8 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
   }, [props.services, selectedScope])
 
   const toolQueries = useInstanceToolsQueries(scopeServices, "all")
-  const loading = scopesQuery.isFetching || toolQueries.some((result) => result.isFetching)
+  const detailLoading = toolQueries.some((result) => result.isFetching)
+  const loading = scopesQuery.isFetching || (selectedScope !== null && detailLoading)
   const error = scopesQuery.error || toolQueries.find((result) => result.error)?.error
   const errorMessage =
     error instanceof Error ? error.message : error ? String(error) : "Failed to load scope"
@@ -106,45 +139,58 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
       )
   }, [serviceTools, searchQuery])
 
+  const selectedSummary = scopes.find((summary) => scopeIdFromSummary(summary) === selectedScopeId)
+  const selectedTitle = selectedSummary
+    ? breadcrumbUppercase(scopeTitleFromSummary(selectedSummary, t))
+    : ""
+
   async function handleRefresh() {
     await scopesQuery.refetch()
-    await Promise.all(toolQueries.map((result) => result.refetch()))
+    if (selectedScope) {
+      await Promise.all(toolQueries.map((result) => result.refetch()))
+    }
+  }
+
+  function backToOverview() {
+    setSelectedScopeId(null)
+    setSearchQuery("")
   }
 
   return (
     <>
-      <WorkspacePageHeader
-        title={<h1 className="text-lg font-semibold">{t("scopeConfigurationTitle")}</h1>}
-        subtitle={t("scopeConfigurationDescription")}
-      />
+      {selectedScope ? (
+        <WorkspaceBreadcrumb
+          ariaLabel={t("scopeConfigurationTitle")}
+          subtitle={t("scopeConfigurationDescription")}
+          crumbs={[
+            {
+              label: breadcrumbUppercase(t("allScopes")),
+              onClick: backToOverview,
+            },
+            { label: selectedTitle },
+          ]}
+        />
+      ) : (
+        <WorkspacePageHeader
+          title={<h1 className="text-lg font-semibold">{t("scopeConfigurationTitle")}</h1>}
+          subtitle={t("allScopesDescription")}
+        />
+      )}
 
       <PanelCard className="flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
-        <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-          <Tabs value={selectedScopeId} onValueChange={setSelectedScopeId} className="min-w-0">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
-              {scopes.map((summary) => {
-                const scopeId = scopeIdFromSummary(summary)
-                const title = scopeTitleFromSummary(summary, t)
-                return (
-                  <TabsTrigger key={scopeId} value={scopeId} title={title} className="flex-none">
-                    {title}
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
-          </Tabs>
-          <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex w-full min-w-0 shrink-0 items-center justify-end gap-2 border-b px-4 py-2">
+          {selectedScope ? (
             <UiverseSearchInput
               id="scope-list-search"
               placeholder={t("searchToolsAndServices")}
               value={searchQuery}
               onChange={setSearchQuery}
             />
-            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
-              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
-              {t("refresh")}
-            </Button>
-          </div>
+          ) : null}
+          <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
+            <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
+            {t("refresh")}
+          </Button>
         </div>
 
         <ScrollPane className="min-h-0 flex-1">
@@ -154,6 +200,29 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
               message={errorMessage}
               onRefresh={handleRefresh}
             />
+          ) : !selectedScope ? (
+            scopesQuery.isFetching && !scopes.length ? (
+              <PageSkeleton />
+            ) : !scopes.length ? (
+              <PageEmpty title={t("noScopes")} description={t("noScopesDescription")} />
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-x-4 gap-y-16 px-4 py-12">
+                {scopes.map((summary) => {
+                  const scopeId = scopeIdFromSummary(summary)
+                  const title = scopeTitleFromSummary(summary, t)
+                  const scoped = servicesForScope(props.services, summary.scope)
+                  return (
+                    <ScopeCard
+                      key={scopeId}
+                      title={title}
+                      services={scoped}
+                      onSelectScope={() => setSelectedScopeId(scopeId)}
+                      onOpenService={props.onOpenService}
+                    />
+                  )
+                })}
+              </div>
+            )
           ) : loading && !serviceTools.length ? (
             <PageSkeleton />
           ) : !filteredServiceTools.length ? (
@@ -177,6 +246,54 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
         </ScrollPane>
       </PanelCard>
     </>
+  )
+}
+
+const SERVICE_LAYER_CLASS = ["scope-fan-card--s0", "scope-fan-card--s1", "scope-fan-card--s2"] as const
+
+function ScopeCard({
+  title,
+  services,
+  onSelectScope,
+  onOpenService,
+}: {
+  title: string
+  services: ServiceInstance[]
+  onSelectScope: () => void
+  onOpenService: (service: ServiceInstance) => void
+}) {
+  const { t } = useI18n()
+  const preview = services.slice(0, 3)
+  const extra = Math.max(0, services.length - preview.length)
+
+  return (
+    <div className="scope-fan">
+      {preview.map((service, index) => (
+        <button
+          key={service.instance_id}
+          type="button"
+          className={cn("scope-fan-card", SERVICE_LAYER_CLASS[index])}
+          title={service.service_name}
+          onClick={() => onOpenService(service)}
+        >
+          <span className="line-clamp-4 text-sm font-semibold leading-snug">
+            {service.service_name}
+          </span>
+        </button>
+      ))}
+      <button
+        type="button"
+        className="scope-fan-card scope-fan-card--scope"
+        title={title}
+        onClick={onSelectScope}
+      >
+        <span className="line-clamp-3 text-base font-semibold tracking-tight">{title}</span>
+        <span className="mt-auto text-sm text-white/70">
+          {services.length} {t("services")}
+          {extra > 0 ? ` · +${extra}` : null}
+        </span>
+      </button>
+    </div>
   )
 }
 
