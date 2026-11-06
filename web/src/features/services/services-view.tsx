@@ -83,7 +83,6 @@ export function ServicesView(props: {
     setQuery,
     setStatusFilter,
     statusFilter,
-    toggleStatusFilter,
   } = useServicesList(scopeServices)
 
   const statusFilterCount = statusFilter.length
@@ -161,7 +160,6 @@ export function ServicesView(props: {
                 hideScopeFilters
                 onSort={applySort}
                 onStatusFilterChange={setStatusFilter}
-                onStatusToggle={toggleStatusFilter}
                 statusFilter={statusFilter}
               />
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loadingScope}>

@@ -114,31 +114,33 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
         subtitle={t("scopeConfigurationDescription")}
       />
 
-      <PanelCard className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex min-w-0 shrink-0 items-center gap-3 border-b px-4 py-3">
-          <Tabs value={selectedScopeId} onValueChange={setSelectedScopeId} className="flex-1">
-            <TabsList variant="line" className="h-9 w-fit">
+      <PanelCard className="flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
+        <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
+          <Tabs value={selectedScopeId} onValueChange={setSelectedScopeId} className="min-w-0">
+            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
               {scopes.map((summary) => {
                 const scopeId = scopeIdFromSummary(summary)
                 const title = scopeTitleFromSummary(summary, t)
                 return (
-                  <TabsTrigger key={scopeId} value={scopeId} className="flex-none">
+                  <TabsTrigger key={scopeId} value={scopeId} title={title} className="flex-none">
                     {title}
                   </TabsTrigger>
                 )
               })}
             </TabsList>
           </Tabs>
-          <CollapsibleSearchBox
-            inline
-            placeholder={t("searchToolsAndServices")}
-            value={searchQuery}
-            onChange={setSearchQuery}
-          />
-          <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
-            <RefreshCwIcon data-icon="inline-start" />
-            {t("refresh")}
-          </Button>
+          <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+            <CollapsibleSearchBox
+              inline
+              placeholder={t("searchToolsAndServices")}
+              value={searchQuery}
+              onChange={setSearchQuery}
+            />
+            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
+              <RefreshCwIcon data-icon="inline-start" />
+              {t("refresh")}
+            </Button>
+          </div>
         </div>
 
         <ScrollPane className="min-h-0 flex-1">
