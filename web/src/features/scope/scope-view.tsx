@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react"
 import { PencilIcon, ChevronRightIcon, ListChecksIcon } from "lucide-react"
 
-import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
@@ -134,8 +134,8 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
             </TabsList>
           </Tabs>
           <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-            <CollapsibleSearchBox
-              inline
+            <UiverseSearchInput
+              id="scope-list-search"
               placeholder={t("searchToolsAndServices")}
               value={searchQuery}
               onChange={setSearchQuery}

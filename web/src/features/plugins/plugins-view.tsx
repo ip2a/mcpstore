@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
-import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { PluginListCard, type PluginItem } from "@/components/shared/plugin-list-card"
@@ -153,8 +153,7 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
               ))}
             </TabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <CollapsibleSearchBox
-                inline
+              <UiverseSearchInput
                 id="plugin-list-search"
                 placeholder={t("searchPlugins")}
                 value={query}
