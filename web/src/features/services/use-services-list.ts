@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 
 import type { ServiceInstance } from "@/lib/api"
@@ -5,10 +6,17 @@ import {
   deriveServiceDisplayStatus,
   type ServiceDisplayStatus,
 } from "@/features/services/service-display-status"
+import { queryKeys } from "@/lib/query-keys"
 
 export type ServiceScopeFilter = "all" | "store" | "agent"
 export type ServiceStatusFilter = ServiceDisplayStatus[]
-export type ServiceSortBy = "name" | "status" | "tools"
+export type ServiceSortDirection = "asc" | "desc"
+export type ServiceSortBy = "name" | "status" | "primitives"
+export type ServicePrimitiveKind = "tools" | "prompts" | "resources"
+export type ServiceSortSpec =
+  | { by: "name"; direction: ServiceSortDirection }
+  | { by: "primitives"; kind: ServicePrimitiveKind; direction: ServiceSortDirection }
+  | { by: "status"; priority: ServiceDisplayStatus[] }
 
 export const SERVICE_STATUS_OPTIONS: ServiceDisplayStatus[] = [
   "connected",
@@ -17,14 +25,14 @@ export const SERVICE_STATUS_OPTIONS: ServiceDisplayStatus[] = [
   "error",
 ]
 
-const ORDER_STORAGE_KEY = "mcpstore.service-list-order"
+export const DEFAULT_STATUS_SORT_PRIORITY: ServiceDisplayStatus[] = [
+  "connected",
+  "connecting",
+  "error",
+  "disconnected",
+]
 
-const STATUS_SORT_ORDER: Record<ServiceDisplayStatus, number> = {
-  connected: 0,
-  connecting: 1,
-  error: 2,
-  disconnected: 3,
-}
+const ORDER_STORAGE_KEY = "mcpstore.service-list-order"
 
 function readStoredOrder() {
   try {
@@ -48,15 +56,28 @@ function compareName(a: ServiceInstance, b: ServiceInstance) {
   return a.service_name.localeCompare(b.service_name) || a.instance_id.localeCompare(b.instance_id)
 }
 
-function compareBySort(sortBy: ServiceSortBy) {
+function statusRank(priority: ServiceDisplayStatus[], status: ServiceDisplayStatus) {
+  const index = priority.indexOf(status)
+  return index === -1 ? priority.length : index
+}
+
+function compareBySort(
+  spec: ServiceSortSpec,
+  primitiveCount: (service: ServiceInstance, kind: ServicePrimitiveKind) => number,
+) {
   return (a: ServiceInstance, b: ServiceInstance) => {
-    if (sortBy === "name") return compareName(a, b)
-    if (sortBy === "tools") {
-      return (b.tools?.length || 0) - (a.tools?.length || 0) || compareName(a, b)
+    if (spec.by === "name") {
+      const result = compareName(a, b)
+      return spec.direction === "asc" ? result : -result
+    }
+    if (spec.by === "primitives") {
+      const delta = primitiveCount(a, spec.kind) - primitiveCount(b, spec.kind)
+      const ordered = spec.direction === "asc" ? delta : -delta
+      return ordered || compareName(a, b)
     }
     return (
-      STATUS_SORT_ORDER[deriveServiceDisplayStatus(a.state)] -
-        STATUS_SORT_ORDER[deriveServiceDisplayStatus(b.state)] || compareName(a, b)
+      statusRank(spec.priority, deriveServiceDisplayStatus(a.state)) -
+        statusRank(spec.priority, deriveServiceDisplayStatus(b.state)) || compareName(a, b)
     )
   }
 }
@@ -96,12 +117,23 @@ export function toggleServiceStatusFilter(
 }
 
 export function useServicesList(services: ServiceInstance[]) {
+  const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [scopeFilter, setScopeFilter] = useState<ServiceScopeFilter>("all")
   const [agentFilter, setAgentFilter] = useState("")
   const [statusFilter, setStatusFilter] = useState<ServiceStatusFilter>([])
   const [order, setOrder] = useState<string[]>(readStoredOrder)
   const resolvedOrder = useMemo(() => reconcileServiceOrder(order, services), [order, services])
+
+  function primitiveCount(service: ServiceInstance, kind: ServicePrimitiveKind) {
+    if (kind === "tools") return service.tools?.length || 0
+    const cached = queryClient.getQueryData<unknown[]>(
+      kind === "prompts"
+        ? queryKeys.instancePrompts(service)
+        : queryKeys.instanceResources(service),
+    )
+    return cached?.length ?? 0
+  }
 
   useEffect(() => {
     if (sameIds(resolvedOrder, order)) return
@@ -163,8 +195,12 @@ export function useServicesList(services: ServiceInstance[]) {
     writeStoredOrder(next)
   }
 
-  const applySort = (sortBy: ServiceSortBy) => {
-    commitOrder([...services].sort(compareBySort(sortBy)).map((service) => service.instance_id))
+  const applySort = (spec: ServiceSortSpec) => {
+    commitOrder(
+      [...services]
+        .sort(compareBySort(spec, primitiveCount))
+        .map((service) => service.instance_id),
+    )
   }
 
   return {
