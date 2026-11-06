@@ -35,6 +35,7 @@ mod panel_settings;
 mod parse;
 mod plugins;
 mod service;
+mod services_market;
 mod session;
 mod telemetry;
 
@@ -281,6 +282,14 @@ fn app_routes<T: PanelCtx>() -> Router<Arc<T>> {
         .route("/filesystem/directories", get(filesystem::directories_list::<T>))
         .route("/plugins", get(plugins::plugins_list::<T>))
         .route("/plugins/market", get(plugins::plugins_market::<T>))
+        .route(
+            "/plugins/market/services",
+            get(services_market::services_market_featured),
+        )
+        .route(
+            "/plugins/market/services/registry",
+            get(services_market::services_market_registry),
+        )
         .route("/plugins/detect", post(plugins::plugins_detect::<T>))
         .route("/plugins/:id/install", post(plugins::plugin_install::<T>))
         .route(
