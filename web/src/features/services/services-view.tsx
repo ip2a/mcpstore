@@ -3,6 +3,12 @@ import { useMemo, useState } from "react"
 
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_LIST_INSET_CLASSNAME,
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
@@ -125,10 +131,10 @@ export function ServicesView(props: {
         <Tabs
           value={activeTab}
           onValueChange={(value) => selectScopeTab(value)}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={WORKSPACE_TABS_CLASSNAME}
         >
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               {scopes.map((summary) => {
                 const scopeId = scopeIdFromSummary(summary)
                 const title = scopeTitleFromSummary(summary, t)
@@ -268,7 +274,7 @@ function ServicesScopeContent({
       : null) ?? null
   if (scopeError) {
     return (
-      <div className="px-4 py-2">
+      <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
         <PageError
           title={t("agentScopeFailedToLoad")}
           message={scopeErrorMessage}
@@ -280,7 +286,7 @@ function ServicesScopeContent({
 
   if (error && services.length === 0) {
     return (
-      <div className="px-4 py-2">
+      <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
         <PageError title={t("dashboardFailedToLoad")} message={error} onRefresh={onRefresh} />
       </div>
     )
@@ -288,7 +294,7 @@ function ServicesScopeContent({
 
   if (loading && filteredServices.length === 0) {
     return (
-      <div className="px-4 py-2">
+      <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
         <PageSkeleton />
       </div>
     )
@@ -299,7 +305,7 @@ function ServicesScopeContent({
       <ScrollPane
         className="min-h-0 flex-1"
         innerClassName={cn(
-          "px-4 py-3 pb-6",
+          WORKSPACE_LIST_INSET_CLASSNAME,
           "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4",
         )}
       >

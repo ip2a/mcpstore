@@ -4,6 +4,10 @@ import { ChevronRightIcon, ListChecksIcon } from "lucide-react"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_LIST_INSET_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import {
@@ -178,84 +182,93 @@ export function ScopeView(props: {
       )}
 
       <PanelCard className="flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
-        <div className="flex w-full min-w-0 shrink-0 items-center justify-end gap-2 border-b px-4 py-2">
-          {selectedScope ? (
-            <UiverseSearchInput
-              id="scope-list-search"
-              placeholder={t("searchToolsAndServices")}
-              value={searchQuery}
-              onChange={setSearchQuery}
-            />
-          ) : null}
-          <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
-            <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
-            {t("refresh")}
-          </Button>
-        </div>
-
-        <ScrollPane className="min-h-0 flex-1">
-          {error ? (
-            <PageError
-              title={t("scopeFailedToLoad")}
-              message={errorMessage}
-              onRefresh={handleRefresh}
-            />
-          ) : !selectedScope ? (
-            scopesQuery.isFetching && !scopes.length ? (
-              <PageSkeleton />
-            ) : !scopes.length ? (
-              <PageEmpty title={t("noScopes")} description={t("noScopesDescription")} />
-            ) : (
-              <div className="scope-fan-grid">
-                {scopes.map((summary) => {
-                  const scopeId = scopeIdFromSummary(summary)
-                  const title = scopeTitleFromSummary(summary, t)
-                  const scoped = servicesForScope(props.services, summary.scope)
-                  const fanCount = Math.min(scoped.length, 3)
-                  return (
-                    <div
-                      key={scopeId}
-                      className="scope-fan-slot"
-                      data-fan-count={fanCount}
-                    >
-                      <ScopeCard
-                        title={title}
-                        services={scoped}
-                        onSelectScope={() => setSelectedScopeId(scopeId)}
-                        onOpenService={props.onOpenService}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          ) : loading && !serviceTools.length ? (
-            <PageSkeleton />
-          ) : !filteredServiceTools.length ? (
-            <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-              {searchQuery ? t("noSearchResults") : t("noServices")}
-            </div>
-          ) : (
-            <div className="space-y-3 p-4">
-              {filteredServiceTools.map(({ service, tools }) => (
-                <ServiceToolGroup
-                  key={service.instance_id}
-                  service={service}
-                  tools={tools}
-                  scope={selectedScope}
-                  overrideSet={overrideSet}
-                  onPolicyChange={handleRefresh}
+        {/* Mirror tools Tabs: default `gap-2` between toolbar and content + content `py-2` */}
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+          <div className={cn(WORKSPACE_TOOLBAR_CLASSNAME, "justify-end")}>
+            {/* h-9 matches tools TabsList so toolbar height stays aligned */}
+            <div className="flex h-9 min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              {selectedScope ? (
+                <UiverseSearchInput
+                  id="scope-list-search"
+                  placeholder={t("searchToolsAndServices")}
+                  value={searchQuery}
+                  onChange={setSearchQuery}
                 />
-              ))}
+              ) : null}
+              <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
+                {t("refresh")}
+              </Button>
             </div>
-          )}
-        </ScrollPane>
+          </div>
+
+          <ScrollPane
+            className="min-h-0 flex-1"
+            innerClassName={
+              !selectedScope && scopes.length > 0 ? WORKSPACE_LIST_INSET_CLASSNAME : undefined
+            }
+          >
+            {error ? (
+              <PageError
+                title={t("scopeFailedToLoad")}
+                message={errorMessage}
+                onRefresh={handleRefresh}
+              />
+            ) : !selectedScope ? (
+              scopesQuery.isFetching && !scopes.length ? (
+                <PageSkeleton />
+              ) : !scopes.length ? (
+                <PageEmpty title={t("noScopes")} description={t("noScopesDescription")} />
+              ) : (
+                <div className="scope-fan-grid">
+                  {scopes.map((summary) => {
+                    const scopeId = scopeIdFromSummary(summary)
+                    const title = scopeTitleFromSummary(summary, t)
+                    const scoped = servicesForScope(props.services, summary.scope)
+                    const fanCount = Math.min(scoped.length, 2)
+                    return (
+                      <div key={scopeId} className="scope-fan-slot" data-fan-count={fanCount}>
+                        <ScopeCard
+                          title={title}
+                          services={scoped}
+                          onSelectScope={() => setSelectedScopeId(scopeId)}
+                          onOpenService={props.onOpenService}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            ) : loading && !serviceTools.length ? (
+              <PageSkeleton />
+            ) : !filteredServiceTools.length ? (
+              <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+                {searchQuery ? t("noSearchResults") : t("noServices")}
+              </div>
+            ) : (
+              <div className="space-y-3 p-4">
+                {filteredServiceTools.map(({ service, tools }) => (
+                  <ServiceToolGroup
+                    key={service.instance_id}
+                    service={service}
+                    tools={tools}
+                    scope={selectedScope}
+                    overrideSet={overrideSet}
+                    onPolicyChange={handleRefresh}
+                  />
+                ))}
+              </div>
+            )}
+          </ScrollPane>
+        </div>
       </PanelCard>
     </>
   )
 }
 
-const SERVICE_LAYER_CLASS = ["scope-fan-card--s0", "scope-fan-card--s1", "scope-fan-card--s2"] as const
+const SERVICE_LAYER_CLASS = ["scope-fan-card--s0", "scope-fan-card--s1"] as const
+/** Scope cover + up to 2 service layers → at most 3 visible cards when fanned. */
+const SCOPE_FAN_PREVIEW_LIMIT = 2
 
 function ScopeCard({
   title,
@@ -269,7 +282,7 @@ function ScopeCard({
   onOpenService: (service: ServiceInstance) => void
 }) {
   const { t } = useI18n()
-  const preview = services.slice(0, 3)
+  const preview = services.slice(0, SCOPE_FAN_PREVIEW_LIMIT)
   const fanCount = preview.length
   const extra = Math.max(0, services.length - preview.length)
 
@@ -295,7 +308,7 @@ function ScopeCard({
         onClick={onSelectScope}
       >
         <span className="line-clamp-3 text-base font-semibold tracking-tight">{title}</span>
-        <span className="mt-auto text-sm text-white/70">
+        <span className="mt-auto text-sm text-muted-foreground">
           {services.length} {t("services")}
           {extra > 0 ? ` · +${extra}` : null}
         </span>

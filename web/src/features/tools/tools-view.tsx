@@ -4,6 +4,11 @@ import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ToolListCard } from "@/components/shared/tool-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import {
@@ -119,10 +124,10 @@ export function ToolsView(props: {
         <Tabs
           value={instanceId}
           onValueChange={setInstanceId}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={WORKSPACE_TABS_CLASSNAME}
         >
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               {serviceTabs.map((tab) => (
                 <TabsTrigger key={tab.id} value={tab.id} title={tab.label} className="flex-none">
                   {tab.label}

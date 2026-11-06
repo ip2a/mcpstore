@@ -4,6 +4,12 @@ import { useQueryClient } from "@tanstack/react-query"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_LIST_INSET_CLASSNAME,
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { PluginListCard, type PluginItem } from "@/components/shared/plugin-list-card"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
@@ -142,10 +148,10 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as PluginTab)}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={WORKSPACE_TABS_CLASSNAME}
         >
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               {tabs.map((item) => (
                 <TabsTrigger key={item.id} value={item.id} title={item.label} className="flex-none">
                   {item.label}
@@ -169,17 +175,17 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
           {tabs.map((item) => (
             <TabsContent key={item.id} value={item.id} className={tabContentClassName}>
               {tab !== item.id ? null : errored ? (
-                <div className="px-4 py-2">
+                <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
                   <PageError onRefresh={refresh} />
                 </div>
               ) : loading ? (
-                <div className="px-4 py-2">
+                <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
                   <PageSkeleton />
                 </div>
               ) : visiblePlugins.length ? (
                 <ScrollPane
                   className="min-h-0 flex-1"
-                  innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
+                  innerClassName={`${WORKSPACE_LIST_INSET_CLASSNAME} grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4`}
                 >
                   {visiblePlugins.map((plugin) => (
                     <PluginListCard
@@ -198,7 +204,7 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
                   ))}
                 </ScrollPane>
               ) : (
-                <div className="px-4 py-2">
+                <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
                   <PageEmpty
                     title={t("noPlugins")}
                     description={t("noPluginsDescription")}
