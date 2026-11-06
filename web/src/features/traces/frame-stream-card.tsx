@@ -43,7 +43,7 @@ import {
 } from "@/lib/api"
 
 type FrameFace = FrameSessionSummary["face"]
-type FrameViewMode = "table" | "graph" | "history"
+type FrameViewMode = "table" | "graph" | "history" | "cache"
 
 const PAGE_SIZES = [10, 20, 50] as const
 
@@ -54,6 +54,8 @@ export function FrameStreamCard(props: {
   fill?: boolean
   /** Optional History tab content (Traces page only; Gateway omits this). */
   historySlot?: ReactNode
+  /** Optional Cache tab content (Traces page only; Gateway omits this). */
+  cacheSlot?: ReactNode
   initialView?: FrameViewMode
 }) {
   const { t } = useI18n()
@@ -80,6 +82,9 @@ export function FrameStreamCard(props: {
       }),
   })
   const historyFetching = useIsFetching({ queryKey: queryKeys.gatewayHistory }) > 0
+  const cacheHealthFetching = useIsFetching({ queryKey: queryKeys.cacheHealth })
+  const cacheInspectFetching = useIsFetching({ queryKey: queryKeys.cacheInspect })
+  const cacheFetching = cacheHealthFetching + cacheInspectFetching > 0
 
   const items = sessions.data?.sessions ?? []
   const total = sessions.data?.total ?? 0
@@ -92,6 +97,11 @@ export function FrameStreamCard(props: {
       void queryClient.invalidateQueries({ queryKey: queryKeys.gatewayHistory })
       return
     }
+    if (view === "cache") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cacheHealth })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cacheInspect })
+      return
+    }
     void queryClient.invalidateQueries({
       queryKey: queryKeys.gatewayFrameSessions,
     })
@@ -101,6 +111,9 @@ export function FrameStreamCard(props: {
       })
     }
   }
+
+  const refreshSpinning =
+    view === "history" ? historyFetching : view === "cache" ? cacheFetching : sessions.isFetching
 
   function changePageSize(value: string) {
     setPageSize(Number(value) as (typeof PAGE_SIZES)[number])
@@ -239,18 +252,15 @@ export function FrameStreamCard(props: {
                   {t("navHistory")}
                 </TabsTrigger>
               ) : null}
+              {props.cacheSlot ? (
+                <TabsTrigger value="cache" className="flex-none">
+                  {t("cache")}
+                </TabsTrigger>
+              ) : null}
             </TabsList>
             <div className="ml-auto flex shrink-0 items-center gap-2">
-              <Button
-                disabled={view === "history" ? historyFetching : sessions.isFetching}
-                size="sm"
-                variant="outline"
-                onClick={refresh}
-              >
-                <RefreshCwSpinIcon
-                  data-icon="inline-start"
-                  spinning={view === "history" ? historyFetching : sessions.isFetching}
-                />
+              <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />
                 {t("refresh")}
               </Button>
             </div>
@@ -270,6 +280,11 @@ export function FrameStreamCard(props: {
           {props.historySlot ? (
             <TabsContent value="history" className={tabContentClassName}>
               {props.historySlot}
+            </TabsContent>
+          ) : null}
+          {props.cacheSlot ? (
+            <TabsContent value="cache" className={tabContentClassName}>
+              {props.cacheSlot}
             </TabsContent>
           ) : null}
         </Tabs>

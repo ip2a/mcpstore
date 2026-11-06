@@ -45,7 +45,6 @@ export function ServicesView(props: {
   busy: string | null
   error: string | null
   loading: boolean
-  onCache: () => void
   onCheck: () => void
   onConnect: (service: ServiceInstance) => void
   onAdded: () => Promise<void>
