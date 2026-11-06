@@ -15,7 +15,7 @@ import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
-import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
@@ -263,8 +263,7 @@ export function ClientsView() {
               ))}
             </TabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <CollapsibleSearchBox
-                inline
+              <UiverseSearchInput
                 id="client-list-search"
                 placeholder={t("searchClients")}
                 value={query}

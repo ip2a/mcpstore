@@ -1,34 +1,25 @@
-import { ArrowUpDownIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
 import { PromptListCard } from "@/components/shared/prompt-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import {
   breadcrumbUppercase,
   instanceScopeBreadcrumbLabel,
   WorkspaceBreadcrumb,
 } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { McpRegistryFilterDialog } from "@/features/mcp-registry/mcp-registry-filter-dialog"
+import {
+  McpRegistryFilterDialog,
+  type RegistrySortBy,
+} from "@/features/mcp-registry/mcp-registry-filter-dialog"
 import { usePromptsRegistry } from "@/features/prompts/use-prompts-registry"
 import { useI18n } from "@/lib/i18n-context"
 import type { AgentItem, PromptInfo, ServiceInstance } from "@/lib/api"
-
-type PromptSortBy = "name" | "service"
 
 export function PromptsView(props: {
   agents: AgentItem[]
@@ -36,8 +27,7 @@ export function PromptsView(props: {
   onOpenPrompt: (instanceId: string, promptName: string) => void
 }) {
   const { t } = useI18n()
-  const [sortOpen, setSortOpen] = useState(false)
-  const [sortBy, setSortBy] = useState<PromptSortBy | null>(null)
+  const [sortBy, setSortBy] = useState<RegistrySortBy | null>(null)
   const {
     activeFilterCount,
     agentId,
@@ -107,11 +97,6 @@ export function PromptsView(props: {
         { label: serviceTabLabel },
       ]
 
-  const applySort = (value: PromptSortBy) => {
-    setSortBy(value)
-    setSortOpen(false)
-  }
-
   const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
 
   return (
@@ -141,36 +126,12 @@ export function PromptsView(props: {
               ))}
             </TabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <CollapsibleSearchBox
-                inline
+              <UiverseSearchInput
                 id="prompt-list-search"
                 placeholder={t("searchPrompts")}
                 value={query}
                 onChange={setQuery}
               />
-              <Dialog open={sortOpen} onOpenChange={setSortOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <ArrowUpDownIcon data-icon="inline-start" />
-                    {t("sortLabel")}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>{t("sortLabel")}</DialogTitle>
-                    <DialogDescription>{t("sortHint")}</DialogDescription>
-                  </DialogHeader>
-                  <div className="flex flex-col gap-2">
-                    <Button variant="outline" onClick={() => applySort("name")}>
-                      {t("sortName")}
-                    </Button>
-                    <Button variant="outline" onClick={() => applySort("service")}>
-                      {t("service")}
-                    </Button>
-                  </div>
-                  <DialogFooter showCloseButton />
-                </DialogContent>
-              </Dialog>
               <McpRegistryFilterDialog
                 activeFilterCount={activeFilterCount}
                 agentId={agentId}
@@ -180,8 +141,10 @@ export function PromptsView(props: {
                 onAgentIdChange={setAgentId}
                 onInstanceIdChange={setInstanceId}
                 onScopeChange={setScope}
+                onSort={setSortBy}
                 scope={scope}
                 scopeInstances={scopeInstances}
+                sortBy={sortBy}
               />
               <Button size="sm" variant="outline" onClick={loadPrompts} disabled={loading}>
                 <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
