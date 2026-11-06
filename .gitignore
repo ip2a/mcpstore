@@ -23,8 +23,24 @@
 !rust/**
 !scripts/
 !scripts/**
+
+# web/: source + config only (not tmp dumps / build output / node_modules).
 !web/
-!web/**
+!web/biome.json
+!web/components.json
+!web/index.html
+!web/package.json
+!web/package-lock.json
+!web/tsconfig.json
+!web/tsconfig.app.json
+!web/tsconfig.node.json
+!web/vite.config.ts
+!web/public/
+!web/public/**
+!web/scripts/
+!web/scripts/**
+!web/src/
+!web/src/**
 
 # Root files allowlisted for Git.
 !/LICENSE
@@ -56,9 +72,7 @@ __pycache__/
 *.pyd
 target/
 dist/
-web/node_modules
 python/.venv
-web/dist/
 docs/.venv/
 docs/site/
 release-assets/
@@ -72,7 +86,6 @@ npm/packages/*/bin/
 
 # Local example fixtures are intentionally not Git-managed for now.
 /python/example_local/
-web/REFACTOR_PLAN.md
 
 # tauri externalBin sidecar, built by run_debug.sh / release workflow
 desktop/tauri/binaries/
