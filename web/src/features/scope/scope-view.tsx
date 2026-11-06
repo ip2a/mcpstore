@@ -206,19 +206,25 @@ export function ScopeView(props: {
             ) : !scopes.length ? (
               <PageEmpty title={t("noScopes")} description={t("noScopesDescription")} />
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-x-4 gap-y-16 px-4 py-12">
+              <div className="scope-fan-grid">
                 {scopes.map((summary) => {
                   const scopeId = scopeIdFromSummary(summary)
                   const title = scopeTitleFromSummary(summary, t)
                   const scoped = servicesForScope(props.services, summary.scope)
+                  const fanCount = Math.min(scoped.length, 3)
                   return (
-                    <ScopeCard
+                    <div
                       key={scopeId}
-                      title={title}
-                      services={scoped}
-                      onSelectScope={() => setSelectedScopeId(scopeId)}
-                      onOpenService={props.onOpenService}
-                    />
+                      className="scope-fan-slot"
+                      data-fan-count={fanCount}
+                    >
+                      <ScopeCard
+                        title={title}
+                        services={scoped}
+                        onSelectScope={() => setSelectedScopeId(scopeId)}
+                        onOpenService={props.onOpenService}
+                      />
+                    </div>
                   )
                 })}
               </div>
@@ -264,10 +270,11 @@ function ScopeCard({
 }) {
   const { t } = useI18n()
   const preview = services.slice(0, 3)
+  const fanCount = preview.length
   const extra = Math.max(0, services.length - preview.length)
 
   return (
-    <div className="scope-fan">
+    <div className="scope-fan" data-fan-count={fanCount}>
       {preview.map((service, index) => (
         <button
           key={service.instance_id}
