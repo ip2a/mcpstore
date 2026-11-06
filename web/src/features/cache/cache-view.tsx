@@ -3,6 +3,7 @@ import { ClipboardIcon, DatabaseIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import {
+  CACHE_LAYER_ORDER,
   buildDisplayCacheTree,
   extractCacheNamespace,
   getAllLayerNodes,
@@ -10,7 +11,7 @@ import {
   type CacheLayerId,
 } from "@/features/cache/cache-model"
 import { CacheCollectionNav, firstCollection } from "@/features/cache/cache-layer-browser"
-import { CacheLayerContent, CacheOverviewContent } from "@/features/cache/cache-response-view"
+import { CacheLayerContent } from "@/features/cache/cache-response-view"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
@@ -22,9 +23,7 @@ import { useI18n } from "@/lib/i18n-context"
 import type { CacheBackend } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-const OVERVIEW_TAB = "overview"
-
-type CacheTabId = "overview" | CacheLayerId
+const DEFAULT_TAB: CacheLayerId = CACHE_LAYER_ORDER[0]
 
 export function CacheView(props: {
   backend?: CacheBackend
@@ -34,7 +33,7 @@ export function CacheView(props: {
 }) {
   const { t } = useI18n()
   const [refreshError, setRefreshError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<CacheTabId>(OVERVIEW_TAB)
+  const [activeTab, setActiveTab] = useState<CacheLayerId>(DEFAULT_TAB)
   const [selectedCollection, setSelectedCollection] = useState("")
   const healthQuery = useCacheHealthQuery()
   const inspectQuery = useCacheInspectQuery()
@@ -93,7 +92,7 @@ export function CacheView(props: {
   }, [props.revision])
 
   useEffect(() => {
-    setActiveTab(OVERVIEW_TAB)
+    setActiveTab(DEFAULT_TAB)
   }, [props.revision])
 
   useEffect(() => {
@@ -125,14 +124,11 @@ export function CacheView(props: {
       <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         <Tabs
           value={activeTab}
-          onValueChange={(value) => setActiveTab(value as CacheTabId)}
+          onValueChange={(value) => setActiveTab(value as CacheLayerId)}
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
         >
           <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
             <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
-              <TabsTrigger value={OVERVIEW_TAB} title={t("overview")}>
-                {t("overview")}
-              </TabsTrigger>
               {layerNodes.map((layerNode) => {
                 const label = t(LAYER_I18N_KEY[layerNode.layer])
                 return (
@@ -151,13 +147,6 @@ export function CacheView(props: {
               onSwitch={props.onSwitch}
             />
           </div>
-
-          <TabsContent
-            value={OVERVIEW_TAB}
-            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-          >
-            {stateGuard ?? (tree ? <CacheOverviewContent tree={tree} /> : null)}
-          </TabsContent>
 
           {layerNodes.map((layerNode) => {
             const layerActive = activeTab === layerNode.layer

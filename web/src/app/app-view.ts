@@ -3,7 +3,6 @@ import {
   CableIcon,
   DatabaseIcon,
   FileStackIcon,
-  HistoryIcon,
   HouseIcon,
   LayersIcon,
   PuzzleIcon,
@@ -31,8 +30,7 @@ export type AppView =
   | { name: "prompts" }
   | { name: "prompt"; instanceId: string; promptName: string }
   | { name: "gateway" }
-  | { name: "history" }
-  | { name: "traces" }
+  | { name: "traces"; tab?: "table" | "graph" | "history" }
   | { name: "cache" }
   | { name: "settings" }
   | { name: "instance"; addr: ServiceAddress }
@@ -53,7 +51,6 @@ const NAV_ENTRIES: NavEntry[] = [
   { view: "tools", labelKey: "navTools", icon: WrenchIcon, group: "primitives" },
   { view: "resources", labelKey: "navResources", icon: FileStackIcon, group: "primitives" },
   { view: "prompts", labelKey: "navPrompts", icon: ScrollTextIcon, group: "primitives" },
-  { view: "history", labelKey: "navHistory", icon: HistoryIcon, group: "observability" },
   { view: "traces", labelKey: "navTraces", icon: ActivityIcon, group: "observability" },
   { view: "cache", labelKey: "navCache", icon: DatabaseIcon, group: "observability" },
   { view: "settings", labelKey: "settings", icon: SettingsIcon, group: "config" },

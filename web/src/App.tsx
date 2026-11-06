@@ -10,7 +10,6 @@ import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { CacheView } from "@/features/cache/cache-view"
 import { ClientsView } from "@/features/clients/clients-view"
 import { GatewayView } from "@/features/gateway/gateway-view"
-import { HistoryView } from "@/features/history/history-view"
 import { OverviewView } from "@/features/overview/overview-view"
 import { TracesView } from "@/features/traces/traces-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
@@ -196,10 +195,8 @@ export function App() {
                   <PluginsView initialTab={view.tab} />
                 ) : view.name === "gateway" ? (
                   <GatewayView />
-                ) : view.name === "history" ? (
-                  <HistoryView />
                 ) : view.name === "traces" ? (
-                  <TracesView />
+                  <TracesView initialTab={view.tab} />
                 ) : view.name === "cache" ? (
                   <CacheView
                     backend={backend}
