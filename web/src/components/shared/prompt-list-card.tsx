@@ -29,7 +29,9 @@ export function PromptListCard({
       role="button"
       tabIndex={0}
       className={cn(
-        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/40",
+        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left",
+        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
+        "transition-colors hover:border-border hover:bg-muted/40",
         className,
       )}
       onClick={onSelect}
