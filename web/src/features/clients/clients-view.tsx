@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+
 import {
   CircleDashed,
   FileJsonIcon,
   FolderIcon,
   PencilIcon,
   PlusIcon,
-  RefreshCwIcon,
   StoreIcon,
   TerminalIcon,
   UploadIcon,
@@ -18,6 +18,7 @@ import { clientIconUrls } from "@/assets/icons/clients"
 import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
@@ -270,7 +271,7 @@ export function ClientsView() {
                 onChange={setQuery}
               />
               <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshing} />
                 {t("refresh")}
               </Button>
               <Button size="sm" onClick={() => setAddOpen(true)}>
@@ -630,10 +631,9 @@ function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelec
   const detected = client.detected_by != null
   const versionQuery = useClientVersionQuery(client.id, detected)
   const version = versionQuery.data ?? client.version ?? null
-  const metaParts = [
-    version,
-    client.mcp_servers != null ? `mcp ${mcpCount}` : null,
-  ].filter((part): part is string => Boolean(part))
+  const metaParts = [version, client.mcp_servers != null ? `mcp ${mcpCount}` : null].filter(
+    (part): part is string => Boolean(part),
+  )
 
   return (
     <div

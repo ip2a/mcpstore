@@ -1,12 +1,10 @@
-import { PlusIcon, RefreshCwIcon } from "lucide-react"
+import { PlusIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import {
-  breadcrumbUppercase,
-  WorkspaceBreadcrumb,
-} from "@/components/shared/workspace-page-header"
+import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { ServiceListCard } from "@/components/shared/service-list-card"
@@ -76,14 +74,8 @@ export function ServicesView(props: {
     scopeTools,
   } = useAgentScope({ busy: props.busy, selectedScope, services: props.services })
 
-  const {
-    applySort,
-    filteredServices,
-    query,
-    setQuery,
-    setStatusFilter,
-    statusFilter,
-  } = useServicesList(scopeServices)
+  const { applySort, filteredServices, query, setQuery, setStatusFilter, statusFilter } =
+    useServicesList(scopeServices)
 
   const statusFilterCount = statusFilter.length
 
@@ -163,7 +155,7 @@ export function ServicesView(props: {
                 statusFilter={statusFilter}
               />
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loadingScope}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loadingScope} />
                 {t("refresh")}
               </Button>
               <AddServiceDialog

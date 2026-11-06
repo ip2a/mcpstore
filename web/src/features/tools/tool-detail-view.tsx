@@ -1,13 +1,11 @@
 import { useState } from "react"
-import { ClipboardIcon, PanelRightCloseIcon, PanelRightIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
+import { ClipboardIcon, PanelRightCloseIcon, PanelRightIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import {
-  breadcrumbUppercase,
-  WorkspaceBreadcrumb,
-} from "@/components/shared/workspace-page-header"
+import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import {
   ToolDetailDocBody,
@@ -92,10 +90,7 @@ export function ToolDetailView(props: {
       <>
         <WorkspaceBreadcrumb
           ariaLabel={t("tool")}
-          crumbs={[
-            { label: t("navTools"), onClick: props.onBack },
-            { label: toolLabel },
-          ]}
+          crumbs={[{ label: t("navTools"), onClick: props.onBack }, { label: toolLabel }]}
         />
         <PanelCard className="h-full min-h-0 flex-1">
           <PageEmpty
@@ -155,7 +150,7 @@ export function ToolDetailView(props: {
               </Button>
             ) : null}
             <Button size="sm" variant="outline" onClick={() => void loadTools()} disabled={loading}>
-              <RefreshCwIcon data-icon="inline-start" />
+              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
               {t("refresh")}
             </Button>
             {tool ? (
@@ -178,10 +173,7 @@ export function ToolDetailView(props: {
           <PageSkeleton />
         ) : tool ? (
           <div
-            className={cn(
-              toolDetailPlaygroundGrid,
-              !playgroundOpen && "@min-[42rem]:grid-cols-1",
-            )}
+            className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}
           >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
               <ScrollPane className="min-h-0 flex-1">

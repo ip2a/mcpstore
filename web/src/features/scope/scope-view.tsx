@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react"
-import { PencilIcon, RefreshCwIcon, ChevronRightIcon, ListChecksIcon } from "lucide-react"
+import { PencilIcon, ChevronRightIcon, ListChecksIcon } from "lucide-react"
 
 import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
@@ -99,7 +100,10 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
           return text.includes(needle)
         }),
       }))
-      .filter(({ service, tools }) => tools.length > 0 || service.service_name.toLowerCase().includes(needle))
+      .filter(
+        ({ service, tools }) =>
+          tools.length > 0 || service.service_name.toLowerCase().includes(needle),
+      )
   }, [serviceTools, searchQuery])
 
   async function handleRefresh() {
@@ -137,7 +141,7 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
               onChange={setSearchQuery}
             />
             <Button size="sm" variant="outline" onClick={handleRefresh} disabled={loading}>
-              <RefreshCwIcon data-icon="inline-start" />
+              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
               {t("refresh")}
             </Button>
           </div>
@@ -145,7 +149,11 @@ export function ScopeView(props: { services: ServiceInstance[] }) {
 
         <ScrollPane className="min-h-0 flex-1">
           {error ? (
-            <PageError title={t("scopeFailedToLoad")} message={errorMessage} onRefresh={handleRefresh} />
+            <PageError
+              title={t("scopeFailedToLoad")}
+              message={errorMessage}
+              onRefresh={handleRefresh}
+            />
           ) : loading && !serviceTools.length ? (
             <PageSkeleton />
           ) : !filteredServiceTools.length ? (

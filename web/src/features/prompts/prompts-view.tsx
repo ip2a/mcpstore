@@ -1,10 +1,11 @@
-import { ArrowUpDownIcon, RefreshCwIcon } from "lucide-react"
+import { ArrowUpDownIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
 import { PromptListCard } from "@/components/shared/prompt-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import {
   breadcrumbUppercase,
@@ -183,7 +184,7 @@ export function PromptsView(props: {
                 scopeInstances={scopeInstances}
               />
               <Button size="sm" variant="outline" onClick={loadPrompts} disabled={loading}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
                 {t("refresh")}
               </Button>
             </div>

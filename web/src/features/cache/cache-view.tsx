@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { ClipboardIcon, DatabaseIcon, RefreshCwIcon } from "lucide-react"
+import { ClipboardIcon, DatabaseIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -13,6 +13,7 @@ import { CacheCollectionNav, firstCollection } from "@/features/cache/cache-laye
 import { CacheLayerContent, CacheOverviewContent } from "@/features/cache/cache-response-view"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -246,7 +247,7 @@ function CacheActions({
         </Button>
       ) : null}
       <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-        <RefreshCwIcon data-icon="inline-start" />
+        <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
         {t("refresh")}
       </Button>
     </div>
