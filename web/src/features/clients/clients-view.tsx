@@ -18,6 +18,11 @@ import { clientIconUrls } from "@/assets/icons/clients"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
@@ -252,10 +257,10 @@ export function ClientsView() {
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as ClientTab)}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={WORKSPACE_TABS_CLASSNAME}
         >
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               {tabs.map((item) => (
                 <TabsTrigger key={item.id} value={item.id} title={item.label} className="flex-none">
                   {item.label}

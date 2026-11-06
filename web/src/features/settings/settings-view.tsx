@@ -12,6 +12,11 @@ import {
 import { toast } from "sonner"
 
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -163,16 +168,17 @@ export function SettingsView() {
         </p>
       </div>
 
-      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-        {stateGuard ??
-          (draft ? (
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
+        {stateGuard ? (
+          <div className="p-4">{stateGuard}</div>
+        ) : draft ? (
             <Tabs
               value={activeTab}
               onValueChange={(value) => setActiveTab(value as SectionId)}
-              className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+              className={WORKSPACE_TABS_CLASSNAME}
             >
-              <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
-                <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start gap-1">
+              <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+                <TabsList variant="line" className={`${WORKSPACE_TABS_LIST_CLASSNAME} gap-1`}>
                   {sections.map((item) => {
                     const label = t(item.labelKey)
                     return (
@@ -182,7 +188,7 @@ export function SettingsView() {
                     )
                   })}
                 </TabsList>
-                <div className="ml-auto flex shrink-0 gap-2">
+                <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
                   <Button
                     size="sm"
                     variant="outline"
@@ -203,7 +209,7 @@ export function SettingsView() {
                 value="general"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <ScrollPane className="flex-1">
+                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
                   <section className="flex flex-col gap-5">
                     <FieldGroup>
                       <Field orientation="responsive">
@@ -241,7 +247,7 @@ export function SettingsView() {
                 value="connection"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <ScrollPane className="flex-1">
+                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
                   <ConnectionSection draft={draft} patchDraft={patchDraft} />
                 </ScrollPane>
               </TabsContent>
@@ -250,7 +256,7 @@ export function SettingsView() {
                 value="diagnostics"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <ScrollPane className="flex-1">
+                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
                   <section className="flex flex-col gap-5">
                     <FieldGroup>
                       <ToggleField
@@ -325,7 +331,7 @@ export function SettingsView() {
                 value="cache"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <ScrollPane className="flex-1">
+                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
                   <CacheSettingsSection />
                 </ScrollPane>
               </TabsContent>
@@ -334,7 +340,7 @@ export function SettingsView() {
                 value="config"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <ScrollPane className="flex-1">
+                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
                   <section className="flex flex-col gap-3">
                     <p
                       className="truncate font-mono text-xs text-muted-foreground"
@@ -357,7 +363,7 @@ export function SettingsView() {
                 value="about"
                 className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <ScrollPane className="flex-1">
+                <ScrollPane className="flex-1" innerClassName="px-4 py-2">
                   <section className="flex flex-col gap-5">
                     <McpstoreAsciiBanner />
                     <div className="flex items-start justify-between gap-4">
@@ -413,8 +419,10 @@ export function SettingsView() {
               </TabsContent>
             </Tabs>
           ) : (
-            <PageSkeleton />
-          ))}
+            <div className="p-4">
+              <PageSkeleton />
+            </div>
+          )}
       </PanelCard>
     </>
   )

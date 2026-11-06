@@ -249,7 +249,6 @@
   justify-content: flex-start;
   column-gap: 0.5rem;
   row-gap: 3.5rem;
-  padding: 3rem 1rem;
 }
 
 .scope-fan-slot {
@@ -283,11 +282,7 @@
 }
 
 .scope-fan-slot[data-fan-count="2"]:hover {
-  padding-left: 9.5rem;
-}
-
-.scope-fan-slot[data-fan-count="3"]:hover {
-  padding-left: 18rem;
+  padding-left: 12rem;
 }
 
 .scope-fan-grid:has(.scope-fan-slot:hover) .scope-fan-slot:not(:hover) {
@@ -313,56 +308,53 @@
   flex-direction: column;
   gap: 0.5rem;
   padding: 1rem;
-  border: 0;
-  box-shadow: 0 0 30px -10px rgba(0, 0, 0, 0.3);
-  color: #fff;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+  background-color: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 14px 28px -20px rgba(59, 130, 246, 0.28);
   text-align: left;
   cursor: pointer;
-  transition: transform 0.3s ease-in-out;
+  transition:
+    transform 0.3s ease-in-out,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
   transform-origin: center bottom;
+}
+
+.scope-fan-card:hover {
+  border-color: var(--border);
+  background-color: color-mix(in oklab, var(--muted) 40%, var(--card));
+}
+
+.dark .scope-fan-card {
+  box-shadow: 0 14px 28px -20px rgba(125, 211, 252, 0.18);
 }
 
 .scope-fan-card--scope {
   z-index: 4;
-  background-color: #0a0a0a;
 }
 
 .scope-fan-card--s0 {
   z-index: 1;
-  background-color: #1d4ed8;
 }
 
 .scope-fan-card--s1 {
   z-index: 2;
-  background-color: #dc2626;
 }
 
-.scope-fan-card--s2 {
-  z-index: 3;
-  background-color: #16a34a;
-}
-
-/* 2nd / 3rd service layers — stable span */
+/* 2nd service layer — stable span */
 .scope-fan:hover .scope-fan-card--s1 {
-  transform: translateX(-85px) rotate(-30deg);
-}
-
-.scope-fan:hover .scope-fan-card--s2 {
-  transform: translateX(-40px) rotate(-18deg);
+  transform: translateX(-70px) rotate(-18deg);
 }
 
 .scope-fan:hover .scope-fan-card--scope {
-  transform: translateX(0) rotate(-8deg);
+  transform: translateX(0) rotate(-5deg);
 }
 
 .scope-fan-card--s1:hover {
   z-index: 5;
-  transform: translateX(-125px) rotate(0deg) !important;
-}
-
-.scope-fan-card--s2:hover {
-  z-index: 5;
-  transform: translateX(-70px) rotate(0deg) !important;
+  transform: translateX(-110px) rotate(0deg) !important;
 }
 
 .scope-fan-card--scope:hover {
@@ -372,7 +364,7 @@
 
 /* 1st service layer — span scales with fan count */
 .scope-fan[data-fan-count="1"]:hover .scope-fan-card--s0 {
-  transform: translateX(-64px) rotate(-34deg);
+  transform: translateX(-64px) rotate(-24deg);
 }
 
 .scope-fan[data-fan-count="1"] .scope-fan-card--s0:hover {
@@ -381,37 +373,10 @@
 }
 
 .scope-fan[data-fan-count="2"]:hover .scope-fan-card--s0 {
-  transform: translateX(-120px) rotate(-40deg);
+  transform: translateX(-145px) rotate(-28deg);
 }
 
 .scope-fan[data-fan-count="2"] .scope-fan-card--s0:hover {
   z-index: 5;
-  transform: translateX(-155px) rotate(0deg) !important;
-}
-
-.scope-fan[data-fan-count="3"]:hover .scope-fan-card--s0 {
-  transform: translateX(-220px) rotate(-42deg);
-}
-
-.scope-fan[data-fan-count="3"]:hover .scope-fan-card--s1 {
-  transform: translateX(-125px) rotate(-30deg);
-}
-
-.scope-fan[data-fan-count="3"]:hover .scope-fan-card--s2 {
-  transform: translateX(-55px) rotate(-18deg);
-}
-
-.scope-fan[data-fan-count="3"] .scope-fan-card--s0:hover {
-  z-index: 5;
-  transform: translateX(-260px) rotate(0deg) !important;
-}
-
-.scope-fan[data-fan-count="3"] .scope-fan-card--s1:hover {
-  z-index: 5;
-  transform: translateX(-165px) rotate(0deg) !important;
-}
-
-.scope-fan[data-fan-count="3"] .scope-fan-card--s2:hover {
-  z-index: 5;
-  transform: translateX(-90px) rotate(0deg) !important;
+  transform: translateX(-180px) rotate(0deg) !important;
 }

@@ -5,6 +5,10 @@ import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "l
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -235,12 +239,10 @@ export function FrameStreamCard(props: {
         >
           <div
             className={cn(
-              fill
-                ? "flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2"
-                : "flex items-center justify-between border-b pb-2",
+              fill ? WORKSPACE_TOOLBAR_CLASSNAME : "flex items-center justify-between border-b pb-2",
             )}
           >
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               <TabsTrigger value="table" className="flex-none">
                 {t("gatewayFramesTabTable")}
               </TabsTrigger>
