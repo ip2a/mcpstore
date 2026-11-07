@@ -117,3 +117,266 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Uiverse.io satyamchaudharydev/slippery-parrot-22 — compact h-8 toolbar fit */
+.uiverse-search {
+  --rotate: 80deg;
+  --icon-change-color: #15a986;
+  --icon-size: 14px;
+  box-sizing: border-box;
+  position: relative;
+  width: 200px;
+  height: 2rem; /* Button size="sm" */
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md); /* rounded-md */
+  box-shadow: 0 1px 2px oklch(0 0 0 / 4%);
+}
+
+.uiverse-search label {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.uiverse-search input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 1.75rem 0 1.75rem; /* room for icon + clear */
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.uiverse-search input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.uiverse-search .icon {
+  position: absolute;
+  left: 0.5rem;
+  top: 50%;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.uiverse-search .icon svg {
+  grid-area: 1 / 1;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  color: var(--foreground);
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.uiverse-search .swap-off {
+  transform: rotate(-80deg);
+  opacity: 0;
+  visibility: hidden;
+}
+
+.uiverse-search .close-btn {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%) scale(0);
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted-foreground);
+  opacity: 0;
+  visibility: hidden;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.uiverse-search .close-btn:hover {
+  color: var(--foreground);
+}
+
+.uiverse-search .close-btn svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: currentColor;
+}
+
+.uiverse-search input:focus ~ .icon,
+.uiverse-search input:valid ~ .icon {
+  transform: translateY(-50%) rotate(var(--rotate)) scale(1.15);
+}
+
+.uiverse-search input:focus ~ .icon .swap-off,
+.uiverse-search input:valid ~ .icon .swap-off {
+  opacity: 1;
+  visibility: visible;
+  color: var(--icon-change-color);
+}
+
+.uiverse-search input:focus ~ .icon .swap-on,
+.uiverse-search input:valid ~ .icon .swap-on {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.uiverse-search input:valid ~ .close-btn {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) scale(1);
+  transition: 0s;
+}
+
+/* Uiverse.io Sharkotech/cowardly-walrus-58 — scope fan deck (linshi.js) */
+.scope-fan-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+  column-gap: 0.5rem;
+  row-gap: 3.5rem;
+}
+
+.scope-fan-slot {
+  position: relative;
+  z-index: 0;
+  box-sizing: content-box;
+  flex: 0 0 168px;
+  width: 168px;
+  height: 224px;
+  padding-inline: 0;
+  transition:
+    padding 0.3s ease-in-out,
+    flex-basis 0.3s ease-in-out,
+    width 0.3s ease-in-out;
+}
+
+.scope-fan-slot:hover {
+  z-index: 20;
+  flex-basis: 168px;
+  width: 168px;
+  padding-right: 0;
+}
+
+/* Make-way width follows how many service cards fan out */
+.scope-fan-slot[data-fan-count="0"]:hover {
+  padding-left: 0;
+}
+
+.scope-fan-slot[data-fan-count="1"]:hover {
+  padding-left: 5.5rem;
+}
+
+.scope-fan-slot[data-fan-count="2"]:hover {
+  padding-left: 12rem;
+}
+
+.scope-fan-grid:has(.scope-fan-slot:hover) .scope-fan-slot:not(:hover) {
+  opacity: 0.72;
+  transition:
+    padding 0.3s ease-in-out,
+    flex-basis 0.3s ease-in-out,
+    width 0.3s ease-in-out,
+    opacity 0.3s ease-in-out;
+}
+
+.scope-fan {
+  position: relative;
+  width: 168px;
+  height: 224px;
+  margin-inline: auto;
+}
+
+.scope-fan-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+  background-color: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 14px 28px -20px rgba(59, 130, 246, 0.28);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.3s ease-in-out,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+  transform-origin: center bottom;
+}
+
+.scope-fan-card:hover {
+  border-color: var(--border);
+  background-color: color-mix(in oklab, var(--muted) 40%, var(--card));
+}
+
+.dark .scope-fan-card {
+  box-shadow: 0 14px 28px -20px rgba(125, 211, 252, 0.18);
+}
+
+.scope-fan-card--scope {
+  z-index: 4;
+}
+
+.scope-fan-card--s0 {
+  z-index: 1;
+}
+
+.scope-fan-card--s1 {
+  z-index: 2;
+}
+
+/* 2nd service layer — stable span */
+.scope-fan:hover .scope-fan-card--s1 {
+  transform: translateX(-70px) rotate(-18deg);
+}
+
+.scope-fan:hover .scope-fan-card--scope {
+  transform: translateX(0) rotate(-5deg);
+}
+
+.scope-fan-card--s1:hover {
+  z-index: 5;
+  transform: translateX(-110px) rotate(0deg) !important;
+}
+
+.scope-fan-card--scope:hover {
+  z-index: 5;
+  transform: translateX(0) rotate(0deg) !important;
+}
+
+/* 1st service layer — span scales with fan count */
+.scope-fan[data-fan-count="1"]:hover .scope-fan-card--s0 {
+  transform: translateX(-64px) rotate(-24deg);
+}
+
+.scope-fan[data-fan-count="1"] .scope-fan-card--s0:hover {
+  z-index: 5;
+  transform: translateX(-88px) rotate(0deg) !important;
+}
+
+.scope-fan[data-fan-count="2"]:hover .scope-fan-card--s0 {
+  transform: translateX(-145px) rotate(-28deg);
+}
+
+.scope-fan[data-fan-count="2"] .scope-fan-card--s0:hover {
+  z-index: 5;
+  transform: translateX(-180px) rotate(0deg) !important;
+}

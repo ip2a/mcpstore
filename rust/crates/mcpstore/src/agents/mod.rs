@@ -193,6 +193,11 @@ fn find_command(commands: &[&str]) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// Resolved path of the client's first CLI found on the (extended) PATH.
+pub fn cli_executable(setup: &dyn ClientSetup) -> Option<PathBuf> {
+    find_command(setup.cli_commands())
+}
+
 /// Best-effort semver from the client's first CLI on PATH (`--version`, then `-V`).
 pub fn cli_version(setup: &dyn ClientSetup) -> Option<String> {
     setup

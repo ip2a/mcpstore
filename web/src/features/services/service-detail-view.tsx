@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { FileStackIcon, ScrollTextIcon } from "lucide-react"
+import { useDefaultLayout } from "react-resizable-panels"
 import { toast } from "sonner"
 
+import { DefaultToolIcon } from "@/components/shared/default-tool-icon"
+import { McpIcon } from "@/components/shared/mcp-icon"
 import { PageEmpty, PageError } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import {
+  breadcrumbUppercase,
+  WorkspaceBreadcrumb,
+} from "@/components/shared/workspace-page-header"
 import { ScrollPane } from "@/components/shared/scroll-pane"
-import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import {
   ToolDetailDocBody,
@@ -14,6 +20,11 @@ import {
 } from "@/components/shared/tool-detail-playground"
 import { toolDetailPlaygroundGrid } from "@/components/shared/tool-detail-section-layout"
 import { Badge } from "@/components/ui/badge"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useServiceAuthQuery,
@@ -34,6 +45,7 @@ import {
 import type { PromptInfo, ResourceInfo, ServiceInstance, ServiceState, ToolInfo } from "@/lib/api"
 import { formatServiceLaunchLine } from "@/lib/service-info"
 import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
 
 import {
   ServiceOverviewPane,
@@ -56,6 +68,59 @@ function promptKey(prompt: PromptInfo) {
 
 function resourceMimeType(resource: ResourceInfo) {
   return String(resource.mimeType || "").trim()
+}
+
+const CATALOG_SPLIT_LAYOUT_ID = "service-detail-catalog"
+const CATALOG_LIST_PANEL_ID = "list"
+const CATALOG_DETAIL_PANEL_ID = "detail"
+
+function CatalogRowIcon({ icons, fallback }: { icons: unknown; fallback: ReactNode }) {
+  return (
+    <span
+      aria-hidden
+      className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/60 text-muted-foreground"
+    >
+      <McpIcon icons={icons} fallback={fallback} className="size-4" />
+    </span>
+  )
+}
+
+function CatalogSplitLayout(props: {
+  list: ReactNode
+  detail: ReactNode
+  defaultLayout: ReturnType<typeof useDefaultLayout>["defaultLayout"]
+  onLayoutChanged: ReturnType<typeof useDefaultLayout>["onLayoutChanged"]
+}) {
+  return (
+    <ResizablePanelGroup
+      id={CATALOG_SPLIT_LAYOUT_ID}
+      orientation="horizontal"
+      className="min-h-0 flex-1"
+      defaultLayout={props.defaultLayout}
+      onLayoutChanged={props.onLayoutChanged}
+    >
+      <ResizablePanel
+        id={CATALOG_LIST_PANEL_ID}
+        defaultSize="16rem"
+        minSize="11rem"
+        maxSize="40%"
+        groupResizeBehavior="preserve-pixel-size"
+        className="min-h-0"
+      >
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden pr-3">
+          {props.list}
+        </div>
+      </ResizablePanel>
+      <ResizableHandle />
+      <ResizablePanel
+        id={CATALOG_DETAIL_PANEL_ID}
+        minSize="40%"
+        className="min-h-0"
+      >
+        <div className="flex h-full min-h-0 flex-col overflow-hidden pl-3">{props.detail}</div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  )
 }
 
 export function ServiceDetailView(props: {
@@ -83,6 +148,7 @@ export function ServiceDetailView(props: {
   const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null)
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null)
   const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(null)
+  const [playgroundOpen, setPlaygroundOpen] = useState(true)
   const detailQuery = useServiceDetailQuery(props.service)
   const authQuery = useServiceAuthQuery(props.service)
   const statusQuery = useServiceStatusQuery(props.service)
@@ -239,7 +305,13 @@ export function ServiceDetailView(props: {
   }, [activeTab, props.service.instance_id])
 
   const catalogSplitClassName =
-    "mt-0 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(220px,0.38fr)_minmax(0,1fr)] grid-rows-1 gap-4 overflow-hidden [&>*]:min-h-0 [&>*]:min-w-0"
+    "mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+  const { defaultLayout: catalogDefaultLayout, onLayoutChanged: onCatalogLayoutChanged } =
+    useDefaultLayout({
+      id: CATALOG_SPLIT_LAYOUT_ID,
+      panelIds: [CATALOG_LIST_PANEL_ID, CATALOG_DETAIL_PANEL_ID],
+      storage: localStorage,
+    })
 
   const previewActionsProps = {
     activeTab,
@@ -262,6 +334,11 @@ export function ServiceDetailView(props: {
     onDetail:
       activeTab === "tools" && selectedTool
         ? () => props.onToolDetail(selectedTool, service, statusReport)
+        : undefined,
+    playgroundOpen,
+    onTogglePlayground:
+      activeTab === "tools" && selectedTool
+        ? () => setPlaygroundOpen((open) => !open)
         : undefined,
   }
 
@@ -306,10 +383,15 @@ export function ServiceDetailView(props: {
             />
           </ScrollPane>
         ) : activeTab === "tools" && selectedTool ? (
-          <div className={toolDetailPlaygroundGrid}>
+          <div
+            className={cn(
+              toolDetailPlaygroundGrid,
+              !playgroundOpen && "@min-[42rem]:grid-cols-1",
+            )}
+          >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ToolDetailDocHeader tool={selectedTool} />
               <ScrollPane className="min-h-0 flex-1">
+                <ToolDetailDocHeader tool={selectedTool} />
                 <ToolDetailDocBody
                   tool={selectedTool}
                   toolArgs={toolArgs}
@@ -320,16 +402,18 @@ export function ServiceDetailView(props: {
                 />
               </ScrollPane>
             </div>
-            <ToolPlaygroundAside
-              tool={selectedTool}
-              instanceId={service.instance_id}
-              toolArgs={toolArgs}
-              toolArgsSchema={toolArgsSchema}
-              running={runningSelectedTool}
-              onRun={() =>
-                props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
-              }
-            />
+            {playgroundOpen ? (
+              <ToolPlaygroundAside
+                tool={selectedTool}
+                instanceId={service.instance_id}
+                toolArgs={toolArgs}
+                toolArgsSchema={toolArgsSchema}
+                running={runningSelectedTool}
+                onRun={() =>
+                  props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
+                }
+              />
+            ) : null}
           </div>
         ) : (
           <ScrollPane className="flex-1">
@@ -374,14 +458,23 @@ export function ServiceDetailView(props: {
   }
 
   const headerSubtitle = [transport, description].filter(Boolean).join(" · ")
+  const scopeLabel = breadcrumbUppercase(
+    service.scope.type === "store"
+      ? t("store")
+      : service.scope.type === "agent"
+        ? service.scope.agent_id
+        : t("filterAll"),
+  )
 
   return (
     <>
       <WorkspaceBreadcrumb
         ariaLabel={t("serviceDetail")}
-        parentLabel={t("servicesWorkspaceTitle")}
-        onParentClick={props.onBack}
-        currentLabel={service.service_name}
+        crumbs={[
+          { label: t("servicesWorkspaceTitle"), onClick: props.onBack },
+          { label: scopeLabel, onClick: props.onBack },
+          { label: service.service_name },
+        ]}
         subtitle={headerSubtitle || undefined}
       />
 
@@ -409,142 +502,155 @@ export function ServiceDetailView(props: {
           </TabsContent>
 
           <TabsContent value="tools" className={catalogSplitClassName}>
-            <div className="flex min-h-0 flex-col gap-3 overflow-hidden border-r border-border/50 pr-4">
-              <SectionHeading
-                title={t("toolList")}
-                titleAs="h2"
-                description={t("itemsCount", { count: tools.length })}
-                descriptionPlacement="inline"
-                className="border-b-0 pb-0"
-              />
-              {tools.length ? (
-                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-                  {tools.map((tool) => {
-                    const key = toolKey(service.instance_id, tool)
-                    const schema = getToolSchema(tool) as {
-                      properties?: Record<string, unknown>
-                    }
-                    const paramCount = Object.keys(schema.properties || {}).length
-                    return (
-                      <SelectableRowButton
-                        key={key}
-                        meta={t("paramCount", { count: paramCount })}
-                        onClick={() => setSelectedToolKey(key)}
-                        selected={key === toolKey(service.instance_id, selectedTool || tool)}
-                        title={tool.name}
-                      />
-                    )
-                  })}
-                </ScrollPane>
-              ) : (
-                <PageEmpty
-                  title={t("noToolsFound")}
-                  description={t("noToolsFoundDescription")}
-                  onRefresh={refreshCurrentView}
-                />
-              )}
-            </div>
-            {renderCatalogDetail()}
+            <CatalogSplitLayout
+              defaultLayout={catalogDefaultLayout}
+              onLayoutChanged={onCatalogLayoutChanged}
+              list={
+                tools.length ? (
+                  <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                    {tools.map((tool) => {
+                      const key = toolKey(service.instance_id, tool)
+                      const schema = getToolSchema(tool) as {
+                        properties?: Record<string, unknown>
+                      }
+                      const paramCount = Object.keys(schema.properties || {}).length
+                      return (
+                        <SelectableRowButton
+                          key={key}
+                          leading={
+                            <CatalogRowIcon
+                              icons={tool.icons}
+                              fallback={<DefaultToolIcon className="size-4" />}
+                            />
+                          }
+                          meta={t("paramCount", { count: paramCount })}
+                          onClick={() => setSelectedToolKey(key)}
+                          selected={key === toolKey(service.instance_id, selectedTool || tool)}
+                          title={tool.name}
+                        />
+                      )
+                    })}
+                  </ScrollPane>
+                ) : (
+                  <PageEmpty
+                    title={t("noToolsFound")}
+                    description={t("noToolsFoundDescription")}
+                    onRefresh={refreshCurrentView}
+                  />
+                )
+              }
+              detail={renderCatalogDetail()}
+            />
           </TabsContent>
 
           <TabsContent value="prompts" className={catalogSplitClassName}>
-            <div className="flex min-h-0 flex-col gap-3 overflow-hidden border-r border-border/50 pr-4">
-              <SectionHeading
-                title={t("promptList")}
-                titleAs="h2"
-                description={t("itemsCount", { count: prompts.length })}
-                descriptionPlacement="inline"
-                className="border-b-0 pb-0"
-              />
-              {prompts.length ? (
-                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-                  {prompts.map((prompt) => {
-                    const key = promptKey(prompt)
-                    const argCount = promptArgCount(prompt)
-                    return (
-                      <SelectableRowButton
-                        key={key}
-                        meta={
-                          prompt.description ||
-                          (argCount ? t("paramCount", { count: argCount }) : t("noArgs"))
-                        }
-                        onClick={() => setSelectedPromptKey(key)}
-                        selected={key === promptKey(selectedPrompt || prompt)}
-                        title={prompt.title || prompt.name}
-                      />
-                    )
-                  })}
-                </ScrollPane>
-              ) : (
-                <PageEmpty title={t("noPromptsFound")} onRefresh={refreshCurrentView} />
-              )}
-            </div>
-            {renderCatalogDetail()}
+            <CatalogSplitLayout
+              defaultLayout={catalogDefaultLayout}
+              onLayoutChanged={onCatalogLayoutChanged}
+              list={
+                prompts.length ? (
+                  <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                    {prompts.map((prompt) => {
+                      const key = promptKey(prompt)
+                      const argCount = promptArgCount(prompt)
+                      return (
+                        <SelectableRowButton
+                          key={key}
+                          leading={
+                            <CatalogRowIcon
+                              icons={prompt.icons}
+                              fallback={<ScrollTextIcon className="size-4" />}
+                            />
+                          }
+                          meta={
+                            prompt.description ||
+                            (argCount ? t("paramCount", { count: argCount }) : t("noArgs"))
+                          }
+                          onClick={() => setSelectedPromptKey(key)}
+                          selected={key === promptKey(selectedPrompt || prompt)}
+                          title={prompt.title || prompt.name}
+                        />
+                      )
+                    })}
+                  </ScrollPane>
+                ) : (
+                  <PageEmpty title={t("noPromptsFound")} onRefresh={refreshCurrentView} />
+                )
+              }
+              detail={renderCatalogDetail()}
+            />
           </TabsContent>
 
           <TabsContent value="resources" className={catalogSplitClassName}>
-            <div className="flex min-h-0 flex-col gap-3 overflow-hidden border-r border-border/50 pr-4">
-              <SectionHeading
-                title={t("resourceList")}
-                titleAs="h2"
-                description={t("itemsCount", {
-                  count: resources.length + resourceTemplates.length,
-                })}
-                descriptionPlacement="inline"
-                className="border-b-0 pb-0"
-              />
-              {resources.length || resourceTemplates.length ? (
-                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-                  {resources.map((resource) => {
-                    const key = resourceKey(resource)
-                    const mimeType = resourceMimeType(resource)
-                    return (
-                      <SelectableRowButton
-                        key={`resource:${key}`}
-                        meta={mimeType || resource.uri}
-                        onClick={() => {
-                          setResourceSubTab("items")
-                          setSelectedResourceKey(key)
-                        }}
-                        selected={
-                          resourceSubTab === "items" &&
-                          key === resourceKey(selectedResource || resource)
-                        }
-                        title={resource.title || resource.name || resource.uri}
-                      />
-                    )
-                  })}
-                  {resourceTemplates.map((template) => {
-                    const key = resourceTemplateKey(template)
-                    const mimeType = resourceTemplateMimeType(template)
-                    const uriTemplate = resourceTemplateUri(template)
-                    return (
-                      <SelectableRowButton
-                        key={`template:${key}`}
-                        meta={mimeType || uriTemplate}
-                        onClick={() => {
-                          setResourceSubTab("templates")
-                          setSelectedTemplateKey(key)
-                        }}
-                        selected={
-                          resourceSubTab === "templates" &&
-                          key === resourceTemplateKey(selectedTemplate || template)
-                        }
-                        title={template.title || template.name || uriTemplate}
-                        trailing={<Badge variant="outline">{t("templates")}</Badge>}
-                      />
-                    )
-                  })}
-                </ScrollPane>
-              ) : (
-                <PageEmpty
-                  title={t("noResourcesFound")}
-                  description={t("noResourcesFoundDescription")}
-                  onRefresh={refreshCurrentView}
-                />
-              )}
-            </div>
-            {renderCatalogDetail()}
+            <CatalogSplitLayout
+              defaultLayout={catalogDefaultLayout}
+              onLayoutChanged={onCatalogLayoutChanged}
+              list={
+                resources.length || resourceTemplates.length ? (
+                  <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                    {resources.map((resource) => {
+                      const key = resourceKey(resource)
+                      const mimeType = resourceMimeType(resource)
+                      return (
+                        <SelectableRowButton
+                          key={`resource:${key}`}
+                          leading={
+                            <CatalogRowIcon
+                              icons={resource.icons}
+                              fallback={<FileStackIcon className="size-4" />}
+                            />
+                          }
+                          meta={mimeType || resource.uri}
+                          onClick={() => {
+                            setResourceSubTab("items")
+                            setSelectedResourceKey(key)
+                          }}
+                          selected={
+                            resourceSubTab === "items" &&
+                            key === resourceKey(selectedResource || resource)
+                          }
+                          title={resource.title || resource.name || resource.uri}
+                        />
+                      )
+                    })}
+                    {resourceTemplates.map((template) => {
+                      const key = resourceTemplateKey(template)
+                      const mimeType = resourceTemplateMimeType(template)
+                      const uriTemplate = resourceTemplateUri(template)
+                      return (
+                        <SelectableRowButton
+                          key={`template:${key}`}
+                          leading={
+                            <CatalogRowIcon
+                              icons={template.icons}
+                              fallback={<FileStackIcon className="size-4" />}
+                            />
+                          }
+                          meta={mimeType || uriTemplate}
+                          onClick={() => {
+                            setResourceSubTab("templates")
+                            setSelectedTemplateKey(key)
+                          }}
+                          selected={
+                            resourceSubTab === "templates" &&
+                            key === resourceTemplateKey(selectedTemplate || template)
+                          }
+                          title={template.title || template.name || uriTemplate}
+                          trailing={<Badge variant="outline">{t("templates")}</Badge>}
+                        />
+                      )
+                    })}
+                  </ScrollPane>
+                ) : (
+                  <PageEmpty
+                    title={t("noResourcesFound")}
+                    description={t("noResourcesFoundDescription")}
+                    onRefresh={refreshCurrentView}
+                  />
+                )
+              }
+              detail={renderCatalogDetail()}
+            />
           </TabsContent>
         </Tabs>
       </PanelCard>

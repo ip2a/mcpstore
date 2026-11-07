@@ -1,9 +1,7 @@
 import { useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
-import { PanelCard } from "@/components/shared/panel-card"
-import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,10 +27,9 @@ import { getRequestHistory, type RequestRecord } from "@/lib/api"
 
 const PAGE_SIZES = [10, 20, 50] as const
 
-/** Insights → History: daemon telemetry request log (tools + management). */
-export function HistoryView() {
+/** Request-history table body for embedding (e.g. Traces tabs). */
+export function HistoryPanel() {
   const { t } = useI18n()
-  const queryClient = useQueryClient()
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(20)
   const [page, setPage] = useState(0)
   const [active, setActive] = useState<RequestRecord | null>(null)
@@ -49,10 +46,6 @@ export function HistoryView() {
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const from = total === 0 ? 0 : offset + 1
   const to = Math.min(offset + records.length, total)
-
-  function refresh() {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.gatewayHistory })
-  }
 
   function changePageSize(value: string) {
     setPageSize(Number(value) as (typeof PAGE_SIZES)[number])
@@ -103,81 +96,64 @@ export function HistoryView() {
 
   return (
     <>
-      <WorkspacePageHeader
-        title={<h1 className="text-lg font-semibold">{t("historyWorkspaceTitle")}</h1>}
-        subtitle={t("historyWorkspaceDescription", { count: total })}
-      />
-
-      <PanelCard className="h-full min-h-0 flex-1 gap-0 p-0" variant="stack">
-        <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-          <div className="text-sm font-medium">{t("gatewayHistoryTitle")}</div>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <Button disabled={history.isFetching} size="sm" variant="outline" onClick={refresh}>
-              <RefreshCwIcon data-icon="inline-start" />
-              {t("refresh")}
-            </Button>
-          </div>
-        </div>
-
-        {total === 0 && !history.isLoading ? (
-          <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayHistoryEmpty")}</p>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("gatewayHistoryColTime")}</TableHead>
-                    <TableHead>{t("gatewayHistoryColCaller")}</TableHead>
-                    <TableHead>{t("gatewayHistoryColTarget")}</TableHead>
-                    <TableHead>{t("gatewayHistoryColKind")}</TableHead>
-                    <TableHead>{t("gatewayHistoryColStatus")}</TableHead>
-                    <TableHead className="text-right">{t("gatewayHistoryColDuration")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {records.map((record) => (
-                    <TableRow
-                      key={record.id}
-                      className="cursor-pointer"
-                      onClick={() => setActive(record)}
+      {total === 0 && !history.isLoading ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">{t("gatewayHistoryEmpty")}</p>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("gatewayHistoryColTime")}</TableHead>
+                  <TableHead>{t("gatewayHistoryColCaller")}</TableHead>
+                  <TableHead>{t("gatewayHistoryColTarget")}</TableHead>
+                  <TableHead>{t("gatewayHistoryColKind")}</TableHead>
+                  <TableHead>{t("gatewayHistoryColStatus")}</TableHead>
+                  <TableHead className="text-right">{t("gatewayHistoryColDuration")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {records.map((record) => (
+                  <TableRow
+                    key={record.id}
+                    className="cursor-pointer"
+                    onClick={() => setActive(record)}
+                  >
+                    <TableCell className="whitespace-nowrap tabular-nums text-xs text-muted-foreground">
+                      {new Date(record.started_at_unix_ms).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="max-w-[140px] truncate font-mono text-xs">
+                      {record.caller ?? t("gatewayCallDirect")}
+                    </TableCell>
+                    <TableCell
+                      className="max-w-[280px] truncate font-mono text-xs"
+                      title={targetLabel(record)}
                     >
-                      <TableCell className="whitespace-nowrap tabular-nums text-xs text-muted-foreground">
-                        {new Date(record.started_at_unix_ms).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="max-w-[140px] truncate font-mono text-xs">
-                        {record.caller ?? t("gatewayCallDirect")}
-                      </TableCell>
-                      <TableCell
-                        className="max-w-[280px] truncate font-mono text-xs"
-                        title={targetLabel(record)}
-                      >
-                        {targetLabel(record)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">
-                          {record.kind === "tool"
-                            ? t("gatewayKindTool")
-                            : t("gatewayKindManagement")}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={record.success ? "secondary" : "destructive"}>
-                          {record.success ? "OK" : "ERR"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                        {record.duration_ms}ms
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            {pager}
+                      {targetLabel(record)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">
+                        {record.kind === "tool"
+                          ? t("gatewayKindTool")
+                          : t("gatewayKindManagement")}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={record.success ? "secondary" : "destructive"}>
+                        {record.success ? "OK" : "ERR"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                      {record.duration_ms}ms
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-        )}
-      </PanelCard>
+          {pager}
+        </div>
+      )}
 
       <RequestDetailDialog
         onOpenChange={(open) => {

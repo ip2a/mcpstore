@@ -1,9 +1,9 @@
-import { RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Button } from "@/components/ui/button"
 import { useInstanceResourcesQueries } from "@/features/resources/queries"
@@ -36,13 +36,24 @@ export function ResourceDetailView(props: {
   }
 
   const resourceLabel = resource?.title?.trim() || resource?.name || props.resourceUri
-  const scopeLabel = instance
-    ? instance.scope.type === "store"
-      ? t("storeScope")
-      : t("agentScopeLabel", { agentId: instance.scope.agent_id || "-" })
+  const scopeCrumbLabel = instance
+    ? breadcrumbUppercase(
+        instance.scope.type === "store"
+          ? t("store")
+          : instance.scope.type === "agent"
+            ? instance.scope.agent_id
+            : t("filterAll"),
+      )
     : undefined
   const headerSubtitle = instance
-    ? [instance.service_name, scopeLabel].filter(Boolean).join(" · ")
+    ? [
+        instance.service_name,
+        instance.scope.type === "store"
+          ? t("storeScope")
+          : t("agentScopeLabel", { agentId: instance.scope.agent_id || "-" }),
+      ]
+        .filter(Boolean)
+        .join(" · ")
     : undefined
 
   if (!instance) {
@@ -50,9 +61,7 @@ export function ResourceDetailView(props: {
       <>
         <WorkspaceBreadcrumb
           ariaLabel={t("resource")}
-          parentLabel={t("resourceRegistryTitle")}
-          onParentClick={props.onBack}
-          currentLabel={resourceLabel}
+          crumbs={[{ label: t("navResources"), onClick: props.onBack }, { label: resourceLabel }]}
         />
         <PanelCard className="h-full min-h-0 flex-1">
           <PageEmpty
@@ -69,9 +78,15 @@ export function ResourceDetailView(props: {
     <>
       <WorkspaceBreadcrumb
         ariaLabel={t("resource")}
-        parentLabel={t("resourceRegistryTitle")}
-        onParentClick={props.onBack}
-        currentLabel={resourceLabel}
+        crumbs={[
+          { label: t("navResources"), onClick: props.onBack },
+          { label: scopeCrumbLabel!, onClick: props.onBack },
+          {
+            label: breadcrumbUppercase(instance.service_name),
+            onClick: props.onBack,
+          },
+          { label: resourceLabel },
+        ]}
         subtitle={headerSubtitle}
       />
       <PanelCard
@@ -85,7 +100,7 @@ export function ResourceDetailView(props: {
             onClick={() => void loadResources()}
             disabled={loading}
           >
-            <RefreshCwIcon data-icon="inline-start" />
+            <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
             {t("refresh")}
           </Button>
         </div>
