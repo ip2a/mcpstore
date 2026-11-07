@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react"
+
 import {
   ClipboardIcon,
   EyeIcon,
   FileIcon,
   LayoutTemplateIcon,
-  RefreshCwIcon,
+  PanelRightCloseIcon,
+  PanelRightIcon,
   WrenchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -12,6 +14,7 @@ import { JsonBlock } from "@/components/shared/json-block"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
@@ -96,6 +99,8 @@ export function ServicePreviewActions({
   onRun,
   runningTool,
   onDetail,
+  playgroundOpen,
+  onTogglePlayground,
   className,
 }: {
   activeTab: ServiceDetailTab
@@ -113,6 +118,8 @@ export function ServicePreviewActions({
   onRun?: () => void
   runningTool?: boolean
   onDetail?: () => void
+  playgroundOpen?: boolean
+  onTogglePlayground?: () => void
   className?: string
 }) {
   const { t } = useI18n()
@@ -186,9 +193,20 @@ export function ServicePreviewActions({
         </Button>
       ) : null}
       <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-        <RefreshCwIcon data-icon="inline-start" />
+        <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
         {t("refresh")}
       </Button>
+      {onTogglePlayground ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onTogglePlayground}
+          aria-label={playgroundOpen ? t("collapse") : t("expand")}
+          title={playgroundOpen ? t("collapse") : t("expand")}
+        >
+          {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+        </Button>
+      ) : null}
     </div>
   )
 }

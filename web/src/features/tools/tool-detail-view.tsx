@@ -1,9 +1,11 @@
-import { ClipboardIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
+import { useState } from "react"
+import { ClipboardIcon, PanelRightCloseIcon, PanelRightIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import { WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import {
   ToolDetailDocBody,
@@ -20,6 +22,7 @@ import type { ServiceInstance, ToolInfo } from "@/lib/api"
 import { serializeToolArgs } from "@/lib/tool-args"
 import type { ToolDialogState } from "@/features/tools/tool-dialogs"
 import { callInstanceTool } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 export function ToolDetailView(props: {
   instanceId: string
@@ -41,6 +44,7 @@ export function ToolDetailView(props: {
 
   const { values: toolArgs, setField: setToolArg, schema: toolArgsSchema } = useToolArgsForm(tool)
   const running = Boolean(tool && props.isToolRunning?.(props.instanceId, tool.name))
+  const [playgroundOpen, setPlaygroundOpen] = useState(true)
 
   async function loadTools() {
     const results = await Promise.all(toolQueries.map((query) => query.refetch()))
@@ -61,13 +65,24 @@ export function ToolDetailView(props: {
   }
 
   const toolLabel = tool?.name || props.toolName
-  const scopeLabel = instance
-    ? instance.scope.type === "store"
-      ? t("storeScope")
-      : t("agentScopeLabel", { agentId: instance.scope.agent_id || "-" })
+  const scopeCrumbLabel = instance
+    ? breadcrumbUppercase(
+        instance.scope.type === "store"
+          ? t("store")
+          : instance.scope.type === "agent"
+            ? instance.scope.agent_id
+            : t("filterAll"),
+      )
     : undefined
   const headerSubtitle = instance
-    ? [instance.service_name, scopeLabel].filter(Boolean).join(" · ")
+    ? [
+        instance.service_name,
+        instance.scope.type === "store"
+          ? t("storeScope")
+          : t("agentScopeLabel", { agentId: instance.scope.agent_id || "-" }),
+      ]
+        .filter(Boolean)
+        .join(" · ")
     : undefined
 
   if (!instance) {
@@ -75,9 +90,7 @@ export function ToolDetailView(props: {
       <>
         <WorkspaceBreadcrumb
           ariaLabel={t("tool")}
-          parentLabel={t("toolRegistryTitle")}
-          onParentClick={props.onBack}
-          currentLabel={toolLabel}
+          crumbs={[{ label: t("navTools"), onClick: props.onBack }, { label: toolLabel }]}
         />
         <PanelCard className="h-full min-h-0 flex-1">
           <PageEmpty
@@ -94,9 +107,15 @@ export function ToolDetailView(props: {
     <>
       <WorkspaceBreadcrumb
         ariaLabel={t("tool")}
-        parentLabel={t("toolRegistryTitle")}
-        onParentClick={props.onBack}
-        currentLabel={toolLabel}
+        crumbs={[
+          { label: t("navTools"), onClick: props.onBack },
+          { label: scopeCrumbLabel!, onClick: props.onBack },
+          {
+            label: breadcrumbUppercase(instance.service_name),
+            onClick: props.onBack,
+          },
+          { label: toolLabel },
+        ]}
         subtitle={headerSubtitle}
       />
       <PanelCard
@@ -131,9 +150,20 @@ export function ToolDetailView(props: {
               </Button>
             ) : null}
             <Button size="sm" variant="outline" onClick={() => void loadTools()} disabled={loading}>
-              <RefreshCwIcon data-icon="inline-start" />
+              <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
               {t("refresh")}
             </Button>
+            {tool ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPlaygroundOpen((open) => !open)}
+                aria-label={playgroundOpen ? t("collapse") : t("expand")}
+                title={playgroundOpen ? t("collapse") : t("expand")}
+              >
+                {playgroundOpen ? <PanelRightCloseIcon /> : <PanelRightIcon />}
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -142,10 +172,12 @@ export function ToolDetailView(props: {
         ) : loading && !tool ? (
           <PageSkeleton />
         ) : tool ? (
-          <div className={toolDetailPlaygroundGrid}>
+          <div
+            className={cn(toolDetailPlaygroundGrid, !playgroundOpen && "@min-[42rem]:grid-cols-1")}
+          >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <ToolDetailDocHeader tool={tool} serviceState={instance.state} />
               <ScrollPane className="min-h-0 flex-1">
+                <ToolDetailDocHeader tool={tool} serviceState={instance.state} />
                 <ToolDetailDocBody
                   tool={tool}
                   toolArgs={toolArgs}
@@ -155,19 +187,21 @@ export function ToolDetailView(props: {
                 />
               </ScrollPane>
             </div>
-            <ToolPlaygroundAside
-              tool={tool}
-              instanceId={instance.instance_id}
-              toolArgs={toolArgs}
-              toolArgsSchema={toolArgsSchema}
-              running={running}
-              onRun={() =>
-                props.onRunTool({
-                  ...makeRunner(tool, instance),
-                  initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
-                })
-              }
-            />
+            {playgroundOpen ? (
+              <ToolPlaygroundAside
+                tool={tool}
+                instanceId={instance.instance_id}
+                toolArgs={toolArgs}
+                toolArgsSchema={toolArgsSchema}
+                running={running}
+                onRun={() =>
+                  props.onRunTool({
+                    ...makeRunner(tool, instance),
+                    initialArgs: serializeToolArgs(toolArgs, toolArgsSchema),
+                  })
+                }
+              />
+            ) : null}
           </div>
         ) : (
           <PageEmpty

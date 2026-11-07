@@ -911,6 +911,16 @@ pub(super) async fn clients_list<T: PanelCtx>(State(state): State<Arc<T>>) -> Ap
                     .map(|path| path.display().to_string())
                     .unwrap_or_default(),
             };
+            // Prefer the command-detection path when that is how we found the
+            // client; otherwise resolve cli_commands against PATH independently
+            // so config_file hits still surface the real binary.
+            let executable_path = match &detection {
+                Some(detection) if detection.by == mcpstore::agents::DetectedBy::Command => {
+                    Some(detection.path.display().to_string())
+                }
+                _ => mcpstore::agents::cli_executable(setup.as_ref())
+                    .map(|path| path.display().to_string()),
+            };
             let inspection = if config_exists {
                 inspect_client_config(setup.id(), &detection.as_ref().unwrap().path).ok()
             } else {
@@ -935,6 +945,7 @@ pub(super) async fn clients_list<T: PanelCtx>(State(state): State<Arc<T>>) -> Ap
                 "label": setup.label(),
                 "detected_by": detected_by,
                 "config_path": config_path,
+                "executable_path": executable_path,
                 "config_exists": config_exists,
                 "mcp_servers": mcp_servers,
                 "unsupported_fields": unsupported_fields,

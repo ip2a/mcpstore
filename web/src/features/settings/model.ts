@@ -2,7 +2,7 @@ import type { HostsPayload, SettingsPayload, UiLanguage, UpdateSettingsPayload }
 import { type HostsConfig, parseHostsPayload, serializeHostsPayload } from "@/lib/api/hosts"
 import type { I18nKey } from "@/lib/i18n-core"
 
-export type SectionId = "general" | "connection" | "diagnostics" | "config" | "about"
+export type SectionId = "general" | "connection" | "diagnostics" | "cache" | "config" | "about"
 
 export type HostDraft = {
   name: string
@@ -30,6 +30,7 @@ export const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
   { id: "general", labelKey: "general" },
   { id: "connection", labelKey: "connection" },
   { id: "diagnostics", labelKey: "diagnostics" },
+  { id: "cache", labelKey: "cache" },
   { id: "config", labelKey: "configFile" },
   { id: "about", labelKey: "about" },
 ]

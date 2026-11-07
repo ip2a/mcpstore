@@ -44,7 +44,7 @@ import { useI18n } from "@/lib/i18n-context"
 import type { ServiceRestartPolicy, ServiceStartupPolicy } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type StoreAsideTab = "preview" | "description" | "handshake" | "scope" | "lifecycle"
+type StoreAsideTab = "preview" | "profile"
 
 export function ServiceConfigPreviewPane({
   agentId,
@@ -290,14 +290,16 @@ export function AddServicePlaygroundAside({
         onValueChange={(value) => setActiveTab(value as StoreAsideTab)}
         className="flex min-h-0 flex-1 flex-col gap-3 @min-[640px]:gap-4"
       >
-        <TabsList variant="line" className="h-9 w-full shrink-0 justify-start overflow-x-auto">
-          <TabsTrigger value="preview">Preview</TabsTrigger>
-          <TabsTrigger value="description">{t("description")}</TabsTrigger>
-          <TabsTrigger value="handshake">{t("handshakeMode")}</TabsTrigger>
-          {showScopeTab ? <TabsTrigger value="scope">{t("scope")}</TabsTrigger> : null}
-          {showLifecycleTab ? (
-            <TabsTrigger value="lifecycle">{t("lifecyclePolicy")}</TabsTrigger>
-          ) : null}
+        <TabsList
+          variant="line"
+          className="h-9 w-fit max-w-full shrink-0 justify-start overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <TabsTrigger value="preview" className="flex-none">
+            Preview
+          </TabsTrigger>
+          <TabsTrigger value="profile" className="flex-none">
+            {t("profile")}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="preview" className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -314,59 +316,52 @@ export function AddServicePlaygroundAside({
           />
         </TabsContent>
 
-        <TabsContent value="description" className="min-h-0 flex-1 overflow-hidden">
-          <ServiceConfigDescriptionPane fields={fields} onFieldsChange={onFieldsChange} />
-        </TabsContent>
-
-        <TabsContent value="handshake" className="min-h-0 flex-1 overflow-hidden">
-          <ServiceConfigHandshakePane fields={fields} onFieldsChange={onFieldsChange} />
-        </TabsContent>
-
-        {showScopeTab ? (
-          <TabsContent value="scope" className="min-h-0 flex-1 overflow-hidden">
-            <FieldGroup>
-              <div className="flex items-center gap-3">
-                <span className="shrink-0 text-sm text-muted-foreground">{t("agent")}</span>
-                <Switch
-                  id="aside-add-service-agent-scope"
-                  checked={scope === "agent"}
-                  onCheckedChange={(useAgent) => {
-                    onScopeChange?.(useAgent ? "agent" : "store")
-                    if (!useAgent) {
-                      onAgentIdChange?.("")
-                    }
-                  }}
-                  aria-label={t("agent")}
+        <TabsContent value="profile" className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            {showScopeTab ? (
+              <FieldGroup>
+                <div className="flex items-center gap-3">
+                  <span className="shrink-0 text-sm text-muted-foreground">{t("agent")}</span>
+                  <Switch
+                    id="aside-add-service-agent-scope"
+                    checked={scope === "agent"}
+                    onCheckedChange={(useAgent) => {
+                      onScopeChange?.(useAgent ? "agent" : "store")
+                      if (!useAgent) {
+                        onAgentIdChange?.("")
+                      }
+                    }}
+                    aria-label={t("agent")}
+                  />
+                  <AgentIdPicker
+                    id="aside-agentId"
+                    name="agentId"
+                    agentIds={agentIds}
+                    value={agentId}
+                    disabled={scope !== "agent"}
+                    required={scope === "agent"}
+                    placeholder={scope === "agent" ? t("agentIdPlaceholder") : t("store")}
+                    onChange={(next) => onAgentIdChange?.(next)}
+                  />
+                </div>
+              </FieldGroup>
+            ) : null}
+            <ServiceConfigDescriptionPane fields={fields} onFieldsChange={onFieldsChange} />
+            <ServiceConfigHandshakePane fields={fields} onFieldsChange={onFieldsChange} />
+            {showLifecycleTab && startupPolicy && restartPolicy ? (
+              <FieldGroup className="gap-4">
+                <ServiceStartupPolicySelect
+                  value={startupPolicy}
+                  onChange={(next) => onStartupPolicyChange?.(next)}
                 />
-                <AgentIdPicker
-                  id="aside-agentId"
-                  name="agentId"
-                  agentIds={agentIds}
-                  value={agentId}
-                  disabled={scope !== "agent"}
-                  required={scope === "agent"}
-                  placeholder={scope === "agent" ? t("agentIdPlaceholder") : t("store")}
-                  onChange={(next) => onAgentIdChange?.(next)}
+                <ServiceRestartPolicySelect
+                  value={restartPolicy}
+                  onChange={(next) => onRestartPolicyChange?.(next)}
                 />
-              </div>
-            </FieldGroup>
-          </TabsContent>
-        ) : null}
-
-        {showLifecycleTab && startupPolicy && restartPolicy ? (
-          <TabsContent value="lifecycle" className="min-h-0 flex-1 overflow-hidden">
-            <FieldGroup className="gap-4">
-              <ServiceStartupPolicySelect
-                value={startupPolicy}
-                onChange={(next) => onStartupPolicyChange?.(next)}
-              />
-              <ServiceRestartPolicySelect
-                value={restartPolicy}
-                onChange={(next) => onRestartPolicyChange?.(next)}
-              />
-            </FieldGroup>
-          </TabsContent>
-        ) : null}
+              </FieldGroup>
+            ) : null}
+          </div>
+        </TabsContent>
       </Tabs>
     </aside>
   )

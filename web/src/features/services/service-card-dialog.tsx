@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react"
-import { EyeIcon, LayersIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
+import { EyeIcon, RotateCwIcon, Trash2Icon } from "lucide-react"
 
 import { DefaultServiceIcon } from "@/components/shared/default-service-icon"
 import { McpIcon } from "@/components/shared/mcp-icon"
@@ -13,6 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -29,13 +31,12 @@ import {
   ServiceConnectionButton,
 } from "@/features/services/service-connection-button"
 import { deriveServiceDisplayStatus } from "@/features/services/service-display-status"
-import { ServiceDetailField } from "@/features/services/service-panels"
 import { useEditServiceForm } from "@/features/services/use-edit-service-form"
 import { useI18n } from "@/lib/i18n-context"
 import type { ServiceInstance } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type DetailAsideTab = "edit" | "preview" | "profile" | "scope" | "gateway"
+type DetailAsideTab = "edit" | "preview" | "profile" | "gateway"
 
 const EDIT_TABS = new Set<DetailAsideTab>(["edit", "profile"])
 
@@ -54,7 +55,6 @@ function QuietScroll({ className, children }: { className?: string; children: Re
 
 export function ServiceCardDialog({
   busy,
-  onAddScope,
   onConnect,
   onDelete,
   onDisconnect,
@@ -66,7 +66,6 @@ export function ServiceCardDialog({
   service: listService,
 }: {
   busy: string | null
-  onAddScope: (service: ServiceInstance) => void
   onConnect: (service: ServiceInstance) => void
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
@@ -84,7 +83,6 @@ export function ServiceCardDialog({
       busy={busy}
       listService={listService}
       open={open}
-      onAddScope={onAddScope}
       onConnect={onConnect}
       onDelete={onDelete}
       onDisconnect={onDisconnect}
@@ -99,7 +97,6 @@ export function ServiceCardDialog({
 function ServiceCardDialogBody({
   busy,
   listService,
-  onAddScope,
   onConnect,
   onDelete,
   onDisconnect,
@@ -111,7 +108,6 @@ function ServiceCardDialogBody({
 }: {
   busy: string | null
   listService: ServiceInstance
-  onAddScope: (service: ServiceInstance) => void
   onConnect: (service: ServiceInstance) => void
   onDelete: (service: ServiceInstance) => void
   onDisconnect: (service: ServiceInstance) => void
@@ -170,7 +166,12 @@ function ServiceCardDialogBody({
         >
           <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-4 overflow-hidden px-4 py-4 @min-[640px]:grid-cols-[auto_minmax(0,1fr)] @min-[640px]:grid-rows-1 @min-[640px]:gap-5 @min-[640px]:px-5 @min-[640px]:py-4">
             <QuietScroll className="flex min-h-0 @min-[640px]:h-full @min-[640px]:w-auto @min-[640px]:max-w-full @min-[640px]:aspect-[1/1.618]">
-              <div className="m-auto flex w-full min-w-0 flex-col items-center gap-3 text-center">
+              <button
+                type="button"
+                className="m-auto flex w-full min-w-0 cursor-pointer flex-col items-center gap-3 rounded-lg text-center outline-none transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                aria-label={t("detail")}
+                onClick={() => closeThen(() => onOpen(service))}
+              >
                 <span
                   aria-hidden
                   className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-muted/60 text-muted-foreground"
@@ -199,7 +200,7 @@ function ServiceCardDialogBody({
                     {t(SERVICE_STATUS_LABEL_KEYS[status])}
                   </p>
                 </div>
-              </div>
+              </button>
             </QuietScroll>
 
             <aside className="flex h-full min-h-0 min-w-0 w-full flex-col max-h-[min(40dvh,20rem)] overflow-hidden @min-[640px]:h-full @min-[640px]:max-h-none">
@@ -214,9 +215,6 @@ function ServiceCardDialogBody({
                 >
                   <TabsTrigger value="preview" className="flex-none">
                     Preview
-                  </TabsTrigger>
-                  <TabsTrigger value="scope" className="flex-none">
-                    {t("scope")}
                   </TabsTrigger>
                   <TabsTrigger value="edit" className="flex-none">
                     {t("edit")}
@@ -246,26 +244,6 @@ function ServiceCardDialogBody({
                   />
                 </TabsContent>
 
-                <TabsContent value="scope" className="min-h-0 flex-1 overflow-hidden">
-                  <QuietScroll className="h-full">
-                    <div className="flex flex-col gap-4">
-                      <dl className="grid gap-3">
-                        <ServiceDetailField label={t("agentScope")} value={scopeLabel} />
-                      </dl>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full justify-start"
-                        disabled={Boolean(busy)}
-                        onClick={() => closeThen(() => onAddScope(service))}
-                      >
-                        <LayersIcon data-icon="inline-start" />
-                        {t("addScope")}
-                      </Button>
-                    </div>
-                  </QuietScroll>
-                </TabsContent>
-
                 <TabsContent value="edit" className="min-h-0 flex-1 overflow-hidden">
                   <QuietScroll className="h-full">
                     <ServiceConfigFormFields
@@ -279,6 +257,10 @@ function ServiceCardDialogBody({
                 <TabsContent value="profile" className="min-h-0 flex-1 overflow-hidden">
                   <QuietScroll className="h-full">
                     <div className="flex flex-col gap-5">
+                      <Field>
+                        <FieldLabel htmlFor="card-service-scope">{t("scope")}</FieldLabel>
+                        <Input id="card-service-scope" value={scopeLabel} readOnly />
+                      </Field>
                       <ServiceConfigDescriptionPane
                         fields={configFields}
                         onFieldsChange={setConfigFields}

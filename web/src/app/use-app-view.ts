@@ -98,9 +98,17 @@ function viewFromPath(pathname: string, search: string): AppView {
     return { name: "plugins", tab: "installed" }
   }
   if (pathname === "/gateway") return { name: "gateway" }
-  if (pathname === "/history") return { name: "history" }
-  if (pathname === "/traces") return { name: "traces" }
-  if (pathname === "/cache") return { name: "cache" }
+  // Legacy /history bookmarks land on Traces → History tab.
+  if (pathname === "/history") return { name: "traces", tab: "history" }
+  // Legacy /cache bookmarks land on Traces → Cache tab.
+  if (pathname === "/cache") return { name: "traces", tab: "cache" }
+  if (pathname === "/traces") {
+    const tab = new URLSearchParams(search).get("tab")
+    if (tab === "history" || tab === "table" || tab === "graph" || tab === "cache") {
+      return { name: "traces", tab }
+    }
+    return { name: "traces" }
+  }
   if (pathname === "/settings") return { name: "settings" }
   if (pathname.startsWith("/services/")) {
     const raw = pathname.slice("/services/".length)
@@ -151,5 +159,6 @@ function pathForView(view: AppView): string {
     return `${base}${query}`
   }
   if (view.name === "plugins" && view.tab) return `/plugins?tab=${encodeURIComponent(view.tab)}`
+  if (view.name === "traces" && view.tab) return `/traces?tab=${encodeURIComponent(view.tab)}`
   return `/${view.name}`
 }

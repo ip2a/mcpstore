@@ -8,6 +8,8 @@ export type ClientInventory = {
   version?: string | null
   detected_by: DetectedBy | null
   config_path: string
+  /** Resolved CLI binary on PATH when available; null if not found. */
+  executable_path?: string | null
   config_exists: boolean
   mcp_servers: string[] | null
   unsupported_fields: string[]

@@ -23,13 +23,17 @@ export function ToolListCard({
   const schema = getToolSchema(tool) as { properties?: Record<string, unknown> }
   const paramCount = Object.keys(schema.properties || {}).length
   const description = tool.description?.trim()
+  const scopeLabel =
+    instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <div
       role="button"
       tabIndex={0}
       className={cn(
-        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/40",
+        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left",
+        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
+        "transition-colors hover:border-border hover:bg-muted/40",
         className,
       )}
       onClick={onSelect}
@@ -62,7 +66,11 @@ export function ToolListCard({
         {description || t("noDescription")}
       </p>
 
-      <p className="mt-3 text-xs text-muted-foreground">{t("paramCount", { count: paramCount })}</p>
+      <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
+        {t("paramCount", { count: paramCount })}
+        {" · by "}
+        <span className="text-[#0077c2]">{scopeLabel}</span>
+      </p>
     </div>
   )
 }

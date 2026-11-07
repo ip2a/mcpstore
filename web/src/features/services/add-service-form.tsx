@@ -1,17 +1,28 @@
+import { useScopeServicesQuery } from "@/features/agents/queries"
 import { useAddServiceForm } from "@/features/services/use-add-service-form"
 import { AddServicePlaygroundAside } from "@/features/services/add-service-playground-aside"
 import { ServiceConfigFormFields } from "@/features/services/service-config-form-fields"
-import { getUiTransportMode, resolveHttpTransport } from "@/features/services/service-config-draft"
+import {
+  getUiTransportMode,
+  resolveHttpTransport,
+  serviceInstanceToFields,
+} from "@/features/services/service-config-draft"
 import { DialogFormFooter } from "@/components/shared/dialog-form"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useI18n } from "@/lib/i18n-context"
 import { getAgentId } from "@/features/agents/model"
-import type { AgentItem } from "@/lib/api"
+import { useI18n } from "@/lib/i18n-context"
+import type { AgentItem, ServiceInstance } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function AddServiceForm({
@@ -29,6 +40,8 @@ export function AddServiceForm({
 }) {
   const { t } = useI18n()
   const agentIds = agents.map(getAgentId).filter(Boolean)
+  const storeServicesQuery = useScopeServicesQuery({ type: "store" })
+  const existingServices = storeServicesQuery.data ?? []
   const {
     agentId,
     configFields,
@@ -60,6 +73,37 @@ export function AddServiceForm({
       ...(mode === "http" ? { envText: "" } : {}),
     })
   }
+
+  function fillFromExisting(service: ServiceInstance) {
+    setServiceName(service.service_name)
+    setConfigFields(serviceInstanceToFields(service))
+  }
+
+  const fillFromExistingButton = (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" disabled={submitting}>
+          {t("fillFromExistingService")}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 min-w-48 overflow-y-auto">
+        {storeServicesQuery.isPending ? (
+          <DropdownMenuItem disabled>{t("loading")}</DropdownMenuItem>
+        ) : existingServices.length === 0 ? (
+          <DropdownMenuItem disabled>{t("noServices")}</DropdownMenuItem>
+        ) : (
+          existingServices.map((service) => (
+            <DropdownMenuItem
+              key={service.instance_id}
+              onClick={() => fillFromExisting(service)}
+            >
+              {service.service_name}
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 
   return (
     <form className={cn("@container flex min-h-0 flex-1 flex-col", className)} onSubmit={onSubmit}>
@@ -124,12 +168,14 @@ export function AddServiceForm({
         <div className="shrink-0 border-t px-5 py-3.5">
           {onCancel ? (
             <DialogFormFooter
+              start={fillFromExistingButton}
               onCancel={onCancel}
               submitLabel={submitting ? t("adding") : t("navAddService")}
               submitting={submitting}
             />
           ) : (
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-2">
+              {fillFromExistingButton}
               <Button type="submit" disabled={submitting}>
                 {submitting ? <Spinner data-icon="inline-start" /> : null}
                 {submitting ? t("adding") : t("navAddService")}

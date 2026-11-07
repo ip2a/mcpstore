@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+
 import {
-  ChevronRightIcon,
   CircleDashed,
   FileJsonIcon,
   FolderIcon,
-  LayoutGridIcon,
-  ListIcon,
   PencilIcon,
   PlusIcon,
-  RefreshCwIcon,
   StoreIcon,
   TerminalIcon,
   UploadIcon,
@@ -18,9 +15,15 @@ import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { clientIconUrls } from "@/assets/icons/clients"
-import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
-import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
+import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
@@ -55,26 +58,6 @@ import { queryKeys } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
 type ClientTab = "active" | "inactive" | "all"
-type ClientsViewMode = "cards" | "list"
-
-const VIEW_MODE_STORAGE_KEY = "mcpstore.clients-view-mode"
-
-function readViewMode(): ClientsViewMode {
-  try {
-    const value = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-    return value === "list" ? "list" : "cards"
-  } catch {
-    return "cards"
-  }
-}
-
-function writeViewMode(mode: ClientsViewMode) {
-  try {
-    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
-  } catch {
-    // Ignore storage failures.
-  }
-}
 
 export const EXPOSE_KEYS: (keyof ExposeConfig)[] = [
   "tool",
@@ -97,6 +80,8 @@ const DEFAULT_EXPOSE: ExposeConfig = {
   cache: false,
   search: false,
 }
+
+const EMPTY_CLIENTS: ClientInventory[] = []
 
 /** Form fields for scope + the 8 expose toggles, shared by the wire dialog and the gateway page edit dialog. */
 export function WireOptionsFields({
@@ -155,19 +140,22 @@ export function ClientsView() {
   const marketQuery = useClientPluginMarketQuery()
   const [tab, setTab] = useState<ClientTab>("active")
   const [query, setQuery] = useState("")
-  const [viewMode, setViewMode] = useState<ClientsViewMode>(readViewMode)
   const [cardClientId, setCardClientId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [wireDialog, setWireDialog] = useState<WireDialogState | null>(null)
   const [wireConflict, setWireConflict] = useState<WireConflictState | null>(null)
 
-  const clients = data ?? []
+  const clients = data ?? EMPTY_CLIENTS
   const pluginBusy = busy || pluginAction.isPending || pluginUpdate.isPending
   const refreshing =
     isFetching || wiredQuery.isFetching || pluginsQuery.isFetching || marketQuery.isFetching
-  const installedById = Object.fromEntries(
-    (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
-  ) as Record<string, ClientPlugin>
+  const installedById = useMemo(
+    () =>
+      Object.fromEntries(
+        (pluginsQuery.data?.plugins ?? []).map((plugin) => [plugin.id, plugin]),
+      ) as Record<string, ClientPlugin>,
+    [pluginsQuery.data?.plugins],
+  )
   const marketById = Object.fromEntries(
     (marketQuery.data?.plugins ?? []).map((entry) => [entry.id, entry]),
   ) as Record<string, MarketPlugin>
@@ -177,12 +165,6 @@ export function ClientsView() {
   const cardClient = cardClientId
     ? (clients.find((client) => client.id === cardClientId) ?? null)
     : null
-
-  function handleViewModeChange(mode: ClientsViewMode) {
-    setViewMode(mode)
-    writeViewMode(mode)
-    if (mode === "list") setCardClientId(null)
-  }
 
   const tabs = useMemo(
     () => [
@@ -224,14 +206,15 @@ export function ClientsView() {
     // Re-seed only when entering the tab, or when data first arrives into an empty snapshot.
     if (sameTab && !tabChanged && existing.ids.size > 0) return
 
-    membershipRef.current = {
-      tab,
-      ids: new Set(
-        installedClients
-          .filter((client) => (tab === "active" ? client.wired : !client.wired))
-          .map((client) => client.id),
-      ),
-    }
+    const nextIds = new Set(
+      installedClients
+        .filter((client) => (tab === "active" ? client.wired : !client.wired))
+        .map((client) => client.id),
+    )
+    // Empty→empty on the same tab: wait for real data; bumping would loop forever.
+    if (sameTab && !tabChanged && nextIds.size === 0) return
+
+    membershipRef.current = { tab, ids: nextIds }
     setMembershipVersion((value) => value + 1)
   }, [tab, installedClients])
 
@@ -274,10 +257,10 @@ export function ClientsView() {
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as ClientTab)}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={WORKSPACE_TABS_CLASSNAME}
         >
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               {tabs.map((item) => (
                 <TabsTrigger key={item.id} value={item.id} title={item.label} className="flex-none">
                   {item.label}
@@ -285,43 +268,20 @@ export function ClientsView() {
               ))}
             </TabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <CollapsibleSearchBox
-                inline
+              <UiverseSearchInput
                 id="client-list-search"
                 placeholder={t("searchClients")}
                 value={query}
                 onChange={setQuery}
               />
               <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshing} />
                 {t("refresh")}
               </Button>
               <Button size="sm" onClick={() => setAddOpen(true)}>
                 <PlusIcon data-icon="inline-start" />
                 {t("clientsAddCardLabel")}
               </Button>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  aria-label={t("servicesViewCards")}
-                  aria-pressed={viewMode === "cards"}
-                  size="icon-sm"
-                  title={t("servicesViewCards")}
-                  variant={viewMode === "cards" ? "secondary" : "outline"}
-                  onClick={() => handleViewModeChange("cards")}
-                >
-                  <LayoutGridIcon aria-hidden="true" />
-                </Button>
-                <Button
-                  aria-label={t("servicesViewList")}
-                  aria-pressed={viewMode === "list"}
-                  size="icon-sm"
-                  title={t("servicesViewList")}
-                  variant={viewMode === "list" ? "secondary" : "outline"}
-                  onClick={() => handleViewModeChange("list")}
-                >
-                  <ListIcon aria-hidden="true" />
-                </Button>
-              </div>
             </div>
           </div>
 
@@ -339,42 +299,6 @@ export function ClientsView() {
                 <div className="px-4 py-2">
                   <PageSkeleton />
                 </div>
-              ) : viewMode === "list" ? (
-                <ScrollPane
-                  className="min-h-0 flex-1"
-                  innerClassName="flex flex-col gap-2 px-0 pb-2"
-                >
-                  {visibleClients.length ? (
-                    <div className="divide-y divide-border/50">
-                      {visibleClients.map((client) => (
-                        <ClientRow
-                          key={client.id}
-                          client={client}
-                          busy={pluginBusy}
-                          installed={installedById[client.id]}
-                          marketEntry={marketById[client.id]}
-                          onWire={() => setWireDialog({ mode: "wire", client })}
-                          onEditWire={() => {
-                            const entry = wiredById[client.id]
-                            if (entry) setWireDialog({ mode: "edit", client, entry })
-                          }}
-                          onUnwire={() => void toggle(client, true)}
-                          onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-                          onUninstall={(id) => pluginAction.mutate({ action: "uninstall", id })}
-                          onUpdate={(id) => pluginUpdate.mutate(id)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="px-4 py-2">
-                      <PageEmpty
-                        title={t("noClients")}
-                        description={t("noClientsDescription")}
-                        onRefresh={refresh}
-                      />
-                    </div>
-                  )}
-                </ScrollPane>
               ) : (
                 <>
                   <ScrollPane
@@ -628,7 +552,7 @@ function StatusDot({ active }: { active: boolean }) {
   )
 }
 
-/** Plugin install/update actions + edit-wire pencil + wire toggle, shared by the list row and the card detail dialog. */
+/** Plugin install/update actions + edit-wire pencil + wire toggle for the card detail dialog. */
 function ClientWireActions({
   busy,
   client,
@@ -702,120 +626,28 @@ function ClientWireActions({
   )
 }
 
-function ClientRow({
-  busy,
-  client,
-  installed,
-  marketEntry,
-  onWire,
-  onEditWire,
-  onUnwire,
-  onInstall,
-  onUninstall,
-  onUpdate,
-}: {
-  busy: boolean
-  client: ClientInventory
-  installed: ClientPlugin | undefined
-  marketEntry: MarketPlugin | undefined
-  onWire: () => void
-  onEditWire: () => void
-  onUnwire: () => void
-  onInstall: (id: string) => void
-  onUninstall: (id: string) => void
-  onUpdate: (id: string) => void
-}) {
-  const { t } = useI18n()
-  const [detailOpen, setDetailOpen] = useState(false)
-  const detected = client.detected_by != null
-  const mcpCount = client.mcp_servers?.length ?? 0
-  const showMcp = client.mcp_servers != null
-  const versionQuery = useClientVersionQuery(client.id, detected)
-  const version = versionQuery.data ?? client.version ?? null
-  const statusText = clientStatusText(client, t)
-
-  return (
-    <>
-      <div className="flex items-center gap-3 px-4 py-3">
-        <ClientLogo clientId={client.id} label={client.label} />
-
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate text-sm font-medium">{client.id}</span>
-            {version ? (
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{version}</span>
-            ) : null}
-          </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <StatusDot active={client.wired} />
-            <span className="truncate">{statusText}</span>
-          </div>
-        </div>
-
-        {showMcp ? (
-          <button
-            type="button"
-            className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label={t("clientsDetailTitle", { client: client.label })}
-            onClick={() => setDetailOpen(true)}
-          >
-            <span>{t("clientsMcpShort")}</span>
-            <span className="tabular-nums">{mcpCount}</span>
-            <ChevronRightIcon className="size-3.5" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label={t("clientsDetailTitle", { client: client.label })}
-            onClick={() => setDetailOpen(true)}
-          >
-            <ChevronRightIcon className="size-3.5" />
-          </button>
-        )}
-
-        <ClientWireActions
-          busy={busy}
-          client={client}
-          installed={installed}
-          marketEntry={marketEntry}
-          onInstall={onInstall}
-          onUninstall={onUninstall}
-          onUpdate={onUpdate}
-          onWire={onWire}
-          onEditWire={onEditWire}
-          onUnwire={onUnwire}
-        />
-      </div>
-
-      <ClientDetailDialog
-        client={client}
-        version={version}
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
-      />
-    </>
-  )
-}
-
 function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelect: () => void }) {
   const { t } = useI18n()
   const mcpCount = client.mcp_servers?.length ?? 0
   const statusText = clientStatusText(client, t)
+  const executable = client.executable_path?.trim()
   const path = client.config_path?.trim()
   const detected = client.detected_by != null
   const versionQuery = useClientVersionQuery(client.id, detected)
   const version = versionQuery.data ?? client.version ?? null
-  const metaParts = [
-    version,
-    client.mcp_servers != null ? `mcp ${mcpCount}` : null,
-  ].filter((part): part is string => Boolean(part))
+  const metaParts = [version, client.mcp_servers != null ? `mcp ${mcpCount}` : null].filter(
+    (part): part is string => Boolean(part),
+  )
 
   return (
     <div
       role="button"
       tabIndex={0}
-      className="group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/40"
+      className={cn(
+        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left",
+        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
+        "transition-colors hover:border-border hover:bg-muted/40",
+      )}
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -842,8 +674,11 @@ function ClientListCard({ client, onSelect }: { client: ClientInventory; onSelec
         </span>
       </div>
 
-      <p className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground">
-        {path || t("noDescription")}
+      <p
+        className="mt-3 min-h-10 min-w-0 w-full line-clamp-2 text-xs leading-5 text-muted-foreground"
+        title={executable || path || undefined}
+      >
+        {executable || path || t("noDescription")}
       </p>
 
       {metaParts.length ? (

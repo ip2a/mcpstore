@@ -21,13 +21,17 @@ export function ResourceListCard({
   const displayName = resource.title?.trim() || resource.name
   const description = resource.description?.trim() || resource.uri
   const mime = resourceMimeType(resource)
+  const scopeLabel =
+    instance.scope.type === "store" ? "store" : instance.scope.agent_id
 
   return (
     <div
       role="button"
       tabIndex={0}
       className={cn(
-        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/40",
+        "group flex cursor-pointer flex-col rounded-lg border border-border/50 bg-card p-4 text-left",
+        "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
+        "transition-colors hover:border-border hover:bg-muted/40",
         className,
       )}
       onClick={onSelect}
@@ -64,7 +68,11 @@ export function ResourceListCard({
         {description || t("noDescription")}
       </p>
 
-      {mime ? <p className="mt-3 font-mono text-xs text-muted-foreground">{mime}</p> : null}
+      <p className="mt-3 min-w-0 truncate text-xs text-muted-foreground">
+        {mime ? <span className="font-mono">{mime}</span> : null}
+        {mime ? " · by " : "by "}
+        <span className="text-[#0077c2]">{scopeLabel}</span>
+      </p>
     </div>
   )
 }

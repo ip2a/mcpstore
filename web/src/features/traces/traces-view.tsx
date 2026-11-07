@@ -1,13 +1,17 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
+import { CachePanel } from "@/features/cache/cache-view"
+import { HistoryPanel } from "@/features/history/history-view"
 import { FrameStreamCard } from "@/features/traces/frame-stream-card"
 import { useI18n } from "@/lib/i18n-context"
 import { queryKeys } from "@/lib/query-keys"
 import { getFrameSessions } from "@/lib/api"
 
-/** Insights → Traces: outbound MCP message stream (JSON-RPC frames). */
-export function TracesView() {
+type TracesTab = "table" | "graph" | "history" | "cache"
+
+/** Insights → Traces: outbound MCP frames + request history + cache. */
+export function TracesView({ initialTab }: { initialTab?: TracesTab } = {}) {
   const { t } = useI18n()
   const sessions = useQuery({
     queryKey: queryKeys.gatewayFrameSessionsPage("upstream", 1, 0),
@@ -22,7 +26,13 @@ export function TracesView() {
           count: sessions.data?.total ?? 0,
         })}
       />
-      <FrameStreamCard face="upstream" fill />
+      <FrameStreamCard
+        face="upstream"
+        fill
+        cacheSlot={<CachePanel />}
+        historySlot={<HistoryPanel />}
+        initialView={initialTab}
+      />
     </>
   )
 }

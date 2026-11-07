@@ -1,30 +1,31 @@
-import { ArrowUpDownIcon, RefreshCwIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { CollapsibleSearchBox } from "@/components/shared/collapsible-search-box"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ToolListCard } from "@/components/shared/tool-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
-import { ScrollPane } from "@/components/shared/scroll-pane"
-import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
-import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
+import {
+  breadcrumbUppercase,
+  instanceScopeBreadcrumbLabel,
+  WorkspaceBreadcrumb,
+} from "@/components/shared/workspace-page-header"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ToolsFilterDialog } from "@/features/tools/tools-filter-dialog"
+import {
+  ToolsFilterDialog,
+  type ToolSortBy,
+} from "@/features/tools/tools-filter-dialog"
 import { useToolsRegistry } from "@/features/tools/use-tools-registry"
 import { useI18n } from "@/lib/i18n-context"
 import type { AgentItem, ServiceInstance, ToolInfo } from "@/lib/api"
 import { toolKey } from "@/lib/tool-info"
-
-type ToolSortBy = "name" | "service"
 
 export function ToolsView(props: {
   agents: AgentItem[]
@@ -32,7 +33,6 @@ export function ToolsView(props: {
   onOpenTool: (instanceId: string, toolName: string) => void
 }) {
   const { t } = useI18n()
-  const [sortOpen, setSortOpen] = useState(false)
   const [sortBy, setSortBy] = useState<ToolSortBy | null>(null)
   const {
     activeFilterCount,
@@ -80,17 +80,39 @@ export function ToolsView(props: {
     [scopeInstances, t],
   )
 
-  const applySort = (value: ToolSortBy) => {
-    setSortBy(value)
-    setSortOpen(false)
-  }
+  const selectedInstance = scopeInstances.find((instance) => instance.instance_id === instanceId)
+  const serviceTabLabel = breadcrumbUppercase(
+    selectedInstance?.service_name ||
+      serviceTabs.find((tab) => tab.id === instanceId)?.label ||
+      t("filterAll"),
+  )
+  const isAllServices = instanceId === "all"
+  const listCrumbs = isAllServices
+    ? [
+        { label: t("navTools"), onClick: () => setInstanceId("all") },
+        { label: breadcrumbUppercase(t("filterAll")) },
+      ]
+    : [
+        { label: t("navTools"), onClick: () => setInstanceId("all") },
+        {
+          label: selectedInstance
+            ? instanceScopeBreadcrumbLabel(selectedInstance.scope, {
+                store: t("store"),
+                all: t("filterAll"),
+              })
+            : breadcrumbUppercase(scope === "agent" ? agentId || t("agent") : t("store")),
+          onClick: () => setInstanceId("all"),
+        },
+        { label: serviceTabLabel },
+      ]
 
   const tabContentClassName = "mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
 
   return (
     <>
-      <WorkspacePageHeader
-        title={<h1 className="text-lg font-semibold">{t("toolRegistryTitle")}</h1>}
+      <WorkspaceBreadcrumb
+        ariaLabel={t("breadcrumb")}
+        crumbs={listCrumbs}
         subtitle={t("toolRegistryDescription", {
           count: visibleTools.length,
           scope:
@@ -102,10 +124,10 @@ export function ToolsView(props: {
         <Tabs
           value={instanceId}
           onValueChange={setInstanceId}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={WORKSPACE_TABS_CLASSNAME}
         >
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               {serviceTabs.map((tab) => (
                 <TabsTrigger key={tab.id} value={tab.id} title={tab.label} className="flex-none">
                   {tab.label}
@@ -113,36 +135,12 @@ export function ToolsView(props: {
               ))}
             </TabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-              <CollapsibleSearchBox
-                inline
+              <UiverseSearchInput
                 id="tool-list-search"
                 placeholder={t("searchTools")}
                 value={query}
                 onChange={setQuery}
               />
-              <Dialog open={sortOpen} onOpenChange={setSortOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <ArrowUpDownIcon data-icon="inline-start" />
-                    {t("sortLabel")}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>{t("sortLabel")}</DialogTitle>
-                    <DialogDescription>{t("sortHint")}</DialogDescription>
-                  </DialogHeader>
-                  <div className="flex flex-col gap-2">
-                    <Button variant="outline" onClick={() => applySort("name")}>
-                      {t("sortName")}
-                    </Button>
-                    <Button variant="outline" onClick={() => applySort("service")}>
-                      {t("service")}
-                    </Button>
-                  </div>
-                  <DialogFooter showCloseButton />
-                </DialogContent>
-              </Dialog>
               <ToolsFilterDialog
                 activeFilterCount={activeFilterCount}
                 agentId={agentId}
@@ -162,13 +160,15 @@ export function ToolsView(props: {
                 }
                 onInstanceIdChange={setInstanceId}
                 onScopeChange={setScope}
+                onSort={setSortBy}
                 onVisibilityFilterChange={setVisibilityFilter}
                 scope={scope}
                 scopeInstances={scopeInstances}
+                sortBy={sortBy}
                 visibilityFilter={visibilityFilter}
               />
               <Button size="sm" variant="outline" onClick={loadTools} disabled={loading}>
-                <RefreshCwIcon data-icon="inline-start" />
+                <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
                 {t("refresh")}
               </Button>
             </div>

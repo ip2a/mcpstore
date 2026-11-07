@@ -1,9 +1,16 @@
 import { useMemo, useState } from "react"
-import { EyeIcon, PlusIcon, RefreshCwIcon } from "lucide-react"
+import { EyeIcon, PlusIcon } from "lucide-react"
 
 import { JsonBlock } from "@/components/shared/json-block"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import {
+  WORKSPACE_LIST_INSET_CLASSNAME,
+  WORKSPACE_TABS_CLASSNAME,
+  WORKSPACE_TABS_LIST_CLASSNAME,
+  WORKSPACE_TOOLBAR_CLASSNAME,
+} from "@/components/shared/workspace-toolbar"
+import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
 import { ServiceListCard } from "@/components/shared/service-list-card"
@@ -128,14 +135,14 @@ export function AgentsView(props: {
         subtitle={t("agentWorkspaceDescription", { count: props.agents.length })}
       />
 
-      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <PanelCard className="@container flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0">
         <Tabs
           value={activeTab}
           onValueChange={(value) => selectScopeTab(value)}
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+          className={WORKSPACE_TABS_CLASSNAME}
         >
-          <div className="flex min-w-0 shrink-0 items-center gap-3 pb-2">
-            <TabsList variant="line" className="h-9 w-fit shrink-0 justify-start">
+          <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
+            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
               {scopes.map((summary) => {
                 const scopeId = scopeIdFromSummary(summary)
                 const title = scopeTitleFromSummary(summary, t)
@@ -229,7 +236,7 @@ function ScopeActions({
         {t("details")}
       </Button>
       <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
-        <RefreshCwIcon data-icon="inline-start" />
+        <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
         {t("refresh")}
       </Button>
     </div>
@@ -300,7 +307,10 @@ function ScopeDetailPanel({
 
       <ScrollPane
         className="min-h-0 flex-1"
-        innerClassName="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
+        innerClassName={cn(
+          WORKSPACE_LIST_INSET_CLASSNAME,
+          "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4",
+        )}
       >
         {scopeError ? (
           <PageError
