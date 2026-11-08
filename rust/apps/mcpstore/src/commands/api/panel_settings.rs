@@ -4,7 +4,7 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use mcpstore::config::{ConfigManager, HostsConfig};
+use mcpstore::config::{ConfigManager, HostEntry, HostsConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -96,17 +96,51 @@ fn hosts_from_legacy_config(raw: &Value) -> HostsConfig {
         .unwrap_or_default()
 }
 
+/// The local URL the panel should use: the daemon's real `[server].host:port`.
+/// Falls back to `ServerSettings::default()` when the config is unreadable —
+/// which reproduces the generated default URL, making the align step a no-op.
+fn aligned_local_url(manager: &ConfigManager) -> String {
+    let server = match manager.load_app_config_or_default() {
+        Ok(config) => config.server,
+        Err(_) => Default::default(),
+    };
+    format!("http://{}:{}", server.host, server.port)
+}
+
+/// Retarget an untouched default `local` entry to the daemon's actual
+/// `[server].port`. Explicit user URLs are never modified.
+fn align_local_entry(manager: &ConfigManager, mut hosts: HostsConfig) -> HostsConfig {
+    let generated_default = HostsConfig::generated_default_local_url();
+    let is_default = match hosts.entries.get("local") {
+        Some(entry) => entry.urls.first().is_some_and(|url| *url == generated_default),
+        None => true,
+    };
+    if is_default {
+        let url = aligned_local_url(manager);
+        if url != generated_default {
+            hosts.entries.insert(
+                "local".to_string(),
+                HostEntry { urls: vec![url] },
+            );
+        }
+    }
+    hosts
+}
+
 /// Hot-path read for request routing: no migration, no lock, no writes.
-/// A missing or unreadable file yields the default registry (local only).
+/// A missing or unreadable file yields the default registry (local only),
+/// retargeted to the daemon's real `[server].port` so a non-default port
+/// in config.toml doesn't strand the panel on 1820 (S5).
 pub(super) fn load_hosts(manager: &ConfigManager) -> HostsConfig {
     let path = panel_settings_path(manager);
-    std::fs::read(path)
+    let hosts = std::fs::read(path)
         .ok()
         .and_then(|content| {
             let settings: Result<PanelSettings, _> = serde_json::from_slice(&content);
             settings.ok().map(|settings| settings.hosts)
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    align_local_entry(manager, hosts)
 }
 
 pub(super) fn save_for_manager(
@@ -228,7 +262,7 @@ mod tests {
 
         let settings = load_or_migrate(&manager).unwrap();
         assert_eq!(settings.language, "en");
-        assert!(!dir.join("panel-settings.json").exists());
+        assert!(!dir.join("panel/settings.json").exists());
         assert!(!dir.join("config.toml").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -275,7 +309,7 @@ mod tests {
         // Strictness survives where it matters: a hosts entry that fails
         // HostEntry's untagged deserialization is an explicit error.
         std::fs::write(
-            dir.join("panel-settings.json"),
+            dir.join("panel/settings.json"),
             r#"{ "language": "en", "hosts": { "x": { "urls": "not-a-list" } } }"#,
         )
         .unwrap();
@@ -309,7 +343,7 @@ mod tests {
         assert_eq!(settings.language, "zh");
 
         let migrated: PanelSettings =
-            serde_json::from_slice(&std::fs::read(dir.join("panel-settings.json")).unwrap())
+            serde_json::from_slice(&std::fs::read(dir.join("panel/settings.json")).unwrap())
                 .unwrap();
         assert_eq!(migrated.language, "zh");
 
@@ -317,7 +351,7 @@ mod tests {
         assert!(raw.get("ui").is_none());
         assert_eq!(raw["api"]["port"], 1822);
         assert_eq!(raw["hosts"]["active"], "local");
-        assert!(!dir.join("panel-settings.json.tmp").exists());
+        assert!(!dir.join("panel/settings.json.tmp").exists());
         assert!(!dir.join("config.toml.tmp").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -355,7 +389,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(load_or_migrate(&manager).unwrap().language, "zh");
-        assert!(!dir.join("panel-settings.json.tmp").exists());
+        assert!(!dir.join("panel/settings.json.tmp").exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -365,3 +399,4 @@ mod tests {
         assert!(normalize_language("fr").is_err());
     }
 }
+

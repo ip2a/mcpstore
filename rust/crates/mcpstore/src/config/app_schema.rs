@@ -157,6 +157,13 @@ impl Default for HostsConfig {
 }
 
 impl HostsConfig {
+    /// The URL the serde defaults generate for the `local` entry (built from
+    /// the default server port). Callers compare against this to detect an
+    /// untouched default that should follow the daemon's real `[server].port`.
+    pub fn generated_default_local_url() -> String {
+        default_host_url()
+    }
+
     /// URLs of the active host in preference order.
     pub fn active_urls(&self) -> Vec<String> {
         self.entries
