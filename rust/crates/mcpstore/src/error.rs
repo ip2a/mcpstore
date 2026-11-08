@@ -52,12 +52,13 @@ pub enum FailureCode {
     ToolSyncFailed,
     StopFailed,
     OpenapiRequestFailed,
+    PanelAuthRequired,
     #[serde(other)]
     Internal,
 }
 
 impl FailureCode {
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 44] = [
         Self::InvalidInput,
         Self::ServiceNotFound,
         Self::ConfigInvalid,
@@ -100,6 +101,7 @@ impl FailureCode {
         Self::ToolSyncFailed,
         Self::StopFailed,
         Self::OpenapiRequestFailed,
+        Self::PanelAuthRequired,
         Self::Internal,
     ];
 
@@ -147,6 +149,7 @@ impl FailureCode {
             Self::ToolSyncFailed => "tool_sync_failed",
             Self::StopFailed => "stop_failed",
             Self::OpenapiRequestFailed => "openapi_request_failed",
+            Self::PanelAuthRequired => "panel_auth_required",
             Self::Internal => "internal",
         }
     }
@@ -184,9 +187,10 @@ impl FailureCode {
             | Self::ElicitationCancelled
             | Self::ElicitationTimedOut
             | Self::ElicitationInvalidResponse => FailureCategory::Elicitation,
-            Self::AuthFailed | Self::OauthProviderFailed | Self::SecureStorageUnavailable => {
-                FailureCategory::Auth
-            }
+            Self::AuthFailed
+            | Self::OauthProviderFailed
+            | Self::SecureStorageUnavailable
+            | Self::PanelAuthRequired => FailureCategory::Auth,
             Self::SessionNotFound | Self::SessionNotActive => FailureCategory::Session,
             Self::ServiceUnavailable
             | Self::HealthCheckFailed

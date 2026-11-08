@@ -132,7 +132,7 @@ pub(super) fn http_status(code: FailureCode) -> StatusCode {
         | Code::TaskNotFound
         | Code::SessionNotFound
         | Code::ToolNotAvailable => Http::NOT_FOUND,
-        Code::ConnectionAuthRequired => Http::UNAUTHORIZED,
+        Code::ConnectionAuthRequired | Code::PanelAuthRequired => Http::UNAUTHORIZED,
         Code::ConnectionScope => Http::FORBIDDEN,
         Code::CallCancelled
         | Code::CapabilityUnsupported
