@@ -338,7 +338,7 @@ impl MCPStore {
                 FailureCode::ConnectionTimedOut,
                 format!(
                     "service instance connection timed out: {instance_id}, timeout={}s",
-                    self.kernel.runtime.runtime_config.connect_timeout_secs
+                    connect_timeout.as_secs()
                 ),
             )),
         };
