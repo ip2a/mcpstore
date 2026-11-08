@@ -396,7 +396,10 @@ impl ServiceState {
             }
             ServiceStateEvent::AuthChanged(auth, failure) => {
                 self.auth = auth;
-                self.failure = failure;
+                // Auth status writes are frequent (every auth view read re-initializes
+                // status); a None failure here means "no auth failure", not "clear the
+                // connect failure". Only an explicit auth failure may overwrite it.
+                self.failure = failure.or(self.failure.take());
             }
             ServiceStateEvent::ToolSyncStarted => self.tools.status = ToolsStatus::Syncing,
             ServiceStateEvent::ToolSyncSucceeded { tools } => {
@@ -725,6 +728,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(state.readiness.status, ReadinessStatus::Ready);
+    }
+
+    #[test]
+    fn auth_status_write_preserves_connect_failure() {
+        let mut state = state(DesiredState::Running);
+        state.apply(ServiceStateEvent::StartRequested, 2).unwrap();
+        state
+            .apply(
+                ServiceStateEvent::TransportFailed(failure(FailurePhase::Transport, true)),
+                3,
+            )
+            .unwrap();
+        // Every auth view read re-initializes auth status with no failure
+        // attached; that must not wipe the recorded connect failure.
+        state
+            .apply(
+                ServiceStateEvent::AuthChanged(AuthState::NotRequired, None),
+                4,
+            )
+            .unwrap();
+        assert!(state.failure.is_some());
+        // An explicit auth failure replaces it.
+        state
+            .apply(
+                ServiceStateEvent::AuthChanged(
+                    AuthState::Failed,
+                    Some(failure(FailurePhase::Auth, true)),
+                ),
+                5,
+            )
+            .unwrap();
+        assert_eq!(
+            state.failure.as_ref().map(|info| info.phase),
+            Some(FailurePhase::Auth)
+        );
     }
 
     #[test]
