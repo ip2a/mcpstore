@@ -23,11 +23,30 @@ pub async fn run(
 
     api::adopt_panel_settings(&config_manager)?;
     let state = Arc::new(api::PanelState::new(Arc::clone(&config_manager)));
+
+    // Bind shape decides the guard before anything is served: non-loopback
+    // binds enforce bearer-token auth on /api, loopback binds reject foreign
+    // Host headers (DNS rebinding). A bind address that fails to resolve
+    // counts as non-loopback — auth on, fail loud.
+    let resolves_loopback = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map(|mut addrs| addrs.all(|addr| addr.ip().is_loopback()))
+        .unwrap_or(false);
+    let auth_guard =
+        api::panel_auth::PanelAuthGuard::for_bind(resolves_loopback, &config_manager)?;
+
     // Same-origin /api (panel routes + forwarding) and the static frontend,
     // mirroring the daemon's web face layout.
     let config = Arc::new(config_manager.load_app_config_or_default()?);
     let router = axum::Router::new()
-        .nest("/api", api::panel_router(state))
+        .nest(
+            "/api",
+            api::panel_router(state)
+                .layer(axum::middleware::from_fn_with_state(
+                    auth_guard.clone(),
+                    api::panel_auth::enforce,
+                )),
+        )
         .fallback(web_assets::serve_react_app)
         .layer(axum::middleware::from_fn(
             move |mut request: axum::extract::Request, next: axum::middleware::Next| {
@@ -42,14 +61,17 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
     let url = format!("http://{host}:{port}");
     println!("mcpstore web panel serving on {url}");
-    let settings_path = config_manager
-        .app_config_path()
-        .parent()
-        .map(|dir| dir.join("panel-settings.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("panel-settings.json"));
+    if resolves_loopback {
+        println!("  bind is loopback; no token required, foreign Host headers rejected");
+    } else {
+        println!(
+            "  bind is non-loopback; /api requires the bearer token from {}",
+            api::panel_auth::PanelAuthGuard::token_path(&config_manager).display()
+        );
+    }
     println!(
         "  local daemon: the 'local' entry of {}",
-        settings_path.display()
+        api::panel_settings_path(&config_manager).display()
     );
 
     axum::serve(listener, router).await?;

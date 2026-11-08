@@ -165,18 +165,17 @@ impl McpConnection {
             )),
         };
         if let Err(error) = &result {
-            // The transport layer logs the failure detail; this line exists so
-            // failures can be found by service or instance. Auth outcomes are
-            // a normal login flow, not a connection failure, so they stay out.
-            if matches!(
-                error.code().category(),
-                crate::error::FailureCategory::Connection
-                    | crate::error::FailureCategory::Handshake
-            ) {
+            // Auth outcomes are a normal login flow, not a connection failure,
+            // so they stay out. Everything else logs code + detail: some
+            // failures never reach a transport-level log line (e.g. a child
+            // process dying before handshake), and this is the breadcrumb.
+            if error.code() != crate::error::FailureCode::ConnectionAuthRequired {
                 tracing::warn!(
                     service = %self.name,
                     transport = transport_type,
                     instance_id = %self.instance_id,
+                    code = %error.code(),
+                    error = %error,
                     "connect failed"
                 );
             }

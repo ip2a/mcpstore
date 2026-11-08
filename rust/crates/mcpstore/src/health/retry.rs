@@ -95,6 +95,15 @@ impl MCPStore {
                         Error::new(FailureCode::ServiceNotFound, instance_id.to_string())
                     })?;
                 tracing::warn!(%instance_id, "state record missing; recreating before scheduling recovery");
+                // DesiredState::Running is an inference, not a guess: every
+                // caller of mark_instance_retryable_failure is a connect or
+                // tool-call path, i.e. something just tried to USE the
+                // instance. Recreating as Stopped would reject the recovery
+                // events below (require_running) and strand the failure.
+                // A user-stopped instance never reaches this path on its own:
+                // the supervisor skips health observations unless phase is
+                // Running, and a stopped instance has no state-driven
+                // reconnect — reaching here implies an explicit action.
                 let recreated = ServiceState::new(
                     instance_id,
                     instance.service_name.clone(),

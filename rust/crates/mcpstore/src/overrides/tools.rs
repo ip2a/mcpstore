@@ -8,7 +8,7 @@ pub type ToolOverrideSafetyPolicy = crate::cache::models::ToolOverrideSafetyPoli
 use crate::openapi_runtime::validate_json_schema_value;
 use crate::store::prelude::*;
 
-const TOOL_OVERRIDES_STATE_TYPE: &str = "tool_overrides";
+pub(crate) const TOOL_OVERRIDES_STATE_TYPE: &str = "tool_overrides";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ToolOverridePatch {
