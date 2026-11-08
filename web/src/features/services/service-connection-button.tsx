@@ -62,11 +62,30 @@ export function ServiceConnectionButton({
     )
   }
 
-  if (starting) {
+  if (starting && instanceConnectionBusy) {
+    // A user-initiated connect is in flight — nothing to force.
     return (
       <Button variant={variant} size={size} className={className} disabled>
         <Spinner data-icon="inline-start" />
         {t("connecting")}
+      </Button>
+    )
+  }
+
+  if (starting) {
+    // U2: connecting without a user-initiated request is the daemon-side
+    // retry loop; offer an immediate manual reconnect instead of a disabled
+    // spinner that can outlive the page.
+    return (
+      <Button
+        variant={variant}
+        size={size}
+        className={className}
+        onClick={onConnect}
+        disabled={instanceConnectionBusy}
+      >
+        <ServiceTransitionIcon direction="connect" data-icon="inline-start" />
+        {t("serviceForceReconnect")}
       </Button>
     )
   }
@@ -100,17 +119,19 @@ export function ServiceConnectionButtonForEntry({
   const running = isServiceRunning(service.state)
   const starting = isServiceStarting(service.state, busy, service.instance_id)
   const disconnecting = isServiceDisconnecting(busy, service.instance_id)
-  const pending =
-    starting ||
-    disconnecting ||
-    busy === `connect:${service.instance_id}` ||
-    busy === `disconnect:${service.instance_id}`
+  // Only a user-initiated action on this instance pins the button; a daemon-side
+  // connecting state stays clickable (U2 force reconnect) instead of locking up.
+  const userInitiated =
+    busy === `connect:${service.instance_id}` || busy === `disconnect:${service.instance_id}`
+  const pending = disconnecting || userInitiated
   const label = running
     ? disconnecting
       ? t("disconnecting")
       : t("disconnect")
     : starting
-      ? t("connecting")
+      ? userInitiated
+        ? t("connecting")
+        : t("serviceForceReconnect")
       : t("connect")
 
   return (

@@ -99,7 +99,7 @@ function ServiceMoreActionsDialog({
                 {t("reconnect")}
               </Button>
             </div>
-          ) : connecting ? (
+          ) : service && connecting && busy === `connect:${service.instance_id}` ? (
             <Button variant="outline" disabled>
               <Spinner data-icon="inline-start" />
               {t("connecting")}
@@ -114,7 +114,7 @@ function ServiceMoreActionsDialog({
               }}
             >
               <ServiceTransitionIcon direction="connect" data-icon="inline-start" />
-              {t("connect")}
+              {connecting ? t("serviceForceReconnect") : t("connect")}
             </Button>
           )}
           <div className="grid grid-cols-2 gap-2">
