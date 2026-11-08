@@ -162,7 +162,7 @@ fn legacy_panel_settings_path(manager: &ConfigManager) -> PathBuf {
 /// New home for panel settings: `panel/settings.json`. If a legacy
 /// `panel-settings.json` exists and the new file does not yet, it is moved
 /// into place once so subsequent reads/writes only ever touch the new path.
-fn panel_settings_path(manager: &ConfigManager) -> PathBuf {
+pub(crate) fn panel_settings_path(manager: &ConfigManager) -> PathBuf {
     let new_path = manager
         .app_config_path()
         .parent()
