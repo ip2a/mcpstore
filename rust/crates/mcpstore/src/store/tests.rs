@@ -4955,7 +4955,7 @@ async fn connect_service_times_out_hanging_stdio_startup() {
     std::fs::create_dir_all(&fixture_dir).unwrap();
     let path = fixture_dir.join("mcp.json").to_string_lossy().to_string();
     let app_path = fixture_dir.join("config.toml");
-    std::fs::write(&app_path, "[health_check]\nstartup_timeout = 1\n").unwrap();
+    std::fs::write(&app_path, "[health_check]\nstartup_timeout = 1\nstartup_hard_timeout = 1\n").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
         store: Some(JsonStoreConfig::memory()),

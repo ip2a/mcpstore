@@ -1803,7 +1803,7 @@ async fn panel_language_persists_outside_daemon_config() {
     let raw = manager.load_raw_app_config_value().unwrap();
     assert!(raw.get("ui").is_none());
     let panel: Value =
-        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel-settings.json")).unwrap())
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel/settings.json")).unwrap())
             .unwrap();
     assert_eq!(panel["language"], json!("zh"));
 
@@ -1848,16 +1848,18 @@ async fn panel_settings_write_failure_keeps_config_update_reported() {
     std::fs::create_dir_all(&fixture_dir).unwrap();
     let config_path = fixture_dir.join("mcp.json");
     std::fs::write(&config_path, b"{}").unwrap();
+    let panel_path = fixture_dir.join("panel/settings.json");
+    std::fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
     // The hosts key is present, so load_or_migrate performs no migration
     // write; the failure must come from the settings PUT's own panel save.
     std::fs::write(
-        fixture_dir.join("panel-settings.json"),
+        &panel_path,
         r#"{ "language": "en", "hosts": { "active": "local" } }"#,
     )
     .unwrap();
     // A directory at the temp path makes the second (panel) write fail while
     // the first (daemon config) write already landed.
-    std::fs::create_dir_all(fixture_dir.join("panel-settings.json.tmp")).unwrap();
+    std::fs::create_dir_all(fixture_dir.join("panel/settings.json.tmp")).unwrap();
     let store = MCPStore::setup(Some(config_path.to_str().unwrap())).unwrap();
     let (addr, handle) = spawn_test_api(store).await;
     let client = reqwest::Client::new();
@@ -1878,7 +1880,7 @@ async fn panel_settings_write_failure_keeps_config_update_reported() {
     let raw = manager.load_raw_app_config_value().unwrap();
     assert_eq!(raw["api"]["port"], json!(19999));
     let panel: Value =
-        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel-settings.json")).unwrap())
+        serde_json::from_slice(&std::fs::read(fixture_dir.join("panel/settings.json")).unwrap())
             .unwrap();
     assert_eq!(panel["language"], json!("en"));
 
