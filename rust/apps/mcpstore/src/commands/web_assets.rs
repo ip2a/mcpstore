@@ -112,12 +112,22 @@ fn mime_for_path(path: &str) -> &'static str {
 }
 
 /// SPA static fallback: serve the embedded asset on hit; 404 when a path with an extension misses; otherwise fall back to index.html.
+/// An override dir (MCPSTORE_WEB_ASSETS_DIR) is authoritative for every path,
+/// not just index.html — hashed asset filenames change on each frontend
+/// build, so an old binary's embedded copy can never satisfy them.
 pub async fn serve_react_app(request: axum::extract::Request) -> Response {
     let path = request.uri().path().trim_start_matches('/');
     let asset_path = if path.is_empty() { "index.html" } else { path };
 
-    if has_override_assets() && asset_path == "index.html" {
-        return response_for_asset(asset_path);
+    if let Some(dir) = override_assets_dir() {
+        let served = response_from_dir(&dir, asset_path);
+        if served.status() != StatusCode::NOT_FOUND {
+            return served;
+        }
+        if Path::new(asset_path).extension().is_some() {
+            return served;
+        }
+        return response_from_dir(&dir, "index.html");
     }
 
     if find(asset_path).is_some() {
