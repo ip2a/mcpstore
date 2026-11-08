@@ -21,9 +21,17 @@ fn default_format() -> String {
 /// Export current scope configuration from openkeyv
 pub(super) async fn config_export(
     Query(query): Query<ExportQuery>,
-    State(_state): State<Arc<ApiState>>,
+    State(state): State<Arc<ApiState>>,
 ) -> ApiResult {
-    let config = mcpstore::ScopesConfig::load_or_default();
+    // A broken scopes.toml must fail the export loudly, never export an empty
+    // config that an import could then write back over the user's overrides.
+    let path = state
+        .store
+        .scopes_config_path()
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let config = mcpstore::ScopesConfig::load_if_exists(&path)
+        .map_err(|e| ApiError::internal(format!("Failed to load {}: {}", path.display(), e)))?
+        .unwrap_or_default();
 
     let data = match query.format.as_str() {
         "json" => serde_json::to_value(&config)
@@ -74,8 +82,10 @@ pub(super) async fn config_import(
     };
 
     // Write to file
-    let path = mcpstore::ScopesConfig::default_path()
-        .ok_or_else(|| ApiError::internal("Cannot determine home directory"))?;
+    let path = state
+        .store
+        .scopes_config_path()
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let content = toml::to_string_pretty(&config)
         .map_err(|e| ApiError::internal(e.to_string()))?;
