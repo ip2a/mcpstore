@@ -120,6 +120,8 @@ pub(crate) fn adopt_panel_settings(manager: &ConfigManager) -> Result<(), String
     panel_settings::load_or_migrate(manager).map(|_| ())
 }
 
+pub(crate) use panel_settings::panel_settings_path;
+
 fn host_http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())

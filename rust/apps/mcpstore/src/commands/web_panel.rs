@@ -42,14 +42,26 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
     let url = format!("http://{host}:{port}");
     println!("mcpstore web panel serving on {url}");
-    let settings_path = config_manager
-        .app_config_path()
-        .parent()
-        .map(|dir| dir.join("panel-settings.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("panel-settings.json"));
+    if !tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map(|mut addrs| addrs.all(|addr| addr.ip().is_loopback()))
+        .unwrap_or(true)
+    {
+        // The panel API has no authentication yet (planned runtime phase 2);
+        // binding it to a non-loopback host exposes every endpoint — service
+        // install, tool calls, config import/export, directory browser — to
+        // the network. Fail loud at startup instead of relying on users to
+        // discover this.
+        tracing::warn!(
+            host = %host,
+            port,
+            "panel API is unauthenticated and bound to a non-loopback host; \
+             all endpoints are reachable from the network"
+        );
+    }
     println!(
         "  local daemon: the 'local' entry of {}",
-        settings_path.display()
+        api::panel_settings_path(&config_manager).display()
     );
 
     axum::serve(listener, router).await?;
