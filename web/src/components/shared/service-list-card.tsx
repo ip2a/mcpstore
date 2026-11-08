@@ -30,6 +30,10 @@ export function ServiceListCard({
     service.scope.type === "store" ? "store" : service.scope.agent_id
   const status = deriveServiceDisplayStatus(service.state)
   const connected = status === "connected"
+  // U1: while retrying or failed, surface the last failure reason on the card
+  // instead of an opaque spinner.
+  const failureMessage =
+    status !== "connected" ? (service.state?.failure?.message?.trim() || null) : null
   const statusColorClass =
     status === "connected"
       ? "text-emerald-500"
@@ -110,6 +114,14 @@ export function ServiceListCard({
               {connected && transportLabel ? ` · ${transportLabel}` : null}
             </span>
           </span>
+          {failureMessage ? (
+            <span
+              className="mt-1 line-clamp-2 block text-xs text-destructive/90"
+              title={failureMessage}
+            >
+              {failureMessage}
+            </span>
+          ) : null}
         </span>
       </div>
 

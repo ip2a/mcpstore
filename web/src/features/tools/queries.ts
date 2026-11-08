@@ -22,6 +22,10 @@ export function useInstanceToolsQueries(
     queries: instances.map((instance) => ({
       queryKey: [...queryKeys.instanceTools(instance), filter],
       queryFn: () => listInstanceTools(instance, filter),
+      // U3: tool lists land after connect (and lazy reconnects revive
+      // services outside any UI action); poll slowly so card counts track
+      // without a manual Refresh.
+      refetchInterval: 30_000,
     })),
   })
 }
