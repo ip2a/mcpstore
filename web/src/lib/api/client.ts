@@ -1,6 +1,20 @@
 import { ApiError, type ApiEnvelope, type ScopeRef } from "../api"
 import { getAppApiBase, getApiBase, getSelectedHost } from "./backend"
 
+const PANEL_TOKEN_STORAGE_KEY = "mcpstore.panel.token"
+
+export function getPanelToken(): string {
+  return localStorage.getItem(PANEL_TOKEN_STORAGE_KEY) ?? ""
+}
+
+export function setPanelToken(token: string) {
+  localStorage.setItem(PANEL_TOKEN_STORAGE_KEY, token.trim())
+}
+
+/** Fired when the panel API answers 401 panel_auth_required; PanelTokenGate listens. */
+export const PANEL_AUTH_REQUIRED_EVENT = "mcpstore:panel-auth-required"
+
+
 function apiUrl(path: string) {
   return `${getApiBase()}${path}`
 }
@@ -43,11 +57,16 @@ async function apiFetch(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers)
   const host = getSelectedHost()
   if (host) headers.set("X-MCPStore-Host", host)
+  const token = getPanelToken()
+  if (token) headers.set("Authorization", `Bearer ${token}`)
   return fetch(apiUrl(path), { ...init, headers })
 }
 
 async function appFetch(path: string, init: RequestInit): Promise<Response> {
-  return fetch(`${getAppApiBase()}${path}`, init)
+  const headers = new Headers(init.headers)
+  const token = getPanelToken()
+  if (token) headers.set("Authorization", `Bearer ${token}`)
+  return fetch(`${getAppApiBase()}${path}`, { ...init, headers })
 }
 
 /** Unwraps the one envelope shape the backend produces ({success, data, errors}); non-2xx throws from readJson. */
@@ -68,6 +87,9 @@ async function apiAt<T>(
   }
 
   const response = await fetcher(path, { ...options, headers })
+  if (response.status === 401) {
+    window.dispatchEvent(new CustomEvent(PANEL_AUTH_REQUIRED_EVENT))
+  }
   const payload = await readJson<ApiEnvelope<T>>(response)
   if (!payload.success) {
     throw new ApiError(
