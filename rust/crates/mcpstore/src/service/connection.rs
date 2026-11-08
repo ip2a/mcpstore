@@ -258,7 +258,16 @@ impl MCPStore {
             )
             .await;
 
-        self.ensure_http_oauth_config(instance_id).await?;
+        if let Err(error) = self.ensure_http_oauth_config(instance_id).await {
+            self.kernel
+                .execution
+                .pool
+                .disconnect(instance_id)
+                .await
+                .ok();
+            self.record_failure(instance_id, &error).await?;
+            return Err(error);
+        }
         let instance = self
             .kernel
             .control
@@ -275,16 +284,27 @@ impl MCPStore {
                 .try_into()
                 .unwrap_or(1),
         );
-        let mut transport_config: ServerConfig =
-            serde_json::from_value(serde_json::Value::Object(instance.effective_config.clone()))
-                .map_err(|error| {
-                    Error::new(
-                        FailureCode::Internal,
-                        format!(
+        let mut transport_config: ServerConfig = match serde_json::from_value(
+            serde_json::Value::Object(instance.effective_config.clone()),
+        ) {
+            Ok(config) => config,
+            Err(error) => {
+                let error = Error::new(
+                    FailureCode::Internal,
+                    format!(
                         "Effective config for instance {instance_id} cannot be decoded: {error}"
                     ),
-                    )
-                })?;
+                );
+                self.kernel
+                    .execution
+                    .pool
+                    .disconnect(instance_id)
+                    .await
+                    .ok();
+                self.record_failure(instance_id, &error).await?;
+                return Err(error);
+            }
+        };
         // effective_config strips _mcpstore, but the transport needs the
         // definition-level handshake_mode to pick the right lifecycle mode.
         if let Some(definition) = self
@@ -352,6 +372,10 @@ impl MCPStore {
                 {
                     super::super::health::supervisor::StartupOutcome::Healthy => {}
                     super::super::health::supervisor::StartupOutcome::TimedOut => {
+                        tracing::warn!(
+                            %instance_id,
+                            "startup probe timed out; failing service connect"
+                        );
                         let error = Error::new(
                             FailureCode::ProbeTimedOut,
                             format!("service instance startup probe timed out: {instance_id}"),
