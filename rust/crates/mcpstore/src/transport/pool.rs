@@ -21,7 +21,10 @@ use crate::transport::{
 };
 
 pub struct ConnectionPool {
-    connections: Arc<RwLock<HashMap<InstanceId, McpConnection>>>,
+    /// One mutex per connection: transport-level awaits (connect, disconnect,
+    /// ping) must never serialize unrelated instances. The map lock is only
+    /// held to clone or swap entries, never across an await on a connection.
+    connections: Arc<RwLock<HashMap<InstanceId, Arc<tokio::sync::Mutex<McpConnection>>>>>,
     resource_subscriptions: Arc<RwLock<HashMap<InstanceId, HashSet<String>>>>,
     auth_coordinator: AuthCoordinator,
     registry: ServiceRegistry,
@@ -94,7 +97,38 @@ impl ConnectionPool {
             self.event_bus.clone(),
             Arc::clone(&self.frame_telemetry),
         );
-        self.connections.write().await.insert(instance_id, conn);
+        self.connections
+            .write()
+            .await
+            .insert(instance_id, Arc::new(tokio::sync::Mutex::new(conn)));
+    }
+
+    /// Clone the connection entry without holding the map lock across any
+    /// subsequent await on the connection itself. The map lock is only ever
+    /// held to clone or swap entries, so awaiting it is bounded.
+    async fn connection(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<Arc<tokio::sync::Mutex<McpConnection>>> {
+        self.connection_opt(instance_id)
+            .await
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::NotConnected,
+                    format!("Service instance not found: {instance_id}"),
+                )
+            })
+    }
+
+    async fn connection_opt(
+        &self,
+        instance_id: InstanceId,
+    ) -> Option<Arc<tokio::sync::Mutex<McpConnection>>> {
+        self.connections
+            .read()
+            .await
+            .get(&instance_id)
+            .cloned()
     }
 
     pub async fn connect(&self, instance_id: InstanceId) -> Result<()> {
@@ -107,13 +141,8 @@ impl ConnectionPool {
             .cloned()
             .unwrap_or_default();
         let connected = {
-            let mut conns = self.connections.write().await;
-            let conn = conns.get_mut(&instance_id).ok_or_else(|| {
-                Error::new(
-                    FailureCode::NotConnected,
-                    format!("Service instance not found: {instance_id}"),
-                )
-            })?;
+            let conn = self.connection(instance_id).await?;
+            let mut conn = conn.lock().await;
             if conn.is_connected() {
                 true
             } else {
@@ -129,21 +158,18 @@ impl ConnectionPool {
     }
 
     pub async fn disconnect(&self, instance_id: InstanceId) -> Result<()> {
-        let mut conns = self.connections.write().await;
-        if let Some(conn) = conns.get_mut(&instance_id) {
-            conn.disconnect().await?;
+        if let Some(conn) = self.connection_opt(instance_id).await {
+            conn.lock().await.disconnect().await?;
         }
-        drop(conns);
         self.mark_tasks_disconnected(instance_id, "connection closed")
             .await
     }
 
     pub async fn remove(&self, instance_id: InstanceId) -> Result<()> {
-        let mut conns = self.connections.write().await;
-        if let Some(mut conn) = conns.remove(&instance_id) {
-            conn.disconnect().await.ok();
+        let conn = self.connections.write().await.remove(&instance_id);
+        if let Some(conn) = conn {
+            conn.lock().await.disconnect().await.ok();
         }
-        drop(conns);
         self.mark_tasks_disconnected(instance_id, "connection removed")
             .await
     }
@@ -172,13 +198,8 @@ impl ConnectionPool {
         meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpToolExecutionHandle> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.start_tool_task(tool_name, args, meta, options).await
     }
 
@@ -217,13 +238,8 @@ impl ConnectionPool {
 
     pub async fn get_task(&self, instance_id: InstanceId, task_id: &str) -> Result<McpTask> {
         let task = {
-            let conns = self.connections.read().await;
-            let conn = conns.get(&instance_id).ok_or_else(|| {
-                Error::new(
-                    FailureCode::NotConnected,
-                    format!("Service instance not found: {instance_id}"),
-                )
-            })?;
+            let conn = self.connection(instance_id).await?;
+            let conn = conn.lock().await;
             conn.get_task(task_id).await?
         };
         self.observe_task(instance_id, task.clone(), None).await?;
@@ -236,13 +252,8 @@ impl ConnectionPool {
         task_id: &str,
     ) -> Result<serde_json::Value> {
         let result = {
-            let conns = self.connections.read().await;
-            let conn = conns.get(&instance_id).ok_or_else(|| {
-                Error::new(
-                    FailureCode::NotConnected,
-                    format!("Service instance not found: {instance_id}"),
-                )
-            })?;
+            let conn = self.connection(instance_id).await?;
+            let conn = conn.lock().await;
             conn.get_task_result(task_id).await
         };
         if let Err(error) = &result {
@@ -253,13 +264,8 @@ impl ConnectionPool {
 
     pub async fn cancel_task(&self, instance_id: InstanceId, task_id: &str) -> Result<()> {
         let result = {
-            let conns = self.connections.read().await;
-            let conn = conns.get(&instance_id).ok_or_else(|| {
-                Error::new(
-                    FailureCode::NotConnected,
-                    format!("Service instance not found: {instance_id}"),
-                )
-            })?;
+            let conn = self.connection(instance_id).await?;
+            let conn = conn.lock().await;
             conn.cancel_task(task_id).await
         };
         if let Err(error) = &result {
@@ -287,13 +293,8 @@ impl ConnectionPool {
     }
 
     pub async fn list_tools(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredTool>> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.list_tools().await
     }
 
@@ -302,10 +303,10 @@ impl ConnectionPool {
         instance_id: InstanceId,
         options: crate::transport::McpElicitationSessionOptions,
     ) -> Result<Option<crate::transport::McpElicitationSession>> {
-        let conns = self.connections.read().await;
-        let Some(conn) = conns.get(&instance_id) else {
+        let Some(conn) = self.connection_opt(instance_id).await else {
             return Ok(None);
         };
+        let conn = conn.lock().await;
         conn.open_elicitation_session(options).map(Some)
     }
 
@@ -317,13 +318,8 @@ impl ConnectionPool {
         meta: Option<rmcp::model::RequestMetaObject>,
         options: McpExecutionOptions,
     ) -> Result<McpToolExecutionHandle> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.start_tool_call(tool_name, args, meta, options).await
     }
 
@@ -354,13 +350,8 @@ impl ConnectionPool {
     }
 
     pub async fn list_resources(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredResource>> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.list_resources().await
     }
 
@@ -368,13 +359,8 @@ impl ConnectionPool {
         &self,
         instance_id: InstanceId,
     ) -> Result<Vec<DiscoveredResourceTemplate>> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.list_resource_templates().await
     }
 
@@ -383,24 +369,14 @@ impl ConnectionPool {
         instance_id: InstanceId,
         uri: &str,
     ) -> Result<serde_json::Value> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.read_resource(uri).await
     }
 
     pub async fn list_prompts(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredPrompt>> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.list_prompts().await
     }
 
@@ -410,13 +386,8 @@ impl ConnectionPool {
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.get_prompt(prompt_name, arguments).await
     }
 
@@ -424,10 +395,10 @@ impl ConnectionPool {
         &self,
         instance_id: InstanceId,
     ) -> Result<Option<McpServerMetadata>> {
-        let conns = self.connections.read().await;
-        let Some(conn) = conns.get(&instance_id) else {
+        let Some(conn) = self.connection_opt(instance_id).await else {
             return Ok(None);
         };
+        let conn = conn.lock().await;
         if !conn.is_connected() {
             return Ok(None);
         }
@@ -439,13 +410,8 @@ impl ConnectionPool {
         instance_id: InstanceId,
         request: McpCompletionRequest,
     ) -> Result<McpCompletion> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
         conn.complete(request).await
     }
 
@@ -456,13 +422,8 @@ impl ConnectionPool {
             uris.insert(uri.to_string());
             uris.clone()
         };
-        let mut conns = self.connections.write().await;
-        let conn = conns.get_mut(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let mut conn = conn.lock().await;
         conn.refresh_subscription(&subscriptions).await
     }
 
@@ -479,33 +440,35 @@ impl ConnectionPool {
             }
             remaining
         };
-        let mut conns = self.connections.write().await;
-        let conn = conns.get_mut(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
+        let conn = self.connection(instance_id).await?;
+        let mut conn = conn.lock().await;
         conn.refresh_subscription(&subscriptions).await
     }
 
     pub async fn ping(&self, instance_id: InstanceId, timeout: std::time::Duration) -> Result<()> {
-        let conns = self.connections.read().await;
-        let conn = conns.get(&instance_id).ok_or_else(|| {
-            Error::new(
-                FailureCode::NotConnected,
-                format!("Service instance not found: {instance_id}"),
-            )
-        })?;
-        conn.ping(timeout).await
+        self.ping_elapsed(instance_id, timeout).await.map(|_| ())
+    }
+
+    /// Ping with the latency measured at the transport request itself:
+    /// waiting for the connection mutex (e.g. behind a slow tool call) is
+    /// queueing, not server latency, and must not pollute health windows.
+    pub async fn ping_elapsed(
+        &self,
+        instance_id: InstanceId,
+        timeout: std::time::Duration,
+    ) -> Result<std::time::Duration> {
+        let conn = self.connection(instance_id).await?;
+        let conn = conn.lock().await;
+        let started = std::time::Instant::now();
+        conn.ping(timeout).await?;
+        Ok(started.elapsed())
     }
 
     pub async fn is_connected(&self, instance_id: InstanceId) -> bool {
-        let conns = self.connections.read().await;
-        conns
-            .get(&instance_id)
-            .map(McpConnection::is_connected)
-            .unwrap_or(false)
+        match self.connection_opt(instance_id).await {
+            Some(conn) => conn.lock().await.is_connected(),
+            None => false,
+        }
     }
 
     pub(crate) async fn observe_tool_task(
