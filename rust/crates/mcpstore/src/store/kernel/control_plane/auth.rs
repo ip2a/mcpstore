@@ -506,8 +506,19 @@ impl ControlPlane {
             return Ok(());
         }
 
-        Err(Error::from(crate::auth::AuthError::InvalidConfig(
+        // No auth context: nothing is configured yet, so the connect path must
+        // record this as a plain retryable failure (auth stays NotRequired) —
+        // a login flow cannot start until the user configures OAuth credentials.
+        tracing::warn!(
+            target: "mcpstore::control_plane::auth",
+            service = %instance.service_name,
+            instance_id = %instance_id,
+            url,
+            "http endpoint requires OAuth; failing connect until auth is configured"
+        );
+        Err(Error::new(
+            FailureCode::ConnectionAuthRequired,
             "OAuth is required; configure auth.client_id or auth.client_metadata_url".to_string(),
-        )))
+        ))
     }
 }
