@@ -112,17 +112,16 @@ impl ScopesConfig {
         dirs::home_dir().map(|home| home.join(".mcpstore").join("scopes.toml"))
     }
 
-    /// Load from default path if exists, otherwise empty config
-    pub fn load_or_default() -> Self {
-        Self::default_path()
-            .and_then(|path| {
-                if path.exists() {
-                    Self::load_from_file(path).ok()
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default()
+    /// Load from an explicit path. `Ok(None)` when the file does not exist;
+    /// parse and IO errors propagate — a broken scopes.toml is never silently
+    /// treated as an empty config.
+    pub fn load_if_exists(path: impl AsRef<Path>) -> Result<Option<Self>, ScopesConfigError> {
+        let path = path.as_ref();
+        match std::fs::read_to_string(path) {
+            Ok(content) => Self::parse_toml(&content).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(ScopesConfigError::IoError(path.to_path_buf(), error)),
+        }
     }
 }
 

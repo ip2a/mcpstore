@@ -4,9 +4,39 @@ use crate::cache::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
 impl MCPStore {
+    /// scopes.toml lives beside the resolved mcp.json: one data-dir authority,
+    /// so a config-path override moves scopes.toml with the rest of the data.
+    pub fn scopes_config_path(&self) -> Result<std::path::PathBuf> {
+        self.config_manager()
+            .mcp_path()
+            .parent()
+            .map(|dir| dir.join("scopes.toml"))
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::ConfigInvalid,
+                    "cannot resolve data directory from mcp.json path",
+                )
+            })
+    }
+
     /// Load scopes.toml and populate openkeyv with overrides
     pub async fn load_scopes_config(&self) -> Result<()> {
-        let config = ScopesConfig::load_or_default();
+        let path = self.scopes_config_path()?;
+        // A broken scopes.toml fails loudly here; it must never silently
+        // behave as an empty config.
+        //
+        // KNOWN LIMITATION (reconcile): loading is additive — sections removed
+        // from scopes.toml stay live until the override is deleted via the
+        // API. Prompt/resource overrides have no delete path yet, so a full
+        // wipe-and-replay on reload is unsafe; revisit when delete APIs exist.
+        let config = ScopesConfig::load_if_exists(&path)
+            .map_err(|error| {
+                Error::new(
+                    FailureCode::ConfigInvalid,
+                    format!("failed to load {}: {error}", path.display()),
+                )
+            })?
+            .unwrap_or_default();
 
         // Load store scope
         for (service_name, service_cfg) in &config.store.services {
@@ -45,9 +75,31 @@ impl MCPStore {
             }
         };
 
-        // Apply tool policy (if specified)
+        // Overrides and policy resolve against the instance's synced tool list,
+        // which only exists after a first connect. Skipping a never-connected
+        // instance keeps boot alive when scopes.toml references stopped
+        // services; /config/reload after connecting reapplies everything. A
+        // named tool missing from a connected instance stays a loud error.
+        let instance = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await;
+        if instance.as_ref().is_some_and(|instance| instance.tools.is_empty()) {
+            tracing::info!(
+                "Service '{}' in scope {:?} has no synced tools yet (not connected); \
+                 skipping scopes.toml entries until connect + /config/reload",
+                service_name,
+                scope
+            );
+            return Ok(());
+        }
+
+        // Apply tool policy through the same enforcement path the panel API
+        // uses (context tool visibility), not a separate store.
         if let Some(ref policy) = cfg.tools.policy {
-            self.set_instance_tool_policy_internal(instance_id, policy.clone())
+            self.set_context_tool_visibility(instance_id, policy.clone())
                 .await?;
         }
 
@@ -168,17 +220,5 @@ impl MCPStore {
         }
 
         patch
-    }
-
-    async fn set_instance_tool_policy_internal(&self, instance_id: InstanceId, policy: Vec<String>) -> Result<()> {
-        // Store tool policy in openkeyv
-        // Assuming there's a set_instance_tool_policy method or similar
-        // If not, we need to add it or use existing set_tool_policy APIs
-        let key = format!("tool_policy::{}", instance_id);
-        self.kernel.persistence.cache.put_state(
-            "tool_policies",
-            &key,
-            serde_json::json!(policy),
-        ).await.map_err(Error::from)
     }
 }
