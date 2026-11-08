@@ -31,6 +31,7 @@ mod envelope;
 mod filesystem;
 mod hosts;
 mod openapi;
+pub(crate) mod panel_auth;
 mod panel_settings;
 mod parse;
 mod plugins;
@@ -119,6 +120,8 @@ pub(crate) fn adopt_panel_settings(manager: &ConfigManager) -> Result<(), String
     let _persistence = panel_settings::persistence_lock();
     panel_settings::load_or_migrate(manager).map(|_| ())
 }
+
+pub(crate) use panel_settings::panel_settings_path;
 
 fn host_http_client() -> reqwest::Client {
     reqwest::Client::builder()

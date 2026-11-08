@@ -47,3 +47,39 @@ fn test_scopes_config_empty() {
     assert!(config.store.services.is_empty());
     assert!(config.agents.is_empty());
 }
+
+#[test]
+fn load_if_exists_missing_file_is_none() {
+    let path = std::env::temp_dir().join(format!(
+        "mcpstore-scopes-missing-{}-{}.toml",
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_file(&path);
+    assert!(ScopesConfig::load_if_exists(&path).unwrap().is_none());
+}
+
+#[test]
+fn load_if_exists_parse_error_is_loud() {
+    let path = std::env::temp_dir().join(format!(
+        "mcpstore-scopes-broken-{}-{}.toml",
+        std::process::id(),
+        line!()
+    ));
+    std::fs::write(&path, "[store.services\nbroken ===").unwrap();
+    assert!(ScopesConfig::load_if_exists(&path).is_err());
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn load_if_exists_valid_file_is_some() {
+    let path = std::env::temp_dir().join(format!(
+        "mcpstore-scopes-valid-{}-{}.toml",
+        std::process::id(),
+        line!()
+    ));
+    std::fs::write(&path, "[store.services.github]\nenabled = true").unwrap();
+    let config = ScopesConfig::load_if_exists(&path).unwrap().unwrap();
+    assert!(config.store.services.contains_key("github"));
+    let _ = std::fs::remove_file(&path);
+}

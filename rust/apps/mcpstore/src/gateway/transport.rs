@@ -207,10 +207,14 @@ async fn relax_stateless_contract(
                 Some((json, echo_version)) => {
                     // rmcp rejects `_meta.protocolVersion` without a matching
                     // `MCP-Protocol-Version` header; echo one only when the
-                    // caller sent none (an existing header is never rewritten).
+                    // caller sent none (an existing header is never rewritten
+                    // — a caller whose header and _meta disagree fails loudly
+                    // in dispatch instead of being silently "fixed").
                     if let Some(version) = echo_version {
-                        if let Ok(value) = axum::http::HeaderValue::from_str(&version) {
-                            parts.headers.insert("MCP-Protocol-Version", value);
+                        if !parts.headers.contains_key("MCP-Protocol-Version") {
+                            if let Ok(value) = axum::http::HeaderValue::from_str(&version) {
+                                parts.headers.insert("MCP-Protocol-Version", value);
+                            }
                         }
                     }
                     json

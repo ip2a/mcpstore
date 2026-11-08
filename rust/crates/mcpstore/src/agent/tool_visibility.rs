@@ -6,7 +6,7 @@ use crate::cache::models::{
 use crate::cache::CacheError;
 use crate::store::prelude::*;
 
-const CONTEXT_TOOL_VISIBILITY_STATE_TYPE: &str = "context_tool_visibility";
+pub(crate) const CONTEXT_TOOL_VISIBILITY_STATE_TYPE: &str = "context_tool_visibility";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolVisibilityFilter {
@@ -107,7 +107,7 @@ impl MCPStore {
         }
     }
 
-    fn build_tool_visibility_context_key(scope: &ScopeRef) -> Result<String> {
+    pub(crate) fn build_tool_visibility_context_key(scope: &ScopeRef) -> Result<String> {
         match scope {
             ScopeRef::Store => Self::build_session_context_key(&SessionScope::Store, None),
             ScopeRef::Agent { agent_id } => {

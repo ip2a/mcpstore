@@ -4,7 +4,7 @@ use crate::overrides::{
 use crate::store::prelude::*;
 use serde::{Deserialize, Serialize};
 
-const RESOURCE_OVERRIDES_STATE_TYPE: &str = "resource_overrides";
+pub(crate) const RESOURCE_OVERRIDES_STATE_TYPE: &str = "resource_overrides";
 const RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE: &str = "resource_template_overrides";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

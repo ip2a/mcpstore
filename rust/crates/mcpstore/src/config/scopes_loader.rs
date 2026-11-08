@@ -3,14 +3,70 @@ use crate::overrides::{ToolOverridePatch, PromptOverridePatch, ResourceOverrideP
 use crate::cache::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
-impl MCPStore {
-    /// Load scopes.toml and populate openkeyv with overrides
-    pub async fn load_scopes_config(&self) -> Result<()> {
-        let config = ScopesConfig::load_or_default();
+const APPLIED_JOURNAL_STATE_TYPE: &str = "scopes_loader";
+const APPLIED_JOURNAL_KEY: &str = "applied";
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct AppliedJournal {
+    #[serde(default)]
+    entries: Vec<(String, String)>,
+}
+
+impl MCPStore {
+    /// scopes.toml lives beside the resolved mcp.json: one data-dir authority,
+    /// so a config-path override moves scopes.toml with the rest of the data.
+    pub fn scopes_config_path(&self) -> Result<std::path::PathBuf> {
+        self.config_manager()
+            .mcp_path()
+            .parent()
+            .map(|dir| dir.join("scopes.toml"))
+            .ok_or_else(|| {
+                Error::new(
+                    FailureCode::ConfigInvalid,
+                    "cannot resolve data directory from mcp.json path",
+                )
+            })
+    }
+
+    /// Load scopes.toml and populate openkeyv with overrides.
+    ///
+    /// A broken scopes.toml fails loudly here; it must never silently behave
+    /// as an empty config.
+    ///
+    /// Reconcile: every override this loader writes is journaled by its exact
+    /// state key. On the next load, journaled entries the file no longer
+    /// declares are deleted — removing a section from scopes.toml actually
+    /// removes the override on reload or restart. Deletes are raw KV removals
+    /// (no registry lookups), so entries for uninstalled services clean up
+    /// too. Panel-made overrides never enter the journal and are never
+    /// touched by reconciliation.
+    pub async fn load_scopes_config(&self) -> Result<()> {
+        let path = self.scopes_config_path()?;
+        let config = ScopesConfig::load_if_exists(&path)
+            .map_err(|error| {
+                Error::new(
+                    FailureCode::ConfigInvalid,
+                    format!("failed to load {}: {error}", path.display()),
+                )
+            })?
+            .unwrap_or_default();
+
+        // put_state only accepts object values, so the journal is wrapped;
+        // a malformed/legacy shape degrades to "nothing previously applied".
+        let previous: Vec<(String, String)> = self
+            .kernel
+            .persistence
+            .cache
+            .get_state(APPLIED_JOURNAL_STATE_TYPE, APPLIED_JOURNAL_KEY)
+            .await?
+            .and_then(|value| serde_json::from_value::<AppliedJournal>(value).ok())
+            .map(|journal| journal.entries)
+            .unwrap_or_default();
+
+        let mut applied: Vec<(String, String)> = Vec::new();
         // Load store scope
         for (service_name, service_cfg) in &config.store.services {
-            self.apply_service_scope_config(service_name, &ScopeRef::Store, service_cfg)
+            self.apply_service_scope_config(service_name, &ScopeRef::Store, service_cfg, &mut applied)
                 .await?;
         }
 
@@ -18,11 +74,33 @@ impl MCPStore {
         for (agent_id, agent_cfg) in &config.agents {
             for (service_name, service_cfg) in &agent_cfg.services {
                 let scope = ScopeRef::Agent { agent_id: agent_id.clone() };
-                self.apply_service_scope_config(service_name, &scope, service_cfg)
+                self.apply_service_scope_config(service_name, &scope, service_cfg, &mut applied)
                     .await?;
             }
         }
 
+        for entry in &previous {
+            if !applied.contains(entry) {
+                if let Err(error) = self
+                    .kernel
+                    .persistence
+                    .cache
+                    .delete_state(&entry.0, &entry.1)
+                    .await
+                {
+                    tracing::warn!("failed to delete stale scopes.toml override {entry:?}: {error}");
+                }
+            }
+        }
+        self.kernel
+            .persistence
+            .cache
+            .put_state(
+                APPLIED_JOURNAL_STATE_TYPE,
+                APPLIED_JOURNAL_KEY,
+                serde_json::json!({ "entries": applied }),
+            )
+            .await?;
         Ok(())
     }
 
@@ -31,6 +109,7 @@ impl MCPStore {
         service_name: &str,
         scope: &ScopeRef,
         cfg: &crate::config::ServiceScopeConfig,
+        applied: &mut Vec<(String, String)>,
     ) -> Result<()> {
         // Resolve instance_id for this service in this scope
         let instance_id = match self.instance_id_for_scope(service_name, scope).await {
@@ -45,31 +124,71 @@ impl MCPStore {
             }
         };
 
-        // Apply tool policy (if specified)
+        // Overrides and policy resolve against the instance's synced tool list,
+        // which only exists after a first connect. Skipping a never-connected
+        // instance keeps boot alive when scopes.toml references stopped
+        // services; /config/reload after connecting reapplies everything. A
+        // named tool missing from a connected instance stays a loud error.
+        let instance = self
+            .kernel
+            .control
+            .registry
+            .find_instance(instance_id)
+            .await;
+        if instance.as_ref().is_some_and(|instance| instance.tools.is_empty()) {
+            tracing::info!(
+                "Service '{}' in scope {:?} has no synced tools yet (not connected); \
+                 skipping scopes.toml entries until connect + /config/reload",
+                service_name,
+                scope
+            );
+            return Ok(());
+        }
+
+        // Apply tool policy through the same enforcement path the panel API
+        // uses (context tool visibility), not a separate store.
         if let Some(ref policy) = cfg.tools.policy {
-            self.set_instance_tool_policy_internal(instance_id, policy.clone())
+            self.set_context_tool_visibility(instance_id, policy.clone())
                 .await?;
+            let context_key = Self::build_tool_visibility_context_key(scope)?;
+            applied.push((
+                crate::agent::tool_visibility::CONTEXT_TOOL_VISIBILITY_STATE_TYPE.to_string(),
+                format!("{context_key}:{instance_id}"),
+            ));
         }
 
         // Apply tool overrides
         for (tool_name, override_cfg) in &cfg.tools.overrides {
             let patch = self.config_override_to_tool_patch(override_cfg);
-            self.set_tool_override(instance_id, tool_name, patch)
-                .await?;
+            let rule = self.set_tool_override(instance_id, tool_name, patch).await?;
+            applied.push((
+                crate::overrides::tools::TOOL_OVERRIDES_STATE_TYPE.to_string(),
+                Self::component_override_key(rule.instance_id, &rule.tool_name),
+            ));
         }
 
         // Apply prompt overrides
         for (prompt_name, override_cfg) in &cfg.prompts.overrides {
             let patch = self.config_override_to_prompt_patch(override_cfg);
-            self.set_prompt_override(instance_id, prompt_name, patch)
+            let rule = self
+                .set_prompt_override(instance_id, prompt_name, patch)
                 .await?;
+            applied.push((
+                crate::overrides::prompts::PROMPT_OVERRIDES_STATE_TYPE.to_string(),
+                Self::component_override_key(rule.instance_id, &rule.prompt_name),
+            ));
         }
 
         // Apply resource overrides
         for (resource_uri, override_cfg) in &cfg.resources.overrides {
             let patch = self.config_override_to_resource_patch(override_cfg);
-            self.set_resource_override(instance_id, resource_uri, patch)
+            let rule = self
+                .set_resource_override(instance_id, resource_uri, patch)
                 .await?;
+            applied.push((
+                crate::overrides::resources::RESOURCE_OVERRIDES_STATE_TYPE.to_string(),
+                Self::component_override_key(rule.instance_id, &rule.uri),
+            ));
         }
 
         Ok(())
@@ -169,16 +288,32 @@ impl MCPStore {
 
         patch
     }
+}
 
-    async fn set_instance_tool_policy_internal(&self, instance_id: InstanceId, policy: Vec<String>) -> Result<()> {
-        // Store tool policy in openkeyv
-        // Assuming there's a set_instance_tool_policy method or similar
-        // If not, we need to add it or use existing set_tool_policy APIs
-        let key = format!("tool_policy::{}", instance_id);
-        self.kernel.persistence.cache.put_state(
-            "tool_policies",
-            &key,
-            serde_json::json!(policy),
-        ).await.map_err(Error::from)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The journal lives behind put_state, which rejects non-object values.
+    /// Pin the object shape so a future edit can't silently flip it to a bare
+    /// array and break every reconcile (reads would degrade to empty).
+    #[test]
+    fn journal_round_trips_through_object_value() {
+        let journal = AppliedJournal {
+            entries: vec![
+                ("tool_overrides".to_string(), "inst-1:orig_tool".to_string()),
+                (
+                    "context_tool_visibility".to_string(),
+                    "store:inst-1".to_string(),
+                ),
+            ],
+        };
+        let value = serde_json::to_value(&journal).unwrap();
+        assert!(value.is_object(), "put_state rejects non-object values");
+        let restored: AppliedJournal = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.entries, journal.entries);
+        // Missing entries field (hand-edited file) degrades to empty, not error.
+        let empty: AppliedJournal = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(empty.entries.is_empty());
     }
 }
