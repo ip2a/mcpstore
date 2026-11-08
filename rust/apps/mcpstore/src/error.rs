@@ -65,6 +65,7 @@ pub fn exit_code(code: FailureCode) -> i32 {
         Code::AuthFailed => 70,
         Code::OauthProviderFailed => 71,
         Code::SecureStorageUnavailable => 72,
+        Code::PanelAuthRequired => 73,
         Code::SessionNotFound => 80,
         Code::SessionNotActive => 81,
         Code::ServiceUnavailable => 90,

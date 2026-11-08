@@ -23,11 +23,30 @@ pub async fn run(
 
     api::adopt_panel_settings(&config_manager)?;
     let state = Arc::new(api::PanelState::new(Arc::clone(&config_manager)));
+
+    // Bind shape decides the guard before anything is served: non-loopback
+    // binds enforce bearer-token auth on /api, loopback binds reject foreign
+    // Host headers (DNS rebinding). A bind address that fails to resolve
+    // counts as non-loopback — auth on, fail loud.
+    let resolves_loopback = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map(|mut addrs| addrs.all(|addr| addr.ip().is_loopback()))
+        .unwrap_or(false);
+    let auth_guard =
+        api::panel_auth::PanelAuthGuard::for_bind(resolves_loopback, &config_manager)?;
+
     // Same-origin /api (panel routes + forwarding) and the static frontend,
     // mirroring the daemon's web face layout.
     let config = Arc::new(config_manager.load_app_config_or_default()?);
     let router = axum::Router::new()
-        .nest("/api", api::panel_router(state))
+        .nest(
+            "/api",
+            api::panel_router(state)
+                .layer(axum::middleware::from_fn_with_state(
+                    auth_guard.clone(),
+                    api::panel_auth::enforce,
+                )),
+        )
         .fallback(web_assets::serve_react_app)
         .layer(axum::middleware::from_fn(
             move |mut request: axum::extract::Request, next: axum::middleware::Next| {
@@ -42,21 +61,12 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
     let url = format!("http://{host}:{port}");
     println!("mcpstore web panel serving on {url}");
-    if !tokio::net::lookup_host((host.as_str(), port))
-        .await
-        .map(|mut addrs| addrs.all(|addr| addr.ip().is_loopback()))
-        .unwrap_or(true)
-    {
-        // The panel API has no authentication yet (planned runtime phase 2);
-        // binding it to a non-loopback host exposes every endpoint — service
-        // install, tool calls, config import/export, directory browser — to
-        // the network. Fail loud at startup instead of relying on users to
-        // discover this.
-        tracing::warn!(
-            host = %host,
-            port,
-            "panel API is unauthenticated and bound to a non-loopback host; \
-             all endpoints are reachable from the network"
+    if resolves_loopback {
+        println!("  bind is loopback; no token required, foreign Host headers rejected");
+    } else {
+        println!(
+            "  bind is non-loopback; /api requires the bearer token from {}",
+            api::panel_auth::PanelAuthGuard::token_path(&config_manager).display()
         );
     }
     println!(

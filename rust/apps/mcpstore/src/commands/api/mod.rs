@@ -31,6 +31,7 @@ mod envelope;
 mod filesystem;
 mod hosts;
 mod openapi;
+pub(crate) mod panel_auth;
 mod panel_settings;
 mod parse;
 mod plugins;

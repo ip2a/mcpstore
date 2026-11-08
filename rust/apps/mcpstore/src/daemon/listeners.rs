@@ -105,6 +105,16 @@ impl ListenerManager {
             }
         }
         let router = build_router(key, state).await?;
+        if !bind.ip().is_loopback() {
+            // One warn at the single bind choke point covers startup and hot
+            // rebind; the core API has no authentication (auth is planned for
+            // the runtime phase), so a non-loopback bind is an explicit
+            // exposure decision the operator must see.
+            tracing::warn!(
+                "[DAEMON] {} face bound to non-loopback {bind}; the core API has no authentication and is reachable from the network",
+                key.name()
+            );
+        }
         let listener = tokio::net::TcpListener::bind(bind).await.map_err(|error| {
             Error::new(
                 FailureCode::ServiceUnavailable,
