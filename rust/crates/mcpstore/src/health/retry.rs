@@ -77,13 +77,61 @@ impl MCPStore {
     ) -> Result<ServiceState> {
         let now = Self::now_timestamp();
         let now_f64 = now as f64;
-        let current = self
-            .kernel
-            .control
-            .state
-            .get(instance_id)
-            .await?
-            .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+        let current = match self.kernel.control.state.get(instance_id).await? {
+            Some(current) => current,
+            None => {
+                // The registry still owns this instance (callers gate on
+                // find_instance), but its state record vanished (cache
+                // eviction / reload race). Recreate it instead of dropping
+                // the failure on the floor — a missing record here used to
+                // strand services in phase=Starting with recovery Idle.
+                let instance = self
+                    .kernel
+                    .control
+                    .registry
+                    .find_instance(instance_id)
+                    .await
+                    .ok_or_else(|| {
+                        Error::new(FailureCode::ServiceNotFound, instance_id.to_string())
+                    })?;
+                tracing::warn!(%instance_id, "state record missing; recreating before scheduling recovery");
+                let recreated = ServiceState::new(
+                    instance_id,
+                    instance.service_name.clone(),
+                    instance.scope.clone(),
+                    crate::state::DesiredState::Running,
+                    crate::state::AuthState::NotRequired,
+                    instance.added_time,
+                );
+                self.kernel.control.state.create(recreated).await?;
+                self.kernel
+                    .control
+                    .state
+                    .dispatch(
+                        instance_id,
+                        ServiceStateEvent::StartRequested,
+                        now,
+                    )
+                    .await?;
+                self.kernel
+                    .control
+                    .state
+                    .dispatch(
+                        instance_id,
+                        ServiceStateEvent::TransportConnected,
+                        now,
+                    )
+                    .await?;
+                self.kernel
+                    .control
+                    .state
+                    .get(instance_id)
+                    .await?
+                    .ok_or_else(|| {
+                        Error::new(FailureCode::ServiceNotFound, instance_id.to_string())
+                    })?
+            }
+        };
         let attempts = match current.recovery {
             RecoveryState::Waiting { attempt, .. }
             | RecoveryState::Probing { attempt, .. }

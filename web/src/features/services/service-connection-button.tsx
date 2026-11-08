@@ -62,11 +62,30 @@ export function ServiceConnectionButton({
     )
   }
 
-  if (starting) {
+  if (starting && instanceConnectionBusy) {
+    // A user-initiated connect is in flight — nothing to force.
     return (
       <Button variant={variant} size={size} className={className} disabled>
         <Spinner data-icon="inline-start" />
         {t("connecting")}
+      </Button>
+    )
+  }
+
+  if (starting) {
+    // U2: connecting without a user-initiated request is the daemon-side
+    // retry loop; offer an immediate manual reconnect instead of a disabled
+    // spinner that can outlive the page.
+    return (
+      <Button
+        variant={variant}
+        size={size}
+        className={className}
+        onClick={onConnect}
+        disabled={instanceConnectionBusy}
+      >
+        <ServiceTransitionIcon direction="connect" data-icon="inline-start" />
+        {t("serviceForceReconnect")}
       </Button>
     )
   }

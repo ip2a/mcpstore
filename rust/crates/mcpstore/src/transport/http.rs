@@ -33,6 +33,12 @@ fn connect_failed(
     })
 }
 
+/// Bound the TCP/TLS phase of every HTTP request during a connect. Without
+/// this a remote that black-holes connections (firewall drop, DNS half-answer)
+/// holds the transport open for the OS-level timeout (~75s on macOS) and the
+/// detached request task outlives the daemon's own connect timeout.
+const HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(super) async fn connect(
     instance_id: InstanceId,
     name: &str,
@@ -79,7 +85,19 @@ pub(super) async fn connect(
         .custom_headers(custom_headers);
 
     if server_config.auth.is_none() {
-        let transport = StreamableHttpClientTransport::from_config(transport_config);
+        let http_client = reqwest::Client::builder()
+            .connect_timeout(HTTP_CONNECT_TIMEOUT)
+            .build()
+            .map_err(|error| {
+                connect_failed(
+                    instance_id,
+                    name,
+                    url,
+                    FailureCode::Internal,
+                    format!("HTTP client initialization failed: {error}"),
+                )
+            })?;
+        let transport = StreamableHttpClientTransport::with_client(http_client, transport_config);
         let transport = TelemetryTransport::wrap(
             transport,
             frame_telemetry,
@@ -121,15 +139,18 @@ pub(super) async fn connect(
                 format!("OAuth preparation failed for service {name}: {other}"),
             ),
         })?;
-    let http_client = reqwest::Client::builder().build().map_err(|error| {
-        connect_failed(
-            instance_id,
-            name,
-            url,
-            FailureCode::Internal,
-            format!("HTTP client initialization failed: {error}"),
-        )
-    })?;
+    let http_client = reqwest::Client::builder()
+        .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .build()
+        .map_err(|error| {
+            connect_failed(
+                instance_id,
+                name,
+                url,
+                FailureCode::Internal,
+                format!("HTTP client initialization failed: {error}"),
+            )
+        })?;
     let oauth_client = McpStoreOAuthClient::new(
         http_client,
         authorization_manager,

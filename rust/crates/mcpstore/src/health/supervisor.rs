@@ -71,24 +71,22 @@ impl InstanceSupervisor {
             if now_f64() >= hard_deadline {
                 return StartupOutcome::TimedOut;
             }
-            let started_at = std::time::Instant::now();
-            let succeeded = runner
+            let outcome = runner
                 .run_probe(instance_id, ProbeKind::Startup, timeout)
-                .await
-                .is_ok();
+                .await;
             let committed = self
                 .observe_and_commit(
                     instance_id,
                     HealthObservation {
                         observed_at: now_f64(),
                         kind: ObservationKind::Startup,
-                        succeeded,
-                        latency_ms: Some(started_at.elapsed().as_secs_f64() * 1000.0),
+                        succeeded: outcome.succeeded,
+                        latency_ms: Some(outcome.latency_ms()),
                     },
                 )
                 .await
                 .is_some();
-            if !half_open && succeeded && committed {
+            if !half_open && outcome.succeeded && committed {
                 return StartupOutcome::Healthy;
             }
             if half_open {
@@ -96,7 +94,7 @@ impl InstanceSupervisor {
                 let Some(monitor) = monitors.get_mut(&instance_id) else {
                     return StartupOutcome::TimedOut;
                 };
-                let recovered = monitor.record_half_open_probe(succeeded && committed);
+                let recovered = monitor.record_half_open_probe(outcome.succeeded && committed);
                 let exhausted = monitor.half_open_calls_exhausted();
                 drop(monitors);
                 if recovered {
@@ -156,19 +154,17 @@ impl InstanceSupervisor {
                 if state.phase != RuntimePhase::Running {
                     continue;
                 }
-                let started_at = std::time::Instant::now();
-                let succeeded = runner
+                let outcome = runner
                     .run_probe(instance_id, ProbeKind::Liveness, timeout)
-                    .await
-                    .is_ok();
+                    .await;
                 supervisor
                     .observe_and_commit(
                         instance_id,
                         HealthObservation {
                             observed_at: now_f64(),
                             kind: ObservationKind::Liveness,
-                            succeeded,
-                            latency_ms: Some(started_at.elapsed().as_secs_f64() * 1000.0),
+                            succeeded: outcome.succeeded,
+                            latency_ms: Some(outcome.latency_ms()),
                         },
                     )
                     .await;
@@ -220,6 +216,20 @@ impl InstanceSupervisor {
         instance_id: InstanceId,
         observation: HealthObservation,
     ) -> Option<HealthAssessment> {
+        // A probe of a service not yet Running (or already torn down) has no
+        // valid transition to record; committing it would spam the log and the
+        // connect path owns that lifecycle stage anyway.
+        let phase = self
+            .state_manager
+            .get(instance_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|state| state.phase);
+        if phase != Some(RuntimePhase::Running) {
+            tracing::debug!(%instance_id, ?phase, "skipping health observation; instance not Running");
+            return None;
+        }
         self.register(instance_id).await;
         let assessment = self
             .monitors
@@ -246,7 +256,7 @@ impl InstanceSupervisor {
             }),
         };
         if let Err(error) = self.state_manager.dispatch(instance_id, event, now).await {
-            tracing::error!(%instance_id, %error, "failed to persist health observation");
+            tracing::warn!(%instance_id, %error, "failed to persist health observation");
             return None;
         }
 
@@ -352,8 +362,11 @@ mod tests {
             _instance_id: InstanceId,
             _kind: ProbeKind,
             _timeout: std::time::Duration,
-        ) -> crate::error::Result<()> {
-            Ok(())
+        ) -> crate::health::probes::ProbeOutcome {
+            crate::health::probes::ProbeOutcome {
+                succeeded: true,
+                latency: std::time::Duration::from_millis(1),
+            }
         }
     }
 

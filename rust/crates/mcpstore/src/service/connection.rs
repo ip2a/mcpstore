@@ -271,7 +271,7 @@ impl MCPStore {
             self.kernel
                 .runtime
                 .runtime_config
-                .connect_timeout_secs
+                .connect_timeout_for_transport(instance.transport.as_str())
                 .try_into()
                 .unwrap_or(1),
         );

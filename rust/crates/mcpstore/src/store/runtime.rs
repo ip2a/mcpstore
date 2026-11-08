@@ -5,6 +5,7 @@ use crate::store::MCPStore;
 #[derive(Clone, Debug)]
 pub(crate) struct StoreRuntimeConfig {
     pub(crate) connect_timeout_secs: i64,
+    pub(crate) connect_timeout_stdio_secs: i64,
     pub(crate) retry_backoff_base_secs: i64,
     pub(crate) retry_backoff_max_secs: i64,
     pub(crate) reconnect_hard_timeout_secs: i64,
@@ -21,6 +22,16 @@ impl StoreRuntimeConfig {
         match transport {
             "stdio" => self.ping_timeout_stdio_secs,
             _ => self.ping_timeout_http_secs,
+        }
+    }
+
+    /// stdio gets the hard startup budget: first launch of an npx/uvx server
+    /// may download its package before the handshake can even start. HTTP
+    /// remotes have no such warmup and keep the tighter timeout.
+    pub(crate) fn connect_timeout_for_transport(&self, transport: &str) -> i64 {
+        match transport {
+            "stdio" => self.connect_timeout_stdio_secs,
+            _ => self.connect_timeout_secs,
         }
     }
 
@@ -44,6 +55,7 @@ impl StoreRuntimeConfig {
         };
         Self {
             connect_timeout_secs: ceil_seconds(health.startup_timeout, 1),
+            connect_timeout_stdio_secs: ceil_seconds(health.startup_hard_timeout, 1),
             retry_backoff_base_secs: ceil_seconds(health.backoff_base, 1),
             retry_backoff_max_secs: ceil_seconds(health.backoff_max, 1),
             reconnect_hard_timeout_secs: ceil_seconds(health.reconnect_hard_timeout, 1),
