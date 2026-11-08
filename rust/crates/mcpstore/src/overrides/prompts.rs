@@ -5,7 +5,7 @@ use crate::overrides::{
 };
 use crate::store::prelude::*;
 
-const PROMPT_OVERRIDES_STATE_TYPE: &str = "prompt_overrides";
+pub(crate) const PROMPT_OVERRIDES_STATE_TYPE: &str = "prompt_overrides";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct PromptOverridePatch {

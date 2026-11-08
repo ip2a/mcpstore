@@ -107,12 +107,37 @@ fn aligned_local_url(manager: &ConfigManager) -> String {
     format!("http://{}:{}", server.host, server.port)
 }
 
+/// True when the URL's host is this machine (loopback). The aligned default
+/// and any previously aligned URL both qualify.
+fn is_loopback_http_url(url: &str) -> bool {
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .unwrap_or(url);
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .and_then(|authority| authority.rsplit_once(':').map(|(host, _)| host).or(Some(authority)))
+        .unwrap_or("")
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1")
+}
+
 /// Retarget an untouched default `local` entry to the daemon's actual
-/// `[server].port`. Explicit user URLs are never modified.
+/// `[server].port`. Explicit user URLs are never modified: "untouched" means
+/// the entry still points at this machine — any loopback host on any port
+/// counts (a port left behind by a previous alignment or by a settings save
+/// must not freeze the alignment; the S5 regression). A non-loopback URL is
+/// user intent and stays untouched.
 fn align_local_entry(manager: &ConfigManager, mut hosts: HostsConfig) -> HostsConfig {
     let generated_default = HostsConfig::generated_default_local_url();
     let is_default = match hosts.entries.get("local") {
-        Some(entry) => entry.urls.first().is_some_and(|url| *url == generated_default),
+        Some(entry) => entry
+            .urls
+            .first()
+            .is_some_and(|url| is_loopback_http_url(url)),
         None => true,
     };
     if is_default {
