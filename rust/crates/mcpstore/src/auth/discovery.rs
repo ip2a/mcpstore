@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use http::header::WWW_AUTHENTICATE;
 
 /// Returns true when the MCP HTTP endpoint responds with 401 and a Bearer challenge.
-pub async fn http_endpoint_requires_oauth(url: &str) -> bool {
+/// Configured headers (e.g. an Authorization bearer token) are sent with the probe so
+/// header-authenticated endpoints with valid credentials are not misread as OAuth-only.
+pub async fn http_endpoint_requires_oauth(url: &str, headers: &HashMap<String, String>) -> bool {
     let Ok(client) = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
@@ -11,14 +14,14 @@ pub async fn http_endpoint_requires_oauth(url: &str) -> bool {
         return false;
     };
 
-    let response = match client
+    let mut request = client
         .post(url)
         .header(http::header::ACCEPT, "application/json")
-        .header(http::header::CONTENT_TYPE, "application/json")
-        .body("{}")
-        .send()
-        .await
-    {
+        .header(http::header::CONTENT_TYPE, "application/json");
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let response = match request.body("{}").send().await {
         Ok(response) => response,
         Err(_) => return false,
     };
@@ -82,6 +85,8 @@ mod tests {
                 .unwrap();
         });
 
-        assert!(http_endpoint_requires_oauth(&format!("http://{address}/mcp")).await);
+        assert!(
+            http_endpoint_requires_oauth(&format!("http://{address}/mcp"), &HashMap::new()).await
+        );
     }
 }
