@@ -2050,6 +2050,7 @@ dependencies = [
  "tabled",
  "tokio",
  "toml",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",

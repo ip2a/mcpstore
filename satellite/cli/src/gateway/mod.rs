@@ -363,6 +363,7 @@ pub(crate) struct GatewayServer {
 }
 
 mod catalog;
+pub(crate) mod guards;
 mod handler;
 mod search;
 mod tests;

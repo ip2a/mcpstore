@@ -1845,17 +1845,6 @@ pub(super) fn read_required_instance_id(
     })
 }
 
-pub(super) fn read_required_object(
-    payload: &Value,
-    field: &str,
-) -> Result<Map<String, Value>, BoxErr> {
-    payload
-        .get(field)
-        .and_then(Value::as_object)
-        .cloned()
-        .ok_or_else(|| format!("Tool metadata is missing object field: {field}").into())
-}
-
 /// Store error → agent-facing MCP protocol error. The structured `data`
 /// payload carries the machine code, an agent-actionable hint, and the retry
 /// verdict: an agent reading the error can decide to retry, give up, or hand

@@ -140,6 +140,7 @@ pub(super) fn http_status(code: FailureCode) -> StatusCode {
         | Code::ElicitationCancelled
         | Code::SessionNotActive => Http::CONFLICT,
         Code::ElicitationInputRequired => StatusCode::from_u16(428).unwrap_or(Http::CONFLICT),
+        Code::RateLimited => Http::TOO_MANY_REQUESTS,
         Code::ConnectionTimedOut | Code::CallTimedOut | Code::ElicitationTimedOut => {
             Http::GATEWAY_TIMEOUT
         }

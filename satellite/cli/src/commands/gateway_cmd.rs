@@ -109,11 +109,31 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
         .with_state(projection_mounts);
     let addr = format!("{}:{}", options.host, options.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    // Guard chain (magpie port): peer loopback, Host rebinding, Origin,
+    // POST-only, per-mount rate limit, 4 MiB body ceiling. See
+    // gateway::guards for the incident history behind each guard.
+    let limiter = std::sync::Arc::new(crate::gateway::guards::RateLimiter::new());
+    let generic_path = options.path.clone();
+    let app = router
+        .merge(calls)
+        .merge(projection)
+        .layer(axum::middleware::from_fn(move |request, next| {
+            crate::gateway::guards::guard_chain(
+                generic_path.clone(),
+                std::sync::Arc::clone(&limiter),
+                request,
+                next,
+            )
+        }));
     eprintln!(
         "[GATEWAY] listening on http://{addr} (generic mount {})",
         options.path
     );
-    axum::serve(listener, router.merge(calls).merge(projection)).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
