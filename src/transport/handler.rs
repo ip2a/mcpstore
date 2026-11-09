@@ -3,12 +3,12 @@ use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::model::{
-    CancelledNotificationParam, ClientCapabilities, ClientInfo, ClientRequest, CustomNotification,
-    ElicitRequestParams, ElicitResult, ElicitationCapability, FormElicitationCapability,
-    Implementation, ListPromptsRequest, ListResourceTemplatesRequest, ListResourcesRequest,
-    ListToolsRequest, PaginatedRequestParams, ProgressNotificationParam, ReadResourceRequest,
-    ReadResourceRequestParams, ResourceUpdatedNotificationParam, ServerNotification, ServerResult,
-    UrlElicitationCapability,
+    CancelledNotificationParam, ClientCapabilities, ClientConfig, ClientRequest,
+    CustomNotification, ElicitRequestParams, ElicitResult, ElicitationCapability,
+    FormElicitationCapability, Implementation, ListPromptsRequest, ListResourceTemplatesRequest,
+    ListResourcesRequest, ListToolsRequest, PaginatedRequestParams, ProgressNotificationParam,
+    ReadResourceRequest, ReadResourceRequestParams, ResourceUpdatedNotificationParam,
+    ServerNotification, ServerResult, UrlElicitationCapability,
 };
 use rmcp::service::{NotificationContext, Peer, RequestContext, RoleClient};
 use rmcp::ClientHandler;
@@ -454,11 +454,11 @@ impl McpStoreClientHandler {
 }
 
 impl ClientHandler for McpStoreClientHandler {
-    fn get_info(&self) -> ClientInfo {
+    fn get_info(&self) -> ClientConfig {
         let elicitation = ElicitationCapability::new()
             .with_form(FormElicitationCapability::new().with_schema_validation(true))
             .with_url(UrlElicitationCapability::new());
-        ClientInfo::new(
+        ClientConfig::new(
             ClientCapabilities::builder()
                 .enable_elicitation_with(elicitation)
                 .enable_tasks()
@@ -572,7 +572,7 @@ mod tests {
         ListResourcesResult, ListToolsResult, NumberOrString, PaginatedRequestParams,
         ProgressNotificationParam, ProgressToken, Prompt, ReadResourceRequestParams,
         ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ResourceTemplate,
-        ServerCapabilities, ServerInfo, ServerNotification, Tool,
+        ServerCapabilities, ServerConfig as McpServerConfig, ServerNotification, Tool,
     };
     use rmcp::service::{RequestContext, RoleServer};
     use rmcp::{ClientHandler, ServerHandler, ServiceExt};
@@ -590,8 +590,8 @@ mod tests {
     }
 
     impl ServerHandler for NotificationServer {
-        fn get_info(&self) -> ServerInfo {
-            ServerInfo::new(
+        fn get_info(&self) -> McpServerConfig {
+            McpServerConfig::new(
                 ServerCapabilities::builder()
                     .enable_tools()
                     .enable_tool_list_changed()
@@ -821,6 +821,7 @@ mod tests {
         )
         .await
         .unwrap();
+        client.list_tools(None).await.unwrap();
         let server = server_start.await.unwrap();
         let mut connection =
             crate::transport::client::McpConnection::from_test_client(instance_id, client, handler);
@@ -888,6 +889,7 @@ mod tests {
         )
         .await
         .unwrap();
+        client.list_tools(None).await.unwrap();
         let server = server_start.await.unwrap();
         let mut connection = crate::transport::client::McpConnection::from_test_client(
             primary_id,
@@ -935,7 +937,9 @@ mod tests {
         server
             .peer()
             .notify_cancelled(CancelledNotificationParam::new(
-                Some(NumberOrString::Number(9)),
+                // Modern rmcp consumes request-scoped cancellations as
+                // subscription control messages instead of invoking the handler.
+                None,
                 Some("superseded".to_string()),
             ))
             .await

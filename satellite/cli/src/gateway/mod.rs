@@ -25,7 +25,8 @@ use rmcp::{
         ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
         PaginatedRequestParams, Prompt, ProtocolVersion, ReadResourceRequestParams,
         ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ResourceTemplate,
-        ServerCapabilities, ServerInfo, SubscriptionFilter, Tool, ToolAnnotations,
+        ServerCapabilities, ServerConfig as McpServerConfig, SubscriptionFilter, Tool,
+        ToolAnnotations,
     },
     service::{SubscriptionContext, SubscriptionSink},
     transport::{
