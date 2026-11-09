@@ -635,7 +635,7 @@ mod tests {
 
     use rmcp::model::{
         CallToolRequestParams, CallToolResponse, CallToolResult, Implementation,
-        ServerCapabilities, ServerInfo,
+        ServerCapabilities, ServerConfig as McpServerConfig,
     };
     use rmcp::service::{RequestContext, RoleServer, RunningService};
     use rmcp::{ServerHandler, ServiceExt};
@@ -669,8 +669,8 @@ mod tests {
     }
 
     impl ServerHandler for ExecutionServer {
-        fn get_info(&self) -> ServerInfo {
-            ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        fn get_info(&self) -> McpServerConfig {
+            McpServerConfig::new(ServerCapabilities::builder().enable_tools().build())
                 .with_server_info(Implementation::new("execution-fixture", "1.0.0"))
         }
 
@@ -807,6 +807,9 @@ mod tests {
         )
         .await
         .unwrap();
+        // Discovery is only a bootstrap probe in rmcp 3.9; the server starts
+        // its service loop after the first non-discover request.
+        client.list_tools(None).await.unwrap();
         let server = server_start.await.unwrap();
         (
             McpConnection::from_test_client(instance_id, client, handler),

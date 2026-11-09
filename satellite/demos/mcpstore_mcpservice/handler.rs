@@ -190,8 +190,8 @@ impl ServerHandler for McpStoreServer {
             .await;
     }
 
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
+    fn get_info(&self) -> McpServerConfig {
+        McpServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_tool_list_changed()

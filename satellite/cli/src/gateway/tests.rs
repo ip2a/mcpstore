@@ -74,12 +74,12 @@ mod tests {
         )
         .await
         .unwrap();
-        let server = server_start.await.unwrap();
 
         let mut subscription = client
             .listen(SubscriptionFilter::builder().tools_list_changed().build())
             .await
             .unwrap();
+        let server = server_start.await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         store
             .event_bus()
