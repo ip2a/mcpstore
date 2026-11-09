@@ -176,6 +176,7 @@ pub(super) async fn gateway_start(
         value => value,
     };
     let calls_url = format!("http://{probe_host}:{}/calls", options.port);
+    let projection_url = format!("http://{probe_host}:{}/projection", options.port);
     state
         .gateway
         .lock()
@@ -183,6 +184,7 @@ pub(super) async fn gateway_start(
         .replace(GatewayProcess {
             pid,
             calls_url,
+            projection_url,
             descriptor: descriptor.clone(),
             summary: gateway_summary(&options),
             child,
@@ -400,6 +402,43 @@ pub(super) async fn gateway_requests(
         .await
         .map_err(|_| ApiError::invalid_request("Failed to parse gateway response"))?;
     Ok(success("Gateway request records fetched successfully", payload["data"].clone()))
+}
+
+/// GET /gateway/projection — per-mount projection issues (down/skipped/
+/// degraded tools) forwarded to the child's /projection route.
+pub(super) async fn gateway_projection(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let projection_url = {
+        let mut gateway = state
+            .gateway
+            .lock()
+            .map_err(|_| ApiError::invalid_request("Gateway status unavailable"))?;
+        if let Some(process) = gateway.as_mut() {
+            if process.child.try_wait().ok().flatten().is_some() {
+                *gateway = None; // child exited on its own
+            }
+        }
+        match gateway.as_ref() {
+            Some(process) => Some(process.projection_url.clone()),
+            None => None,
+        }
+    };
+    let Some(projection_url) = projection_url else {
+        return Ok(success(
+            "Gateway is not running",
+            json!({ "running": false, "mounts": [] }),
+        ));
+    };
+    let response = state
+        .http_client
+        .get(projection_url)
+        .send()
+        .await
+        .map_err(|_| ApiError::invalid_request("Gateway process has exited"))?;
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|_| ApiError::invalid_request("Failed to parse gateway response"))?;
+    Ok(success("Gateway projection fetched successfully", payload["data"].clone()))
 }
 
 pub(super) fn wired_state_path<T: PanelCtx>(state: &T) -> std::path::PathBuf {
