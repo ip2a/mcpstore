@@ -1,0 +1,35 @@
+"""
+Session basics example
+"""
+
+from mcpstore import MCPStore
+
+
+def main():
+    """Demonstrate the core feature."""
+
+    # Initialize the store
+    store = MCPStore.setup_store(debug=False)
+    ctx = store.for_store()
+
+    # Add the sample service
+    ctx.add_service({service_config})
+
+    # Wait for the service to become ready
+    ctx.wait_service("test_service")
+
+    # Core feature demo
+    try:
+        # Perform the operation for this file type
+        # Basic session operations
+        session = ctx.create_session("basic_session")
+        session.use_tool("test_tool", {"param": "value"})
+    except Exception:
+        pass  # Ignore tool call errors
+
+    # Clean up the configuration
+    ctx.reset_config()
+
+
+if __name__ == "__main__":
+    main()
