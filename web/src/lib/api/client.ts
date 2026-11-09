@@ -87,16 +87,15 @@ async function apiAt<T>(
   }
 
   const response = await fetcher(path, { ...options, headers })
-  if (response.status === 401) {
-    window.dispatchEvent(new CustomEvent(PANEL_AUTH_REQUIRED_EVENT))
-  }
   const payload = await readJson<ApiEnvelope<T>>(response)
   if (!payload.success) {
-    throw new ApiError(
-      payload.errors?.[0]?.message || payload.message,
-      response.status,
-      payload.errors?.[0]?.code,
-    )
+    const code = payload.errors?.[0]?.code
+    // Only panel authentication gates the UI; a service-level 401
+    // (connection_auth_required) surfaces as a normal request error.
+    if (response.status === 401 && code === "panel_auth_required") {
+      window.dispatchEvent(new CustomEvent(PANEL_AUTH_REQUIRED_EVENT))
+    }
+    throw new ApiError(payload.errors?.[0]?.message || payload.message, response.status, code)
   }
   return payload.data as T
 }

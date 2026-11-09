@@ -30,8 +30,7 @@ export function ServiceListCard({
     service.scope.type === "store" ? "store" : service.scope.agent_id
   const status = deriveServiceDisplayStatus(service.state)
   const connected = status === "connected"
-  // U1: while retrying or failed, surface the last failure reason on the card
-  // instead of an opaque spinner.
+  // Failure detail stays off the face (keeps card height stable); show on hover flip.
   const failureMessage =
     status !== "connected" ? (service.state?.failure?.message?.trim() || null) : null
   const statusColorClass =
@@ -75,7 +74,7 @@ export function ServiceListCard({
       role="button"
       tabIndex={0}
       className={cn(
-        "group relative z-[1] flex min-h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-left",
+        "group relative z-[1] flex h-[9.5rem] cursor-pointer flex-col overflow-hidden rounded-lg border border-border/50 bg-card p-4 text-left",
         "shadow-[0_14px_28px_-20px_rgba(59,130,246,0.28)] transition-[border-color,background-color,box-shadow] duration-[400ms]",
         "hover:z-10 hover:border-sky-500/25 hover:bg-sky-50/90 hover:shadow-none dark:hover:bg-sky-950/40",
         "dark:shadow-[0_14px_28px_-20px_rgba(125,211,252,0.18)]",
@@ -118,14 +117,6 @@ export function ServiceListCard({
                 {connected && transportLabel ? ` · ${transportLabel}` : null}
               </span>
             </span>
-            {failureMessage ? (
-              <span
-                className="mt-1 line-clamp-2 block text-xs text-destructive/90"
-                title={failureMessage}
-              >
-                {failureMessage}
-              </span>
-            ) : null}
           </span>
         </div>
 
@@ -159,6 +150,17 @@ export function ServiceListCard({
         <span className="text-xs text-muted-foreground">
           by <span className="text-[#0077c2]">{scopeLabel}</span>
         </span>
+        {failureMessage ? (
+          <span
+            className={cn(
+              "mt-1 line-clamp-4 max-w-full text-center text-xs leading-5",
+              status === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400",
+            )}
+            title={failureMessage}
+          >
+            {failureMessage}
+          </span>
+        ) : null}
       </div>
     </div>
   )
