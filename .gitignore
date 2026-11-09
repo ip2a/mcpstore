@@ -67,3 +67,6 @@ satellite/web/REFACTOR_PLAN.md
 
 # tauri externalBin sidecar, built by run_debug.sh / release workflow
 satellite/desktop/tauri/binaries/
+LESSONS.md
+AGENTS.md
+CLAUDE.md
