@@ -132,6 +132,30 @@ export function getGatewayRequests(after: number, waitMs?: number): Promise<Gate
   return api(`/gateway/requests${buildQuery({ after, wait_ms: waitMs })}`)
 }
 
+/**
+ * Per-mount projection issues from the gateway child (externally tagged
+ * Rust enum serialized as {"Down": {...}}, {"SkippedTool": {...}}, ...).
+ */
+export type GatewayProjectionIssue =
+  | { Down: { service: string; reason: string } }
+  | { SkippedTool: { service: string | null; tool: string | null; reason: string } }
+  | { DegradedTool: { service: string; tool: string } }
+
+export type GatewayProjectionMount = {
+  /** Caller mount label (/mcp/<id> segment); null on the generic mount. */
+  caller: string | null
+  issues: GatewayProjectionIssue[]
+}
+
+export type GatewayProjection = {
+  running: boolean
+  mounts: GatewayProjectionMount[]
+}
+
+export function getGatewayProjection(): Promise<GatewayProjection> {
+  return api("/gateway/projection")
+}
+
 export function getWiredClients(): Promise<WiredEntry[]> {
   return appApi<WiredEntry[]>("/gateway/wired")
 }
