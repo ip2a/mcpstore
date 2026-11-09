@@ -47,6 +47,8 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
+    use std::collections::HashMap;
+
     use super::{has_bearer_challenge, http_endpoint_requires_oauth};
 
     #[test]
