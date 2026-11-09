@@ -1,9 +1,10 @@
-//! Panel token auth. Auto-enabled when the panel binds a non-loopback host:
-//! every `/api` request then requires `Authorization: Bearer <token>` with the
-//! token from `<data dir>/panel/auth-token` (generated on first use, 0600).
-//! The static frontend stays public so the SPA can load and show the token
-//! prompt. On a loopback bind no token is required; instead foreign Host
-//! headers are rejected (DNS rebinding guard).
+//! Panel token auth. Off by default; enabled with `[web] auth = true` in the
+//! app config: every `/api` request then requires
+//! `Authorization: Bearer <token>` with the token from
+//! `<data dir>/panel/auth-token` (generated on first use, 0600). The static
+//! frontend stays public so the SPA can load and show the token prompt.
+//! Independently, a loopback bind rejects foreign Host headers (DNS rebinding
+//! guard); non-loopback binds without auth get a startup warning instead.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,24 +32,26 @@ pub(crate) struct PanelAuthGuard {
 }
 
 impl PanelAuthGuard {
-    /// Build the guard for a panel whose bind address resolved as
-    /// `is_loopback`. Non-loopback binds turn on token auth (creating the
-    /// token file if absent); loopback binds turn on the Host guard.
+    /// Build the guard for a panel with the given settings. `auth_enabled`
+    /// turns on bearer-token auth on /api (creating the token file if absent);
+    /// `is_loopback` turns on the Host guard. Both independent.
     pub(crate) fn for_bind(
         is_loopback: bool,
+        auth_enabled: bool,
         manager: &ConfigManager,
     ) -> Result<Self, Error> {
-        if is_loopback {
-            Ok(Self {
-                bearer: None,
-                loopback_host_only: true,
-            })
-        } else {
-            Ok(Self {
-                bearer: Some(Arc::new(load_or_create_token(manager)?)),
-                loopback_host_only: false,
-            })
-        }
+        Ok(Self {
+            bearer: if auth_enabled {
+                Some(Arc::new(load_or_create_token(manager)?))
+            } else {
+                None
+            },
+            loopback_host_only: is_loopback,
+        })
+    }
+
+    pub(crate) fn bearer_enabled(&self) -> bool {
+        self.bearer.is_some()
     }
 
     pub(crate) fn token_path(manager: &ConfigManager) -> PathBuf {
@@ -182,6 +185,18 @@ pub(crate) fn is_loopback_host(host_header: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auth_disabled_means_no_bearer() {
+        let manager = ConfigManager::new();
+        // Off by default regardless of bind shape; no token file is touched.
+        let loopback = PanelAuthGuard::for_bind(true, false, &manager).unwrap();
+        assert!(!loopback.bearer_enabled());
+        assert!(loopback.loopback_host_only);
+        let exposed = PanelAuthGuard::for_bind(false, false, &manager).unwrap();
+        assert!(!exposed.bearer_enabled());
+        assert!(!exposed.loopback_host_only);
+    }
 
     #[test]
     fn loopback_host_values_are_recognized() {

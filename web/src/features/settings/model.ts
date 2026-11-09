@@ -17,6 +17,7 @@ export type SettingsDraft = {
   }
   web: {
     port: number
+    auth: boolean
   }
   diagnostics: {
     enabled: boolean
@@ -57,6 +58,7 @@ export function settingsDraft(settings: SettingsPayload): SettingsDraft {
     },
     web: {
       port: settings.web.port!,
+      auth: settings.web.auth === true,
     },
     diagnostics: {
       enabled: settings.diagnostics?.enabled !== false,

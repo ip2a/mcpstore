@@ -24,16 +24,18 @@ pub async fn run(
     api::adopt_panel_settings(&config_manager)?;
     let state = Arc::new(api::PanelState::new(Arc::clone(&config_manager)));
 
-    // Bind shape decides the guard before anything is served: non-loopback
-    // binds enforce bearer-token auth on /api, loopback binds reject foreign
-    // Host headers (DNS rebinding). A bind address that fails to resolve
-    // counts as non-loopback — auth on, fail loud.
+    // Auth is an explicit opt-in (`[web] auth = true`); a loopback bind adds
+    // the foreign-Host-header guard (DNS rebinding) regardless. A bind address
+    // that fails to resolve counts as non-loopback — fail loud.
     let resolves_loopback = tokio::net::lookup_host((host.as_str(), port))
         .await
         .map(|mut addrs| addrs.all(|addr| addr.ip().is_loopback()))
         .unwrap_or(false);
-    let auth_guard =
-        api::panel_auth::PanelAuthGuard::for_bind(resolves_loopback, &config_manager)?;
+    let auth_guard = api::panel_auth::PanelAuthGuard::for_bind(
+        resolves_loopback,
+        web.auth,
+        &config_manager,
+    )?;
 
     // Same-origin /api (panel routes + forwarding) and the static frontend,
     // mirroring the daemon's web face layout.
@@ -61,12 +63,17 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
     let url = format!("http://{host}:{port}");
     println!("mcpstore web panel serving on {url}");
-    if resolves_loopback {
+    if auth_guard.bearer_enabled() {
+        println!(
+            "  /api requires the bearer token from {}",
+            api::panel_auth::PanelAuthGuard::token_path(&config_manager).display()
+        );
+    } else if resolves_loopback {
         println!("  bind is loopback; no token required, foreign Host headers rejected");
     } else {
         println!(
-            "  bind is non-loopback; /api requires the bearer token from {}",
-            api::panel_auth::PanelAuthGuard::token_path(&config_manager).display()
+            "  WARNING: bind is non-loopback and panel auth is disabled; /api is unauthenticated (set [web] auth = true in {} to enable)",
+            config_manager.app_config_path().display()
         );
     }
     println!(

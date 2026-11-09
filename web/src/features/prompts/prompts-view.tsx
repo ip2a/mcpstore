@@ -5,9 +5,9 @@ import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-sta
 import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_TABS_CLASSNAME,
-  WORKSPACE_TABS_LIST_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
 } from "@/components/shared/workspace-toolbar"
+import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
@@ -17,7 +17,7 @@ import {
   WorkspaceBreadcrumb,
 } from "@/components/shared/workspace-page-header"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
   McpRegistryFilterDialog,
   type RegistrySortBy,
@@ -123,13 +123,13 @@ export function PromptsView(props: {
           className={WORKSPACE_TABS_CLASSNAME}
         >
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
-            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
+            <WorkspaceTabsList value={instanceId}>
               {serviceTabs.map((tab) => (
                 <TabsTrigger key={tab.id} value={tab.id} title={tab.label} className="flex-none">
                   {tab.label}
                 </TabsTrigger>
               ))}
-            </TabsList>
+            </WorkspaceTabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
               <UiverseSearchInput
                 id="prompt-list-search"

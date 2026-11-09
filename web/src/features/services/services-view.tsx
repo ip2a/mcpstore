@@ -6,16 +6,16 @@ import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_LIST_INSET_CLASSNAME,
   WORKSPACE_TABS_CLASSNAME,
-  WORKSPACE_TABS_LIST_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
 } from "@/components/shared/workspace-toolbar"
+import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { breadcrumbUppercase, WorkspaceBreadcrumb } from "@/components/shared/workspace-page-header"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { ServiceListCard } from "@/components/shared/service-list-card"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { useScopesQuery } from "@/features/agents/queries"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { AddServiceDialog } from "@/features/services/add-service-dialog"
@@ -134,7 +134,7 @@ export function ServicesView(props: {
           className={WORKSPACE_TABS_CLASSNAME}
         >
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
-            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
+            <WorkspaceTabsList value={activeTab}>
               {scopes.map((summary) => {
                 const scopeId = scopeIdFromSummary(summary)
                 const title = scopeTitleFromSummary(summary, t)
@@ -144,7 +144,7 @@ export function ServicesView(props: {
                   </TabsTrigger>
                 )
               })}
-            </TabsList>
+            </WorkspaceTabsList>
             <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
               <UiverseSearchInput
                 id="service-list-search"

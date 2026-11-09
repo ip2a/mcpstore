@@ -5,10 +5,8 @@ import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "l
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
 import { PanelCard } from "@/components/shared/panel-card"
-import {
-  WORKSPACE_TABS_LIST_CLASSNAME,
-  WORKSPACE_TOOLBAR_CLASSNAME,
-} from "@/components/shared/workspace-toolbar"
+import { WORKSPACE_TOOLBAR_CLASSNAME } from "@/components/shared/workspace-toolbar"
+import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,7 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
   ChartContainer,
   ChartTooltip,
@@ -242,7 +240,7 @@ export function FrameStreamCard(props: {
               fill ? WORKSPACE_TOOLBAR_CLASSNAME : "flex items-center justify-between border-b pb-2",
             )}
           >
-            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
+            <WorkspaceTabsList value={view}>
               <TabsTrigger value="table" className="flex-none">
                 {t("gatewayFramesTabTable")}
               </TabsTrigger>
@@ -259,7 +257,7 @@ export function FrameStreamCard(props: {
                   {t("cache")}
                 </TabsTrigger>
               ) : null}
-            </TabsList>
+            </WorkspaceTabsList>
             <div className="ml-auto flex shrink-0 items-center gap-2">
               <Button disabled={refreshSpinning} size="sm" variant="outline" onClick={refresh}>
                 <RefreshCwSpinIcon data-icon="inline-start" spinning={refreshSpinning} />

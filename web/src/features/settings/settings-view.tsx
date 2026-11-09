@@ -14,9 +14,9 @@ import { toast } from "sonner"
 import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_TABS_CLASSNAME,
-  WORKSPACE_TABS_LIST_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
 } from "@/components/shared/workspace-toolbar"
+import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -31,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
   Field,
   FieldContent,
@@ -178,7 +178,7 @@ export function SettingsView() {
               className={WORKSPACE_TABS_CLASSNAME}
             >
               <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
-                <TabsList variant="line" className={`${WORKSPACE_TABS_LIST_CLASSNAME} gap-1`}>
+                <WorkspaceTabsList value={activeTab} className="gap-1">
                   {sections.map((item) => {
                     const label = t(item.labelKey)
                     return (
@@ -187,7 +187,7 @@ export function SettingsView() {
                       </TabsTrigger>
                     )
                   })}
-                </TabsList>
+                </WorkspaceTabsList>
                 <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
                   <Button
                     size="sm"
@@ -565,6 +565,16 @@ function BackendFields({
             }
           />
         </InputGroup>
+      </Field>
+      <Field orientation="responsive">
+        <FieldContent>
+          <FieldTitle>{t("panelAuthSetting")}</FieldTitle>
+          <FieldDescription>{t("panelAuthSettingDescription")}</FieldDescription>
+        </FieldContent>
+        <Switch
+          checked={draft.web.auth}
+          onCheckedChange={(checked) => patchDraft({ web: { ...draft.web, auth: checked } })}
+        />
       </Field>
     </FieldGroup>
   )

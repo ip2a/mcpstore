@@ -32,6 +32,7 @@ struct UpdateApiRequest {
 #[derive(Deserialize)]
 struct UpdateWebRequest {
     port: Option<u16>,
+    auth: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +128,9 @@ pub(super) async fn update_settings<T: PanelCtx>(
             }
             config.web.port = port;
         }
+        if let Some(auth) = web.auth {
+            config.web.auth = auth;
+        }
     }
 
     if let Some(gateway) = payload.gateway {
@@ -184,7 +188,11 @@ pub(super) async fn update_settings<T: PanelCtx>(
 
     Ok(success(
         "Settings saved successfully",
-        settings_payload(&config, &panel_settings),
+        settings_payload(
+            &config,
+            &panel_settings,
+            &super::panel_auth::PanelAuthGuard::token_path(config_manager),
+        ),
     ))
 }
 
@@ -224,7 +232,11 @@ fn app_meta_payload<T: PanelCtx>(state: &T) -> Result<Value, ApiError> {
             "id": node_id,
             "mode": node_mode,
         },
-        "settings": settings_payload(&config, &panel_settings),
+        "settings": settings_payload(
+            &config,
+            &panel_settings,
+            &super::panel_auth::PanelAuthGuard::token_path(config_manager),
+        ),
         "settings_paths": settings_paths_payload(config_manager.mcp_path()),
         "config_file": {
             "path": config_path.display().to_string(),
@@ -234,7 +246,11 @@ fn app_meta_payload<T: PanelCtx>(state: &T) -> Result<Value, ApiError> {
     }))
 }
 
-fn settings_payload(config: &AppConfig, panel_settings: &PanelSettings) -> Value {
+fn settings_payload(
+    config: &AppConfig,
+    panel_settings: &PanelSettings,
+    web_auth_token_path: &std::path::Path,
+) -> Value {
     json!({
         "language": panel_settings.language,
         "api": {
@@ -245,6 +261,8 @@ fn settings_payload(config: &AppConfig, panel_settings: &PanelSettings) -> Value
         "web": {
             "host": config.web.host,
             "port": config.web.port,
+            "auth": config.web.auth,
+            "auth_token_path": web_auth_token_path.display().to_string(),
         },
         "gateway": {
             "port": config.gateway.port,
