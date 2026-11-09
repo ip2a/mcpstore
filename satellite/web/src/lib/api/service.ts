@@ -15,6 +15,8 @@ import type {
   ToolVisibilityFilter,
 } from "../api"
 
+export type { ServiceState }
+
 /** Builds `/services/:name<suffix>` + scope query (+ optional extra params). Doc §17. */
 function svcPath(
   addr: ServiceAddress,
