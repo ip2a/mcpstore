@@ -45,42 +45,86 @@ than moving or deleting the tag.
 
 ## Formal release
 
-1. From the latest `main`, run the version synchronization script:
+MCPStore releases two independent version domains:
+
+| Domain | Ships | Canonical version | Tag |
+|---|---|---|---|
+| SDK | crates.io `mcpstore` + PyPI `mcpstore` | `[workspace.package]` version in the root `Cargo.toml` | `sdk-vX.Y.Z` (never a prerelease) |
+| App | CLI/TUI, desktop bundles, web panel, npm packages | `version` in `satellite/cli/Cargo.toml` | `vX.Y.Z` / `vX.Y.Z-rc.N` |
+
+The CLI satellite holds the single cross-domain contract: it depends on the
+SDK crate with `path = "../.."` plus a minor-tracked version requirement.
+`sync_version.py app` bumps that requirement to the current SDK minor, and
+the `release-metadata` CI job fails when the two drift apart.
+
+Release the domains independently, in whichever order; the habitual order is
+SDK first so the App release picks up the newest SDK.
+
+### SDK release
+
+1. From the latest `main`, bump the SDK version and open a pull request:
 
    ```bash
-   python scripts/sync_version.py X.Y.Z
+   python scripts/sync_version.py sdk X.Y.Z
    ```
 
-2. Include the version metadata and release notes in a short-lived branch,
-   then open a pull request to `main`.
-3. Merge after required CI is green.
-4. From the merged `main` commit, create and push a signed annotated tag:
+2. Merge after required CI is green.
+3. From the merged `main` commit, create and push a signed annotated tag:
+
+   ```bash
+   git tag -s sdk-vX.Y.Z -m "sdk-vX.Y.Z"
+   git push origin sdk-vX.Y.Z
+   ```
+
+4. Dispatch the publish workflows from the exact tag:
+
+   ```bash
+   gh workflow run release-publish-crates.yml --ref sdk-vX.Y.Z
+   gh workflow run release-publish-pypi.yml --ref sdk-vX.Y.Z
+   ```
+
+SDK releases create no GitHub Release and have no finalize gate. A stale
+lock version fails the publish builds (`--locked`); `sync_version.py sdk`
+keeps every downstream lock current.
+
+### App release
+
+1. From the latest `main`, bump the App version and open a pull request:
+
+   ```bash
+   python scripts/sync_version.py app X.Y.Z
+   ```
+
+   This also moves the CLI satellite's SDK version requirement to the
+   current SDK minor.
+
+2. Merge after required CI is green.
+3. From the merged `main` commit, create and push a signed annotated tag:
 
    ```bash
    git tag -s vX.Y.Z -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
-   The merge and the formal tag are one release action. Do not leave `main`
-   at a new release version without its corresponding formal tag.
+   The merge and the formal tag are one release action. Pushing the tag
+   starts the CLI and Desktop build workflows automatically.
 
-5. After the build workflow succeeds, run the package publishing workflows
-   from the exact formal tag:
+4. After the build workflow succeeds, run the npm publishing workflow from
+   the exact formal tag:
 
    ```bash
-   gh workflow run release-publish-crates.yml --ref vX.Y.Z
-   gh workflow run release-publish-pypi.yml --ref vX.Y.Z
    gh workflow run release-publish-npm.yml --ref vX.Y.Z
    ```
 
-6. After all required publishing workflows succeed, run the final gate:
+5. After npm publishing succeeds, run the final gate:
 
    ```bash
    gh workflow run release-finalize.yml --ref vX.Y.Z
    ```
 
-`release-finalize` verifies the exact tag commit and the required build and
-publishing workflows before making the GitHub Release public.
+`release-finalize` verifies the exact tag commit and the App-domain build
+and publishing workflows (build-cli, publish-npm) before making the GitHub
+Release public. SDK publishing never blocks an App release.
 
 ## Branch protection
 
