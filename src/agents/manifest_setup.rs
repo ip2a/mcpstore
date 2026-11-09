@@ -457,24 +457,24 @@ mod tests {
         for (id, source) in [
             (
                 "claude",
-                include_str!("../../plugins/claude/plugin.toml"),
+                include_str!("../../satellite/plugins/claude/plugin.toml"),
             ),
             (
                 "codex",
-                include_str!("../../plugins/codex/plugin.toml"),
+                include_str!("../../satellite/plugins/codex/plugin.toml"),
             ),
             (
                 "opencode",
-                include_str!("../../plugins/opencode/plugin.toml"),
+                include_str!("../../satellite/plugins/opencode/plugin.toml"),
             ),
             (
                 "cursor",
-                include_str!("../../plugins/cursor/plugin.toml"),
+                include_str!("../../satellite/plugins/cursor/plugin.toml"),
             ),
-            ("pi", include_str!("../../plugins/pi/plugin.toml")),
+            ("pi", include_str!("../../satellite/plugins/pi/plugin.toml")),
             (
                 "omp",
-                include_str!("../../plugins/omp/plugin.toml"),
+                include_str!("../../satellite/plugins/omp/plugin.toml"),
             ),
         ] {
             let setup = ManifestSetup::from_toml(source)
