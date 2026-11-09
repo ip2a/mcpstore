@@ -11,6 +11,8 @@
 # Source directories allowlisted for Git.
 !Cargo.toml
 !Cargo.lock
+!src/
+!src/**
 !satellite/
 !satellite/**
 !plugins/
