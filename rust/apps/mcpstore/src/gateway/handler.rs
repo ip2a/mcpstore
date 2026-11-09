@@ -27,12 +27,13 @@ impl GatewayServer {
         let scope = options.scope.clone();
         let instance_id = options.instance_id;
         let session_key = options.session_key.clone();
-        connect_target_instances(&store, &scope, instance_id).await?;
+        let down = connect_target_instances(&store, &scope, instance_id).await?;
         if let Some(session_key) = session_key.as_deref() {
             store.session_by_key(session_key).status().await?;
         }
-        let bindings =
-            build_tool_bindings(&store, &scope, instance_id, session_key.as_deref()).await?;
+        let (bindings, issues) =
+            build_tool_bindings(&store, &scope, instance_id, session_key.as_deref(), &down)
+                .await?;
         let session_state_tools = if options.expose_session_state_tools {
             build_session_state_tools()
         } else {
@@ -138,7 +139,21 @@ impl GatewayServer {
             tools: Arc::new(tools),
             caller,
             call_log,
+            down: Arc::new(down),
+            projection: Arc::new(std::sync::Mutex::new(issues)),
         })
+    }
+
+    /// Latest projection issues (down/skipped/degraded) for the panel view.
+    pub(crate) fn projection_handle(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<Vec<ProjectionIssue>>> {
+        std::sync::Arc::clone(&self.projection)
+    }
+
+    /// Caller identity of this mount (`/mcp/<id>`); None on the generic mount.
+    pub(crate) fn caller_name(&self) -> Option<String> {
+        self.caller.clone()
     }
 
     fn instructions(&self) -> String {
@@ -150,14 +165,28 @@ impl GatewayServer {
     }
 
     async fn current_bindings(&self) -> Result<HashMap<String, ToolBinding>, ErrorData> {
-        build_tool_bindings(
+        self.rebuild_bindings(self.session_key.as_deref()).await
+    }
+
+    /// Fresh bindings plus a projection-report refresh. Shared by listing and
+    /// the call path so degraded/skipped state never goes stale.
+    async fn rebuild_bindings(
+        &self,
+        session_key: Option<&str>,
+    ) -> Result<HashMap<String, ToolBinding>, ErrorData> {
+        let (bindings, issues) = build_tool_bindings(
             &self.store,
             &self.scope,
             self.instance_id,
-            self.session_key.as_deref(),
+            session_key,
+            &self.down,
         )
         .await
-        .map_err(|error| ErrorData::internal_error(error.to_string(), None))
+        .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        if let Ok(mut projection) = self.projection.lock() {
+            *projection = issues;
+        }
+        Ok(bindings)
     }
 
     async fn current_tools(&self) -> Result<Vec<Tool>, ErrorData> {
@@ -560,16 +589,13 @@ impl ServerHandler for GatewayServer {
             // Always resolve against freshly built bindings so override changes
             // (disable/rename) apply on the next call, never through the stale
             // startup snapshot.
-            let binding = build_tool_bindings(
-                &store,
-                &scope,
-                instance_id,
-                session_key.as_deref(),
-            )
-            .await
-            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
-            .remove(tool_name.as_str())
-            .ok_or_else(|| ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None))?;
+            let binding = self
+                .rebuild_bindings(session_key.as_deref())
+                .await?
+                .remove(tool_name.as_str())
+                .ok_or_else(|| {
+                    super::tools::unknown_tool_error(&tool_name, self.instance_id.is_some())
+                })?;
             let call_start = std::time::Instant::now();
             let record_binding = binding.clone();
             let mut execution_options = McpExecutionOptions::default();
@@ -727,13 +753,14 @@ fn record_management_call(
 /// structured failure payload (code/message/hint/retryable).
 pub(super) fn llm_error_result(error: &mcpstore::Error) -> CallToolResponse {
     let code = error.code();
-    let payload = json!({
-        "code": code.as_str(),
-        "message": error.message(),
-        "hint": code.hint(),
-        "retryable": error.retryable(),
-    });
+    let mut payload = serde_json::Map::new();
+    payload.insert("code".into(), json!(code.as_str()));
+    payload.insert("message".into(), json!(error.message()));
+    payload.insert("retryable".into(), json!(error.retryable()));
+    if let Some(hint) = super::tools::agent_hint(code).or(code.hint()) {
+        payload.insert("hint".into(), json!(hint));
+    }
     CallToolResponse::Complete(CallToolResult::error(vec![ContentBlock::text(
-        payload.to_string(),
+        Value::Object(payload).to_string(),
     )]))
 }

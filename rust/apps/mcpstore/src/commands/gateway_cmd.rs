@@ -94,7 +94,7 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     };
 
     let call_log = GatewayCallLog::new();
-    let router = build_router(
+    let (router, projection_mounts) = build_router(
         &store,
         &options,
         Arc::clone(&call_log),
@@ -104,13 +104,16 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     let calls = axum::Router::new()
         .route("/calls", axum::routing::get(calls_route))
         .with_state(call_log);
+    let projection = axum::Router::new()
+        .route("/projection", axum::routing::get(projection_route))
+        .with_state(projection_mounts);
     let addr = format!("{}:{}", options.host, options.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     eprintln!(
         "[GATEWAY] listening on http://{addr} (generic mount {})",
         options.path
     );
-    axum::serve(listener, router.merge(calls)).await?;
+    axum::serve(listener, router.merge(calls).merge(projection)).await?;
     Ok(())
 }
 
@@ -123,8 +126,9 @@ async fn build_router(
     options: &GatewayOptions,
     shared_log: Arc<GatewayCallLog>,
     app_config_path: std::path::PathBuf,
-) -> Result<axum::Router, BoxErr> {
+) -> Result<(axum::Router, ProjectionMounts), BoxErr> {
     let mut router = axum::Router::new();
+    let mut mounts: ProjectionMounts = Vec::new();
 
     // Per-client mounts: derive GatewayOptions from the wired entry.
     let wired_path = app_config_path
@@ -157,18 +161,55 @@ async fn build_router(
         let server = build_server(
             Arc::clone(store),
             wired_options,
-            caller,
+            caller.clone(),
             Arc::clone(&shared_log),
         )
         .await?;
+        mounts.push(MountProjection {
+            caller,
+            issues: server.projection_handle(),
+        });
         router = router.merge(streamable_http_router(server, &path));
     }
 
     // Generic mount from the CLI options.
     let generic_server = build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
+    mounts.push(MountProjection {
+        caller: generic_server.caller_name(),
+        issues: generic_server.projection_handle(),
+    });
     router = router.merge(streamable_http_router(generic_server, &options.path));
 
-    Ok(router)
+    Ok((router, mounts))
+}
+
+/// One gateway mount's live projection report, for the /projection route the
+/// daemon's /gateway/projection forwards to.
+#[derive(Clone)]
+struct MountProjection {
+    caller: Option<String>,
+    issues: std::sync::Arc<std::sync::Mutex<Vec<crate::gateway::ProjectionIssue>>>,
+}
+
+type ProjectionMounts = Vec<MountProjection>;
+
+async fn projection_route(State(mounts): State<ProjectionMounts>) -> Response {
+    let mounts: Vec<Value> = mounts
+        .iter()
+        .map(|mount| {
+            let issues = mount
+                .issues
+                .lock()
+                .map(|guard| guard.iter().cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            json!({ "caller": mount.caller, "issues": issues })
+        })
+        .collect();
+    axum::Json(json!({
+        "success": true,
+        "data": { "running": true, "mounts": mounts },
+    }))
+    .into_response()
 }
 
 async fn build_server(
