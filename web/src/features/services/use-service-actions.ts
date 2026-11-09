@@ -4,11 +4,13 @@ import {
   checkInstance,
   connectInstance,
   disconnectInstance,
+  getServiceState,
   removeServiceScope,
   restartInstance,
   type ServiceAddress,
   type ServiceInstance,
 } from "@/lib/api"
+import type { ServiceState } from "@/lib/api/service"
 import { useI18n } from "@/lib/i18n-context"
 
 type RunAction = (
@@ -44,6 +46,19 @@ export function useServiceActions({
         const state = await connectInstance(service)
         if (state?.auth?.status === "unauthenticated") {
           toast.info(t("oauthConnectLoginRequired"))
+        }
+        // The connect itself runs in the background, so the snapshot above still
+        // says "starting". Poll until the phase settles, then refresh the lists —
+        // otherwise the card spins on "Connecting" until a manual reload.
+        for (let i = 0; i < 20; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          let settled: ServiceState | undefined
+          try {
+            settled = await getServiceState(service)
+          } catch {
+            break
+          }
+          if (!settled || settled.phase !== "starting") break
         }
       },
       () => refreshInstanceQueries(service),
