@@ -1,39 +1,63 @@
 use futures_util::StreamExt;
+use std::collections::HashMap;
 
-use super::catalog::{
-    apply_service_overrides, catalog_name_counts, exposed_tool_name, service_override_map,
-};
-use super::tools::{read_required_instance_id, read_required_object, read_required_string};
+use super::catalog::{apply_service_overrides, exposed_tool_name, service_override_map};
+use super::tools::{read_required_instance_id, read_required_string};
 use super::*;
 use mcpstore::telemetry::FrameTelemetry;
 
+/// Connect every instance the mount needs. A failing instance never fails the
+/// mount: it is reported `Down` (with its service name) and its payloads are
+/// excluded downstream. Only local misconfiguration (target not declared in
+/// the scope) and store infrastructure failures stay hard errors.
 pub(super) async fn connect_target_instances(
     store: &MCPStore,
     scope: &ScopeRef,
     target_instance_id: Option<InstanceId>,
-) -> Result<(), BoxErr> {
+) -> Result<HashMap<InstanceId, DownService>, BoxErr> {
     let instances = store.list_scope_instances(scope).await?;
-    let instance_ids = if let Some(instance_id) = target_instance_id {
-        if !instances
+    let selected: Vec<mcpstore::ServiceInstance> = if let Some(instance_id) = target_instance_id {
+        let matched = instances
             .iter()
-            .any(|instance| instance.instance_id == instance_id)
-        {
-            return Err(
-                format!("Instance {instance_id} is not declared in scope {scope:?}").into(),
-            );
-        }
-        vec![instance_id]
+            .find(|instance| instance.instance_id == instance_id)
+            .ok_or_else(|| {
+                format!("Instance {instance_id} is not declared in scope {scope:?}")
+            })?;
+        vec![matched.clone()]
     } else {
         instances
-            .into_iter()
-            .map(|instance| instance.instance_id)
-            .collect()
     };
 
-    for instance_id in instance_ids {
-        store.connect_service(instance_id).await?;
+    let mut down = HashMap::new();
+    for instance in selected {
+        if let Err(error) = store.connect_service(instance.instance_id).await {
+            down.insert(
+                instance.instance_id,
+                DownService {
+                    service_name: instance.service_name,
+                    reason: error.to_string(),
+                },
+            );
+        }
     }
-    Ok(())
+    Ok(down)
+}
+
+/// A service that failed to connect at mount build; kept keyed by instance
+/// so binding rebuilds can exclude its payloads without re-probing.
+#[derive(Clone, Debug)]
+pub(super) struct DownService {
+    pub(super) service_name: String,
+    pub(super) reason: String,
+}
+
+impl DownService {
+    pub(super) fn issue(&self) -> ProjectionIssue {
+        ProjectionIssue::Down {
+            service: self.service_name.clone(),
+            reason: self.reason.clone(),
+        }
+    }
 }
 
 pub(super) async fn build_tool_bindings(
@@ -41,7 +65,8 @@ pub(super) async fn build_tool_bindings(
     scope: &ScopeRef,
     target_instance_id: Option<InstanceId>,
     session_key: Option<&str>,
-) -> Result<HashMap<String, ToolBinding>, BoxErr> {
+    down: &HashMap<InstanceId, DownService>,
+) -> Result<(HashMap<String, ToolBinding>, Vec<ProjectionIssue>), BoxErr> {
     let tool_payloads = if let Some(session_key) = session_key {
         serde_json::to_value(store.list_tools_in_session(session_key).await?)
             .and_then(serde_json::from_value::<Vec<Value>>)
@@ -59,31 +84,43 @@ pub(super) async fn build_tool_bindings(
     let overrides_by_instance = service_override_map(store).await?;
     let tool_payloads = apply_service_overrides(tool_payloads, &overrides_by_instance)?;
 
-    let names = catalog_name_counts(&tool_payloads, "name")?;
-    let namespace_tools = target_instance_id.is_none() && session_key.is_none();
+    let (parsed, issues) = classify_tool_payloads(&tool_payloads, down);
 
-    let mut bindings = HashMap::with_capacity(tool_payloads.len());
+    // Name-collision counts over surviving payloads only (the payload "name"
+    // field is the original_name read above).
+    let mut names: HashMap<String, usize> = HashMap::new();
+    for (_, original_name, ..) in &parsed {
+        *names.entry(original_name.clone()).or_insert(0) += 1;
+    }
+    // Multi-service mounts (store/agent scope, session) always prefix exposed
+    // names: a tool exposed bare today must never rename when a later service
+    // brings a colliding name. Single-instance mounts are composition-frozen
+    // (no later member can collide), so they keep bare names unless the
+    // instance itself yields a duplicate.
+    let namespace_tools = target_instance_id.is_none();
+
+    let mut bindings = HashMap::with_capacity(parsed.len());
     let mut taken: HashMap<String, usize> = HashMap::new();
-    for payload in tool_payloads {
-        let original_name = read_required_string(&payload, "name")?;
-        let canonical_tool_name = read_required_string(&payload, "tool_name")?;
-        let instance_id = read_required_instance_id(&payload, "instance_id")?;
-        let service_name = read_required_string(&payload, "service_name")?;
-
+    for (payload, original_name, canonical_tool_name, instance_id, service_name, schema) in parsed {
         let exposed_name = if namespace_tools
-            || names.get(&original_name).copied().unwrap_or_default() > 1
+            || names.get(original_name.as_str()).copied().unwrap_or_default() > 1
         {
             // ponytail: magpie-style tool naming — <server>__<tool>, unsafe chars → '-',
             // 64-byte rune-safe truncation, collision suffix (_2, _3, …) budget within 64.
             exposed_tool_name(&service_name, &original_name, &mut taken)
         } else {
-            original_name
+            original_name.clone()
         };
         let description = payload
             .get("description")
             .and_then(Value::as_str)
             .map(str::to_string);
-        let schema = read_required_object(&payload, "input_schema")?;
+        let schema = schema.unwrap_or_else(|| {
+            let mut fallback = Map::new();
+            fallback.insert("type".into(), Value::String("object".into()));
+            fallback.insert("properties".into(), Value::Object(Map::new()));
+            fallback
+        });
 
         let mut tool = Tool::new_with_raw(
             exposed_name.clone(),
@@ -120,7 +157,104 @@ pub(super) async fn build_tool_bindings(
         );
     }
 
-    Ok(bindings)
+    Ok((bindings, issues))
+}
+
+/// Upstream payload → binding input, with failure isolation. A malformed
+/// payload skips its own tool, a down service skips its whole payload set,
+/// and a missing/invalid `input_schema` marks the tool degraded (exposed
+/// with an empty-object fallback by the caller). The mount and every
+/// healthy tool keep working; defects go to the projection report — never
+/// as a broken tool list.
+#[allow(clippy::type_complexity)]
+pub(super) fn classify_tool_payloads<'a>(
+    tool_payloads: &'a [Value],
+    down: &HashMap<InstanceId, DownService>,
+) -> (
+    Vec<(
+        &'a Value,
+        String,
+        String,
+        InstanceId,
+        String,
+        Option<Map<String, Value>>,
+    )>,
+    Vec<ProjectionIssue>,
+) {
+    let mut issues: Vec<ProjectionIssue> = down.values().map(DownService::issue).collect();
+    let mut parsed = Vec::with_capacity(tool_payloads.len());
+    for payload in tool_payloads {
+        let service_hint = payload
+            .get("service_name")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let original_name = match read_required_string(payload, "name") {
+            Ok(name) => name,
+            Err(error) => {
+                issues.push(ProjectionIssue::SkippedTool {
+                    service: service_hint.clone(),
+                    tool: None,
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let canonical_tool_name = match read_required_string(payload, "tool_name") {
+            Ok(name) => name,
+            Err(error) => {
+                issues.push(ProjectionIssue::SkippedTool {
+                    service: service_hint.clone(),
+                    tool: Some(original_name),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let instance_id = match read_required_instance_id(payload, "instance_id") {
+            Ok(id) => id,
+            Err(error) => {
+                issues.push(ProjectionIssue::SkippedTool {
+                    service: service_hint.clone(),
+                    tool: Some(original_name),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let service_name = match read_required_string(payload, "service_name") {
+            Ok(name) => name,
+            Err(error) => {
+                issues.push(ProjectionIssue::SkippedTool {
+                    service: service_hint,
+                    tool: Some(original_name),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        if down.contains_key(&instance_id) {
+            continue;
+        }
+        let schema = match payload.get("input_schema") {
+            Some(Value::Object(map)) => Some(map.clone()),
+            _ => {
+                issues.push(ProjectionIssue::DegradedTool {
+                    service: service_name.clone(),
+                    tool: original_name.clone(),
+                });
+                None
+            }
+        };
+        parsed.push((
+            payload,
+            original_name,
+            canonical_tool_name,
+            instance_id,
+            service_name,
+            schema,
+        ));
+    }
+    (parsed, issues)
 }
 
 /// Build the gateway's streamable-http axum router (no bind; the caller owns the listener).

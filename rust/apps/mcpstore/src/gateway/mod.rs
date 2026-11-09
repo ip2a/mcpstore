@@ -316,6 +316,25 @@ impl EventHandler for GatewayToolsChangedNotification {
     }
 }
 
+/// One projection defect found while building a gateway mount's tool surface.
+/// Upstream data defects are isolated to their owner: the mount always
+/// builds, defects surface here (panel) and at call time (structured
+/// errors) — never as a broken tool list.
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) enum ProjectionIssue {
+    /// Service failed to connect at mount build; its tools are excluded.
+    Down { service: String, reason: String },
+    /// Tool payload malformed; the tool is skipped.
+    SkippedTool {
+        service: Option<String>,
+        tool: Option<String>,
+        reason: String,
+    },
+    /// `input_schema` missing or not an object; exposed with an empty-object
+    /// fallback schema.
+    DegradedTool { service: String, tool: String },
+}
+
 #[derive(Clone)]
 pub(crate) struct GatewayServer {
     store: Arc<MCPStore>,
@@ -336,6 +355,11 @@ pub(crate) struct GatewayServer {
     /// Caller identity for this mount (`/mcp/<id>` segment); None = generic `/mcp`.
     caller: Option<String>,
     call_log: Arc<GatewayCallLog>,
+    /// Services that failed to connect at mount build (frozen for the mount's
+    /// lifetime); their payloads are excluded from every binding rebuild.
+    down: Arc<HashMap<InstanceId, transport::DownService>>,
+    /// Latest projection issues, refreshed on every binding rebuild.
+    projection: Arc<std::sync::Mutex<Vec<ProjectionIssue>>>,
 }
 
 mod catalog;
