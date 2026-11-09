@@ -38,7 +38,7 @@ jobs:
           maturin-version: v1.14.1
           target: ${{ matrix.target }}
           manylinux: "2_28"
-          working-directory: python
+          working-directory: satellite/python
           # memcached feature vendors OpenSSL; its perl build needs IPC::Cmd and
           # Time::Piece, which the manylinux container's base perl lacks.
           # Guarded: the cross-compile images have no dnf and need no fix.
@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          wheel="$(find python/dist -maxdepth 1 -name '*.whl' -print -quit)"
+          wheel="$(find satellite/python/dist -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"
           echo "$wheel" | grep -F "manylinux_2_28_${{ matrix.arch }}.whl"
           python - "$wheel" <<'PY'
@@ -68,7 +68,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: python-dist-linux-${{ matrix.arch }}
-          path: python/dist/*.whl
+          path: satellite/python/dist/*.whl
           if-no-files-found: error
 
   build-native:
@@ -105,13 +105,13 @@ jobs:
 
       - name: Build wheel
         run: python -m maturin build --release --locked --compatibility pypi --out dist
-        working-directory: python
+        working-directory: satellite/python
 
       - name: Verify wheel tag and import
         shell: bash
         run: |
           set -euo pipefail
-          wheel="$(find python/dist -maxdepth 1 -name '*.whl' -print -quit)"
+          wheel="$(find satellite/python/dist -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"
           echo "$wheel" | grep -F "${{ matrix.expected_tag }}.whl"
           python -m pip install --force-reinstall "$wheel"
@@ -121,7 +121,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: python-dist-${{ matrix.platform }}
-          path: python/dist/*.whl
+          path: satellite/python/dist/*.whl
           if-no-files-found: error
 
   verify-linux:

@@ -9,45 +9,20 @@
 !.github/**
 
 # Source directories allowlisted for Git.
-!desktop/
-!desktop/**
-!i18n/
-!i18n/**
-!npm/
-!npm/**
+!Cargo.toml
+!Cargo.lock
+!satellite/
+!satellite/**
 !plugins/
 !plugins/**
-!python/
-!python/**
-!rust/
-!rust/**
 !scripts/
 !scripts/**
-
-# web/: source + config only (not tmp dumps / build output / node_modules).
-!web/
-!web/biome.json
-!web/components.json
-!web/index.html
-!web/package.json
-!web/package-lock.json
-!web/tsconfig.json
-!web/tsconfig.app.json
-!web/tsconfig.node.json
-!web/vite.config.ts
-!web/public/
-!web/public/**
-!web/scripts/
-!web/scripts/**
-!web/src/
-!web/src/**
 
 # Root files allowlisted for Git.
 !/LICENSE
 !/README.md
 !/README_*.md
 !/install.sh
-!/platforms.toml
 !/paseo.json
 
 # README documentation assets (screenshots).
@@ -72,20 +47,23 @@ __pycache__/
 *.pyd
 target/
 dist/
-python/.venv
+satellite/web/node_modules
+satellite/python/.venv
+satellite/web/dist/
 docs/.venv/
 docs/site/
 release-assets/
 # assembled platform binaries; the entry package's wrapper is source and stays tracked
-npm/packages/*/bin/
-!npm/packages/mcpstore/bin/
+satellite/npm/packages/*/bin/
+!satellite/npm/packages/mcpstore/bin/
 *.tgz
 .obsidian/
 .specstory/
 .vscode/
 
 # Local example fixtures are intentionally not Git-managed for now.
-/python/example_local/
+satellite/python/example_local/
+satellite/web/REFACTOR_PLAN.md
 
 # tauri externalBin sidecar, built by run_debug.sh / release workflow
-desktop/tauri/binaries/
+satellite/desktop/tauri/binaries/

@@ -13,15 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_workspace_version() -> str:
-    cargo_toml = (ROOT / "rust" / "Cargo.toml").read_text(encoding="utf-8")
+    cargo_toml = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
     match = re.search(r'^version\s*=\s*"([^"]+)"', cargo_toml, flags=re.MULTILINE)
     if not match:
-        raise SystemExit("[error] rust/Cargo.toml workspace version is missing")
+        raise SystemExit("[error] Cargo.toml workspace version is missing")
     return match.group(1)
 
 
 def load_platform_config() -> tuple[dict[str, str], list[dict[str, str]]]:
-    data = tomllib.loads((ROOT / "platforms.toml").read_text(encoding="utf-8"))
+    data = tomllib.loads((ROOT / "satellite" / "platforms.toml").read_text(encoding="utf-8"))
     return data["meta"], data["platforms"]
 
 

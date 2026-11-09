@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_platforms() -> list[dict[str, str]]:
-    data = tomllib.loads((ROOT / "platforms.toml").read_text(encoding="utf-8"))
+    data = tomllib.loads((ROOT / "satellite" / "platforms.toml").read_text(encoding="utf-8"))
     return data["platforms"]
 
 
@@ -19,7 +19,7 @@ def copy_binary(dist_root: Path, platform: dict[str, str]) -> None:
     if not source.exists():
         raise FileNotFoundError(f"Platform artifact not found: {source}")
 
-    target_dir = ROOT / "npm" / "packages" / platform["npm_dir"] / "bin"
+    target_dir = ROOT / "satellite" / "npm" / "packages" / platform["npm_dir"] / "bin"
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / platform["artifact_binary"]
 
