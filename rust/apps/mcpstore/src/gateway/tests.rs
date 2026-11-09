@@ -58,6 +58,8 @@ mod tests {
             tools: Arc::new(Vec::new()),
             caller: None,
             call_log: GatewayCallLog::new(),
+            down: Arc::new(HashMap::new()),
+            projection: Arc::new(std::sync::Mutex::new(Vec::new())),
         };
         let client_handler = NotificationClient::default();
         let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
@@ -391,6 +393,8 @@ mod tests {
             tools: Arc::new(Vec::new()),
             caller: None,
             call_log: GatewayCallLog::new(),
+            down: Arc::new(HashMap::new()),
+            projection: Arc::new(std::sync::Mutex::new(Vec::new())),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -476,5 +480,139 @@ mod tests {
         assert_eq!(records[0].kind, GatewayCallKind::Tool);
         assert!(!records[0].success);
         assert_eq!(records[0].duration_ms, 3);
+    }
+
+    #[test]
+    fn projection_classify_isolates_defects_without_touching_healthy_tools() {
+        use super::super::transport::{classify_tool_payloads, DownService};
+        use std::collections::HashMap as StdHashMap;
+
+        let healthy_instance = ServiceInstanceKey::new("svc", ScopeRef::Store).instance_id();
+        let down_instance = ServiceInstanceKey::new("dead", ScopeRef::Store).instance_id();
+        let tool = |name: &str, instance_id: &str, service_name: &str| {
+            serde_json::json!({
+                "name": name,
+                "tool_name": name,
+                "instance_id": instance_id,
+                "service_name": service_name,
+                "input_schema": {"type": "object", "properties": {}},
+                "description": format!("{name} tool")
+            })
+        };
+        let healthy_id = healthy_instance.to_string();
+        let down_id = down_instance.to_string();
+        let payloads = vec![
+            tool("healthy", &healthy_id, "svc"),
+            // Missing name entirely.
+            serde_json::json!({
+                "tool_name": "broken",
+                "instance_id": healthy_id,
+                "service_name": "svc",
+                "input_schema": {"type": "object"}
+            }),
+            // Missing tool_name.
+            {
+                let mut value = tool("no-canonical", &healthy_id, "svc");
+                value["tool_name"] = serde_json::Value::Null;
+                value
+            },
+            // Missing schema.
+            {
+                let mut value = tool("no-schema", &healthy_id, "svc");
+                value["input_schema"] = serde_json::Value::Null;
+                value
+            },
+            // Belongs to a down service.
+            tool("dead-tool", &down_id, "dead"),
+        ];
+
+        let mut down = StdHashMap::new();
+        down.insert(
+            down_instance,
+            DownService {
+                service_name: "dead".to_string(),
+                reason: "spawn failed".to_string(),
+            },
+        );
+
+        let (parsed, issues) = classify_tool_payloads(&payloads, &down);
+
+        let exposed: Vec<&str> = parsed
+            .iter()
+            .map(|(_, _, name, _, _, _)| name.as_str())
+            .collect();
+        assert_eq!(exposed, ["healthy", "no-schema"]);
+        let degraded: Vec<&str> = parsed
+            .iter()
+            .filter(|(_, _, _, _, _, schema)| schema.is_none())
+            .map(|(_, _, name, _, _, _)| name.as_str())
+            .collect();
+        assert_eq!(degraded, ["no-schema"]);
+
+        assert!(matches!(
+            issues.first(),
+            Some(ProjectionIssue::Down { service, .. }) if service == "dead"
+        ));
+        assert!(issues.iter().any(|issue| matches!(
+            issue,
+            ProjectionIssue::SkippedTool { tool: None, .. }
+        )));
+        assert!(issues.iter().any(|issue| matches!(
+            issue,
+            ProjectionIssue::SkippedTool { tool: Some(name), .. } if name == "no-canonical"
+        )));
+        assert!(issues.iter().any(|issue| matches!(
+            issue,
+            ProjectionIssue::DegradedTool { service, tool } if service == "svc" && tool == "no-schema"
+        )));
+    }
+
+    #[tokio::test]
+    async fn unconnectable_service_downs_its_tools_but_not_the_mount() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let store_path = std::env::temp_dir().join(format!("gateway-down-{nanos}.json"));
+        std::fs::write(&store_path, b"{}").unwrap();
+        let store = Arc::new(
+            MCPStore::setup_with_options(mcpstore::StoreOptions {
+                config_path: Some(store_path.to_string_lossy().into_owned()),
+                store: Some(JsonStoreConfig::memory()),
+                namespace: Some(format!("gateway-down-{nanos}")),
+                ..mcpstore::StoreOptions::default()
+            })
+            .unwrap(),
+        );
+        store
+            .add_service(
+                "ghost",
+                mcpstore::ServerConfig {
+                    command: Some("mcpstore-no-such-binary-xyz".to_string()),
+                    ..mcpstore::ServerConfig::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let options = GatewayOptions {
+            scope: ScopeRef::Store,
+            ..Default::default()
+        };
+        let server = GatewayServer::from_store(
+            Arc::clone(&store),
+            &options,
+            None,
+            GatewayCallLog::new(),
+        )
+        .await
+        .expect("mount must build even when a service cannot connect");
+
+        let projection = server.projection.lock().unwrap();
+        assert!(projection.iter().any(|issue| matches!(
+            issue,
+            ProjectionIssue::Down { service, .. } if service == "ghost"
+        )));
+        let _ = std::fs::remove_file(store_path);
     }
 }
