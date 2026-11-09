@@ -31,7 +31,7 @@ export function ToolConfigRow({
   const displayName = tool.title?.trim() || tool.name
 
   const scopeRef =
-    scope.type === "root" || scope.type === "store"
+    scope.type === "all" || scope.type === "store"
       ? { type: "store" as const }
       : { type: "agent" as const, agent_id: scope.agent_id }
 

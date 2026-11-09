@@ -35,7 +35,7 @@ function scopeIdFromSummary(summary: ScopeSummary): ScopeCardId {
 }
 
 function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string): string {
-  if (summary.scope.type === "root") return t("filterAll")
+  if (summary.scope.type === "all") return t("filterAll")
   if (summary.scope.type === "store") return t("store")
   if (summary.scope.type === "agent") return summary.scope.agent_id
   return scopeIdFromSummary(summary)
@@ -52,8 +52,8 @@ export function AgentsView(props: {
   onRemoveScope: (agentId: string, serviceName: string) => void
 }) {
   const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<ScopeCardId>("root")
-  const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("root")
+  const [activeTab, setActiveTab] = useState<ScopeCardId>("all")
+  const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("all")
   const [addScopeDialogOpen, setAddScopeDialogOpen] = useState(false)
   const [configScopeId, setConfigScopeId] = useState(ALL_SCOPE_ID)
   const [configDialogOpen, setConfigDialogOpen] = useState(false)
@@ -69,8 +69,8 @@ export function AgentsView(props: {
 
   const selectedScope: ScopeView = useMemo(
     () =>
-      selectedScopeId === "root"
-        ? { type: "root" }
+      selectedScopeId === "all"
+        ? { type: "all" }
         : selectedScopeId === STORE_SCOPE_ID
           ? { type: "store" }
           : { type: "agent", agent_id: selectedScopeId },
@@ -111,7 +111,7 @@ export function AgentsView(props: {
 
   function selectScopeTab(scopeId: ScopeCardId) {
     setConfigScopeId(
-      scopeId === "root" ? ALL_SCOPE_ID : scopeId === STORE_SCOPE_ID ? scopeId : `agent:${scopeId}`,
+      scopeId === "all" ? ALL_SCOPE_ID : scopeId === STORE_SCOPE_ID ? scopeId : `agent:${scopeId}`,
     )
     setSelectedScopeId(scopeId)
     setActiveTab(scopeId)

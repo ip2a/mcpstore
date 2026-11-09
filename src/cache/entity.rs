@@ -105,6 +105,12 @@ impl CacheLayerManager {
         if agent_id.is_empty() {
             return Err(CacheError::Validation("Agent ID cannot be empty".into()));
         }
+        // Reserve "all" as a system scope name
+        if agent_id.eq_ignore_ascii_case("all") {
+            return Err(CacheError::Validation(
+                "Agent ID 'all' is reserved for system use".into(),
+            ));
+        }
         if self.get_entity("agents", agent_id).await?.is_some() {
             return Err(CacheError::Validation(format!(
                 "Agent already exists: agent_id={agent_id}"

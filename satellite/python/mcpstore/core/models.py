@@ -14,8 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ===== Scope =====
 
-class RootScope(BaseModel):
-    type: Literal["root"] = "root"
+class AllScope(BaseModel):
+    type: Literal["all"] = "all"
 
     model_config = ConfigDict(extra="forbid")
 
@@ -35,7 +35,7 @@ class AgentScope(BaseModel):
 
 ScopeRef = Annotated[Union[StoreScope, AgentScope], Field(discriminator="type")]
 ScopeView = Annotated[
-    Union[RootScope, StoreScope, AgentScope], Field(discriminator="type")
+    Union[AllScope, StoreScope, AgentScope], Field(discriminator="type")
 ]
 
 HandshakeMode = Literal["auto", "discover", "initialize"]

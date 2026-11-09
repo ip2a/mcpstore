@@ -112,7 +112,7 @@ fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
 
 // ===== List endpoints =====
 
-/// `GET /services/list?scope=root|store|agent&agent_id=` — service list (root = aggregation of all scopes).
+/// `GET /services/list?scope=all|store|agent&agent_id=` — service list (all = aggregation of all scopes).
 pub(super) async fn service_list_services(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ScopeQuery>,
@@ -129,7 +129,7 @@ pub(super) async fn service_list_services(
     ))
 }
 
-/// `GET /scopes/list` — scope registry (root + store + each agent), each entry with its service count.
+/// `GET /scopes/list` — scope registry (all + store + each agent), each entry with its service count.
 pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult {
     let scopes = state
         .store
@@ -143,9 +143,9 @@ pub(super) async fn scopes_list(State(state): State<Arc<ApiState>>) -> ApiResult
     ))
 }
 
-/// `GET /scopes/root` · `GET /scopes/store` · `GET /scopes/agents/:agent_id` — single scope detail.
-pub(super) async fn scope_info_root(State(state): State<Arc<ApiState>>) -> ApiResult {
-    scope_info_for(&state, ScopeView::Root).await
+/// `GET /scopes/all` · `GET /scopes/store` · `GET /scopes/agents/:agent_id` — single scope detail.
+pub(super) async fn scope_info_all(State(state): State<Arc<ApiState>>) -> ApiResult {
+    scope_info_for(&state, ScopeView::All).await
 }
 
 pub(super) async fn scope_info_store(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -377,20 +377,37 @@ pub(super) async fn tools_list(
     let instance_id = resolve_instance(&state, service_name, &scope).await?;
     let filter = parse_tool_filter(query.filter.as_deref().unwrap_or("available"))?;
     let filter_name = tool_filter_label(filter);
-    let tools = state
+    
+    match state
         .store
         .list_tools_for_instance_with_filter(instance_id, filter)
         .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Tool list retrieved successfully",
-        json!({
-            "service_name": service_name,
-            "filter": filter_name,
-            "tools": tools,
-            "total": tools.len(),
-        }),
-    ))
+    {
+        Ok(tools) => Ok(success(
+            "Tool list retrieved successfully",
+            json!({
+                "service_name": service_name,
+                "filter": filter_name,
+                "tools": tools,
+                "total": tools.len(),
+            }),
+        )),
+        Err(err) => {
+            Ok(success(
+                "Service unavailable",
+                json!({
+                    "service_name": service_name,
+                    "filter": filter_name,
+                    "tools": [],
+                    "total": 0,
+                    "service_error": {
+                        "code": err.code().as_str(),
+                        "message": err.message(),
+                    }
+                }),
+            ))
+        }
+    }
 }
 
 /// `POST /services/{name}/tools/call` —— body: `{ tool_name, args? }`
@@ -455,15 +472,29 @@ pub(super) async fn service_list_resources(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    let resources = state
-        .store
-        .list_resources_for_instance(instance_id)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Resource list retrieved successfully",
-        json!({ "resources": resources, "total": resources.len() }),
-    ))
+    
+    // MCP service errors (401, 409, 502, etc.) are expected business states,
+    // not system failures. Return them as successful responses with error info.
+    match state.store.list_resources_for_instance(instance_id).await {
+        Ok(resources) => Ok(success(
+            "Resource list retrieved successfully",
+            json!({ "resources": resources, "total": resources.len() }),
+        )),
+        Err(err) => {
+            // Return 200 OK with error details in the response body
+            Ok(success(
+                "Service unavailable",
+                json!({
+                    "resources": [],
+                    "total": 0,
+                    "service_error": {
+                        "code": err.code().as_str(),
+                        "message": err.message(),
+                    }
+                }),
+            ))
+        }
+    }
 }
 
 /// `GET /services/{name}/resources/templates?scope=`
@@ -513,15 +544,26 @@ pub(super) async fn service_list_prompts(
 ) -> ApiResult {
     let scope = query.into_scope_ref()?;
     let instance_id = resolve_instance(&state, &service_name, &scope).await?;
-    let prompts = state
-        .store
-        .list_prompts_for_instance(instance_id)
-        .await
-        .map_err(ApiError::from_store)?;
-    Ok(success(
-        "Prompt list retrieved successfully",
-        json!({ "prompts": prompts, "total": prompts.len() }),
-    ))
+    
+    match state.store.list_prompts_for_instance(instance_id).await {
+        Ok(prompts) => Ok(success(
+            "Prompt list retrieved successfully",
+            json!({ "prompts": prompts, "total": prompts.len() }),
+        )),
+        Err(err) => {
+            Ok(success(
+                "Service unavailable",
+                json!({
+                    "prompts": [],
+                    "total": 0,
+                    "service_error": {
+                        "code": err.code().as_str(),
+                        "message": err.message(),
+                    }
+                }),
+            ))
+        }
+    }
 }
 
 /// `POST /services/{name}/prompts/get` —— body: `{ prompt_name, args? }`

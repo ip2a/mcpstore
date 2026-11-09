@@ -168,8 +168,8 @@ export type ServiceAddress = {
   scope: ScopeRef
 }
 
-/** Read-view scope (doc §17.2): root aggregation / store / agent. Root is a read-only aggregate and cannot be used for declarations. */
-export type ScopeView = { type: "root" } | { type: "store" } | { type: "agent"; agent_id: string }
+/** Read-view scope (doc §17.2): all aggregation / store / agent. All is a read-only aggregate and cannot be used for declarations. */
+export type ScopeView = { type: "all" } | { type: "store" } | { type: "agent"; agent_id: string }
 
 /** Scope registry entry (GET /scopes/list). */
 export type ScopeSummary = {

@@ -35,14 +35,14 @@ function scopeIdFromSummary(summary: ScopeSummary): ScopeCardId {
 }
 
 function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string): string {
-  if (summary.scope.type === "root") return t("filterAll")
+  if (summary.scope.type === "all") return t("filterAll")
   if (summary.scope.type === "store") return t("store")
   if (summary.scope.type === "agent") return summary.scope.agent_id
   return scopeIdFromSummary(summary)
 }
 
 function selectedScopeFromId(scopeId: ScopeCardId): ScopeView {
-  if (scopeId === "root") return { type: "root" }
+  if (scopeId === "all") return { type: "all" }
   if (scopeId === "store") return { type: "store" }
   return { type: "agent", agent_id: scopeId }
 }
@@ -63,8 +63,8 @@ export function ServicesView(props: {
   onRestart: (service: ServiceInstance) => void
 }) {
   const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<ScopeCardId>("root")
-  const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("root")
+  const [activeTab, setActiveTab] = useState<ScopeCardId>("all")
+  const [selectedScopeId, setSelectedScopeId] = useState<ScopeCardId>("all")
   const [addOpen, setAddOpen] = useState(false)
 
   const scopesQuery = useScopesQuery()
@@ -110,7 +110,7 @@ export function ServicesView(props: {
   const selectedScopeTitle = useMemo(() => {
     const summary = scopes.find((item) => scopeIdFromSummary(item) === selectedScopeId)
     if (summary) return scopeTitleFromSummary(summary, t)
-    if (selectedScopeId === "root") return t("filterAll")
+    if (selectedScopeId === "all") return t("filterAll")
     if (selectedScopeId === "store") return t("store")
     return selectedScopeId
   }, [scopes, selectedScopeId, t])
@@ -122,7 +122,7 @@ export function ServicesView(props: {
         crumbs={[
           {
             label: t("servicesWorkspaceTitle"),
-            onClick: () => selectScopeTab("root"),
+            onClick: () => selectScopeTab("all"),
           },
           { label: breadcrumbUppercase(selectedScopeTitle) },
         ]}

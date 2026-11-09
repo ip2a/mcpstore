@@ -186,7 +186,7 @@ pub(super) async fn frame_activity_by_service(
 
     let instances = state
         .store
-        .list_services_viewed(&mcpstore::identity::ScopeView::Root)
+        .list_services_viewed(&mcpstore::identity::ScopeView::All)
         .await
         .map_err(ApiError::from_store)?;
     let mut labels = std::collections::HashMap::new();

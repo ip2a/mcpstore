@@ -1,3 +1,4 @@
+import { ClipboardIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -9,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { useInstanceResourcesQueries } from "@/features/resources/queries"
 import { ServiceResourceDetailPane } from "@/features/services/service-panels"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceInstance } from "@/lib/api"
+import type { ResourceInfo, ServiceInstance } from "@/lib/api"
 
 export function ResourceDetailView(props: {
   instanceId: string
@@ -94,6 +95,12 @@ export function ResourceDetailView(props: {
         className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
       >
         <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
+          {resource ? (
+            <Button size="sm" variant="outline" onClick={() => void copyResource(resource)}>
+              <ClipboardIcon data-icon="inline-start" />
+              {t("copy")}
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="outline"
@@ -114,9 +121,11 @@ export function ResourceDetailView(props: {
         ) : loading && !resource ? (
           <PageSkeleton />
         ) : resource ? (
-          <ScrollPane className="min-h-0 flex-1">
-            <ServiceResourceDetailPane resource={resource} service={instance} />
-          </ScrollPane>
+          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+            <ScrollPane className="min-h-0 flex-1">
+              <ServiceResourceDetailPane resource={resource} service={instance} />
+            </ScrollPane>
+          </div>
         ) : (
           <PageEmpty
             title={t("noResourcesFound")}
@@ -127,4 +136,9 @@ export function ResourceDetailView(props: {
       </PanelCard>
     </>
   )
+}
+
+async function copyResource(resource: ResourceInfo) {
+  await navigator.clipboard.writeText(JSON.stringify(resource, null, 2))
+  toast.success("Resource copied")
 }

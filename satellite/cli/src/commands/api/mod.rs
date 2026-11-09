@@ -364,7 +364,7 @@ fn core_routes(state: Arc<ApiState>) -> Router {
         .route("/agents/list", get(service::list_agents))
         .route("/agents/:agent_id", get(service::agent_info))
         .route("/scopes/list", get(service::scopes_list))
-        .route("/scopes/root", get(service::scope_info_root))
+        .route("/scopes/all", get(service::scope_info_all))
         .route("/scopes/store", get(service::scope_info_store))
         .route("/scopes/agents/:agent_id", get(service::scope_info_agent))
         .route(
