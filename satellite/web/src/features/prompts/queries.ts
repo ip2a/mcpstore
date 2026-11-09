@@ -8,7 +8,7 @@ export function useInstancePromptsQueries(instances: ServiceInstance[]) {
     queries: instances.map((instance) => ({
       queryKey: queryKeys.instancePrompts(instance),
       queryFn: () => listInstancePrompts(instance),
-      retry: false, // Don't retry failed requests
+      retry: false,
       retryOnMount: false,
       refetchOnWindowFocus: false,
       meta: {

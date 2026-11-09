@@ -27,7 +27,7 @@ import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
 function sameScopeRefView(a: { type: string; agent_id?: string }, scope: ScopeView): boolean {
-  if (scope.type === "root") return true
+  if (scope.type === "all") return true
   if (scope.type === "store") return a.type === "store"
   return a.type === "agent" && a.agent_id === scope.agent_id
 }
@@ -37,14 +37,14 @@ function scopeIdFromSummary(summary: ScopeSummary): string {
 }
 
 function scopeTitleFromSummary(summary: ScopeSummary, t: (key: string) => string): string {
-  if (summary.scope.type === "root") return "root"
+  if (summary.scope.type === "all") return "all"
   if (summary.scope.type === "store") return t("store")
   if (summary.scope.type === "agent") return summary.scope.agent_id
   return scopeIdFromSummary(summary)
 }
 
 function scopeViewFromId(scopeId: string): ScopeView {
-  if (scopeId === "root") return { type: "root" }
+  if (scopeId === "all") return { type: "all" }
   if (scopeId === "store") return { type: "store" }
   return { type: "agent", agent_id: scopeId }
 }
@@ -72,7 +72,7 @@ export function ScopeView(props: {
   const { t } = useI18n()
   const scopesQuery = useScopesQuery()
   const scopes = useMemo(
-    () => (scopesQuery.data || []).filter((summary) => summary.scope.type !== "root"),
+    () => (scopesQuery.data || []).filter((summary) => summary.scope.type !== "all"),
     [scopesQuery.data],
   )
   const [selectedScopeId, setSelectedScopeId] = useState<string | null>(null)
@@ -98,7 +98,7 @@ export function ScopeView(props: {
 
   const scopeServices = useMemo(() => {
     if (!selectedScope) return []
-    if (selectedScope.type === "root") return props.services
+    if (selectedScope.type === "all") return props.services
     if (selectedScope.type === "store") {
       return props.services.filter((service) => service.scope.type === "store")
     }
@@ -333,7 +333,7 @@ function ServiceToolGroup({
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [policyDialogOpen, setPolicyDialogOpen] = useState(false)
-  const isRootView = scope.type === "root"
+  const isAllView = scope.type === "all"
 
   return (
     <>
@@ -350,7 +350,7 @@ function ServiceToolGroup({
                 />
                 <span className="flex-1 font-medium">
                   {service.service_name}
-                  {isRootView && service.scope.type === "agent" ? (
+                  {isAllView && service.scope.type === "agent" ? (
                     <span className="ml-2 text-xs text-muted-foreground">
                       ({service.scope.agent_id})
                     </span>
@@ -360,7 +360,7 @@ function ServiceToolGroup({
               </button>
             </CollapsibleTrigger>
 
-            {!isRootView ? (
+            {!isAllView ? (
               <Button
                 size="sm"
                 variant="ghost"
@@ -374,9 +374,9 @@ function ServiceToolGroup({
 
           <CollapsibleContent>
             <div className="border-t border-border/50">
-              {isRootView ? (
+              {isAllView ? (
                 <div className="px-4 py-3 text-sm text-muted-foreground">
-                  {t("scopeRootReadOnlyHint")}
+                  {t("scopeAllReadOnlyHint")}
                 </div>
               ) : null}
               {tools.map((tool) => {
@@ -388,7 +388,7 @@ function ServiceToolGroup({
                     service={service}
                     tool={tool}
                     scope={scope}
-                    readOnly={isRootView}
+                    readOnly={isAllView}
                     hasOverride={hasOverride}
                   />
                 )

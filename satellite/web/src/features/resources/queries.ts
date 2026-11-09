@@ -8,13 +8,10 @@ export function useInstanceResourcesQueries(instances: ServiceInstance[]) {
     queries: instances.map((instance) => ({
       queryKey: queryKeys.instanceResources(instance),
       queryFn: () => listInstanceResources(instance),
-      retry: false, // Don't retry failed requests to avoid cascade errors
+      retry: false,
       retryOnMount: false,
       refetchOnWindowFocus: false,
-      // Return empty array on error instead of throwing
-      // This prevents the error from bubbling up and crashing the UI
       meta: {
-        // Store instance info for error tracking
         instance,
       },
     })),

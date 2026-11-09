@@ -14,6 +14,7 @@ import { PluginListCard, type PluginItem } from "@/components/shared/plugin-list
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
+import { PaginationControls } from "@/components/shared/pagination-controls"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -23,6 +24,7 @@ import {
   usePluginUpdate,
 } from "@/features/clients/client-plugins-panel"
 import { ServicesMarketTab } from "@/features/plugins/services-market-tab"
+import { usePagination, getPaginationInfo } from "@/hooks/use-pagination"
 import { queryKeys } from "@/lib/query-keys"
 import { useI18n } from "@/lib/i18n-context"
 
@@ -35,10 +37,15 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
   const [query, setQuery] = useState("")
   const pluginAction = usePluginAction()
   const pluginUpdate = usePluginUpdate()
+  const pagination = usePagination(20)
 
   useEffect(() => {
     if (initialTab) setTab(initialTab)
   }, [initialTab])
+
+  useEffect(() => {
+    pagination.resetPage()
+  }, [tab, query])
 
   const marketQuery = useClientPluginMarketQuery()
   const pluginsQuery = useClientPluginsQuery()
@@ -86,6 +93,18 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
       )
     })
   }, [agentPlugins, query, tab])
+
+  const paginatedPlugins = useMemo(() => {
+    const start = pagination.offset
+    const end = start + pagination.pageSize
+    return visiblePlugins.slice(start, end)
+  }, [visiblePlugins, pagination.offset, pagination.pageSize])
+
+  const { from, to, pageCount } = getPaginationInfo(
+    pagination.offset,
+    paginatedPlugins.length,
+    visiblePlugins.length,
+  )
 
   const agentsLoading =
     (marketQuery.isPending && !marketQuery.data) || (pluginsQuery.isPending && !pluginsQuery.data)
@@ -153,20 +172,34 @@ export function PluginsView({ initialTab }: { initialTab?: PluginTab } = {}) {
                   <PageSkeleton />
                 </div>
               ) : visiblePlugins.length ? (
-                <ScrollPane
-                  className="min-h-0 flex-1"
-                  innerClassName={`${WORKSPACE_LIST_INSET_CLASSNAME} grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4`}
-                >
-                  {visiblePlugins.map((plugin) => (
-                    <PluginListCard
-                      key={`${plugin.kind}:${plugin.id}`}
-                      busy={pluginBusy}
-                      plugin={plugin}
-                      onInstall={(id) => pluginAction.mutate({ action: "install", id })}
-                      onUpdate={(id) => pluginUpdate.mutate(id)}
-                    />
-                  ))}
-                </ScrollPane>
+                <>
+                  <ScrollPane
+                    className="min-h-0 flex-1"
+                    innerClassName={`${WORKSPACE_LIST_INSET_CLASSNAME} grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4`}
+                  >
+                    {paginatedPlugins.map((plugin) => (
+                      <PluginListCard
+                        key={`${plugin.kind}:${plugin.id}`}
+                        busy={pluginBusy}
+                        plugin={plugin}
+                        onInstall={(id) => pluginAction.mutate({ action: "install", id })}
+                        onUpdate={(id) => pluginUpdate.mutate(id)}
+                      />
+                    ))}
+                  </ScrollPane>
+                  <PaginationControls
+                    from={from}
+                    to={to}
+                    total={visiblePlugins.length}
+                    pageSize={pagination.pageSize}
+                    pageSizes={pagination.pageSizes}
+                    page={pagination.page}
+                    pageCount={pageCount}
+                    onPageSizeChange={pagination.changePageSize}
+                    onPrevPage={pagination.prevPage}
+                    onNextPage={pagination.nextPage}
+                  />
+                </>
               ) : (
                 <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
                   <PageEmpty

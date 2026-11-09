@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { useScopeServicesQuery } from "@/features/agents/queries"
 import { PageSkeleton } from "@/components/shared/page-states"
 import { ScrollPane } from "@/components/shared/scroll-pane"
+import { PaginationControls } from "@/components/shared/pagination-controls"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +29,8 @@ import {
 import { addServiceFromConfig } from "@/lib/api/service-config"
 import { queryKeys } from "@/lib/query-keys"
 import { useI18n } from "@/lib/i18n-context"
+import { usePagination, getPaginationInfo } from "@/hooks/use-pagination"
+import { cn } from "@/lib/utils"
 
 const REGISTRY_PAGE_SIZE = 20
 
@@ -50,8 +53,13 @@ export function ServicesMarketTab({ query }: { query: string }) {
   const [registryVisible, setRegistryVisible] = useState(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const [installing, setInstalling] = useState<MarketServiceItem | null>(null)
+  const pagination = usePagination(20)
 
   const normalizedQuery = useDebounced(query.trim().toLowerCase(), 500)
+
+  useEffect(() => {
+    pagination.resetPage()
+  }, [normalizedQuery])
 
   const featuredQuery = useQuery({
     queryKey: queryKeys.servicesMarketFeatured,
@@ -132,7 +140,22 @@ export function ServicesMarketTab({ query }: { query: string }) {
       registryItems.filter((item) => !featuredItems.some((featured) => featured.id === item.id)),
     [registryItems, featuredItems],
   )
-  const hasResults = featuredItems.length > 0 || shownRegistryItems.length > 0
+
+  // Combine featured and registry items for unified pagination
+  const allItems = useMemo(
+    () => [...featuredItems, ...shownRegistryItems],
+    [featuredItems, shownRegistryItems],
+  )
+
+  const paginatedItems = useMemo(() => {
+    const start = pagination.offset
+    const end = start + pagination.pageSize
+    return allItems.slice(start, end)
+  }, [allItems, pagination.offset, pagination.pageSize])
+
+  const pagInfo = getPaginationInfo(pagination.offset, paginatedItems.length, allItems.length)
+
+  const hasResults = allItems.length > 0
   const registryFetching = registryQuery.isFetching
 
   if (featuredQuery.isPending && !featuredQuery.data) {
@@ -153,53 +176,34 @@ export function ServicesMarketTab({ query }: { query: string }) {
   }
 
   return (
-    <ScrollPane className="min-h-0 flex-1" innerClassName="px-4 py-2">
-      {featuredItems.length > 0 ? (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
-            {t("serviceMarketFeatured")}
-          </h2>
+    <>
+      <ScrollPane className="min-h-0 flex-1" innerClassName="px-4 py-2">
+        {paginatedItems.length > 0 ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4">
-            {featuredItems.map((item) => (
-              <ServiceMarketCard
-                key={`featured:${item.id}`}
-                busy={installingBusy}
-                installed={installedNames.has(item.name.toLowerCase())}
-                item={item}
-                onInstall={() => setInstalling(item)}
-              />
-            ))}
+            {paginatedItems.map((item) => {
+              const isFeatured = featuredItems.some((featured) => featured.id === item.id)
+              return (
+                <ServiceMarketCard
+                  key={isFeatured ? `featured:${item.id}` : item.id}
+                  busy={installingBusy}
+                  installed={installedNames.has(item.name.toLowerCase())}
+                  item={item}
+                  onInstall={() => setInstalling(item)}
+                />
+              )
+            })}
           </div>
-        </section>
-      ) : null}
-
-      <section className={featuredItems.length > 0 ? "mt-4" : undefined}>
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
-          {t("serviceMarketRegistry")}
-        </h2>
-        {registryFailed ? (
+        ) : registryFailed ? (
           <p className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
             <RefreshCwIcon className="size-3.5" aria-hidden />
             {t("serviceMarketRegistryFailed")}
           </p>
-        ) : null}
-        {shownRegistryItems.length > 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4">
-            {shownRegistryItems.map((item) => (
-              <ServiceMarketCard
-                key={item.id}
-                busy={installingBusy}
-                installed={installedNames.has(item.name.toLowerCase())}
-                item={item}
-                onInstall={() => setInstalling(item)}
-              />
-            ))}
-          </div>
-        ) : !registryFailed && !registryFetching ? (
+        ) : !registryFetching ? (
           <p className="text-xs text-muted-foreground">
             {registryQuery.data ? t("serviceMarketNoResults") : t("serviceMarketScrollHint")}
           </p>
         ) : null}
+
         <div ref={sentinelRef} className="h-px" aria-hidden />
         {registryFetching ? (
           <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
@@ -210,25 +214,42 @@ export function ServicesMarketTab({ query }: { query: string }) {
         {!registryQuery.hasNextPage && registryItems.length > 0 && !registryFailed ? (
           <p className="mt-3 text-xs text-muted-foreground">{t("serviceMarketNoMore")}</p>
         ) : null}
-      </section>
 
-      {!hasResults && !registryFetching && !registryFailed ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">{t("serviceMarketEmpty")}</p>
-      ) : null}
+        {!hasResults && !registryFetching && !registryFailed ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            {t("serviceMarketEmpty")}
+          </p>
+        ) : null}
 
-      <InstallServiceDialog
-        key={installing?.id ?? "idle"}
-        busy={installingBusy}
-        item={installing}
-        onOpenChange={(open) => {
-          if (!open) setInstalling(null)
-        }}
-        onInstalled={async (item, values) => {
-          await installMutation.mutateAsync({ item, values })
-          setInstalling(null)
-        }}
-      />
-    </ScrollPane>
+        <InstallServiceDialog
+          key={installing?.id ?? "idle"}
+          busy={installingBusy}
+          item={installing}
+          onOpenChange={(open) => {
+            if (!open) setInstalling(null)
+          }}
+          onInstalled={async (item, values) => {
+            await installMutation.mutateAsync({ item, values })
+            setInstalling(null)
+          }}
+        />
+      </ScrollPane>
+
+      {allItems.length > 0 && (
+        <PaginationControls
+          from={pagInfo.from}
+          to={pagInfo.to}
+          total={allItems.length}
+          pageSize={pagination.pageSize}
+          pageSizes={pagination.pageSizes}
+          page={pagination.page}
+          pageCount={pagInfo.pageCount}
+          onPageSizeChange={pagination.changePageSize}
+          onPrevPage={pagination.prevPage}
+          onNextPage={pagination.nextPage}
+        />
+      )}
+    </>
   )
 }
 

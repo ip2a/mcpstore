@@ -171,7 +171,7 @@ export function ServicePreviewActions({
           ) : (
             <WrenchIcon data-icon="inline-start" />
           )}
-          {runningTool ? t("executing") : t("run")}
+          {runningTool ? t("executing") : t("call")}
         </Button>
       ) : null}
       {activeTab === "tools" && onDetail ? (

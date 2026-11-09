@@ -90,7 +90,7 @@ pub(super) fn parse_scope_view(
     agent_id: Option<&str>,
 ) -> ApiResult<ScopeView> {
     match scope.unwrap_or("store") {
-        "root" => Ok(ScopeView::Root),
+        "all" => Ok(ScopeView::All),
         "store" => Ok(ScopeView::Store),
         "agent" => Ok(ScopeView::Agent {
             agent_id: agent_id

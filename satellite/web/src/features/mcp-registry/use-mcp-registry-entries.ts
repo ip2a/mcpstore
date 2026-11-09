@@ -54,8 +54,8 @@ export function useMcpRegistryEntries<T>({
         const result = await scopeState.agentServicesQuery.refetch()
         if (result.error) throw result.error
       }
-      // Refetch all entry queries but don't throw if individual services fail
-      await Promise.all(entryQueries.map((result) => result.refetch()))
+      // Refetch all entry queries, catching individual errors
+      await Promise.allSettled(entryQueries.map((result) => result.refetch()))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Failed to load ${noun}`)
     }

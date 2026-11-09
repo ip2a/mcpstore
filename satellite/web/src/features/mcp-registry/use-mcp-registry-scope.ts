@@ -23,7 +23,12 @@ export function useMcpRegistryScope({
   const [instanceId, setInstanceId] = useState("all")
   const [query, setQuery] = useState("")
   const agentServicesQuery = useAgentServicesQuery(scope === "agent" ? agentId : "")
-  const scopeInstances = scope === "agent" ? agentServicesQuery.data || [] : services
+  
+  // Sort instances alphabetically by service_name for stable ordering
+  const scopeInstances = (scope === "agent" ? agentServicesQuery.data || [] : services)
+    .slice()
+    .sort((a, b) => a.service_name.localeCompare(b.service_name))
+  
   const selectedInstances =
     instanceId === "all"
       ? scopeInstances

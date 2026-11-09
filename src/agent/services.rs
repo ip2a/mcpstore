@@ -87,10 +87,10 @@ impl MCPStore {
         Ok(value)
     }
 
-    /// List services by read view: Root aggregates all (`list_services`); Store/Agent pass through to `list_services_scoped`.
+    /// List services by read view: All aggregates all (`list_services`); Store/Agent pass through to `list_services_scoped`.
     pub async fn list_services_viewed(&self, view: &ScopeView) -> Result<Vec<serde_json::Value>> {
         match view {
-            ScopeView::Root => self.list_services().await,
+            ScopeView::All => self.list_services().await,
             ScopeView::Store => self.list_services_scoped(&ScopeRef::Store).await,
             ScopeView::Agent { agent_id } => {
                 self.list_services_scoped(&ScopeRef::Agent {

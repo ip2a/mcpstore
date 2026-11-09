@@ -87,7 +87,7 @@ impl MCPStore {
 
         let mut summaries = Vec::with_capacity(2 + agent_counts.len());
         summaries.push(ScopeSummary {
-            scope: ScopeView::Root,
+            scope: ScopeView::All,
             service_count: instances.len(),
         });
         summaries.push(ScopeSummary {

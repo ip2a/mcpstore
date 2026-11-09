@@ -1,3 +1,4 @@
+import { ClipboardIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -9,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { useInstancePromptsQueries } from "@/features/prompts/queries"
 import { ServicePromptDetailPane } from "@/features/services/service-panels"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceInstance } from "@/lib/api"
+import type { PromptInfo, ServiceInstance } from "@/lib/api"
 
 export function PromptDetailView(props: {
   instanceId: string
@@ -94,6 +95,12 @@ export function PromptDetailView(props: {
         className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden"
       >
         <div className="flex flex-wrap items-center justify-end gap-2 border-b pb-2">
+          {prompt ? (
+            <Button size="sm" variant="outline" onClick={() => void copyPrompt(prompt)}>
+              <ClipboardIcon data-icon="inline-start" />
+              {t("copy")}
+            </Button>
+          ) : null}
           <Button size="sm" variant="outline" onClick={() => void loadPrompts()} disabled={loading}>
             <RefreshCwSpinIcon data-icon="inline-start" spinning={loading} />
             {t("refresh")}
@@ -109,9 +116,11 @@ export function PromptDetailView(props: {
         ) : loading && !prompt ? (
           <PageSkeleton />
         ) : prompt ? (
-          <ScrollPane className="min-h-0 flex-1">
-            <ServicePromptDetailPane prompt={prompt} service={instance} />
-          </ScrollPane>
+          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+            <ScrollPane className="min-h-0 flex-1">
+              <ServicePromptDetailPane prompt={prompt} service={instance} />
+            </ScrollPane>
+          </div>
         ) : (
           <PageEmpty
             title={t("noPromptsFound")}
@@ -122,4 +131,9 @@ export function PromptDetailView(props: {
       </PanelCard>
     </>
   )
+}
+
+async function copyPrompt(prompt: PromptInfo) {
+  await navigator.clipboard.writeText(JSON.stringify(prompt, null, 2))
+  toast.success("Prompt copied")
 }

@@ -12,10 +12,10 @@ export function useDashboard() {
     queryFn: () => listAgents().catch(() => []),
   })
 
-  // Use root scope to fetch all services in a single request
+  // Use all scope to fetch all services in a single request
   const servicesQuery = useQuery({
     queryKey: queryKeys.instances,
-    queryFn: () => listServices({ type: "root" }),
+    queryFn: () => listServices({ type: "all" }),
     refetchInterval: (query) => {
       // Dynamic polling: faster when services are transitioning, slower when stable
       const services = query.state.data || []

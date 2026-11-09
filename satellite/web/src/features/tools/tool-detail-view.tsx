@@ -140,7 +140,7 @@ export function ToolDetailView(props: {
                 ) : (
                   <WrenchIcon data-icon="inline-start" />
                 )}
-                {running ? t("executing") : t("run")}
+                {running ? t("executing") : t("call")}
               </Button>
             ) : null}
             {tool ? (

@@ -33,21 +33,21 @@ impl ScopeRef {
 
 /// Read-view / registry scope: adds `Root` on top of the instance scopes [`ScopeRef`].
 ///
-/// `Root` is not an instance scope — services are never "declared in root"; it only means the read aggregation (store ∪ all agents).
-/// Hence `Root` is list / registry / read-view only; declaring operations still go through [`ScopeRef`].
+/// `All` is not an instance scope — services are never "declared in all"; it only means the read aggregation (store ∪ all agents).
+/// Hence `All` is list / registry / read-view only; declaring operations still go through [`ScopeRef`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ScopeView {
-    Root,
+    All,
     Store,
     Agent { agent_id: String },
 }
 
 impl ScopeView {
-    /// `Root` has no instance scope; `Store` / `Agent` return their [`ScopeRef`].
+    /// `All` has no instance scope; `Store` / `Agent` return their [`ScopeRef`].
     pub fn as_scope_ref(&self) -> Option<ScopeRef> {
         match self {
-            ScopeView::Root => None,
+            ScopeView::All => None,
             ScopeView::Store => Some(ScopeRef::Store),
             ScopeView::Agent { agent_id } => Some(ScopeRef::Agent {
                 agent_id: agent_id.clone(),
@@ -215,8 +215,8 @@ mod tests {
     #[test]
     fn scope_view_serialization_is_structured() {
         assert_eq!(
-            serde_json::to_value(ScopeView::Root).unwrap(),
-            serde_json::json!({ "type": "root" })
+            serde_json::to_value(ScopeView::All).unwrap(),
+            serde_json::json!({ "type": "all" })
         );
         assert_eq!(
             serde_json::to_value(ScopeView::Store).unwrap(),
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn scope_view_round_trips_with_scope_ref() {
-        assert_eq!(ScopeView::Root.as_scope_ref(), None);
+        assert_eq!(ScopeView::All.as_scope_ref(), None);
         assert_eq!(ScopeView::Store.as_scope_ref(), Some(ScopeRef::Store));
         assert_eq!(
             ScopeView::Agent {
