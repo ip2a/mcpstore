@@ -581,7 +581,9 @@ impl ServerHandler for GatewayServer {
                 .rebuild_bindings(session_key.as_deref())
                 .await?
                 .remove(tool_name.as_str())
-                .ok_or_else(|| ErrorData::invalid_params(format!("Unknown tool: {tool_name}"), None))?;
+                .ok_or_else(|| {
+                    super::tools::unknown_tool_error(&tool_name, self.instance_id.is_some())
+                })?;
             let call_start = std::time::Instant::now();
             let record_binding = binding.clone();
             let mut execution_options = McpExecutionOptions::default();
@@ -739,13 +741,14 @@ fn record_management_call(
 /// structured failure payload (code/message/hint/retryable).
 pub(super) fn llm_error_result(error: &mcpstore::Error) -> CallToolResponse {
     let code = error.code();
-    let payload = json!({
-        "code": code.as_str(),
-        "message": error.message(),
-        "hint": code.hint(),
-        "retryable": error.retryable(),
-    });
+    let mut payload = serde_json::Map::new();
+    payload.insert("code".into(), json!(code.as_str()));
+    payload.insert("message".into(), json!(error.message()));
+    payload.insert("retryable".into(), json!(error.retryable()));
+    if let Some(hint) = super::tools::agent_hint(code).or(code.hint()) {
+        payload.insert("hint".into(), json!(hint));
+    }
     CallToolResponse::Complete(CallToolResult::error(vec![ContentBlock::text(
-        payload.to_string(),
+        Value::Object(payload).to_string(),
     )]))
 }

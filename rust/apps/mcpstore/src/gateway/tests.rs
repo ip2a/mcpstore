@@ -615,4 +615,42 @@ mod tests {
         )));
         let _ = std::fs::remove_file(store_path);
     }
+
+    #[test]
+    fn gateway_errors_carry_agent_actionable_guidance() {
+        use mcpstore::error::FailureCode;
+
+        let error = mcpstore::Error::new(FailureCode::ServiceNotFound, "missing");
+        let mapped = map_store_error(mcpstore::Error::new(FailureCode::ServiceNotFound, "missing"));
+        let data = mapped
+            .data
+            .as_ref()
+            .and_then(Value::as_object)
+            .expect("structured data payload")
+            .clone();
+        assert_eq!(data["code"], "service_not_found");
+        assert!(data["hint"]
+            .as_str()
+            .unwrap()
+            .contains("call list_services"));
+        assert!(data.get("retryable").is_some());
+
+        let result = super::super::handler::llm_error_result(&error);
+        let CallToolResponse::Complete(result) = result else {
+            panic!("expected complete response");
+        };
+        assert_eq!(result.is_error, Some(true));
+        let text = &result.content[0].as_text().expect("text content").text;
+        let payload: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(payload["code"], "service_not_found");
+        assert!(payload["hint"].as_str().unwrap().contains("list_services"));
+
+        let single = unknown_tool_error("x", true);
+        let multi = unknown_tool_error("x", false);
+        let single_data = single.data.as_ref().and_then(Value::as_object).unwrap();
+        let multi_data = multi.data.as_ref().and_then(Value::as_object).unwrap();
+        assert_ne!(single_data, multi_data);
+        assert!(single_data["hint"].as_str().unwrap().contains("tools/list"));
+        assert!(multi_data["hint"].as_str().unwrap().contains("down"));
+    }
 }
