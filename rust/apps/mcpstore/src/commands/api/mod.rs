@@ -139,6 +139,8 @@ struct GatewayProcess {
     pid: u32,
     /// Management URL of the child's /calls route.
     calls_url: String,
+    /// Management URL of the child's /projection route.
+    projection_url: String,
     descriptor: GatewayLaunchDescriptor,
     summary: serde_json::Value,
 }
@@ -313,6 +315,7 @@ fn resource_routes(state: Arc<ApiState>) -> Router {
         .route("/gateway/descriptor", get(client::gateway_descriptor))
         .route("/gateway/status", get(client::gateway_status))
         .route("/gateway/requests", get(client::gateway_requests))
+        .route("/gateway/projection", get(client::gateway_projection))
         .route(
             "/gateway/requests/history",
             get(telemetry::requests_history),

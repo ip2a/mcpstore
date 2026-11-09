@@ -144,6 +144,18 @@ impl GatewayServer {
         })
     }
 
+    /// Latest projection issues (down/skipped/degraded) for the panel view.
+    pub(crate) fn projection_handle(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<Vec<ProjectionIssue>>> {
+        std::sync::Arc::clone(&self.projection)
+    }
+
+    /// Caller identity of this mount (`/mcp/<id>`); None on the generic mount.
+    pub(crate) fn caller_name(&self) -> Option<String> {
+        self.caller.clone()
+    }
+
     fn instructions(&self) -> String {
         format!(
             "Rust MCPStore server. scope={} tool_count={}",
