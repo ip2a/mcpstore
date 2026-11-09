@@ -212,15 +212,19 @@ pub async fn install(id: &str, urls: &[String]) -> Result<()> {
 
     let client = reqwest::Client::new();
     let zip_url = format!("{base}{}", entry.download);
-    let bytes = client
-        .get(&zip_url)
-        .send()
-        .await
-        .and_then(|response| response.error_for_status())
-        .map_err(|error| Error::new(FailureCode::Internal, format!("{zip_url}: {error}")))?
-        .bytes()
-        .await
-        .map_err(|error| Error::new(FailureCode::Internal, format!("{zip_url}: {error}")))?;
+    // plugin zips run larger than API bodies; the digest check below still
+    // pins correctness, the cap only bounds the read
+    let bytes = crate::http_limit::read_body_capped(
+        client
+            .get(&zip_url)
+            .send()
+            .await
+            .and_then(|response| response.error_for_status())
+            .map_err(|error| Error::new(FailureCode::Internal, format!("{zip_url}: {error}")))?,
+        64 * 1024 * 1024,
+        "market plugin download",
+    )
+    .await?;
     let digest = blake3::hash(&bytes).to_hex();
     if digest.as_str() != entry.digest {
         return Err(Error::new(

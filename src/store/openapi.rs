@@ -585,31 +585,28 @@ async fn bundle_openapi_external_ref_artifact(
 
 async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Result<String> {
     if is_http_url(spec_url) {
-        return client
-            .get(spec_url)
-            .send()
-            .await
-            .map_err(|err| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("OpenAPI spec fetch failed: {err}"),
-                )
-            })?
-            .error_for_status()
-            .map_err(|err| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("OpenAPI spec fetch failed: {err}"),
-                )
-            })?
-            .text()
-            .await
-            .map_err(|err| {
-                Error::new(
-                    FailureCode::Internal,
-                    format!("OpenAPI spec body read failed: {err}"),
-                )
-            });
+        return crate::http_limit::read_text_capped(
+            client
+                .get(spec_url)
+                .send()
+                .await
+                .map_err(|err| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI spec fetch failed: {err}"),
+                    )
+                })?
+                .error_for_status()
+                .map_err(|err| {
+                    Error::new(
+                        FailureCode::Internal,
+                        format!("OpenAPI spec fetch failed: {err}"),
+                    )
+                })?,
+            crate::http_limit::PEER_BODY_CAP,
+            "OpenAPI spec fetch",
+        )
+        .await;
     }
 
     if spec_url.starts_with("file://") || reqwest::Url::parse(spec_url).is_err() {

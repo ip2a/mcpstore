@@ -362,24 +362,20 @@ async fn execute_component(
         .unwrap_or_else(|| declared_response_mime_type(component));
     let body = if is_binary_response(component, &mime_type) {
         OpenApiResponseBody::Bytes(
-            response
-                .bytes()
-                .await
-                .map_err(|err| {
-                    Error::new(
-                        FailureCode::Internal,
-                        format!("OpenAPI response read failed: {err}"),
-                    )
-                })?
-                .to_vec(),
+            crate::http_limit::read_body_capped(
+                response,
+                crate::http_limit::PEER_BODY_CAP,
+                "OpenAPI response read",
+            )
+            .await?,
         )
     } else {
-        let text = response.text().await.map_err(|err| {
-            Error::new(
-                FailureCode::Internal,
-                format!("OpenAPI response read failed: {err}"),
-            )
-        })?;
+        let text = crate::http_limit::read_text_capped(
+            response,
+            crate::http_limit::PEER_BODY_CAP,
+            "OpenAPI response read",
+        )
+        .await?;
         if is_json_mime_type(&mime_type) {
             match serde_json::from_str(&text) {
                 Ok(body) => OpenApiResponseBody::Json(body),

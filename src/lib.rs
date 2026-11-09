@@ -14,6 +14,7 @@ pub mod core;
 pub mod error;
 pub mod events;
 pub mod facade;
+pub mod http_limit;
 pub(crate) mod health;
 pub mod identity;
 pub mod openapi;
