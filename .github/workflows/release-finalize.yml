@@ -22,17 +22,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Validate release tag
-        run: python scripts/release_preflight.py --require-tag
+        run: python scripts/release_preflight.py --domain app --require-tag
 
       - name: Verify all release workflows succeeded for this tag
         shell: bash
         run: |
           set -euo pipefail
+          # App-domain gate only: SDK (crates/pypi) publishes are dispatched
+          # manually against sdk-v* tags and never block an App release.
           for workflow in \
             release-build-cli \
-            release-publish-crates \
-            release-publish-npm \
-            release-publish-pypi; do
+            release-publish-npm; do
             run_id="$(gh run list --workflow="${workflow}" --branch="${GITHUB_REF_NAME}" --status=success --limit=100 --json databaseId,headSha --jq '.[] | select(.headSha == "'"${GITHUB_SHA}"'") | .databaseId' | head -n1)"
             if [ -z "${run_id}" ]; then
               echo "::error::${workflow} has no successful run for ${GITHUB_REF_NAME} at ${GITHUB_SHA}"

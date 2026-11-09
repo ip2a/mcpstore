@@ -54,16 +54,22 @@ def verify_windows_checkout_paths() -> None:
     print(f"[ok] {len(paths)} release paths are compatible with Windows checkout")
 
 
-def verify_release_tag(expected: str, allow_prerelease: bool = False) -> None:
-    expected_tag = f"v{expected}"
+def verify_release_tag(domain: str, version: str, allow_prerelease: bool) -> None:
     ref_type = os.environ.get("GITHUB_REF_TYPE")
     ref_name = os.environ.get("GITHUB_REF_NAME")
-    tag_ok = ref_name is not None and (
-        ref_name == expected_tag
-        or (allow_prerelease and ref_name.startswith(f"{expected_tag}-"))
-    )
-    if ref_type != "tag" or not tag_ok:
+    if domain == "sdk":
+        # SDK tags never carry prerelease suffixes.
+        expected_tag = f"sdk-v{version}"
+        tag_ok = ref_name == expected_tag
+        hint = ""
+    else:
+        expected_tag = f"v{version}"
+        tag_ok = ref_name is not None and (
+            ref_name == expected_tag
+            or (allow_prerelease and ref_name.startswith(f"{expected_tag}-"))
+        )
         hint = f" or a {expected_tag}-<prerelease> tag" if allow_prerelease else ""
+    if ref_type != "tag" or not tag_ok:
         raise SystemExit(
             f"[error] Release workflow requires tag {expected_tag}{hint}; "
             f"received {ref_type or '<unset>'} {ref_name or '<unset>'}"
@@ -74,22 +80,28 @@ def verify_release_tag(expected: str, allow_prerelease: bool = False) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate MCPStore release inputs")
     parser.add_argument(
+        "--domain",
+        choices=("sdk", "app", "all"),
+        default="all",
+        help="which version domain to verify (default: all); SDK workflows use sdk, App workflows use app",
+    )
+    parser.add_argument(
         "--require-tag",
         action="store_true",
-        help="require GITHUB_REF_TYPE/GITHUB_REF_NAME to match the canonical version tag",
+        help="require GITHUB_REF_TYPE/GITHUB_REF_NAME to match the domain's canonical version tag",
     )
     parser.add_argument(
         "--allow-prerelease-tag",
         action="store_true",
-        help="also accept <canonical>-<prerelease> tags (build workflows only; publish stays exact)",
+        help="also accept <canonical>-<prerelease> tags (App build workflows only; SDK never prereleases, publish stays exact)",
     )
     args = parser.parse_args()
 
-    expected = verify_release_metadata()
+    version = verify_release_metadata(args.domain)
     verify_windows_checkout_paths()
     if args.require_tag:
-        verify_release_tag(expected, allow_prerelease=args.allow_prerelease_tag)
-    print(f"[ok] release metadata is consistent at version {expected}")
+        verify_release_tag(args.domain, version, allow_prerelease=args.allow_prerelease_tag)
+    print(f"[ok] release metadata is consistent ({args.domain}) at version {version}")
 
 
 if __name__ == "__main__":
