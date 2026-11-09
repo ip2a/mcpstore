@@ -53,12 +53,13 @@ pub enum FailureCode {
     StopFailed,
     OpenapiRequestFailed,
     PanelAuthRequired,
+    RateLimited,
     #[serde(other)]
     Internal,
 }
 
 impl FailureCode {
-    pub const ALL: [Self; 44] = [
+    pub const ALL: [Self; 45] = [
         Self::InvalidInput,
         Self::ServiceNotFound,
         Self::ConfigInvalid,
@@ -102,6 +103,7 @@ impl FailureCode {
         Self::StopFailed,
         Self::OpenapiRequestFailed,
         Self::PanelAuthRequired,
+        Self::RateLimited,
         Self::Internal,
     ];
 
@@ -150,6 +152,7 @@ impl FailureCode {
             Self::StopFailed => "stop_failed",
             Self::OpenapiRequestFailed => "openapi_request_failed",
             Self::PanelAuthRequired => "panel_auth_required",
+            Self::RateLimited => "rate_limited",
             Self::Internal => "internal",
         }
     }
@@ -197,7 +200,8 @@ impl FailureCode {
             | Self::ProbeTimedOut
             | Self::ToolSyncFailed
             | Self::StopFailed
-            | Self::OpenapiRequestFailed => FailureCategory::Runtime,
+            | Self::OpenapiRequestFailed
+            | Self::RateLimited => FailureCategory::Runtime,
             Self::Internal => FailureCategory::Internal,
         }
     }
@@ -214,8 +218,9 @@ impl FailureCode {
             | Self::TaskUnavailable
             | Self::ServiceUnavailable
             | Self::HealthCheckFailed
-            | Self::ProbeTimedOut
             | Self::ToolSyncFailed
+            | Self::ProbeTimedOut
+            | Self::RateLimited
             | Self::OpenapiRequestFailed => RecoveryPolicy::Retry,
             Self::ConnectionAuthRequired
             | Self::ConnectionScope
@@ -249,6 +254,7 @@ impl FailureCode {
                 Some("retry with handshake_mode=initialize")
             }
             Self::CallTimedOut => Some("retry, or raise --timeout / --max-total-timeout"),
+            Self::RateLimited => Some("wait a moment and retry"),
             Self::ElicitationInputRequired => {
                 Some("re-run without --non-interactive to answer the prompt")
             }

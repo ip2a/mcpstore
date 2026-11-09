@@ -74,6 +74,7 @@ pub fn exit_code(code: FailureCode) -> i32 {
         Code::ToolSyncFailed => 93,
         Code::StopFailed => 94,
         Code::OpenapiRequestFailed => 95,
+        Code::RateLimited => 96,
         Code::Internal => 99,
     }
 }
