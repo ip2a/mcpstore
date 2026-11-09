@@ -1,4 +1,5 @@
 use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use std::collections::HashMap;
 
 use super::catalog::{apply_service_overrides, exposed_tool_name, service_override_map};
@@ -10,11 +11,17 @@ use mcpstore::telemetry::FrameTelemetry;
 /// mount: it is reported `Down` (with its service name) and its payloads are
 /// excluded downstream. Only local misconfiguration (target not declared in
 /// the scope) and store infrastructure failures stay hard errors.
+///
+/// Instances connect concurrently, each under an outer guard well above every
+/// legitimate per-service budget (stdio startup hard timeout is 120s), so a
+/// wedged connect reports Down instead of stalling the whole mount boot.
 pub(super) async fn connect_target_instances(
     store: &MCPStore,
     scope: &ScopeRef,
     target_instance_id: Option<InstanceId>,
 ) -> Result<HashMap<InstanceId, DownService>, BoxErr> {
+    const BOOT_CONNECT_GUARD_SECS: u64 = 150;
+
     let instances = store.list_scope_instances(scope).await?;
     let selected: Vec<mcpstore::ServiceInstance> = if let Some(instance_id) = target_instance_id {
         let matched = instances
@@ -28,17 +35,33 @@ pub(super) async fn connect_target_instances(
         instances
     };
 
-    let mut down = HashMap::new();
+    let mut connects = FuturesUnordered::new();
     for instance in selected {
-        if let Err(error) = store.connect_service(instance.instance_id).await {
-            down.insert(
-                instance.instance_id,
-                DownService {
-                    service_name: instance.service_name,
-                    reason: error.to_string(),
-                },
-            );
-        }
+        connects.push(async move {
+            let outcome = tokio::time::timeout(
+                std::time::Duration::from_secs(BOOT_CONNECT_GUARD_SECS),
+                store.connect_service(instance.instance_id),
+            )
+            .await;
+            (instance, outcome)
+        });
+    }
+    let mut down = HashMap::new();
+    while let Some((instance, outcome)) = connects.next().await {
+        let reason = match outcome {
+            Ok(Ok(())) => continue,
+            Ok(Err(error)) => error.to_string(),
+            Err(_) => format!(
+                "gateway boot connect guard timed out after {BOOT_CONNECT_GUARD_SECS}s"
+            ),
+        };
+        down.insert(
+            instance.instance_id,
+            DownService {
+                service_name: instance.service_name,
+                reason,
+            },
+        );
     }
     Ok(down)
 }
