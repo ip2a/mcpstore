@@ -60,7 +60,12 @@ pub(super) async fn build_tool_bindings(
     let tool_payloads = apply_service_overrides(tool_payloads, &overrides_by_instance)?;
 
     let names = catalog_name_counts(&tool_payloads, "name")?;
-    let namespace_tools = target_instance_id.is_none() && session_key.is_none();
+    // Multi-service mounts (store/agent scope, session) always prefix exposed
+    // names: a tool exposed bare today must never rename when a later service
+    // brings a colliding name. Single-instance mounts are composition-frozen
+    // (no later member can collide), so they keep bare names unless the
+    // instance itself yields a duplicate.
+    let namespace_tools = target_instance_id.is_none();
 
     let mut bindings = HashMap::with_capacity(tool_payloads.len());
     let mut taken: HashMap<String, usize> = HashMap::new();
