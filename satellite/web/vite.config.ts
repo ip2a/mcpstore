@@ -18,8 +18,10 @@ export default defineConfig({
     __WEB_APP_VERSION__: JSON.stringify(webPackageVersion),
   },
   // Isolate the dep pre-bundle cache per checkout when node_modules is a shared symlink,
-  // so lockfile churn on one checkout doesn't force re-optimization in the other
-  cacheDir: path.resolve(dirname, "../local/vite-cache"),
+  // so lockfile churn on one checkout doesn't force re-optimization in the other.
+  // Must stay at repo-root local/ (gitignored via `*`); ../local would land under
+  // satellite/ and get allowlisted by !satellite/**.
+  cacheDir: path.resolve(dirname, "../../local/vite-cache"),
   resolve: {
     alias: {
       "@": path.resolve(dirname, "./src"),
