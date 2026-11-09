@@ -454,10 +454,40 @@ pub(crate) fn refresh_wired_urls(state: &ApiState) {
     let Ok(app_config) = state.store.config_manager().load_app_config_or_default() else {
         return;
     };
-    let port = app_config.gateway.port;
+    let (host, port) = (app_config.gateway.host.clone(), app_config.gateway.port);
     mcpstore::client_wire::refresh_wired_urls(&wired_state_path(state), |client_id| {
-        format!("http://127.0.0.1:{port}/mcp/{client_id}")
+        gateway_entry_url(&host, port, client_id)
     });
+}
+
+/// Entry URL host for wired clients: the address an agent can actually dial
+/// the gateway at (magpie gatewayOf — generate the entry per where the agent
+/// reaches the gateway, not where the gateway happens to bind). A loopback
+/// bind serves 127.0.0.1; an all-interfaces bind serves the machine's
+/// primary LAN address; an explicit host passes through untouched.
+fn gateway_entry_host(gateway_host: &str) -> String {
+    match gateway_host {
+        "127.0.0.1" | "localhost" | "::1" => "127.0.0.1".to_string(),
+        "0.0.0.0" | "::" => primary_lan_address().unwrap_or_else(|| "127.0.0.1".to_string()),
+        other => other.to_string(),
+    }
+}
+
+/// Primary outbound address: UDP connect() only picks the default route in
+/// the routing table — no packet is sent (ponytail: first IPv4 route wins;
+/// multi-homed hosts with per-agent faces need the P1 phase-2 key work).
+fn primary_lan_address() -> Option<String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    Some(socket.local_addr().ok()?.ip().to_string())
+}
+
+/// The single place wired entry URLs are generated from config.
+fn gateway_entry_url(gateway_host: &str, port: u16, client_id: &str) -> String {
+    format!(
+        "http://{}:{port}/mcp/{client_id}",
+        gateway_entry_host(gateway_host)
+    )
 }
 
 #[derive(Deserialize, Default)]
@@ -488,9 +518,10 @@ fn default_gateway_url<T: PanelCtx>(state: &T, client_id: &str) -> Result<String
         .map_err(|error| {
             ApiError::invalid_request(format!("Failed to load app configuration: {error}"))
         })?;
-    Ok(format!(
-        "http://127.0.0.1:{}/mcp/{}",
-        app_config.gateway.port, client_id
+    Ok(gateway_entry_url(
+        &app_config.gateway.host,
+        app_config.gateway.port,
+        client_id,
     ))
 }
 
@@ -994,4 +1025,30 @@ pub(super) async fn clients_list<T: PanelCtx>(State(state): State<Arc<T>>) -> Ap
         })
         .collect::<Vec<_>>();
     Ok(success("Client inventory fetched successfully", json!({ "clients": clients })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{gateway_entry_host, gateway_entry_url};
+
+    #[test]
+    fn entry_host_follows_bind_surface() {
+        // loopback bind: literal 127.0.0.1
+        assert_eq!(gateway_entry_host("127.0.0.1"), "127.0.0.1");
+        assert_eq!(gateway_entry_host("localhost"), "127.0.0.1");
+        // all-interfaces bind: primary LAN address (deterministic only in
+        // that it is a valid, non-loopback IPv4)
+        let lan = gateway_entry_host("0.0.0.0");
+        let parsed: std::net::IpAddr = lan.parse().expect("lan address parses");
+        assert!(!parsed.is_loopback());
+        // explicit host passes through untouched
+        assert_eq!(gateway_entry_host("192.168.1.10"), "192.168.1.10");
+        assert_eq!(gateway_entry_host("gateway.example.com"), "gateway.example.com");
+    }
+
+    #[test]
+    fn entry_url_shape_is_stable() {
+        let url = gateway_entry_url("127.0.0.1", 1830, "claude-code");
+        assert_eq!(url, "http://127.0.0.1:1830/mcp/claude-code");
+    }
 }
