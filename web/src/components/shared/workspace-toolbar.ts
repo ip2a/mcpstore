@@ -5,7 +5,9 @@
 export const WORKSPACE_TOOLBAR_CLASSNAME =
   "flex w-full min-w-0 shrink-0 items-center gap-3 border-b px-4 py-2"
 
-export const WORKSPACE_TABS_LIST_CLASSNAME = "h-9 w-fit shrink-0 justify-start"
+/** Constrained scrollable strip — never covers toolbar action buttons. */
+export const WORKSPACE_TABS_LIST_CLASSNAME =
+  "h-9 w-auto min-w-0 flex-1 justify-start overflow-x-auto scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
 
 /** PanelCard override so the toolbar can own horizontal/vertical chrome. */
 export const WORKSPACE_PANEL_CLASSNAME =

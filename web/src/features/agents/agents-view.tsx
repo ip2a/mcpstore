@@ -7,9 +7,9 @@ import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_LIST_INSET_CLASSNAME,
   WORKSPACE_TABS_CLASSNAME,
-  WORKSPACE_TABS_LIST_CLASSNAME,
   WORKSPACE_TOOLBAR_CLASSNAME,
 } from "@/components/shared/workspace-toolbar"
+import { WorkspaceTabsList } from "@/components/shared/workspace-tabs-list"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { WorkspacePageHeader } from "@/components/shared/workspace-page-header"
@@ -18,7 +18,7 @@ import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/quer
 import { useScopesQuery } from "@/features/agents/queries"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { AddScopeServiceDialog } from "@/features/agents/add-scope-service-dialog"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import type { AgentItem, ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
@@ -142,7 +142,7 @@ export function AgentsView(props: {
           className={WORKSPACE_TABS_CLASSNAME}
         >
           <div className={WORKSPACE_TOOLBAR_CLASSNAME}>
-            <TabsList variant="line" className={WORKSPACE_TABS_LIST_CLASSNAME}>
+            <WorkspaceTabsList value={activeTab}>
               {scopes.map((summary) => {
                 const scopeId = scopeIdFromSummary(summary)
                 const title = scopeTitleFromSummary(summary, t)
@@ -152,7 +152,7 @@ export function AgentsView(props: {
                   </TabsTrigger>
                 )
               })}
-            </TabsList>
+            </WorkspaceTabsList>
             <ScopeActions
               className="ml-auto"
               busy={Boolean(props.busy)}

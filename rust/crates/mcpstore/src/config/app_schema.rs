@@ -272,6 +272,9 @@ pub struct WebSettings {
     pub host: String,
     #[serde(default = "default_web_port")]
     pub port: u16,
+    /// Panel token authentication; off by default, opt in with `[web] auth = true`.
+    #[serde(default)]
+    pub auth: bool,
 }
 
 impl Default for WebSettings {
@@ -279,6 +282,7 @@ impl Default for WebSettings {
         Self {
             host: default_web_host(),
             port: default_web_port(),
+            auth: false,
         }
     }
 }

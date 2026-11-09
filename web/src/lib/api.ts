@@ -302,7 +302,7 @@ export type HostsPayload = {
 export type SettingsPayload = {
   language?: UiLanguage
   api?: { host?: string; port?: number; url_prefix?: string }
-  web?: { host?: string; port?: number }
+  web?: { host?: string; port?: number; auth?: boolean; auth_token_path?: string }
   gateway?: { port?: number }
   diagnostics?: DiagnosticsSettingsPayload
   hosts?: HostsPayload
@@ -342,7 +342,7 @@ export type MetaPayload = {
 export type UpdateSettingsPayload = {
   language?: UiLanguage
   api?: { port?: number }
-  web?: { port?: number }
+  web?: { port?: number; auth?: boolean }
   gateway?: { port?: number }
   diagnostics?: DiagnosticsSettingsPayload
   hosts?: HostsPayload
