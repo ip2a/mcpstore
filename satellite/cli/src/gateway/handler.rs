@@ -605,7 +605,8 @@ impl ServerHandler for GatewayServer {
             if let Some(session_key) = session_key.as_deref() {
                 execution_options = execution_options.with_session_key(session_key);
             }
-            let response: Result<CallToolResponse, ErrorData> = async {
+            let response: Result<CallToolResponse, ErrorData> =
+                tokio::time::timeout(super::tools::GATEWAY_TOOL_CALL_BUDGET, async {
                 let execution = match store
                     .start_tool_execution(
                         binding.instance_id,
@@ -675,8 +676,19 @@ impl ServerHandler for GatewayServer {
                 call_result.structured_content = result.structured_content;
 
                 Ok(CallToolResponse::Complete(call_result))
-            }
-            .await;
+            })
+            .await
+            .unwrap_or_else(|_| {
+                // the ladder's outer belt: the store deadline should have
+                // fired already; if the gateway budget expires instead, the
+                // store layer itself hung — answer with the translated
+                // timeout rather than letting the agent's client time out
+                // blind
+                Ok(llm_error_result(&mcpstore::Error::new(
+                    mcpstore::error::FailureCode::CallTimedOut,
+                    "gateway tool-call budget expired while the upstream call was pending",
+                )))
+            });
             let success = match &response {
                 Ok(CallToolResponse::Complete(result)) => result.is_error != Some(true),
                 _ => false,

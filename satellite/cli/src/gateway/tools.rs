@@ -1866,8 +1866,17 @@ pub(super) fn map_store_error(error: mcpstore::Error) -> ErrorData {
 /// no call-time hint and fall through to None (the CLI hint from
 /// FailureCode::hint is used instead — it names a user action the agent can
 /// pass along).
-pub(super) fn agent_hint(code: mcpstore::error::FailureCode) -> Option<&'static str> {
-    use mcpstore::error::FailureCode as F;
+/// Timeout ladder (magpie: 40 list < 50 call < 60 client). The store's
+/// upstream deadline (30s, `CALL_DEADLINE` in `service/remote_call.rs`)
+/// fires first and its error is translated by `llm_error_result`; this
+/// gateway budget is the outer belt for store-layer hangs, so the agent
+/// gets an actionable error instead of a raw client drop; the agent SDK's
+/// own timeout (typically 60s) comes last. tools/list carries no budget by
+/// construction: it reads store payloads and never calls upstream.
+pub(crate) const GATEWAY_TOOL_CALL_BUDGET: std::time::Duration =
+    std::time::Duration::from_secs(45);
+
+pub(super) fn agent_hint(code: mcpstore::error::FailureCode) -> Option<&'static str> {    use mcpstore::error::FailureCode as F;
     Some(match code {
         F::ServiceNotFound => {
             "no such service on this mount; call list_services to see what is available"
