@@ -34,8 +34,11 @@ export function useMcpRegistryEntries<T>({
       ),
     [entryQueries, scopeState.selectedInstances],
   )
-  const queryError =
-    scopeState.agentServicesQuery.error || entryQueries.find((result) => result.error)?.error
+  
+  // Only show error if the service list query itself failed
+  // Individual service errors (401, 500, etc.) are silently ignored
+  const queryError = scopeState.agentServicesQuery.error
+  
   const errorMessage =
     queryError instanceof Error
       ? queryError.message
@@ -51,9 +54,8 @@ export function useMcpRegistryEntries<T>({
         const result = await scopeState.agentServicesQuery.refetch()
         if (result.error) throw result.error
       }
-      const results = await Promise.all(entryQueries.map((result) => result.refetch()))
-      const failed = results.find((result) => result.error)
-      if (failed?.error) throw failed.error
+      // Refetch all entry queries but don't throw if individual services fail
+      await Promise.all(entryQueries.map((result) => result.refetch()))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Failed to load ${noun}`)
     }
