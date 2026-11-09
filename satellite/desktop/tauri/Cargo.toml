@@ -1,0 +1,37 @@
+[package]
+name = "mcpstore-tauri"
+version = "2.3.1"
+edition = "2021"
+publish = false
+
+[lib]
+name = "mcpstore_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "mcpstore-tauri"
+path = "src/main.rs"
+
+[dependencies]
+mcpstore-cli = { path = "../../cli" }
+anyhow = "1.0"
+dirs = "6.0"
+reqwest = { version = "0.12", features = ["json"] }
+tauri = { version = "2", features = [] }
+# Required by the tauri::generate_context! macro expansion, not by hand-written code.
+serde_json = "1"
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
+tokio = { version = "1", features = ["rt", "time"] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+# Standalone workspace; the repository-root workspace must never claim this package.
+[workspace]

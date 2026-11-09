@@ -48,20 +48,20 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build web application
-        working-directory: web
+        working-directory: satellite/web
         run: |
           npm ci
           npm run build
 
       - name: Build daemon sidecar
         run: |
-          cargo build --release --target ${{ matrix.target }} --manifest-path rust/Cargo.toml -p mcpstore-cli --bin mcpstore
-          mkdir -p desktop/tauri/binaries
-          cp rust/target/${{ matrix.target }}/release/mcpstore desktop/tauri/binaries/mcpstore-${{ matrix.target }}
-          chmod +x desktop/tauri/binaries/mcpstore-${{ matrix.target }}
+          cargo build --release --target ${{ matrix.target }} --manifest-path satellite/cli/Cargo.toml --bin mcpstore
+          mkdir -p satellite/desktop/tauri/binaries
+          cp satellite/cli/target/${{ matrix.target }}/release/mcpstore satellite/desktop/tauri/binaries/mcpstore-${{ matrix.target }}
+          chmod +x satellite/desktop/tauri/binaries/mcpstore-${{ matrix.target }}
 
       - name: Build Tauri app
-        working-directory: desktop/tauri
+        working-directory: satellite/desktop/tauri
         run: |
           npm i -g @tauri-apps/cli@^2
           # app bundle is required: createUpdaterArtifacts emits .app.tar.gz/.sig
@@ -72,7 +72,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/${{ matrix.platform }}
-          target="desktop/tauri/target/${{ matrix.target }}/release/bundle"
+          target="satellite/desktop/tauri/target/${{ matrix.target }}/release/bundle"
           cp "${target}/macos"/*.app.tar.gz "${target}/macos"/*.app.tar.gz.sig dist/${{ matrix.platform }}/
           cp "${target}/dmg"/*.dmg dist/${{ matrix.platform }}/
           ls -la dist/${{ matrix.platform }}

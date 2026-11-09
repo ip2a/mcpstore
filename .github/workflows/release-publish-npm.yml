@@ -56,7 +56,7 @@ jobs:
           mkdir -p dist
           # every platform the tag declares (assemble reads the same list);
           # publishing below decides which of them actually go to npm
-          for platform in $(python3 -c "import tomllib; print(' '.join(p['id'] for p in tomllib.load(open('platforms.toml','rb'))['platforms']))"); do
+          for platform in $(python3 -c "import tomllib; print(' '.join(p['id'] for p in tomllib.load(open('satellite/platforms.toml','rb'))['platforms']))"); do
             gh run download "${BUILD_RUN_ID}" --name "mcpstore-${platform}" --dir "dist/${platform}"
           done
 
@@ -65,20 +65,20 @@ jobs:
 
       - name: Publish @ip2a/mcpstore-bin-darwin-arm64
         run: npm publish --access public --provenance
-        working-directory: npm/packages/mcpstore-bin-darwin-arm64
+        working-directory: satellite/npm/packages/mcpstore-bin-darwin-arm64
 
       - name: Publish @ip2a/mcpstore-bin-linux-x64-gnu
         run: npm publish --access public --provenance
-        working-directory: npm/packages/mcpstore-bin-linux-x64-gnu
+        working-directory: satellite/npm/packages/mcpstore-bin-linux-x64-gnu
 
       - name: Publish @ip2a/mcpstore-bin-linux-arm64-gnu
         run: npm publish --access public --provenance
-        working-directory: npm/packages/mcpstore-bin-linux-arm64-gnu
+        working-directory: satellite/npm/packages/mcpstore-bin-linux-arm64-gnu
 
       - name: Publish @ip2a/mcpstore-bin-win32-x64-msvc
         run: npm publish --access public --provenance
-        working-directory: npm/packages/mcpstore-bin-win32-x64-msvc
+        working-directory: satellite/npm/packages/mcpstore-bin-win32-x64-msvc
 
       - name: Publish @ip2a/mcpstore
         run: npm publish --access public --provenance
-        working-directory: npm/packages/mcpstore
+        working-directory: satellite/npm/packages/mcpstore

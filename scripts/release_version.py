@@ -9,10 +9,10 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL_PATH = ROOT / "rust" / "Cargo.toml"
+CANONICAL_PATH = ROOT / "Cargo.toml"
 CARGO_VERSION_PATTERN = r'^version\s*=\s*"([^"]+)"'
 PYTHON_VERSION_PATTERN = r'^__version__\s*=\s*"([^"]+)"'
-LOCK_PATH = ROOT / "rust" / "Cargo.lock"
+LOCK_PATH = ROOT / "Cargo.lock"
 # Cargo.lock package blocks for workspace crates (mcpstore, mcpstore-cli, mcpstore_python, ...).
 # Wheels and crates publish with --locked, so a stale lock version fails the release build.
 LOCK_PACKAGE_PATTERN = re.compile(r'(\[\[package\]\]\nname = "(mcpstore[^"]*)"\nversion = )"([^"]+)"')
@@ -75,28 +75,28 @@ def read_canonical_version() -> str:
 
 
 def _npm_package_paths() -> list[Path]:
-    return sorted((ROOT / "npm" / "packages").glob("*/package.json"))
+    return sorted((ROOT / "satellite" / "npm" / "packages").glob("*/package.json"))
 
 
 def collect_versions() -> dict[str, str]:
     versions = {
         "rust workspace": read_canonical_version(),
         "python pyproject": _read_regex_version(
-            ROOT / "python" / "pyproject.toml",
+            ROOT / "satellite" / "python" / "pyproject.toml",
             CARGO_VERSION_PATTERN,
         ),
         "python __init__": _read_regex_version(
-            ROOT / "python" / "src" / "mcpstore" / "__init__.py",
+            ROOT / "satellite" / "python" / "mcpstore" / "__init__.py",
             PYTHON_VERSION_PATTERN,
         ),
         "desktop tauri Cargo.toml": _read_regex_version(
-            ROOT / "desktop" / "tauri" / "Cargo.toml",
+            ROOT / "satellite" / "desktop" / "tauri" / "Cargo.toml",
             CARGO_VERSION_PATTERN,
         ),
         "desktop tauri.conf.json": _read_json_version(
-            ROOT / "desktop" / "tauri" / "tauri.conf.json",
+            ROOT / "satellite" / "desktop" / "tauri" / "tauri.conf.json",
         ),
-        "web package.json": _read_json_version(ROOT / "web" / "package.json"),
+        "web package.json": _read_json_version(ROOT / "satellite" / "web" / "package.json"),
     }
 
     for package_path in _npm_package_paths():
@@ -111,14 +111,14 @@ def sync_version(version: str) -> list[str]:
     changed: list[str] = []
 
     text_targets = [
-        (ROOT / "rust" / "Cargo.toml", CARGO_VERSION_PATTERN, f'version = "{version}"'),
-        (ROOT / "python" / "pyproject.toml", CARGO_VERSION_PATTERN, f'version = "{version}"'),
+        (ROOT / "Cargo.toml", CARGO_VERSION_PATTERN, f'version = "{version}"'),
+        (ROOT / "satellite" / "python" / "pyproject.toml", CARGO_VERSION_PATTERN, f'version = "{version}"'),
         (
-            ROOT / "python" / "src" / "mcpstore" / "__init__.py",
+            ROOT / "satellite" / "python" / "mcpstore" / "__init__.py",
             PYTHON_VERSION_PATTERN,
             f'__version__ = "{version}"',
         ),
-        (ROOT / "desktop" / "tauri" / "Cargo.toml", CARGO_VERSION_PATTERN, f'version = "{version}"'),
+        (ROOT / "satellite" / "desktop" / "tauri" / "Cargo.toml", CARGO_VERSION_PATTERN, f'version = "{version}"'),
     ]
     for path, pattern, replacement in text_targets:
         if _write_regex_version(path, pattern, replacement):
@@ -128,8 +128,8 @@ def sync_version(version: str) -> list[str]:
         changed.append(str(LOCK_PATH.relative_to(ROOT)))
 
     json_targets = [
-        ROOT / "desktop" / "tauri" / "tauri.conf.json",
-        ROOT / "web" / "package.json",
+        ROOT / "satellite" / "desktop" / "tauri" / "tauri.conf.json",
+        ROOT / "satellite" / "web" / "package.json",
     ]
     for path in json_targets:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -139,7 +139,7 @@ def sync_version(version: str) -> list[str]:
         if _write_json_file(path, data):
             changed.append(str(path.relative_to(ROOT)))
 
-    main_package = ROOT / "npm" / "packages" / "mcpstore" / "package.json"
+    main_package = ROOT / "satellite" / "npm" / "packages" / "mcpstore" / "package.json"
     main_data = json.loads(main_package.read_text(encoding="utf-8"))
     main_updated = False
     if main_data.get("version") != version:
@@ -152,7 +152,7 @@ def sync_version(version: str) -> list[str]:
     if main_updated and _write_json_file(main_package, main_data):
         changed.append(str(main_package.relative_to(ROOT)))
 
-    for package_path in sorted((ROOT / "npm" / "packages").glob("mcpstore-bin-*/package.json")):
+    for package_path in sorted((ROOT / "satellite" / "npm" / "packages").glob("mcpstore-bin-*/package.json")):
         data = json.loads(package_path.read_text(encoding="utf-8"))
         if data.get("version") == version:
             continue
@@ -173,7 +173,9 @@ def verify_release_metadata() -> str:
             print(f"[error] {name} version {value} != {expected}")
         raise SystemExit(1)
 
-    platforms = tomllib.loads((ROOT / "platforms.toml").read_text(encoding="utf-8"))["platforms"]
+    platforms = tomllib.loads(
+        (ROOT / "satellite" / "platforms.toml").read_text(encoding="utf-8")
+    )["platforms"]
     npm_packages = {
         json.loads(path.read_text(encoding="utf-8"))["name"] for path in _npm_package_paths()
     }

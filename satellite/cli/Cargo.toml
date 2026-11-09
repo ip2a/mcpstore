@@ -1,0 +1,61 @@
+[package]
+name = "mcpstore-cli"
+version = "2.3.1"
+edition = "2021"
+rust-version = "1.88"
+authors = ["ooooofish <ooooofish@126.com>"]
+license = "MIT"
+repository = "https://github.com/ip2a/mcpstore"
+publish = false
+description = "MCPStore CLI - command line interface for MCP service management"
+default-run = "mcpstore"
+build = "build.rs"
+
+# Standalone workspace, detached from the repository-root workspace. The SDK is
+# consumed as a path dependency; the empty [workspace] table marks this package
+# as its own workspace root so the parent workspace never claims it.
+[workspace]
+
+[[bin]]
+name = "mcpstore"
+path = "src/main.rs"
+
+[[bin]]
+name = "mcpstore-tui"
+path = "src/bin/mcpstore-tui.rs"
+
+[dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "signal", "net"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+colored = "3.0"
+tabled = "0.18"
+async-trait = "0.1"
+rand = "0.8"
+base64 = "0.22"
+
+axum = "0.7"
+maud = { version = "0.27", features = ["axum"] }
+tower-http = { version = "0.6", features = ["cors"] }
+futures-util = { version = "0.3", default-features = false }
+crossterm = "0.28"
+inquire = "0.7"
+nucleo-matcher = "0.3"
+
+# Request telemetry persistence (app/daemon layer only; the SDK stays storage-free)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+mcpstore = { path = "../..", default-features = false, features = ["light", "redis", "valkey", "test-shared-memory"] }
+chrono = { version = "0.4", features = ["serde"] }
+rmcp = { version = "=3.2.0", features = ["auth", "auth-client-credentials-jwt", "client", "elicitation", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
+url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+blake3 = "1"
+subtle = "2.6"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
