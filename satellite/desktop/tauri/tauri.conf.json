@@ -20,7 +20,7 @@
       "binaries/mcpstore"
     ],
     "resources": {
-      "../../../plugins/": "plugins/"
+      "../../plugins/": "plugins/"
     },
     "icon": [
       "icons/32x32.png",

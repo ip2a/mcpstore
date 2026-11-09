@@ -9,8 +9,8 @@ repository = "https://github.com/ip2a/mcpstore"
 description = "MCPStore - unified MCP service management library"
 keywords = ["mcp", "ai", "tools", "registry", "cache"]
 categories = ["api-bindings", "development-tools"]
-# plugins/ is a compile-time requirement: src/agents embeds plugin manifests via include_str!.
-include = ["src/**", "tests/**", "plugins/**", "./LICENSE", "./README.md"]
+# satellite/plugins/ is a compile-time requirement: src/agents embeds manifests via include_str!.
+include = ["src/**", "tests/**", "satellite/plugins/**", "./LICENSE", "./README.md"]
 
 [dependencies]
 tokio = { version = "1.40", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "signal", "net"] }
