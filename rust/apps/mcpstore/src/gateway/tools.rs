@@ -1458,7 +1458,12 @@ async fn authorize_override_instance(
         ));
     }
     let instance = store.find_instance(instance_id).await.ok_or_else(|| {
-        ErrorData::invalid_params(format!("Instance {instance_id} not found"), None)
+        ErrorData::invalid_params(
+            format!("Instance {instance_id} not found"),
+            Some(serde_json::json!({
+                "hint": "call list_services to get valid instance ids"
+            })),
+        )
     })?;
     if instance.scope != *scope {
         return Err(ErrorData::invalid_params(
@@ -1851,8 +1856,85 @@ pub(super) fn read_required_object(
         .ok_or_else(|| format!("Tool metadata is missing object field: {field}").into())
 }
 
+/// Store error → agent-facing MCP protocol error. The structured `data`
+/// payload carries the machine code, an agent-actionable hint, and the retry
+/// verdict: an agent reading the error can decide to retry, give up, or hand
+/// off to the user — never stare at a bare internal identifier.
 pub(super) fn map_store_error(error: mcpstore::Error) -> ErrorData {
-    ErrorData::internal_error(error.to_string(), None)
+    let code = error.code();
+    let mut data = Map::new();
+    data.insert("code".into(), Value::String(code.as_str().into()));
+    data.insert("retryable".into(), Value::Bool(error.retryable()));
+    if let Some(hint) = agent_hint(code).or(code.hint()) {
+        data.insert("hint".into(), Value::String(hint.into()));
+    }
+    ErrorData::internal_error(error.to_string(), Some(Value::Object(data)))
+}
+
+/// Agent-actionable follow-up per failure family. One match is shared by
+/// every error surface (protocol errors and call-result payloads), so all
+/// gateway errors speak the same vocabulary. Config/import-time codes have
+/// no call-time hint and fall through to None (the CLI hint from
+/// FailureCode::hint is used instead — it names a user action the agent can
+/// pass along).
+pub(super) fn agent_hint(code: mcpstore::error::FailureCode) -> Option<&'static str> {
+    use mcpstore::error::FailureCode as F;
+    Some(match code {
+        F::ServiceNotFound => {
+            "no such service on this mount; call list_services to see what is available"
+        }
+        F::NotConnected
+        | F::ConnectionSpawnFailed
+        | F::ConnectionRefused
+        | F::ConnectionTimedOut
+        | F::ConnectionClosed
+        | F::ServiceUnavailable
+        | F::HealthCheckFailed => {
+            "the service is unreachable right now and retrying now will not help; inspect it with service_state/service_check, or ask the user to restart it in the panel"
+        }
+        F::ConnectionAuthRequired => {
+            "the service requires credentials; ask the user to update its configuration"
+        }
+        F::ConnectionUnsupported | F::ConnectionScope => {
+            "this transport is not supported in this context; ask the user to fix the service configuration"
+        }
+        F::HandshakeIncompatible
+        | F::HandshakeRejected
+        | F::HandshakeUncorrelated
+        | F::HandshakeFailed => {
+            "the upstream server did not complete the MCP handshake; ask the user to check the service command or url"
+        }
+        F::CallTimedOut | F::CallCancelled | F::CallDisconnected => {
+            "the upstream call did not finish; retrying may help"
+        }
+        F::ToolFailed => {
+            "the upstream tool ran and failed; read the error and adjust the arguments"
+        }
+        F::ToolNotAvailable => {
+            "the service does not expose this tool right now; call service_info to inspect its tool list"
+        }
+        F::SessionNotFound | F::SessionNotActive => {
+            "the session is gone; start a new one or re-mount"
+        }
+        _ => return None,
+    })
+}
+
+/// Unknown-tool errors name the escape hatch per mount kind: a
+/// single-service mount has one tool list, a multi-service mount can also
+/// hide tools whose service is down.
+pub(super) fn unknown_tool_error(tool_name: &str, single_service_mount: bool) -> ErrorData {
+    let hint = if single_service_mount {
+        "this mount serves one service; call tools/list to see its tools"
+    } else {
+        "the tool may not exist or its service may be down; call list_services and tools/list to inspect this mount"
+    };
+    let mut data = Map::new();
+    data.insert("hint".into(), Value::String(hint.into()));
+    ErrorData::invalid_params(
+        format!("Unknown tool: {tool_name}"),
+        Some(Value::Object(data)),
+    )
 }
 
 pub(super) fn deserialize_items<T>(items: Vec<Value>, label: &str) -> Result<Vec<T>, ErrorData>
