@@ -27,9 +27,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { EXPOSE_KEYS } from "@/features/clients/clients-view"
+import {
+  EXPOSE_KEYS,
+} from "@/features/clients/clients-view"
 import {
   useClientsQuery,
+  useGatewayProjectionQuery,
   useGatewayStatusQuery,
   useWiredClientsQuery,
 } from "@/features/clients/queries"
@@ -40,6 +43,7 @@ import {
   getGatewayRequests,
   startMcpHub,
   stopMcpHub,
+  type GatewayProjectionIssue,
   type GatewayRequestRecord,
   type GatewayStatus,
   type McpHubOptions,
@@ -60,6 +64,7 @@ export function GatewayView() {
   const clients = useClientsQuery()
   const wired = useWiredClientsQuery()
   const records = useGatewayRequestFlow()
+  const projection = useGatewayProjectionQuery(status.data?.running === true)
   const meta = useSettingsMetaQuery()
   const updateSettings = useUpdateSettingsMutation()
   const [busy, setBusy] = useState(false)
@@ -183,9 +188,64 @@ export function GatewayView() {
           )}
         </PanelCard>
 
+        <PanelCard variant="plain" className="gap-2">
+          <div className="border-b pb-2 text-sm font-medium">{t("gatewayProjectionTitle")}</div>
+          {!projection.data ||
+          projection.data.mounts.every((mount) => mount.issues.length === 0) ? (
+            <p className="text-sm text-muted-foreground">{t("gatewayProjectionEmpty")}</p>
+          ) : (
+            projection.data.mounts
+              .filter((mount) => mount.issues.length > 0)
+              .map((mount) => (
+                <div key={mount.caller ?? "generic"} className="flex flex-col gap-1">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    {mount.caller ?? t("gatewayProjectionGenericMount")}
+                  </div>
+                  {mount.issues.map((issue, index) => (
+                    <ProjectionRow key={index} issue={issue} />
+                  ))}
+                </div>
+              ))
+          )}
+        </PanelCard>
+
         <FrameStreamCard face="gateway" />
       </ScrollPane>
     </>
+  )
+}
+
+/** One projection defect: what was hidden or degraded, and why (human-facing truth). */
+function ProjectionRow({ issue }: { issue: GatewayProjectionIssue }) {
+  const { t } = useI18n()
+  if ("Down" in issue) {
+    return (
+      <div className="flex items-start gap-2 text-xs">
+        <Badge variant="destructive">{t("gatewayProjectionIssueDown")}</Badge>
+        <span className="text-muted-foreground">
+          {issue.Down.service}: {issue.Down.reason}
+        </span>
+      </div>
+    )
+  }
+  if ("SkippedTool" in issue) {
+    return (
+      <div className="flex items-start gap-2 text-xs">
+        <Badge variant="outline">{t("gatewayProjectionIssueSkipped")}</Badge>
+        <span className="text-muted-foreground">
+          {issue.SkippedTool.tool ?? "?"} @ {issue.SkippedTool.service ?? "?"}:{" "}
+          {issue.SkippedTool.reason}
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <Badge variant="secondary">{t("gatewayProjectionIssueDegraded")}</Badge>
+      <span className="text-muted-foreground">
+        {issue.DegradedTool.tool} @ {issue.DegradedTool.service}
+      </span>
+    </div>
   )
 }
 

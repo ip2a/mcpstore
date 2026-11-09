@@ -69,6 +69,9 @@ export const queryKeys = {
   get gatewayStatus() {
     return ["gateway", ...hostSeg(), "status"] as const
   },
+  get gatewayProjection() {
+    return ["gateway", ...hostSeg(), "projection"] as const
+  },
   get usageStats() {
     return ["gateway", ...hostSeg(), "usage-stats"] as const
   },

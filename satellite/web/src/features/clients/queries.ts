@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   getClientVersion,
+  getGatewayProjection,
   getGatewayRequests,
   getGatewayStatus,
   getWiredClients,
@@ -38,6 +39,16 @@ export function useGatewayStatusQuery() {
   return useQuery({
     queryKey: queryKeys.gatewayStatus,
     queryFn: getGatewayStatus,
+    refetchInterval: 5_000,
+  })
+}
+
+/** Live projection issues; only polled while the gateway child is running. */
+export function useGatewayProjectionQuery(running: boolean) {
+  return useQuery({
+    queryKey: queryKeys.gatewayProjection,
+    queryFn: getGatewayProjection,
+    enabled: running,
     refetchInterval: 5_000,
   })
 }
