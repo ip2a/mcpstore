@@ -52,7 +52,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 mcpstore = { path = "../..", version = "2.3", default-features = false, features = ["light", "redis", "valkey", "test-shared-memory"] }
 chrono = { version = "0.4", features = ["serde"] }
-rmcp = { version = "=3.2.0", features = ["auth", "auth-client-credentials-jwt", "client", "elicitation", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
+rmcp = { version = "=3.9.0", features = ["auth", "auth-client-credentials-jwt", "client", "elicitation", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 blake3 = "1"
