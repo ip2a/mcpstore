@@ -9,6 +9,7 @@ use mcpstore::{InstanceId, MCPStore, ScopeRef};
 use crate::gateway::{streamable_http_router, GatewayCallLog, GatewayOptions, GatewayServer};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tower::ServiceExt as _;
 
 use crate::store_args::StoreSourceArgs;
 use crate::BoxErr;
@@ -94,19 +95,26 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     };
 
     let call_log = GatewayCallLog::new();
-    let (router, projection_mounts) = build_router(
+    let wired_path = wired_ledger_path(&store);
+    let (generic_router, mount_set) = build_mounts(
         &store,
         &options,
         Arc::clone(&call_log),
-        store.config_manager().app_config_path().to_path_buf(),
+        &wired_path,
     )
     .await?;
+    // Wired mounts live behind a shared registry so the reconciliation loop
+    // can add/rebuild/remove them while the listener keeps running.
+    let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
+    let generic_projection = mount_set.generic_projection;
+    let projections = Arc::new(std::sync::RwLock::new(Vec::new()));
+    publish_projections(&mounts, &generic_projection, &projections);
     let calls = axum::Router::new()
         .route("/calls", axum::routing::get(calls_route))
-        .with_state(call_log);
+        .with_state(call_log.clone());
     let projection = axum::Router::new()
         .route("/projection", axum::routing::get(projection_route))
-        .with_state(projection_mounts);
+        .with_state(Arc::clone(&projections));
     let addr = format!("{}:{}", options.host, options.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     // Guard chain (magpie port): peer loopback, Host rebinding, Origin,
@@ -114,9 +122,10 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     // gateway::guards for the incident history behind each guard.
     let limiter = std::sync::Arc::new(crate::gateway::guards::RateLimiter::new());
     let generic_path = options.path.clone();
-    let app = router
+    let app = generic_router
         .merge(calls)
         .merge(projection)
+        .fallback(axum::routing::any(mount_dispatch).with_state(Arc::clone(&mounts)))
         .layer(axum::middleware::from_fn(move |request, next| {
             crate::gateway::guards::guard_chain(
                 generic_path.clone(),
@@ -129,6 +138,19 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
         "[GATEWAY] listening on http://{addr} (generic mount {})",
         options.path
     );
+    // Reconciliation: the wired ledger (CLI, panel, and manual edits are all
+    // writers) is re-read every 5s so a running gateway follows it without a
+    // restart (magpie hubPrune). An unreadable ledger leaves every mount
+    // exactly as it is — missing ≠ empty, corrupt ≠ absent.
+    tokio::spawn(reconcile_loop(
+        Arc::clone(&store),
+        options.clone(),
+        call_log,
+        wired_path,
+        Arc::clone(&mounts),
+        Arc::clone(&projections),
+        generic_projection,
+    ));
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -141,66 +163,144 @@ fn err(message: &str) -> BoxErr {
     Box::new(std::io::Error::new(std::io::ErrorKind::Other, message))
 }
 
-async fn build_router(
+fn wired_ledger_path(store: &MCPStore) -> std::path::PathBuf {
+    let app_config_path = store.config_manager().app_config_path();
+    app_config_path
+        .parent()
+        .map(|dir| dir.join("gateway-wired.json"))
+        .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"))
+}
+
+/// What a mount must match to stay as it is: the ledger's derived scope and
+/// exposure. A diverging fingerprint rebuilds the mount (magpie hubKey).
+#[derive(Clone, PartialEq)]
+struct MountFingerprint {
+    scope: ScopeRef,
+    expose: mcpstore::client_wire::ExposeConfig,
+}
+
+/// One wired mount as currently served: its dispatch router plus the
+/// fingerprint and projection handle reconciliation needs.
+struct LiveMount {
+    fingerprint: MountFingerprint,
+    router: axum::Router,
+    projection: MountProjection,
+}
+
+#[derive(Default)]
+struct MountSet {
+    routers: std::collections::HashMap<String, LiveMount>,
+    generic_projection: Option<MountProjection>,
+}
+
+async fn build_mount(
+    store: &Arc<MCPStore>,
+    options: &GatewayOptions,
+    shared_log: &Arc<GatewayCallLog>,
+    entry: &client_wire::WiredEntry,
+) -> Result<(String, LiveMount), BoxErr> {
+    let scope = entry.effective_scope().map_err(|error| {
+        err(&format!(
+            "failed to resolve scope for {}: {error}",
+            entry.client_id
+        ))
+    })?;
+    let expose = entry.effective_expose();
+    let wired_options = GatewayOptions {
+        scope: scope.clone(),
+        expose_session_state_tools: expose.session_state,
+        expose_tool_override_tools: expose.tool,
+        expose_prompt_override_tools: expose.prompt,
+        expose_resource_override_tools: expose.resource,
+        expose_openapi_tools: expose.openapi,
+        expose_service_tools: expose.service,
+        expose_cache_tools: expose.cache,
+        expose_search_tools: expose.search,
+        ..options.clone()
+    };
+    let path = format!("/mcp/{}", entry.client_id);
+    let caller = Some(entry.client_id.clone());
+    let server = build_server(
+        Arc::clone(store),
+        wired_options,
+        caller.clone(),
+        Arc::clone(shared_log),
+    )
+    .await?;
+    let projection = MountProjection {
+        caller,
+        issues: server.projection_handle(),
+    };
+    let router = streamable_http_router(server, &path);
+    Ok((
+        path,
+        LiveMount {
+            fingerprint: MountFingerprint { scope, expose },
+            router,
+            projection,
+        },
+    ))
+}
+
+/// Initial mount construction: fail loud on an unreadable ledger (the child
+/// process is starting — there is nothing to preserve), skip-with-warning on
+/// a mount that individually fails to build so one bad client doesn't take
+/// down the rest of the gateway (projection resilience, M2).
+async fn build_mounts(
     store: &Arc<MCPStore>,
     options: &GatewayOptions,
     shared_log: Arc<GatewayCallLog>,
-    app_config_path: std::path::PathBuf,
-) -> Result<(axum::Router, ProjectionMounts), BoxErr> {
-    let mut router = axum::Router::new();
-    let mut mounts: ProjectionMounts = Vec::new();
-
-    // Per-client mounts: derive GatewayOptions from the wired entry.
-    let wired_path = app_config_path
-        .parent()
-        .map(|dir| dir.join("gateway-wired.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("gateway-wired.json"));
-    let wired_state = client_wire::load_wired_state(&wired_path)?;
+    wired_path: &std::path::Path,
+) -> Result<(axum::Router, MountSet), BoxErr> {
+    let mut set = MountSet::default();
+    let wired_state = client_wire::load_wired_state(wired_path)?;
     for entry in &wired_state.entries {
-        let scope = entry.effective_scope().map_err(|error| {
-            err(&format!(
-                "failed to resolve scope for {}: {error}",
-                entry.client_id
-            ))
-        })?;
-        let expose = entry.effective_expose();
-        let wired_options = GatewayOptions {
-            scope,
-            expose_session_state_tools: expose.session_state,
-            expose_tool_override_tools: expose.tool,
-            expose_prompt_override_tools: expose.prompt,
-            expose_resource_override_tools: expose.resource,
-            expose_openapi_tools: expose.openapi,
-            expose_service_tools: expose.service,
-            expose_cache_tools: expose.cache,
-            expose_search_tools: expose.search,
-            ..options.clone()
-        };
-        let path = format!("/mcp/{}", entry.client_id);
-        let caller = Some(entry.client_id.clone());
-        let server = build_server(
-            Arc::clone(store),
-            wired_options,
-            caller.clone(),
-            Arc::clone(&shared_log),
-        )
-        .await?;
-        mounts.push(MountProjection {
-            caller,
-            issues: server.projection_handle(),
-        });
-        router = router.merge(streamable_http_router(server, &path));
+        match build_mount(store, options, &shared_log, entry).await {
+            Ok((path, mount)) => {
+                set.routers.insert(path, mount);
+            }
+            Err(error) => {
+                eprintln!(
+                    "[GATEWAY] skipping mount for {}: {error}",
+                    entry.client_id
+                );
+            }
+        }
     }
 
-    // Generic mount from the CLI options.
+    // Generic mount from the CLI options; its exposure is fixed for the
+    // process lifetime, so reconciliation never touches it.
     let generic_server = build_server(Arc::clone(store), options.clone(), None, shared_log).await?;
-    mounts.push(MountProjection {
+    let generic_projection = MountProjection {
         caller: generic_server.caller_name(),
         issues: generic_server.projection_handle(),
-    });
-    router = router.merge(streamable_http_router(generic_server, &options.path));
+    };
+    let generic_router = streamable_http_router(generic_server, &options.path);
+    set.generic_projection = Some(generic_projection);
 
-    Ok((router, mounts))
+    Ok((generic_router, set))
+}
+
+/// Rebuild the shared projection list from the live mounts plus the generic
+/// mount's handle.
+fn publish_projections(
+    mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
+    generic_projection: &Option<MountProjection>,
+    projections: &Arc<std::sync::RwLock<ProjectionMounts>>,
+) {
+    let wired = mounts
+        .read()
+        .map(|map| {
+            map.values()
+                .map(|mount| mount.projection.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut all = wired;
+    all.extend(generic_projection.clone());
+    if let Ok(mut guard) = projections.write() {
+        *guard = all;
+    }
 }
 
 /// One gateway mount's live projection report, for the /projection route the
@@ -213,23 +313,255 @@ struct MountProjection {
 
 type ProjectionMounts = Vec<MountProjection>;
 
-async fn projection_route(State(mounts): State<ProjectionMounts>) -> Response {
-    let mounts: Vec<Value> = mounts
-        .iter()
-        .map(|mount| {
-            let issues = mount
-                .issues
-                .lock()
-                .map(|guard| guard.iter().cloned().collect::<Vec<_>>())
-                .unwrap_or_default();
-            json!({ "caller": mount.caller, "issues": issues })
+async fn projection_route(
+    State(projections): State<Arc<std::sync::RwLock<ProjectionMounts>>>,
+) -> Response {
+    let mounts: Vec<Value> = projections
+        .read()
+        .map(|mounts| {
+            mounts
+                .iter()
+                .map(|mount| {
+                    let issues = mount
+                        .issues
+                        .lock()
+                        .map(|guard| guard.iter().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default();
+                    json!({ "caller": mount.caller, "issues": issues })
+                })
+                .collect()
         })
-        .collect();
+        .unwrap_or_default();
     axum::Json(json!({
         "success": true,
         "data": { "running": true, "mounts": mounts },
     }))
     .into_response()
+}
+
+/// Dispatch a request onto its wired mount's router. The registry changes
+/// under the reconciliation loop, so the map is read per request; a Router
+/// clone is an Arc clone.
+async fn mount_dispatch(
+    State(mounts): State<Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>>,
+    request: axum::extract::Request,
+) -> Response {
+    let path = request.uri().path().to_string();
+    let router = mounts
+        .read()
+        .ok()
+        .and_then(|map| {
+            map.get(&path)
+                // nest semantics: the longest mount path that prefixes the request
+                .or_else(|| {
+                    map.iter()
+                        .filter(|(mount_path, _)| path.starts_with(mount_path.as_str()))
+                        .max_by_key(|(mount_path, _)| mount_path.len())
+                        .map(|(_, mount)| mount)
+                })
+                .map(|mount| mount.router.clone())
+        });
+    match router {
+        Some(router) => router
+            .oneshot(request)
+            .await
+            .expect("router service is infallible"),
+        None => axum::http::StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Outcome of reading the wired ledger on a reconciliation tick. Missing is
+/// distinct from empty: with live mounts running, a vanished ledger is an
+/// unreadable state (missing ≠ empty) and must not unmount anything.
+enum LedgerRead {
+    State(client_wire::WiredState),
+    Missing,
+    Unreadable(String),
+}
+
+fn read_wired_ledger(path: &std::path::Path) -> LedgerRead {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_or_else(
+            |error| LedgerRead::Unreadable(error.to_string()),
+            LedgerRead::State,
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => LedgerRead::Missing,
+        Err(error) => LedgerRead::Unreadable(error.to_string()),
+    }
+}
+
+const RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Every tick: re-read the ledger, apply the diff to the live mounts.
+/// Fail-safe per magpie hubPrune — a ledger that can't be read (parse
+/// failure or vanished file) means nothing is killed; the warning repeats
+/// only when the ledger state changes, not every 5s.
+async fn reconcile_loop(
+    store: Arc<MCPStore>,
+    options: GatewayOptions,
+    call_log: Arc<GatewayCallLog>,
+    wired_path: std::path::PathBuf,
+    mounts: Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
+    projections: Arc<std::sync::RwLock<ProjectionMounts>>,
+    generic_projection: Option<MountProjection>,
+) {
+    let mut ticker = tokio::time::interval(RECONCILE_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // the first tick fires immediately; the mounts were just built
+    ticker.tick().await;
+    let mut quiet = false;
+    loop {
+        ticker.tick().await;
+        match read_wired_ledger(&wired_path) {
+            LedgerRead::State(state) => {
+                quiet = false;
+                reconcile_once(
+                    &store,
+                    &options,
+                    &call_log,
+                    &state,
+                    &mounts,
+                    &projections,
+                    &generic_projection,
+                )
+                .await;
+            }
+            unreadable => {
+                let reason = match unreadable {
+                    LedgerRead::Unreadable(error) => format!("unreadable: {error}"),
+                    _ => "missing while mounts are live".to_string(),
+                };
+                if !quiet {
+                    eprintln!(
+                        "[GATEWAY] wired ledger {reason}; keeping all mounts unchanged"
+                    );
+                }
+                quiet = true;
+            }
+        }
+    }
+}
+
+async fn reconcile_once(
+    store: &Arc<MCPStore>,
+    options: &GatewayOptions,
+    call_log: &Arc<GatewayCallLog>,
+    state: &client_wire::WiredState,
+    mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
+    projections: &Arc<std::sync::RwLock<ProjectionMounts>>,
+    generic_projection: &Option<MountProjection>,
+) {
+    let (adds, rebuilds, removes, warnings) = plan_mount_changes(&mounts, state);
+    for warning in &warnings {
+        eprintln!("[GATEWAY] {warning}");
+    }
+    let mut changed = !removes.is_empty();
+    for path in removes {
+        if let Ok(mut map) = mounts.write() {
+            // Stateless mounts spawn nothing of their own — the store owns
+            // the upstream instances — so dropping the entry leaves no
+            // orphan process behind.
+            map.remove(&path);
+            eprintln!("[GATEWAY] unmounted {path}");
+        }
+    }
+    for entry in adds {
+        match build_mount(store, options, call_log, &entry).await {
+            Ok((path, mount)) => {
+                eprintln!("[GATEWAY] mounted {path}");
+                if let Ok(mut map) = mounts.write() {
+                    map.insert(path, mount);
+                }
+                changed = true;
+            }
+            Err(error) => {
+                eprintln!(
+                    "[GATEWAY] skipping new mount for {}: {error}",
+                    entry.client_id
+                );
+            }
+        }
+    }
+    for entry in rebuilds {
+        match build_mount(store, options, call_log, &entry).await {
+            Ok((path, mount)) => {
+                eprintln!("[GATEWAY] rebuilt mount {path}");
+                if let Ok(mut map) = mounts.write() {
+                    map.insert(path, mount);
+                }
+                changed = true;
+            }
+            Err(error) => {
+                // fail-safe per mount: a mount that fails to rebuild keeps
+                // serving its previous router
+                eprintln!(
+                    "[GATEWAY] keeping existing mount for {}: {error}",
+                    entry.client_id
+                );
+            }
+        }
+    }
+    if changed {
+        publish_projections(mounts, generic_projection, projections);
+    }
+}
+
+/// Pure diff between the running mounts and the ledger: what to add, what
+/// to rebuild (fingerprint drift), what to remove, and per-entry warnings
+/// for entries whose scope can't be resolved (fail-safe: keep what runs).
+/// Ordering note: entries are `Clone` so adds and rebuilds carry their own
+/// copy and `rebuilds.contains(entry)` works by value.
+type MountPlan = (
+    Vec<client_wire::WiredEntry>,
+    Vec<client_wire::WiredEntry>,
+    Vec<String>,
+    Vec<String>,
+);
+
+fn plan_mount_changes(
+    mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
+    state: &client_wire::WiredState,
+) -> MountPlan {
+    let mut adds = Vec::new();
+    let mut rebuilds = Vec::new();
+    let mut removes = Vec::new();
+    let mut warnings = Vec::new();
+    let running = match mounts.read() {
+        Ok(map) => map
+            .iter()
+            .map(|(path, mount)| (path.clone(), mount.fingerprint.clone()))
+            .collect::<std::collections::HashMap<String, MountFingerprint>>(),
+        Err(_) => {
+            warnings.push("mount registry poisoned; reconciliation skipped".to_string());
+            return (adds, rebuilds, removes, warnings);
+        }
+    };
+    let mut ledger_paths = Vec::new();
+    for entry in &state.entries {
+        let path = format!("/mcp/{}", entry.client_id);
+        ledger_paths.push(path.clone());
+        let fingerprint = entry.effective_scope().ok().map(|scope| MountFingerprint {
+            scope,
+            expose: entry.effective_expose(),
+        });
+        match (running.get(&path), fingerprint) {
+            (None, Some(_fingerprint)) => adds.push(entry.clone()),
+            (Some(existing), Some(fingerprint)) if existing != &fingerprint => {
+                rebuilds.push(entry.clone())
+            }
+            (Some(_), None) => warnings.push(format!(
+                "scope for {} no longer resolvable; keeping its current mount",
+                entry.client_id
+            )),
+            _ => {}
+        }
+    }
+    for path in running.keys() {
+        if !ledger_paths.contains(path) {
+            removes.push(path.clone());
+        }
+    }
+    (adds, rebuilds, removes, warnings)
 }
 
 async fn build_server(
@@ -277,4 +609,124 @@ async fn calls_route(
         },
     }))
     .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcpstore::client_wire::{ExposeConfig, WiredState};
+
+    fn entry(client_id: &str, expose_tool: bool) -> client_wire::WiredEntry {
+        client_wire::WiredEntry {
+            client_id: client_id.into(),
+            path: "/tmp/unused-agent-config.json".into(),
+            name: client_id.into(),
+            url: format!("http://127.0.0.1:1830/mcp/{client_id}"),
+            applied_at_unix_ms: 0,
+            scope: Some(mcpstore::ScopeRef::Store),
+            expose: Some(ExposeConfig {
+                tool: expose_tool,
+                ..Default::default()
+            }),
+        }
+    }
+
+    fn running_with(entries: &[client_wire::WiredEntry]) -> std::sync::Arc<
+        std::sync::RwLock<std::collections::HashMap<String, LiveMount>>,
+    > {
+        let map = entries
+            .iter()
+            .map(|entry| {
+                let scope = entry.effective_scope().expect("explicit scope resolves");
+                let expose = entry.effective_expose();
+                (
+                    format!("/mcp/{}", entry.client_id),
+                    LiveMount {
+                        fingerprint: MountFingerprint { scope, expose },
+                        router: axum::Router::new(),
+                        projection: MountProjection {
+                            caller: Some(entry.client_id.clone()),
+                            issues: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+                        },
+                    },
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        Arc::new(std::sync::RwLock::new(map))
+    }
+
+    fn plan_of(
+        mounts: &std::sync::Arc<
+            std::sync::RwLock<std::collections::HashMap<String, LiveMount>>,
+        >,
+        entries: Vec<client_wire::WiredEntry>,
+    ) -> MountPlan {
+        plan_mount_changes(
+            mounts,
+            &WiredState {
+                entries,
+            },
+        )
+    }
+
+    #[test]
+    fn plan_adds_new_and_removes_gone() {
+        let mounts = running_with(&[entry("agent-a", false)]);
+        let (adds, rebuilds, removes, warnings) =
+            plan_of(&mounts, vec![entry("agent-a", false), entry("agent-b", false)]);
+        assert_eq!(adds.iter().map(|e| e.client_id.as_str()).collect::<Vec<_>>(), ["agent-b"]);
+        assert!(rebuilds.is_empty());
+        assert_eq!(removes, Vec::<String>::new());
+        assert!(warnings.is_empty());
+
+        let (adds, rebuilds, removes, warnings) = plan_of(&mounts, vec![]);
+        assert!(adds.is_empty() && rebuilds.is_empty() && warnings.is_empty());
+        assert_eq!(removes, ["/mcp/agent-a"]);
+    }
+
+    #[test]
+    fn plan_rebuilds_on_fingerprint_drift() {
+        let mounts = running_with(&[entry("agent-a", false)]);
+        // same client, exposure flipped → rebuild, not keep
+        let (adds, rebuilds, removes, warnings) =
+            plan_of(&mounts, vec![entry("agent-a", true)]);
+        assert!(adds.is_empty() && removes.is_empty() && warnings.is_empty());
+        assert_eq!(rebuilds.len(), 1);
+        assert_eq!(rebuilds[0].client_id, "agent-a");
+    }
+
+    #[test]
+    fn plan_keeps_mount_when_scope_unresolvable() {
+        // the running mount was built with an explicit Store scope, but the
+        // ledger entry now carries no scope and its plugin is not installed:
+        // reconciliation keeps the mount alive and warns instead of
+        // unmounting it (fail-safe: unreadable intent ≠ absence)
+        let mounts = running_with(&[entry("ghost-plugin", false)]);
+        let mut orphan = entry("ghost-plugin", false);
+        orphan.scope = None;
+        let (adds, rebuilds, removes, warnings) = plan_of(&mounts, vec![orphan]);
+        assert!(adds.is_empty() && rebuilds.is_empty());
+        assert_eq!(removes, Vec::<String>::new());
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn ledger_read_states() {
+        let dir = std::env::temp_dir().join(format!("gateway-reconcile-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("gateway-wired.json");
+
+        // missing ledger reads as Missing
+        assert!(matches!(read_wired_ledger(&path), LedgerRead::Missing));
+
+        // valid ledger reads as State
+        std::fs::write(&path, br#"{"entries":[]}"#).expect("write ledger");
+        assert!(matches!(read_wired_ledger(&path), LedgerRead::State(_)));
+
+        // corrupt ledger reads as Unreadable
+        std::fs::write(&path, b"{not json").expect("write corrupt ledger");
+        assert!(matches!(read_wired_ledger(&path), LedgerRead::Unreadable(_)));
+
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
 }
