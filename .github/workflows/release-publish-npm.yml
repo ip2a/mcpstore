@@ -40,7 +40,7 @@ jobs:
           registry-url: https://registry.npmjs.org/
 
       - name: Validate release metadata
-        run: python scripts/release_preflight.py --require-tag
+        run: python scripts/release_preflight.py --domain app --require-tag
 
       - name: Find release-build run for this tag
         run: |
