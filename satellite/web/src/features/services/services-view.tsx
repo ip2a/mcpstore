@@ -14,6 +14,7 @@ import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ScrollPane } from "@/components/shared/scroll-pane"
 import { UiverseSearchInput } from "@/components/shared/uiverse-search-input"
 import { ServiceListCard } from "@/components/shared/service-list-card"
+import { PaginationControls } from "@/components/shared/pagination-controls"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { useScopesQuery } from "@/features/agents/queries"
@@ -22,6 +23,7 @@ import { AddServiceDialog } from "@/features/services/add-service-dialog"
 import { ServiceCardDialog } from "@/features/services/service-card-dialog"
 import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { useServicesList } from "@/features/services/use-services-list"
+import { usePagination, getPaginationInfo } from "@/hooks/use-pagination"
 import type { AgentItem, ScopeSummary, ScopeView, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
@@ -267,11 +269,26 @@ function ServicesScopeContent({
 }) {
   const { t } = useI18n()
   const [cardServiceId, setCardServiceId] = useState<string | null>(null)
+  const pagination = usePagination(20)
+
   const cardService =
     (cardServiceId
       ? filteredServices.find((service) => service.instance_id === cardServiceId) ||
         services.find((service) => service.instance_id === cardServiceId)
       : null) ?? null
+
+  const paginatedServices = useMemo(() => {
+    const start = pagination.offset
+    const end = start + pagination.pageSize
+    return filteredServices.slice(start, end)
+  }, [filteredServices, pagination.offset, pagination.pageSize])
+
+  const { from, to, pageCount } = getPaginationInfo(
+    pagination.offset,
+    paginatedServices.length,
+    filteredServices.length,
+  )
+
   if (scopeError) {
     return (
       <div className={WORKSPACE_LIST_INSET_CLASSNAME}>
@@ -309,7 +326,7 @@ function ServicesScopeContent({
           "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4",
         )}
       >
-        {filteredServices.map((service) => {
+        {paginatedServices.map((service) => {
           const toolCount =
             scopeToolCountByInstance.get(service.instance_id) ?? service.tools?.length ?? 0
 
@@ -324,6 +341,18 @@ function ServicesScopeContent({
         })}
         <AddServiceCard onSelect={onAdd} />
       </ScrollPane>
+      <PaginationControls
+        from={from}
+        to={to}
+        total={filteredServices.length}
+        pageSize={pagination.pageSize}
+        pageSizes={pagination.pageSizes}
+        page={pagination.page}
+        pageCount={pageCount}
+        onPageSizeChange={pagination.changePageSize}
+        onPrevPage={pagination.prevPage}
+        onNextPage={pagination.nextPage}
+      />
       <ServiceCardDialog
         busy={busy}
         open={Boolean(cardService)}
