@@ -50,6 +50,8 @@ dist/
 satellite/web/node_modules
 satellite/python/.venv
 satellite/web/dist/
+# Vite cache belongs in repo-root local/ (ignored by `*`); never under satellite/
+satellite/local/
 docs/.venv/
 docs/site/
 release-assets/
