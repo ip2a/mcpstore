@@ -258,7 +258,13 @@ impl MCPStore {
             )
             .await;
 
-        self.ensure_http_oauth_config(instance_id).await?;
+        // A pre-flight auth failure (e.g. the endpoint answers 401 with a Bearer
+        // challenge) must surface as a terminal service failure. Swallowing it
+        // here leaves the instance in `starting` forever with no evidence.
+        if let Err(error) = self.ensure_http_oauth_config(instance_id).await {
+            self.record_failure(instance_id, &error).await?;
+            return Err(error);
+        }
         let instance = self
             .kernel
             .control

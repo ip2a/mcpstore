@@ -502,12 +502,13 @@ impl ControlPlane {
             return Ok(());
         };
 
-        if !crate::auth::discovery::http_endpoint_requires_oauth(url).await {
+        if !crate::auth::discovery::http_endpoint_requires_oauth(url, &server_config.headers).await {
             return Ok(());
         }
 
         Err(Error::from(crate::auth::AuthError::InvalidConfig(
-            "OAuth is required; configure auth.client_id or auth.client_metadata_url".to_string(),
+            "endpoint returned 401 Unauthorized with a Bearer challenge (including any configured headers); configure auth.client_id or auth.client_metadata_url, or fix the service credentials"
+                .to_string(),
         )))
     }
 }
