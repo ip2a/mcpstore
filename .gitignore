@@ -50,6 +50,8 @@ dist/
 satellite/web/node_modules
 satellite/python/.venv
 satellite/web/dist/
+# Vite cache belongs in repo-root local/ (ignored by `*`); never under satellite/
+satellite/local/
 docs/.venv/
 docs/site/
 release-assets/
@@ -67,3 +69,6 @@ satellite/web/REFACTOR_PLAN.md
 
 # tauri externalBin sidecar, built by run_debug.sh / release workflow
 satellite/desktop/tauri/binaries/
+LESSONS.md
+AGENTS.md
+CLAUDE.md

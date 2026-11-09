@@ -23,10 +23,12 @@ pub async fn start(args: StartArgs) -> Result<(), BoxErr> {
     // Try common bundle locations: development repo or installed resources.
     let mut bundle_candidates = Vec::new();
 
-    // Development: relative to current directory
+    // Development: relative to current directory (repo root or satellite/).
     if let Ok(cwd) = std::env::current_dir() {
+        bundle_candidates.push(cwd.join("satellite/plugins"));
         bundle_candidates.push(cwd.join("plugins"));
         if let Some(parent) = cwd.parent() {
+            bundle_candidates.push(parent.join("satellite/plugins"));
             bundle_candidates.push(parent.join("plugins"));
         }
     }
