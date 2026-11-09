@@ -14,7 +14,8 @@ use rmcp::{
         GetPromptResult, Implementation, ListPromptsResult, ListResourceTemplatesResult,
         ListResourcesResult, ListToolsResult, PaginatedRequestParams, Prompt,
         ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
-        ResourceTemplate, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+        ResourceTemplate, ServerCapabilities, ServerConfig as McpServerConfig, Tool,
+        ToolAnnotations,
     },
     serve_server,
     transport::{
