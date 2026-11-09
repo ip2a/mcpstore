@@ -40,6 +40,7 @@ base64 = "0.22"
 
 axum = "0.7"
 maud = { version = "0.27", features = ["axum"] }
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors"] }
 futures-util = { version = "0.3", default-features = false }
 crossterm = "0.28"
@@ -58,5 +59,4 @@ blake3 = "1"
 subtle = "2.6"
 
 [dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
