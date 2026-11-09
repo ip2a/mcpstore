@@ -1,5 +1,6 @@
-# Run only from immutable release tag after release-build-cli succeeds:
-#   gh workflow run release-publish-npm.yml --ref vX.Y.Z
+# Runs automatically for stable tags: dispatched by release-build-cli after the
+# CLI build and assets upload finish. Manual run (candidates that want npm):
+#   gh workflow run release-publish-npm.yml --ref vX.Y.Z-rc.N
 # Publishes @ip2a/mcpstore and platform packages through npm trusted publishing
 # (OIDC). No NPM_TOKEN secret is used. Every package needs a trusted publisher
 # for repo ip2a/mcpstore and workflow release-publish-npm.yml on npmjs.com.
@@ -82,3 +83,19 @@ jobs:
       - name: Publish @ip2a/mcpstore
         run: npm publish --access public --provenance
         working-directory: satellite/npm/packages/mcpstore
+
+  dispatch-finalize:
+    name: dispatch-release-finalize
+    runs-on: ubuntu-latest
+    needs: publish
+    # Stable tags chain into the finalize gate automatically; prerelease
+    # versions never reach npm publish (preflight rejects them), so this
+    # guard only re-states the stable-only rule for manual dispatches.
+    if: ${{ !contains(github.ref_name, '-') }}
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch finalize
+        run: gh workflow run release-finalize.yml --ref "${GITHUB_REF_NAME}"

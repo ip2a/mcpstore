@@ -1,9 +1,13 @@
-# Manual release flow:
-#   1. Bump version (scripts/sync_version.py) and push to main
+# Release flow:
+#   1. Bump version (scripts/sync_version.py app) and push to main
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
 #   3. This workflow builds all platform binaries and uploads assets to the GitHub Release
+#   4. For stable tags pushed to the repo, npm publishing is dispatched automatically
+#      (release-publish-npm.yml, which then dispatches release-finalize.yml)
 #
-# Create the GitHub Release before or after pushing the tag; assets are uploaded once the build finishes.
+# Manual (workflow_dispatch) runs and prerelease tags stop after step 3: npm
+# publishing and the finalize gate stay manual for candidates. Create the
+# GitHub Release before or after pushing the tag; assets are uploaded once the build finishes.
 name: release-build-cli
 
 on:
@@ -162,3 +166,20 @@ jobs:
             gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag --draft "${prerelease[@]}"
           fi
           gh release upload "${tag}" release-assets/* --clobber
+
+  dispatch-npm:
+    name: dispatch-publish-npm
+    runs-on: ubuntu-latest
+    needs: upload-release-assets
+    # Auto-chain only for formal tag pushes of stable versions; candidate
+    # (prerelease) tags and manual build runs stay manual all the way through.
+    # The workflow file name is load-bearing: npm trusted publishing (OIDC)
+    # is bound to release-publish-npm.yml.
+    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch npm publish
+        run: gh workflow run release-publish-npm.yml --ref "${GITHUB_REF_NAME}"

@@ -106,25 +106,29 @@ keeps every downstream lock current.
    git push origin vX.Y.Z
    ```
 
-   The merge and the formal tag are one release action. Pushing the tag
-   starts the CLI and Desktop build workflows automatically.
+   The merge and the formal tag are one release action.
 
-4. After the build workflow succeeds, run the npm publishing workflow from
-   the exact formal tag:
+4. For a stable tag, the rest is automatic:
 
-   ```bash
-   gh workflow run release-publish-npm.yml --ref vX.Y.Z
+   ```text
+   tag push
+     ├─ release-build-cli      builds CLI binaries, uploads release assets
+     ├─ release-build-desktop  builds desktop bundles and updater artifacts
+     ├─ release-publish-npm    dispatched by build-cli, publishes npm packages
+     └─ release-finalize       dispatched by publish-npm, gates on desktop build,
+                               publishes the GitHub Release
    ```
 
-5. After npm publishing succeeds, run the final gate:
+   Watch the chain with `gh run list --workflow=release-finalize` or the
+   actions tab; the GitHub Release becomes public once finalize passes.
+
+   Prerelease (candidate) tags stop after the builds create their draft
+   pre-release. To publish a candidate manually:
 
    ```bash
-   gh workflow run release-finalize.yml --ref vX.Y.Z
+   gh workflow run release-publish-npm.yml --ref vX.Y.Z-rc.N   # only if npm is wanted for a candidate
+   gh workflow run release-finalize.yml --ref vX.Y.Z-rc.N
    ```
-
-`release-finalize` verifies the exact tag commit and the App-domain build
-and publishing workflows (build-cli, publish-npm) before making the GitHub
-Release public. SDK publishing never blocks an App release.
 
 ## Branch protection
 
