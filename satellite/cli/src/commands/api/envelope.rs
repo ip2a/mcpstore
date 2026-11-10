@@ -129,6 +129,7 @@ pub(super) fn http_status(code: FailureCode) -> StatusCode {
     match code {
         Code::InvalidInput | Code::ConfigInvalid | Code::ConnectionUnsupported => Http::BAD_REQUEST,
         Code::ServiceNotFound
+        | Code::RouteNotFound
         | Code::TaskNotFound
         | Code::SessionNotFound
         | Code::ToolNotAvailable => Http::NOT_FOUND,
@@ -269,6 +270,7 @@ mod tests {
                 FailureCode::ConnectionAuthRequired,
                 StatusCode::UNAUTHORIZED,
             ),
+            (FailureCode::RouteNotFound, StatusCode::NOT_FOUND),
             (FailureCode::SessionNotFound, StatusCode::NOT_FOUND),
             (FailureCode::SessionNotActive, StatusCode::CONFLICT),
         ] {

@@ -6,6 +6,7 @@ use std::{
 use crate::gateway::{GatewayLaunchDescriptor, GatewayOptions};
 use axum::{
     extract::State,
+    http::{Method, Uri},
     routing::{get, post, put},
     Router,
 };
@@ -252,7 +253,20 @@ pub fn core_router(state: Arc<ApiState>) -> Router {
         .with_state(state.clone())
         .merge(resource_routes(Arc::clone(&state)))
         .merge(core_routes(state))
+        .fallback(not_found_fallback)
         .layer(CorsLayer::permissive())
+}
+
+/// Every unmatched daemon route answers the unified envelope: the axum
+/// default (an empty 404 body) tells the panel's aggregate error banner
+/// nothing about what was actually missed.
+async fn not_found_fallback(method: Method, uri: Uri) -> ApiError {
+    ApiError::not_found(
+        mcpstore::error::FailureCode::RouteNotFound,
+        format!("No route for {} {}", method, uri.path()),
+        None,
+        Some(json!({ "path": uri.path() })),
+    )
 }
 
 fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
@@ -268,6 +282,7 @@ fn full_router(state: Arc<ApiState>, prefix: &str) -> Router {
                 )
                 .with_state(Arc::clone(&state)),
         )
+        .fallback(not_found_fallback)
         .layer(CorsLayer::permissive());
     if prefix.is_empty() {
         full

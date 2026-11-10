@@ -33,6 +33,7 @@ pub fn exit_code(code: FailureCode) -> i32 {
     match code {
         Code::InvalidInput => 2,
         Code::ServiceNotFound => 10,
+        Code::RouteNotFound => 12,
         Code::ConfigInvalid => 11,
         Code::ConnectionUnsupported => 20,
         Code::ConnectionSpawnFailed => 21,
