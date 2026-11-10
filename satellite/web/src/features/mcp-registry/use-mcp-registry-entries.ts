@@ -34,17 +34,22 @@ export function useMcpRegistryEntries<T>({
       ),
     [entryQueries, scopeState.selectedInstances],
   )
-  
-  // Only show error if the service list query itself failed
-  // Individual service errors (401, 500, etc.) are silently ignored
+
+  // Only show error if the service list query itself failed.
+  // Individual instance failures surface as a count (their listings can fail
+  // for good reasons — disconnected service, OAuth pending) so a silent
+  // partial catalog is at least visible.
   const queryError = scopeState.agentServicesQuery.error
-  
+  const failedInstanceCount = entryQueries.filter((result) => result.error).length
+
   const errorMessage =
     queryError instanceof Error
       ? queryError.message
       : queryError
         ? String(queryError)
-        : `Failed to load ${noun}`
+        : failedInstanceCount > 0
+          ? `${failedInstanceCount} instance(s) failed to list ${noun}`
+          : `Failed to load ${noun}`
   const loading =
     scopeState.agentServicesQuery.isFetching || entryQueries.some((result) => result.isFetching)
 
@@ -70,6 +75,7 @@ export function useMcpRegistryEntries<T>({
     entries,
     error: queryError,
     errorMessage,
+    failedInstanceCount,
     loading,
     reload,
     visibleEntries,

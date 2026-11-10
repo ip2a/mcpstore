@@ -23,9 +23,8 @@ export function useInstanceToolsQueries(
       queryKey: [...queryKeys.instanceTools(instance), filter],
       queryFn: () => listInstanceTools(instance, filter),
       refetchInterval: 30_000,
-      retry: false,
-      retryOnMount: false,
-      refetchOnWindowFocus: false,
+      // tools/list is KV-only on the backend — never connects — so default
+      // retry/focus behavior cannot trigger connect storms.
       meta: {
         instance,
       },
@@ -38,9 +37,6 @@ export function useScopeToolCounts(agentIds: string[], storeServices: ServiceIns
     queries: agentIds.map((agentId) => ({
       queryKey: queryKeys.agentServices(agentId),
       queryFn: () => listAgentServices(agentId),
-      retry: false,
-      retryOnMount: false,
-      refetchOnWindowFocus: false,
     })),
   })
   const scopes = [
@@ -54,9 +50,6 @@ export function useScopeToolCounts(agentIds: string[], storeServices: ServiceIns
     queries: instances.map(({ service }) => ({
       queryKey: [...queryKeys.instanceTools(service), "available"],
       queryFn: () => listInstanceTools(service, "available"),
-      retry: false,
-      retryOnMount: false,
-      refetchOnWindowFocus: false,
     })),
   })
 

@@ -8,9 +8,7 @@ export function useInstanceResourcesQueries(instances: ServiceInstance[]) {
     queries: instances.map((instance) => ({
       queryKey: queryKeys.instanceResources(instance),
       queryFn: () => listInstanceResources(instance),
-      retry: false,
-      retryOnMount: false,
-      refetchOnWindowFocus: false,
+      // Listing no longer auto-connects (backend); default retry is safe.
       meta: {
         instance,
       },
