@@ -272,7 +272,11 @@ impl ExecutionEngine {
         mode: ToolExecutionMode,
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'a>> {
-        store.refresh_from_db_if_needed().await?;
+        // No registry refresh here: every read below is either a direct KV read
+        // (placement, tool projection, overrides, visibility policy) or
+        // fill-if-missing hydration (ensure_instance_connected / require_instance).
+        // A full-table reload per execution is redundant on private stores and a
+        // decode storm on shared ones.
 
         // A delegated data panel executes nothing locally: proxy the call
         // through the shared store — the control panel claims it (exactly one
