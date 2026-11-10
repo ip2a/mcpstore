@@ -121,6 +121,32 @@ pub(crate) struct AppliedToolOverride {
     pub icons: Option<serde_json::Value>,
 }
 
+/// Pure override application shared by every listing path: `None` rule (or a
+/// disabled one, already filtered by the map builders) passes the tool
+/// through untouched.
+pub(crate) fn applied_override(
+    fallback_display_name: String,
+    description: String,
+    input_schema: serde_json::Value,
+    fallback_icons: Option<serde_json::Value>,
+    rule: Option<&ToolOverrideRule>,
+) -> AppliedToolOverride {
+    let Some(rule) = rule else {
+        return AppliedToolOverride {
+            display_name: fallback_display_name,
+            description,
+            input_schema,
+            icons: fallback_icons,
+        };
+    };
+    AppliedToolOverride {
+        display_name: rule.common.display_name.clone().unwrap_or(fallback_display_name),
+        description: rule.common.description.clone().unwrap_or(description),
+        input_schema: MCPStore::override_input_schema(input_schema, &rule.arguments),
+        icons: rule.common.icons.clone().or(fallback_icons),
+    }
+}
+
 impl MCPStore {
     pub async fn create_llm_friendly_tool_override(
         &self,
@@ -333,9 +359,9 @@ impl MCPStore {
     }
 
     /// Catalog-path variant: unreadable rules are logged and skipped so one
-    /// corrupt row cannot blank the whole gateway listing.
+    /// corrupt row cannot blank the whole gateway listing. Query path: reads
+    /// the shared store directly, no registry hydration.
     pub async fn list_tool_overrides_lenient(&self) -> Result<Vec<ToolOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         let mut rules = Vec::new();
         for (key, value) in self
             .kernel
@@ -358,32 +384,50 @@ impl MCPStore {
         Ok(rules)
     }
 
-    pub(crate) async fn apply_tool_override(
+    /// Enabled override rules of one instance in a single shared-store read,
+    /// keyed by raw tool name. The listing paths apply these in memory; the
+    /// per-tool read path stays for single-tool call resolution.
+    pub(crate) async fn enabled_tool_overrides_for_instance(
         &self,
         instance_id: InstanceId,
-        tool_name: &str,
-        fallback_display_name: String,
-        description: String,
-        input_schema: serde_json::Value,
-        fallback_icons: Option<serde_json::Value>,
-    ) -> Result<AppliedToolOverride> {
-        let Some(rule) = self
-            .load_enabled_tool_override(instance_id, tool_name)
+    ) -> Result<HashMap<String, ToolOverrideRule>> {
+        Ok(self
+            .enabled_tool_overrides_by_instance()
             .await?
-        else {
-            return Ok(AppliedToolOverride {
-                display_name: fallback_display_name,
-                description,
-                input_schema,
-                icons: fallback_icons,
-            });
-        };
-        Ok(AppliedToolOverride {
-            display_name: rule.common.display_name.unwrap_or(fallback_display_name),
-            description: rule.common.description.unwrap_or(description),
-            input_schema: Self::override_input_schema(input_schema, &rule.arguments),
-            icons: rule.common.icons.or(fallback_icons),
-        })
+            .remove(&instance_id)
+            .unwrap_or_default())
+    }
+
+    /// Enabled override rules for every instance in ONE shared-store read,
+    /// keyed by instance then raw tool name. Scope-wide catalogs fan out over
+    /// many instances; a per-instance read would rescan the collection each
+    /// time.
+    pub(crate) async fn enabled_tool_overrides_by_instance(
+        &self,
+    ) -> Result<HashMap<InstanceId, HashMap<String, ToolOverrideRule>>> {
+        let mut by_instance: HashMap<InstanceId, HashMap<String, ToolOverrideRule>> =
+            HashMap::new();
+        for (key, value) in self
+            .kernel
+            .persistence
+            .cache
+            .get_all_states_async(TOOL_OVERRIDES_STATE_TYPE)
+            .await?
+        {
+            match serde_json::from_value::<ToolOverrideRule>(value) {
+                Ok(rule) if rule.common.enabled.unwrap_or(true) => {
+                    by_instance
+                        .entry(rule.instance_id)
+                        .or_default()
+                        .insert(rule.tool_name.clone(), rule);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(key = %key, %error, "skipping corrupt tool override rule");
+                }
+            }
+        }
+        Ok(by_instance)
     }
 
     pub(crate) async fn resolve_override_tool_call(

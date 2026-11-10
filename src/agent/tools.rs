@@ -1,4 +1,8 @@
+use crate::overrides::tools::applied_override;
+use crate::overrides::ToolOverrideRule;
+use crate::registry::ToolInfo;
 use crate::store::prelude::*;
+use std::collections::HashMap;
 
 impl MCPStore {
     pub async fn list_tools_scoped(&self, scope: &ScopeRef) -> Result<Vec<serde_json::Value>> {
@@ -12,20 +16,20 @@ impl MCPStore {
         let instance = self.require_instance(instance_id).await?;
         let mut tools = self.list_tools(instance_id).await?;
         tools.sort_by(|left, right| left.name.cmp(&right.name));
+        let overrides = self
+            .enabled_tool_overrides_for_instance(instance_id)
+            .await?;
 
         let mut payload = Vec::with_capacity(tools.len());
         for tool in tools {
             let tool_name = tool.name.clone();
-            let transformed = self
-                .apply_tool_override(
-                    instance_id,
-                    &tool_name,
-                    tool.name,
-                    tool.description,
-                    tool.input_schema,
-                    tool.icons.clone(),
-                )
-                .await?;
+            let transformed = applied_override(
+                tool.name,
+                tool.description,
+                tool.input_schema,
+                tool.icons.clone(),
+                overrides.get(&tool_name),
+            );
             payload.push(serde_json::json!({
                 "name": transformed.display_name,
                 "tool_name": tool_name,
@@ -88,22 +92,45 @@ impl MCPStore {
         instance_id: InstanceId,
     ) -> Result<Vec<ScopedToolEntry>> {
         let instance = self.require_instance(instance_id).await?;
-        let mut tools = self.list_tools(instance_id).await?;
-        tools.sort_by(|left, right| left.name.cmp(&right.name));
+        let tools = self.list_tools(instance_id).await?;
+        self.tool_entries(&instance, tools).await
+    }
 
+    /// Entries from an instance identity plus freshly read tools: the enabled
+    /// override rules are read once for the whole set and applied in memory.
+    /// Callers that already hold the instance must not re-read it per tool.
+    pub(crate) async fn tool_entries(
+        &self,
+        instance: &ServiceInstance,
+        mut tools: Vec<ToolInfo>,
+    ) -> Result<Vec<ScopedToolEntry>> {
+        tools.sort_by(|left, right| left.name.cmp(&right.name));
+        let overrides = self
+            .enabled_tool_overrides_for_instance(instance.instance_id)
+            .await?;
+        Ok(self.project_tool_entries(instance, tools, &overrides))
+    }
+
+    /// Pure projection of tool rows through their instance's override map —
+    /// no shared-store reads. Catalog paths read the overrides once per scope
+    /// and reuse this across instances.
+    pub(crate) fn project_tool_entries(
+        &self,
+        instance: &ServiceInstance,
+        mut tools: Vec<ToolInfo>,
+        overrides: &HashMap<String, ToolOverrideRule>,
+    ) -> Vec<ScopedToolEntry> {
+        tools.sort_by(|left, right| left.name.cmp(&right.name));
         let mut entries = Vec::with_capacity(tools.len());
         for tool in tools {
             let tool_name = tool.name.clone();
-            let transformed = self
-                .apply_tool_override(
-                    instance_id,
-                    &tool_name,
-                    tool.name,
-                    tool.description,
-                    tool.input_schema,
-                    tool.icons.clone(),
-                )
-                .await?;
+            let transformed = applied_override(
+                tool.name,
+                tool.description,
+                tool.input_schema,
+                tool.icons.clone(),
+                overrides.get(&tool_name),
+            );
             entries.push(ScopedToolEntry {
                 name: transformed.display_name,
                 tool_name,
@@ -114,11 +141,11 @@ impl MCPStore {
                 annotations: tool.annotations,
                 icons: transformed.icons,
                 meta: tool.meta,
-                instance_id,
+                instance_id: instance.instance_id,
                 service_name: instance.service_name.clone(),
                 scope: instance.scope.clone(),
             });
         }
-        Ok(entries)
+        entries
     }
 }
