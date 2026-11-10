@@ -585,6 +585,21 @@ pub(crate) fn map_service_error(
             FailureCode::ToolFailed,
             format!("{operation} returned an unexpected response"),
         ),
+        // rmcp relays a call-time 401 as an McpError whose message is
+        // StreamableHttpError::AuthRequired's fixed Display. Give it the
+        // structured auth code instead of a generic tool failure; the raw
+        // text stays in the message. Upstream-relayed errors (e.g. an
+        // upstream server's own "fetch failed") keep passing through
+        // verbatim as tool_failed — a pass-through gateway reports what the
+        // upstream said.
+        error @ rmcp::ServiceError::McpError(_)
+            if error.to_string().contains("Auth required") =>
+        {
+            Error::new(
+                FailureCode::ConnectionAuthRequired,
+                format!("{operation} failed: {error}"),
+            )
+        }
         error => Error::new(
             FailureCode::ToolFailed,
             format!("{operation} failed: {error}"),
@@ -598,21 +613,23 @@ async fn classify_auth_failure(
     auth: &AuthConfig,
     fallback: Error,
 ) -> Error {
-    if auth.is_none()
-        || matches!(
-            fallback.code(),
-            FailureCode::CallCancelled | FailureCode::CallTimedOut
-        )
-    {
+    if matches!(
+        fallback.code(),
+        FailureCode::CallCancelled | FailureCode::CallTimedOut
+    ) {
         return fallback;
     }
-    match auth_coordinator.status(instance_id).await {
-        AuthStatus::Unauthenticated => {
+    // Status-driven, config-independent: NotRequired (or a missing record)
+    // falls through to the fallback; Unauthenticated/ScopeUpgradeRequired
+    // were recorded by a real challenge (connect discovery or a prior call)
+    // and deserve their structured codes even when no auth is configured yet.
+    match auth_coordinator.status_lenient(instance_id).await {
+        Some(AuthStatus::Unauthenticated) => {
             let required = auth_coordinator.auth_required(instance_id, auth);
             Error::new(FailureCode::ConnectionAuthRequired, required.to_string())
                 .with_context(crate::error::ErrorContext::Auth { required })
         }
-        AuthStatus::ScopeUpgradeRequired => {
+        Some(AuthStatus::ScopeUpgradeRequired) => {
             let required_scope = auth_coordinator.required_scope(instance_id).await;
             Error::new(
                 FailureCode::ConnectionScope,

@@ -86,6 +86,18 @@ impl AuthCoordinator {
         }
     }
 
+    /// Like [`status`](Self::status) but `None` when the canonical record is
+    /// absent: call-time classification must never panic over a record a
+    /// racy teardown dropped.
+    pub(crate) async fn status_lenient(&self, instance_id: InstanceId) -> Option<AuthStatus> {
+        self.state_manager
+            .get(instance_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|state| auth_status(&state.auth))
+    }
+
     pub async fn status_view(&self, instance_id: InstanceId, auth: &AuthConfig) -> AuthStatusView {
         AuthStatusView {
             instance_id,
