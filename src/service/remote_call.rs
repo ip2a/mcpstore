@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::cache::models::{ToolCallRequestEntity, ToolCallResponseEntity, ToolCallResponseError};
 use crate::cache::CacheLayerManager;
 use crate::store::prelude::*;
-use crate::store::{MCPStore, PanelRole};
+use crate::store::{EventBackendSnapshot, MCPStore, PanelRole};
 
 const REQUESTS: &str = "tool_call_requests";
 const RESPONSES: &str = "tool_call_responses";
@@ -45,19 +45,8 @@ impl MCPStore {
         let response_key = format!("{panel_id}:{request_id}");
 
         // Subscribe before writing: Latest subscriptions can't see writes made before subscribing; the reverse order loses responses.
-        let backend = self.ensure_event_backend().await?;
-        let collection =
-            CacheLayerManager::entity_collection_with_namespace(&self.namespace(), RESPONSES);
-        let mut subscription = backend
-            .subscribe(ChangeFeedRequest {
-                start: ChangeStart::Latest,
-                filter: ChangeFilter {
-                    collections: vec![collection],
-                    operations: vec![ChangeOperation::Put],
-                },
-            })
-            .await
-            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+        let mut snapshot = self.event_backend_snapshot().await?;
+        let mut subscription = self.subscribe_response_feed(&snapshot).await?;
 
         let request = serde_json::to_value(ToolCallRequestEntity {
             request_id: request_id.clone(),
@@ -71,6 +60,10 @@ impl MCPStore {
         self.cache()
             .put_entity(REQUESTS, &request_id, request)
             .await?;
+        // Total deadline, measured from the first request. Rebuilt subscriptions
+        // must not reset it — a cutover would otherwise give the call 30 more
+        // seconds every time it lands.
+        let deadline = tokio::time::Instant::now() + CALL_DEADLINE;
 
         loop {
             tokio::select! {
@@ -83,29 +76,22 @@ impl MCPStore {
                     if change.key != response_key {
                         continue;
                     }
-                    let value = self
-                        .cache()
-                        .get_entity(RESPONSES, &response_key)
-                        .await?
-                        .ok_or_else(|| {
-                            Error::new(
-                                FailureCode::Internal,
-                                "tool call response vanished".to_string(),
-                            )
-                        })?;
-                    self.cache().delete_entity(RESPONSES, &response_key).await.ok();
-                    let response: ToolCallResponseEntity = serde_json::from_value(value)
-                        .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-                    return match (response.result, response.error) {
-                        (Some(result), _) => Ok(result),
-                        (None, Some(error)) => Err(remote_error(&error)),
-                        (None, None) => Err(Error::new(
-                            FailureCode::Internal,
-                            "tool call response carries neither result nor error".to_string(),
-                        )),
-                    };
+                    match self.take_tool_call_response(&response_key).await? {
+                        Some(outcome) => return outcome,
+                        // Someone else consumed it or it vanished mid-read; keep waiting.
+                        None => continue,
+                    }
                 }
-                _ = tokio::time::sleep(CALL_DEADLINE) => {
+                changed = snapshot.changes.changed() => {
+                    // The backend was swapped under us. Re-resolve, rebuild the
+                    // subscription on the new generation and read the response
+                    // once — a response written into the new store while the old
+                    // subscription was dying must not be missed.
+                    changed.map_err(|_| {
+                        Error::new(FailureCode::Internal, "event epoch watch closed")
+                    })?;
+                }
+                _ = tokio::time::sleep_until(deadline) => {
                     // On timeout delete the request; if the control panel already claimed it, the TTL cleans up the response.
                     self.cache().delete_entity(REQUESTS, &request_id).await.ok();
                     return Err(Error::new(
@@ -114,7 +100,56 @@ impl MCPStore {
                     ));
                 }
             }
+            snapshot = self.event_backend_snapshot().await?;
+            subscription = self.subscribe_response_feed(&snapshot).await?;
+            if let Some(outcome) = self.take_tool_call_response(&response_key).await? {
+                return outcome;
+            }
         }
+    }
+
+    /// Subscribe to response puts on the current generation's backend.
+    async fn subscribe_response_feed(
+        &self,
+        snapshot: &EventBackendSnapshot,
+    ) -> Result<openkeyv::ChangeSubscription> {
+        let collection =
+            CacheLayerManager::entity_collection_with_namespace(&self.namespace(), RESPONSES);
+        snapshot
+            .backend
+            .subscribe(ChangeFeedRequest {
+                start: ChangeStart::Latest,
+                filter: ChangeFilter {
+                    collections: vec![collection],
+                    operations: vec![ChangeOperation::Put],
+                },
+            })
+            .await
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))
+    }
+
+    /// Read-and-delete one response entity. `Ok(None)` means it isn't there —
+    /// not yet written, or already consumed by the TTL cleanup. Shared by the
+    /// resubscribe path and the event path so a response that landed while a
+    /// subscription was being rebuilt is still picked up.
+    async fn take_tool_call_response(
+        &self,
+        response_key: &str,
+    ) -> Result<Option<Result<crate::transport::ToolCallResult>>> {
+        let Some(value) = self.cache().get_entity(RESPONSES, response_key).await? else {
+            return Ok(None);
+        };
+        self.cache().delete_entity(RESPONSES, response_key).await.ok();
+        let response: ToolCallResponseEntity = serde_json::from_value(value)
+            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+        Ok(Some(match (response.result, response.error) {
+            (Some(result), _) => Ok(result),
+            (None, Some(error)) => Err(remote_error(&error)),
+            (None, None) => Err(Error::new(
+                FailureCode::Internal,
+                "tool call response carries neither result nor error".to_string(),
+            )),
+        }))
     }
 
     /// Control panel: subscribe to tool-call requests and proxy-execute them. Call after setup (or load_from_config).
@@ -170,42 +205,60 @@ impl MCPStore {
     }
 
     async fn consume_tool_call_requests(self: &Arc<Self>) -> Result<()> {
-        let backend = self.ensure_event_backend().await?;
-        let collection =
-            CacheLayerManager::entity_collection_with_namespace(&self.namespace(), REQUESTS);
-        let mut subscription = backend
-            .subscribe(ChangeFeedRequest {
-                start: ChangeStart::Latest,
-                filter: ChangeFilter {
-                    collections: vec![collection],
-                    operations: vec![ChangeOperation::Put],
-                },
-            })
-            .await
-            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        // After subscribing, scan existing requests: ones the data panel wrote before the control panel started, not yet expired.
-        self.drain_tool_call_requests().await;
+        // Loop over backend generations: a cutover (epoch changed) resolves
+        // the new backend, subscribes on it and drains it — never falls back
+        // to the 1s retry sleep.
         loop {
-            tokio::select! {
-                change = subscription.recv() => match change {
-                    Ok(Some(change)) => {
-                        let store = Arc::clone(self);
-                        // Tool calls can be slow; spawn per request so the consume loop isn't blocked.
-                        // ponytail: no concurrency cap; add a semaphore under pressure.
-                        let request_id = change.key;
-                        tokio::spawn(async move {
-                            store.handle_tool_call_request(&request_id).await;
-                        });
+            let mut snapshot = self.event_backend_snapshot().await?;
+            let collection = CacheLayerManager::entity_collection_with_namespace(
+                &self.namespace(),
+                REQUESTS,
+            );
+            let mut subscription = snapshot
+                .backend
+                .subscribe(ChangeFeedRequest {
+                    start: ChangeStart::Latest,
+                    filter: ChangeFilter {
+                        collections: vec![collection],
+                        operations: vec![ChangeOperation::Put],
+                    },
+                })
+                .await
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+            // After subscribing, scan existing requests: ones the data panel wrote before the control panel started, not yet expired.
+            self.drain_tool_call_requests().await;
+            loop {
+                tokio::select! {
+                    change = subscription.recv() => match change {
+                        Ok(Some(change)) => {
+                            let store = Arc::clone(self);
+                            // Tool calls can be slow; spawn per request so the consume loop isn't blocked.
+                            // ponytail: no concurrency cap; add a semaphore under pressure.
+                            let request_id = change.key;
+                            tokio::spawn(async move {
+                                store.handle_tool_call_request(&request_id).await;
+                            });
+                        }
+                        Ok(None) => return Ok(()),
+                        Err(error) => {
+                            return Err(Error::new(FailureCode::Internal, error.to_string()));
+                        }
+                    },
+                    changed = snapshot.changes.changed() => {
+                        changed.map_err(|_| {
+                            Error::new(FailureCode::Internal, "event epoch watch closed")
+                        })?;
+                        tracing::debug!(
+                            "[STORE] tool call request feed: backend generation {}, resubscribing",
+                            snapshot.generation
+                        );
+                        break;
                     }
-                    Ok(None) => return Ok(()),
-                    Err(error) => {
-                        return Err(Error::new(FailureCode::Internal, error.to_string()));
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                        // Safety rescan: store-swap self-healing (drain uses the active store) + missed-push recovery.
+                        // Expired requests are dropped once claimed; rescans don't revive them.
+                        self.drain_tool_call_requests().await;
                     }
-                },
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    // Safety rescan: store-swap self-healing (drain uses the active store) + missed-push recovery.
-                    // Expired requests are dropped once claimed; rescans don't revive them.
-                    self.drain_tool_call_requests().await;
                 }
             }
         }

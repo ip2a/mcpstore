@@ -16,6 +16,15 @@ use openkeyv::{
 #[derive(Clone)]
 pub(crate) struct EventBackend(Arc<StoreHandle>);
 
+/// A backend resolved together with the epoch generation it belongs to.
+/// Consumers use `changes.changed()` to notice a cutover and re-resolve
+/// through `event_backend_snapshot` instead of silently reading a dead store.
+pub(crate) struct EventBackendSnapshot {
+    pub(crate) backend: EventBackend,
+    pub(crate) generation: u64,
+    pub(crate) changes: tokio::sync::watch::Receiver<u64>,
+}
+
 impl EventBackend {
     /// Wrap an existing store handle (e.g. share the cache layer's `MemoryStore`).
     pub(crate) fn from_store(store: StoreHandle) -> Self {

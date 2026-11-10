@@ -19,7 +19,8 @@ impl CacheLayerManager {
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
         let started_at = Instant::now();
-        let result = self.active_store().put(key, value, &collection).await;
+        let (_route, store) = self.write_store().await;
+        let result = store.put(key, value, &collection).await;
         self.record_request(started_at, None, result.is_ok());
         result
     }
@@ -40,8 +41,8 @@ impl CacheLayerManager {
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
         let started_at = Instant::now();
-        let result = self
-            .active_store()
+        let (_route, store) = self.write_store().await;
+        let result = store
             .compare_and_put(key, expected_version, value, &collection)
             .await;
         self.record_request(started_at, None, result.is_ok());
@@ -68,7 +69,8 @@ impl CacheLayerManager {
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
         let started_at = Instant::now();
-        let result = self.active_store().delete(key, &collection).await;
+        let (_route, store) = self.write_store().await;
+        let result = store.delete(key, &collection).await;
         self.record_request(started_at, None, result.is_ok());
         result
     }
@@ -83,7 +85,8 @@ impl CacheLayerManager {
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
         let started_at = Instant::now();
-        let result = self.active_store().claim(key, &collection).await;
+        let (_route, store) = self.write_store().await;
+        let result = store.claim(key, &collection).await;
         let hit = result.as_ref().ok().map(|value| value.is_some());
         self.record_request(started_at, hit, result.is_ok());
         result

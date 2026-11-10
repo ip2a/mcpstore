@@ -92,8 +92,31 @@ impl CacheLayerManager {
         active.0.clone()
     }
 
+    /// Store access for mutating operations. The mutation sites hold the shared
+    /// `route` guard across the whole operation so an online migration's
+    /// exclusive barrier can fence every in-flight write and CAS while it
+    /// drains, verifies and swaps; reads stay lock-free.
+    pub(crate) async fn write_store(
+        &self,
+    ) -> (tokio::sync::RwLockReadGuard<'_, ()>, Arc<dyn CacheStore>) {
+        let guard = self.route.read().await;
+        let store = self.active_store();
+        (guard, store)
+    }
+
+    /// Swap the active store, taking the exclusive route barrier. Only the
+    /// test-only snapshot replace uses the locking form — online migration
+    /// holds the barrier itself and calls `activate_store_unlocked`.
+    #[cfg(test)]
     pub(crate) async fn activate_store(&self, store: Arc<dyn CacheStore>) {
         let _barrier = self.route.write().await;
+        self.activate_store_unlocked(store).await;
+    }
+
+    /// Swap the active store without taking the `route` barrier. Callers that
+    /// already hold the exclusive barrier (online migration) must use this —
+    /// taking the lock again would deadlock.
+    pub(crate) async fn activate_store_unlocked(&self, store: Arc<dyn CacheStore>) {
         self.store.store(StdArc::new(ActiveCacheStore(store)));
         self.schema_ready.store(Arc::new(SchemaState::Unverified));
         self.last_state_snapshot.write().await.clear();

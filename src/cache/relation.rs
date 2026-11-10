@@ -18,7 +18,8 @@ impl CacheLayerManager {
         }
         let collection = self.relation_collection(relation_type);
         let started_at = Instant::now();
-        let result = self.active_store().put(key, value, &collection).await;
+        let (_route, store) = self.write_store().await;
+        let result = store.put(key, value, &collection).await;
         self.record_request(started_at, None, result.is_ok());
         result
     }
@@ -38,8 +39,8 @@ impl CacheLayerManager {
         }
         let collection = self.relation_collection(relation_type);
         let started_at = Instant::now();
-        let result = self
-            .active_store()
+        let (_route, store) = self.write_store().await;
+        let result = store
             .compare_and_put(key, expected_version, value, &collection)
             .await;
         self.record_request(started_at, None, result.is_ok());
@@ -64,7 +65,8 @@ impl CacheLayerManager {
         self.ensure_current_schema().await?;
         let collection = self.relation_collection(relation_type);
         let started_at = Instant::now();
-        let result = self.active_store().delete(key, &collection).await;
+        let (_route, store) = self.write_store().await;
+        let result = store.delete(key, &collection).await;
         self.record_request(started_at, None, result.is_ok());
         result
     }
