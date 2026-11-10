@@ -6,13 +6,11 @@ impl MCPStore {
         // Single connection entry for every execution surface (tools / prompts / resources / tasks /
         // completions): a data panel consults its local placement config — local services connect
         // here, delegated ones fail loudly (only tool calls are routed remotely).
-        if let crate::store::PanelRole::DataPanel { .. } = &self.kernel.runtime.panel_role {
-            if !self.panel_executes_locally(instance_id).await? {
-                return Err(Error::new(
-                    FailureCode::ServiceUnavailable,
-                    "service execution is delegated to the control panel; only tool calls are routed remotely, other surfaces must target the owning panel",
-                ));
-            }
+        self.ensure_delegation_allowed(instance_id).await?;
+        if matches!(
+            &self.kernel.runtime.panel_role,
+            crate::store::PanelRole::DataPanel { .. }
+        ) {
             return self.ensure_data_panel_instance_connected(instance_id).await;
         }
         // Hydration becomes fill-if-missing: leave instances already in the registry alone, avoiding full-table rebuilds on every execution.
@@ -63,6 +61,21 @@ impl MCPStore {
         .await
     }
 
+    /// Delegation half of the execution gate, shared with the read-only
+    /// listing gate: a delegated data panel has no local surface beyond tool
+    /// calls, so every other surface fails loudly here.
+    async fn ensure_delegation_allowed(&self, instance_id: InstanceId) -> Result<()> {
+        if let crate::store::PanelRole::DataPanel { .. } = &self.kernel.runtime.panel_role {
+            if !self.panel_executes_locally(instance_id).await? {
+                return Err(Error::new(
+                    FailureCode::ServiceUnavailable,
+                    "service execution is delegated to the control panel; only tool calls are routed remotely, other surfaces must target the owning panel",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn is_openapi_virtual_instance(
         &self,
         instance_id: InstanceId,
@@ -77,6 +90,44 @@ impl MCPStore {
             return Ok(false);
         };
         Ok(instance.transport == "openapi")
+    }
+
+    /// Read-only listing gate: answers whether primitives may be listed right
+    /// now, with NO connect side effect. Listing is a read — a disconnected
+    /// instance returns NotConnected and the caller connects explicitly,
+    /// instead of every panel poll nudging the connect/recovery machinery.
+    pub(crate) async fn require_instance_connected_for_read(
+        &self,
+        instance_id: InstanceId,
+    ) -> Result<()> {
+        self.ensure_delegation_allowed(instance_id).await?;
+        if self.is_openapi_virtual_instance(instance_id).await? {
+            let state = self
+                .kernel
+                .control
+                .state
+                .get(instance_id)
+                .await?
+                .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
+            if state.phase != RuntimePhase::Running {
+                return Err(Error::new(
+                    FailureCode::NotConnected,
+                    format!(
+                        "service instance is not running; listing never connects — start it explicitly first: {instance_id}"
+                    ),
+                ));
+            }
+            return Ok(());
+        }
+        if !self.kernel.execution.pool.is_connected(instance_id).await {
+            return Err(Error::new(
+                FailureCode::NotConnected,
+                format!(
+                    "service instance is not connected; listing never connects — connect it explicitly first: {instance_id}"
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// The query side reads the shared store directly without hydrating the in-memory registry (`load_from_db` is reserved for the execution path).

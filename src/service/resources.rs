@@ -2,7 +2,7 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn list_resources(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredResource>> {
-        self.ensure_instance_connected(instance_id).await?;
+        self.require_instance_connected_for_read(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
             let instance = self
                 .kernel
@@ -39,7 +39,7 @@ impl MCPStore {
         &self,
         instance_id: InstanceId,
     ) -> Result<Vec<DiscoveredResourceTemplate>> {
-        self.ensure_instance_connected(instance_id).await?;
+        self.require_instance_connected_for_read(instance_id).await?;
         if self.is_openapi_virtual_instance(instance_id).await? {
             let instance = self
                 .kernel

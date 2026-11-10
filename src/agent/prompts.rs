@@ -40,6 +40,10 @@ impl MCPStore {
         prompt_name: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        // Execution surface: connect on demand BEFORE resolving the original
+        // key — list_prompts is side-effect free now and answers NotConnected
+        // for a disconnected instance.
+        self.ensure_instance_connected(instance_id).await?;
         let raw_names: Vec<String> = self
             .list_prompts(instance_id)
             .await?

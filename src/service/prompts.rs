@@ -2,7 +2,7 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn list_prompts(&self, instance_id: InstanceId) -> Result<Vec<DiscoveredPrompt>> {
-        self.ensure_instance_connected(instance_id).await?;
+        self.require_instance_connected_for_read(instance_id).await?;
         self.kernel.execution.pool.list_prompts(instance_id).await
     }
 
