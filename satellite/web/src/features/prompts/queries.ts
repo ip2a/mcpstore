@@ -8,9 +8,9 @@ export function useInstancePromptsQueries(instances: ServiceInstance[]) {
     queries: instances.map((instance) => ({
       queryKey: queryKeys.instancePrompts(instance),
       queryFn: () => listInstancePrompts(instance),
-      retry: false,
-      retryOnMount: false,
-      refetchOnWindowFocus: false,
+      // Listing no longer auto-connects (backend), so a retry can never
+      // trigger a connect storm — default retry/focus behavior is safe and a
+      // transient failure no longer drops an instance from the catalog.
       meta: {
         instance,
       },

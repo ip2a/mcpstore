@@ -3,6 +3,7 @@ import { useMemo, useState } from "react"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ResourceListCard } from "@/components/shared/resource-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
+import { PartialLoadNotice } from "@/features/mcp-registry/partial-load-notice"
 import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_TABS_CLASSNAME,
@@ -39,6 +40,7 @@ export function ResourcesView(props: {
     agentIds,
     error,
     errorMessage,
+    failedInstanceCount,
     instanceId,
     loadResources,
     loading,
@@ -164,6 +166,7 @@ export function ResourcesView(props: {
                 <ResourcesTabContent
                   error={error}
                   errorMessage={errorMessage}
+                  failedInstanceCount={failedInstanceCount}
                   loading={loading}
                   loadResources={loadResources}
                   onOpenResource={props.onOpenResource}
@@ -181,6 +184,7 @@ export function ResourcesView(props: {
 function ResourcesTabContent({
   error,
   errorMessage,
+  failedInstanceCount,
   loadResources,
   loading,
   onOpenResource,
@@ -188,6 +192,7 @@ function ResourcesTabContent({
 }: {
   error: unknown
   errorMessage: string
+  failedInstanceCount: number
   loadResources: () => void
   loading: boolean
   onOpenResource: (instanceId: string, resourceUri: string) => void
@@ -228,18 +233,21 @@ function ResourcesTabContent({
   }
 
   return (
-    <ScrollPane
-      className="min-h-0 flex-1"
-      innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
-    >
-      {resources.map(({ instance, resource }) => (
-        <ResourceListCard
-          key={`${instance.instance_id}:${resource.uri || resource.name}`}
-          instance={instance}
-          resource={resource}
-          onSelect={() => onOpenResource(instance.instance_id, resource.uri)}
-        />
-      ))}
-    </ScrollPane>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PartialLoadNotice count={failedInstanceCount} onRefresh={loadResources} />
+      <ScrollPane
+        className="min-h-0 flex-1"
+        innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
+      >
+        {resources.map(({ instance, resource }) => (
+          <ResourceListCard
+            key={`${instance.instance_id}:${resource.uri || resource.name}`}
+            instance={instance}
+            resource={resource}
+            onSelect={() => onOpenResource(instance.instance_id, resource.uri)}
+          />
+        ))}
+      </ScrollPane>
+    </div>
   )
 }

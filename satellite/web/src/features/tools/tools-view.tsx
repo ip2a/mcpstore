@@ -3,6 +3,7 @@ import { useMemo, useState } from "react"
 import { RefreshCwSpinIcon } from "@/components/shared/refresh-cw-spin-icon"
 import { ToolListCard } from "@/components/shared/tool-list-card"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
+import { PartialLoadNotice } from "@/features/mcp-registry/partial-load-notice"
 import { PanelCard } from "@/components/shared/panel-card"
 import {
   WORKSPACE_TABS_CLASSNAME,
@@ -40,6 +41,7 @@ export function ToolsView(props: {
     agentIds,
     error,
     errorMessage,
+    failedInstanceCount,
     loadTools,
     loading,
     query,
@@ -180,6 +182,7 @@ export function ToolsView(props: {
                 <ToolsTabContent
                   error={error}
                   errorMessage={errorMessage}
+                  failedInstanceCount={failedInstanceCount}
                   loading={loading}
                   loadTools={loadTools}
                   onOpenTool={props.onOpenTool}
@@ -197,6 +200,7 @@ export function ToolsView(props: {
 function ToolsTabContent({
   error,
   errorMessage,
+  failedInstanceCount,
   loadTools,
   loading,
   onOpenTool,
@@ -204,6 +208,7 @@ function ToolsTabContent({
 }: {
   error: unknown
   errorMessage: string
+  failedInstanceCount: number
   loadTools: () => void
   loading: boolean
   onOpenTool: (instanceId: string, toolName: string) => void
@@ -240,21 +245,24 @@ function ToolsTabContent({
   }
 
   return (
-    <ScrollPane
-      className="min-h-0 flex-1"
-      innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
-    >
-      {tools.map(({ instance, tool }) => {
-        const key = toolKey(instance.instance_id, tool)
-        return (
-          <ToolListCard
-            key={key}
-            instance={instance}
-            tool={tool}
-            onSelect={() => onOpenTool(instance.instance_id, tool.name)}
-          />
-        )
-      })}
-    </ScrollPane>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PartialLoadNotice count={failedInstanceCount} onRefresh={loadTools} />
+      <ScrollPane
+        className="min-h-0 flex-1"
+        innerClassName="px-4 py-2 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),16rem))] gap-4"
+      >
+        {tools.map(({ instance, tool }) => {
+          const key = toolKey(instance.instance_id, tool)
+          return (
+            <ToolListCard
+              key={key}
+              instance={instance}
+              tool={tool}
+              onSelect={() => onOpenTool(instance.instance_id, tool.name)}
+            />
+          )
+        })}
+      </ScrollPane>
+    </div>
   )
 }
