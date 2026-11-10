@@ -13,9 +13,9 @@ use std::sync::{
 use mcpstore::{
     config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig},
     events::{bus::EventHandler, Event},
-    ContentItem, InstanceId, JsonStoreConfig, MCPStore, McpExecutionOptions, McpToolExecution,
+    ContentItem, InstanceId, MCPStore, McpExecutionOptions, McpToolExecution,
     OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, PromptOverridePatch,
-    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef, StoreOptions,
+    ResourceOverridePatch, ResourceTemplateOverridePatch, ScopeRef,
     ToolOverridePatch,
 };
 use rmcp::{
@@ -45,9 +45,6 @@ pub type BoxErr = Box<dyn std::error::Error>;
 /// and which management tool families are visible.
 #[derive(Clone, Debug)]
 pub struct GatewayOptions {
-    pub config_path: Option<String>,
-    pub store: Option<JsonStoreConfig>,
-    pub namespace: Option<String>,
     pub scope: ScopeRef,
     pub instance_id: Option<InstanceId>,
     pub host: String,
@@ -67,9 +64,6 @@ pub struct GatewayOptions {
 impl Default for GatewayOptions {
     fn default() -> Self {
         Self {
-            config_path: None,
-            store: None,
-            namespace: None,
             scope: ScopeRef::Store,
             instance_id: None,
             host: "127.0.0.1".to_string(),
@@ -206,29 +200,6 @@ impl GatewayOptions {
     pub fn launch_descriptor(&self) -> GatewayLaunchDescriptor {
         GatewayLaunchDescriptor {
             url: format!("http://{}:{}{}", self.host, self.port, self.path),
-        }
-    }
-
-    pub fn to_store_options(&self) -> StoreOptions {
-        StoreOptions {
-            config_path: self.config_path.clone(),
-            store: self.store.clone(),
-            namespace: self.namespace.clone(),
-            panel: mcpstore::PanelRole::ControlPanel,
-        }
-    }
-
-    pub fn store_args(&self) -> crate::store_args::StoreSourceArgs {
-        crate::store_args::StoreSourceArgs {
-            control_panel: false,
-            data_panel: false,
-            config_path: self.config_path.clone(),
-            // Unified model: --source no longer selects semantics; the rebuild uses CLI defaults
-            source: crate::store_args::SourceArg::Local,
-            store: self.store.as_ref().map(|store| store.store.clone()),
-            store_config: self.store.as_ref().map(|store| store.config.to_string()),
-            namespace: self.namespace.clone(),
-            panel_id: None,
         }
     }
 }

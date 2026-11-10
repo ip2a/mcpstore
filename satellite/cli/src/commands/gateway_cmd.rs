@@ -59,8 +59,42 @@ pub struct GatewayArgs {
     pub expose_search_tools: bool,
 }
 
+/// Panel role of the gateway process. The gateway is a serving surface, never
+/// a second control plane: on a shared store (shm/redis/valkey) the daemon owns
+/// the `@control` state column and the self-healing supervisor, so a second
+/// control panel would fight it CAS-for-CAS on the same column (the
+/// auth-transition panics at startup were exactly that) and double-connect
+/// every service. Shared backends therefore attach as a data panel with their
+/// own identity; a private memory store is the gateway's own universe and
+/// keeps the control panel. Explicit flags win — and `--control-panel` on a
+/// shared store is refused outright.
+fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs, BoxErr> {
+    let backend = store_args.store.clone().unwrap_or_else(|| {
+        mcpstore::ConfigManager::new()
+            .load_app_config_or_default()
+            .map(|config| config.cache.store)
+            .unwrap_or_else(|_| "memory".to_string())
+    });
+    let shared = matches!(backend.as_str(), "shm" | "redis" | "valkey");
+    if store_args.control_panel {
+        if shared {
+            return Err("the gateway cannot run as a control panel on a shared store \
+                (shm/redis/valkey): the daemon owns the @control column and supervision; \
+                attach with --data-panel instead"
+                .into());
+        }
+        return Ok(store_args);
+    }
+    if !store_args.data_panel && shared {
+        store_args.data_panel = true;
+        store_args.panel_id = Some(mcpstore::PanelRole::default_panel_id());
+    }
+    Ok(store_args)
+}
+
 pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
-    let handle = crate::store_args::load_kernel(&args.store).await?;
+    let store_args = gateway_panel_role(args.store)?;
+    let handle = crate::store_args::load_kernel(&store_args).await?;
     let store = Arc::clone(handle.store());
     let app_config = store.config_manager().load_app_config_or_default()?;
     let port = args.port.unwrap_or(app_config.gateway.port);
@@ -77,9 +111,6 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     };
 
     let options = GatewayOptions {
-        config_path: Some(store.config_manager().mcp_path().display().to_string()),
-        store: None,
-        namespace: None,
         scope,
         instance_id: args.instance_id,
         session_key: args.session_key.clone(),
@@ -755,7 +786,63 @@ async fn calls_route(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store_args::SourceArg;
     use mcpstore::client_wire::{ExposeConfig, WiredState};
+
+    fn store_args(store: Option<&str>, control_panel: bool, data_panel: bool) -> StoreSourceArgs {
+        StoreSourceArgs {
+            control_panel,
+            data_panel,
+            config_path: None,
+            source: SourceArg::Local,
+            store: store.map(str::to_string),
+            store_config: None,
+            namespace: None,
+            panel_id: None,
+        }
+    }
+
+    #[test]
+    fn shared_backends_derive_a_data_panel_with_its_own_identity() {
+        for backend in ["shm", "redis", "valkey"] {
+            let resolved = gateway_panel_role(store_args(Some(backend), false, false)).unwrap();
+            assert!(!resolved.control_panel);
+            assert!(resolved.data_panel);
+            let mcpstore::PanelRole::DataPanel { panel_id } = resolved.panel_role() else {
+                panic!("{backend} gateway must resolve to a data panel");
+            };
+            assert_ne!(
+                panel_id,
+                mcpstore::state::CONTROL_NODE_ID,
+                "the gateway must never write the @control column"
+            );
+        }
+    }
+
+    #[test]
+    fn control_panel_on_a_shared_store_is_refused() {
+        for backend in ["shm", "redis", "valkey"] {
+            let error = gateway_panel_role(store_args(Some(backend), true, false)).unwrap_err();
+            assert!(error.to_string().contains("--data-panel"));
+        }
+    }
+
+    #[test]
+    fn memory_keeps_the_control_panel_universe() {
+        let resolved = gateway_panel_role(store_args(Some("memory"), false, false)).unwrap();
+        assert!(matches!(
+            resolved.panel_role(),
+            mcpstore::PanelRole::ControlPanel
+        ));
+    }
+
+    #[test]
+    fn explicit_data_panel_flag_is_kept() {
+        let mut args = store_args(Some("shm"), false, true);
+        args.panel_id = Some("edge-01".into());
+        let resolved = gateway_panel_role(args).unwrap();
+        assert_eq!(resolved.panel_id.as_deref(), Some("edge-01"));
+    }
 
     fn entry(client_id: &str, expose_tool: bool) -> client_wire::WiredEntry {
         client_wire::WiredEntry {

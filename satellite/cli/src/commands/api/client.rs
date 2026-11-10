@@ -111,19 +111,11 @@ pub(super) async fn gateway_start(
         .args(["--port", &options.port.to_string()])
         .args(["--path", &options.path]);
 
-    // Inherit panel role from parent daemon
-    let panel_role = state.store.panel_role();
-    match panel_role {
-        mcpstore::PanelRole::DataPanel { ref panel_id } => {
-            command.arg("--data-panel");
-            command.args(["--panel-id", panel_id]);
-        }
-        mcpstore::PanelRole::ControlPanel => {
-            command.arg("--control-panel");
-        }
-    }
-
-    // Inherit store config from parent daemon
+    // The gateway derives its own panel role from the store backend
+    // (gateway_cmd::gateway_panel_role): a shared store gets a data panel with
+    // its own identity — inheriting `--control-panel` would put a second
+    // control plane on the shared `@control` column (CAS-fight panics) and
+    // double-supervise every service. Store config stays inherited.
     let store_cfg = state.store.store_config().await;
     let store_config_json = serde_json::to_string(&store_cfg.config)
         .map_err(|e| ApiError::internal(format!("Failed to serialize store config: {e}")))?;
@@ -327,14 +319,6 @@ fn gateway_options(
         }
     };
     Ok(GatewayOptions {
-        config_path: Some(
-            state
-                .store
-                .config_manager()
-                .mcp_path()
-                .display()
-                .to_string(),
-        ),
         scope,
         instance_id: query.instance_id,
         session_key: query.session_key.clone(),
@@ -349,7 +333,6 @@ fn gateway_options(
         expose_service_tools: query.expose_service.unwrap_or(false),
         expose_cache_tools: query.expose_cache.unwrap_or(false),
         expose_search_tools: query.expose_search.unwrap_or(false),
-        ..Default::default()
     })
 }
 
