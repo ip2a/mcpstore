@@ -94,6 +94,75 @@ impl MCPStore {
         Ok(())
     }
 
+    /// Remove a tool override's section from scopes.toml after deleting it
+    /// from openkeyv, so the next load cannot resurrect the rule from its
+    /// writeback. Mirrors writeback_service_override_removal: drop the tool's
+    /// overrides entry, then prune now-empty overrides/tools/service parents.
+    pub async fn writeback_tool_override_removal(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+        scope: &ScopeRef,
+    ) -> Result<()> {
+        if !Self::writeback_allowed() {
+            return Ok(());
+        }
+        let path = match self.scopes_config_path() {
+            Ok(p) => p,
+            Err(error) => {
+                tracing::warn!(%error, "Cannot resolve scopes.toml path, skipping writeback");
+                return Ok(());
+            }
+        };
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let mut doc = parse_scopes_doc(&path)?;
+
+        if let Some(services) = scope_services_table_mut(&mut doc, scope) {
+            if let Some(service_table) = services
+                .get_mut(service_name)
+                .and_then(|item| item.as_table_mut())
+            {
+                if let Some(tools) = service_table
+                    .get_mut("tools")
+                    .and_then(|item| item.as_table_mut())
+                {
+                    if let Some(overrides) = tools
+                        .get_mut("overrides")
+                        .and_then(|item| item.as_table_mut())
+                    {
+                        overrides.remove(tool_name);
+                    }
+                    if tools
+                        .get("overrides")
+                        .and_then(|item| item.as_table())
+                        .is_some_and(|table| table.is_empty())
+                    {
+                        tools.remove("overrides");
+                    }
+                }
+                if service_table
+                    .get("tools")
+                    .and_then(|item| item.as_table())
+                    .is_some_and(|table| table.is_empty())
+                {
+                    service_table.remove("tools");
+                }
+            }
+            if services
+                .get(service_name)
+                .and_then(|item| item.as_table())
+                .is_some_and(|table| table.is_empty())
+            {
+                services.remove(service_name);
+            }
+            write_scopes_doc_atomic(&path, &doc)?;
+        }
+        Ok(())
+    }
+
     /// Write back a service-level override (rename/description/hide) to
     /// scopes.toml after setting it in openkeyv. Same patch semantics as the
     /// tool writeback: Some sets the key, None leaves any existing key
@@ -468,6 +537,37 @@ enabled = false
     }
 
     #[test]
+    #[test]
+    fn tool_removal_drops_entry_and_prunes_empty_parents() {
+        // (writeback_tool_override_removal's table surgery lives in the same
+        // navigation helpers; exercise the doc-level behavior directly.)
+        let mut doc: toml_edit::DocumentMut = r#"
+[store.services.filesystem.tools.overrides.write_file]
+display_name = "safe_write"
+enabled = true
+
+[store.services.filesystem.tools.overrides.list_directory]
+enabled = false
+"#
+        .parse()
+        .unwrap();
+        let services = doc["store"]["services"].as_table_mut().unwrap();
+        let service = services.get_mut("filesystem").and_then(|i| i.as_table_mut()).unwrap();
+        let tools = service.get_mut("tools").and_then(|i| i.as_table_mut()).unwrap();
+        let overrides = tools.get_mut("overrides").and_then(|i| i.as_table_mut()).unwrap();
+        overrides.remove("write_file");
+        // list_directory survives its sibling's removal
+        assert!(overrides.contains_key("list_directory"));
+        overrides.remove("list_directory");
+        tools.remove("overrides");
+        service.remove("tools");
+        services.remove("filesystem");
+        let written = doc.to_string();
+        assert!(!written.contains("filesystem"), "service pruned: {written}");
+        assert!(!written.contains("write_file"), "tool pruned: {written}");
+
+    }
+
     fn writeback_writes_argument_defaults_wrapped() {
         // The loader reads arguments as ArgumentOverride tables — a bare
         // boolean default must serialize as `debug = { default = false }`,

@@ -279,6 +279,21 @@ impl MCPStore {
                 &Self::component_override_key(instance_id, &original_tool_name),
             )
             .await?;
+        // Best-effort scopes.toml cleanup so the next load cannot resurrect
+        // the deleted rule from its writeback (same contract as the service
+        // override delete).
+        if let Some(instance) = self.kernel.control.registry.find_instance(instance_id).await {
+            if let Err(error) = self
+                .writeback_tool_override_removal(
+                    &instance.service_name,
+                    &original_tool_name,
+                    &instance.scope,
+                )
+                .await
+            {
+                tracing::warn!("Failed to clean up tool override in scopes.toml: {error}");
+            }
+        }
         Ok(())
     }
 
