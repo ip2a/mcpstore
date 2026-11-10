@@ -12,6 +12,9 @@ use std::fmt;
 pub enum FailureCode {
     InvalidInput,
     ServiceNotFound,
+    /// No API route matches the request path/method — the HTTP plane's
+    /// not-found (the four *NotFound codes above address store objects).
+    RouteNotFound,
     ConfigInvalid,
     ConnectionUnsupported,
     ConnectionSpawnFailed,
@@ -59,9 +62,10 @@ pub enum FailureCode {
 }
 
 impl FailureCode {
-    pub const ALL: [Self; 45] = [
+    pub const ALL: [Self; 46] = [
         Self::InvalidInput,
         Self::ServiceNotFound,
+        Self::RouteNotFound,
         Self::ConfigInvalid,
         Self::ConnectionUnsupported,
         Self::ConnectionSpawnFailed,
@@ -111,6 +115,7 @@ impl FailureCode {
         match self {
             Self::InvalidInput => "invalid_input",
             Self::ServiceNotFound => "service_not_found",
+            Self::RouteNotFound => "route_not_found",
             Self::ConfigInvalid => "config_invalid",
             Self::ConnectionUnsupported => "connection_unsupported",
             Self::ConnectionSpawnFailed => "connection_spawn_failed",
@@ -159,7 +164,7 @@ impl FailureCode {
 
     pub const fn category(self) -> FailureCategory {
         match self {
-            Self::InvalidInput | Self::ServiceNotFound | Self::ConfigInvalid => {
+            Self::InvalidInput | Self::ServiceNotFound | Self::RouteNotFound | Self::ConfigInvalid => {
                 FailureCategory::Config
             }
             Self::ConnectionUnsupported
