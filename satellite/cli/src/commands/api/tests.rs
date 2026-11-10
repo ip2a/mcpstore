@@ -1006,7 +1006,7 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
             .as_u64()
             .unwrap()
     };
-    assert_eq!(count_for("root"), 2);
+    assert_eq!(count_for("all"), 2);
     assert_eq!(count_for("store"), 1);
     assert_eq!(count_for("agent"), 1);
     let agent_entry = entries
@@ -1015,9 +1015,9 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .unwrap();
     assert_eq!(agent_entry["scope"]["agent_id"], "agent-a");
 
-    // /services/list?scope=root aggregates both scopes (total=2); store has one (total=1)
+    // /services/list?scope=all aggregates both scopes (total=2); store has one (total=1)
     let root_services = client
-        .get(format!("{base_url}/services/list?scope=root"))
+        .get(format!("{base_url}/services/list?scope=all"))
         .send()
         .await
         .unwrap()
@@ -1035,16 +1035,16 @@ async fn scope_registry_routes_expose_root_store_and_agents() {
         .unwrap();
     assert_eq!(store_services["data"]["total"], 1);
 
-    // scope detail: root / store / agent
+    // scope detail: all / store / agent
     let root_info = client
-        .get(format!("{base_url}/scopes/root"))
+        .get(format!("{base_url}/scopes/all"))
         .send()
         .await
         .unwrap()
         .json::<Value>()
         .await
         .unwrap();
-    assert_eq!(root_info["data"]["scope"]["type"], "root");
+    assert_eq!(root_info["data"]["scope"]["type"], "all");
     assert_eq!(root_info["data"]["service_count"], 2);
     let agent_scope = client
         .get(format!("{base_url}/scopes/agents/agent-a"))
