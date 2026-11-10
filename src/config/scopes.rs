@@ -34,6 +34,10 @@ pub struct ServiceScopeConfig {
     pub meta: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<IconsOverride>,
     #[serde(default)]
     pub tools: ToolsScopeConfig,
     #[serde(default)]
