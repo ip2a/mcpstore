@@ -4,7 +4,7 @@ mod tests {
     use super::super::tools::*;
     use super::super::transport::normalize_http_path;
     use super::super::*;
-    use mcpstore::{events::types::EventKind, JsonStoreConfig, ServiceInstanceKey};
+    use mcpstore::{events::types::EventKind, JsonStoreConfig, ServiceInstanceKey, StoreOptions};
     use rmcp::{
         model::{ProtocolVersion, ServerNotification, SubscriptionFilter},
         service::ClientLifecycleMode,
