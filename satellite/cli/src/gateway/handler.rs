@@ -34,79 +34,66 @@ impl GatewayServer {
         let (bindings, issues) =
             build_tool_bindings(&store, &scope, instance_id, session_key.as_deref(), &down)
                 .await?;
-        let session_state_tools = if options.expose_session_state_tools {
-            build_session_state_tools()
-        } else {
-            HashMap::new()
-        };
-        let tool_override_tools = if options.expose_tool_override_tools {
-            build_tool_override_tools()
-        } else {
-            HashMap::new()
-        };
-        let prompt_override_tools = if options.expose_prompt_override_tools {
-            build_prompt_override_tools()
-        } else {
-            HashMap::new()
-        };
-        let resource_override_tools = if options.expose_resource_override_tools {
-            build_resource_override_tools()
-                .into_iter()
-                .chain(build_resource_template_override_tools())
-                .collect()
-        } else {
-            HashMap::new()
-        };
-        let openapi_tools = if options.expose_openapi_tools {
-            build_openapi_tools()
-        } else {
-            HashMap::new()
-        };
-        let service_tools = if options.expose_service_tools {
-            build_service_tools()
-        } else {
-            HashMap::new()
-        };
-        let cache_tools = if options.expose_cache_tools {
-            build_cache_tools()
-        } else {
-            HashMap::new()
-        };
-        let search_tools = if options.expose_search_tools {
-            build_search_tools()
-        } else {
-            HashMap::new()
-        };
-        for tool_name in session_state_tools
-            .keys()
-            .chain(tool_override_tools.keys())
-            .chain(prompt_override_tools.keys())
-            .chain(resource_override_tools.keys())
-            .chain(openapi_tools.keys())
-            .chain(service_tools.keys())
-            .chain(cache_tools.keys())
-            .chain(search_tools.keys())
-        {
-            if bindings.contains_key(tool_name) {
-                return Err(format!(
-                    "MCPStore management tool collides with a downstream tool, cannot build the gateway MCP surface: tool={tool_name}"
-                )
-                .into());
-            }
+        let management = Arc::new(GatewayManagementTools {
+            session_state_tools: Arc::new(if options.expose_session_state_tools {
+                build_session_state_tools()
+            } else {
+                HashMap::new()
+            }),
+            tool_override_tools: Arc::new(if options.expose_tool_override_tools {
+                build_tool_override_tools()
+            } else {
+                HashMap::new()
+            }),
+            prompt_override_tools: Arc::new(if options.expose_prompt_override_tools {
+                build_prompt_override_tools()
+            } else {
+                HashMap::new()
+            }),
+            resource_override_tools: Arc::new(if options.expose_resource_override_tools {
+                build_resource_override_tools()
+                    .into_iter()
+                    .chain(build_resource_template_override_tools())
+                    .collect()
+            } else {
+                HashMap::new()
+            }),
+            openapi_tools: Arc::new(if options.expose_openapi_tools {
+                build_openapi_tools()
+            } else {
+                HashMap::new()
+            }),
+            service_tools: Arc::new(if options.expose_service_tools {
+                build_service_tools()
+            } else {
+                HashMap::new()
+            }),
+            cache_tools: Arc::new(if options.expose_cache_tools {
+                build_cache_tools()
+            } else {
+                HashMap::new()
+            }),
+            search_tools: Arc::new(if options.expose_search_tools {
+                build_search_tools()
+            } else {
+                HashMap::new()
+            }),
+        });
+        // A management tool colliding with a downstream name fails the mount
+        // at build (the surface would be ambiguous from day one).
+        let tools = merged_tools(&bindings, &management).map_err(|error| -> BoxErr { error.into() })?;
+        let catalog = GatewayCatalog::new(
+            Arc::clone(&store),
+            scope.clone(),
+            instance_id,
+            session_key.clone(),
+            Arc::new(down),
+            Arc::clone(&management),
+            CatalogSnapshot { bindings, tools },
+        );
+        if let Ok(mut projection) = catalog.projection.lock() {
+            *projection = issues;
         }
-        let mut tools = bindings
-            .values()
-            .map(|binding| binding.tool.clone())
-            .collect::<Vec<_>>();
-        tools.extend(session_state_tools.values().cloned());
-        tools.extend(tool_override_tools.values().cloned());
-        tools.extend(prompt_override_tools.values().cloned());
-        tools.extend(resource_override_tools.values().cloned());
-        tools.extend(openapi_tools.values().cloned());
-        tools.extend(service_tools.values().cloned());
-        tools.extend(cache_tools.values().cloned());
-        tools.extend(search_tools.values().cloned());
-        tools.sort_by(|left, right| left.name.cmp(&right.name));
 
         let scope_label = match &scope {
             ScopeRef::Store => "store".to_string(),
@@ -127,20 +114,10 @@ impl GatewayServer {
             instance_id,
             session_key,
             scope_label,
-            bindings: Arc::new(bindings),
-            session_state_tools: Arc::new(session_state_tools),
-            tool_override_tools: Arc::new(tool_override_tools),
-            prompt_override_tools: Arc::new(prompt_override_tools),
-            resource_override_tools: Arc::new(resource_override_tools),
-            openapi_tools: Arc::new(openapi_tools),
-            service_tools: Arc::new(service_tools),
-            cache_tools: Arc::new(cache_tools),
-            search_tools: Arc::new(search_tools),
-            tools: Arc::new(tools),
+            catalog,
+            management,
             caller,
             call_log,
-            down: Arc::new(down),
-            projection: Arc::new(std::sync::Mutex::new(issues)),
         })
     }
 
@@ -148,7 +125,7 @@ impl GatewayServer {
     pub(crate) fn projection_handle(
         &self,
     ) -> std::sync::Arc<std::sync::Mutex<Vec<ProjectionIssue>>> {
-        std::sync::Arc::clone(&self.projection)
+        Arc::clone(&self.catalog.projection)
     }
 
     /// Caller identity of this mount (`/mcp/<id>`); None on the generic mount.
@@ -160,72 +137,8 @@ impl GatewayServer {
         format!(
             "Rust MCPStore server. scope={} tool_count={}",
             self.scope_label,
-            self.tools.len()
+            self.catalog.current().tools.len()
         )
-    }
-
-    async fn current_bindings(&self) -> Result<HashMap<String, ToolBinding>, ErrorData> {
-        self.rebuild_bindings(self.session_key.as_deref()).await
-    }
-
-    /// Fresh bindings plus a projection-report refresh. Shared by listing and
-    /// the call path so degraded/skipped state never goes stale.
-    async fn rebuild_bindings(
-        &self,
-        session_key: Option<&str>,
-    ) -> Result<HashMap<String, ToolBinding>, ErrorData> {
-        let (bindings, issues) = build_tool_bindings(
-            &self.store,
-            &self.scope,
-            self.instance_id,
-            session_key,
-            &self.down,
-        )
-        .await
-        .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
-        if let Ok(mut projection) = self.projection.lock() {
-            *projection = issues;
-        }
-        Ok(bindings)
-    }
-
-    async fn current_tools(&self) -> Result<Vec<Tool>, ErrorData> {
-        let bindings = self.current_bindings().await?;
-        for tool_name in self
-            .session_state_tools
-            .keys()
-            .chain(self.tool_override_tools.keys())
-            .chain(self.prompt_override_tools.keys())
-            .chain(self.resource_override_tools.keys())
-            .chain(self.openapi_tools.keys())
-            .chain(self.service_tools.keys())
-            .chain(self.cache_tools.keys())
-            .chain(self.search_tools.keys())
-        {
-            if bindings.contains_key(tool_name) {
-                return Err(ErrorData::internal_error(
-                    format!(
-                        "MCPStore management tool collides with a downstream tool, cannot build the gateway MCP surface: tool={tool_name}"
-                    ),
-                    None,
-                ));
-            }
-        }
-
-        let mut tools = bindings
-            .values()
-            .map(|binding| binding.tool.clone())
-            .collect::<Vec<_>>();
-        tools.extend(self.session_state_tools.values().cloned());
-        tools.extend(self.tool_override_tools.values().cloned());
-        tools.extend(self.prompt_override_tools.values().cloned());
-        tools.extend(self.resource_override_tools.values().cloned());
-        tools.extend(self.openapi_tools.values().cloned());
-        tools.extend(self.service_tools.values().cloned());
-        tools.extend(self.cache_tools.values().cloned());
-        tools.extend(self.search_tools.values().cloned());
-        tools.sort_by(|left, right| left.name.cmp(&right.name));
-        Ok(tools)
     }
 
     async fn call_search_tool(
@@ -238,7 +151,7 @@ impl GatewayServer {
             .unwrap_or("")
             .to_string();
         let top_k = arguments.get("top_k").and_then(Value::as_u64).unwrap_or(10) as usize;
-        let tools = self.current_tools().await?;
+        let tools = self.catalog.ensure().await.tools.clone();
         let hits = super::search::search_tools(&tools, &query, top_k);
         let payload = serde_json::to_value(&hits).map_err(|error| {
             ErrorData::internal_error(format!("search result serialization failed: {error}"), None)
@@ -299,21 +212,27 @@ impl ServerHandler for GatewayServer {
         _request: Option<PaginatedRequestParams>,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListToolsResult, ErrorData>> + '_ {
-        async move { Ok(ListToolsResult::with_all_items(self.current_tools().await?)) }
+        async move {
+            Ok(ListToolsResult::with_all_items(
+                self.catalog.ensure().await.tools.clone(),
+            ))
+        }
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
-        self.bindings
+        self.catalog
+            .current()
+            .bindings
             .get(name)
             .map(|binding| binding.tool.clone())
-            .or_else(|| self.session_state_tools.get(name).cloned())
-            .or_else(|| self.tool_override_tools.get(name).cloned())
-            .or_else(|| self.prompt_override_tools.get(name).cloned())
-            .or_else(|| self.resource_override_tools.get(name).cloned())
-            .or_else(|| self.openapi_tools.get(name).cloned())
-            .or_else(|| self.service_tools.get(name).cloned())
-            .or_else(|| self.cache_tools.get(name).cloned())
-            .or_else(|| self.search_tools.get(name).cloned())
+            .or_else(|| self.management.session_state_tools.get(name).cloned())
+            .or_else(|| self.management.tool_override_tools.get(name).cloned())
+            .or_else(|| self.management.prompt_override_tools.get(name).cloned())
+            .or_else(|| self.management.resource_override_tools.get(name).cloned())
+            .or_else(|| self.management.openapi_tools.get(name).cloned())
+            .or_else(|| self.management.service_tools.get(name).cloned())
+            .or_else(|| self.management.cache_tools.get(name).cloned())
+            .or_else(|| self.management.search_tools.get(name).cloned())
     }
 
     fn list_resources(
@@ -482,16 +401,26 @@ impl ServerHandler for GatewayServer {
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> impl std::future::Future<Output = Result<CallToolResponse, ErrorData>> + '_ {
         let tool_name = request.name.as_ref().to_string();
-        let is_session_state_tool = self.session_state_tools.contains_key(tool_name.as_str());
-        let is_tool_override_tool = self.tool_override_tools.contains_key(tool_name.as_str());
-        let is_prompt_override_tool = self.prompt_override_tools.contains_key(tool_name.as_str());
+        let is_session_state_tool = self
+            .management
+            .session_state_tools
+            .contains_key(tool_name.as_str());
+        let is_tool_override_tool = self
+            .management
+            .tool_override_tools
+            .contains_key(tool_name.as_str());
+        let is_prompt_override_tool = self
+            .management
+            .prompt_override_tools
+            .contains_key(tool_name.as_str());
         let is_resource_override_tool = self
+            .management
             .resource_override_tools
             .contains_key(tool_name.as_str());
-        let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
-        let is_service_tool = self.service_tools.contains_key(tool_name.as_str());
-        let is_cache_tool = self.cache_tools.contains_key(tool_name.as_str());
-        let is_search_tool = self.search_tools.contains_key(tool_name.as_str());
+        let is_openapi_tool = self.management.openapi_tools.contains_key(tool_name.as_str());
+        let is_service_tool = self.management.service_tools.contains_key(tool_name.as_str());
+        let is_cache_tool = self.management.cache_tools.contains_key(tool_name.as_str());
+        let is_search_tool = self.management.search_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let scope = self.scope.clone();
         let instance_id = self.instance_id;
@@ -586,16 +515,43 @@ impl ServerHandler for GatewayServer {
                 arguments,
                 default_session_key.as_deref(),
             );
-            // Always resolve against freshly built bindings so override changes
-            // (disable/rename) apply on the next call, never through the stale
-            // startup snapshot.
-            let binding = self
-                .rebuild_bindings(session_key.as_deref())
-                .await?
-                .remove(tool_name.as_str())
-                .ok_or_else(|| {
-                    super::tools::unknown_tool_error(&tool_name, self.instance_id.is_some())
-                })?;
+            // A call naming its own business session key sees a different tool
+            // surface than the mount snapshot: resolve live. Otherwise resolve
+            // against the mount snapshot; a miss refreshes the snapshot once
+            // (override renames and new tools apply on the next call without
+            // waiting for an event).
+            let binding = if session_key.as_deref() != self.session_key.as_deref() {
+                match self.catalog.fresh_bindings(session_key.as_deref()).await {
+                    Ok(mut bindings) => bindings
+                        .remove(tool_name.as_str())
+                        .ok_or_else(|| {
+                            super::tools::unknown_tool_error(
+                                &tool_name,
+                                self.instance_id.is_some(),
+                            )
+                        })?,
+                    Err(error) => return Err(ErrorData::internal_error(error.to_string(), None)),
+                }
+            } else {
+                let snapshot = self.catalog.ensure().await;
+                match snapshot.bindings.get(tool_name.as_str()) {
+                    Some(binding) => binding.clone(),
+                    None => {
+                        self.catalog.invalidate();
+                        let snapshot = self.catalog.ensure().await;
+                        snapshot
+                            .bindings
+                            .get(tool_name.as_str())
+                            .cloned()
+                            .ok_or_else(|| {
+                                super::tools::unknown_tool_error(
+                                    &tool_name,
+                                    self.instance_id.is_some(),
+                                )
+                            })?
+                    }
+                }
+            };
             let call_start = std::time::Instant::now();
             let record_binding = binding.clone();
             let mut execution_options = McpExecutionOptions::default();
