@@ -6,7 +6,9 @@ use clap::Args;
 use mcpstore::client_wire;
 use mcpstore::{InstanceId, MCPStore, ScopeRef};
 
-use crate::gateway::{streamable_http_router, GatewayCallLog, GatewayOptions, GatewayServer};
+use crate::gateway::{
+    streamable_http_router, GatewayCallLog, GatewayCatalog, GatewayOptions, GatewayServer,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tower::ServiceExt as _;
@@ -141,7 +143,9 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     // Reconciliation: the wired ledger (CLI, panel, and manual edits are all
     // writers) is re-read every 5s so a running gateway follows it without a
     // restart (magpie hubPrune). An unreadable ledger leaves every mount
-    // exactly as it is — missing ≠ empty, corrupt ≠ absent.
+    // exactly as it is — missing ≠ empty, corrupt ≠ absent. The same tick
+    // watches scopes.toml: daemon-side override writes land there via
+    // writeback, and the gateway's own KV only sees them through a replay.
     tokio::spawn(reconcile_loop(
         Arc::clone(&store),
         options.clone(),
@@ -150,6 +154,7 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
         Arc::clone(&mounts),
         Arc::clone(&projections),
         generic_projection,
+        mount_set.generic_catalog,
     ));
     axum::serve(
         listener,
@@ -180,17 +185,19 @@ struct MountFingerprint {
 }
 
 /// One wired mount as currently served: its dispatch router plus the
-/// fingerprint and projection handle reconciliation needs.
+/// fingerprint, projection handle, and catalog handle reconciliation needs.
 struct LiveMount {
     fingerprint: MountFingerprint,
     router: axum::Router,
     projection: MountProjection,
+    catalog: Arc<GatewayCatalog>,
 }
 
 #[derive(Default)]
 struct MountSet {
     routers: std::collections::HashMap<String, LiveMount>,
     generic_projection: Option<MountProjection>,
+    generic_catalog: Option<Arc<GatewayCatalog>>,
 }
 
 async fn build_mount(
@@ -231,6 +238,7 @@ async fn build_mount(
         caller,
         issues: server.projection_handle(),
     };
+    let catalog = server.catalog_handle();
     let router = streamable_http_router(server, &path);
     Ok((
         path,
@@ -238,6 +246,7 @@ async fn build_mount(
             fingerprint: MountFingerprint { scope, expose },
             router,
             projection,
+            catalog,
         },
     ))
 }
@@ -275,8 +284,10 @@ async fn build_mounts(
         caller: generic_server.caller_name(),
         issues: generic_server.projection_handle(),
     };
+    let generic_catalog = generic_server.catalog_handle();
     let generic_router = streamable_http_router(generic_server, &options.path);
     set.generic_projection = Some(generic_projection);
+    set.generic_catalog = Some(generic_catalog);
 
     Ok((generic_router, set))
 }
@@ -391,8 +402,55 @@ fn read_wired_ledger(path: &std::path::Path) -> LedgerRead {
 }
 
 const RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+/// scopes.toml is a content-hash check (microseconds) on the daemon→gateway
+/// data channel; polled faster than the ledger tick so a daemon override
+/// write lands in the gateway within ~2s worst case, rebuild included.
+const SCOPES_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Every tick: re-read the ledger, apply the diff to the live mounts.
+/// Cheap fingerprint of the shared scopes.toml: content hash, or a stable
+/// marker while the file is absent. A change means daemon-side override
+/// writes landed via writeback — the gateway's own KV (memory backend) only
+/// sees them through a replay.
+fn scopes_fingerprint(store: &MCPStore) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    match store.scopes_config_path() {
+        Ok(path) => match std::fs::read(&path) {
+            Ok(bytes) => bytes.hash(&mut hasher),
+            Err(_) => path.display().to_string().hash(&mut hasher),
+        },
+        Err(_) => "unresolvable".hash(&mut hasher),
+    }
+    hasher.finish()
+}
+
+/// Replay scopes.toml into the gateway's KV and refresh every live mount's
+/// catalog (event + call-miss are the other two invalidation channels).
+async fn refresh_scopes_projection(
+    store: &Arc<MCPStore>,
+    mounts: &Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
+    generic_catalog: Option<&Arc<GatewayCatalog>>,
+) {
+    if let Err(error) = store.load_scopes_config().await {
+        eprintln!("[GATEWAY] scopes.toml replay failed: {error}");
+    }
+    let catalogs = mounts
+        .read()
+        .map(|map| {
+            map.values()
+                .map(|mount| Arc::clone(&mount.catalog))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for catalog in catalogs.into_iter().chain(generic_catalog.cloned()) {
+        catalog.invalidate();
+        let catalog = Arc::clone(&catalog);
+        tokio::spawn(async move { let _ = catalog.ensure().await; });
+    }
+}
+
+/// Every tick: refresh the scopes.toml projection when the file changed, then
+/// re-read the ledger and apply the diff to the live mounts.
 /// Fail-safe per magpie hubPrune — a ledger that can't be read (parse
 /// failure or vanished file) means nothing is killed; the warning repeats
 /// only when the ledger state changes, not every 5s.
@@ -404,14 +462,26 @@ async fn reconcile_loop(
     mounts: Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
     projections: Arc<std::sync::RwLock<ProjectionMounts>>,
     generic_projection: Option<MountProjection>,
+    generic_catalog: Option<Arc<GatewayCatalog>>,
 ) {
-    let mut ticker = tokio::time::interval(RECONCILE_INTERVAL);
+    let mut ticker = tokio::time::interval(SCOPES_POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // the first tick fires immediately; the mounts were just built
     ticker.tick().await;
     let mut quiet = false;
+    let mut last_scopes = scopes_fingerprint(&store);
+    let mut last_ledger = tokio::time::Instant::now();
     loop {
         ticker.tick().await;
+        let scopes = scopes_fingerprint(&store);
+        if scopes != last_scopes {
+            last_scopes = scopes;
+            refresh_scopes_projection(&store, &mounts, generic_catalog.as_ref()).await;
+        }
+        if last_ledger.elapsed() < RECONCILE_INTERVAL {
+            continue;
+        }
+        last_ledger = tokio::time::Instant::now();
         match read_wired_ledger(&wired_path) {
             LedgerRead::State(state) => {
                 quiet = false;
@@ -634,6 +704,13 @@ mod tests {
     fn running_with(entries: &[client_wire::WiredEntry]) -> std::sync::Arc<
         std::sync::RwLock<std::collections::HashMap<String, LiveMount>>,
     > {
+        let store = Arc::new(
+            mcpstore::MCPStore::setup_with_options(mcpstore::StoreOptions {
+                store: Some(mcpstore::JsonStoreConfig::memory()),
+                ..mcpstore::StoreOptions::default()
+            })
+            .expect("memory store for mount planning"),
+        );
         let map = entries
             .iter()
             .map(|entry| {
@@ -648,6 +725,12 @@ mod tests {
                             caller: Some(entry.client_id.clone()),
                             issues: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
                         },
+                        catalog: GatewayCatalog::blank(
+                            Arc::clone(&store),
+                            mcpstore::ScopeRef::Store,
+                            None,
+                            None,
+                        ),
                     },
                 )
             })

@@ -94,6 +94,19 @@ impl GatewayServer {
         if let Ok(mut projection) = catalog.projection.lock() {
             *projection = issues;
         }
+        // Mount-lifetime invalidation: tool syncs and override writes publish
+        // McpToolsChanged on the local bus (the store owns the upstream
+        // connections); mark the snapshot dirty and warm a rebuild.
+        store
+            .event_bus()
+            .subscribe(
+                mcpstore::events::types::EventKind::McpToolsChanged.as_str(),
+                0,
+                Arc::new(CatalogInvalidator {
+                    catalog: Arc::downgrade(&catalog),
+                }),
+            )
+            .await;
 
         let scope_label = match &scope {
             ScopeRef::Store => "store".to_string(),
@@ -126,6 +139,13 @@ impl GatewayServer {
         &self,
     ) -> std::sync::Arc<std::sync::Mutex<Vec<ProjectionIssue>>> {
         Arc::clone(&self.catalog.projection)
+    }
+
+    /// Shared catalog handle: the reconciliation tick watches scopes.toml
+    /// through it (daemon-side override writes land there via writeback) and
+    /// health observability reads the rebuild counter.
+    pub(crate) fn catalog_handle(&self) -> Arc<GatewayCatalog> {
+        Arc::clone(&self.catalog)
     }
 
     /// Caller identity of this mount (`/mcp/<id>`); None on the generic mount.

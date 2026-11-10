@@ -317,6 +317,47 @@ impl EventHandler for GatewayToolsChangedNotification {
     }
 }
 
+/// Mount-lifetime catalog invalidator: registered once per mount (unlike the
+/// per-subscription notification forwarder above). Local `McpToolsChanged`
+/// events (tool syncs, override writes) mark the snapshot dirty and warm the
+/// rebuild; the next request — or this warm task — swaps in fresh state.
+/// Holds the catalog weakly: once the mount is unmounted and all server
+/// clones drop, the bus's retain_alive reaps the handler on its next publish.
+#[derive(Debug)]
+struct CatalogInvalidator {
+    catalog: std::sync::Weak<GatewayCatalog>,
+}
+
+#[async_trait::async_trait]
+impl EventHandler for CatalogInvalidator {
+    async fn handle(&self, event: &Event) {
+        if event.event_type != mcpstore::events::types::EventKind::McpToolsChanged.as_str() {
+            return;
+        }
+        let Some(catalog) = self.catalog.upgrade() else {
+            return;
+        };
+        if let Some(instance_id) = catalog.instance_id {
+            let changed_instance = event
+                .payload
+                .get("instanceId")
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<InstanceId>().ok());
+            if changed_instance != Some(instance_id) {
+                return;
+            }
+        }
+        catalog.invalidate();
+        tokio::spawn(async move {
+            let _ = catalog.ensure().await;
+        });
+    }
+
+    fn is_alive(&self) -> bool {
+        self.catalog.strong_count() > 0
+    }
+}
+
 /// One projection defect found while building a gateway mount's tool surface.
 /// Upstream data defects are isolated to their owner: the mount always
 /// builds, defects surface here (panel) and at call time (structured

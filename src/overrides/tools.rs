@@ -245,6 +245,11 @@ impl MCPStore {
         {
             tracing::warn!("Failed to write back tool override to scopes.toml: {error}");
         }
+        // Publish after the writeback: the gateway's scopes.toml fingerprint
+        // tick reads the file, so the persistent channel is consistent before
+        // the (faster) event channel fires.
+        self.publish_override_changed(instance_id, &rule.service_name)
+            .await;
 
         Ok(rule)
     }
@@ -282,7 +287,9 @@ impl MCPStore {
         // Best-effort scopes.toml cleanup so the next load cannot resurrect
         // the deleted rule from its writeback (same contract as the service
         // override delete).
+        let mut service_name = None;
         if let Some(instance) = self.kernel.control.registry.find_instance(instance_id).await {
+            service_name = Some(instance.service_name.clone());
             if let Err(error) = self
                 .writeback_tool_override_removal(
                     &instance.service_name,
@@ -293,6 +300,9 @@ impl MCPStore {
             {
                 tracing::warn!("Failed to clean up tool override in scopes.toml: {error}");
             }
+        }
+        if let Some(service_name) = service_name.as_deref() {
+            self.publish_override_changed(instance_id, service_name).await;
         }
         Ok(())
     }

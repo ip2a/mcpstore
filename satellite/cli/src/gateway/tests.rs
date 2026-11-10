@@ -634,4 +634,92 @@ mod tests {
         assert!(single_data["hint"].as_str().unwrap().contains("tools/list"));
         assert!(multi_data["hint"].as_str().unwrap().contains("down"));
     }
+
+    /// The mount-lifetime invalidator: on a per-instance mount a local
+    /// McpToolsChanged rebuilds the catalog only for the owning instance;
+    /// a generic mount rebuilds on any such event.
+    #[tokio::test]
+    async fn tool_changed_event_invalidates_and_rebuilds_the_catalog_once() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let store_path = std::env::temp_dir().join(format!("gateway-invalidate-{nanos}.json"));
+        std::fs::write(&store_path, b"{}").unwrap();
+        let store = Arc::new(
+            MCPStore::setup_with_options(mcpstore::StoreOptions {
+                config_path: Some(store_path.to_string_lossy().into_owned()),
+                store: Some(JsonStoreConfig::memory()),
+                namespace: Some(format!("gateway-invalidate-{nanos}")),
+                ..mcpstore::StoreOptions::default()
+            })
+            .unwrap(),
+        );
+        store
+            .add_service(
+                "solo",
+                mcpstore::ServerConfig {
+                    command: Some("mcpstore-no-such-binary-xyz".to_string()),
+                    ..mcpstore::ServerConfig::default()
+                },
+            )
+            .await
+            .unwrap();
+        let instance_id = mcpstore::ServiceInstanceKey::new("solo", ScopeRef::Store).instance_id();
+
+        let options = GatewayOptions {
+            scope: ScopeRef::Store,
+            instance_id: Some(instance_id),
+            ..Default::default()
+        };
+        let server = GatewayServer::from_store(
+            Arc::clone(&store),
+            &options,
+            None,
+            GatewayCallLog::new(),
+        )
+        .await
+        .expect("per-instance mount must build on a down service");
+        let catalog = server.catalog_handle();
+        assert_eq!(catalog.rebuild_count(), 0);
+
+        let unrelated =
+            mcpstore::ServiceInstanceKey::new("other", ScopeRef::Store).instance_id();
+        store
+            .event_bus()
+            .publish(
+                Event::new(
+                    EventKind::McpToolsChanged.as_str(),
+                    serde_json::json!({ "instanceId": unrelated.to_string() }),
+                ),
+                true,
+            )
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(
+            catalog.rebuild_count(),
+            0,
+            "an unrelated instance's event must not rebuild this mount"
+        );
+
+        store
+            .event_bus()
+            .publish(
+                Event::new(
+                    EventKind::McpToolsChanged.as_str(),
+                    serde_json::json!({ "instanceId": instance_id.to_string() }),
+                ),
+                true,
+            )
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(catalog.rebuild_count(), 1, "event must trigger one rebuild");
+        catalog.ensure().await;
+        assert_eq!(
+            catalog.rebuild_count(),
+            1,
+            "a clean snapshot must not rebuild again"
+        );
+        let _ = std::fs::remove_file(store_path);
+    }
 }
