@@ -151,6 +151,13 @@ impl MCPStore {
                 let store = Self::build_cache_store(&store_config, &redis_url, &namespace)?;
                 (store, None) // Valkey EventBackend opened lazily on migration
             }
+            #[cfg(all(feature = "shm", unix))]
+            "shm" => {
+                let (store, handle) =
+                    crate::cache::storage::shm_cache_store_with_handle(&store_config.config)
+                        .map_err(|e| Error::new(FailureCode::Internal, format!("shm store: {e}")))?;
+                (store, Some(EventBackend::from_store(handle)))
+            }
             backend => {
                 return Err(Error::new(FailureCode::Internal, format!(
                     "OpenKeyv backend '{backend}' does not provide the CAS and ChangeFeed capabilities required by MCPStore"

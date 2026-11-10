@@ -3,6 +3,8 @@ use std::sync::{Arc, OnceLock};
 #[cfg(feature = "redis")]
 use crate::cache::redis::LazyRedisStore;
 use crate::cache::Result;
+#[cfg(all(feature = "shm", unix))]
+use crate::cache::CacheError;
 use openkeyv::store::memory::MemoryStore as OpenKeyvMemoryStore;
 
 #[async_trait::async_trait]
@@ -82,4 +84,133 @@ pub(crate) fn redis_store(redis_address: &str, keyspace: &str) -> Arc<dyn CacheS
         None,
     );
     Arc::new(crate::cache::live_store::LiveStore::from_handle(handle))
+}
+
+/// SHM backing store: the only backend that survives process boundaries without
+/// an external server. Parses the same JSON contract as the openkeyv factory
+/// shm branch: `path` (required), `mode` ("create"|"open", default "open"),
+/// `capacity_bytes`, `index_entries`, `change_retention`. The parent directory
+/// must not be group/world-writable (openkeyv enforces this). Returns the
+/// cache store plus the change-feed-capable handle for the event backend.
+#[cfg(all(feature = "shm", unix))]
+pub(crate) fn shm_cache_store_with_handle(
+    config: &serde_json::Value,
+) -> Result<(Arc<dyn CacheStore>, openkeyv::StoreHandle)> {
+    use openkeyv::store::shm::{ShmConfig, ShmCreateConfig, ShmOpenMode, ShmStore};
+
+    let path = config
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CacheError::Validation("shm store config requires a 'path'".into()))?;
+    let mut shm = ShmConfig::open(path);
+    match config.get("mode").and_then(|v| v.as_str()) {
+        None | Some("open") => {}
+        Some("create") => shm.mode = ShmOpenMode::Create,
+        Some(other) => {
+            return Err(CacheError::Validation(format!(
+                "shm mode must be 'create' or 'open', got '{other}'"
+            )))
+        }
+    }
+    if let Some(capacity) = config.get("capacity_bytes").and_then(|v| v.as_u64()) {
+        shm = shm.with_capacity_bytes(capacity);
+    }
+    if let Some(entries) = config.get("index_entries").and_then(|v| v.as_u64()) {
+        shm = shm.with_index_entries(u32::try_from(entries).map_err(|_| {
+            CacheError::Validation(format!("shm index_entries {entries} exceeds u32"))
+        })?);
+    }
+    if let Some(retention) = config.get("change_retention").and_then(|v| v.as_u64()) {
+        shm = shm.with_change_retention(u32::try_from(retention).map_err(|_| {
+            CacheError::Validation(format!("shm change_retention {retention} exceeds u32"))
+        })?);
+    }
+    let store = Arc::new(
+        match shm.mode {
+            ShmOpenMode::Create => ShmStore::create(
+                ShmCreateConfig::new(shm.path.clone())
+                    .with_capacity_bytes(shm.capacity_bytes)
+                    .with_index_entries(shm.index_entries)
+                    .with_change_retention(shm.change_retention),
+            ),
+            ShmOpenMode::Open => ShmStore::open(shm.path.clone()),
+        }
+        .map_err(|e| CacheError::Backend(format!("shm store attach failed: {e}")))?,
+    );
+    let feed = store
+        .change_feed_enabled()
+        .then(|| store.clone() as Arc<dyn openkeyv::protocol::AsyncChangeFeed>);
+    let handle = openkeyv::StoreHandle::with_capabilities(
+        store.clone(),
+        Some(store.clone()),
+        Some(store.clone()),
+        Some(store.clone()),
+        feed,
+    );
+    Ok((
+        Arc::new(crate::cache::live_store::LiveStore::from_handle(
+            handle.clone(),
+        )),
+        handle,
+    ))
+}
+
+#[cfg(all(test, feature = "shm", unix))]
+mod shm_tests {
+    use super::*;
+    use serde_json::json;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// The shm backend rejects group/world-writable parent directories, and
+    /// `std::env::temp_dir()` platform semantics differ (Linux /tmp is 1777),
+    /// so every test sets up its own explicit 0700 directory.
+    fn shm_test_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("mcpstore-shm-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create shm test dir");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod 0700");
+        dir
+    }
+
+    fn shm_config(path: &std::path::Path, mode: &str) -> serde_json::Value {
+        json!({
+            "path": path.to_str().unwrap(),
+            "mode": mode,
+            "capacity_bytes": 16 * 1024 * 1024,
+            "index_entries": 1024,
+            "change_retention": 64,
+        })
+    }
+
+    #[tokio::test]
+    async fn shm_create_then_reopen_roundtrip() {
+        let dir = shm_test_dir();
+        let path = dir.join("roundtrip.shm");
+        let _ = std::fs::remove_file(&path);
+
+        let (store, handle) =
+            shm_cache_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
+        store
+            .put("k1", json!({"v": 1}), "col")
+            .await
+            .expect("put");
+        drop(store);
+        drop(handle);
+
+        let (store, handle) =
+            shm_cache_store_with_handle(&shm_config(&path, "open")).expect("reopen shm store");
+        assert_eq!(
+            store.get("k1", "col").await.expect("get"),
+            Some(json!({"v": 1}))
+        );
+        assert!(handle.capabilities.change_feed);
+    }
+
+    #[test]
+    fn shm_config_rejects_missing_path_and_bad_mode() {
+        assert!(shm_cache_store_with_handle(&json!({"mode": "create"})).is_err());
+        assert!(
+            shm_cache_store_with_handle(&json!({"path": "/tmp/mcpstore-x.shm", "mode": "nope"}))
+                .is_err()
+        );
+    }
 }

@@ -33,7 +33,7 @@ dirs = "6.0"
 rmcp = { workspace = true }
 
 # Cache backends
-openkeyv = { version = "0.4", default-features = false, features = ["json"] }
+openkeyv = { version = "0.5", default-features = false, features = ["json"] }
 http = "1"
 iri-string = "0.7.12"
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }
@@ -50,7 +50,7 @@ jsonwebtoken = { version = "10.4", features = ["rust_crypto"] }
 
 [features]
 test-shared-memory = []
-default = ["light", "redis", "valkey"]
+default = ["light", "redis", "valkey", "shm"]
 
 # Backend passthrough: enable the openkeyv feature for each store type.
 # Keep memcached opt-in because memcache enables native OpenSSL by default.
@@ -62,6 +62,7 @@ postgres  = ["openkeyv/postgres"]
 mongodb   = ["openkeyv/mongodb"]
 memcached = ["openkeyv/memcached"]
 valkey    = ["openkeyv/valkey"]
+shm       = ["openkeyv/shm"]
 rocksdb   = ["openkeyv/rocksdb"]
 duckdb    = ["openkeyv/duckdb"]
 opensearch = ["openkeyv/opensearch"]
