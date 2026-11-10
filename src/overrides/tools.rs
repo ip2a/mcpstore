@@ -307,6 +307,32 @@ impl MCPStore {
         Ok(rules)
     }
 
+    /// Catalog-path variant: unreadable rules are logged and skipped so one
+    /// corrupt row cannot blank the whole gateway listing.
+    pub async fn list_tool_overrides_lenient(&self) -> Result<Vec<ToolOverrideRule>> {
+        self.refresh_from_db_if_needed().await?;
+        let mut rules = Vec::new();
+        for (key, value) in self
+            .kernel
+            .persistence
+            .cache
+            .get_all_states_async(TOOL_OVERRIDES_STATE_TYPE)
+            .await?
+        {
+            match serde_json::from_value::<ToolOverrideRule>(value) {
+                Ok(rule) => rules.push(rule),
+                Err(err) => {
+                    tracing::warn!(key = %key, %err, "skipping corrupt tool override rule");
+                }
+            }
+        }
+        rules.sort_by(|left, right| {
+            (left.instance_id, left.tool_name.as_str())
+                .cmp(&(right.instance_id, right.tool_name.as_str()))
+        });
+        Ok(rules)
+    }
+
     pub(crate) async fn apply_tool_override(
         &self,
         instance_id: InstanceId,

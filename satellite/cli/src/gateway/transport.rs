@@ -2,7 +2,7 @@ use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use std::collections::HashMap;
 
-use super::catalog::{apply_service_overrides, exposed_tool_name, service_override_map};
+use super::catalog::{apply_service_overrides, apply_tool_overrides, exposed_tool_name, service_override_map, tool_override_map};
 use super::tools::{read_required_instance_id, read_required_string};
 use super::*;
 use mcpstore::telemetry::FrameTelemetry;
@@ -105,7 +105,8 @@ pub(super) async fn build_tool_bindings(
         store.list_tools_scoped(scope).await?
     };
     let overrides_by_instance = service_override_map(store).await?;
-    let tool_payloads = apply_service_overrides(tool_payloads, &overrides_by_instance)?;
+    let mut tool_payloads = apply_service_overrides(tool_payloads, &overrides_by_instance)?;
+    apply_tool_overrides(&mut tool_payloads, &tool_override_map(store).await?);
 
     let (parsed, issues) = classify_tool_payloads(&tool_payloads, down);
 

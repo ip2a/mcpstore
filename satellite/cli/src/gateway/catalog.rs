@@ -147,8 +147,7 @@ pub(super) async fn service_override_map(
 ) -> Result<HashMap<InstanceId, mcpstore::ServiceOverrideRule>, mcpstore::Error> {
     Ok(store
         .list_service_overrides_lenient()
-        .await?
-        .into_iter()
+        .await?        .into_iter()
         .map(|rule| (rule.instance_id, rule))
         .collect())
 }
@@ -193,6 +192,65 @@ pub(super) fn apply_service_overrides(
         })
         .collect::<Result<Vec<Option<Value>>, ErrorData>>()
         .map(|payloads| payloads.into_iter().flatten().collect())
+}
+
+/// Effective tool overrides indexed by (instance, raw tool name). Lenient on
+/// corrupt rows for the same reason as the service map.
+pub(super) async fn tool_override_map(
+    store: &MCPStore,
+) -> Result<HashMap<(InstanceId, String), mcpstore::ToolOverrideRule>, mcpstore::Error> {
+    Ok(store
+        .list_tool_overrides_lenient()
+        .await?
+        .into_iter()
+        .map(|rule| ((rule.instance_id.clone(), rule.tool_name.clone()), rule))
+        .collect())
+}
+
+/// Project tool payloads through enabled tool overrides: display_name replaces
+/// the exposed name (the canonical raw name stays in `tool_name` for upstream
+/// calls), description/icons ride along. A disabled override is inactive —
+/// pass-through, matching the daemon listing semantics. Call on the same
+/// payload slice as the service projection so names round-trip.
+pub(super) fn apply_tool_overrides(
+    payloads: &mut [Value],
+    overrides: &HashMap<(InstanceId, String), mcpstore::ToolOverrideRule>,
+) {
+    for payload in payloads.iter_mut() {
+        let Some(instance_id) = read_required_instance_id(payload, "instance_id").ok() else {
+            continue;
+        };
+        let Some(name) = payload.get("name").and_then(Value::as_str).map(str::to_string)
+        else {
+            continue;
+        };
+        let Some(rule) = overrides.get(&(instance_id, name)) else {
+            continue;
+        };
+        if !rule.common.enabled.unwrap_or(true) {
+            continue;
+        }
+        let Some(object) = payload.as_object_mut() else {
+            continue;
+        };
+        if let Some(display) = rule
+            .common
+            .display_name
+            .as_ref()
+            .filter(|name| !name.trim().is_empty())
+        {
+            object.insert("name".to_string(), Value::String(display.clone()));
+        }
+        if let Some(description) = rule.common.description.as_ref() {
+            object.insert(
+                "description".to_string(),
+                Value::String(description.clone()),
+            );
+        }
+        if let Some(icons) = rule.common.icons.as_ref() {
+            object.insert("icons".to_string(), icons.clone());
+        }
+    }
 }
 
 pub(super) fn service_namespace(service_name: &str) -> String {
@@ -247,5 +305,71 @@ pub(super) fn exposed_tool_name(
         let suffix = format!("_{count}");
         let budget = MAX_TOOL_NAME.saturating_sub(suffix.len());
         format!("{}{suffix}", truncate_tool_name(&base, budget))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcpstore::ComponentOverrideCommon;
+
+    fn payload() -> Value {
+        serde_json::json!({
+            "name": "write_file",
+            "tool_name": "write_file",
+            "instance_id": "11111111-1111-1111-1111-111111111111",
+            "service_name": "filesystem",
+            "input_schema": {"type": "object"},
+        })
+    }
+
+    fn rule(instance: &str, tool: &str, common: ComponentOverrideCommon) -> mcpstore::ToolOverrideRule {
+        mcpstore::ToolOverrideRule {
+            instance_id: instance.parse().unwrap(),
+            service_name: "filesystem".into(),
+            scope: ScopeRef::Store,
+            tool_name: tool.into(),
+            common,
+            arguments: Vec::new(),
+            safety_policy: None,
+            updated_at: 0,
+            version: 1,
+        }
+    }
+
+    #[test]
+    fn enabled_display_name_replaces_exposed_name() {
+        let mut payloads = vec![payload()];
+        let mut map = HashMap::new();
+        map.insert(
+            ("11111111-1111-1111-1111-111111111111".parse().unwrap(), "write_file".to_string()),
+            rule("11111111-1111-1111-1111-111111111111", "write_file", {
+                let mut common = ComponentOverrideCommon::default();
+                common.display_name = Some("safe_write".into());
+                common.description = Some("renamed".into());
+                common
+            }),
+        );
+        apply_tool_overrides(&mut payloads, &map);
+        assert_eq!(payloads[0]["name"], "safe_write");
+        assert_eq!(payloads[0]["tool_name"], "write_file");
+        assert_eq!(payloads[0]["description"], "renamed");
+    }
+
+    #[test]
+    fn disabled_override_is_pass_through() {
+        let mut payloads = vec![payload()];
+        let mut map = HashMap::new();
+        map.insert(
+            ("11111111-1111-1111-1111-111111111111".parse().unwrap(), "write_file".to_string()),
+            rule("11111111-1111-1111-1111-111111111111", "write_file", {
+                let mut common = ComponentOverrideCommon::default();
+                common.display_name = Some("safe_write".into());
+                common.enabled = Some(false);
+                common
+            }),
+        );
+        apply_tool_overrides(&mut payloads, &map);
+        assert_eq!(payloads[0]["name"], "write_file");
     }
 }
