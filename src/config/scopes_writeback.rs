@@ -19,60 +19,40 @@ impl MCPStore {
             }
         };
 
-        if !path.exists() {
-            tracing::debug!("scopes.toml does not exist, skipping writeback");
-            return Ok(());
-        }
-
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| Error::new(FailureCode::Internal, format!("Failed to read scopes.toml: {}", e)))?;
-
-        let mut doc: toml_edit::DocumentMut = content
-            .parse()
-            .map_err(|e| Error::new(FailureCode::Internal, format!("Failed to parse scopes.toml: {}", e)))?;
-
-        // Navigate to the right section based on scope
-        let scope_key = match scope {
-            ScopeRef::Store => "store",
-            ScopeRef::Agent { agent_id } => {
-                if !doc.contains_key("agents") {
-                    doc["agents"] = toml_edit::table();
-                }
-                if !doc["agents"].as_table().map(|t| t.contains_key(agent_id)).unwrap_or(false) {
-                    doc["agents"][agent_id] = toml_edit::table();
-                }
-                agent_id.as_str()
+        let mut doc = match load_or_empty_doc(&path) {
+            Ok(doc) => doc,
+            Err(error) => {
+                tracing::warn!(%error, "Cannot read scopes.toml, skipping writeback");
+                return Ok(());
             }
         };
 
-        // Ensure path exists
-        let scope_table = if matches!(scope, ScopeRef::Store) {
-            &mut doc["store"]
-        } else {
-            &mut doc["agents"][scope_key]
-        };
-
-        if !scope_table.is_table() {
-            *scope_table = toml_edit::Item::Table(toml_edit::Table::default());
+        // Navigate safely: toml_edit's Index READ panics on a missing key, so
+        // every level goes through contains_key + get_mut instead of chained
+        // indexing (a missing service used to panic the whole API worker).
+        let services = scope_services_table_mut(&mut doc, scope)
+            .ok_or_else(|| Error::new(FailureCode::Internal, "cannot represent scope in scopes.toml".to_string()))?;
+        if !services.contains_key(service_name) {
+            services[service_name] = toml_edit::table();
         }
-        let scope_table = scope_table.as_table_mut().unwrap();
-
-        if !scope_table.contains_key("services") {
-            scope_table["services"] = toml_edit::table();
+        let service_table = services
+            .get_mut(service_name)
+            .and_then(|item| item.as_table_mut())
+            .ok_or_else(|| Error::new(FailureCode::Internal, "service entry is not a table".to_string()))?;
+        if !service_table.contains_key("tools") {
+            service_table["tools"] = toml_edit::table();
         }
-        if !scope_table["services"][service_name].is_table() {
-            scope_table["services"][service_name] = toml_edit::table();
+        let tools_table = service_table
+            .get_mut("tools")
+            .and_then(|item| item.as_table_mut())
+            .ok_or_else(|| Error::new(FailureCode::Internal, "tools entry is not a table".to_string()))?;
+        if !tools_table.contains_key("overrides") {
+            tools_table["overrides"] = toml_edit::table();
         }
-        if !scope_table["services"][service_name]["tools"].is_table() {
-            scope_table["services"][service_name]["tools"] = toml_edit::table();
-        }
-        if !scope_table["services"][service_name]["tools"]["overrides"].is_table() {
-            scope_table["services"][service_name]["tools"]["overrides"] = toml_edit::table();
-        }
-
-        let overrides_table = scope_table["services"][service_name]["tools"]["overrides"]
-            .as_table_mut()
-            .unwrap();
+        let overrides_table = tools_table
+            .get_mut("overrides")
+            .and_then(|item| item.as_table_mut())
+            .ok_or_else(|| Error::new(FailureCode::Internal, "overrides entry is not a table".to_string()))?;
 
         // Mutate the existing override table in place so hand-written keys
         // (meta, icons, annotations) survive a writeback. Owned fields follow
@@ -119,12 +99,13 @@ impl MCPStore {
                 return Ok(());
             }
         };
-        if !path.exists() {
-            tracing::debug!("scopes.toml does not exist, skipping writeback");
-            return Ok(());
-        }
-
-        let mut doc = parse_scopes_doc(&path)?;
+        let mut doc = match load_or_empty_doc(&path) {
+            Ok(doc) => doc,
+            Err(error) => {
+                tracing::warn!(%error, "Cannot read scopes.toml, skipping writeback");
+                return Ok(());
+            }
+        };
 
         if let Some(service_table) = service_scope_table_mut(&mut doc, service_name, scope) {
             apply_service_override_fields(service_table, common);
@@ -179,6 +160,19 @@ impl MCPStore {
         tracing::debug!("Removed service override keys for {service_name} from scopes.toml");
         Ok(())
     }
+}
+
+/// Parse scopes.toml into an editable document. A missing file becomes an
+/// empty document: the first writeback creates the file (the loader treats
+/// absent/partial files as empty, so booting with only writeback entries is
+/// well-defined).
+fn load_or_empty_doc(path: &std::path::Path) -> Result<toml_edit::DocumentMut> {
+    if !path.exists() {
+        return "".parse().map_err(|e| {
+            Error::new(FailureCode::Internal, format!("empty scopes.toml parse failed: {e}"))
+        });
+    }
+    parse_scopes_doc(path)
 }
 
 /// Parse scopes.toml into an editable document.
@@ -393,6 +387,20 @@ mod tests {
             tags,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn missing_scopes_toml_yields_empty_doc_for_first_write() {
+        let dir = std::env::temp_dir().join(format!(
+            "mcpstore-scopes-wb-missing-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("scopes.toml");
+        let _ = std::fs::remove_file(&path);
+        let doc = load_or_empty_doc(&path).unwrap();
+        assert_eq!(doc.to_string(), "");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
