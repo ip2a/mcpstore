@@ -298,13 +298,18 @@ impl EventHandler for GatewayToolsChangedNotification {
             return;
         }
         if let Some(instance_id) = self.instance_id {
-            let changed_instance = event
+            // A payload without a parseable instanceId is a broadcast (bridge
+            // resubscription, cross-collection changes) — every mount consumes
+            // it; only a valid, different id is filtered out.
+            if let Some(changed_instance) = event
                 .payload
                 .get("instanceId")
                 .and_then(Value::as_str)
-                .and_then(|value| value.parse::<InstanceId>().ok());
-            if changed_instance != Some(instance_id) {
-                return;
+                .and_then(|value| value.parse::<InstanceId>().ok())
+            {
+                if changed_instance != instance_id {
+                    return;
+                }
             }
         }
         if let Err(error) = self.sink.notify_tool_list_changed().await {
@@ -338,13 +343,17 @@ impl EventHandler for CatalogInvalidator {
             return;
         };
         if let Some(instance_id) = catalog.instance_id {
-            let changed_instance = event
+            // Same broadcast rule as the notification forwarder: a payload
+            // without a parseable instanceId invalidates every mount.
+            if let Some(changed_instance) = event
                 .payload
                 .get("instanceId")
                 .and_then(Value::as_str)
-                .and_then(|value| value.parse::<InstanceId>().ok());
-            if changed_instance != Some(instance_id) {
-                return;
+                .and_then(|value| value.parse::<InstanceId>().ok())
+            {
+                if changed_instance != instance_id {
+                    return;
+                }
             }
         }
         catalog.invalidate();
@@ -619,6 +628,7 @@ impl GatewayCatalog {
     }
 }
 
+pub(crate) mod bridge;
 mod catalog;
 pub(crate) mod guards;
 mod handler;

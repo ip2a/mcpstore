@@ -98,6 +98,27 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
 
     let call_log = GatewayCallLog::new();
     let wired_path = wired_ledger_path(&store);
+    // Subscribe before building mounts: Latest subscriptions can't see writes
+    // made before subscribing, so the projection bridge must exist first or a
+    // change landing during mount build is lost.
+    let replay_scopes = match store.subscribe_tool_projection_changes().await {
+        Ok(subscription) => {
+            // In shm mode overrides and policies propagate only through the
+            // shared KV + ChangeFeed; the scopes.toml writeback replay would
+            // resurrect stale file state behind the feed's back.
+            let shared = store.store_config().await.store == "shm";
+            crate::gateway::bridge::spawn_projection_bridge(Arc::clone(&store), subscription);
+            !shared
+        }
+        Err(error) => {
+            // Memory store (or any backend without a feed): keep the 1s
+            // scopes replay; cross-process projection simply doesn't apply.
+            eprintln!(
+                "[GATEWAY] no shared change feed ({error}); keeping scopes replay"
+            );
+            true
+        }
+    };
     let (generic_router, mount_set) = build_mounts(
         &store,
         &options,
@@ -165,6 +186,7 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
         Arc::clone(&projections),
         generic_projection,
         mount_set.generic_catalog,
+        replay_scopes,
     ));
     axum::serve(
         listener,
@@ -507,20 +529,25 @@ async fn reconcile_loop(
     projections: Arc<std::sync::RwLock<ProjectionMounts>>,
     generic_projection: Option<MountProjection>,
     generic_catalog: Option<Arc<GatewayCatalog>>,
+    replay_scopes: bool,
 ) {
     let mut ticker = tokio::time::interval(SCOPES_POLL_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // the first tick fires immediately; the mounts were just built
     ticker.tick().await;
+    // SHM mode: the projection bridge carries every scopes-relevant change;
+    // the file replay would resurrect stale writeback state behind the feed.
+    let mut last_scopes = replay_scopes.then(|| scopes_fingerprint(&store));
     let mut quiet = false;
-    let mut last_scopes = scopes_fingerprint(&store);
     let mut last_ledger = tokio::time::Instant::now();
     loop {
         ticker.tick().await;
-        let scopes = scopes_fingerprint(&store);
-        if scopes != last_scopes {
-            last_scopes = scopes;
-            refresh_scopes_projection(&store, &mounts, generic_catalog.as_ref()).await;
+        if replay_scopes {
+            let scopes = scopes_fingerprint(&store);
+            if last_scopes != Some(scopes) {
+                last_scopes = Some(scopes);
+                refresh_scopes_projection(&store, &mounts, generic_catalog.as_ref()).await;
+            }
         }
         if last_ledger.elapsed() < RECONCILE_INTERVAL {
             continue;
