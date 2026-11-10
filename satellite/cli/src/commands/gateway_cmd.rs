@@ -109,6 +109,8 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     // can add/rebuild/remove them while the listener keeps running.
     let mounts = Arc::new(std::sync::RwLock::new(mount_set.routers));
     let generic_projection = mount_set.generic_projection;
+    // Cloned for the health route; the original moves into reconcile_loop.
+    let generic_catalog = mount_set.generic_catalog.clone();
     let projections = Arc::new(std::sync::RwLock::new(Vec::new()));
     publish_projections(&mounts, &generic_projection, &projections);
     let calls = axum::Router::new()
@@ -117,6 +119,13 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     let projection = axum::Router::new()
         .route("/projection", axum::routing::get(projection_route))
         .with_state(Arc::clone(&projections));
+    let health = axum::Router::new()
+        .route("/health", axum::routing::get(health_route))
+        .with_state(HealthState {
+            mounts: Arc::clone(&mounts),
+            projections: Arc::clone(&projections),
+            generic_catalog,
+        });
     let addr = format!("{}:{}", options.host, options.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     // Guard chain (magpie port): peer loopback, Host rebinding, Origin,
@@ -127,6 +136,7 @@ pub async fn run(args: GatewayArgs) -> Result<(), BoxErr> {
     let app = generic_router
         .merge(calls)
         .merge(projection)
+        .merge(health)
         .fallback(axum::routing::any(mount_dispatch).with_state(Arc::clone(&mounts)))
         .layer(axum::middleware::from_fn(move |request, next| {
             crate::gateway::guards::guard_chain(
@@ -346,6 +356,40 @@ async fn projection_route(
     axum::Json(json!({
         "success": true,
         "data": { "running": true, "mounts": mounts },
+    }))
+    .into_response()
+}
+
+/// What the gateway health route reads: the live mount registry (per-mount
+/// catalogs), the projection list (served-mount count), and the generic
+/// mount's catalog.
+#[derive(Clone)]
+struct HealthState {
+    mounts: Arc<std::sync::RwLock<std::collections::HashMap<String, LiveMount>>>,
+    projections: Arc<std::sync::RwLock<ProjectionMounts>>,
+    generic_catalog: Option<Arc<crate::gateway::GatewayCatalog>>,
+}
+
+/// Gateway liveness plus the two counters the R4 stress trajectory correlates
+/// against shell-side RSS: how many mounts are served and how many catalog
+/// rebuilds have completed since mount builds.
+async fn health_route(State(health): State<HealthState>) -> Response {
+    let mount_count = health
+        .projections
+        .read()
+        .map(|mounts| mounts.len())
+        .unwrap_or(0);
+    let mut rebuilds: u64 = health
+        .mounts
+        .read()
+        .map(|mounts| mounts.values().map(|mount| mount.catalog.rebuild_count()).sum())
+        .unwrap_or(0);
+    if let Some(catalog) = &health.generic_catalog {
+        rebuilds += catalog.rebuild_count();
+    }
+    axum::Json(json!({
+        "success": true,
+        "data": { "running": true, "mounts": mount_count, "catalog_rebuilds": rebuilds },
     }))
     .into_response()
 }
