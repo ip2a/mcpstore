@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 
@@ -343,7 +343,19 @@ pub(crate) struct GatewayServer {
     instance_id: Option<InstanceId>,
     session_key: Option<String>,
     scope_label: String,
-    bindings: Arc<HashMap<String, ToolBinding>>,
+    /// Shared catalog: every server clone (one per streamable-http request
+    /// factory call) reads and rebuilds through this one Arc.
+    catalog: Arc<GatewayCatalog>,
+    management: Arc<GatewayManagementTools>,
+    /// Caller identity for this mount (`/mcp/<id>` segment); None = generic `/mcp`.
+    caller: Option<String>,
+    call_log: Arc<GatewayCallLog>,
+}
+
+/// Management tool families a mount can expose. Immutable per mount; one Arc
+/// shared by the server dispatch and the catalog merge.
+#[derive(Default)]
+pub(crate) struct GatewayManagementTools {
     session_state_tools: Arc<HashMap<String, Tool>>,
     tool_override_tools: Arc<HashMap<String, Tool>>,
     prompt_override_tools: Arc<HashMap<String, Tool>>,
@@ -352,15 +364,205 @@ pub(crate) struct GatewayServer {
     service_tools: Arc<HashMap<String, Tool>>,
     cache_tools: Arc<HashMap<String, Tool>>,
     search_tools: Arc<HashMap<String, Tool>>,
-    tools: Arc<Vec<Tool>>,
-    /// Caller identity for this mount (`/mcp/<id>` segment); None = generic `/mcp`.
-    caller: Option<String>,
-    call_log: Arc<GatewayCallLog>,
-    /// Services that failed to connect at mount build (frozen for the mount's
-    /// lifetime); their payloads are excluded from every binding rebuild.
+}
+
+/// One served catalog state: bindings for the call path, merged+sorted tools
+/// for tools/list.
+#[derive(Clone)]
+pub(crate) struct CatalogSnapshot {
+    bindings: HashMap<String, ToolBinding>,
+    tools: Vec<Tool>,
+}
+
+/// The tool catalog of one mount. The snapshot is built at mount build and
+/// swapped by single-flight rebuilds; invalidation comes from local
+/// `McpToolsChanged` events (tool syncs, override writes) and from a
+/// call-path lookup miss (detailed in the handler). Readers always clone the
+/// current Arc — a rebuild in flight never blocks them.
+pub(crate) struct GatewayCatalog {
+    // Rebuild inputs, frozen per mount.
+    store: Arc<MCPStore>,
+    scope: ScopeRef,
+    instance_id: Option<InstanceId>,
+    session_key: Option<String>,
     down: Arc<HashMap<InstanceId, transport::DownService>>,
-    /// Latest projection issues, refreshed on every binding rebuild.
+    management: Arc<GatewayManagementTools>,
+    /// Projection report, refreshed on every successful rebuild.
     projection: Arc<std::sync::Mutex<Vec<ProjectionIssue>>>,
+    /// Current snapshot.
+    snapshot: std::sync::RwLock<Arc<CatalogSnapshot>>,
+    /// Set by invalidation; cleared once a rebuild attempt completes
+    /// successfully (a failed attempt keeps it so the next caller retries).
+    dirty: AtomicBool,
+    /// Single-flight rebuild gate: concurrent refreshers queue on one rebuild
+    /// instead of stampeding the upstreams.
+    rebuild_gate: tokio::sync::Mutex<()>,
+    /// Completed rebuilds since mount build (health observability).
+    rebuilds: AtomicU64,
+}
+
+/// Merge downstream bindings with the mount's management tool families into
+/// the served tools list. A management tool colliding with a downstream name
+/// cannot build the surface — the same rule at mount build and at rebuild.
+fn merged_tools(
+    bindings: &HashMap<String, ToolBinding>,
+    management: &GatewayManagementTools,
+) -> Result<Vec<Tool>, String> {
+    let families = [
+        &management.session_state_tools,
+        &management.tool_override_tools,
+        &management.prompt_override_tools,
+        &management.resource_override_tools,
+        &management.openapi_tools,
+        &management.service_tools,
+        &management.cache_tools,
+        &management.search_tools,
+    ];
+    for family in &families {
+        for tool_name in family.keys() {
+            if bindings.contains_key(tool_name) {
+                return Err(format!(
+                    "MCPStore management tool collides with a downstream tool, cannot build the gateway MCP surface: tool={tool_name}"
+                ));
+            }
+        }
+    }
+    let mut tools: Vec<Tool> = bindings
+        .values()
+        .map(|binding| binding.tool.clone())
+        .collect();
+    for family in &families {
+        tools.extend(family.values().cloned());
+    }
+    tools.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(tools)
+}
+
+impl GatewayCatalog {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        store: Arc<MCPStore>,
+        scope: ScopeRef,
+        instance_id: Option<InstanceId>,
+        session_key: Option<String>,
+        down: Arc<HashMap<InstanceId, transport::DownService>>,
+        management: Arc<GatewayManagementTools>,
+        snapshot: CatalogSnapshot,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            store,
+            scope,
+            instance_id,
+            session_key,
+            down,
+            management,
+            projection: Arc::new(std::sync::Mutex::new(Vec::new())),
+            snapshot: std::sync::RwLock::new(Arc::new(snapshot)),
+            dirty: AtomicBool::new(false),
+            rebuild_gate: tokio::sync::Mutex::const_new(()),
+            rebuilds: AtomicU64::new(0),
+        })
+    }
+
+    /// Blank catalog for tests: nothing downstream, nothing merged.
+    #[cfg(test)]
+    pub(crate) fn blank(
+        store: Arc<MCPStore>,
+        scope: ScopeRef,
+        instance_id: Option<InstanceId>,
+        session_key: Option<String>,
+    ) -> Arc<Self> {
+        Self::new(
+            store,
+            scope,
+            instance_id,
+            session_key,
+            Arc::new(HashMap::new()),
+            Arc::new(GatewayManagementTools::default()),
+            CatalogSnapshot {
+                bindings: HashMap::new(),
+                tools: Vec::new(),
+            },
+        )
+    }
+
+    pub(crate) fn current(&self) -> Arc<CatalogSnapshot> {
+        Arc::clone(&self.snapshot.read().unwrap())
+    }
+
+    pub(crate) fn invalidate(&self) {
+        self.dirty.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn rebuild_count(&self) -> u64 {
+        self.rebuilds.load(Ordering::Relaxed)
+    }
+
+    /// Serve the snapshot, rebuilding single-flight when invalidated.
+    /// Stale-while-revalidate: callers arriving during a rebuild get the
+    /// last-good snapshot. A failed rebuild keeps the dirty flag (the next
+    /// caller retries) but keeps serving — an upstream being down must not
+    /// break the whole surface.
+    pub(crate) async fn ensure(&self) -> Arc<CatalogSnapshot> {
+        loop {
+            let snapshot = self.current();
+            if !self.dirty.load(Ordering::Acquire) {
+                return snapshot;
+            }
+            let _gate = self.rebuild_gate.lock().await;
+            if self.dirty.load(Ordering::Acquire) {
+                match self.rebuild().await {
+                    Ok(()) => {
+                        self.dirty.store(false, Ordering::Release);
+                        self.rebuilds.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "gateway catalog rebuild failed; serving last-good snapshot"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rebuild and swap the snapshot. The caller holds the rebuild gate.
+    async fn rebuild(&self) -> Result<(), BoxErr> {
+        let (bindings, issues) = transport::build_tool_bindings(
+            &self.store,
+            &self.scope,
+            self.instance_id,
+            self.session_key.as_deref(),
+            &self.down,
+        )
+        .await?;
+        let tools = merged_tools(&bindings, &self.management)?;
+        if let Ok(mut projection) = self.projection.lock() {
+            *projection = issues;
+        }
+        *self.snapshot.write().unwrap() = Arc::new(CatalogSnapshot { bindings, tools });
+        Ok(())
+    }
+
+    /// Live bindings for a session key that differs from the mount's own — a
+    /// call naming its own business session key sees a different tool surface
+    /// than the mount snapshot. Session tool lists are dynamic by contract,
+    /// so this never serves from the snapshot.
+    async fn fresh_bindings(
+        &self,
+        session_key: Option<&str>,
+    ) -> Result<HashMap<String, ToolBinding>, BoxErr> {
+        let (bindings, _issues) = transport::build_tool_bindings(
+            &self.store,
+            &self.scope,
+            self.instance_id,
+            session_key,
+            &self.down,
+        )
+        .await?;
+        Ok(bindings)
+    }
 }
 
 mod catalog;

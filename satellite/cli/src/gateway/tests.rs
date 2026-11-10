@@ -46,20 +46,10 @@ mod tests {
             instance_id: Some(instance_id),
             session_key: None,
             scope_label: "store".to_string(),
-            bindings: Arc::new(HashMap::new()),
-            session_state_tools: Arc::new(HashMap::new()),
-            tool_override_tools: Arc::new(HashMap::new()),
-            prompt_override_tools: Arc::new(HashMap::new()),
-            resource_override_tools: Arc::new(HashMap::new()),
-            openapi_tools: Arc::new(HashMap::new()),
-            service_tools: Arc::new(HashMap::new()),
-            cache_tools: Arc::new(HashMap::new()),
-            search_tools: Arc::new(HashMap::new()),
-            tools: Arc::new(Vec::new()),
+            catalog: GatewayCatalog::blank(Arc::clone(&store), ScopeRef::Store, Some(instance_id), None),
+            management: Arc::new(GatewayManagementTools::default()),
             caller: None,
             call_log: GatewayCallLog::new(),
-            down: Arc::new(HashMap::new()),
-            projection: Arc::new(std::sync::Mutex::new(Vec::new())),
         };
         let client_handler = NotificationClient::default();
         let (server_transport, client_transport) = tokio::io::duplex(16 * 1024);
@@ -381,20 +371,10 @@ mod tests {
             instance_id: None,
             session_key: None,
             scope_label: "store".to_string(),
-            bindings: Arc::new(HashMap::new()),
-            session_state_tools: Arc::new(HashMap::new()),
-            tool_override_tools: Arc::new(HashMap::new()),
-            prompt_override_tools: Arc::new(HashMap::new()),
-            resource_override_tools: Arc::new(HashMap::new()),
-            openapi_tools: Arc::new(HashMap::new()),
-            service_tools: Arc::new(HashMap::new()),
-            cache_tools: Arc::new(HashMap::new()),
-            search_tools: Arc::new(HashMap::new()),
-            tools: Arc::new(Vec::new()),
+            catalog: GatewayCatalog::blank(Arc::clone(&store), ScopeRef::Store, None, None),
+            management: Arc::new(GatewayManagementTools::default()),
             caller: None,
             call_log: GatewayCallLog::new(),
-            down: Arc::new(HashMap::new()),
-            projection: Arc::new(std::sync::Mutex::new(Vec::new())),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -608,7 +588,8 @@ mod tests {
         .await
         .expect("mount must build even when a service cannot connect");
 
-        let projection = server.projection.lock().unwrap();
+        let projection = server.projection_handle();
+        let projection = projection.lock().unwrap();
         assert!(projection.iter().any(|issue| matches!(
             issue,
             ProjectionIssue::Down { service, .. } if service == "ghost"
