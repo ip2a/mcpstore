@@ -2,6 +2,15 @@ use crate::cache::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
 impl MCPStore {
+    /// Writebacks must never touch the operator's real ~/.mcpstore/scopes.toml
+    /// from a `cargo test` run: unit tests exercise these functions against
+    /// whatever config_path the test built, and one stray write corrupts boot.
+    /// Compiled under cfg(test) the library no-ops writeback entirely;
+    /// production binaries (cfg(test) unset) always write.
+    fn writeback_allowed() -> bool {
+        cfg!(not(test))
+    }
+
     /// Write back tool override to scopes.toml after setting it in openkeyv
     pub async fn writeback_tool_override(
         &self,
@@ -11,6 +20,9 @@ impl MCPStore {
         arguments: &[ToolArgumentOverride],
         common: &crate::overrides::ComponentOverrideCommon,
     ) -> Result<()> {
+        if !Self::writeback_allowed() {
+            return Ok(());
+        }
         let path = match self.scopes_config_path() {
             Ok(p) => p,
             Err(error) => {
@@ -92,6 +104,9 @@ impl MCPStore {
         scope: &ScopeRef,
         common: &crate::overrides::ComponentOverrideCommon,
     ) -> Result<()> {
+        if !Self::writeback_allowed() {
+            return Ok(());
+        }
         let path = match self.scopes_config_path() {
             Ok(p) => p,
             Err(error) => {
@@ -124,6 +139,9 @@ impl MCPStore {
         service_name: &str,
         scope: &ScopeRef,
     ) -> Result<()> {
+        if !Self::writeback_allowed() {
+            return Ok(());
+        }
         let path = match self.scopes_config_path() {
             Ok(p) => p,
             Err(error) => {
@@ -320,13 +338,18 @@ fn apply_tool_override_fields(
         }
     }
 
-    // Arguments (only defaults for now)
+    // Arguments (only defaults for now). The loader reads each argument as an
+    // ArgumentOverride table ({ default = … }), so the default value must be
+    // wrapped — a bare `debug = false` fails TOML deserialization on the next
+    // load and takes boot down with it.
     if !arguments.is_empty() {
         let mut args_table = toml_edit::Table::default();
         for arg in arguments {
             if let Some(ref default) = arg.default_value {
                 if let Some(item) = toml_item_from_json(default) {
-                    args_table.insert(&arg.original_name, item);
+                    let mut arg_table = toml_edit::Table::default();
+                    arg_table.insert("default", item);
+                    args_table.insert(&arg.original_name, toml_edit::Item::Table(arg_table));
                 }
             }
         }
@@ -442,6 +465,35 @@ enabled = false
         assert!(table.get("enabled").is_some());
         assert!(table.get("tags").is_some());
         assert!(table.get("display_name").is_none());
+    }
+
+    #[test]
+    fn writeback_writes_argument_defaults_wrapped() {
+        // The loader reads arguments as ArgumentOverride tables — a bare
+        // boolean default must serialize as `debug = { default = false }`,
+        // never `debug = false` (which fails TOML deserialization on the
+        // next load and breaks boot).
+        // Render through a DocumentMut: a standalone Table::to_string() drops
+        // sub-tables, but production always serializes the whole document.
+        let mut doc: toml_edit::DocumentMut = "".parse().unwrap();
+        apply_tool_override_fields(
+            doc.as_table_mut(),
+            &common(None, None, Some(true), vec![]),
+            &[crate::cache::models::ToolArgumentOverride {
+                original_name: "debug".to_string(),
+                new_name: None,
+                hidden: true,
+                description: None,
+                default_value: Some(serde_json::json!(false)),
+                validation_schema: None,
+            }],
+        );
+        let written = doc.to_string();
+        assert!(written.contains("debug"), "arg key missing: {written}");
+        assert!(
+            written.contains("default = false"),
+            "default not wrapped in ArgumentOverride table: {written}"
+        );
     }
 
     #[test]

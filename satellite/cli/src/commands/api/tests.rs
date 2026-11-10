@@ -1302,8 +1302,14 @@ async fn store_routes_filter_tools_and_manage_tool_policy() {
 
 #[tokio::test]
 async fn store_routes_manage_rust_core_tool_overrides() {
+    // Override writes write back to scopes.toml beside the config — point the
+    // store at a temp config so the run never touches the real user file.
+    let dir = std::env::temp_dir().join(format!("mcpstore-api-override-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config_path = dir.join("mcp.json");
+    std::fs::write(&config_path, b"{\"mcpServers\":{}}").unwrap();
     let store = MCPStore::setup_with_options(StoreOptions {
-        config_path: None,
+        config_path: Some(config_path.to_string_lossy().into_owned()),
         store: Some(JsonStoreConfig::new(
             "memory-test-shared",
             serde_json::json!({}),
