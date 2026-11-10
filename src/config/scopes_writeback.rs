@@ -101,6 +101,190 @@ impl MCPStore {
         tracing::debug!("Wrote back tool override for {service_name}::{tool_name} to scopes.toml");
         Ok(())
     }
+
+    /// Write back a service-level override (rename/description/hide) to
+    /// scopes.toml after setting it in openkeyv. Same patch semantics as the
+    /// tool writeback: Some sets the key, None leaves any existing key
+    /// untouched, hand-written foreign keys survive.
+    pub async fn writeback_service_override(
+        &self,
+        service_name: &str,
+        scope: &ScopeRef,
+        common: &crate::overrides::ComponentOverrideCommon,
+    ) -> Result<()> {
+        let path = match self.scopes_config_path() {
+            Ok(p) => p,
+            Err(error) => {
+                tracing::warn!(%error, "Cannot resolve scopes.toml path, skipping writeback");
+                return Ok(());
+            }
+        };
+        if !path.exists() {
+            tracing::debug!("scopes.toml does not exist, skipping writeback");
+            return Ok(());
+        }
+
+        let mut doc = parse_scopes_doc(&path)?;
+
+        if let Some(service_table) = service_scope_table_mut(&mut doc, service_name, scope) {
+            apply_service_override_fields(service_table, common);
+            write_scopes_doc_atomic(&path, &doc)?;
+        }
+
+        tracing::debug!("Wrote back service override for {service_name} to scopes.toml");
+        Ok(())
+    }
+
+    /// Remove the writeback-owned service keys from scopes.toml so a deleted
+    /// override cannot be resurrected by the next load. The service entry
+    /// itself stays if it still carries tools/prompts/resources sections.
+    pub async fn writeback_service_override_removal(
+        &self,
+        service_name: &str,
+        scope: &ScopeRef,
+    ) -> Result<()> {
+        let path = match self.scopes_config_path() {
+            Ok(p) => p,
+            Err(error) => {
+                tracing::warn!(%error, "Cannot resolve scopes.toml path, skipping writeback");
+                return Ok(());
+            }
+        };
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let mut doc = parse_scopes_doc(&path)?;
+
+        if let Some(service_table) = service_scope_table_mut(&mut doc, service_name, scope) {
+            for key in [
+                "display_name",
+                "description",
+                "enabled",
+                "tags",
+                "meta",
+                "annotations",
+                "icons",
+            ] {
+                service_table.remove(key);
+            }
+            if service_table.is_empty() {
+                if let Some(services) = scope_services_table_mut(&mut doc, scope) {
+                    services.remove(service_name);
+                }
+            }
+            write_scopes_doc_atomic(&path, &doc)?;
+        }
+
+        tracing::debug!("Removed service override keys for {service_name} from scopes.toml");
+        Ok(())
+    }
+}
+
+/// Parse scopes.toml into an editable document.
+fn parse_scopes_doc(path: &std::path::Path) -> Result<toml_edit::DocumentMut> {
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        Error::new(FailureCode::Internal, format!("Failed to read scopes.toml: {}", e))
+    })?;
+    content
+        .parse()
+        .map_err(|e| Error::new(FailureCode::Internal, format!("Failed to parse scopes.toml: {}", e)))
+}
+
+/// Atomic temp-file + rename write, preserving the existing tool-writeback
+/// contract.
+fn write_scopes_doc_atomic(path: &std::path::Path, doc: &toml_edit::DocumentMut) -> Result<()> {
+    let temp_path = path.with_extension("toml.tmp");
+    std::fs::write(&temp_path, doc.to_string()).map_err(|e| {
+        Error::new(FailureCode::Internal, format!("Failed to write temp file: {}", e))
+    })?;
+    std::fs::rename(&temp_path, path).map_err(|e| {
+        Error::new(FailureCode::Internal, format!("Failed to rename temp file: {}", e))
+    })
+}
+
+/// Mutable `[<scope>.services.<name>]` table, creating the path when missing;
+/// `None` when the scope root itself cannot be represented.
+fn service_scope_table_mut<'a>(
+    doc: &'a mut toml_edit::DocumentMut,
+    service_name: &str,
+    scope: &ScopeRef,
+) -> Option<&'a mut toml_edit::Table> {
+    let services = scope_services_table_mut(doc, scope)?;
+    if !services.contains_key(service_name) {
+        services[service_name] = toml_edit::table();
+    }
+    services
+        .get_mut(service_name)
+        .and_then(|item| item.as_table_mut())
+}
+
+/// Mutable `[<scope>.services]` table, creating it when missing.
+fn scope_services_table_mut<'a>(
+    doc: &'a mut toml_edit::DocumentMut,
+    scope: &ScopeRef,
+) -> Option<&'a mut toml_edit::Table> {
+    let scope_table = match scope {
+        ScopeRef::Store => {
+            if !doc.contains_key("store") {
+                doc["store"] = toml_edit::table();
+            }
+            &mut doc["store"]
+        }
+        ScopeRef::Agent { agent_id } => {
+            if !doc.contains_key("agents") {
+                doc["agents"] = toml_edit::table();
+            }
+            if !doc["agents"].as_table().map(|t| t.contains_key(agent_id)).unwrap_or(false) {
+                doc["agents"][agent_id] = toml_edit::table();
+            }
+            &mut doc["agents"][agent_id]
+        }
+    };
+    if !scope_table.is_table() {
+        *scope_table = toml_edit::Item::Table(toml_edit::Table::default());
+    }
+    let scope_table = scope_table.as_table_mut()?;
+    if !scope_table.contains_key("services") {
+        scope_table["services"] = toml_edit::table();
+    }
+    scope_table["services"].as_table_mut()
+}
+
+/// Apply the writeback-owned fields of a service override onto its
+/// scopes.toml table. Owned fields follow patch semantics — Some/non-empty
+/// sets the key, None/empty leaves any existing key as-is.
+fn apply_service_override_fields(
+    table: &mut toml_edit::Table,
+    common: &crate::overrides::ComponentOverrideCommon,
+) {
+    if let Some(ref name) = common.display_name {
+        table.insert("display_name", toml_edit::value(name.clone()));
+    }
+    if let Some(ref desc) = common.description {
+        table.insert("description", toml_edit::value(desc.clone()));
+    }
+    if let Some(enabled) = common.enabled {
+        table.insert("enabled", toml_edit::value(enabled));
+    }
+    if !common.tags.is_empty() {
+        let mut tags_array = toml_edit::Array::new();
+        for tag in &common.tags {
+            tags_array.push(tag.as_str());
+        }
+        table.insert("tags", toml_edit::value(tags_array));
+    }
+    for (key, value) in [
+        ("meta", &common.meta),
+        ("annotations", &common.annotations),
+        ("icons", &common.icons),
+    ] {
+        if let Some(json) = value {
+            if let Some(item) = toml_item_from_json(json) {
+                table.insert(key, item);
+            }
+        }
+    }
 }
 
 /// Apply the writeback-owned fields of a tool override onto its scopes.toml
@@ -275,5 +459,63 @@ enabled = false
         assert!(doc.contains("a.png"));
         assert!(doc.contains("owner = \"team-a\""));
         assert!(doc.contains("tier = 2"));
+    }
+
+    #[test]
+    fn service_writeback_creates_store_section_and_applies_fields() {
+        let mut doc: toml_edit::DocumentMut = "".parse().unwrap();
+        let table = service_scope_table_mut(&mut doc, "github", &ScopeRef::Store)
+            .expect("store scope is navigable");
+        apply_service_override_fields(table, &common(Some("GitHub 巨人"), None, Some(false), vec![]));
+        let written = doc.to_string();
+        assert!(written.contains("[store.services.github]"));
+        assert!(written.contains("display_name = \"GitHub 巨人\""));
+        assert!(written.contains("enabled = false"));
+    }
+
+    #[test]
+    fn service_removal_clears_owned_keys_and_keeps_tool_sections() {
+        let mut doc: toml_edit::DocumentMut = r#"
+[store.services.github]
+display_name = "GitHub"
+enabled = false
+
+[store.services.github.tools.overrides.search_repos]
+display_name = "Search"
+"#
+        .parse()
+        .unwrap();
+        let table = service_scope_table_mut(&mut doc, "github", &ScopeRef::Store).unwrap();
+        for key in ["display_name", "description", "enabled", "tags", "meta", "annotations", "icons"]
+        {
+            table.remove(key);
+        }
+        let written = doc.to_string();
+        assert!(!written.contains("GitHub 巨人"));
+        assert!(!written.contains("enabled = false"));
+        // tool sections and their overrides survive
+        assert!(written.contains("[store.services.github.tools.overrides.search_repos]"));
+    }
+
+    #[test]
+    fn service_removal_drops_empty_service_entry() {
+        let mut doc: toml_edit::DocumentMut = r#"
+[store.services.github]
+display_name = "GitHub"
+"#
+        .parse()
+        .unwrap();
+        let table = service_scope_table_mut(&mut doc, "github", &ScopeRef::Store).unwrap();
+        for key in ["display_name", "description", "enabled", "tags", "meta", "annotations", "icons"]
+        {
+            table.remove(key);
+        }
+        if table.is_empty() {
+            if let Some(services) = scope_services_table_mut(&mut doc, &ScopeRef::Store) {
+                services.remove("github");
+            }
+        }
+        let written = doc.to_string();
+        assert!(!written.contains("github"), "empty entry should be dropped: {written}");
     }
 }

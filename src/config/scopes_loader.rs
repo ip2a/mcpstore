@@ -1,5 +1,7 @@
 use crate::config::{ComponentOverride as ConfigComponentOverride, ScopesConfig};
-use crate::overrides::{ToolOverridePatch, PromptOverridePatch, ResourceOverridePatch};
+use crate::overrides::{
+    PromptOverridePatch, ResourceOverridePatch, ServiceOverridePatch, ToolOverridePatch,
+};
 use crate::cache::models::ToolArgumentOverride;
 use crate::store::prelude::*;
 
@@ -123,6 +125,28 @@ impl MCPStore {
                 return Ok(());
             }
         };
+
+        // Service-level projection (rename/description/hide) never resolves
+        // against the synced tool list, so it applies even before a first
+        // connect.
+        {
+            let mut common = crate::overrides::ComponentOverrideCommon::default();
+            common.display_name = cfg.display_name.clone();
+            common.description = cfg.description.clone();
+            common.enabled = cfg.enabled;
+            common.tags = cfg.tags.clone();
+            common.meta = cfg.meta.clone();
+            common.annotations = cfg.annotations.clone();
+            common.icons = service_icons_json(cfg.icons.as_ref());
+            if common != crate::overrides::ComponentOverrideCommon::default() {
+                let patch = ServiceOverridePatch { common };
+                self.set_service_override(instance_id, patch).await?;
+                applied.push((
+                    crate::overrides::services::SERVICE_OVERRIDES_STATE_TYPE.to_string(),
+                    instance_id.to_string(),
+                ));
+            }
+        }
 
         // Overrides and policy resolve against the instance's synced tool list,
         // which only exists after a first connect. Skipping a never-connected
@@ -287,6 +311,24 @@ impl MCPStore {
         }
 
         patch
+    }
+}
+
+/// scopes.toml `icons = { light = …, dark = … }` → the JSON shape the
+/// override rules carry. `None` when neither key is present.
+fn service_icons_json(icons: Option<&crate::config::IconsOverride>) -> Option<serde_json::Value> {
+    let icons = icons?;
+    let mut map = serde_json::Map::new();
+    if let Some(light) = &icons.light {
+        map.insert("light".to_string(), serde_json::Value::String(light.clone()));
+    }
+    if let Some(dark) = &icons.dark {
+        map.insert("dark".to_string(), serde_json::Value::String(dark.clone()));
+    }
+    if map.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(map))
     }
 }
 

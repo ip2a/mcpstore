@@ -122,18 +122,22 @@ fn resource_list_and_read_have_machine_contracts() {
     let _guard = CLI_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
 
-    let listed = parse_json_output(&fixture.command(&[
+    // Listing never connects: a disconnected instance yields the stable
+    // not_connected error instead of a hidden connect side effect.
+    let listed = fixture.command(&[
         "resource",
         "list",
         &fixture.instance_id,
         "--output",
         "json",
-    ]));
-    assert_eq!(listed["event"], "resource.listed");
-    assert_eq!(listed["instance_id"], fixture.instance_id);
-    assert_eq!(listed["total"], 1);
-    assert_eq!(listed["resources"][0]["uri"], "fixture://docs/readme");
+    ]);
+    assert_eq!(listed.status.code(), Some(40));
+    assert!(listed.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&listed.stderr).expect("valid JSON error");
+    assert!(error.get("event").is_none());
+    assert_eq!(error["error"]["code"], "not_connected");
 
+    // Reading does connect and returns the machine contract.
     let read = parse_json_output(&fixture.command(&[
         "resource",
         "read",
@@ -152,17 +156,21 @@ fn prompt_list_and_get_have_machine_contracts() {
     let _guard = CLI_TEST_LOCK.lock().unwrap();
     let fixture = Fixture::new();
 
-    let listed = parse_json_output(&fixture.command(&[
+    // Listing never connects (see resource_list_and_read_have_machine_contracts).
+    let listed = fixture.command(&[
         "prompt",
         "list",
         &fixture.instance_id,
         "--output",
         "json",
-    ]));
-    assert_eq!(listed["event"], "prompt.listed");
-    assert_eq!(listed["total"], 1);
-    assert_eq!(listed["prompts"][0]["name"], "explain");
+    ]);
+    assert_eq!(listed.status.code(), Some(40));
+    assert!(listed.stdout.is_empty());
+    let error: Value = serde_json::from_slice(&listed.stderr).expect("valid JSON error");
+    assert!(error.get("event").is_none());
+    assert_eq!(error["error"]["code"], "not_connected");
 
+    // Getting a prompt connects and returns the machine contract.
     let got = parse_json_output(&fixture.command(&[
         "prompt",
         "get",

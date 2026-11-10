@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::overrides::ComponentOverrideCommon;
 use crate::store::prelude::*;
 
-const SERVICE_OVERRIDES_STATE_TYPE: &str = "service_overrides";
+pub(crate) const SERVICE_OVERRIDES_STATE_TYPE: &str = "service_overrides";
 
 /// Gateway-facing projection of a whole service instance: rename it, rewrite
 /// its description/icons, or hide it from the aggregated catalog entirely.
@@ -66,6 +66,13 @@ impl MCPStore {
                 })?,
             )
             .await?;
+        // Best-effort writeback to scopes.toml; openkeyv above is the source of truth.
+        if let Err(error) = self
+            .writeback_service_override(&rule.service_name, &rule.scope, &rule.common)
+            .await
+        {
+            tracing::warn!("Failed to write back service override to scopes.toml: {error}");
+        }
         Ok(rule)
     }
 
@@ -103,6 +110,19 @@ impl MCPStore {
                 &self.service_override_key(instance_id),
             )
             .await?;
+        // Best-effort scopes.toml cleanup so the next load cannot resurrect
+        // the deleted rule from its writeback. Skipped when the instance is
+        // already gone (nothing to resolve the file path from).
+        if let Some(instance) = self.kernel.control.registry.find_instance(instance_id).await {
+            if let Err(error) = self
+                .writeback_service_override_removal(&instance.service_name, &instance.scope)
+                .await
+            {
+                tracing::warn!(
+                    "Failed to clean up service override in scopes.toml: {error}"
+                );
+            }
+        }
         Ok(())
     }
 
