@@ -438,6 +438,11 @@ pub(crate) struct GatewayCatalog {
     /// Single-flight rebuild gate: concurrent refreshers queue on one rebuild
     /// instead of stampeding the upstreams.
     rebuild_gate: tokio::sync::Mutex<()>,
+    /// Bumped on every invalidate. A rebuild captures it at start and may
+    /// only clear `dirty` if it still matches — otherwise an invalidation
+    /// that raced an in-flight rebuild would be lost along with the stale
+    /// snapshot it was meant to replace.
+    generation: AtomicU64,
     /// Completed rebuilds since mount build (health observability).
     rebuilds: AtomicU64,
 }
@@ -501,6 +506,7 @@ impl GatewayCatalog {
             snapshot: std::sync::RwLock::new(Arc::new(snapshot)),
             dirty: AtomicBool::new(false),
             rebuild_gate: tokio::sync::Mutex::const_new(()),
+            generation: AtomicU64::new(0),
             rebuilds: AtomicU64::new(0),
         })
     }
@@ -532,6 +538,7 @@ impl GatewayCatalog {
     }
 
     pub(crate) fn invalidate(&self) {
+        self.generation.fetch_add(1, Ordering::Release);
         self.dirty.store(true, Ordering::Release);
     }
 
@@ -552,9 +559,15 @@ impl GatewayCatalog {
             }
             let _gate = self.rebuild_gate.lock().await;
             if self.dirty.load(Ordering::Acquire) {
+                let generation = self.generation.load(Ordering::Acquire);
                 match self.rebuild().await {
                     Ok(()) => {
-                        self.dirty.store(false, Ordering::Release);
+                        // An invalidate that raced this rebuild bumped the
+                        // generation: its dirty flag must survive so the
+                        // next pass rebuilds against the new state.
+                        if self.generation.load(Ordering::Acquire) == generation {
+                            self.dirty.store(false, Ordering::Release);
+                        }
                         self.rebuilds.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(error) => {
