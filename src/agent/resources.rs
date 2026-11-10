@@ -78,6 +78,10 @@ impl MCPStore {
         uri: &str,
     ) -> Result<serde_json::Value> {
         self.require_instance(instance_id).await?;
+        // Execution surface: connect on demand BEFORE resolving the original
+        // key — list_resources is side-effect free now and answers
+        // NotConnected for a disconnected instance.
+        self.ensure_instance_connected(instance_id).await?;
         let raw_uris: Vec<String> = self
             .list_resources(instance_id)
             .await?
