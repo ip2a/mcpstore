@@ -213,4 +213,76 @@ mod shm_tests {
                 .is_err()
         );
     }
+
+    /// Capacity exhaustion surfaces `StoreCapacity` loudly: the put fails,
+    /// the store stays attached and usable — nothing falls back to memory.
+    #[tokio::test]
+    async fn shm_capacity_exhaustion_fails_loudly_without_fallback() {
+        let dir = shm_test_dir();
+        let path = dir.join("capacity.shm");
+        let _ = std::fs::remove_file(&path);
+
+        let mut config = shm_config(&path, "create");
+        config["capacity_bytes"] = json!(16 * 1024 * 1024); // openkeyv minimum arena
+        let (store, _handle) =
+            shm_cache_store_with_handle(&config).expect("create shm store");
+
+        let oversized = json!({"blob": "x".repeat(32 * 1024 * 1024)});
+        let error = store
+            .put("big", oversized, "col")
+            .await
+            .expect_err("oversized put must fail");
+        assert!(
+            error.to_string().contains("capacity exhausted"),
+            "expected StoreCapacity, got: {error}"
+        );
+
+        // Still attached, still usable: the same handle serves normal traffic.
+        store
+            .put("small", json!({"v": 1}), "col")
+            .await
+            .expect("put after capacity failure");
+        assert_eq!(
+            store.get("small", "col").await.expect("get"),
+            Some(json!({"v": 1}))
+        );
+    }
+
+    /// Creating over a store another attach still holds returns `StoreInUse`
+    /// instead of clobbering it; the error propagates (construction is loud)
+    /// and the held store survives untouched.
+    #[tokio::test]
+    async fn shm_create_over_active_attach_fails_loudly() {
+        let dir = shm_test_dir();
+        let path = dir.join("inuse.shm");
+        let _ = std::fs::remove_file(&path);
+
+        let (store, holder) =
+            shm_cache_store_with_handle(&shm_config(&path, "create")).expect("create shm store");
+        store
+            .put("marker", json!({"v": 1}), "col")
+            .await
+            .expect("put marker");
+
+        let error = match shm_cache_store_with_handle(&shm_config(&path, "create")) {
+            Err(error) => error,
+            Ok(_) => panic!("create over an active attach must fail"),
+        };
+        assert!(
+            error.to_string().contains("is in use"),
+            "expected StoreInUse, got: {error}"
+        );
+
+        drop(store);
+        drop(holder);
+        // The failed create must not have damaged the held store: reopen and
+        // read the original data.
+        let (store, _handle) =
+            shm_cache_store_with_handle(&shm_config(&path, "open")).expect("reopen shm store");
+        assert_eq!(
+            store.get("marker", "col").await.expect("get"),
+            Some(json!({"v": 1})),
+            "failed create-over-attach clobbered the held store"
+        );
+    }
 }
