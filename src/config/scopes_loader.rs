@@ -43,6 +43,10 @@ impl MCPStore {
     /// too. Panel-made overrides never enter the journal and are never
     /// touched by reconciliation.
     pub async fn load_scopes_config(&self) -> Result<()> {
+        // Connect-completion replays this concurrently with API reloads; the
+        // journal is read-modify-write, so serialize the whole load.
+        static SCOPES_LOAD_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+        let _guard = SCOPES_LOAD_LOCK.lock().await;
         let path = self.scopes_config_path()?;
         let config = ScopesConfig::load_if_exists(&path)
             .map_err(|error| {
