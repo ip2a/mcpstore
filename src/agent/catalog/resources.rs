@@ -8,10 +8,16 @@ impl MCPStore {
         let instances = self.list_scope_instances(scope).await?;
         let mut resources = Vec::new();
         for instance in instances {
-            resources.extend(
-                self.list_resources_for_instance(instance.instance_id)
-                    .await?,
-            );
+            // Partial tolerance: one unreachable instance must not blank the
+            // whole scope catalog (matches tools; per-instance routes stay loud).
+            match self.list_resources_for_instance(instance.instance_id).await {
+                Ok(instance_resources) => resources.extend(instance_resources),
+                Err(error) => tracing::warn!(
+                    %error,
+                    service = %instance.service_name,
+                    "scope resources listing skipped a failed instance"
+                ),
+            }
         }
         resources.sort_by(|left, right| {
             left.get("service_name")
@@ -37,10 +43,17 @@ impl MCPStore {
         let instances = self.list_scope_instances(scope).await?;
         let mut templates = Vec::new();
         for instance in instances {
-            templates.extend(
-                self.list_resource_templates_for_instance(instance.instance_id)
-                    .await?,
-            );
+            match self
+                .list_resource_templates_for_instance(instance.instance_id)
+                .await
+            {
+                Ok(instance_templates) => templates.extend(instance_templates),
+                Err(error) => tracing::warn!(
+                    %error,
+                    service = %instance.service_name,
+                    "scope resource templates listing skipped a failed instance"
+                ),
+            }
         }
         templates.sort_by(|left, right| {
             left.get("service_name")
