@@ -159,9 +159,9 @@ impl MCPStore {
     }
 
     /// Catalog-path variant: unreadable rules are logged and skipped so one
-    /// corrupt row cannot blank the whole gateway listing.
+    /// corrupt row cannot blank the whole gateway listing. Query path: reads
+    /// the shared store directly, no registry hydration.
     pub async fn list_service_overrides_lenient(&self) -> Result<Vec<ServiceOverrideRule>> {
-        self.refresh_from_db_if_needed().await?;
         let mut rules = Vec::new();
         for (key, value) in self
             .kernel

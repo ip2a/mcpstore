@@ -448,15 +448,20 @@ impl MCPStore {
                 format!("Instance tool relation deserialization failed: {error}"),
             )
         })?;
+        let keys: Vec<String> = relation
+            .tools
+            .iter()
+            .map(|tool_name| format!("{instance_id}:{tool_name}"))
+            .collect();
+        let values = self
+            .kernel
+            .persistence
+            .cache
+            .get_entities_many("tools", &keys)
+            .await?;
         let mut tools = Vec::with_capacity(relation.tools.len());
-        for tool_name in relation.tools {
-            let Some(tool_value) = self
-                .kernel
-                .persistence
-                .cache
-                .get_entity("tools", &format!("{instance_id}:{tool_name}"))
-                .await?
-            else {
+        for (_relation_name, tool_value) in relation.tools.into_iter().zip(values) {
+            let Some(tool_value) = tool_value else {
                 continue;
             };
             let tool: ToolEntity = serde_json::from_value(tool_value).map_err(|error| {

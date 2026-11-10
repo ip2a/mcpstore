@@ -64,6 +64,27 @@ impl CacheLayerManager {
         result
     }
 
+    /// Batched entity read: values come back in key order, absent keys as
+    /// `None`. One store round trip instead of one per key — the listing
+    /// paths hydrate whole tool sets through this.
+    pub async fn get_entities_many(
+        &self,
+        entity_type: &str,
+        keys: &[String],
+    ) -> Result<Vec<Option<serde_json::Value>>> {
+        self.ensure_current_schema().await?;
+        Self::validate_entity_type(entity_type)?;
+        let collection = self.entity_collection(entity_type);
+        let started_at = Instant::now();
+        let result = self.active_store().get_many(keys, &collection).await;
+        let hit = result
+            .as_ref()
+            .ok()
+            .map(|values| values.iter().any(Option::is_some));
+        self.record_request(started_at, hit, result.is_ok());
+        result
+    }
+
     pub async fn delete_entity(&self, entity_type: &str, key: &str) -> Result<()> {
         self.ensure_current_schema().await?;
         Self::validate_entity_type(entity_type)?;
