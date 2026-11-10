@@ -6,6 +6,7 @@ import { SERVICE_STATUS_LABEL_KEYS } from "@/components/shared/service-status-ba
 import { McpIcon } from "@/components/shared/mcp-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { deriveServiceDisplayStatus, isServiceConnected } from "@/features/services/service-display-status"
+import { useServiceOverrideQuery } from "@/features/overrides/queries"
 import { useI18n } from "@/lib/i18n-context"
 import { listInstancePrompts, listInstanceResources, type ServiceInstance } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
@@ -26,6 +27,10 @@ export function ServiceListCard({
   const { t } = useI18n()
   const endpoint = getServiceEndpointLabel(service)
   const description = String(service.effective_config?.description || "").trim() || endpoint
+  // Same override query/cache key the dialog uses — the grid shows the
+  // projected name everywhere the dialog does.
+  const overrideQuery = useServiceOverrideQuery(service.service_name, service.scope)
+  const projectedName = overrideQuery.data?.override?.display_name?.trim() || service.service_name
   const scopeLabel =
     service.scope.type === "store" ? "store" : service.scope.agent_id
   const status = deriveServiceDisplayStatus(service.state)
@@ -102,7 +107,7 @@ export function ServiceListCard({
           </span>
           <span className="min-w-0 flex-1">
             <span className="line-clamp-1 font-mono text-sm font-semibold leading-snug">
-              {service.service_name}
+              {projectedName}
             </span>
             <span className={cn("mt-1 flex min-w-0 items-center gap-1 text-xs", statusColorClass)}>
               {status === "connected" ? (
@@ -145,7 +150,7 @@ export function ServiceListCard({
         )}
       >
         <span className="line-clamp-3 text-center font-mono text-xl font-bold leading-snug tracking-tight text-foreground">
-          {service.service_name}
+          {projectedName}
         </span>
         <span className="text-xs text-muted-foreground">
           by <span className="text-[#0077c2]">{scopeLabel}</span>

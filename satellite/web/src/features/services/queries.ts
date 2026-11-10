@@ -7,6 +7,7 @@ import {
   listInstancePrompts,
   listInstanceResourceTemplates,
   listInstanceResources,
+  listInstanceTools,
   type ServiceAddress,
 } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
@@ -16,6 +17,17 @@ export function useServiceDetailQuery(addr: ServiceAddress, enabled = false) {
     enabled: enabled && Boolean(addr.service_name),
     queryKey: queryKeys.instance(addr),
     queryFn: () => getServiceInstance(addr),
+  })
+}
+
+/// Override-projected tool list (GET /tools/list): display_name/description
+/// projected, raw name kept in `tool_name`. KV-backed, so it works for
+/// stopped services too.
+export function useServiceProjectedToolsQuery(addr: ServiceAddress) {
+  return useQuery({
+    enabled: Boolean(addr.service_name),
+    queryKey: queryKeys.instanceTools(addr),
+    queryFn: () => listInstanceTools(addr).catch(() => []),
   })
 }
 
