@@ -74,6 +74,9 @@ pub(super) async fn gateway_start(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<GatewayLaunchQuery>,
 ) -> ApiResult {
+    // The whole start sequence — running check, automatic store migration,
+    // child spawn — is serialized against gateway_stop and concurrent starts.
+    let _launch = state.gateway_launch.lock().await;
     let options = gateway_options(&state, &query)?;
 
     let descriptor = options.launch_descriptor();
@@ -91,6 +94,11 @@ pub(super) async fn gateway_start(
             }
         }
     }
+
+    // First start on a private memory store promotes the daemon (and thereby
+    // the gateway child, which inherits the store config below) to the shared
+    // shm store. Failure leaves memory active and never spawns a child.
+    let store_migration = ensure_gateway_store_shared(&state).await?;
 
     // The gateway runs as its own `mcpstore gateway` child process; this daemon
     // supervises it (pid, stop) and forwards the call stream to its /calls route.
@@ -196,11 +204,16 @@ pub(super) async fn gateway_start(
             "running": true,
             "pid": pid,
             "url": descriptor.url,
+            "store_migration": serde_json::to_value(&store_migration)
+                .expect("SwapResult serializes by construction"),
         }),
     ))
 }
 
 pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResult {
+    // Held across the stop so a concurrent first start either fully migrates
+    // and spawns first, or observes the child already gone — never both.
+    let _launch = state.gateway_launch.lock().await;
     let process = {
         let mut gateway = state
             .gateway
@@ -221,6 +234,69 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
     Ok(success(
         "Gateway stopped",
         json!({ "running": false, "pid": pid }),
+    ))
+}
+
+/// Promote a private memory store to the default shared shm store before the
+/// first gateway start. Already-shared backends (redis/valkey/shm) return
+/// `Ok(None)`; a failed migration leaves memory active and the caller must not
+/// spawn the gateway child.
+pub(super) async fn ensure_gateway_store_shared(
+    state: &ApiState,
+) -> Result<Option<mcpstore::SwapResult>, ApiError> {
+    let current = state.store.store_config().await;
+    if current.store != "memory" {
+        return Ok(None);
+    }
+    #[cfg(not(unix))]
+    {
+        Err(ApiError::invalid_request(
+            "the default shared gateway store (shm) requires Unix; configure redis or valkey before starting the gateway",
+        ))
+    }
+    #[cfg(unix)]
+    {
+        let shm = default_gateway_shm_config(state)?;
+        let migration = state
+            .store
+            .swap_store(&shm)
+            .await
+            .map_err(ApiError::from_store)?;
+        Ok(Some(migration))
+    }
+}
+
+/// The daemon-derived default shm backing: `<mcp.json parent>/run/shm/<blake3(namespace)[..16]>.shm`,
+/// created fresh on first migration. After the swap the stored config carries
+/// `mode=open`, so restarts and gateway children only ever attach.
+#[cfg(unix)]
+fn default_gateway_shm_config(state: &ApiState) -> Result<mcpstore::store::JsonStoreConfig, ApiError> {
+    let namespace = state.store.namespace();
+    let mcp_parent = state
+        .store
+        .config_manager()
+        .mcp_path()
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let directory = mcp_parent.join("run").join("shm");
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        ApiError::internal(format!(
+            "Failed to create the shared store directory {}: {error}",
+            directory.display()
+        ))
+    })?;
+    let digest = blake3::hash(namespace.as_bytes()).to_hex();
+    let file = format!("{}.shm", &digest.to_string()[..16]);
+    Ok(mcpstore::store::JsonStoreConfig::new(
+        "shm",
+        json!({
+            "path": directory.join(file).display().to_string(),
+            "mode": "create",
+            "capacity_bytes": 268_435_456_u64,
+            "index_entries": 65_536,
+            "change_retention": 10_000,
+        }),
     ))
 }
 

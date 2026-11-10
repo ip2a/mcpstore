@@ -63,6 +63,10 @@ pub(crate) trait PanelCtx: Send + Sync + 'static {
 pub struct ApiState {
     store: Arc<MCPStore>,
     gateway: Arc<Mutex<Option<GatewayProcess>>>,
+    /// Serializes gateway start/stop so the first start's automatic
+    /// memory→shm migration can never race a concurrent stop or a second
+    /// start. Status/descriptor reads stay outside.
+    gateway_launch: Arc<tokio::sync::Mutex<()>>,
     /// Host-side telemetry persistence for history/detail/stats queries. The
     /// recording path goes through the store's sink; queries need the concrete type.
     telemetry: Arc<Mutex<Option<std::sync::Arc<crate::telemetry::TelemetryLog>>>>,
@@ -179,6 +183,7 @@ pub fn state_for_store(store: Arc<MCPStore>) -> Arc<ApiState> {
     Arc::new(ApiState {
         store,
         gateway: Arc::new(Mutex::new(None)),
+        gateway_launch: Arc::new(tokio::sync::Mutex::new(())),
         telemetry: Arc::new(Mutex::new(None)),
         http_client: host_http_client(),
     })
