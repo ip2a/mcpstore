@@ -61,6 +61,27 @@ impl MCPStore {
         .await
     }
 
+    /// Resolution gate for the execution funnel: tool-name resolution reads
+    /// the synced projection (`instance_tools`), which a connect fills. An
+    /// instance whose projection is already populated resolves without a
+    /// transport connection — listings and policy checks are projection
+    /// reads, and forcing a connect would re-sync over injected or
+    /// hand-maintained projections. An instance with no projection yet
+    /// connects once so tool sync fills it.
+    pub(crate) async fn ensure_instance_resolvable(&self, instance_id: InstanceId) -> Result<()> {
+        if self
+            .kernel
+            .persistence
+            .cache
+            .get_relation("instance_tools", &instance_id.to_string())
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+        self.ensure_instance_connected(instance_id).await
+    }
+
     /// Delegation half of the execution gate, shared with the read-only
     /// listing gate: a delegated data panel has no local surface beyond tool
     /// calls, so every other surface fails loudly here.

@@ -209,12 +209,9 @@ impl MCPStore {
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<ToolCallResult> {
-        // The data panel routes by its local placement config: local execution or remote proxy.
-        if let crate::store::PanelRole::DataPanel { .. } = &self.kernel.runtime.panel_role {
-            return self
-                .route_data_panel_tool_call(instance_id, tool_name, args)
-                .await;
-        }
+        // Routing (local vs delegated remote proxy) lives inside the execution
+        // funnel, so every caller — this immediate form and the streaming form
+        // alike — takes the same path.
         self.kernel
             .execution
             .call_tool(self, instance_id, tool_name, args)
@@ -276,9 +273,43 @@ impl ExecutionEngine {
         options: McpExecutionOptions,
     ) -> Result<McpStoreToolExecutionHandle<'a>> {
         store.refresh_from_db_if_needed().await?;
-        let requested_instance_id = instance_id;
+
+        // A delegated data panel executes nothing locally: proxy the call
+        // through the shared store — the control panel claims it (exactly one
+        // winner per request) and answers within this call's absolute
+        // deadline. Resolution, validation and execution evidence (tool sync,
+        // health observations, telemetry) all belong to the owning panel; no
+        // connect attempt is made here — connecting a delegated instance is
+        // this panel's job for no surface.
+        if matches!(
+            &store.kernel.runtime.panel_role,
+            crate::store::PanelRole::DataPanel { .. }
+        ) && !store.panel_executes_locally(instance_id).await?
+        {
+            if matches!(mode, ToolExecutionMode::Task) {
+                return Err(Error::new(
+                    FailureCode::CapabilityUnsupported,
+                    "delegated instances do not support task execution; only completed tool calls proxy through the shared store",
+                ));
+            }
+            let result = store
+                .call_tool_remote(instance_id, tool_name, args)
+                .await
+                .map(|result| McpToolExecution::Immediate { result });
+            return Ok(McpStoreToolExecutionHandle::ready(
+                store,
+                instance_id,
+                result,
+            ));
+        }
+
+        // Resolution reads the synced tool projection. An instance whose
+        // projection is already populated resolves without a transport
+        // connection (listings and policy checks are projection reads); an
+        // instance with no projection yet connects once so tool sync fills it.
+        store.ensure_instance_resolvable(instance_id).await?;
         let (instance_id, tool_name, args) = store
-            .resolve_override_tool_call(requested_instance_id, tool_name, args)
+            .resolve_override_tool_call(instance_id, tool_name, args)
             .await?;
         store
             .ensure_context_tool_allowed(instance_id, &tool_name)

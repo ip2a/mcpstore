@@ -37,6 +37,13 @@ pub(super) async fn connect_target_instances(
 
     let mut connects = FuturesUnordered::new();
     for instance in selected {
+        // Delegated instances execute on the control panel: there is no local
+        // connect to make, the tools still project from the shared store and
+        // calls route remotely. Connecting would fail with ServiceUnavailable
+        // and wrongly demote the service to Down.
+        if !store.panel_executes_locally(instance.instance_id).await? {
+            continue;
+        }
         connects.push(async move {
             let outcome = tokio::time::timeout(
                 std::time::Duration::from_secs(BOOT_CONNECT_GUARD_SECS),
