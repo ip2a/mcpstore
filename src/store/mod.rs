@@ -20,6 +20,7 @@ mod kernel;
 mod openapi;
 mod options;
 pub(crate) mod payload;
+mod projection_feed;
 mod runtime;
 pub mod store_config;
 pub mod swap;

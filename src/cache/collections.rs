@@ -43,7 +43,7 @@ impl CacheLayerManager {
         Self::relation_collection_with_namespace(&self.namespace(), relation_type)
     }
 
-    pub(in crate::cache) fn relation_collection_with_namespace(
+    pub(crate) fn relation_collection_with_namespace(
         namespace: &str,
         relation_type: &str,
     ) -> String {
@@ -54,7 +54,7 @@ impl CacheLayerManager {
         Self::state_collection_with_namespace(&self.namespace(), state_type)
     }
 
-    pub(in crate::cache) fn state_collection_with_namespace(
+    pub(crate) fn state_collection_with_namespace(
         namespace: &str,
         state_type: &str,
     ) -> String {
