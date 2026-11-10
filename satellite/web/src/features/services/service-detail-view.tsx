@@ -30,6 +30,7 @@ import {
   useServiceAuthQuery,
   useServiceDetailQuery,
   useServicePromptsQuery,
+  useServiceProjectedToolsQuery,
   useServiceResourceTemplatesQuery,
   useServiceResourcesQuery,
   useServiceStatusQuery,
@@ -168,7 +169,12 @@ export function ServiceDetailView(props: {
     promptsQuery.isFetching
   const service = detail || props.service
   const endpoint = service.url || service.command || "-"
-  const tools = service.tools || []
+  // Prefer the override-projected list (same surface the global tools page
+  // uses); fall back to the raw detail payload until it arrives.
+  const projectedToolsQuery = useServiceProjectedToolsQuery(props.service)
+  const tools = projectedToolsQuery.data?.length
+    ? projectedToolsQuery.data
+    : service.tools || []
   const resources = resourcesQuery.data || []
   const resourceTemplates = resourceTemplatesQuery.data || []
   const prompts = promptsQuery.data || []

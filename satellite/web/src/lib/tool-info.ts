@@ -17,7 +17,7 @@ export function getToolAnnotations(tool: ToolInfo) {
 }
 
 export function getOriginalToolName(tool: ToolInfo) {
-  return tool.original_name || tool.name
+  return tool.original_name || tool.tool_name || tool.name
 }
 
 export function hasJsonContent(value: unknown) {

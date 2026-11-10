@@ -187,6 +187,8 @@ export type ToolVisibilityFilter = "all" | "available" | "removed"
 export type ToolInfo = {
   name: string
   original_name?: string
+  /** Raw registry name when the list is override-projected (tools/list). */
+  tool_name?: string
   title?: string | null
   description: string
   input_schema: unknown
