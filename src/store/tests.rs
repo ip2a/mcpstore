@@ -7931,6 +7931,68 @@ mod swap_and_cache_tests {
         }
 
         #[tokio::test]
+        async fn shm_tool_call_claim_elects_exactly_one_winner() {
+            let path = temp_config_path();
+            let store = MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(path.clone()),
+                store: Some(JsonStoreConfig::memory()),
+                namespace: Some(format!("shm-claim-{}", uuid::Uuid::new_v4())),
+                panel: PanelRole::ControlPanel,
+            })
+            .unwrap();
+            let (target, shm_path) = shm_swap_target("claim");
+            let result = store.swap_store(&target).await.unwrap();
+            assert!(result.verified);
+
+            // One remote tool-call request sitting in the shared store; every
+            // panel that wakes up claims it. The claim is get_with_revision +
+            // compare_and_delete, so concurrent claimers — within this process
+            // or across panels — must elect exactly one winner (the primitive's
+            // true cross-process race is covered by openkeyv shm_process CAS
+            // tests; this pins the mcpstore claim_entity routing on shm).
+            store
+                .cache()
+                .put_entity(
+                    "tool_call_requests",
+                    "req-1",
+                    serde_json::json!({"request_id": "req-1"}),
+                )
+                .await
+                .unwrap();
+            let mut claimers = Vec::new();
+            for _ in 0..16 {
+                let store = store.clone();
+                claimers.push(tokio::spawn(async move {
+                    store
+                        .cache()
+                        .claim_entity("tool_call_requests", "req-1")
+                        .await
+                        .unwrap()
+                }));
+            }
+            let mut winners = Vec::new();
+            for claimer in claimers {
+                if let Some(value) = claimer.await.unwrap() {
+                    winners.push(value);
+                }
+            }
+            assert_eq!(winners.len(), 1, "a request must have exactly one claimant");
+            assert_eq!(winners[0]["request_id"], "req-1");
+            // Rescans must not revive a claimed request.
+            assert!(
+                store
+                    .cache()
+                    .claim_entity("tool_call_requests", "req-1")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+
+            std::fs::remove_dir_all(shm_path.parent().unwrap()).ok();
+            std::fs::remove_file(path).ok();
+        }
+
+        #[tokio::test]
         async fn swap_store_to_shm_reports_real_pause_and_replays() {
             let path = temp_config_path();
             let store = MCPStore::setup_with_options(StoreOptions {

@@ -5,8 +5,6 @@
 //! execution: pull the instance's kv effective_config (base + scope overrides) and run it here.
 //! The control panel never reads this section.
 
-use serde_json::Value;
-
 use crate::identity::InstanceId;
 use crate::store::prelude::*;
 use crate::store::MCPStore;
@@ -24,7 +22,7 @@ fn placement_key(service_name: &str, scope: &crate::identity::ScopeRef) -> Strin
 impl MCPStore {
     /// Placement decision for one instance on this data panel: false = delegate the call
     /// to the control panel through the shared store.
-    pub(crate) async fn panel_executes_locally(&self, instance_id: InstanceId) -> Result<bool> {
+    pub async fn panel_executes_locally(&self, instance_id: InstanceId) -> Result<bool> {
         let instance = self
             .instance_from_kv(instance_id)
             .await?
@@ -61,26 +59,6 @@ impl MCPStore {
             self.load_from_db().await?;
         }
         self.connect_service_internal(instance_id, false).await
-    }
-
-    /// Data-panel call routing: the local placement config decides — connect lazily and execute
-    /// here, or delegate (request into the shared store, control panel claims and executes).
-    pub(crate) async fn route_data_panel_tool_call(
-        &self,
-        instance_id: InstanceId,
-        tool_name: &str,
-        args: Value,
-    ) -> Result<crate::transport::ToolCallResult> {
-        if self.panel_executes_locally(instance_id).await? {
-            self.ensure_data_panel_instance_connected(instance_id)
-                .await?;
-            return self
-                .kernel
-                .execution
-                .call_tool(self, instance_id, tool_name, args)
-                .await;
-        }
-        self.call_tool_remote(instance_id, tool_name, args).await
     }
 }
 
