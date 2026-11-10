@@ -159,6 +159,83 @@ impl MCPStore {
         // mount builds, panel retries, OAuth callbacks): losers wait here,
         // then take the connected fast-path below instead of removing and
         // rebuilding the winner's just-created pool entry.
+        //
+        // Storm control: the hard timeout bounds the WHOLE attempt — window
+        // queue, gate-held span (OAuth discovery, transport connect, startup
+        // probe, tool sync) — so a batch boot always drains to terminal
+        // states. The cleanup after a timeout is bounded too: the failure
+        // paths below park forever when a quit streamable-http worker swallows
+        // the disconnect ack (live wedge: linear stayed `starting` for hours
+        // because `record_failure` never ran after `connect failed`).
+        let result = tokio::time::timeout(
+            crate::transport::client::ConnectionPool::connect_hard_timeout(),
+            async {
+                tracing::info!(%instance_id, "[CONNECT] queued for the connect window");
+                // Underscore binding: unnamed drops immediately, plain name
+                // warns — this one must live until the block ends.
+                let _permit = self
+                    .kernel
+                    .execution
+                    .pool
+                    .connect_window()
+                    .acquire_owned()
+                    .await
+                    .map_err(|_| {
+                        Error::new(FailureCode::Internal, "connection pool is shut down")
+                    })?;
+                tracing::info!(%instance_id, "[CONNECT] window permit acquired");
+                self.connect_wired_instance(instance_id, instance, automatic_retry).await
+            },
+        )
+        .await;
+        match result {
+            Ok(inner) => inner,
+            Err(_) => {
+                let budget = crate::transport::client::ConnectionPool::connect_hard_timeout();
+                tracing::error!(
+                    %instance_id,
+                    budget_secs = budget.as_secs(),
+                    "[CONNECT] hard timeout: connect span exceeded the budget; recording terminal failure"
+                );
+                let error = Error::new(
+                    FailureCode::ConnectionTimedOut,
+                    format!(
+                        "service instance connect hard timeout: {instance_id}, budget={}s",
+                        budget.as_secs()
+                    ),
+                );
+                let cleanup = tokio::time::timeout(budget, async {
+                    self.kernel.execution.pool.disconnect(instance_id).await.ok();
+                    if let Err(record_error) = self.record_failure(instance_id, &error).await {
+                        // A rejected transition (e.g. desired stopped) must not
+                        // mask the real cause: the caller still gets the timeout.
+                        tracing::warn!(
+                            %instance_id,
+                            "[CONNECT] could not record hard-timeout failure: {record_error}"
+                        );
+                    }
+                })
+                .await;
+                if cleanup.is_err() {
+                    tracing::error!(
+                        %instance_id,
+                        "[CONNECT] hard-timeout cleanup itself exceeded the budget; terminal failure returned without state record"
+                    );
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// The gate-held connect span for a wired (non-OpenAPI) instance:
+    /// same-instance coalescing, state transitions, transport connect,
+    /// startup probe, tool sync. Caller holds a connect-window permit.
+    async fn connect_wired_instance(
+        &self,
+        instance_id: InstanceId,
+        instance: crate::registry::ServiceInstance,
+        automatic_retry: bool,
+    ) -> Result<()> {
         let connect_gate = self.kernel.execution.pool.connect_guard(instance_id).await;
         let _connect_gate = connect_gate.lock().await;
         let service_state = self

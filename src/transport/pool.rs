@@ -20,6 +20,19 @@ use crate::transport::{
     McpTaskRecord, McpToolExecution, McpToolExecutionHandle, TaskStateStore, ToolCallResult,
 };
 
+/// Concurrent connect critical sections allowed to drain at once. Sized for
+/// a 26-service batch boot: wide enough to keep handshakes overlapping,
+/// narrow enough that child-process spawns and remote handshakes never
+/// stampede the machine (R3: 26 parallel connects starved 10 services into
+/// a silent, unlogged hang).
+pub(crate) const CONNECT_MAX_PARALLEL: usize = 4;
+/// Hard ceiling on one connect attempt end to end — window queue, gate-held
+/// span (OAuth discovery, transport connect, startup probe, tool sync), and
+/// the terminal-failure cleanup. Anything still inside when it elapses is
+/// recorded as a terminal failure — no eternal `starting`, panel-visible.
+pub(crate) const CONNECT_HARD_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(90);
+
 pub struct ConnectionPool {
     /// One mutex per connection: transport-level awaits (connect, disconnect,
     /// ping) must never serialize unrelated instances. The map lock is only
@@ -32,6 +45,10 @@ pub struct ConnectionPool {
     /// trampling each other's pool entries. The map lock is std and never
     /// held across an await.
     connect_guards: Arc<std::sync::Mutex<HashMap<InstanceId, Arc<tokio::sync::Mutex<()>>>>>,
+    /// Bounds connect critical sections draining at once. A 26-service
+    /// parallel batch boot must drain as a bounded queue, not stampede the
+    /// machine with concurrent child-process spawns and handshakes.
+    connect_window: Arc<tokio::sync::Semaphore>,
     resource_subscriptions: Arc<RwLock<HashMap<InstanceId, HashSet<String>>>>,
     auth_coordinator: AuthCoordinator,
     registry: ServiceRegistry,
@@ -48,6 +65,7 @@ impl Clone for ConnectionPool {
         Self {
             connections: Arc::clone(&self.connections),
             connect_guards: Arc::clone(&self.connect_guards),
+            connect_window: Arc::clone(&self.connect_window),
             resource_subscriptions: Arc::clone(&self.resource_subscriptions),
             auth_coordinator: self.auth_coordinator.clone(),
             registry: self.registry.clone(),
@@ -69,6 +87,7 @@ impl ConnectionPool {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
             connect_guards: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            connect_window: Arc::new(tokio::sync::Semaphore::const_new(CONNECT_MAX_PARALLEL)),
             resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
             auth_coordinator,
             registry,
@@ -77,6 +96,18 @@ impl ConnectionPool {
             supervisor: Arc::new(Mutex::new(None)),
             frame_telemetry: Arc::new(std::sync::OnceLock::new()),
         }
+    }
+
+    /// The storm-control window: bounds how many connect critical sections
+    /// drain at once (see CONNECT_MAX_PARALLEL).
+    pub(crate) fn connect_window(&self) -> Arc<tokio::sync::Semaphore> {
+        Arc::clone(&self.connect_window)
+    }
+
+    /// Hard ceiling on one connect attempt end to end (see
+    /// CONNECT_HARD_TIMEOUT).
+    pub(crate) fn connect_hard_timeout() -> std::time::Duration {
+        CONNECT_HARD_TIMEOUT
     }
 
     pub(crate) fn attach_supervisor(&self, supervisor: Arc<InstanceSupervisor>) {
