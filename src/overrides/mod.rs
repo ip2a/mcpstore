@@ -97,6 +97,32 @@ pub(crate) fn is_override_enabled(common: &ComponentOverrideCommon) -> bool {
 }
 
 impl MCPStore {
+    /// Fire `McpToolsChanged` after an override write so projection consumers
+    /// (the gateway mount catalog, subscription notifications) rebuild
+    /// promptly. The payload carries the instance so per-instance mounts can
+    /// filter; `wait=false` keeps the write path non-blocking.
+    pub(crate) async fn publish_override_changed(
+        &self,
+        instance_id: InstanceId,
+        service_name: &str,
+    ) {
+        self.kernel
+            .execution
+            .event_bus
+            .publish(
+                crate::events::Event::new(
+                    crate::events::types::EventKind::McpToolsChanged.as_str(),
+                    serde_json::json!({
+                        "reason": "override_changed",
+                        "instanceId": instance_id.to_string(),
+                        "service": service_name,
+                    }),
+                ),
+                false,
+            )
+            .await;
+    }
+
     /// Incrementally update an override rule's enabled field using version CAS.
     /// The existing rule is preserved; a conflicting write is retried once.
     pub async fn patch_component_enabled(
@@ -160,7 +186,22 @@ impl MCPStore {
                 .compare_and_put_state(kind.state_type(), &key, Some(version), Value::Object(obj))
                 .await
             {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    // Tool toggles change the gateway catalog projection.
+                    if kind == ComponentKind::Tool {
+                        let service_name = self
+                            .kernel
+                            .control
+                            .registry
+                            .find_instance(instance_id)
+                            .await
+                            .map(|instance| instance.service_name);
+                        if let Some(service_name) = service_name.as_deref() {
+                            self.publish_override_changed(instance_id, service_name).await;
+                        }
+                    }
+                    return Ok(());
+                }
                 Err(crate::cache::CacheError::Conflict(_)) if attempt < 7 => continue,
                 Err(crate::cache::CacheError::Conflict(_)) => {
                     return Err(Error::new(
