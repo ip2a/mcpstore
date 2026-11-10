@@ -25,6 +25,13 @@ pub struct ConnectionPool {
     /// ping) must never serialize unrelated instances. The map lock is only
     /// held to clone or swap entries, never across an await on a connection.
     connections: Arc<RwLock<HashMap<InstanceId, Arc<tokio::sync::Mutex<McpConnection>>>>>,
+    /// Per-instance in-flight connect gates. connect_service_internal holds
+    /// the gate across its remove/add/connect span, so concurrent "connect
+    /// the same instance" requests (parallel gateway mount builds, panel
+    /// retries, OAuth callbacks) coalesce into one transport instead of
+    /// trampling each other's pool entries. The map lock is std and never
+    /// held across an await.
+    connect_guards: Arc<std::sync::Mutex<HashMap<InstanceId, Arc<tokio::sync::Mutex<()>>>>>,
     resource_subscriptions: Arc<RwLock<HashMap<InstanceId, HashSet<String>>>>,
     auth_coordinator: AuthCoordinator,
     registry: ServiceRegistry,
@@ -40,6 +47,7 @@ impl Clone for ConnectionPool {
     fn clone(&self) -> Self {
         Self {
             connections: Arc::clone(&self.connections),
+            connect_guards: Arc::clone(&self.connect_guards),
             resource_subscriptions: Arc::clone(&self.resource_subscriptions),
             auth_coordinator: self.auth_coordinator.clone(),
             registry: self.registry.clone(),
@@ -60,6 +68,7 @@ impl ConnectionPool {
     ) -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
+            connect_guards: Arc::new(std::sync::Mutex::new(HashMap::new())),
             resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
             auth_coordinator,
             registry,
@@ -72,6 +81,20 @@ impl ConnectionPool {
 
     pub(crate) fn attach_supervisor(&self, supervisor: Arc<InstanceSupervisor>) {
         *self.supervisor.lock().unwrap() = Some(supervisor);
+    }
+
+    /// The connect gate for one instance (created on first use). The returned
+    /// mutex is the serialization point for same-instance connect attempts.
+    pub(crate) async fn connect_guard(
+        &self,
+        instance_id: InstanceId,
+    ) -> Arc<tokio::sync::Mutex<()>> {
+        self.connect_guards
+            .lock()
+            .unwrap()
+            .entry(instance_id)
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
     }
 
     /// Attach the frame-telemetry sink (host opts in; SDK default = off).

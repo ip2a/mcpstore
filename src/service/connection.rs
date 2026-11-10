@@ -144,6 +144,12 @@ impl MCPStore {
                 .await;
             return Ok(());
         }
+        // Coalesce concurrent connects of the same instance (parallel gateway
+        // mount builds, panel retries, OAuth callbacks): losers wait here,
+        // then take the connected fast-path below instead of removing and
+        // rebuilding the winner's just-created pool entry.
+        let connect_gate = self.kernel.execution.pool.connect_guard(instance_id).await;
+        let _connect_gate = connect_gate.lock().await;
         let service_state = self
             .kernel
             .control
@@ -152,7 +158,7 @@ impl MCPStore {
             .await?
             .ok_or_else(|| Error::new(FailureCode::ServiceNotFound, instance_id.to_string()))?;
         let now = Self::now_timestamp_f64();
-        if automatic_retry && self.kernel.execution.pool.is_connected(instance_id).await {
+        if self.kernel.execution.pool.is_connected(instance_id).await {
             if service_state.phase != RuntimePhase::Running {
                 self.kernel
                     .control
