@@ -300,6 +300,60 @@ async fn gateway_routes_report_http_configuration() {
     let _ = std::fs::remove_file(store_path);
 }
 
+/// The first gateway start promotes a private memory store to the default
+/// shm backing; a second call must be a no-op (already shared). Exercises the
+/// real migration path — no test alias, no child spawn. (The cli always builds
+/// mcpstore with the shm feature; only the platform gate applies.)
+#[cfg(unix)]
+#[tokio::test]
+async fn first_gateway_start_promotes_memory_to_shm_once() {
+    let base = unique_temp_dir_path("gateway-shm-migration");
+    std::fs::create_dir_all(&base).unwrap();
+    let mcp_json = base.join("mcp.json");
+    std::fs::write(&mcp_json, b"{}").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(mcp_json.to_string_lossy().into_owned()),
+        store: Some(JsonStoreConfig::memory()),
+        namespace: Some(unique_namespace()),
+        panel: mcpstore::PanelRole::ControlPanel,
+    })
+    .unwrap();
+    let state = state_for_store(store.clone());
+
+    let migration = client::ensure_gateway_store_shared(&state)
+        .await
+        .unwrap()
+        .expect("first gateway start migrates memory to shm");
+    assert_eq!(migration.source_store, "memory");
+    assert_eq!(migration.target_store, "shm");
+    assert!(migration.verified);
+    assert!(migration.online);
+
+    let stored = store.store_config().await;
+    assert_eq!(stored.store, "shm");
+    assert_eq!(stored.config["mode"], json!("open"));
+
+    let backing_dir = base.join("run").join("shm");
+    let backings = std::fs::read_dir(&backing_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "shm"))
+        .count();
+    assert_eq!(
+        backings, 1,
+        "exactly one shm backing file derived from the namespace"
+    );
+
+    let second = client::ensure_gateway_store_shared(&state)
+        .await
+        .unwrap();
+    assert!(second.is_none(), "already shared: no repeated migration");
+
+    drop(state);
+    drop(store);
+    std::fs::remove_dir_all(&base).ok();
+}
+
 #[tokio::test]
 async fn client_config_import_preserves_secrets_and_rejects_conflicts() {
     mcpstore::agents::registry::install_for_tests();
