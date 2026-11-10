@@ -304,7 +304,11 @@ async fn wait_for_gateway_ready(host: &str, port: u16) -> Result<(), ApiError> {
         "::" => "::1",
         value => value,
     };
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    // The gateway binds its listener only after building every mount, and
+    // mount building connects instances (bounded by BOOT_CONNECT_GUARD_SECS
+    // = 150s each, in parallel). Allow one full worst-case boot before
+    // declaring the child dead.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
 
     loop {
         if tokio::time::timeout(
