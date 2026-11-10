@@ -25,7 +25,8 @@ pub mod store_config;
 pub mod swap;
 mod tool_changes;
 pub(crate) use kernel::{
-    ControlPlane, EventBackend, ExecutionEngine, PersistenceRouter, RuntimeState, StoreKernel,
+    ControlPlane, EventBackend, EventBackendSnapshot, ExecutionEngine, PersistenceRouter,
+    RuntimeState, StoreKernel,
 };
 use runtime::StoreRuntimeConfig;
 
@@ -209,6 +210,7 @@ impl MCPStore {
                     store_config: tokio::sync::RwLock::new(store_config),
                     cache,
                     event_backend: tokio::sync::RwLock::new(event_backend),
+                    event_epoch: tokio::sync::watch::channel(0u64).0,
                 },
                 runtime: RuntimeState {
                     namespace: SyncRwLock::new(namespace),
@@ -358,6 +360,26 @@ impl MCPStore {
                 )
                 .await
                 .ok();
+        }
+    }
+
+    /// Resolve the event backend together with the epoch generation it belongs
+    /// to. The subscribe → read → resolve → re-read loop guarantees a cutover
+    /// between two steps is noticed: the caller either gets a backend that is
+    /// still current, or the retry starts over on the new generation.
+    pub(crate) async fn event_backend_snapshot(&self) -> Result<EventBackendSnapshot> {
+        let persistence = &self.kernel.persistence;
+        loop {
+            let mut changes = persistence.event_epoch.subscribe();
+            let generation = *changes.borrow_and_update();
+            let backend = self.ensure_event_backend().await?;
+            if *changes.borrow_and_update() == generation {
+                return Ok(EventBackendSnapshot {
+                    backend,
+                    generation,
+                    changes,
+                });
+            }
         }
     }
 

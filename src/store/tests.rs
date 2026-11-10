@@ -7828,4 +7828,242 @@ mod swap_and_cache_tests {
             .is_some());
         std::fs::remove_file(path).ok();
     }
+
+    /// The shm migration suite: real backing file, explicit 0700 directory
+    /// (shm rejects group/world-writable parents) and a retention ring wide
+    /// enough to hold every change between the copy point and the barrier —
+    /// a narrower ring would expire the barrier cursor and the migration
+    /// would legitimately fail.
+    #[cfg(all(feature = "shm", unix))]
+    mod shm_swap {
+        use super::*;
+        use crate::cache::CacheLayerManager;
+        use openkeyv::AsyncChangeFeed;
+        use std::os::unix::fs::PermissionsExt;
+
+        fn shm_swap_target(tag: &str) -> (JsonStoreConfig, std::path::PathBuf) {
+            // One private subdirectory per test: cleanup can't race siblings
+            // running in parallel, and 0700 satisfies the shm permission check.
+            let dir = std::env::temp_dir()
+                .join(format!("mcpstore-shm-swap-{}", std::process::id()))
+                .join(tag);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let path = dir.join("store.shm");
+            let _ = std::fs::remove_file(&path);
+            let config = JsonStoreConfig::new(
+                "shm",
+                serde_json::json!({
+                    "path": path.to_str().unwrap(),
+                    "mode": "create",
+                    "capacity_bytes": 16 * 1024 * 1024,
+                    "index_entries": 4096,
+                    "change_retention": 2048,
+                }),
+            );
+            (config, path)
+        }
+
+        #[tokio::test]
+        async fn swap_store_to_shm_preserves_thousand_concurrent_writes() {
+            let path = temp_config_path();
+            let store = MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(path.clone()),
+                store: Some(JsonStoreConfig::memory()),
+                namespace: Some(format!("shm-thousand-{}", uuid::Uuid::new_v4())),
+                panel: PanelRole::ControlPanel,
+            })
+            .unwrap();
+            let (target, shm_path) = shm_swap_target("thousand");
+
+            let mut writers = Vec::new();
+            for worker in 0..10 {
+                let store = store.clone();
+                writers.push(tokio::spawn(async move {
+                    for index in 0..100 {
+                        let key = format!("live-{}", worker * 100 + index);
+                        store
+                            .cache()
+                            .put_entity("clients", &key, serde_json::json!({"index": key}))
+                            .await
+                            .unwrap();
+                    }
+                }));
+            }
+            let migration = store.swap_store(&target);
+            let (result, ()) = tokio::join!(
+                migration,
+                async {
+                    for writer in writers {
+                        writer.await.unwrap();
+                    }
+                }
+            );
+            let result = result.unwrap();
+            assert!(result.verified);
+            assert!(result.online);
+
+            for index in 0..1000 {
+                let key = format!("live-{index}");
+                assert!(
+                    store
+                        .cache()
+                        .get_entity("clients", &key)
+                        .await
+                        .unwrap()
+                        .is_some(),
+                    "write '{key}' was lost across the migration"
+                );
+            }
+            assert_eq!(result.target_store, "shm");
+            assert_eq!(
+                store
+                    .kernel
+                    .persistence
+                    .store_config
+                    .read()
+                    .await
+                    .store_name(),
+                "shm"
+            );
+            std::fs::remove_dir_all(shm_path.parent().unwrap()).ok();
+            std::fs::remove_file(path).ok();
+        }
+
+        #[tokio::test]
+        async fn swap_store_to_shm_reports_real_pause_and_replays() {
+            let path = temp_config_path();
+            let store = MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(path.clone()),
+                store: Some(JsonStoreConfig::memory()),
+                namespace: Some(format!("shm-pause-{}", uuid::Uuid::new_v4())),
+                panel: PanelRole::ControlPanel,
+            })
+            .unwrap();
+            let (target, shm_path) = shm_swap_target("pause");
+            for index in 0..300 {
+                store
+                    .cache()
+                    .put_entity("clients", &format!("seed-{index}"), serde_json::json!({"i": index}))
+                    .await
+                    .unwrap();
+            }
+
+            let writer_store = store.clone();
+            let writer = async move {
+                for index in 0..50 {
+                    writer_store
+                        .cache()
+                        .put_entity("clients", &format!("live-{index}"), serde_json::json!({"i": index}))
+                        .await
+                        .unwrap();
+                }
+            };
+            let (result, ()) = tokio::join!(store.swap_store(&target), writer);
+
+            let result = result.unwrap();
+            // The barrier replay actually drained live changes, verification
+            // came from the read-back, and writers were only parked for the
+            // drain — never for the bulk copy.
+            assert!(result.verified);
+            assert!(result.online);
+            assert!(result.replayed > 0, "expected the tail replay to run");
+            assert!(
+                result.pause_ms <= 100,
+                "standard migration must pause writes at most 100ms, took {}ms",
+                result.pause_ms
+            );
+            for index in 0..50 {
+                assert!(
+                    store
+                        .cache()
+                        .get_entity("clients", &format!("live-{index}"))
+                        .await
+                        .unwrap()
+                        .is_some(),
+                    "live write {index} lost"
+                );
+            }
+            std::fs::remove_dir_all(shm_path.parent().unwrap()).ok();
+            std::fs::remove_file(path).ok();
+        }
+
+        #[tokio::test]
+        async fn swap_store_to_shm_normalizes_active_mode_to_open() {
+            let path = temp_config_path();
+            let store = MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(path.clone()),
+                store: Some(JsonStoreConfig::memory()),
+                namespace: Some(format!("shm-mode-{}", uuid::Uuid::new_v4())),
+                panel: PanelRole::ControlPanel,
+            })
+            .unwrap();
+            let (target, shm_path) = shm_swap_target("mode");
+            store.swap_store(&target).await.unwrap();
+
+            let stored = store.kernel.persistence.store_config.read().await;
+            assert_eq!(stored.store_name(), "shm");
+            assert_eq!(
+                stored.config.get("mode").and_then(serde_json::Value::as_str),
+                Some("open"),
+                "the active shm config must be attach-only after cutover"
+            );
+            drop(stored);
+
+            std::fs::remove_dir_all(shm_path.parent().unwrap()).ok();
+            std::fs::remove_file(path).ok();
+        }
+
+        #[tokio::test]
+        async fn event_backend_snapshot_follows_cutover_generation() {
+            let path = temp_config_path();
+            let store = MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(path.clone()),
+                store: Some(JsonStoreConfig::memory()),
+                namespace: Some(format!("shm-epoch-{}", uuid::Uuid::new_v4())),
+                panel: PanelRole::ControlPanel,
+            })
+            .unwrap();
+            let (target, shm_path) = shm_swap_target("epoch");
+
+            // A subscription resolved before the cutover must notice it through
+            // the epoch watch instead of silently reading the dead store.
+            let mut stale = store.event_backend_snapshot().await.unwrap();
+            assert_eq!(stale.generation, 0);
+            store.swap_store(&target).await.unwrap();
+            stale.changes.changed().await.unwrap();
+
+            let fresh = store.event_backend_snapshot().await.unwrap();
+            assert_eq!(fresh.generation, 1);
+            let collection = CacheLayerManager::entity_collection_with_namespace(
+                &store.namespace(),
+                "clients",
+            );
+            let mut subscription = fresh
+                .backend
+                .subscribe(openkeyv::ChangeFeedRequest {
+                    start: openkeyv::ChangeStart::Latest,
+                    filter: openkeyv::ChangeFilter {
+                        collections: vec![collection],
+                        operations: vec![openkeyv::ChangeOperation::Put],
+                    },
+                })
+                .await
+                .unwrap();
+            store
+                .cache()
+                .put_entity("clients", "post-swap", serde_json::json!({"v": 1}))
+                .await
+                .unwrap();
+            let change = tokio::time::timeout(Duration::from_secs(5), subscription.recv())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(change.key, "post-swap");
+
+            std::fs::remove_dir_all(shm_path.parent().unwrap()).ok();
+            std::fs::remove_file(path).ok();
+        }
+    }
 }

@@ -148,33 +148,53 @@ impl MCPStore {
     }
 
     async fn consume_service_events(&self) -> Result<()> {
-        let backend = self.ensure_event_backend().await?;
-        let collection =
-            CacheLayerManager::entity_collection_with_namespace(&self.namespace(), SERVICE_EVENTS);
-        // Latest can't deliver events written before subscribing, so subscribe first, then scan existing keys.
-        // For an entry seen by both, skip when the later get comes back empty.
-        let mut subscription = backend
-            .subscribe(ChangeFeedRequest {
-                start: ChangeStart::Latest,
-                filter: ChangeFilter {
-                    collections: vec![collection],
-                    operations: vec![ChangeOperation::Put],
-                },
-            })
-            .await
-            .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        self.drain_service_events().await;
+        // Loop over backend generations: a cutover (epoch changed) resolves
+        // the new backend, subscribes on it and drains it — never falls back
+        // to the 1s retry sleep.
         loop {
-            tokio::select! {
-                change = subscription.recv() => match change {
-                    Ok(Some(change)) => self.apply_service_event(&change.key).await,
-                    Ok(None) => return Ok(()),
-                    Err(error) => {
-                        return Err(Error::new(FailureCode::Internal, error.to_string()));
+            let mut snapshot = self.event_backend_snapshot().await?;
+            let collection = CacheLayerManager::entity_collection_with_namespace(
+                &self.namespace(),
+                SERVICE_EVENTS,
+            );
+            // Latest can't deliver events written before subscribing, so subscribe first, then scan existing keys.
+            // For an entry seen by both, skip when the later get comes back empty.
+            let mut subscription = snapshot
+                .backend
+                .subscribe(ChangeFeedRequest {
+                    start: ChangeStart::Latest,
+                    filter: ChangeFilter {
+                        collections: vec![collection],
+                        operations: vec![ChangeOperation::Put],
+                    },
+                })
+                .await
+                .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
+            self.drain_service_events().await;
+            loop {
+                tokio::select! {
+                    change = subscription.recv() => match change {
+                        Ok(Some(change)) => self.apply_service_event(&change.key).await,
+                        Ok(None) => return Ok(()),
+                        Err(error) => {
+                            return Err(Error::new(FailureCode::Internal, error.to_string()));
+                        }
+                    },
+                    changed = snapshot.changes.changed() => {
+                        // Sender is only dropped with the store itself; a live
+                        // change means cutover — resubscribe immediately.
+                        changed.map_err(|_| {
+                            Error::new(FailureCode::Internal, "event epoch watch closed")
+                        })?;
+                        tracing::debug!(
+                            "[STORE] service event feed: backend generation {}, resubscribing",
+                            snapshot.generation
+                        );
+                        break;
                     }
-                },
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    self.drain_service_events().await;
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                        self.drain_service_events().await;
+                    }
                 }
             }
         }
