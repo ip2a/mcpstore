@@ -116,3 +116,5 @@ pub use store::{
     JsonStoreConfig, MCPStore, MemoryStoreConfig, OpenApiImportInput, OpenApiImportSource,
     PanelRole, RedisStoreConfig, StoreConfig, StoreOptions, ToolVisibilityFilter,
 };
+#[cfg(feature = "shm")]
+pub use store::ShmStoreConfig;

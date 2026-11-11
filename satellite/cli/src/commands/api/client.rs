@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, Query},
     Json,
 };
-use mcpstore::ScopeRef;
+use mcpstore::{ScopeRef, store::StoreConfig};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -285,16 +285,18 @@ fn default_gateway_shm_config(state: &ApiState) -> Result<mcpstore::store::JsonS
     // reset it, destroying every store-only write (panel states, session
     // relations) the current daemon's memory does not hold. Create only when
     // this namespace has no backing yet.
-    let mode = if path.exists() { "open" } else { "create" };
+    let shm = if path.exists() {
+        mcpstore::store::ShmStoreConfig::open(path)
+    } else {
+        mcpstore::store::ShmStoreConfig::create(path)
+            .with_capacity_bytes(268_435_456)
+            .with_index_entries(65_536)
+            .with_change_retention(10_000)
+    };
+    let openkeyv_config = shm.to_openkeyv_config();
     Ok(mcpstore::store::JsonStoreConfig::new(
-        "shm",
-        json!({
-            "path": path.display().to_string(),
-            "mode": mode,
-            "capacity_bytes": 268_435_456_u64,
-            "index_entries": 65_536,
-            "change_retention": 10_000,
-        }),
+        shm.store_name(),
+        openkeyv_config.config,
     ))
 }
 

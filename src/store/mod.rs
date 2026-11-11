@@ -42,6 +42,8 @@ pub use crate::openapi::{
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
 pub use options::{PanelRole, StoreOptions};
 pub use store_config::{JsonStoreConfig, MemoryStoreConfig, RedisStoreConfig, StoreConfig};
+#[cfg(feature = "shm")]
+pub use store_config::ShmStoreConfig;
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
 pub(crate) mod prelude {
