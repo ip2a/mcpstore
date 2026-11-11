@@ -3904,9 +3904,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openkeyv"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80921c0cfbcfd486e190c231d5d02a8563b58cc7a839b16bdf9d6e90b7d6e06a"
+checksum = "4fc2b5bafe9d8a17de90233201456497b0d1d4a3339215f088c61ea26d0a8308"
 dependencies = [
  "async-trait",
  "aws-config",
