@@ -1,6 +1,6 @@
-//! Serialization utilities for cache values.
+//! Serialization utilities for KV values.
 //!
-//! All cache values are stored as JSON bytes. This module provides
+//! All KV values are stored as JSON bytes. This module provides
 //! thin wrappers around serde_json for consistency.
 
 use serde::Serialize;

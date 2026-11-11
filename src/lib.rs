@@ -3,7 +3,7 @@
 pub(crate) mod agent;
 pub mod agents;
 pub mod auth;
-pub mod cache;
+pub mod kv;
 pub mod client_agent;
 pub mod client_config;
 pub mod client_wire;
@@ -39,12 +39,12 @@ pub use auth::{
     OAuthCallback, OAuthClientCredentialsConfig, PrivateKey, DEFAULT_OAUTH_REDIRECT_URI,
 };
 pub use config::{
-    AppConfig, CacheConfig, ConfigManager, GatewayConfig, McpConfig, RuntimeLogConfig, ServerConfig,
+    AppConfig, KvConfig, ConfigManager, GatewayConfig, McpConfig, RuntimeLogConfig, ServerConfig,
     ScopesConfig, ScopesConfigError,
 };
 
-// Facade re-exports: cache layer
-pub use cache::{KvLayerManager, KvSnapshot};
+// Facade re-exports: KV layer
+pub use kv::{KvLayerManager, KvSnapshot};
 
 // Facade re-exports: OpenAPI runtime imports
 pub use openapi::{
@@ -69,7 +69,7 @@ pub use registry::{
 };
 
 // Facade re-exports: business sessions
-pub use cache::models::{
+pub use kv::models::{
     SessionContextState, SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation,
     SessionStateData, SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
     ToolPreferenceState,

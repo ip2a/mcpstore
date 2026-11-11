@@ -91,7 +91,7 @@ impl MCPStore {
         rule.version += 1;
         self.kernel
             .persistence
-            .cache
+            .kv
             .compare_and_put_state(
                 PROMPT_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, &prompt_name),
@@ -119,7 +119,7 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_state(
                 PROMPT_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, prompt_name),
@@ -132,7 +132,7 @@ impl MCPStore {
         let mut rules = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_states_async(PROMPT_OVERRIDES_STATE_TYPE)
             .await?
             .into_iter()
@@ -166,7 +166,7 @@ impl MCPStore {
     ) -> Result<Option<PromptOverrideRule>> {
         self.kernel
             .persistence
-            .cache
+            .kv
             .get_state(
                 PROMPT_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, prompt_name),

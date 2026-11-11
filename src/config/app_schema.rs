@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::cache_schema::CacheConfig;
+use super::kv_schema::KvConfig;
 use super::defaults::*;
 use super::health_schema::HealthCheckConfig;
 use super::service_schema::ServiceLifecycleDefaults;
@@ -10,7 +10,7 @@ use super::service_schema::ServiceLifecycleDefaults;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
-    pub cache: CacheConfig,
+    pub kv: KvConfig,
     #[serde(default)]
     pub api: ApiSettings,
     #[serde(default)]
@@ -41,7 +41,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            cache: CacheConfig::default(),
+            kv: KvConfig::default(),
             api: ApiSettings::default(),
             web: WebSettings::default(),
             server: ServerSettings::default(),

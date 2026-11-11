@@ -430,13 +430,13 @@ async fn db_data_panel_remote_call_executes_on_control_panel() {
 
     // Request claimed and deleted, response read away and deleted by the data panel: no intermediate state left in the store
     assert!(data
-        .cache()
+        .kv()
         .get_all_entities_async("tool_call_requests")
         .await
         .unwrap()
         .is_empty());
     assert!(data
-        .cache()
+        .kv()
         .get_all_entities_async("tool_call_responses")
         .await
         .unwrap()

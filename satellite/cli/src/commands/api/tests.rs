@@ -72,7 +72,7 @@ async fn seed_db_service(store: &MCPStore) {
 }
 
 async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
-    let cache = store.cache();
+    let cache = store.kv();
     let scope = ScopeRef::Store;
     let instance_id = ServiceInstanceKey::new("demo", scope.clone()).instance_id();
     let base_config = config.base_config();
@@ -1801,7 +1801,7 @@ async fn store_route_bundles_openapi_artifact_without_importing() {
     assert_eq!(artifact["diagnostics"].as_array().unwrap().len(), 0);
     let states = state
         .store
-        .cache()
+        .kv()
         .get_all_states_async("openapi_ref_documents")
         .await
         .unwrap();

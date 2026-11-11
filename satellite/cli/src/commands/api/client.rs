@@ -230,7 +230,7 @@ pub(super) async fn gateway_stop(State(state): State<Arc<ApiState>>) -> ApiResul
 }
 
 /// Promote a private memory store to the default shared shm store before the
-/// first gateway start. Already-shared backends (redis/valkey/shm) return
+/// first gateway start. Already-shared stores (redis/valkey/shm) return
 /// `Ok(None)`; a failed migration leaves memory active and the caller must not
 /// spawn the gateway child.
 pub(super) async fn ensure_gateway_store_shared(

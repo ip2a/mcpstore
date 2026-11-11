@@ -65,8 +65,8 @@ impl MCPStore {
             )
         })?;
         let scope = match session.scope {
-            crate::cache::models::SessionScope::Store => ScopeRef::Store,
-            crate::cache::models::SessionScope::Agent => ScopeRef::Agent {
+            crate::kv::models::SessionScope::Store => ScopeRef::Store,
+            crate::kv::models::SessionScope::Agent => ScopeRef::Agent {
                 agent_id: session.agent_id.ok_or_else(|| {
                     Error::new(
                         FailureCode::Internal,

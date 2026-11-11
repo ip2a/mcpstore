@@ -64,7 +64,7 @@ pub struct GatewayArgs {
 /// the `@control` state column and the self-healing supervisor, so a second
 /// control panel would fight it CAS-for-CAS on the same column (the
 /// auth-transition panics at startup were exactly that) and double-connect
-/// every service. Shared backends therefore attach as a data panel with their
+/// every service. Shared stores therefore attach as a data panel with their
 /// own identity — suffixed so it can never collide with a real data-panel
 /// daemon defaulting to the same hostname; the suffix keeps their
 /// `{instance}@{panel}` state rows apart. A private memory store is the
@@ -80,7 +80,7 @@ fn gateway_panel_role(mut store_args: StoreSourceArgs) -> Result<StoreSourceArgs
         };
         manager
             .load_app_config_or_default()
-            .map(|config| config.cache.store)
+            .map(|config| config.kv.store)
             .unwrap_or_else(|_| "memory".to_string())
     });
     let shared = matches!(backend.as_str(), "shm" | "redis" | "valkey");
@@ -299,7 +299,7 @@ async fn build_mount(
         expose_resource_override_tools: expose.resource,
         expose_openapi_tools: expose.openapi,
         expose_service_tools: expose.service,
-        expose_cache_tools: expose.cache,
+        expose_cache_tools: expose.kv,
         expose_search_tools: expose.search,
         ..options.clone()
     };
@@ -818,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_backends_derive_a_data_panel_with_its_own_identity() {
+    fn shared_stores_derive_a_data_panel_with_its_own_identity() {
         for backend in ["shm", "redis", "valkey"] {
             let resolved = gateway_panel_role(store_args(Some(backend), false, false)).unwrap();
             assert!(!resolved.control_panel);

@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::overrides::{ComponentKind, ComponentOverrideCommon};
-pub type ToolArgumentOverride = crate::cache::models::ToolArgumentOverride;
-pub type ToolOverrideSafetyPolicy = crate::cache::models::ToolOverrideSafetyPolicy;
+pub type ToolArgumentOverride = crate::kv::models::ToolArgumentOverride;
+pub type ToolOverrideSafetyPolicy = crate::kv::models::ToolOverrideSafetyPolicy;
 use crate::openapi_runtime::validate_json_schema_value;
 use crate::store::prelude::*;
 
@@ -304,7 +304,7 @@ impl MCPStore {
             .await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_state(
                 TOOL_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, &original_tool_name),
@@ -339,7 +339,7 @@ impl MCPStore {
         for (key, value) in self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_states_async(TOOL_OVERRIDES_STATE_TYPE)
             .await?
         {
@@ -366,7 +366,7 @@ impl MCPStore {
         for (key, value) in self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_states_async(TOOL_OVERRIDES_STATE_TYPE)
             .await?
         {
@@ -401,7 +401,7 @@ impl MCPStore {
         let values = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_states_many(TOOL_OVERRIDES_STATE_TYPE, &keys)
             .await?;
         let mut rules = HashMap::new();
@@ -434,7 +434,7 @@ impl MCPStore {
         for (key, value) in self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_states_async(TOOL_OVERRIDES_STATE_TYPE)
             .await?
         {
@@ -533,7 +533,7 @@ impl MCPStore {
     ) -> Result<Option<ToolOverrideRule>> {
         self.kernel
             .persistence
-            .cache
+            .kv
             .get_state(
                 TOOL_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, tool_name),
@@ -557,7 +557,7 @@ impl MCPStore {
     ) -> Result<()> {
         self.kernel
             .persistence
-            .cache
+            .kv
             .compare_and_put_state(
                 TOOL_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(rule.instance_id, &rule.tool_name),

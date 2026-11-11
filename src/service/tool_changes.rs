@@ -173,7 +173,7 @@ impl MCPStore {
             let timestamp = chrono::Utc::now().timestamp();
             self.kernel
                 .persistence
-                .cache
+                .kv
                 .put_event(
                     "service_instance",
                     &format!("{instance_id}:tools_refreshed:{timestamp}"),

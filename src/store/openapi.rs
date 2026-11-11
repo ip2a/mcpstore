@@ -124,7 +124,7 @@ impl MCPStore {
             timeout_millis: options.fetch_timeout_millis,
         };
         let spec =
-            bundle_openapi_external_refs(&client, &self.cache(), spec_url, spec, &bundle_options)
+            bundle_openapi_external_refs(&client, &self.kv(), spec_url, spec, &bundle_options)
                 .await?;
         let mut result = analyze_openapi_spec(name, spec_url, spec)?;
         result.runtime_executable = true;
@@ -137,7 +137,7 @@ impl MCPStore {
                 format!("OpenAPI import result serialization failed: {err}"),
             )
         })?;
-        self.cache()
+        self.kv()
             .put_state("openapi_imports", name, value)
             .await?;
         let context = OpenApiImportContextState {
@@ -145,7 +145,7 @@ impl MCPStore {
             updated_at: now,
             version: OPENAPI_IMPORT_CONTEXT_VERSION,
         };
-        self.cache()
+        self.kv()
             .put_state(
                 OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                 OPENAPI_IMPORT_CONTEXT_KEY,
@@ -157,7 +157,7 @@ impl MCPStore {
                 })?,
             )
             .await?;
-        self.cache()
+        self.kv()
             .put_event(
                 "openapi_imports",
                 &format!("{name}:imported:{now}"),
@@ -234,7 +234,7 @@ impl MCPStore {
         options: OpenApiBundleOptions,
     ) -> Result<serde_json::Value> {
         let client = openapi_http_client(options.timeout_millis)?;
-        bundle_openapi_external_refs(&client, &self.cache(), spec_url, spec, &options).await
+        bundle_openapi_external_refs(&client, &self.kv(), spec_url, spec, &options).await
     }
 
     pub async fn bundle_openapi_artifact(&self, spec_url: &str) -> Result<OpenApiBundleArtifact> {
@@ -277,7 +277,7 @@ impl MCPStore {
         let root_metadata = document_metadata_from_bytes(spec_text.as_bytes());
         bundle_openapi_external_ref_artifact(
             &client,
-            &self.cache(),
+            &self.kv(),
             spec_url,
             spec,
             root_metadata,
@@ -309,7 +309,7 @@ impl MCPStore {
         let root_metadata = document_metadata_from_value(&spec)?;
         bundle_openapi_external_ref_artifact(
             &client,
-            &self.cache(),
+            &self.kv(),
             spec_url,
             spec,
             root_metadata,
@@ -393,7 +393,7 @@ impl MCPStore {
     }
 
     pub async fn get_openapi_import(&self, name: &str) -> Result<Option<OpenApiImportResult>> {
-        let Some(value) = self.cache().get_state("openapi_imports", name).await? else {
+        let Some(value) = self.kv().get_state("openapi_imports", name).await? else {
             return Ok(None);
         };
         serde_json::from_value(value).map(Some).map_err(|err| {
@@ -405,7 +405,7 @@ impl MCPStore {
     }
 
     pub async fn list_openapi_imports(&self) -> Result<Vec<OpenApiImportResult>> {
-        let values = self.cache().get_all_states_async("openapi_imports").await?;
+        let values = self.kv().get_all_states_async("openapi_imports").await?;
         let mut imports: Vec<OpenApiImportResult> = Vec::with_capacity(values.len());
         for value in values.into_values() {
             imports.push(serde_json::from_value(value).map_err(|err| {
@@ -421,7 +421,7 @@ impl MCPStore {
 
     pub async fn last_openapi_import(&self) -> Result<Option<OpenApiImportResult>> {
         let Some(value) = self
-            .cache()
+            .kv()
             .get_state(
                 OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                 OPENAPI_IMPORT_CONTEXT_KEY,
@@ -440,9 +440,9 @@ impl MCPStore {
     }
 
     pub(crate) async fn clear_openapi_import_for_service(&self, name: &str) -> Result<()> {
-        self.cache().delete_state("openapi_imports", name).await?;
+        self.kv().delete_state("openapi_imports", name).await?;
         let Some(value) = self
-            .cache()
+            .kv()
             .get_state(
                 OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                 OPENAPI_IMPORT_CONTEXT_KEY,
@@ -458,7 +458,7 @@ impl MCPStore {
             )
         })?;
         if context.last_service_name == name {
-            self.cache()
+            self.kv()
                 .delete_state(
                     OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
                     OPENAPI_IMPORT_CONTEXT_KEY,
@@ -543,7 +543,7 @@ fn openapi_http_client(timeout_millis: u64) -> Result<reqwest::Client> {
 
 async fn bundle_openapi_external_refs(
     client: &reqwest::Client,
-    cache: &KvLayerManager,
+    kv: &KvLayerManager,
     document_url: &str,
     spec: serde_json::Value,
     options: &OpenApiBundleOptions,
@@ -551,7 +551,7 @@ async fn bundle_openapi_external_refs(
     let root_metadata = document_metadata_from_value(&spec)?;
     Ok(bundle_openapi_external_ref_artifact(
         client,
-        cache,
+	            kv,
         document_url,
         spec,
         root_metadata,
@@ -563,7 +563,7 @@ async fn bundle_openapi_external_refs(
 
 async fn bundle_openapi_external_ref_artifact(
     client: &reqwest::Client,
-    cache: &KvLayerManager,
+    kv: &KvLayerManager,
     document_url: &str,
     spec: serde_json::Value,
     root_metadata: OpenApiBundleDocumentMetadata,
@@ -572,7 +572,7 @@ async fn bundle_openapi_external_ref_artifact(
     let root_document = document_label(document_url);
     let resolver = OpenApiExternalRefResolver::new(
         client,
-        cache,
+	            kv,
         root_document.clone(),
         root_metadata,
         options.ref_cache.clone(),
@@ -622,7 +622,7 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
 
 struct OpenApiExternalRefResolver<'a> {
     client: &'a reqwest::Client,
-    cache: &'a KvLayerManager,
+    kv: &'a KvLayerManager,
     ref_cache: OpenApiRefCachePolicy,
     documents: Mutex<HashMap<String, serde_json::Value>>,
     document_metadata: Mutex<HashMap<String, OpenApiBundleDocumentMetadata>>,
@@ -666,7 +666,7 @@ enum OpenApiHttpDocumentFetch {
 impl<'a> OpenApiExternalRefResolver<'a> {
     fn new(
         client: &'a reqwest::Client,
-        cache: &'a KvLayerManager,
+        kv: &'a KvLayerManager,
         root_document: String,
         root_metadata: OpenApiBundleDocumentMetadata,
         ref_cache: OpenApiRefCachePolicy,
@@ -675,7 +675,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         document_metadata.insert(root_document.clone(), root_metadata);
         Self {
             client,
-            cache,
+	            kv,
             ref_cache,
             documents: Mutex::new(HashMap::new()),
             document_metadata: Mutex::new(document_metadata),
@@ -1076,7 +1076,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
     ) -> Result<Option<OpenApiCachedHttpDocument>> {
         let key = openapi_ref_document_cache_key(target_url);
         let Some(value) = self
-            .cache
+            .kv
             .get_state(OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE, &key)
             .await?
         else {
@@ -1143,7 +1143,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         let key = openapi_ref_document_cache_key(target_url);
         let fetched_at = chrono::Utc::now().timestamp();
         let source = openapi_ref_document_source(target_url);
-        self.cache
+        self.kv
             .put_state(
                 OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE,
                 &key,
@@ -1173,7 +1173,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         let key = openapi_ref_document_cache_key(target_url);
         let fetched_at = chrono::Utc::now().timestamp();
         let source = openapi_ref_document_source(target_url);
-        self.cache
+        self.kv
             .put_state(
                 OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE,
                 &key,
@@ -1203,7 +1203,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
     ) -> Result<Option<(serde_json::Value, OpenApiBundleDocumentMetadata)>> {
         let key = openapi_ref_document_cache_key(target_url);
         let Some(value) = self
-            .cache
+            .kv
             .get_state(OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE, &key)
             .await?
         else {
@@ -1278,7 +1278,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
     ) -> Result<()> {
         let key = openapi_ref_document_cache_key(target_url);
         let fetched_at = chrono::Utc::now().timestamp();
-        self.cache
+        self.kv
             .put_state(
                 OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE,
                 &key,

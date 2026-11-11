@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 #[cfg(feature = "redis")]
-use crate::cache::redis_kv_store;
+use crate::kv::redis_kv_store;
 #[cfg(feature = "valkey")]
-use crate::cache::valkey_kv_store;
-use crate::cache::{memory_kv_store, KvStore};
+use crate::kv::valkey_kv_store;
+use crate::kv::{memory_kv_store, KvStore};
 use crate::store::prelude::*;
 use crate::store::{JsonStoreConfig, StoreSpec};
 

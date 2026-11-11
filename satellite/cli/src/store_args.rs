@@ -261,7 +261,7 @@ impl StoreAccess {
                     .await?;
                 let store_name = result["current_store_name"].as_str().unwrap_or("memory");
                 let namespace = result["namespace"].as_str().unwrap_or_default();
-                let serialized = result["config"]["cache"]["config"].to_string();
+                let serialized = result["config"]["kv"]["config"].to_string();
                 let serialized = format!("{store_name}:{serialized}:{namespace}");
                 let hash = blake3::hash(serialized.as_bytes());
                 Ok(hash.to_hex().to_string())

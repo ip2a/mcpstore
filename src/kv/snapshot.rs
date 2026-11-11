@@ -2,10 +2,10 @@ use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::Arc;
 
-use crate::cache::layer::KV_SCHEMA_VERSION;
+use crate::kv::layer::KV_SCHEMA_VERSION;
 #[cfg(test)]
-use crate::cache::KvError;
-use crate::cache::{KvLayerManager, KvStore, Result};
+use crate::kv::KvError;
+use crate::kv::{KvLayerManager, KvStore, Result};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KvSnapshot {

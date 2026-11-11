@@ -56,7 +56,7 @@ impl MCPStore {
         rule.version += 1;
         self.kernel
             .persistence
-            .cache
+            .kv
             .compare_and_put_state(
                 SERVICE_OVERRIDES_STATE_TYPE,
                 &self.service_override_key(instance_id),
@@ -88,7 +88,7 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .get_state(
                 SERVICE_OVERRIDES_STATE_TYPE,
                 &self.service_override_key(instance_id),
@@ -109,7 +109,7 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_state(
                 SERVICE_OVERRIDES_STATE_TYPE,
                 &self.service_override_key(instance_id),
@@ -142,7 +142,7 @@ impl MCPStore {
         for (key, value) in self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_states_async(SERVICE_OVERRIDES_STATE_TYPE)
             .await?
         {
@@ -166,7 +166,7 @@ impl MCPStore {
         for (key, value) in self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_states_async(SERVICE_OVERRIDES_STATE_TYPE)
             .await?
         {

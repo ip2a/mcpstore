@@ -71,7 +71,7 @@ mod tests {
         assert!(diff_obj.contains_key("server"));
 
         // Should NOT have unchanged sections
-        assert!(!diff_obj.contains_key("cache"));
+        assert!(!diff_obj.contains_key("kv"));
         assert!(!diff_obj.contains_key("api"));
     }
 

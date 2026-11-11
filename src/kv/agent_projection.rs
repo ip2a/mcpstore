@@ -1,5 +1,5 @@
-use crate::cache::models::{AgentInstanceRelation, InstanceRelationItem};
-use crate::cache::KvError;
+use crate::kv::models::{AgentInstanceRelation, InstanceRelationItem};
+use crate::kv::KvError;
 use crate::store::prelude::*;
 
 impl MCPStore {
@@ -13,7 +13,7 @@ impl MCPStore {
             let current = self
                 .kernel
                 .persistence
-                .cache
+                .kv
                 .get_relation("agent_instances", agent_id)
                 .await?;
             let expected_version = current.as_ref().map(|value| {
@@ -50,7 +50,7 @@ impl MCPStore {
             match self
                 .kernel
                 .persistence
-                .cache
+                .kv
                 .compare_and_put_relation(
                     "agent_instances",
                     agent_id,
@@ -69,14 +69,14 @@ impl MCPStore {
         ))))
     }
 
-    pub(in crate::cache) async fn remove_instance_from_agent_relations(
+    pub(in crate::kv) async fn remove_instance_from_agent_relations(
         &self,
         instance_id: InstanceId,
     ) -> Result<()> {
         let relations = self
             .kernel
             .persistence
-            .cache
+            .kv
             .get_all_relations_async("agent_instances")
             .await?;
         for (agent_id, _) in relations {
@@ -85,7 +85,7 @@ impl MCPStore {
                 let Some(value) = self
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .get_relation("agent_instances", &agent_id)
                     .await?
                 else {
@@ -115,7 +115,7 @@ impl MCPStore {
                 match self
                     .kernel
                     .persistence
-                    .cache
+                    .kv
                     .compare_and_put_relation(
                         "agent_instances",
                         &agent_id,

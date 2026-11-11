@@ -300,7 +300,7 @@ fn now_f64() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::{memory_kv_store, KvLayerManager};
+    use crate::kv::{memory_kv_store, KvLayerManager};
     use crate::events::EventBus;
     use crate::identity::{ScopeRef, ServiceInstanceKey};
     use crate::state::{AuthState, DesiredState, ServiceState};
@@ -324,9 +324,9 @@ mod tests {
     }
 
     async fn supervisor(name: &str) -> (Arc<InstanceSupervisor>, InstanceId) {
-        let cache = Arc::new(KvLayerManager::new(memory_kv_store(), name));
+        let kv = Arc::new(KvLayerManager::new(memory_kv_store(), name));
         let manager = Arc::new(ServiceStateManager::new(
-            cache,
+	            kv,
             EventBus::new(),
             crate::state::CONTROL_NODE_ID.to_string(),
         ));

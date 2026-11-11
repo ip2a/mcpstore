@@ -7,7 +7,7 @@ use super::app_validation::validate_app_config;
 use super::examples::example_services;
 use super::flatten::flatten_config_value;
 use super::resolver;
-use super::{AppConfig, CacheConfig, ConfigError, McpConfig, Result};
+use super::{AppConfig, KvConfig, ConfigError, McpConfig, Result};
 
 pub struct ConfigManager {
     mcp_path: PathBuf,
@@ -90,7 +90,17 @@ impl ConfigManager {
             return Err(ConfigError::NotFound(self.app_config_path.clone()));
         }
         let content = std::fs::read_to_string(&self.app_config_path)?;
-        let config: AppConfig = toml::from_str(&content)?;
+        let raw: toml::Value = toml::from_str(&content)?;
+        // Hard cut: [cache] was renamed to [kv]. AppConfig deliberately tolerates
+        // foreign sections (carry_over_foreign_sections), so serde alone would
+        // silently ignore the old name — reject it loudly instead.
+        if raw.get("cache").is_some() {
+            return Err(ConfigError::Invalid(
+                "config section [cache] was renamed to [kv]; rename the section in your config file"
+                    .to_string(),
+            ));
+        }
+        let config: AppConfig = raw.try_into()?;
         validate_app_config(&config)?;
         Ok(config)
     }
@@ -183,7 +193,7 @@ impl ConfigManager {
         let mut config = McpConfig::default();
         let mut app_config = AppConfig::default();
         if let Some(redis_url) = redis_url {
-            app_config.cache = CacheConfig {
+            app_config.kv = KvConfig {
                 store: "redis".to_string(),
                 config: serde_json::json!({"url": redis_url}),
                 namespace: "mcpstore".to_string(),

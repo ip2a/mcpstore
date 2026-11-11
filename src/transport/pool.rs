@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::RwLock;
 
-use crate::cache::KvLayerManager;
+use crate::kv::KvLayerManager;
 use crate::health::supervisor::InstanceSupervisor;
 
 use crate::auth::AuthCoordinator;
@@ -82,7 +82,7 @@ impl ConnectionPool {
         auth_coordinator: AuthCoordinator,
         registry: ServiceRegistry,
         event_bus: EventBus,
-        cache: Arc<KvLayerManager>,
+        kv: Arc<KvLayerManager>,
     ) -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
@@ -92,7 +92,7 @@ impl ConnectionPool {
             auth_coordinator,
             registry,
             event_bus,
-            task_state: TaskStateStore::new(cache),
+            task_state: TaskStateStore::new(kv),
             supervisor: Arc::new(Mutex::new(None)),
             frame_telemetry: Arc::new(std::sync::OnceLock::new()),
         }

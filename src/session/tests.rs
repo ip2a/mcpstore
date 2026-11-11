@@ -96,7 +96,7 @@ async fn create_session_defaults_to_store_scope_key() {
     assert_eq!(session.agent_id, None);
     assert_eq!(session.version, 1);
     assert!(store
-        .cache()
+        .kv()
         .get_state("session_status", "store:s1")
         .await
         .unwrap()
@@ -595,7 +595,7 @@ async fn redis_backend_rejects_stale_session_cas_write_when_available() {
     stale.version += 1;
 
     let err = first
-        .cache()
+        .kv()
         .compare_and_put_entity(
             "sessions",
             session.session_key(),
@@ -815,7 +815,7 @@ async fn stale_session_entity_write_is_rejected_by_version() {
     first_update.version += 1;
     first_update.last_active += 1;
     store
-        .cache()
+        .kv()
         .compare_and_put_entity(
             "sessions",
             &session.session_key,
@@ -829,7 +829,7 @@ async fn stale_session_entity_write_is_rejected_by_version() {
     stale_update.version += 1;
     stale_update.last_active += 2;
     let err = store
-        .cache()
+        .kv()
         .compare_and_put_entity(
             "sessions",
             &session.session_key,
@@ -953,7 +953,7 @@ async fn expired_session_rejects_extend_and_marks_status_expired() {
     raw.expires_at = Some(MCPStore::now_timestamp() - 1);
     let session_key = raw.session_key.clone();
     store
-        .cache()
+        .kv()
         .put_entity("sessions", &session_key, serde_json::to_value(raw).unwrap())
         .await
         .unwrap();
@@ -967,7 +967,7 @@ async fn expired_session_rejects_extend_and_marks_status_expired() {
     assert!(err.contains("Session is not active"));
     let status: SessionStatusState = serde_json::from_value(
         store
-            .cache()
+            .kv()
             .get_state("session_status", &session.session_key)
             .await
             .unwrap()
@@ -1338,7 +1338,7 @@ async fn call_tool_in_session_rejects_tools_outside_allowlist() {
 
     assert!(err.contains("tool is not available in session"));
     let events = store
-        .cache()
+        .kv()
         .get_all_events_async("session_events")
         .await
         .unwrap();

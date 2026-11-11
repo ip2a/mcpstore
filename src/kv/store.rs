@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use serde_json::Value as JsonValue;
 
-use crate::cache::codec;
-use crate::cache::layer::{KvError, Result};
+use crate::kv::codec;
+use crate::kv::layer::{KvError, Result};
 use openkeyv::{
     AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, CompareAndDeleteResult,
     CompareAndSwapResult, StoreHandle,

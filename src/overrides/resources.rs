@@ -121,7 +121,7 @@ impl MCPStore {
         rule.version += 1;
         self.kernel
             .persistence
-            .cache
+            .kv
             .compare_and_put_state(
                 RESOURCE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, &uri),
@@ -144,7 +144,7 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_state(
                 RESOURCE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(instance_id, uri),
@@ -155,7 +155,7 @@ impl MCPStore {
     pub async fn list_resource_overrides(&self) -> Result<Vec<ResourceOverrideRule>> {
         self.refresh_from_db_if_needed().await?;
         list_rules::<ResourceOverrideRule, _>(
-            &self.kernel.persistence.cache,
+            &self.kernel.persistence.kv,
             RESOURCE_OVERRIDES_STATE_TYPE,
             |a, b| (a.instance_id, a.uri.as_str()).cmp(&(b.instance_id, b.uri.as_str())),
         )
@@ -175,7 +175,7 @@ impl MCPStore {
         u: &str,
     ) -> Result<Option<ResourceOverrideRule>> {
         load_rule(
-            &self.kernel.persistence.cache,
+            &self.kernel.persistence.kv,
             RESOURCE_OVERRIDES_STATE_TYPE,
             i,
             u,
@@ -235,7 +235,7 @@ impl MCPStore {
         rule.version += 1;
         self.kernel
             .persistence
-            .cache
+            .kv
             .compare_and_put_state(
                 RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(i, &u),
@@ -258,7 +258,7 @@ impl MCPStore {
         self.refresh_from_db_if_needed().await?;
         self.kernel
             .persistence
-            .cache
+            .kv
             .delete_state(
                 RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
                 &Self::component_override_key(i, u),
@@ -271,7 +271,7 @@ impl MCPStore {
     ) -> Result<Vec<ResourceTemplateOverrideRule>> {
         self.refresh_from_db_if_needed().await?;
         list_rules::<ResourceTemplateOverrideRule, _>(
-            &self.kernel.persistence.cache,
+            &self.kernel.persistence.kv,
             RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
             |a, b| {
                 (a.instance_id, a.uri_template.as_str())
@@ -294,7 +294,7 @@ impl MCPStore {
         u: &str,
     ) -> Result<Option<ResourceTemplateOverrideRule>> {
         load_rule(
-            &self.kernel.persistence.cache,
+            &self.kernel.persistence.kv,
             RESOURCE_TEMPLATE_OVERRIDES_STATE_TYPE,
             i,
             u,
@@ -317,13 +317,13 @@ impl MCPStore {
 }
 
 async fn load_rule<T: for<'de> Deserialize<'de>>(
-    cache: &std::sync::Arc<crate::cache::KvLayerManager>,
+    kv: &std::sync::Arc<crate::kv::KvLayerManager>,
     state: &str,
     i: InstanceId,
     key: &str,
     label: &str,
 ) -> Result<Option<T>> {
-    cache
+    kv
         .get_state(state, &format!("{i}:{key}"))
         .await?
         .map(|v| {
@@ -337,11 +337,11 @@ async fn load_rule<T: for<'de> Deserialize<'de>>(
         .transpose()
 }
 async fn list_rules<T: for<'de> Deserialize<'de>, F: FnMut(&T, &T) -> std::cmp::Ordering>(
-    cache: &std::sync::Arc<crate::cache::KvLayerManager>,
+    kv: &std::sync::Arc<crate::kv::KvLayerManager>,
     state: &str,
     mut cmp: F,
 ) -> Result<Vec<T>> {
-    let mut out = cache
+    let mut out = kv
         .get_all_states_async(state)
         .await?
         .into_iter()

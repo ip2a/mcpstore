@@ -2,7 +2,7 @@ use super::defaults::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheConfig {
+pub struct KvConfig {
     #[serde(default)]
     pub store: String,
     #[serde(default)]
@@ -11,7 +11,7 @@ pub struct CacheConfig {
     pub namespace: String,
 }
 
-impl Default for CacheConfig {
+impl Default for KvConfig {
     fn default() -> Self {
         Self {
             store: "memory".to_string(),

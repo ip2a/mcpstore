@@ -17,10 +17,10 @@ use std::sync::{Arc as StdArc, RwLock as SyncRwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock as AsyncRwLock;
 
-use crate::cache::metrics::{KvRequestMetrics, KvRequestMetricsSnapshot};
-use crate::cache::store::KvStore;
+use crate::kv::metrics::{KvRequestMetrics, KvRequestMetricsSnapshot};
+use crate::kv::store::KvStore;
 
-pub use crate::cache::snapshot::KvSnapshot;
+pub use crate::kv::snapshot::KvSnapshot;
 
 // ==================== Error Type ====================
 
@@ -126,7 +126,7 @@ impl KvLayerManager {
         self.metrics.reset();
     }
 
-    pub(in crate::cache) fn record_request(
+    pub(in crate::kv) fn record_request(
         &self,
         started_at: Instant,
         hit: Option<bool>,
@@ -137,7 +137,7 @@ impl KvLayerManager {
 
     // ---------- Logging helpers ----------
 
-    pub(in crate::cache) async fn log_empty_collection(&self, collection: &str) {
+    pub(in crate::kv) async fn log_empty_collection(&self, collection: &str) {
         let now = Instant::now();
         let mut log = self.last_empty_log.write().await;
         match log.get(collection) {
@@ -152,7 +152,7 @@ impl KvLayerManager {
         }
     }
 
-    pub(in crate::cache) async fn get_all_from_collection(
+    pub(in crate::kv) async fn get_all_from_collection(
         &self,
         collection: &str,
     ) -> Result<HashMap<String, serde_json::Value>> {
@@ -193,7 +193,7 @@ impl KvLayerManager {
         Ok(values)
     }
 
-    pub(in crate::cache) async fn has_state_changed(
+    pub(in crate::kv) async fn has_state_changed(
         &self,
         key: &str,
         value: &Option<serde_json::Value>,
@@ -212,7 +212,7 @@ impl KvLayerManager {
         }
     }
 
-    pub(in crate::cache) async fn ensure_current_schema(&self) -> Result<()> {
+    pub(in crate::kv) async fn ensure_current_schema(&self) -> Result<()> {
         let ready = self.schema_ready.load_full();
         if matches!(*ready, SchemaState::Ready) {
             return Ok(());

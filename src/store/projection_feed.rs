@@ -5,7 +5,7 @@
 
 use openkeyv::{AsyncChangeFeed, ChangeFeedRequest, ChangeFilter, ChangeOperation, ChangeStart};
 
-use crate::cache::KvLayerManager;
+use crate::kv::KvLayerManager;
 use crate::store::prelude::*;
 
 /// Projection-relevant collections, by layer. This one list drives the shared

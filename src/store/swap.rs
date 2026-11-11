@@ -15,7 +15,7 @@ pub struct SwapResult {
 }
 
 impl MCPStore {
-    /// Swap the active cache Store to one described by `config`.
+    /// Swap the active kv store to one described by `config`.
     pub async fn swap_store(&self, config: &dyn StoreSpec) -> Result<SwapResult> {
         self.kernel.persistence.migrate_and_cutover(config).await
     }

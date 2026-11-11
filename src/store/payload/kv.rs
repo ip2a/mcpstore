@@ -1,4 +1,4 @@
-pub(crate) fn wrap_cache_item(
+pub(crate) fn wrap_kv_item(
     key: &str,
     type_name: &str,
     collection: &str,

@@ -14,8 +14,8 @@ use std::time::Duration;
 use openkeyv::{AsyncChangeFeed, ChangeFeedRequest, ChangeFilter, ChangeOperation, ChangeStart};
 use serde_json::Value;
 
-use crate::cache::models::{ToolCallRequestEntity, ToolCallResponseEntity, ToolCallResponseError};
-use crate::cache::KvLayerManager;
+use crate::kv::models::{ToolCallRequestEntity, ToolCallResponseEntity, ToolCallResponseError};
+use crate::kv::KvLayerManager;
 use crate::store::prelude::*;
 use crate::store::{EventLogSnapshot, MCPStore, PanelRole};
 
@@ -57,7 +57,7 @@ impl MCPStore {
             deadline_unix_ms: (chrono::Utc::now() + CALL_DEADLINE).timestamp_millis(),
         })
         .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
-        self.cache()
+        self.kv()
             .put_entity(REQUESTS, &request_id, request)
             .await?;
         // Total deadline, measured from the first request. Rebuilt subscriptions
@@ -99,7 +99,7 @@ impl MCPStore {
                 }
                 _ = tokio::time::sleep_until(deadline) => {
                     // On timeout delete the request; if the control panel already claimed it, the TTL cleans up the response.
-                    self.cache().delete_entity(REQUESTS, &request_id).await.ok();
+                    self.kv().delete_entity(REQUESTS, &request_id).await.ok();
                     return Err(Error::new(
                         FailureCode::CallTimedOut,
                         format!("remote tool call '{tool_name}' timed out"),
@@ -145,10 +145,10 @@ impl MCPStore {
         &self,
         response_key: &str,
     ) -> Result<Option<Result<crate::transport::ToolCallResult>>> {
-        let Some(value) = self.cache().get_entity(RESPONSES, response_key).await? else {
+        let Some(value) = self.kv().get_entity(RESPONSES, response_key).await? else {
             return Ok(None);
         };
-        self.cache().delete_entity(RESPONSES, response_key).await.ok();
+        self.kv().delete_entity(RESPONSES, response_key).await.ok();
         let response: ToolCallResponseEntity = serde_json::from_value(value)
             .map_err(|error| Error::new(FailureCode::Internal, error.to_string()))?;
         Ok(Some(match (response.result, response.error) {
@@ -274,7 +274,7 @@ impl MCPStore {
     }
 
     async fn drain_tool_call_requests(self: &Arc<Self>) {
-        let Ok(requests) = self.cache().get_all_entities_async(REQUESTS).await else {
+        let Ok(requests) = self.kv().get_all_entities_async(REQUESTS).await else {
             return;
         };
         for request_id in requests.keys() {
@@ -288,7 +288,7 @@ impl MCPStore {
 
     async fn handle_tool_call_request(self: &Arc<Self>, request_id: &str) {
         let Some(value) = self
-            .cache()
+            .kv()
             .claim_entity(REQUESTS, request_id)
             .await
             .ok()
@@ -349,7 +349,7 @@ impl MCPStore {
         let response_key = format!("{}:{}", request.panel_id, request.request_id);
         let payload = serde_json::to_value(&response).unwrap_or_default();
         if let Err(error) = self
-            .cache()
+            .kv()
             .put_entity(RESPONSES, &response_key, payload)
             .await
         {
@@ -362,7 +362,7 @@ impl MCPStore {
         tokio::spawn(async move {
             tokio::time::sleep(RESPONSE_TTL).await;
             store
-                .cache()
+                .kv()
                 .delete_entity(RESPONSES, &response_key)
                 .await
                 .ok();

@@ -1,7 +1,7 @@
-use crate::cache::{KvError, KvLayerManager, Result};
+use crate::kv::{KvError, KvLayerManager, Result};
 
 impl KvLayerManager {
-    pub(in crate::cache) fn entity_collection(&self, entity_type: &str) -> String {
+    pub(in crate::kv) fn entity_collection(&self, entity_type: &str) -> String {
         Self::entity_collection_with_namespace(&self.namespace(), entity_type)
     }
 
@@ -9,7 +9,7 @@ impl KvLayerManager {
         format!("{namespace}:entity:{entity_type}")
     }
 
-    pub(in crate::cache) fn validate_entity_type(entity_type: &str) -> Result<()> {
+    pub(in crate::kv) fn validate_entity_type(entity_type: &str) -> Result<()> {
         const ENTITY_TYPES: &[&str] = &[
             "agents",
             "clients",
@@ -32,14 +32,14 @@ impl KvLayerManager {
         )))
     }
 
-    pub(in crate::cache) fn invalid_entity_type_message(
+    pub(in crate::kv) fn invalid_entity_type_message(
         entity_type: &str,
         allowed: &str,
     ) -> String {
         format!("Unknown entity_type '{entity_type}'. Allowed entity types: {allowed}")
     }
 
-    pub(in crate::cache) fn relation_collection(&self, relation_type: &str) -> String {
+    pub(in crate::kv) fn relation_collection(&self, relation_type: &str) -> String {
         Self::relation_collection_with_namespace(&self.namespace(), relation_type)
     }
 
@@ -50,7 +50,7 @@ impl KvLayerManager {
         format!("{namespace}:relations:{relation_type}")
     }
 
-    pub(in crate::cache) fn state_collection(&self, state_type: &str) -> String {
+    pub(in crate::kv) fn state_collection(&self, state_type: &str) -> String {
         Self::state_collection_with_namespace(&self.namespace(), state_type)
     }
 

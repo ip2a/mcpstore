@@ -1,23 +1,22 @@
 use std::sync::Arc;
 
 use openkeyv::{
-    store::valkey::{ValkeyConfig, ValkeyStore as OpenKeyvValkeyInner},
-    AsyncChangeFeed, AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys,
-    AsyncKeyValue, Revision, RevisionedValue, Subspace, Value,
+    store::redis::{RedisConfig, RedisStore as OpenKeyvRedisInner},
+    AsyncCompareAndSwap, AsyncEnumerateCollections, AsyncEnumerateKeys, AsyncKeyValue, Revision,
+    RevisionedValue, Subspace, Value,
 };
 use tokio::sync::OnceCell;
 
-/// Lazily-connected Valkey store. Independent of the Redis path by design:
-/// separate type, separate cargo feature, and a change feed wired into the
-/// store handle. Built on first use so Store creation stays synchronous.
-pub(in crate::cache) struct LazyValkeyStore {
-    inner: OnceCell<Arc<OpenKeyvValkeyInner>>,
+/// Lazily-connected Redis store that fulfils the kv layer's operations.
+/// Built on first use so Store creation stays synchronous.
+pub(in crate::kv) struct LazyRedisStore {
+    inner: OnceCell<Arc<OpenKeyvRedisInner>>,
     url: String,
     keyspace: String,
 }
 
-impl LazyValkeyStore {
-    pub(in crate::cache) fn new(url: impl Into<String>, keyspace: impl Into<String>) -> Self {
+impl LazyRedisStore {
+    pub(in crate::kv) fn new(url: impl Into<String>, keyspace: impl Into<String>) -> Self {
         Self {
             inner: OnceCell::new(),
             url: url.into(),
@@ -25,12 +24,12 @@ impl LazyValkeyStore {
         }
     }
 
-    async fn handle(&self) -> openkeyv::Result<&Arc<OpenKeyvValkeyInner>> {
+    async fn handle(&self) -> openkeyv::Result<&Arc<OpenKeyvRedisInner>> {
         self.inner
             .get_or_try_init(|| async {
                 let keyspace = self.keyspace.clone();
-                let config = ValkeyConfig::default().with_keyspace(keyspace.clone());
-                let store = OpenKeyvValkeyInner::new_with_config(&self.url, config).await?;
+                let config = RedisConfig::default().with_keyspace(keyspace.clone());
+                let store = OpenKeyvRedisInner::new_with_config(&self.url, config).await?;
 
                 if !keyspace.is_empty() {
                     const MARKER_COLLECTION: &str = "__mcpstore_keyspace_meta";
@@ -69,7 +68,7 @@ impl LazyValkeyStore {
 }
 
 #[async_trait::async_trait]
-impl AsyncKeyValue for LazyValkeyStore {
+impl AsyncKeyValue for LazyRedisStore {
     async fn get(&self, key: &str, collection: Option<&str>) -> openkeyv::Result<Option<Value>> {
         self.handle().await?.get(key, collection).await
     }
@@ -128,7 +127,7 @@ impl AsyncKeyValue for LazyValkeyStore {
 }
 
 #[async_trait::async_trait]
-impl AsyncCompareAndSwap for LazyValkeyStore {
+impl AsyncCompareAndSwap for LazyRedisStore {
     async fn get_with_revision(
         &self,
         key: &str,
@@ -166,7 +165,7 @@ impl AsyncCompareAndSwap for LazyValkeyStore {
 }
 
 #[async_trait::async_trait]
-impl AsyncEnumerateKeys for LazyValkeyStore {
+impl AsyncEnumerateKeys for LazyRedisStore {
     async fn keys(
         &self,
         collection: Option<&str>,
@@ -177,18 +176,8 @@ impl AsyncEnumerateKeys for LazyValkeyStore {
 }
 
 #[async_trait::async_trait]
-impl AsyncEnumerateCollections for LazyValkeyStore {
+impl AsyncEnumerateCollections for LazyRedisStore {
     async fn collections(&self, limit: Option<usize>) -> openkeyv::Result<Vec<String>> {
         self.handle().await?.collections(limit).await
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncChangeFeed for LazyValkeyStore {
-    async fn subscribe(
-        &self,
-        request: openkeyv::ChangeFeedRequest,
-    ) -> openkeyv::Result<openkeyv::ChangeSubscription> {
-        self.handle().await?.subscribe(request).await
     }
 }
